@@ -191,18 +191,23 @@ function Remove-U1Volume($Volume) {
     }
 }
 
-function Set-ChildProfileEnvironment([string]$ProfileRoot, [string]$TracePath) {
+function Set-ChildProfileEnvironment([string]$ProfileRoot, [string]$TracePath, [string]$WatcherRoot = "") {
     $local = Join-Path $ProfileRoot "local"
     $roaming = Join-Path $ProfileRoot "roaming"
     $temp = Join-Path $ProfileRoot "temp"
     foreach ($path in @($ProfileRoot, $local, $roaming, $temp)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }
-    return @{ ZC_NATIVE_QA_PROFILE_ROOT = $ProfileRoot; ZC_GLOBAL_INDEX_QA_TRACE = $TracePath; APPDATA = $roaming; LOCALAPPDATA = $local; TEMP = $temp; TMP = $temp }
+    $environment = @{ ZC_NATIVE_QA_PROFILE_ROOT = $ProfileRoot; ZC_GLOBAL_INDEX_QA_TRACE = $TracePath; APPDATA = $roaming; LOCALAPPDATA = $local; TEMP = $temp; TMP = $temp }
+    if (-not [string]::IsNullOrWhiteSpace($WatcherRoot)) {
+        $environment.ZC_NATIVE_QA_WATCHER_TRACE = "1"
+        $environment.ZC_NATIVE_QA_WATCHER_TRACE_ROOT = $WatcherRoot
+    }
+    return $environment
 }
 
-function Start-U1App([string]$Exe, [string]$Scenario, [string]$ProfileRoot, [string]$TracePath) {
+function Start-U1App([string]$Exe, [string]$Scenario, [string]$ProfileRoot, [string]$TracePath, [string]$WatcherRoot = "") {
     $stdout = Join-Path $taskRoot "$Scenario-app.stdout.log"
     $stderr = Join-Path $taskRoot "$Scenario-app.stderr.log"
-    $environment = Set-ChildProfileEnvironment $ProfileRoot $TracePath
+    $environment = Set-ChildProfileEnvironment $ProfileRoot $TracePath $WatcherRoot
     $previous = @{}
     foreach ($name in $environment.Keys) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
     foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, [string]$environment[$name], "Process") }
@@ -226,6 +231,19 @@ function Wait-U1AppReady($Process, [string]$Scenario, [int]$TimeoutSeconds = 90)
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "$Scenario desktop did not reach setup_complete within $TimeoutSeconds seconds"
+}
+
+function Wait-ForWatcherPath([string]$Scenario, [string]$PathFragment, [int]$TimeoutSeconds = 45) {
+    $stderr = Join-Path $taskRoot "$Scenario-app.stderr.log"
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if (Test-Path -LiteralPath $stderr) {
+            $content = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
+            if ($content -and $content.Contains($PathFragment, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $false
 }
 
 function Start-U1ConsoleService([string]$Exe, [string]$Scenario) {
@@ -273,7 +291,7 @@ function Wait-PipeAbsent([int]$TimeoutSeconds = 15) {
     throw "v3 pipe remained visible after the task-owned console Service stopped"
 }
 
-function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [string]$ClientProbe, [string]$ClientSha, [string]$ServiceExe, [bool]$ExpectDirect) {
+function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [string]$ClientProbe, [string]$ClientSha, [string]$ServiceExe, [string]$BaselineServiceExe, [bool]$ExpectDirect) {
     $volume = $null
     $service = $null
     $client = $null
@@ -294,8 +312,8 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
         # Establish one live, searchable row before the compatibility pairing.
         # Matching generations use their own exact executable path. If Service
         # is absent, the old client's real Direct fallback establishes baseline.
-        if ($ServiceExe) { $service = Start-U1ConsoleService $ClientExe "$Name-baseline" }
-        $client = Start-U1App $ClientExe "$Name-baseline" $profile "$trace-baseline"
+        if ($BaselineServiceExe) { $service = Start-U1ConsoleService $BaselineServiceExe "$Name-baseline" }
+        $client = Start-U1App $ClientExe "$Name-baseline" $profile "$trace-baseline" $fixtureRoot
         $result.baselineClientPid = $client.Id
         $baseline = Wait-ForFixture $ClientProbe $profile $markerName 180
         if (-not $baseline.Hit) { throw "matching baseline did not index the original fixture marker" }
@@ -306,7 +324,7 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
         $client = $null
         Stop-U1Process $service
         $service = $null
-        if ($ServiceExe) { Wait-PipeAbsent }
+        if ($BaselineServiceExe) { Wait-PipeAbsent }
 
         # Start the tested client before adding the second fixture. Otherwise a
         # native watcher can miss the file creation that happened before it was
@@ -319,11 +337,13 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
             $result.serviceImagePath = (Get-CimInstance Win32_Process -Filter "ProcessId=$($service.Id)").ExecutablePath
             $result.serviceSha256 = Get-Hash $ServiceExe
         }
-        $client = Start-U1App $ClientExe $Name $profile $trace
+        $client = Start-U1App $ClientExe $Name $profile $trace $fixtureRoot
         $result.clientPid = $client.Id
         Wait-U1AppReady $client $Name
         $nextMarkerPath = Join-Path $fixtureRoot $nextMarkerName
         Set-Content -LiteralPath $nextMarkerPath -Value "isolated post-baseline fixture" -NoNewline
+        $result.watcherObservedNextMarker = Wait-ForWatcherPath $Name $nextMarkerName 45
+        if (-not $result.watcherObservedNextMarker) { throw "watcher trace did not observe the post-baseline marker path" }
         $waited = Wait-ForFixture $ClientProbe $profile $nextMarkerName 240
         $snapshot = $waited.Snapshot
         $hit = $waited.Hit
@@ -587,7 +607,10 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
     $oldExit = Install-NSIS $OldCandidate.installer $installDir $oldLog
     if ($oldExit -ne 0) { throw "fresh old installer returned exit code $oldExit; $oldLog" }
     $oldService = Wait-ServiceState "Running" 120
-    if ((Get-Hash $exe) -cne $OldCandidate.productionExeSha256) { throw "fresh old installation exe hash differs from frozen old candidate" }
+    $installedOldHash = Get-Hash $exe
+    $global:U1Evidence.installer.freshOldInstall = [ordered]@{ exePath = $exe; expectedExeSha256 = $OldCandidate.productionExeSha256; installedExeSha256 = $installedOldHash; fileVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion; productVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion; service = $oldService; log = $oldLog }
+    Save-Evidence
+    if ($installedOldHash -cne $OldCandidate.productionExeSha256) { throw "fresh old installation exe hash mismatch: expected=$($OldCandidate.productionExeSha256), installed=$installedOldHash, path=$exe" }
     $expectedImage = '"' + $exe + '" --index-service'
     if ($oldService.imagePath.Trim() -ine $expectedImage) { throw "fresh old service ImagePath mismatch: $($oldService.imagePath)" }
 
@@ -683,9 +706,9 @@ try {
     try { Invoke-MatchingQualification "old" $oldCandidate } catch { Add-Failure "old-client-plus-old-Service" $_.Exception.ToString() }
     try { Invoke-MatchingQualification "d1a" $d1aCandidate } catch { Add-Failure "new-client-plus-new-Service" $_.Exception.ToString() }
 
-    $global:U1Evidence.directFallback = Invoke-BackgroundPairScenario "old-client-service-absent" $oldCandidate.qaExe $oldCandidate.probeExe $oldCandidate.qaExeSha256 $null $true
-    $global:U1Evidence.mixedPairs["old-client-plus-new-Service"] = Invoke-BackgroundPairScenario "old-client-new-Service-side-by-side-path" $oldCandidate.qaExe $oldCandidate.probeExe $oldCandidate.qaExeSha256 $d1aCandidate.qaExe $true
-    $global:U1Evidence.mixedPairs["new-client-plus-old-Service"] = Invoke-BackgroundPairScenario "new-client-old-Service-side-by-side-path" $d1aCandidate.qaExe $d1aCandidate.probeExe $d1aCandidate.qaExeSha256 $oldCandidate.qaExe $false
+    $global:U1Evidence.directFallback = Invoke-BackgroundPairScenario "old-client-service-absent" $oldCandidate.qaExe $oldCandidate.probeExe $oldCandidate.qaExeSha256 $null $oldCandidate.qaExe $true
+    $global:U1Evidence.mixedPairs["old-client-plus-new-Service"] = Invoke-BackgroundPairScenario "old-client-new-Service-side-by-side-path" $oldCandidate.qaExe $oldCandidate.probeExe $oldCandidate.qaExeSha256 $d1aCandidate.qaExe $oldCandidate.qaExe $true
+    $global:U1Evidence.mixedPairs["new-client-plus-old-Service"] = Invoke-BackgroundPairScenario "new-client-old-Service-side-by-side-path" $d1aCandidate.qaExe $d1aCandidate.probeExe $d1aCandidate.qaExeSha256 $oldCandidate.qaExe $d1aCandidate.qaExe $false
     $global:U1Evidence.mixedPairs["exact-same-path-mixed-generation"] = [ordered]@{ status = "UNVERIFIED"; reason = "Windows image locking and the Service exact-client-path gate prevent two different frozen PE generations from being launched at the same installed path without a servicing race. The actual installer stop/wait/replace/restart transition is tested separately." }
     Save-Evidence
 

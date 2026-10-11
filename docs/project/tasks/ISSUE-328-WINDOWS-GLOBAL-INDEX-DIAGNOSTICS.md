@@ -23,18 +23,20 @@ observations whose native typed errors and count meaning were not available.
 | Windows Service admission | `same_source_start_resume_and_rebuild_contenders_get_busy_without_service_fault_state` | With a first request holding the service slot, same-source Start, Resume and Rebuild contenders preserve each request ID and return `index_service_busy` with Service status `indexing`. The Service lifecycle error remains unset. |
 | Service error decoding | `service_busy_decodes_as_service_provider_contention` | The busy response decodes to the generic `GlobalIndexError::Provider` category. |
 | Coordinator persistence | `multivolume_busy_and_source_failures_keep_independent_durable_statuses` | A provider-level busy result received while the source is in `syncing` is persisted as source status `error` with the busy message. This is the concrete false source-fault candidate. |
-| Multi-volume display | Same multi-volume test | A successful source remains `ready`; the busy source becomes `error`; a separate permission failure remains `permission_required`. The aggregate reports `partial`, one of three volumes ready, and `collection_complete=false`; the source failures do not stop later volumes in the cycle. |
+| Multi-volume active state | `multivolume_busy_and_source_failures_keep_independent_durable_statuses` | While source A is held in `syncing`, source B retains its previous busy `error` and source C retains `permission_required`. The aggregate remains `error` while exposing `pending_volumes=1`, `total_entries=0`, and `collection_complete=false`. This synthetic snapshot shows the active work and durable peer failures separately; zero entries alone does not identify a cause. |
+| Multi-volume completed state | Same multi-volume test | After the active operation is released, A is `ready`, B becomes `error` from its busy result, and C remains `permission_required`. The aggregate reports `partial`, one of three volumes ready, and `collection_complete=false`; source failures do not stop later volumes in the cycle. |
 | Retry lifecycle | `busy_source_waits_for_a_new_wake_before_an_explicit_retry` | The worker makes one busy attempt and blocks without a self-generated retry. A later explicit wake causes a second attempt, which reaches `ready`. The test does not add a retry mechanism. |
 | Duplicate lifecycle requests | `repeated_same_source_lifecycle_requests_are_serialized_and_rebuild_wakes_coalesce` | While one Start is blocked, repeated Start/Resume signals and two Rebuild calls produce one serialized follow-up Rebuild for that source. The maximum concurrent provider operations is one. This does not establish native request frequency. |
 | SQLite classification | Existing `global_index_state_write_reproduces_busy_and_recovers_after_holder_release` | A real SQLite writer conflict retains primary/extended code 5 and is wrapped as `GlobalIndexError::Database(DbError::Sqlite(_))`; this remains distinct from the Service's provider-level busy result. |
 
 ## Bounded, sanitized evidence
 
-Test evidence is capped at 8 events. Each event carries `source_id`, a distinct
-test-fixture `operation_id`, `request_id`, optional Service status, request
-result, error category, and persisted source status. IDs are capped at 128
-bytes. Evidence uses fixture IDs and omits mount paths, file names, file
-contents, Service error text, and SQLite database paths.
+Test evidence is capped at 8 events. It records the active multi-volume
+snapshot, per-source results, and the later explicit retry. Each event carries
+`source_id`, a distinct test-fixture `operation_id`, `request_id`, optional
+Service status, request result, error category, and persisted source status.
+IDs are capped at 128 bytes. Evidence uses fixture IDs and omits mount paths,
+file names, file contents, Service error text, and SQLite database paths.
 
 The current IPC v3 request has a `request_id` but no production `operation_id`.
 The diagnostic `operation_id` is therefore explicitly a test-fixture scenario
@@ -54,9 +56,22 @@ behavior. No retry or scheduling change is proposed by this test branch.
 ## Validation and limits
 
 - `git diff --check`: **PASS**.
-- Local Rust tests and formatting: **BLOCKED**; this execution environment has
-  no `cargo`, `rustc`, or `rustfmt` executable.
-- Exact-head Windows hosted CI: **PENDING**.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` with Rust 1.97.1:
+  **PASS**.
+- Local Coordinator Rust tests: **BLOCKED**; compilation requires the missing
+  system development package `glib-2.0 >= 2.70`.
+- Exact-head hosted CI run `38116710256` on
+  `e501630179cf59662ae806db052992ed4dd5c43b`: **IN PROGRESS**. Both Windows
+  Rust quality lanes completed successfully, including tests, Clippy, and
+  Windows lifecycle regressions. The macOS merge-integration Rust quality lane
+  completed successfully. The macOS head-validation Rust tests remain in
+  progress; the run has not reached a final conclusion.
+- Disposable Windows Global Index Service qualification in run `38116710256`:
+  **PASS**. It does not reproduce the Owner's real-volume symptoms.
+- Previous run `38116172965` on `01dd163a2ada651101d40adbd28395f99c9e5185`:
+  Windows/macOS Rust format and tests **PASS**. macOS Clippy identified two
+  test-only issues; both were fixed in `e501630`, and that earlier run was
+  cancelled before its remaining lanes completed.
 - Windows native Service / installed application reproduction: **UNVERIFIED**.
 - Historical SQLite lock owner and exact historical native SQLite result code:
   **UNVERIFIED**.

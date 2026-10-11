@@ -510,12 +510,34 @@ function Get-AppProcessSnapshots([string]$ExePath) {
     return @(Get-CimInstance Win32_Process -Filter "Name='$imageName'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath).Equals($canonical, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { [ordered]@{ processId = [int]$_.ProcessId; path = $_.ExecutablePath; commandLine = $_.CommandLine; created = $_.CreationDate } })
 }
 
+function Get-InstallerProductRegistrationSnapshot {
+    $rootPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+    $results = [Collections.Generic.List[object]]::new()
+    if (Test-Path -LiteralPath $rootPath) {
+        foreach ($key in Get-ChildItem -LiteralPath $rootPath -ErrorAction SilentlyContinue) {
+            try {
+                $properties = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop
+                if ($properties.DisplayName -eq "Zen Canvas" -or $properties.MainBinaryName -eq "zen-canvas.exe") {
+                    $values = [ordered]@{}
+                    foreach ($name in @("DisplayName", "MainBinaryName", "DisplayVersion", "Publisher", "InstallLocation", "UninstallString", "EstimatedSize", "NoModify", "NoRepair")) {
+                        $values[$name] = $properties.$name
+                    }
+                    $results.Add([ordered]@{ key = $key.Name; values = $values })
+                }
+            } catch { }
+        }
+    }
+    return @($results)
+}
+
 function Install-NSIS([string]$Installer, [string]$InstallDirectory, [string]$LogPath, [int]$TimeoutSeconds = 600) {
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $Installer
     $startInfo.WorkingDirectory = Split-Path -Parent $Installer
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
     # The frozen per-machine package intentionally uses its canonical
     # Program Files install location on this disposable Hosted Windows runner.
     # Avoid relying on NSIS /D parsing for a path containing spaces; the caller
@@ -524,15 +546,20 @@ function Install-NSIS([string]$Installer, [string]$InstallDirectory, [string]$Lo
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     if (-not $process.Start()) { throw "failed to start installer $Installer" }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
         $process.Kill($true)
         $process.WaitForExit(10000) | Out-Null
         $process.Dispose()
         throw "installer timed out after $TimeoutSeconds seconds: $Installer"
     }
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
     $exitCode = $process.ExitCode
     $process.Dispose()
-    return $exitCode
+    $log = if (Test-Path -LiteralPath $LogPath) { [ordered]@{ exists = $true; bytes = (Get-Item -LiteralPath $LogPath).Length; sha256 = Get-Hash $LogPath; text = (Get-Content -LiteralPath $LogPath -Raw -ErrorAction SilentlyContinue) } } else { [ordered]@{ exists = $false; bytes = 0; sha256 = $null; text = $null } }
+    return [pscustomobject]@{ ExitCode = $exitCode; Stdout = $stdout; Stderr = $stderr; Log = $log }
 }
 
 function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [string]$LogPath, [string]$ExpectedExeHash, [string]$OriginalExeHash, [int]$TimeoutSeconds, [bool]$InterruptOnReplacement) {
@@ -541,10 +568,14 @@ function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [strin
     $startInfo.WorkingDirectory = Split-Path -Parent $Installer
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
     foreach ($argument in @("/S", "/LOG=$LogPath")) { $startInfo.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     if (-not $process.Start()) { throw "failed to start installer $Installer" }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
     $exe = Join-Path $InstallDirectory "zen-canvas.exe"
     $samples = [Collections.Generic.List[object]]::new()
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -564,13 +595,12 @@ function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [strin
         }
         $serviceSnapshot = Get-ServiceSnapshot
         $apps = @(Get-AppProcessSnapshots $exe)
-        $samples.Add([ordered]@{ atUtc = [DateTime]::UtcNow.ToString("o"); installerPid = $process.Id; installerExited = $process.HasExited; exeSha256 = $fileHash; service = $serviceSnapshot; appProcesses = $apps })
+        $samples.Add([ordered]@{ atUtc = [DateTime]::UtcNow.ToString("o"); installerPid = $process.Id; installerExited = $process.HasExited; exeSha256 = $fileHash; targetExeHashObserved = [bool]($ExpectedExeHash -and $fileHash -ceq $ExpectedExeHash); service = $serviceSnapshot; appProcesses = $apps })
         if ($InterruptOnReplacement -and -not $process.HasExited) {
-            $replacementObserved = if ($ExpectedExeHash) {
-                $fileHash -ceq $ExpectedExeHash
-            } else {
-                $fileHash -and $fileHash -cne $OriginalExeHash
-            }
+            # Interrupt on the first observed payload change from the measured
+            # old installed image. Package extraction is recorded separately
+            # because Tauri/NSIS may patch PE resources.
+            $replacementObserved = $fileHash -and $fileHash -cne $OriginalExeHash
             if ($replacementObserved) {
                 $process.Kill($true)
                 $process.WaitForExit(10000) | Out-Null
@@ -589,8 +619,11 @@ function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [strin
         throw "installer did not finish within $TimeoutSeconds seconds"
     }
     $exitCode = $process.ExitCode
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
     $process.Dispose()
-    return [pscustomobject]@{ ExitCode = $exitCode; Interrupted = $interrupted; Samples = @($samples); LogPath = $LogPath }
+    $log = if (Test-Path -LiteralPath $LogPath) { [ordered]@{ exists = $true; bytes = (Get-Item -LiteralPath $LogPath).Length; sha256 = Get-Hash $LogPath; text = (Get-Content -LiteralPath $LogPath -Raw -ErrorAction SilentlyContinue) } } else { [ordered]@{ exists = $false; bytes = 0; sha256 = $null; text = $null } }
+    return [pscustomobject]@{ ExitCode = $exitCode; Interrupted = $interrupted; Samples = @($samples); LogPath = $LogPath; Log = $log; Stdout = $stdout; Stderr = $stderr }
 }
 
 function Build-Candidate([string]$Label, [string]$Sha, [string]$Tree, [string]$Path) {
@@ -720,8 +753,8 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
     $interruptedLog = Join-Path $EvidenceRoot "installer-d1a-interrupted.log"
     $repairLog = Join-Path $EvidenceRoot "installer-d1a-repair.log"
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-    $oldExit = Install-NSIS $OldCandidate.installer $installDir $oldLog
-    if ($oldExit -ne 0) { throw "fresh old installer returned exit code $oldExit; $oldLog" }
+    $oldInstall = Install-NSIS $OldCandidate.installer $installDir $oldLog
+    if ($oldInstall.ExitCode -ne 0) { throw "fresh old installer returned exit code $($oldInstall.ExitCode); $oldLog" }
     $oldService = Wait-ServiceState "Running" 120
     $installedOldHash = Get-Hash $exe
     $global:U1Evidence.installer.freshOldInstall = [ordered]@{ exePath = $exe; sourceExeSha256 = $OldCandidate.productionExeSha256; packageExeSha256 = $OldCandidate.packageExeSha256; installedExeSha256 = $installedOldHash; installedMatchesPackagePayload = if ($OldCandidate.packageExeSha256) { $installedOldHash -ceq $OldCandidate.packageExeSha256 } else { $null }; fileVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion; productVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion; service = $oldService; log = $oldLog }
@@ -737,9 +770,17 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
         Start-Sleep -Seconds 3
         $oldApps = @(Get-AppProcessSnapshots $exe)
         if (-not ($oldApps | Where-Object { $_.processId -eq $app.Id })) { throw "old installed desktop process did not remain alive before upgrade" }
-        $preUpgrade = [ordered]@{ atUtc = [DateTime]::UtcNow.ToString("o"); service = $oldService; desktopProcessId = $app.Id; installedExeSha256 = Get-Hash $exe; isolatedAppProfile = $installedAppProfile }
+        $preUpgrade = [ordered]@{ atUtc = [DateTime]::UtcNow.ToString("o"); service = $oldService; desktopProcessId = $app.Id; installedExeSha256 = Get-Hash $exe; isolatedAppProfile = $installedAppProfile; productRegistration = @(Get-InstallerProductRegistrationSnapshot) }
         $transition = Wait-ForInstaller $D1ACandidate.installer $installDir $newUpgradeLog $D1ACandidate.packageExeSha256 $installedOldHash 600 $false
-        if ($transition.ExitCode -ne 0) { throw "D1-A in-place upgrade returned $($transition.ExitCode); $newUpgradeLog" }
+        $global:U1Evidence.installer.upgradeAttempt = [ordered]@{ exitCode = $transition.ExitCode; interrupted = $transition.Interrupted; samples = $transition.Samples; log = $transition.Log; stdout = $transition.Stdout; stderr = $transition.Stderr; finalService = Get-ServiceSnapshot; finalDesktopProcesses = @(Get-AppProcessSnapshots $exe); finalExeSha256 = if (Test-Path -LiteralPath $exe) { Get-Hash $exe } else { $null }; productRegistration = @(Get-InstallerProductRegistrationSnapshot) }
+        $global:U1Evidence.installer.samples = $transition.Samples
+        $global:U1Evidence.installer.transitions = @($transition.Samples | ForEach-Object {
+            $serviceState = if ($_.service) { $_.service.state } else { $null }
+            $servicePid = if ($_.service) { $_.service.processId } else { $null }
+            [ordered]@{ atUtc = $_.atUtc; installerExited = $_.installerExited; installedExeSha256 = $_.exeSha256; serviceState = $serviceState; servicePid = $servicePid; desktopPids = @($_.appProcesses | ForEach-Object processId) }
+        })
+        Save-Evidence
+        if ($transition.ExitCode -ne 0) { throw "D1-A in-place upgrade returned $($transition.ExitCode); logExists=$($transition.Log.exists); samples=$($transition.Samples.Count); $newUpgradeLog" }
         $firstNewImageSample = -1
         for ($sampleIndex = 0; $sampleIndex -lt $transition.Samples.Count; $sampleIndex++) {
             if ($transition.Samples[$sampleIndex].exeSha256 -and $transition.Samples[$sampleIndex].exeSha256 -cne $installedOldHash) { $firstNewImageSample = $sampleIndex; break }
@@ -779,7 +820,7 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
     # Reinstall the old frozen package in the same disposable location so the
     # next operation can interrupt an actual old-to-new file mutation.
     $oldAgain = Install-NSIS $OldCandidate.installer $installDir $oldRepairLog
-    if ($oldAgain -ne 0) { throw "old candidate reinstallation returned $oldAgain; $oldRepairLog" }
+    if ($oldAgain.ExitCode -ne 0) { throw "old candidate reinstallation returned $($oldAgain.ExitCode); $oldRepairLog" }
     $oldBeforeInterrupt = Wait-ServiceState "Running" 120
     $reinstalledOldHash = Get-Hash $exe
     if ($OldCandidate.packageExeSha256 -and $reinstalledOldHash -cne $OldCandidate.packageExeSha256) { throw "old package did not restore the measured old NSIS payload before interruption test" }
@@ -794,7 +835,8 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
     if ($interruption.Interrupted) {
         if ($runningApps.Count -gt 0) { throw "desktop process remains after interrupted upgrade: $($runningApps | ConvertTo-Json -Compress)" }
         if ($stoppedOrNewPid -and $stoppedOrNewPid.state -ieq "Running" -and $stoppedOrNewPid.processId -eq $oldBeforeInterrupt.processId) { throw "old Service process remained RUNNING across a post-replacement interruption" }
-        $repairExit = Install-NSIS $D1ACandidate.installer $installDir $repairLog
+        $repairInstall = Install-NSIS $D1ACandidate.installer $installDir $repairLog
+        $repairExit = $repairInstall.ExitCode
         if ($repairExit -ne 0) { throw "D1-A repair after interruption returned $repairExit; $repairLog" }
         $repairedService = Wait-ServiceState "Running" 120
         $repairedExeHash = Get-Hash $exe

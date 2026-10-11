@@ -503,7 +503,26 @@ function Build-Candidate([string]$Label, [string]$Sha, [string]$Tree, [string]$P
 
     $postBuildStatus = @(git -C $Path status --porcelain)
     $trackedChanges = @($postBuildStatus | Where-Object { $_ -notmatch '^\?\?' })
-    if ($trackedChanges.Count -gt 0) { throw "$Label build changed tracked source files: $($trackedChanges -join '; ')" }
+    if ($trackedChanges.Count -gt 0) {
+        # The Windows Tauri packaging command rewrites Cargo.toml in this
+        # frozen source tree. Retain its exact diff for the evidence record,
+        # restore the frozen input bytes, then reject every other tracked
+        # mutation. The candidate identity was already checked before build.
+        $manifestRelativePath = "src-tauri/Cargo.toml"
+        $manifestChange = @($trackedChanges | Where-Object { $_ -match '^\s*M\s+src-tauri/Cargo\.toml$' })
+        $unexpectedChanges = @($trackedChanges | Where-Object { $_ -notmatch '^\s*M\s+src-tauri/Cargo\.toml$' })
+        if ($manifestChange.Count -gt 0) {
+            $manifestDiff = (& git -C $Path diff -- $manifestRelativePath | Out-String)
+            & git -C $Path checkout -- $manifestRelativePath
+            if ($LASTEXITCODE -ne 0) { throw "$Label could not restore generated Cargo.toml mutation" }
+            $global:U1Evidence[$Label].packageGeneratedManifestDiff = $manifestDiff.TrimEnd()
+            $global:U1Evidence[$Label].packageManifestRestoredToFrozenSource = $true
+            Save-Evidence
+        }
+        if ($unexpectedChanges.Count -gt 0) { throw "$Label build changed unexpected tracked source files: $($unexpectedChanges -join '; ')" }
+        $remainingChanges = @(git -C $Path status --porcelain | Where-Object { $_ -notmatch '^\?\?' })
+        if ($remainingChanges.Count -gt 0) { throw "$Label frozen worktree remains modified after restoring package input: $($remainingChanges -join '; ')" }
+    }
     return $candidate
 }
 

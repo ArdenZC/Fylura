@@ -1,0 +1,241 @@
+{
+  "contract": "U1 frozen-candidate compatibility; test-only; not a production fix",
+  "u1Head": "ac9bc48cfabd09b60ce2d427994fbf40d32f3a5b",
+  "u1Tree": "628055a5ac202397b62faf3aaf5c7da59a19440e",
+  "old": {
+    "commit": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\old-master",
+    "packageGeneratedManifestDiff": "",
+    "packageManifestRestoredToFrozenSource": true,
+    "expectedSource": "3275ac7c72df8ae4139a30f16c7f649971324e97"
+  },
+  "d1a": {
+    "commit": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\d1a",
+    "packageGeneratedManifestDiff": "",
+    "packageManifestRestoredToFrozenSource": true,
+    "expectedSource": "d260131f9d6ec354f2361e6c7460c79e62e38391"
+  },
+  "runner": {
+    "caption": "Microsoft Windows Server 2025 Datacenter",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "64-bit",
+    "runId": "38169758963",
+    "runAttempt": "1",
+    "powershell": "7.6.6",
+    "currentDirectory": "D:\\a\\Zen-Canvas\\Zen-Canvas"
+  },
+  "candidates": {
+    "old": {
+      "sha": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "7a054bca0c46eb40f2b5d07bed4b63567886b335c867ad3289d06791fff72b45",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "d35663de33b813ca4c5b4908148ff777c7131f7d0550024f8c35b8d05d30f285",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "b769dc7a8dc5473a0e052f1354b3de615bdab9e1b505ae0d18831c45bde2feff",
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\old-master\\src-tauri\\target\\release\\u1-qa\\old-setup.exe",
+      "installerSha256": "232c455e1f16055b2c994ee9a89938df2b4622b7f236f0ea1a560653ec99f701",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    },
+    "d1a": {
+      "sha": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "1ff4519ae4855e3e7d2c5c814224131153a385e96c599862f81fbc97dd6e4178",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "dec06b0ec217e3ae8eb430995adf085bfa108bee94fdcf9403bc14a085017709",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "b467d73f55dd6a18d4a17097c3d0f6285824268b7de4cdabd74267f0859029cf",
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\d1a\\src-tauri\\target\\release\\u1-qa\\d1a-setup.exe",
+      "installerSha256": "11c71026d4dfb4ca4042b0429eba8d9ca7807461e7a478e52346c40afa5a65b9",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    }
+  },
+  "matchingPairs": {
+    "old": {
+      "status": "PASS",
+      "clientSha256": "7a054bca0c46eb40f2b5d07bed4b63567886b335c867ad3289d06791fff72b45",
+      "serviceSha256": "7a054bca0c46eb40f2b5d07bed4b63567886b335c867ad3289d06791fff72b45",
+      "evidence": "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-qualification.json"
+    },
+    "d1a": {
+      "status": "PASS",
+      "clientSha256": "1ff4519ae4855e3e7d2c5c814224131153a385e96c599862f81fbc97dd6e4178",
+      "serviceSha256": "1ff4519ae4855e3e7d2c5c814224131153a385e96c599862f81fbc97dd6e4178",
+      "evidence": "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\d1a-qualification.json"
+    }
+  },
+  "mixedPairs": {
+    "old-client-plus-new-Service": {
+      "status": "FAIL",
+      "clientSha256": "7a054bca0c46eb40f2b5d07bed4b63567886b335c867ad3289d06791fff72b45",
+      "serviceExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "pipeObserved": true,
+      "markerName": "u1oldclientnewServicesidebysidepathb0a7366e47474903a588782dc5307437.txt",
+      "nextMarkerName": "u1nextoldclientnewServicesidebysidepath20685044442c4c4486014fdadff2a093.txt",
+      "baselineIndexed": true,
+      "markerFound": false,
+      "oldMarkerPreserved": true,
+      "sourceState": "ready",
+      "baselineSourceState": "ready",
+      "entryCount": 4,
+      "baselineEntryCount": 4,
+      "resultPath": null,
+      "clientExitCode": null,
+      "trace": "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-trace.log",
+      "logs": [
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-app.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-app.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-baseline-app.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-baseline-app.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-service.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-service.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-baseline-service.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-baseline-service.stderr.log"
+      ],
+      "sourceId": "gv_406680355a1df445c549b076cd40f40f1a0867557bd6600fc3bd66895a205580",
+      "baselineClientPid": 4112,
+      "servicePid": 8728,
+      "serviceImagePath": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "serviceSha256": "1ff4519ae4855e3e7d2c5c814224131153a385e96c599862f81fbc97dd6e4178",
+      "clientPid": 6924,
+      "lastError": null,
+      "provider": "windows_mft_usn",
+      "lastFullIndexAt": 1791749825,
+      "nextMarkerFound": false,
+      "expectedDirect": true,
+      "failure": "System.Management.Automation.RuntimeException: expected in-process Direct indexing did not discover post-baseline marker; state=ready error=",
+      "databaseSha256": "efb9e77ead0d16737d4f2505b2e37efe6f463ffde962eff4ce22c08ea4363448",
+      "databaseArtifact": "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-new-Service-side-by-side-path-profile"
+    },
+    "new-client-plus-old-Service": {
+      "status": "PASS_DIRECT_BLOCKED",
+      "clientSha256": "1ff4519ae4855e3e7d2c5c814224131153a385e96c599862f81fbc97dd6e4178",
+      "serviceExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "pipeObserved": true,
+      "markerName": "u1newclientoldServicesidebysidepath28bb14997294445fbec30bfbbd016b50.txt",
+      "nextMarkerName": "u1nextnewclientoldServicesidebysidepath58b82cbef68a44beb119db57049903ea.txt",
+      "baselineIndexed": true,
+      "markerFound": false,
+      "oldMarkerPreserved": true,
+      "sourceState": "ready",
+      "baselineSourceState": "ready",
+      "entryCount": 4,
+      "baselineEntryCount": 4,
+      "resultPath": null,
+      "clientExitCode": null,
+      "trace": "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-trace.log",
+      "logs": [
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-app.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-app.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-baseline-app.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-baseline-app.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-service.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-service.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-baseline-service.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-baseline-service.stderr.log"
+      ],
+      "sourceId": "gv_6cfe394aaf8b5fb5e6aba35979604edd51c4bfa7461209219e29ed91b8385904",
+      "baselineClientPid": 2068,
+      "servicePid": 6656,
+      "serviceImagePath": "D:\\a\\_temp\\issue-380-u1-worktrees-38169758963-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "serviceSha256": "7a054bca0c46eb40f2b5d07bed4b63567886b335c867ad3289d06791fff72b45",
+      "clientPid": 6792,
+      "lastError": null,
+      "provider": "windows_mft_usn",
+      "lastFullIndexAt": 1791750073,
+      "nextMarkerFound": false,
+      "expectedDirect": false,
+      "databaseSha256": "a321634f385bbe929dcb6470a58854d12a1b0266c969756fee8f4033c30a31e2",
+      "databaseArtifact": "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\new-client-old-Service-side-by-side-path-profile"
+    },
+    "exact-same-path-mixed-generation": {
+      "status": "UNVERIFIED",
+      "reason": "Windows image locking and the Service exact-client-path gate prevent two different frozen PE generations from being launched at the same installed path without a servicing race. The actual installer stop/wait/replace/restart transition is tested separately."
+    }
+  },
+  "directFallback": {
+    "status": "FAIL",
+    "clientSha256": "7a054bca0c46eb40f2b5d07bed4b63567886b335c867ad3289d06791fff72b45",
+    "serviceExe": "",
+    "pipeObserved": false,
+    "markerName": "u1oldclientserviceabsent31427f7e60294e21aee42a46ab1e2eda.txt",
+    "nextMarkerName": "u1nextoldclientserviceabsent6fc290641b654d5d9b7a7b3a09c84f7f.txt",
+    "baselineIndexed": false,
+    "markerFound": false,
+    "oldMarkerPreserved": false,
+    "sourceState": null,
+    "baselineSourceState": null,
+    "entryCount": null,
+    "baselineEntryCount": null,
+    "resultPath": null,
+    "clientExitCode": null,
+    "trace": "D:\\a\\_temp\\issue-380-u1-runtime-38169758963-1\\old-client-service-absent-trace.log",
+    "logs": [
+      "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-service-absent-baseline-app.stdout.log",
+      "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-service-absent-baseline-app.stderr.log"
+    ],
+    "sourceId": "gv_2c7d8dd27785a77da9d3fbbc26d2dd6a046fd02d931585e95e82679ba28f8204",
+    "baselineClientPid": 10188,
+    "failure": "System.Management.Automation.RuntimeException: matching baseline did not index the original fixture marker",
+    "databaseSha256": "947dcfb2516fe1dbc30e571769b5302611d31a17b2eecec0ed4891d05a09505d",
+    "databaseArtifact": "D:\\a\\_temp\\issue-380-u1-evidence-38169758963-1\\old-client-service-absent-profile"
+  },
+  "installer": {
+    "status": "FAIL_OR_UNVERIFIED",
+    "samples": [],
+    "transitions": [],
+    "interruption": {
+      "status": "UNVERIFIED"
+    },
+    "repair": {
+      "status": "UNVERIFIED"
+    },
+    "failure": "System.Management.Automation.RuntimeException: fresh old installation exe hash differs from frozen old candidate"
+  },
+  "cleanup": {
+    "details": [
+      "created task-owned isolated volume old-client-service-absent at Z:\\",
+      "detached and removed task-owned isolated volume old-client-service-absent",
+      "created task-owned isolated volume old-client-new-Service-side-by-side-path at Z:\\",
+      "detached and removed task-owned isolated volume old-client-new-Service-side-by-side-path",
+      "created task-owned isolated volume new-client-old-Service-side-by-side-path at Z:\\",
+      "detached and removed task-owned isolated volume new-client-old-Service-side-by-side-path",
+      "cleanup inspected only the task service name and task-owned process paths"
+    ],
+    "failures": []
+  },
+  "failures": [
+    {
+      "scenario": "old-client-service-absent",
+      "message": "System.Management.Automation.RuntimeException: matching baseline did not index the original fixture marker"
+    },
+    {
+      "scenario": "old-client-new-Service-side-by-side-path",
+      "message": "System.Management.Automation.RuntimeException: expected in-process Direct indexing did not discover post-baseline marker; state=ready error="
+    },
+    {
+      "scenario": "NSIS install-upgrade-interruption-repair",
+      "message": "System.Management.Automation.RuntimeException: fresh old installation exe hash differs from frozen old candidate"
+    }
+  ]
+}

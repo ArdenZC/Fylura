@@ -1,0 +1,120 @@
+{
+  "contract": "Read-only SQLite inspection of Hosted Windows run 38169758963 fixture databases; synthetic runner profiles, not user data. FTS5 queries quote marker text as a phrase.",
+  "run": 38169758963,
+  "artifactSha256": "cadb76ad9f96dd2894b1368792f57a2cb9d6fd24f2fed659f0edace5db8bcae3",
+  "scenarios": [
+    {
+      "scenario": "old-client-service-absent",
+      "harnessStatus": "FAIL",
+      "markerName": "u1oldclientserviceabsent31427f7e60294e21aee42a46ab1e2eda.txt",
+      "nextMarkerName": "u1nextoldclientserviceabsent6fc290641b654d5d9b7a7b3a09c84f7f.txt",
+      "globalVolume": {
+        "id": "gv_2c7d8dd27785a77da9d3fbbc26d2dd6a046fd02d931585e95e82679ba28f8204",
+        "index_status": "permission_required",
+        "last_error": "database error: sqlite error: database is locked",
+        "journal_id": null,
+        "journal_cursor": null,
+        "last_full_index_at": null,
+        "last_incremental_sync_at": null,
+        "entry_count": 0,
+        "updated_at": 1791749639
+      },
+      "activeEntryCountObserved": 0,
+      "markerRows": [],
+      "ftsHitsByQuery": {
+        "u1oldclientserviceabsent31427f7e60294e21aee42a46ab1e2eda.txt": [],
+        "u1nextoldclientserviceabsent6fc290641b654d5d9b7a7b3a09c84f7f.txt": []
+      },
+      "managedAndAiRowCounts": {
+        "managed_entries": 0,
+        "ai_jobs": 0,
+        "ai_job_items": 0,
+        "ai_analysis_state": 0
+      }
+    },
+    {
+      "scenario": "old-client-new-Service-side-by-side-path",
+      "harnessStatus": "FAIL",
+      "markerName": "u1oldclientnewServicesidebysidepathb0a7366e47474903a588782dc5307437.txt",
+      "nextMarkerName": "u1nextoldclientnewServicesidebysidepath20685044442c4c4486014fdadff2a093.txt",
+      "globalVolume": {
+        "id": "gv_406680355a1df445c549b076cd40f40f1a0867557bd6600fc3bd66895a205580",
+        "index_status": "ready",
+        "last_error": null,
+        "journal_id": "134362234247739396",
+        "journal_cursor": "784",
+        "last_full_index_at": 1791749825,
+        "last_incremental_sync_at": 1791749825,
+        "entry_count": 4,
+        "updated_at": 1791749825
+      },
+      "activeEntryCountObserved": 4,
+      "markerRows": [
+        {
+          "name": "u1oldclientnewServicesidebysidepathb0a7366e47474903a588782dc5307437.txt",
+          "path": "Z:\\fixture\\u1oldclientnewServicesidebysidepathb0a7366e47474903a588782dc5307437.txt",
+          "is_stale": 0,
+          "source_provider": "windows_mft_usn",
+          "last_seen_at": 1791749825
+        }
+      ],
+      "ftsHitsByQuery": {
+        "u1oldclientnewServicesidebysidepathb0a7366e47474903a588782dc5307437.txt": [
+          {
+            "name": "u1oldclientnewServicesidebysidepathb0a7366e47474903a588782dc5307437.txt",
+            "path": "Z:\\fixture\\u1oldclientnewServicesidebysidepathb0a7366e47474903a588782dc5307437.txt"
+          }
+        ],
+        "u1nextoldclientnewServicesidebysidepath20685044442c4c4486014fdadff2a093.txt": []
+      },
+      "managedAndAiRowCounts": {
+        "managed_entries": 0,
+        "ai_jobs": 0,
+        "ai_job_items": 0,
+        "ai_analysis_state": 0
+      }
+    },
+    {
+      "scenario": "new-client-old-Service-side-by-side-path",
+      "harnessStatus": "PASS_DIRECT_BLOCKED",
+      "markerName": "u1newclientoldServicesidebysidepath28bb14997294445fbec30bfbbd016b50.txt",
+      "nextMarkerName": "u1nextnewclientoldServicesidebysidepath58b82cbef68a44beb119db57049903ea.txt",
+      "globalVolume": {
+        "id": "gv_6cfe394aaf8b5fb5e6aba35979604edd51c4bfa7461209219e29ed91b8385904",
+        "index_status": "ready",
+        "last_error": null,
+        "journal_id": "134362236729248944",
+        "journal_cursor": "784",
+        "last_full_index_at": 1791750073,
+        "last_incremental_sync_at": 1791750073,
+        "entry_count": 4,
+        "updated_at": 1791750073
+      },
+      "activeEntryCountObserved": 4,
+      "markerRows": [
+        {
+          "name": "u1newclientoldServicesidebysidepath28bb14997294445fbec30bfbbd016b50.txt",
+          "path": "Z:\\fixture\\u1newclientoldServicesidebysidepath28bb14997294445fbec30bfbbd016b50.txt",
+          "is_stale": 0,
+          "source_provider": "windows_mft_usn",
+          "last_seen_at": 1791750073
+        }
+      ],
+      "ftsHitsByQuery": {
+        "u1newclientoldServicesidebysidepath28bb14997294445fbec30bfbbd016b50.txt": [
+          {
+            "name": "u1newclientoldServicesidebysidepath28bb14997294445fbec30bfbbd016b50.txt",
+            "path": "Z:\\fixture\\u1newclientoldServicesidebysidepath28bb14997294445fbec30bfbbd016b50.txt"
+          }
+        ],
+        "u1nextnewclientoldServicesidebysidepath58b82cbef68a44beb119db57049903ea.txt": []
+      },
+      "managedAndAiRowCounts": {
+        "managed_entries": 0,
+        "ai_jobs": 0,
+        "ai_job_items": 0,
+        "ai_analysis_state": 0
+      }
+    }
+  ]
+}

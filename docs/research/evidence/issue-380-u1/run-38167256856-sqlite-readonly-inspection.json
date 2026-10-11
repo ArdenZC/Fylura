@@ -1,0 +1,63 @@
+{
+  "source": "run-38167256856 isolated Hosted Windows synthetic profile DB snapshots",
+  "result": [
+    {
+      "scenario": "old-no-service",
+      "readOnly": true,
+      "activeEntryCount": 5,
+      "oldMarkerRows": [
+        [
+          "u1oldclientserviceabsent3a679b5d612c4a7f8a2923cd504b6461.txt",
+          0
+        ]
+      ],
+      "newMarkerRows": [
+        [
+          "u1nextoldclientserviceabsent1f613a01fd0f4941b37874ef49dea6c7.txt",
+          0
+        ]
+      ],
+      "newMarkerFtsMatches": [
+        [
+          "u1nextoldclientserviceabsent1f613a01fd0f4941b37874ef49dea6c7.txt",
+          "Z:\\fixture\\u1nextoldclientserviceabsent1f613a01fd0f4941b37874ef49dea6c7.txt"
+        ]
+      ],
+      "harnessState": "ready",
+      "baselineHarnessEntryCount": 4,
+      "harnessEntryCount": 5
+    },
+    {
+      "scenario": "old-plus-new-service",
+      "readOnly": true,
+      "activeEntryCount": 4,
+      "oldMarkerRows": [
+        [
+          "u1oldclientnewServicesidebysidepath8d945bc61c5943ec9c5185967906a4da.txt",
+          0
+        ]
+      ],
+      "newMarkerRows": [],
+      "newMarkerFtsMatches": [],
+      "harnessState": "ready",
+      "baselineHarnessEntryCount": 4,
+      "harnessEntryCount": 4
+    },
+    {
+      "scenario": "new-plus-old-service",
+      "readOnly": true,
+      "activeEntryCount": 4,
+      "oldMarkerRows": [
+        [
+          "u1newclientoldServicesidebysidepath60d2f2913fa94b7fb5f527eace761350.txt",
+          0
+        ]
+      ],
+      "newMarkerRows": [],
+      "newMarkerFtsMatches": [],
+      "harnessState": "ready",
+      "baselineHarnessEntryCount": 4,
+      "harnessEntryCount": 4
+    }
+  ]
+}

@@ -1,0 +1,924 @@
+{
+  "contract": "U1 frozen-candidate compatibility; test-only; not a production fix",
+  "u1Head": "371689c905ff5d26eb79062bbdd6441324ad8f53",
+  "u1Tree": "da661271168c5310b6ee58f043356826306bcf8d",
+  "old": {
+    "commit": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master",
+    "packageGeneratedManifestDiff": "",
+    "packageManifestRestoredToFrozenSource": true,
+    "expectedSource": "3275ac7c72df8ae4139a30f16c7f649971324e97"
+  },
+  "d1a": {
+    "commit": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\d1a",
+    "packageGeneratedManifestDiff": "",
+    "packageManifestRestoredToFrozenSource": true,
+    "expectedSource": "d260131f9d6ec354f2361e6c7460c79e62e38391"
+  },
+  "runner": {
+    "caption": "Microsoft Windows Server 2025 Datacenter",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "64-bit",
+    "runId": "38178838324",
+    "runAttempt": "1",
+    "powershell": "7.6.6",
+    "currentDirectory": "D:\\a\\Zen-Canvas\\Zen-Canvas"
+  },
+  "candidates": {
+    "old": {
+      "sha": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "597c1893d880cf5e78f079168d86fd868259492ce05f5a4c46402cd9a7f3dfe7",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "01dd6ae6d26ba70032f68abda5c6761d17998caa08a1dfb4d366623ab8cd4689",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "a89cee922b9dfbf6880bf6000dea95fedcd444032e42195ef9e0a75827b02432",
+      "packageExeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+      "packageExeEvidence": {
+        "status": "PASS_EXTRACTED",
+        "extractionTool": "C:\\ProgramData\\Chocolatey\\bin\\7z.exe",
+        "exitCode": 0,
+        "log": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-nsis-payload-extract.log",
+        "payloadFiles": [
+          {
+            "path": "D:\\a\\_temp\\issue-380-u1-runtime-38178838324-1\\old-nsis-payload\\zen-canvas.exe",
+            "sha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+            "bytes": 33956352
+          }
+        ],
+        "selectedPayload": "D:\\a\\_temp\\issue-380-u1-runtime-38178838324-1\\old-nsis-payload\\zen-canvas.exe",
+        "selectedSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+        "selectedMatchesReleaseExe": false
+      },
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\old-setup.exe",
+      "installerSha256": "b1fbd364ea8d6922ec7ade7b6c49b649f67674309780b746e7cc31430e0cd5b4",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    },
+    "d1a": {
+      "sha": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "3be4535856fbac36a76ab5829743696b38799796a6ea91762c817cc69aaab6fc",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "d7991016fcf63d7c6a1a76e7f3311d998c8c79375c3099c1e96b338d0539ab7c",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "64c38ae49e641f21194228d39939a010bb6f21a1148e8bb9768fda688d5c3e35",
+      "packageExeSha256": "5d1f049ca77a68de9c7397642c5b1bbb7f11f66ec157541d64a271cf0031ce60",
+      "packageExeEvidence": {
+        "status": "PASS_EXTRACTED",
+        "extractionTool": "C:\\ProgramData\\Chocolatey\\bin\\7z.exe",
+        "exitCode": 0,
+        "log": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\d1a-nsis-payload-extract.log",
+        "payloadFiles": [
+          {
+            "path": "D:\\a\\_temp\\issue-380-u1-runtime-38178838324-1\\d1a-nsis-payload\\zen-canvas.exe",
+            "sha256": "5d1f049ca77a68de9c7397642c5b1bbb7f11f66ec157541d64a271cf0031ce60",
+            "bytes": 33971712
+          }
+        ],
+        "selectedPayload": "D:\\a\\_temp\\issue-380-u1-runtime-38178838324-1\\d1a-nsis-payload\\zen-canvas.exe",
+        "selectedSha256": "5d1f049ca77a68de9c7397642c5b1bbb7f11f66ec157541d64a271cf0031ce60",
+        "selectedMatchesReleaseExe": false
+      },
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\d1a\\src-tauri\\target\\release\\u1-qa\\d1a-setup.exe",
+      "installerSha256": "67a17e369ef66cbcacdd8cab4d59cfec684062d398539c3e4d56a46be435dbb9",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    }
+  },
+  "matchingPairs": {
+    "old": {
+      "status": "PASS",
+      "clientSha256": "597c1893d880cf5e78f079168d86fd868259492ce05f5a4c46402cd9a7f3dfe7",
+      "serviceSha256": "597c1893d880cf5e78f079168d86fd868259492ce05f5a4c46402cd9a7f3dfe7",
+      "evidence": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-qualification.json"
+    },
+    "d1a": {
+      "status": "PASS",
+      "clientSha256": "3be4535856fbac36a76ab5829743696b38799796a6ea91762c817cc69aaab6fc",
+      "serviceSha256": "3be4535856fbac36a76ab5829743696b38799796a6ea91762c817cc69aaab6fc",
+      "evidence": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\d1a-qualification.json"
+    }
+  },
+  "mixedPairs": {
+    "old-client-plus-new-Service": {
+      "status": "PASS_OLD_CLIENT_NO_DIRECT_ON_PATH_REJECTION",
+      "clientSha256": "597c1893d880cf5e78f079168d86fd868259492ce05f5a4c46402cd9a7f3dfe7",
+      "serviceExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "useRecoveryQa": false,
+      "pipeObserved": true,
+      "markerName": "u1oldclientnewServicesidebysidepathcf1cdd32ea57442bb222796756e3063e.txt",
+      "nextMarkerName": "u1nextoldclientnewServicesidebysidepath9d9f128e40c246938720bd642f5b915d.txt",
+      "baselineIndexed": true,
+      "markerFound": false,
+      "oldMarkerPreserved": true,
+      "sourceState": "discovered",
+      "baselineSourceState": "ready",
+      "entryCount": 4,
+      "baselineEntryCount": 4,
+      "resultPath": null,
+      "clientExitCode": null,
+      "recoveryStdout": null,
+      "recoveryStderr": null,
+      "recoveryReport": null,
+      "trace": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-trace.log",
+      "logs": [
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-app.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-app.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-baseline-app.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-baseline-app.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-service.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-service.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-baseline-service.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-baseline-service.stderr.log"
+      ],
+      "sourceId": "gv_59634c64540deff50761afb6b4063cfb5f82372df7333489eeafb5a40a435ad5",
+      "baselineClientPid": 10144,
+      "reset": {
+        "after": {
+          "activeEntries": 4,
+          "nextMarkerActiveRows": 0,
+          "nextMarkerFtsHits": 0,
+          "oldMarkerActiveRows": 1,
+          "oldMarkerFtsHits": 1,
+          "source": {
+            "enabled": 1,
+            "entry_count": 4,
+            "id": "gv_59634c64540deff50761afb6b4063cfb5f82372df7333489eeafb5a40a435ad5",
+            "index_status": "discovered",
+            "journal_cursor": null,
+            "journal_id": null,
+            "last_error": null,
+            "last_full_index_at": null,
+            "last_incremental_sync_at": null,
+            "provider": "windows_mft_usn",
+            "updated_at": 1791757113
+          },
+          "staleEntries": 0
+        },
+        "before": {
+          "activeEntries": 4,
+          "nextMarkerActiveRows": 0,
+          "nextMarkerFtsHits": 0,
+          "oldMarkerActiveRows": 1,
+          "oldMarkerFtsHits": 1,
+          "source": {
+            "enabled": 1,
+            "entry_count": 4,
+            "id": "gv_59634c64540deff50761afb6b4063cfb5f82372df7333489eeafb5a40a435ad5",
+            "index_status": "ready",
+            "journal_cursor": "784",
+            "journal_id": "134362307125484782",
+            "last_error": null,
+            "last_full_index_at": 1791757112,
+            "last_incremental_sync_at": 1791757112,
+            "provider": "windows_mft_usn",
+            "updated_at": 1791757112
+          },
+          "staleEntries": 0
+        },
+        "mode": "reset",
+        "nextMarker": "u1nextoldclientnewServicesidebysidepath9d9f128e40c246938720bd642f5b915d.txt",
+        "oldMarker": "u1oldclientnewServicesidebysidepathcf1cdd32ea57442bb222796756e3063e.txt",
+        "reset": true,
+        "sourceId": "gv_59634c64540deff50761afb6b4063cfb5f82372df7333489eeafb5a40a435ad5",
+        "statement": "only source scan metadata reset; active entries and FTS preserved"
+      },
+      "preTestSnapshot": {
+        "activeEntries": 4,
+        "nextMarkerActiveRows": 0,
+        "nextMarkerFtsHits": 0,
+        "oldMarkerActiveRows": 1,
+        "oldMarkerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_59634c64540deff50761afb6b4063cfb5f82372df7333489eeafb5a40a435ad5",
+          "index_status": "discovered",
+          "journal_cursor": null,
+          "journal_id": null,
+          "last_error": null,
+          "last_full_index_at": null,
+          "last_incremental_sync_at": null,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791757113
+        },
+        "staleEntries": 0
+      },
+      "servicePid": 6020,
+      "serviceImagePath": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "serviceSha256": "3be4535856fbac36a76ab5829743696b38799796a6ea91762c817cc69aaab6fc",
+      "clientPid": 9504,
+      "coordinatorCycleObserved": true,
+      "postTestSnapshot": {
+        "activeEntries": 4,
+        "mode": "snapshot",
+        "nextMarkerActiveRows": 0,
+        "nextMarkerFtsHits": 0,
+        "oldMarkerActiveRows": 1,
+        "oldMarkerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_59634c64540deff50761afb6b4063cfb5f82372df7333489eeafb5a40a435ad5",
+          "index_status": "discovered",
+          "journal_cursor": null,
+          "journal_id": null,
+          "last_error": null,
+          "last_full_index_at": null,
+          "last_incremental_sync_at": null,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791757113
+        },
+        "sourceId": "gv_59634c64540deff50761afb6b4063cfb5f82372df7333489eeafb5a40a435ad5",
+        "staleEntries": 0
+      },
+      "nextMarkerFtsHits": 0,
+      "lastError": null,
+      "entryCountMatchesActiveRows": true,
+      "expectedDirect": false,
+      "scope": "real candidate binaries from separate image paths; exact same-path mixed generations remain separately classified",
+      "databaseSha256": "6c93ee074f1275b8b4aa701f5d53da4433472200dd1a894b88bdb347b759a971",
+      "profileFileHashes": [
+        {
+          "name": "zen-canvas.sqlite3",
+          "sha256": "6c93ee074f1275b8b4aa701f5d53da4433472200dd1a894b88bdb347b759a971",
+          "bytes": 1073152
+        },
+        {
+          "name": "zen-canvas.sqlite3-shm",
+          "sha256": "aa251067f79b2a8a6801066a64c36e32a5313cef73da394353fd41a4bfdfc209",
+          "bytes": 32768
+        },
+        {
+          "name": "zen-canvas.sqlite3-wal",
+          "sha256": "f1aff748a6be1106c239f73ce011a6ec28a9ec41293d07d4a909c206fe097420",
+          "bytes": 403792
+        }
+      ],
+      "databaseArtifact": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-new-Service-side-by-side-path-profile"
+    },
+    "new-client-plus-old-Service": {
+      "status": "PASS_NEW_CLIENT_FAIL_CLOSED_OLD_SERVICE",
+      "clientSha256": "3be4535856fbac36a76ab5829743696b38799796a6ea91762c817cc69aaab6fc",
+      "serviceExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "useRecoveryQa": true,
+      "pipeObserved": true,
+      "markerName": "u1newclientoldServicesidebysidepath6f3a4194a15742429d568260d62c3d16.txt",
+      "nextMarkerName": "u1nextnewclientoldServicesidebysidepathaa2269966662463daaea465c7382118b.txt",
+      "baselineIndexed": true,
+      "markerFound": false,
+      "oldMarkerPreserved": true,
+      "sourceState": "discovered",
+      "baselineSourceState": "ready",
+      "entryCount": 4,
+      "baselineEntryCount": 4,
+      "resultPath": null,
+      "clientExitCode": 1,
+      "recoveryStdout": "",
+      "recoveryStderr": "native_qa startup_checkpoint=process_main_entered\nGlobal Index service recovery QA failed: Windows index service outcome is unknown: index_service_response_request_id_mismatch\n",
+      "recoveryReport": null,
+      "trace": "D:\\a\\_temp\\issue-380-u1-runtime-38178838324-1\\new-client-old-Service-side-by-side-path-trace.log",
+      "logs": [
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\new-client-old-Service-side-by-side-path-baseline-app.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\new-client-old-Service-side-by-side-path-baseline-app.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\new-client-old-Service-side-by-side-path-service.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\new-client-old-Service-side-by-side-path-service.stderr.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\new-client-old-Service-side-by-side-path-baseline-service.stdout.log",
+        "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\new-client-old-Service-side-by-side-path-baseline-service.stderr.log"
+      ],
+      "sourceId": "gv_989eff904929e8dc32f40affa9e49769d58b67db2245b9c09d35bdc65197f0e6",
+      "baselineClientPid": 1504,
+      "reset": {
+        "after": {
+          "activeEntries": 4,
+          "nextMarkerActiveRows": 0,
+          "nextMarkerFtsHits": 0,
+          "oldMarkerActiveRows": 1,
+          "oldMarkerFtsHits": 1,
+          "source": {
+            "enabled": 1,
+            "entry_count": 4,
+            "id": "gv_989eff904929e8dc32f40affa9e49769d58b67db2245b9c09d35bdc65197f0e6",
+            "index_status": "discovered",
+            "journal_cursor": null,
+            "journal_id": null,
+            "last_error": null,
+            "last_full_index_at": null,
+            "last_incremental_sync_at": null,
+            "provider": "windows_mft_usn",
+            "updated_at": 1791757155
+          },
+          "staleEntries": 0
+        },
+        "before": {
+          "activeEntries": 4,
+          "nextMarkerActiveRows": 0,
+          "nextMarkerFtsHits": 0,
+          "oldMarkerActiveRows": 1,
+          "oldMarkerFtsHits": 1,
+          "source": {
+            "enabled": 1,
+            "entry_count": 4,
+            "id": "gv_989eff904929e8dc32f40affa9e49769d58b67db2245b9c09d35bdc65197f0e6",
+            "index_status": "ready",
+            "journal_cursor": "784",
+            "journal_id": "134362307539517099",
+            "last_error": null,
+            "last_full_index_at": 1791757154,
+            "last_incremental_sync_at": 1791757154,
+            "provider": "windows_mft_usn",
+            "updated_at": 1791757154
+          },
+          "staleEntries": 0
+        },
+        "mode": "reset",
+        "nextMarker": "u1nextnewclientoldServicesidebysidepathaa2269966662463daaea465c7382118b.txt",
+        "oldMarker": "u1newclientoldServicesidebysidepath6f3a4194a15742429d568260d62c3d16.txt",
+        "reset": true,
+        "sourceId": "gv_989eff904929e8dc32f40affa9e49769d58b67db2245b9c09d35bdc65197f0e6",
+        "statement": "only source scan metadata reset; active entries and FTS preserved"
+      },
+      "preTestSnapshot": {
+        "activeEntries": 4,
+        "nextMarkerActiveRows": 0,
+        "nextMarkerFtsHits": 0,
+        "oldMarkerActiveRows": 1,
+        "oldMarkerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_989eff904929e8dc32f40affa9e49769d58b67db2245b9c09d35bdc65197f0e6",
+          "index_status": "discovered",
+          "journal_cursor": null,
+          "journal_id": null,
+          "last_error": null,
+          "last_full_index_at": null,
+          "last_incremental_sync_at": null,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791757155
+        },
+        "staleEntries": 0
+      },
+      "servicePid": 9464,
+      "serviceImagePath": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "serviceSha256": "597c1893d880cf5e78f079168d86fd868259492ce05f5a4c46402cd9a7f3dfe7",
+      "coordinatorCycleObserved": true,
+      "postTestSnapshot": {
+        "activeEntries": 4,
+        "mode": "snapshot",
+        "nextMarkerActiveRows": 0,
+        "nextMarkerFtsHits": 0,
+        "oldMarkerActiveRows": 1,
+        "oldMarkerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_989eff904929e8dc32f40affa9e49769d58b67db2245b9c09d35bdc65197f0e6",
+          "index_status": "discovered",
+          "journal_cursor": null,
+          "journal_id": null,
+          "last_error": null,
+          "last_full_index_at": null,
+          "last_incremental_sync_at": null,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791757155
+        },
+        "sourceId": "gv_989eff904929e8dc32f40affa9e49769d58b67db2245b9c09d35bdc65197f0e6",
+        "staleEntries": 0
+      },
+      "nextMarkerFtsHits": 0,
+      "lastError": null,
+      "entryCountMatchesActiveRows": true,
+      "expectedDirect": false,
+      "scope": "real candidate binaries from separate image paths; exact same-path mixed generations remain separately classified",
+      "databaseSha256": "bc472076641036631e04c00cafb2ca3fb3e6848fe20155a73e5561c0382972f9",
+      "profileFileHashes": [
+        {
+          "name": "zen-canvas.sqlite3",
+          "sha256": "bc472076641036631e04c00cafb2ca3fb3e6848fe20155a73e5561c0382972f9",
+          "bytes": 1073152
+        },
+        {
+          "name": "zen-canvas.sqlite3-shm",
+          "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+          "bytes": 32768
+        },
+        {
+          "name": "zen-canvas.sqlite3-wal",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        }
+      ],
+      "databaseArtifact": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\new-client-old-Service-side-by-side-path-profile"
+    },
+    "exact-same-path-mixed-generation": {
+      "status": "UNVERIFIED",
+      "reason": "The Service enforces exact executable path equality, and the normal installer stops Service and desktop before replacing that path. Side-by-side mixed-path real binaries are tested, but the transient same-path old-process/new-file race is not safely created by this harness; file locking and stale process image semantics remain unverified."
+    }
+  },
+  "directFallback": {
+    "status": "OBSERVED_LEGACY_DIRECT_FALLBACK",
+    "clientSha256": "597c1893d880cf5e78f079168d86fd868259492ce05f5a4c46402cd9a7f3dfe7",
+    "serviceExe": "",
+    "useRecoveryQa": false,
+    "pipeObserved": false,
+    "markerName": "u1oldclientserviceabsent7d3659d0cd7d4eeb996fc3a3a4001d45.txt",
+    "nextMarkerName": "u1nextoldclientserviceabsent6f176551d95e43a396da9b03a2d5e986.txt",
+    "baselineIndexed": true,
+    "markerFound": true,
+    "oldMarkerPreserved": true,
+    "sourceState": "ready",
+    "baselineSourceState": "ready",
+    "entryCount": 5,
+    "baselineEntryCount": 4,
+    "resultPath": null,
+    "clientExitCode": null,
+    "recoveryStdout": null,
+    "recoveryStderr": null,
+    "recoveryReport": null,
+    "trace": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-service-absent-trace.log",
+    "logs": [
+      "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-service-absent-app.stdout.log",
+      "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-service-absent-app.stderr.log",
+      "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-service-absent-baseline-app.stdout.log",
+      "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-service-absent-baseline-app.stderr.log",
+      "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-service-absent-baseline-service.stdout.log",
+      "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-service-absent-baseline-service.stderr.log"
+    ],
+    "sourceId": "gv_82bfe5496c97da3fd9dbd208e34c83fa9e36a4d90aa1246de7313e32fe8fd518",
+    "baselineClientPid": 7380,
+    "reset": {
+      "after": {
+        "activeEntries": 4,
+        "nextMarkerActiveRows": 0,
+        "nextMarkerFtsHits": 0,
+        "oldMarkerActiveRows": 1,
+        "oldMarkerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_82bfe5496c97da3fd9dbd208e34c83fa9e36a4d90aa1246de7313e32fe8fd518",
+          "index_status": "discovered",
+          "journal_cursor": null,
+          "journal_id": null,
+          "last_error": null,
+          "last_full_index_at": null,
+          "last_incremental_sync_at": null,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791757107
+        },
+        "staleEntries": 0
+      },
+      "before": {
+        "activeEntries": 4,
+        "nextMarkerActiveRows": 0,
+        "nextMarkerFtsHits": 0,
+        "oldMarkerActiveRows": 1,
+        "oldMarkerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_82bfe5496c97da3fd9dbd208e34c83fa9e36a4d90aa1246de7313e32fe8fd518",
+          "index_status": "ready",
+          "journal_cursor": "712",
+          "journal_id": "134362307061722525",
+          "last_error": null,
+          "last_full_index_at": 1791757106,
+          "last_incremental_sync_at": 1791757106,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791757106
+        },
+        "staleEntries": 0
+      },
+      "mode": "reset",
+      "nextMarker": "u1nextoldclientserviceabsent6f176551d95e43a396da9b03a2d5e986.txt",
+      "oldMarker": "u1oldclientserviceabsent7d3659d0cd7d4eeb996fc3a3a4001d45.txt",
+      "reset": true,
+      "sourceId": "gv_82bfe5496c97da3fd9dbd208e34c83fa9e36a4d90aa1246de7313e32fe8fd518",
+      "statement": "only source scan metadata reset; active entries and FTS preserved"
+    },
+    "preTestSnapshot": {
+      "activeEntries": 4,
+      "nextMarkerActiveRows": 0,
+      "nextMarkerFtsHits": 0,
+      "oldMarkerActiveRows": 1,
+      "oldMarkerFtsHits": 1,
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_82bfe5496c97da3fd9dbd208e34c83fa9e36a4d90aa1246de7313e32fe8fd518",
+        "index_status": "discovered",
+        "journal_cursor": null,
+        "journal_id": null,
+        "last_error": null,
+        "last_full_index_at": null,
+        "last_incremental_sync_at": null,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791757107
+      },
+      "staleEntries": 0
+    },
+    "clientPid": 4244,
+    "coordinatorCycleObserved": true,
+    "postTestSnapshot": {
+      "activeEntries": 5,
+      "mode": "snapshot",
+      "nextMarkerActiveRows": 1,
+      "nextMarkerFtsHits": 1,
+      "oldMarkerActiveRows": 1,
+      "oldMarkerFtsHits": 1,
+      "source": {
+        "enabled": 1,
+        "entry_count": 5,
+        "id": "gv_82bfe5496c97da3fd9dbd208e34c83fa9e36a4d90aa1246de7313e32fe8fd518",
+        "index_status": "ready",
+        "journal_cursor": "1288",
+        "journal_id": "134362307061722525",
+        "last_error": null,
+        "last_full_index_at": 1791757107,
+        "last_incremental_sync_at": 1791757107,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791757107
+      },
+      "sourceId": "gv_82bfe5496c97da3fd9dbd208e34c83fa9e36a4d90aa1246de7313e32fe8fd518",
+      "staleEntries": 0
+    },
+    "nextMarkerFtsHits": 1,
+    "lastError": null,
+    "entryCountMatchesActiveRows": true,
+    "expectedDirect": true,
+    "securityFinding": "Legacy client mutated the isolated Global Index while the Service was absent. Stop-the-world must prevent this state; v3 client behavior alone does not.",
+    "databaseSha256": "5142cd1fcb719f8352d30ba815afe8297882481793b92f2902fcfbacbc6051e5",
+    "profileFileHashes": [
+      {
+        "name": "zen-canvas.sqlite3",
+        "sha256": "5142cd1fcb719f8352d30ba815afe8297882481793b92f2902fcfbacbc6051e5",
+        "bytes": 1073152
+      },
+      {
+        "name": "zen-canvas.sqlite3-shm",
+        "sha256": "b29990cc540a770ac5461d7a38145bbacb87bc9b766257014ed78f6545fcc206",
+        "bytes": 32768
+      },
+      {
+        "name": "zen-canvas.sqlite3-wal",
+        "sha256": "1878f71847390eee333750ed211c75da966d72ee02124ab39e0b58f6d8b03e5b",
+        "bytes": 531512
+      }
+    ],
+    "databaseArtifact": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\old-client-service-absent-profile"
+  },
+  "installer": {
+    "status": "FAIL_OR_UNVERIFIED",
+    "samples": [
+      {
+        "atUtc": "2026-10-11T22:19:33.4598451Z",
+        "installerPid": 5932,
+        "installerExited": false,
+        "exeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+        "targetExeHashObserved": false,
+        "service": {
+          "state": "Running",
+          "processId": 6804,
+          "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+          "exitCode": 0,
+          "serviceSpecificExitCode": 0,
+          "process": {
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "created": "2026-10-11T22:19:29.431063+00:00"
+          }
+        },
+        "appProcesses": [
+          {
+            "processId": 6804,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "created": "2026-10-11T22:19:29.431063+00:00"
+          },
+          {
+            "processId": 7504,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+            "created": "2026-10-11T22:19:30.068057+00:00"
+          }
+        ]
+      },
+      {
+        "atUtc": "2026-10-11T22:19:33.8555806Z",
+        "installerPid": 5932,
+        "installerExited": false,
+        "exeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+        "targetExeHashObserved": false,
+        "service": {
+          "state": "Running",
+          "processId": 6804,
+          "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+          "exitCode": 0,
+          "serviceSpecificExitCode": 0,
+          "process": {
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "created": "2026-10-11T22:19:29.431063+00:00"
+          }
+        },
+        "appProcesses": [
+          {
+            "processId": 6804,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "created": "2026-10-11T22:19:29.431063+00:00"
+          },
+          {
+            "processId": 7504,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+            "created": "2026-10-11T22:19:30.068057+00:00"
+          }
+        ]
+      },
+      {
+        "atUtc": "2026-10-11T22:19:34.2483843Z",
+        "installerPid": 5932,
+        "installerExited": true,
+        "exeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+        "targetExeHashObserved": false,
+        "service": {
+          "state": "Running",
+          "processId": 6804,
+          "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+          "exitCode": 0,
+          "serviceSpecificExitCode": 0,
+          "process": {
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "created": "2026-10-11T22:19:29.431063+00:00"
+          }
+        },
+        "appProcesses": [
+          {
+            "processId": 6804,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "created": "2026-10-11T22:19:29.431063+00:00"
+          },
+          {
+            "processId": 7504,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+            "created": "2026-10-11T22:19:30.068057+00:00"
+          }
+        ]
+      }
+    ],
+    "transitions": [
+      {
+        "atUtc": "2026-10-11T22:19:33.4598451Z",
+        "installerExited": false,
+        "installedExeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+        "serviceState": "Running",
+        "servicePid": 6804,
+        "desktopPids": [
+          6804,
+          7504
+        ]
+      },
+      {
+        "atUtc": "2026-10-11T22:19:33.8555806Z",
+        "installerExited": false,
+        "installedExeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+        "serviceState": "Running",
+        "servicePid": 6804,
+        "desktopPids": [
+          6804,
+          7504
+        ]
+      },
+      {
+        "atUtc": "2026-10-11T22:19:34.2483843Z",
+        "installerExited": true,
+        "installedExeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+        "serviceState": "Running",
+        "servicePid": 6804,
+        "desktopPids": [
+          6804,
+          7504
+        ]
+      }
+    ],
+    "interruption": {
+      "status": "UNVERIFIED"
+    },
+    "repair": {
+      "status": "UNVERIFIED"
+    },
+    "freshOldInstall": {
+      "exePath": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+      "sourceExeSha256": "a89cee922b9dfbf6880bf6000dea95fedcd444032e42195ef9e0a75827b02432",
+      "packageExeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+      "installedExeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+      "installedMatchesPackagePayload": true,
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40",
+      "service": {
+        "state": "Running",
+        "processId": 6804,
+        "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+        "exitCode": 0,
+        "serviceSpecificExitCode": 0,
+        "process": {
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "created": "2026-10-11T22:19:29.431063+00:00"
+        }
+      },
+      "log": "D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\installer-old-fresh.log"
+    },
+    "upgradeAttempt": {
+      "exitCode": 2,
+      "interrupted": false,
+      "samples": [
+        {
+          "atUtc": "2026-10-11T22:19:33.4598451Z",
+          "installerPid": 5932,
+          "installerExited": false,
+          "exeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+          "targetExeHashObserved": false,
+          "service": {
+            "state": "Running",
+            "processId": 6804,
+            "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "exitCode": 0,
+            "serviceSpecificExitCode": 0,
+            "process": {
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "created": "2026-10-11T22:19:29.431063+00:00"
+            }
+          },
+          "appProcesses": [
+            {
+              "processId": 6804,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+              "created": "2026-10-11T22:19:29.431063+00:00"
+            },
+            {
+              "processId": 7504,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+              "created": "2026-10-11T22:19:30.068057+00:00"
+            }
+          ]
+        },
+        {
+          "atUtc": "2026-10-11T22:19:33.8555806Z",
+          "installerPid": 5932,
+          "installerExited": false,
+          "exeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+          "targetExeHashObserved": false,
+          "service": {
+            "state": "Running",
+            "processId": 6804,
+            "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "exitCode": 0,
+            "serviceSpecificExitCode": 0,
+            "process": {
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "created": "2026-10-11T22:19:29.431063+00:00"
+            }
+          },
+          "appProcesses": [
+            {
+              "processId": 6804,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+              "created": "2026-10-11T22:19:29.431063+00:00"
+            },
+            {
+              "processId": 7504,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+              "created": "2026-10-11T22:19:30.068057+00:00"
+            }
+          ]
+        },
+        {
+          "atUtc": "2026-10-11T22:19:34.2483843Z",
+          "installerPid": 5932,
+          "installerExited": true,
+          "exeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+          "targetExeHashObserved": false,
+          "service": {
+            "state": "Running",
+            "processId": 6804,
+            "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "exitCode": 0,
+            "serviceSpecificExitCode": 0,
+            "process": {
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "created": "2026-10-11T22:19:29.431063+00:00"
+            }
+          },
+          "appProcesses": [
+            {
+              "processId": 6804,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+              "created": "2026-10-11T22:19:29.431063+00:00"
+            },
+            {
+              "processId": 7504,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+              "created": "2026-10-11T22:19:30.068057+00:00"
+            }
+          ]
+        }
+      ],
+      "log": {
+        "exists": false,
+        "bytes": 0,
+        "sha256": null,
+        "text": null
+      },
+      "stdout": "",
+      "stderr": "",
+      "finalService": {
+        "state": "Running",
+        "processId": 6804,
+        "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+        "exitCode": 0,
+        "serviceSpecificExitCode": 0,
+        "process": {
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "created": "2026-10-11T22:19:29.431063+00:00"
+        }
+      },
+      "finalDesktopProcesses": [
+        {
+          "processId": 6804,
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+          "created": "2026-10-11T22:19:29.431063+00:00"
+        },
+        {
+          "processId": 7504,
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+          "created": "2026-10-11T22:19:30.068057+00:00"
+        }
+      ],
+      "finalExeSha256": "891cad540b849c2214dcbd0ed7980f4e1a6fbc6c7c154afd475cedbebd118d47",
+      "productRegistration": [
+        {
+          "key": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Zen Canvas",
+          "values": {
+            "DisplayName": "Zen Canvas",
+            "MainBinaryName": "zen-canvas.exe",
+            "DisplayVersion": "0.1.40",
+            "Publisher": "startlan",
+            "InstallLocation": "\"C:\\Program Files\\Zen Canvas\"",
+            "UninstallString": "\"C:\\Program Files\\Zen Canvas\\uninstall.exe\"",
+            "EstimatedSize": 35149,
+            "NoModify": 1,
+            "NoRepair": 1
+          }
+        }
+      ]
+    },
+    "failure": "System.Management.Automation.RuntimeException: D1-A in-place upgrade returned 2; logExists=False; samples=3; D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\installer-d1a-upgrade.log"
+  },
+  "cleanup": {
+    "details": [
+      "created task-owned isolated volume old-client-service-absent at Z:\\",
+      "detached and removed task-owned isolated volume old-client-service-absent",
+      "created task-owned isolated volume old-client-new-Service-side-by-side-path at Z:\\",
+      "detached and removed task-owned isolated volume old-client-new-Service-side-by-side-path",
+      "created task-owned isolated volume new-client-old-Service-side-by-side-path at Z:\\",
+      "detached and removed task-owned isolated volume new-client-old-Service-side-by-side-path",
+      "cleanup inspected only the task service name and task-owned process paths"
+    ],
+    "failures": []
+  },
+  "failures": [
+    {
+      "scenario": "NSIS install-upgrade-interruption-repair",
+      "message": "System.Management.Automation.RuntimeException: D1-A in-place upgrade returned 2; logExists=False; samples=3; D:\\a\\_temp\\issue-380-u1-evidence-38178838324-1\\installer-d1a-upgrade.log"
+    }
+  ]
+}

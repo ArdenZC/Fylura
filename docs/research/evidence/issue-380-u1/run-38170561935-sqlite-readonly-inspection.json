@@ -1,0 +1,148 @@
+{
+  "contract": "Read-only SQLite inspection of Hosted Windows run 38170561935 fixture databases; synthetic runner profiles, not user data. FTS5 queries quote marker text as a phrase. Run 3 Harness did not record watcher event traces.",
+  "run": 38170561935,
+  "artifactSha256": "5ab710112457ee4d0a5dea4b61bdd294cb8bc8ca93b1b9ac4a361d0d0c77a51c",
+  "scenarios": [
+    {
+      "scenario": "old-client-service-absent",
+      "harnessStatus": "PASS_DIRECT_EXECUTED",
+      "markerName": "u1oldclientserviceabsent963bc0e48f52461c82ed517627767680.txt",
+      "nextMarkerName": "u1nextoldclientserviceabsentfbe746a16b91468cbbd3e18a20a8f5f5.txt",
+      "watcherEventConfirmed": null,
+      "globalVolume": {
+        "id": "gv_0890393666145e8e3c8ef335476a71bc881427d988e351c0ffabb0b969182a4a",
+        "index_status": "ready",
+        "last_error": null,
+        "journal_id": "134362248565338250",
+        "journal_cursor": "1288",
+        "last_full_index_at": 1791751256,
+        "last_incremental_sync_at": 1791751259,
+        "entry_count": 5,
+        "updated_at": 1791751259
+      },
+      "activeEntryCountObserved": 5,
+      "markerRows": [
+        {
+          "name": "u1nextoldclientserviceabsentfbe746a16b91468cbbd3e18a20a8f5f5.txt",
+          "path": "Z:\\fixture\\u1nextoldclientserviceabsentfbe746a16b91468cbbd3e18a20a8f5f5.txt",
+          "is_stale": 0,
+          "source_provider": "windows_mft_usn",
+          "last_seen_at": 1791751259
+        },
+        {
+          "name": "u1oldclientserviceabsent963bc0e48f52461c82ed517627767680.txt",
+          "path": "Z:\\fixture\\u1oldclientserviceabsent963bc0e48f52461c82ed517627767680.txt",
+          "is_stale": 0,
+          "source_provider": "windows_mft_usn",
+          "last_seen_at": 1791751256
+        }
+      ],
+      "ftsHitsByQuery": {
+        "u1oldclientserviceabsent963bc0e48f52461c82ed517627767680.txt": [
+          {
+            "name": "u1oldclientserviceabsent963bc0e48f52461c82ed517627767680.txt",
+            "path": "Z:\\fixture\\u1oldclientserviceabsent963bc0e48f52461c82ed517627767680.txt"
+          }
+        ],
+        "u1nextoldclientserviceabsentfbe746a16b91468cbbd3e18a20a8f5f5.txt": [
+          {
+            "name": "u1nextoldclientserviceabsentfbe746a16b91468cbbd3e18a20a8f5f5.txt",
+            "path": "Z:\\fixture\\u1nextoldclientserviceabsentfbe746a16b91468cbbd3e18a20a8f5f5.txt"
+          }
+        ]
+      },
+      "managedAndAiRowCounts": {
+        "managed_entries": 0,
+        "ai_jobs": 0,
+        "ai_job_items": 0,
+        "ai_analysis_state": 0
+      }
+    },
+    {
+      "scenario": "old-client-new-Service-side-by-side-path",
+      "harnessStatus": "FAIL",
+      "markerName": "u1oldclientnewServicesidebysidepathbe91ff16ce964254b1777c0fb8112183.txt",
+      "nextMarkerName": "u1nextoldclientnewServicesidebysidepathd027e4ba21aa4d7e8d0c017286047d92.txt",
+      "watcherEventConfirmed": null,
+      "globalVolume": {
+        "id": "gv_95296c7e9562c38fad8fdaf274471a7ce496a9c81e09e8b304a6a6c9a7ec51ab",
+        "index_status": "ready",
+        "last_error": null,
+        "journal_id": "134362248640451936",
+        "journal_cursor": "784",
+        "last_full_index_at": 1791751264,
+        "last_incremental_sync_at": 1791751264,
+        "entry_count": 4,
+        "updated_at": 1791751264
+      },
+      "activeEntryCountObserved": 4,
+      "markerRows": [
+        {
+          "name": "u1oldclientnewServicesidebysidepathbe91ff16ce964254b1777c0fb8112183.txt",
+          "path": "Z:\\fixture\\u1oldclientnewServicesidebysidepathbe91ff16ce964254b1777c0fb8112183.txt",
+          "is_stale": 0,
+          "source_provider": "windows_mft_usn",
+          "last_seen_at": 1791751264
+        }
+      ],
+      "ftsHitsByQuery": {
+        "u1oldclientnewServicesidebysidepathbe91ff16ce964254b1777c0fb8112183.txt": [
+          {
+            "name": "u1oldclientnewServicesidebysidepathbe91ff16ce964254b1777c0fb8112183.txt",
+            "path": "Z:\\fixture\\u1oldclientnewServicesidebysidepathbe91ff16ce964254b1777c0fb8112183.txt"
+          }
+        ],
+        "u1nextoldclientnewServicesidebysidepathd027e4ba21aa4d7e8d0c017286047d92.txt": []
+      },
+      "managedAndAiRowCounts": {
+        "managed_entries": 0,
+        "ai_jobs": 0,
+        "ai_job_items": 0,
+        "ai_analysis_state": 0
+      }
+    },
+    {
+      "scenario": "new-client-old-Service-side-by-side-path",
+      "harnessStatus": "PASS_DIRECT_BLOCKED",
+      "markerName": "u1newclientoldServicesidebysidepath2e00cbcaca924fc08486567aa7749694.txt",
+      "nextMarkerName": "u1nextnewclientoldServicesidebysidepathb15eb0675d5b49d7b4180b5272eefaf2.txt",
+      "watcherEventConfirmed": null,
+      "globalVolume": {
+        "id": "gv_4325f3881e12edb9c499b458e5cc9d157701ce441e76508e675067f96de2c8b0",
+        "index_status": "ready",
+        "last_error": null,
+        "journal_id": "134362251134822752",
+        "journal_cursor": "784",
+        "last_full_index_at": 1791751513,
+        "last_incremental_sync_at": 1791751513,
+        "entry_count": 4,
+        "updated_at": 1791751513
+      },
+      "activeEntryCountObserved": 4,
+      "markerRows": [
+        {
+          "name": "u1newclientoldServicesidebysidepath2e00cbcaca924fc08486567aa7749694.txt",
+          "path": "Z:\\fixture\\u1newclientoldServicesidebysidepath2e00cbcaca924fc08486567aa7749694.txt",
+          "is_stale": 0,
+          "source_provider": "windows_mft_usn",
+          "last_seen_at": 1791751513
+        }
+      ],
+      "ftsHitsByQuery": {
+        "u1newclientoldServicesidebysidepath2e00cbcaca924fc08486567aa7749694.txt": [
+          {
+            "name": "u1newclientoldServicesidebysidepath2e00cbcaca924fc08486567aa7749694.txt",
+            "path": "Z:\\fixture\\u1newclientoldServicesidebysidepath2e00cbcaca924fc08486567aa7749694.txt"
+          }
+        ],
+        "u1nextnewclientoldServicesidebysidepathb15eb0675d5b49d7b4180b5272eefaf2.txt": []
+      },
+      "managedAndAiRowCounts": {
+        "managed_entries": 0,
+        "ai_jobs": 0,
+        "ai_job_items": 0,
+        "ai_analysis_state": 0
+      }
+    }
+  ]
+}

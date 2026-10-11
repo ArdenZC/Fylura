@@ -1,0 +1,165 @@
+{
+  "recovery": {
+    "automaticUserFileMutationAuthorityAdded": 0,
+    "directFallbackAllowed": false,
+    "finalStatus": "ready",
+    "firstCycleStatus": "rebuild_required",
+    "lastFullIndexAt": 1791757065,
+    "nextAdmittedRebuildCount": 1,
+    "pausedViaPipe": true,
+    "protocol": 3,
+    "rebuildRequiredViaPipe": true,
+    "seededCursor": "9223372036854775807",
+    "seededJournalId": "18446744073709551615"
+  },
+  "sourceHead": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+  "sourceTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+  "profileRoot": "D:\\a\\_temp\\zb05-global-index-service-38178838324-1\\profile",
+  "rawTrace": [
+    "coordinator_cycle",
+    "windows_service_route_ok",
+    "coordinator_wait",
+    "coordinator_cycle",
+    "windows_service_route_ok",
+    "coordinator_wait",
+    "coordinator_cycle",
+    "windows_service_route_ok",
+    "coordinator_wait",
+    "coordinator_cycle",
+    "windows_service_route_ok",
+    "coordinator_wait",
+    "coordinator_cycle",
+    "windows_service_route_ok",
+    "coordinator_wait"
+  ],
+  "residentSamples": [],
+  "serviceSamples": [],
+  "residentStartup": null,
+  "residentClassification": "UNVERIFIED",
+  "expectedSourceHead": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+  "candidateExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+  "candidateSha256": "597C1893D880CF5E78F079168D86FD868259492CE05F5A4C46402CD9A7F3DFE7",
+  "runner": {
+    "caption": "Microsoft Windows Server 2025 Datacenter",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "64-bit",
+    "runId": "38178838324",
+    "runAttempt": "1"
+  },
+  "serviceName": "ZenCanvasGlobalIndex",
+  "serviceImagePath": "\"D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe\" --index-service",
+  "serviceCurrentExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+  "clientCurrentExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+  "sameImage": true,
+  "qualificationVolumeKind": "task-owned-vhdx",
+  "qualificationVolumeLetter": "Z:",
+  "expectedQualificationSourceId": "gv_0f4fa6dadfbeccd75d5b3715c8b52e3c894589f1355dfad38c20c54a1c1a9889",
+  "enabledSourceCountBeforeIndex": 1,
+  "enabledSourceCountAfterDiscovery": 1,
+  "qualificationVolumeJournalCreated": true,
+  "qualificationVolumeDetached": true,
+  "qualificationVhdRemoved": true,
+  "diskpartOperations": [
+    {
+      "name": "create-vhd",
+      "exitCode": 0,
+      "output": "Microsoft DiskPart version 10.0.26100.1150\r\n\r\nCopyright (C) Microsoft Corporation.\r\nOn computer: runnervmfi6oq\r\n\r\n\r\n    0 percent completed\r\n  100 percent completed\r\n\r\n\r\nDiskPart successfully created the virtual disk file.\r\n\r\nLeaving DiskPart..."
+    },
+    {
+      "name": "format-vhd",
+      "exitCode": 0,
+      "output": "Microsoft DiskPart version 10.0.26100.1150\r\n\r\nCopyright (C) Microsoft Corporation.\r\nOn computer: runnervmfi6oq\r\n\r\nDiskPart successfully selected the virtual disk file.\r\n\r\n\r\n  100 percent completed\r\n\r\n\r\nDiskPart successfully attached the virtual disk file.\r\n\r\nDiskPart succeeded in creating the specified partition.\r\n\r\n    0 percent completed\r\n    0 percent completed\r\n  100 percent completed\r\n\r\n\r\nDiskPart successfully formatted the volume.\r\n\r\nDiskPart successfully assigned the drive letter or mount point.\r\n\r\nLeaving DiskPart..."
+    },
+    {
+      "name": "detach-vhd",
+      "exitCode": 0,
+      "output": "Microsoft DiskPart version 10.0.26100.1150\r\n\r\nCopyright (C) Microsoft Corporation.\r\nOn computer: runnervmfi6oq\r\n\r\nDiskPart successfully selected the virtual disk file.\r\n\r\nDiskPart successfully detached the virtual disk file.\r\n\r\nLeaving DiskPart..."
+    }
+  ],
+  "fixedNtfsSource": "gv_0f4fa6dadfbeccd75d5b3715c8b52e3c894589f1355dfad38c20c54a1c1a9889",
+  "fixedNtfsMountPath": "Z:\\",
+  "provider": "windows_mft_usn",
+  "sourceStatus": "ready",
+  "sourceLastError": null,
+  "baselineEntryCount": 4,
+  "baselineWaitMs": 53,
+  "fixtureRoot": "Z:\\fixtures",
+  "fixtureVolume": "Z:",
+  "usnJournalProbes": [
+    {
+      "volume": "Z:",
+      "filesystem": "NTFS",
+      "driveType": 3,
+      "queryBeforeExitCode": 1,
+      "queryBeforeOutput": "Error 1179: The volume change journal is not active.",
+      "createExitCode": 0,
+      "createOutput": "",
+      "queryAfterExitCode": 0,
+      "queryAfterOutput": "Usn Journal ID   : 0x01dd59ce5755304f\r\nFirst Usn        : 0x0000000000000000\r\nNext Usn         : 0x0000000000000000\r\nLowest Valid Usn : 0x0000000000000000\r\nMax Usn          : 0x00000fffffff0000\r\nMaximum Size     : 0x0000000000100000 (  1.0 MB)\r\nAllocation Delta : 0x0000000000040000 (256.0 KB)\r\nMinimum record version supported : 2\r\nMaximum record version supported : 4\r\nWrite range tracking: Disabled"
+    }
+  ],
+  "baselineFixturePath": "Z:\\fixtures\\zb05qapreexisting87306894ffdc4e30ade058a200cabfcc.txt",
+  "baselineFixtureSearchFound": true,
+  "createLatencyMs": 16,
+  "renameLatencyMs": 110,
+  "deleteLatencyMs": 123,
+  "settledIdleWindowMs": 10018,
+  "settledCoordinatorCycleDelta": 0,
+  "settledCoordinatorWaitDelta": 0,
+  "serviceRouteObserved": true,
+  "serviceControl": [
+    {
+      "arguments": [
+        "create",
+        "ZenCanvasGlobalIndex",
+        "binPath=",
+        "\"D:\\a\\_temp\\issue-380-u1-worktrees-38178838324-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe\" --index-service",
+        "start=",
+        "demand",
+        "obj=",
+        "LocalSystem"
+      ],
+      "exitCode": 0,
+      "output": "[SC] CreateService SUCCESS"
+    },
+    {
+      "arguments": [
+        "start",
+        "ZenCanvasGlobalIndex"
+      ],
+      "exitCode": 0,
+      "output": "SERVICE_NAME: ZenCanvasGlobalIndex \r\n        TYPE               : 10  WIN32_OWN_PROCESS  \r\n        STATE              : 4  RUNNING \r\n                                (STOPPABLE, NOT_PAUSABLE, ACCEPTS_SHUTDOWN)\r\n        WIN32_EXIT_CODE    : 0  (0x0)\r\n        SERVICE_EXIT_CODE  : 0  (0x0)\r\n        CHECKPOINT         : 0x0\r\n        WAIT_HINT          : 0x0\r\n        PID                : 9028\r\n        FLAGS              :"
+    },
+    {
+      "arguments": [
+        "stop",
+        "ZenCanvasGlobalIndex"
+      ],
+      "exitCode": 0,
+      "output": "SERVICE_NAME: ZenCanvasGlobalIndex \r\n        TYPE               : 10  WIN32_OWN_PROCESS  \r\n        STATE              : 3  STOP_PENDING \r\n                                (NOT_STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)\r\n        WIN32_EXIT_CODE    : 0  (0x0)\r\n        SERVICE_EXIT_CODE  : 0  (0x0)\r\n        CHECKPOINT         : 0x1\r\n        WAIT_HINT          : 0x3a98"
+    },
+    {
+      "arguments": [
+        "delete",
+        "ZenCanvasGlobalIndex"
+      ],
+      "exitCode": 0,
+      "output": "[SC] DeleteService SUCCESS"
+    }
+  ],
+  "failure": null,
+  "cleanup": {
+    "serviceStopped": true,
+    "serviceDeleted": true,
+    "candidateProcessesTerminated": true,
+    "fixtureRootRemoved": true,
+    "qualificationVolumeDetached": true,
+    "taskProfileRemoved": true,
+    "details": [
+      "QA probe stopped"
+    ]
+  },
+  "settledIdleStartedAt": "2026-10-11T22:17:48.6742758Z",
+  "settledIdleFinishedAt": "2026-10-11T22:17:58.6921449Z"
+}

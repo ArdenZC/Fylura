@@ -10,15 +10,16 @@ pub mod volumes;
 
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use crate::global_index::models::{
-    GlobalSourceDescriptor, INDEX_STATUS_PERMISSION_REQUIRED, INDEX_STATUS_REBUILD_REQUIRED,
-    INDEX_STATUS_UNAVAILABLE, PROVIDER_WINDOWS_MFT_USN,
+    GlobalSourceDescriptor, INDEX_STATUS_INDEXING, INDEX_STATUS_PERMISSION_REQUIRED,
+    INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_SYNCING, INDEX_STATUS_UNAVAILABLE,
+    PROVIDER_WINDOWS_MFT_USN,
 };
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use service::{
-    IndexServiceCommand, IndexServiceEvent, IndexServiceLookupResponse, IndexServiceRequest,
-    IndexServiceResponse,
+    IndexServiceCallError, IndexServiceClientIo, IndexServiceCommand, IndexServiceEvent,
+    IndexServiceEventError, IndexServiceLookupResponse, IndexServiceRequest, IndexServiceResponse,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -172,6 +173,168 @@ pub struct WindowsGlobalIndexProvider {
     test_watcher_start_count: std::sync::atomic::AtomicUsize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IndexEventDisposition {
+    Admission,
+    Apply,
+}
+
+struct IndexServiceAdmission {
+    expected: crate::global_index::models::GlobalVolume,
+    active_status: &'static str,
+    requires_stale_before_entries: bool,
+    admitted: bool,
+    source_provider_seen: bool,
+    operation_payload_seen: bool,
+    volume_stale_seen: bool,
+    terminal_source_state_seen: bool,
+}
+
+fn discovered_sources_are_well_formed(
+    sources: &[crate::global_index::models::GlobalVolume],
+) -> bool {
+    let mut source_ids = HashSet::with_capacity(sources.len());
+    sources.iter().all(|source| {
+        !source.id.trim().is_empty()
+            && !source.stable_volume_id.trim().is_empty()
+            && !source.mount_path.trim().is_empty()
+            && !source.filesystem_type.trim().is_empty()
+            && !source.provider.trim().is_empty()
+            && source_ids.insert(source.id.as_str())
+    })
+}
+
+impl IndexServiceAdmission {
+    fn new(request: &IndexServiceRequest) -> Result<Self, String> {
+        let requires_stale_before_entries = matches!(
+            &request.command,
+            IndexServiceCommand::StartInitialIndex { .. } | IndexServiceCommand::Rebuild { .. }
+        );
+        let source_id = match &request.command {
+            IndexServiceCommand::StartInitialIndex { source_id }
+            | IndexServiceCommand::ResumeIncrementalSync { source_id }
+            | IndexServiceCommand::Rebuild { source_id } => source_id,
+            _ => return Err("index_service_admission_requires_index_command".to_string()),
+        };
+        let expected = request
+            .source
+            .as_ref()
+            .ok_or_else(|| "index_service_source_snapshot_required".to_string())?;
+        if expected.id != *source_id {
+            return Err("index_service_source_id_mismatch".to_string());
+        }
+        let source_reappeared = expected.index_status == INDEX_STATUS_UNAVAILABLE
+            && expected.last_error.as_deref() == Some("global_index_source_unavailable");
+        let active_status = if expected.last_full_index_at.is_some()
+            && !source_reappeared
+            && expected.index_status != INDEX_STATUS_REBUILD_REQUIRED
+        {
+            INDEX_STATUS_SYNCING
+        } else {
+            INDEX_STATUS_INDEXING
+        };
+        Ok(Self {
+            expected: expected.clone(),
+            active_status,
+            requires_stale_before_entries,
+            admitted: false,
+            source_provider_seen: false,
+            operation_payload_seen: false,
+            volume_stale_seen: false,
+            terminal_source_state_seen: false,
+        })
+    }
+
+    fn validate(&mut self, event: &IndexServiceEvent) -> Result<IndexEventDisposition, String> {
+        if let IndexServiceEvent::Sources { sources } = event {
+            if self.admitted {
+                return Err("index_service_duplicate_admission".to_string());
+            }
+            if sources.len() != 1
+                || !self.expected.enabled
+                || !sources[0].enabled
+                || !service::source_identity_matches(&self.expected, &sources[0])
+            {
+                return Err("index_service_admission_source_mismatch".to_string());
+            }
+            self.admitted = true;
+            return Ok(IndexEventDisposition::Admission);
+        }
+
+        if !self.admitted {
+            return Err("index_service_event_before_admission".to_string());
+        }
+        if self.terminal_source_state_seen {
+            return Err("index_service_event_after_terminal_source_state".to_string());
+        }
+        let expected_id = self.expected.id.as_str();
+        let volume_matches = match event {
+            IndexServiceEvent::Entries { entries } => entries.iter().all(|entry| {
+                entry.volume_id == expected_id
+                    && service::provider_snapshot_is_compatible(
+                        &entry.source_provider,
+                        &self.expected.provider,
+                    )
+            }),
+            IndexServiceEvent::EntryStale { volume_id, .. }
+            | IndexServiceEvent::VolumeEntriesStale { volume_id }
+            | IndexServiceEvent::Checkpoint { volume_id, .. }
+            | IndexServiceEvent::SourceState { volume_id, .. }
+            | IndexServiceEvent::SourceProvider { volume_id, .. }
+            | IndexServiceEvent::ResolveParentPath { volume_id, .. }
+            | IndexServiceEvent::FindEntryByIdentity { volume_id, .. } => volume_id == expected_id,
+            IndexServiceEvent::Sources { .. } => unreachable!("handled above"),
+        };
+        if !volume_matches {
+            return Err("index_service_event_source_mismatch".to_string());
+        }
+        if self.requires_stale_before_entries
+            && matches!(event, IndexServiceEvent::Entries { .. })
+            && !self.volume_stale_seen
+        {
+            return Err("index_service_entries_before_volume_stale".to_string());
+        }
+        match event {
+            IndexServiceEvent::SourceProvider { provider, .. } => {
+                if self.source_provider_seen || self.operation_payload_seen {
+                    return Err("index_service_source_provider_event_out_of_order".to_string());
+                }
+                if !service::provider_snapshot_is_compatible(provider, &self.expected.provider) {
+                    return Err("index_service_event_provider_mismatch".to_string());
+                }
+                self.source_provider_seen = true;
+            }
+            IndexServiceEvent::SourceState { .. } => {
+                self.terminal_source_state_seen = true;
+            }
+            IndexServiceEvent::VolumeEntriesStale { .. } => {
+                if !self.source_provider_seen || self.volume_stale_seen {
+                    return Err("index_service_volume_stale_event_out_of_order".to_string());
+                }
+                self.volume_stale_seen = true;
+                self.operation_payload_seen = true;
+            }
+            _ => {
+                if !self.source_provider_seen {
+                    return Err("index_service_operation_event_before_source_provider".to_string());
+                }
+                self.operation_payload_seen = true;
+            }
+        }
+        if let IndexServiceEvent::Entries { entries } = event {
+            if !entries.iter().all(|entry| {
+                service::provider_snapshot_is_compatible(
+                    &entry.source_provider,
+                    &self.expected.provider,
+                )
+            }) {
+                return Err("index_service_event_provider_mismatch".to_string());
+            }
+        }
+        Ok(IndexEventDisposition::Apply)
+    }
+}
+
 impl WindowsGlobalIndexProvider {
     pub fn new() -> Self {
         Self::with_wake(
@@ -302,13 +465,14 @@ impl WindowsGlobalIndexProvider {
         request: &IndexServiceRequest,
         source: &GlobalSourceDescriptor,
         sink: &mut dyn GlobalIndexSink,
+        cancel: &AtomicBool,
         direct: impl FnOnce(
             &DirectWindowsGlobalIndexProvider,
             &mut dyn GlobalIndexSink,
         ) -> Result<(), GlobalIndexError>,
     ) -> Result<(), GlobalIndexError> {
         self.ensure_native_change_watcher(source)?;
-        self.run_with_fallback(request, sink, direct)
+        self.run_with_fallback(request, sink, cancel, direct)
     }
 
     fn service_failed(&self) {
@@ -330,42 +494,42 @@ impl WindowsGlobalIndexProvider {
         IndexServiceRequest::new(command, Some(source.volume.clone()))
     }
 
-    fn apply_event(
+    fn apply_event<C: IndexServiceClientIo>(
         sink: &mut dyn GlobalIndexSink,
-        client: &mut service::IndexServiceClient,
+        client: &mut C,
         event: IndexServiceEvent,
-    ) -> Result<(), String> {
+    ) -> Result<(), IndexServiceEventError> {
         match event {
             IndexServiceEvent::Entries { entries } => sink
                 .write_batch(&entries)
                 .map(|_| ())
-                .map_err(|error| error.to_string()),
-            IndexServiceEvent::EntryStale { entry_id } => sink
+                .map_err(IndexServiceEventError::Sink),
+            IndexServiceEvent::EntryStale { entry_id, .. } => sink
                 .mark_entry_stale(&entry_id)
-                .map_err(|error| error.to_string()),
+                .map_err(IndexServiceEventError::Sink),
             IndexServiceEvent::VolumeEntriesStale { volume_id } => sink
                 .mark_volume_entries_stale(&volume_id)
-                .map_err(|error| error.to_string()),
+                .map_err(IndexServiceEventError::Sink),
             IndexServiceEvent::Checkpoint {
                 volume_id,
                 journal_id,
                 journal_cursor,
             } => sink
                 .checkpoint(&volume_id, journal_id.as_deref(), journal_cursor.as_deref())
-                .map_err(|error| error.to_string()),
+                .map_err(IndexServiceEventError::Sink),
             IndexServiceEvent::SourceState {
                 volume_id,
                 status,
                 error,
             } => sink
                 .set_source_state(&volume_id, &status, error.as_deref())
-                .map_err(|error| error.to_string()),
+                .map_err(IndexServiceEventError::Sink),
             IndexServiceEvent::SourceProvider {
                 volume_id,
                 provider,
             } => sink
                 .set_source_provider(&volume_id, &provider)
-                .map_err(|error| error.to_string()),
+                .map_err(IndexServiceEventError::Sink),
             IndexServiceEvent::ResolveParentPath {
                 lookup_id,
                 volume_id,
@@ -373,11 +537,13 @@ impl WindowsGlobalIndexProvider {
             } => {
                 let path = sink
                     .resolve_parent_path(&volume_id, &parent_platform_file_id)
-                    .map_err(|error| error.to_string())?;
-                client.send_lookup_response(IndexServiceLookupResponse::ParentPath {
-                    lookup_id,
-                    path,
-                })
+                    .map_err(IndexServiceEventError::Sink)?;
+                client
+                    .send_lookup_response(IndexServiceLookupResponse::ParentPath {
+                        lookup_id,
+                        path,
+                    })
+                    .map_err(IndexServiceEventError::Transport)
             }
             IndexServiceEvent::FindEntryByIdentity {
                 lookup_id,
@@ -393,11 +559,13 @@ impl WindowsGlobalIndexProvider {
                         &parent_platform_file_id,
                         &name,
                     )
-                    .map_err(|error| error.to_string())?;
-                client.send_lookup_response(IndexServiceLookupResponse::Entry {
-                    lookup_id,
-                    entry: Box::new(entry),
-                })
+                    .map_err(IndexServiceEventError::Sink)?;
+                client
+                    .send_lookup_response(IndexServiceLookupResponse::Entry {
+                        lookup_id,
+                        entry: Box::new(entry),
+                    })
+                    .map_err(IndexServiceEventError::Transport)
             }
             IndexServiceEvent::Sources { .. } => Ok(()),
         }
@@ -407,12 +575,86 @@ impl WindowsGlobalIndexProvider {
         &self,
         request: &IndexServiceRequest,
         sink: &mut dyn GlobalIndexSink,
-    ) -> Result<Result<(), GlobalIndexError>, String> {
+        cancel: &AtomicBool,
+    ) -> Result<Result<(), GlobalIndexError>, IndexServiceCallError> {
+        service::validate_request(request).map_err(IndexServiceCallError::InvalidRequest)?;
+        if cancel.load(Ordering::Acquire) {
+            return Ok(Err(GlobalIndexError::Paused));
+        }
+        let mut admission =
+            IndexServiceAdmission::new(request).map_err(IndexServiceCallError::InvalidRequest)?;
         let response = service::call_index_service_stream(request, |client, event| {
-            Self::apply_event(sink, client, event)
+            Self::apply_validated_index_event(&mut admission, sink, cancel, client, event)
         })?;
+        self.finish_service_stream(request, admission, response)
+    }
+
+    fn run_service_stream_with_client<C: IndexServiceClientIo>(
+        &self,
+        request: &IndexServiceRequest,
+        sink: &mut dyn GlobalIndexSink,
+        cancel: &AtomicBool,
+        client: &mut C,
+    ) -> Result<Result<(), GlobalIndexError>, IndexServiceCallError> {
+        service::validate_request(request).map_err(IndexServiceCallError::InvalidRequest)?;
+        if cancel.load(Ordering::Acquire) {
+            return Ok(Err(GlobalIndexError::Paused));
+        }
+        let mut admission =
+            IndexServiceAdmission::new(request).map_err(IndexServiceCallError::InvalidRequest)?;
+        let response = service::call_stream_with_client(request, client, |client, event| {
+            Self::apply_validated_index_event(&mut admission, sink, cancel, client, event)
+        })?;
+        self.finish_service_stream(request, admission, response)
+    }
+
+    fn apply_validated_index_event<C: IndexServiceClientIo>(
+        admission: &mut IndexServiceAdmission,
+        sink: &mut dyn GlobalIndexSink,
+        cancel: &AtomicBool,
+        client: &mut C,
+        event: IndexServiceEvent,
+    ) -> Result<(), IndexServiceEventError> {
+        if cancel.load(Ordering::Acquire) {
+            return Err(IndexServiceEventError::Rejected(
+                "index_service_request_cancelled_after_dispatch".to_string(),
+            ));
+        }
+        match admission
+            .validate(&event)
+            .map_err(IndexServiceEventError::Rejected)?
+        {
+            IndexEventDisposition::Admission => sink
+                .set_source_state(
+                    &admission.expected.id,
+                    admission.active_status,
+                    (admission.expected.index_status == INDEX_STATUS_PERMISSION_REQUIRED)
+                        .then_some(admission.expected.last_error.as_deref())
+                        .flatten(),
+                )
+                .map_err(IndexServiceEventError::Sink),
+            IndexEventDisposition::Apply => Self::apply_event(sink, client, event),
+        }
+    }
+
+    fn finish_service_stream(
+        &self,
+        _request: &IndexServiceRequest,
+        admission: IndexServiceAdmission,
+        response: IndexServiceResponse,
+    ) -> Result<Result<(), GlobalIndexError>, IndexServiceCallError> {
         if response.ok {
+            if !admission.admitted {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_success_before_admission".to_string(),
+                ));
+            }
             super::qa_trace::record("windows_service_route_ok");
+        } else if response.error_code.as_deref() == Some("index_service_busy") && admission.admitted
+        {
+            return Err(IndexServiceCallError::UnknownOutcome(
+                "index_service_busy_after_admission".to_string(),
+            ));
         }
         self.service_connected();
         if response.ok {
@@ -426,19 +668,48 @@ impl WindowsGlobalIndexProvider {
         &self,
         request: &IndexServiceRequest,
         sink: &mut dyn GlobalIndexSink,
+        cancel: &AtomicBool,
         direct: impl FnOnce(
             &DirectWindowsGlobalIndexProvider,
             &mut dyn GlobalIndexSink,
         ) -> Result<(), GlobalIndexError>,
     ) -> Result<(), GlobalIndexError> {
+        self.run_with_fallback_using(
+            request,
+            sink,
+            cancel,
+            direct,
+            |provider, request, sink, cancel| provider.run_service_stream(request, sink, cancel),
+        )
+    }
+
+    fn run_with_fallback_using<F>(
+        &self,
+        request: &IndexServiceRequest,
+        sink: &mut dyn GlobalIndexSink,
+        cancel: &AtomicBool,
+        direct: impl FnOnce(
+            &DirectWindowsGlobalIndexProvider,
+            &mut dyn GlobalIndexSink,
+        ) -> Result<(), GlobalIndexError>,
+        service_call: F,
+    ) -> Result<(), GlobalIndexError>
+    where
+        F: FnOnce(
+            &Self,
+            &IndexServiceRequest,
+            &mut dyn GlobalIndexSink,
+            &AtomicBool,
+        ) -> Result<Result<(), GlobalIndexError>, IndexServiceCallError>,
+    {
         #[cfg(test)]
         if self.force_direct {
             return direct(&self.direct, sink);
         }
-        match self.run_service_stream(request, sink) {
+        match service_call(self, request, sink, cancel) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(error)) => Err(error),
-            Err(error) => {
+            Err(IndexServiceCallError::NotSent(error)) => {
                 self.service_failed();
                 let _ = sink.set_source_state(
                     request
@@ -450,6 +721,14 @@ impl WindowsGlobalIndexProvider {
                     Some(&error),
                 );
                 direct(&self.direct, sink)
+            }
+            Err(IndexServiceCallError::InvalidRequest(error)) => {
+                Err(GlobalIndexError::Provider(error))
+            }
+            Err(IndexServiceCallError::SinkFailure(error)) => Err(error),
+            Err(IndexServiceCallError::UnknownOutcome(error)) => {
+                self.service_failed();
+                Err(GlobalIndexError::ServiceOutcomeUnknown(error))
             }
         }
     }
@@ -469,27 +748,46 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
         }
         let request = IndexServiceRequest::new(IndexServiceCommand::DiscoverSources, None);
         let mut sources = None;
-        match service::call_index_service_stream(&request, |_client, event| {
-            if let IndexServiceEvent::Sources {
+        match service::call_index_service_stream(&request, |_client, event| match event {
+            IndexServiceEvent::Sources {
                 sources: discovered,
-            } = event
-            {
+            } => {
+                if sources.is_some() || !discovered_sources_are_well_formed(&discovered) {
+                    return Err(IndexServiceEventError::Rejected(
+                        "index_service_invalid_sources_event".to_string(),
+                    ));
+                }
                 sources = Some(discovered);
+                Ok(())
             }
-            Ok(())
+            _ => Err(IndexServiceEventError::Rejected(
+                "index_service_unexpected_discovery_event".to_string(),
+            )),
         }) {
             Ok(response) if response.ok => {
                 self.service_connected();
+                let sources = sources.ok_or_else(|| {
+                    GlobalIndexError::ServiceOutcomeUnknown(
+                        "index_service_discovery_missing_sources_event".to_string(),
+                    )
+                })?;
                 Ok(sources
-                    .unwrap_or_default()
                     .into_iter()
                     .map(|volume| GlobalSourceDescriptor { volume })
                     .collect())
             }
             Ok(response) => Err(Self::service_response_error(&response)),
-            Err(_) => {
+            Err(IndexServiceCallError::NotSent(_)) => {
                 self.service_failed();
                 self.direct.discover_sources()
+            }
+            Err(IndexServiceCallError::InvalidRequest(error)) => {
+                Err(GlobalIndexError::Provider(error))
+            }
+            Err(IndexServiceCallError::SinkFailure(error)) => Err(error),
+            Err(IndexServiceCallError::UnknownOutcome(error)) => {
+                self.service_failed();
+                Err(GlobalIndexError::ServiceOutcomeUnknown(error))
             }
         }
     }
@@ -506,7 +804,7 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
             },
             source,
         );
-        self.run_source_request(&request, source, sink, |direct, sink| {
+        self.run_source_request(&request, source, sink, cancel, |direct, sink| {
             direct.start_initial_index(source, sink, cancel)
         })
     }
@@ -523,7 +821,7 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
             },
             source,
         );
-        self.run_source_request(&request, source, sink, |direct, sink| {
+        self.run_source_request(&request, source, sink, cancel, |direct, sink| {
             direct.resume_incremental_sync(source, sink, cancel)
         })
     }
@@ -537,9 +835,17 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
                 Ok(())
             }
             Ok(response) => Err(Self::service_response_error(&response)),
-            Err(_) => {
+            Err(IndexServiceCallError::NotSent(_)) => {
                 self.service_failed();
                 self.direct.pause()
+            }
+            Err(IndexServiceCallError::InvalidRequest(error)) => {
+                Err(GlobalIndexError::Provider(error))
+            }
+            Err(IndexServiceCallError::SinkFailure(error)) => Err(error),
+            Err(IndexServiceCallError::UnknownOutcome(error)) => {
+                self.service_failed();
+                Err(GlobalIndexError::ServiceOutcomeUnknown(error))
             }
         }
     }
@@ -555,9 +861,17 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
                 ))
             }
             Ok(response) => Err(Self::service_response_error(&response)),
-            Err(_) => {
+            Err(IndexServiceCallError::NotSent(_)) => {
                 self.service_failed();
                 Ok(format!("{}:service_unavailable", self.direct.status()?))
+            }
+            Err(IndexServiceCallError::InvalidRequest(error)) => {
+                Err(GlobalIndexError::Provider(error))
+            }
+            Err(IndexServiceCallError::SinkFailure(error)) => Err(error),
+            Err(IndexServiceCallError::UnknownOutcome(error)) => {
+                self.service_failed();
+                Err(GlobalIndexError::ServiceOutcomeUnknown(error))
             }
         }
     }
@@ -569,6 +883,10 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
         // process lifetime and installer/uninstaller owns registration.
         let _ = self.pause();
         self.direct.shutdown()
+    }
+
+    fn defers_active_status_until_admission(&self) -> bool {
+        true
     }
 
     fn topology_audit_interval(&self) -> Option<std::time::Duration> {
@@ -747,10 +1065,16 @@ mod tests {
         let mut sink = SourceStateSink::default();
         let mut reached_direct_provider = false;
         provider
-            .run_source_request(&request, &source, &mut sink, |_direct, _sink| {
-                reached_direct_provider = true;
-                Ok(())
-            })
+            .run_source_request(
+                &request,
+                &source,
+                &mut sink,
+                &AtomicBool::new(false),
+                |_direct, _sink| {
+                    reached_direct_provider = true;
+                    Ok(())
+                },
+            )
             .expect("request continues after watcher replacement");
 
         assert!(reached_direct_provider, "USN provider path was not reached");

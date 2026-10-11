@@ -6,8 +6,10 @@
 //! arbitrary paths or file-operation commands, and service shutdown remains an
 //! SCM-only operation.
 
+use crate::global_index::coordinator::GlobalIndexError;
 use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 pub const IPC_PROTOCOL_VERSION: u16 = 3;
 pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v3";
@@ -61,6 +63,7 @@ pub enum IndexServiceEvent {
         entries: Vec<GlobalEntryInput>,
     },
     EntryStale {
+        volume_id: String,
         entry_id: String,
     },
     VolumeEntriesStale {
@@ -122,6 +125,166 @@ pub enum IndexServiceFrame {
     },
 }
 
+/// A transport failure is safe for the Direct provider only when the request
+/// was provably never sent. Once a write is attempted, a lost/malformed reply
+/// leaves execution unknown and must not trigger a duplicate operation.
+#[derive(Debug, Error)]
+pub enum IndexServiceCallError {
+    #[error("invalid index service request: {0}")]
+    InvalidRequest(String),
+    #[error("index service unavailable before request dispatch: {0}")]
+    NotSent(String),
+    #[error("index service request outcome unknown: {0}")]
+    UnknownOutcome(String),
+    #[error("index service event could not be applied to the local sink: {0}")]
+    SinkFailure(#[source] GlobalIndexError),
+}
+
+#[derive(Debug)]
+pub(crate) enum IndexServiceEventError {
+    Rejected(String),
+    Transport(String),
+    Sink(GlobalIndexError),
+}
+
+pub(crate) trait IndexServiceClientIo {
+    fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), String>;
+    fn read_frame(&mut self) -> Result<IndexServiceFrame, String>;
+    fn send_lookup_response(&mut self, response: IndexServiceLookupResponse) -> Result<(), String>;
+}
+
+pub(crate) trait IndexServiceServerIo {
+    fn send_event(&mut self, event: IndexServiceEvent) -> Result<(), String>;
+    fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String>;
+    fn read_lookup_response(
+        &mut self,
+        expected_lookup_id: &str,
+    ) -> Result<IndexServiceLookupResponse, String>;
+}
+
+/// Consume frames through the same client protocol loop used by the named
+/// pipe implementation. This boundary also lets Service/Client contract tests
+/// drive the production validators with in-process frame transports.
+pub(crate) fn call_stream_with_client<C, F>(
+    request: &IndexServiceRequest,
+    client: &mut C,
+    mut on_event: F,
+) -> Result<IndexServiceResponse, IndexServiceCallError>
+where
+    C: IndexServiceClientIo,
+    F: FnMut(&mut C, IndexServiceEvent) -> Result<(), IndexServiceEventError>,
+{
+    validate_request(request).map_err(IndexServiceCallError::InvalidRequest)?;
+    client
+        .send_request(request)
+        .map_err(IndexServiceCallError::UnknownOutcome)?;
+    loop {
+        match client
+            .read_frame()
+            .map_err(IndexServiceCallError::UnknownOutcome)?
+        {
+            IndexServiceFrame::Response { response } => {
+                validate_response(request, &response)
+                    .map_err(IndexServiceCallError::UnknownOutcome)?;
+                return Ok(response);
+            }
+            IndexServiceFrame::Event { request_id, event } => {
+                if request_id != request.request_id {
+                    return Err(IndexServiceCallError::UnknownOutcome(
+                        "index_service_event_request_id_mismatch".to_string(),
+                    ));
+                }
+                on_event(client, event).map_err(|error| match error {
+                    IndexServiceEventError::Rejected(message)
+                    | IndexServiceEventError::Transport(message) => {
+                        IndexServiceCallError::UnknownOutcome(message)
+                    }
+                    IndexServiceEventError::Sink(error) => {
+                        IndexServiceCallError::SinkFailure(error)
+                    }
+                })?;
+            }
+            IndexServiceFrame::LookupResponse { .. } => {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_unexpected_lookup_response".to_string(),
+                ));
+            }
+        }
+    }
+}
+
+pub(crate) fn call_with_client<C: IndexServiceClientIo>(
+    request: &IndexServiceRequest,
+    client: &mut C,
+) -> Result<IndexServiceResponse, IndexServiceCallError> {
+    validate_request(request).map_err(IndexServiceCallError::InvalidRequest)?;
+    client
+        .send_request(request)
+        .map_err(IndexServiceCallError::UnknownOutcome)?;
+    loop {
+        match client
+            .read_frame()
+            .map_err(IndexServiceCallError::UnknownOutcome)?
+        {
+            IndexServiceFrame::Response { response } => {
+                validate_response(request, &response)
+                    .map_err(IndexServiceCallError::UnknownOutcome)?;
+                return Ok(response);
+            }
+            IndexServiceFrame::Event { request_id, .. } => {
+                if request_id != request.request_id {
+                    return Err(IndexServiceCallError::UnknownOutcome(
+                        "index_service_event_request_id_mismatch".to_string(),
+                    ));
+                }
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_unexpected_event".to_string(),
+                ));
+            }
+            IndexServiceFrame::LookupResponse { .. } => {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_unexpected_lookup_response".to_string(),
+                ));
+            }
+        }
+    }
+}
+
+fn validate_response(
+    request: &IndexServiceRequest,
+    response: &IndexServiceResponse,
+) -> Result<(), String> {
+    if response.protocol_version != IPC_PROTOCOL_VERSION {
+        return Err("index_service_response_protocol_mismatch".to_string());
+    }
+    if response.request_id != request.request_id {
+        return Err("index_service_response_request_id_mismatch".to_string());
+    }
+    if response.ok && response.error_code.is_some() {
+        return Err("index_service_response_success_has_error_code".to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn provider_snapshot_is_compatible(current: &str, snapshot: &str) -> bool {
+    current == snapshot
+        || (current == crate::global_index::models::PROVIDER_WINDOWS_MFT_USN
+            && snapshot == crate::global_index::models::PROVIDER_WINDOWS_RECURSIVE_FALLBACK)
+}
+
+pub(crate) fn source_identity_matches(snapshot: &GlobalVolume, admitted: &GlobalVolume) -> bool {
+    snapshot.id == admitted.id
+        && snapshot.platform.eq_ignore_ascii_case(&admitted.platform)
+        && snapshot.stable_volume_id == admitted.stable_volume_id
+        && snapshot
+            .mount_path
+            .eq_ignore_ascii_case(&admitted.mount_path)
+        && snapshot
+            .filesystem_type
+            .eq_ignore_ascii_case(&admitted.filesystem_type)
+        && provider_snapshot_is_compatible(&admitted.provider, &snapshot.provider)
+}
+
 impl IndexServiceRequest {
     pub fn new(command: IndexServiceCommand, source: Option<GlobalVolume>) -> Self {
         Self {
@@ -151,6 +314,9 @@ pub fn validate_request(request: &IndexServiceRequest) -> Result<(), String> {
                 .source
                 .as_ref()
                 .ok_or_else(|| "index_service_source_snapshot_required".to_string())?;
+            if source.id != *source_id {
+                return Err("index_service_source_id_mismatch".to_string());
+            }
             validate_source_snapshot(source)?;
         }
         IndexServiceCommand::Shutdown => {
@@ -189,8 +355,9 @@ pub fn direct_mode_reason() -> &'static str {
 #[cfg(windows)]
 mod named_pipe {
     use super::{
-        validate_request, IndexServiceEvent, IndexServiceFrame, IndexServiceLookupResponse,
-        IndexServiceRequest, IndexServiceResponse, INDEX_SERVICE_PIPE,
+        validate_request, IndexServiceCallError, IndexServiceClientIo, IndexServiceEvent,
+        IndexServiceEventError, IndexServiceFrame, IndexServiceLookupResponse, IndexServiceRequest,
+        IndexServiceResponse, IndexServiceServerIo, INDEX_SERVICE_PIPE,
     };
     use std::path::PathBuf;
     use std::ptr;
@@ -255,40 +422,41 @@ mod named_pipe {
         }
     }
 
-    pub fn call(request: &IndexServiceRequest) -> Result<IndexServiceResponse, String> {
-        validate_request(request)?;
-        let mut client = connect()?;
-        client.send_request(request)?;
-        loop {
-            match client.read_frame()? {
-                IndexServiceFrame::Response { response } => return Ok(response),
-                IndexServiceFrame::Event { .. } => continue,
-                IndexServiceFrame::LookupResponse { .. } => {
-                    return Err("index_service_unexpected_lookup_response".to_string());
-                }
-            }
+    impl IndexServiceClientIo for IndexServiceClient {
+        fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), String> {
+            IndexServiceClient::send_request(self, request)
+        }
+
+        fn read_frame(&mut self) -> Result<IndexServiceFrame, String> {
+            IndexServiceClient::read_frame(self)
+        }
+
+        fn send_lookup_response(
+            &mut self,
+            response: IndexServiceLookupResponse,
+        ) -> Result<(), String> {
+            IndexServiceClient::send_lookup_response(self, response)
         }
     }
 
-    pub fn call_stream<F>(
+    pub fn call(
         request: &IndexServiceRequest,
-        mut on_event: F,
-    ) -> Result<IndexServiceResponse, String>
+    ) -> Result<IndexServiceResponse, IndexServiceCallError> {
+        validate_request(request).map_err(IndexServiceCallError::InvalidRequest)?;
+        let mut client = connect().map_err(IndexServiceCallError::NotSent)?;
+        super::call_with_client(request, &mut client)
+    }
+
+    pub(crate) fn call_stream<F>(
+        request: &IndexServiceRequest,
+        on_event: F,
+    ) -> Result<IndexServiceResponse, IndexServiceCallError>
     where
-        F: FnMut(&mut IndexServiceClient, IndexServiceEvent) -> Result<(), String>,
+        F: FnMut(&mut IndexServiceClient, IndexServiceEvent) -> Result<(), IndexServiceEventError>,
     {
-        validate_request(request)?;
-        let mut client = connect()?;
-        client.send_request(request)?;
-        loop {
-            match client.read_frame()? {
-                IndexServiceFrame::Response { response } => return Ok(response),
-                IndexServiceFrame::Event { event, .. } => on_event(&mut client, event)?,
-                IndexServiceFrame::LookupResponse { .. } => {
-                    return Err("index_service_unexpected_lookup_response".to_string());
-                }
-            }
-        }
+        validate_request(request).map_err(IndexServiceCallError::InvalidRequest)?;
+        let mut client = connect().map_err(IndexServiceCallError::NotSent)?;
+        super::call_stream_with_client(request, &mut client, on_event)
     }
 
     pub fn wake_service_pipe() {
@@ -351,6 +519,23 @@ mod named_pipe {
                 return Err("index_service_lookup_id_mismatch".to_string());
             }
             Ok(response)
+        }
+    }
+
+    impl IndexServiceServerIo for IndexServiceServerConnection {
+        fn send_event(&mut self, event: IndexServiceEvent) -> Result<(), String> {
+            IndexServiceServerConnection::send_event(self, event)
+        }
+
+        fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String> {
+            IndexServiceServerConnection::send_response(self, response)
+        }
+
+        fn read_lookup_response(
+            &mut self,
+            expected_lookup_id: &str,
+        ) -> Result<IndexServiceLookupResponse, String> {
+            IndexServiceServerConnection::read_lookup_response(self, expected_lookup_id)
         }
     }
 
@@ -705,14 +890,64 @@ mod named_pipe {
 
 #[cfg(windows)]
 pub use named_pipe::{
-    call as call_index_service, call_stream as call_index_service_stream,
-    serve_loop as serve_index_service_loop, serve_once as serve_index_service_once,
-    wake_service_pipe, IndexServiceClient, IndexServiceServerConnection, ServiceRequestHandler,
+    call as call_index_service, serve_loop as serve_index_service_loop,
+    serve_once as serve_index_service_once, wake_service_pipe, IndexServiceClient,
+    IndexServiceServerConnection, ServiceRequestHandler,
 };
+
+#[cfg(windows)]
+pub(crate) use named_pipe::call_stream as call_index_service_stream;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+
+    struct ScriptedClient {
+        request: Option<IndexServiceRequest>,
+        frames: VecDeque<Result<IndexServiceFrame, String>>,
+        lookup_responses: Vec<IndexServiceLookupResponse>,
+    }
+
+    impl ScriptedClient {
+        fn new(frames: impl IntoIterator<Item = IndexServiceFrame>) -> Self {
+            Self {
+                request: None,
+                frames: frames.into_iter().map(Ok).collect(),
+                lookup_responses: Vec::new(),
+            }
+        }
+    }
+
+    impl IndexServiceClientIo for ScriptedClient {
+        fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), String> {
+            self.request = Some(request.clone());
+            Ok(())
+        }
+
+        fn read_frame(&mut self) -> Result<IndexServiceFrame, String> {
+            self.frames
+                .pop_front()
+                .unwrap_or_else(|| Err("scripted_service_stream_ended".to_string()))
+        }
+
+        fn send_lookup_response(
+            &mut self,
+            response: IndexServiceLookupResponse,
+        ) -> Result<(), String> {
+            self.lookup_responses.push(response);
+            Ok(())
+        }
+    }
+
+    fn status_request() -> IndexServiceRequest {
+        IndexServiceRequest {
+            protocol_version: IPC_PROTOCOL_VERSION,
+            request_id: "request-correlated".to_string(),
+            command: IndexServiceCommand::Status,
+            source: None,
+        }
+    }
 
     #[test]
     fn rejects_unknown_protocol_and_shutdown_over_ipc() {
@@ -789,6 +1024,117 @@ mod tests {
                     "journal_cursor": "cursor-1",
                 },
             })
+        );
+    }
+
+    #[test]
+    fn v3_client_rejects_response_protocol_and_request_id_mismatches() {
+        for response in [
+            IndexServiceResponse {
+                protocol_version: IPC_PROTOCOL_VERSION + 1,
+                request_id: "request-correlated".into(),
+                ok: true,
+                error_code: None,
+                message: None,
+                status: Some("ready".into()),
+            },
+            IndexServiceResponse {
+                protocol_version: IPC_PROTOCOL_VERSION,
+                request_id: "replayed-request".into(),
+                ok: true,
+                error_code: None,
+                message: None,
+                status: Some("ready".into()),
+            },
+        ] {
+            let request = status_request();
+            let mut client = ScriptedClient::new([IndexServiceFrame::Response { response }]);
+            assert!(matches!(
+                call_with_client(&request, &mut client),
+                Err(IndexServiceCallError::UnknownOutcome(_))
+            ));
+            assert_eq!(client.request, Some(request));
+        }
+    }
+
+    #[test]
+    fn v3_client_checks_event_request_id_before_invoking_stateful_callback() {
+        let request = status_request();
+        let mut client = ScriptedClient::new([
+            IndexServiceFrame::Event {
+                request_id: "replayed-request".into(),
+                event: IndexServiceEvent::Sources {
+                    sources: Vec::new(),
+                },
+            },
+            IndexServiceFrame::Response {
+                response: IndexServiceResponse {
+                    protocol_version: IPC_PROTOCOL_VERSION,
+                    request_id: request.request_id.clone(),
+                    ok: true,
+                    error_code: None,
+                    message: None,
+                    status: Some("ready".into()),
+                },
+            },
+        ]);
+        let mut callback_count = 0;
+        let result = call_stream_with_client(&request, &mut client, |_client, _event| {
+            callback_count += 1;
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(IndexServiceCallError::UnknownOutcome(_))
+        ));
+        assert_eq!(callback_count, 0);
+    }
+
+    #[test]
+    fn v3_client_treats_partial_request_write_and_post_send_disconnect_as_unknown() {
+        let request = status_request();
+        let mut client = ScriptedClient::new([]);
+        client
+            .frames
+            .push_back(Err("pipe_disconnected_after_dispatch".into()));
+        assert!(matches!(
+            call_stream_with_client(&request, &mut client, |_client, _event| Ok(())),
+            Err(IndexServiceCallError::UnknownOutcome(_))
+        ));
+        assert_eq!(client.request, Some(request));
+    }
+
+    #[test]
+    fn indexed_request_must_bind_command_source_to_snapshot_identity() {
+        let mut request = IndexServiceRequest::new(
+            IndexServiceCommand::Rebuild {
+                source_id: "requested-volume".into(),
+            },
+            Some(GlobalVolume {
+                id: "different-volume".into(),
+                platform: "windows".into(),
+                stable_volume_id: "stable".into(),
+                display_name: "C".into(),
+                mount_path: "C:\\".into(),
+                filesystem_type: "ntfs".into(),
+                drive_kind: "fixed".into(),
+                enabled: true,
+                provider: "windows_mft_usn".into(),
+                index_status: "ready".into(),
+                last_error: None,
+                journal_id: None,
+                journal_cursor: None,
+                last_full_index_at: None,
+                last_incremental_sync_at: None,
+                entry_count: 0,
+                created_at: 0,
+                updated_at: 0,
+            }),
+        );
+        request.request_id = "request-source-mismatch".into();
+        assert_eq!(
+            validate_request(&request),
+            Err("index_service_source_id_mismatch".to_string())
         );
     }
 }

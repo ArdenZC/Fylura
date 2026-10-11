@@ -6,7 +6,7 @@
 
 use super::service::{
     IndexServiceCommand, IndexServiceEvent, IndexServiceLookupResponse, IndexServiceRequest,
-    IndexServiceResponse, IndexServiceServerConnection,
+    IndexServiceResponse, IndexServiceServerConnection, IndexServiceServerIo,
 };
 use super::{volumes, DirectWindowsGlobalIndexProvider};
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
@@ -48,7 +48,7 @@ struct ServiceRuntime {
     busy: AtomicBool,
     state: Mutex<ServiceLifecycleState>,
     operation_lock: Mutex<()>,
-    provider: DirectWindowsGlobalIndexProvider,
+    provider: Arc<dyn GlobalIndexProvider>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -59,6 +59,10 @@ struct ServiceLifecycleState {
 
 impl ServiceRuntime {
     fn new() -> Self {
+        Self::with_provider(Arc::new(DirectWindowsGlobalIndexProvider::new()))
+    }
+
+    fn with_provider(provider: Arc<dyn GlobalIndexProvider>) -> Self {
         Self {
             stop: Arc::new(AtomicBool::new(false)),
             cancel: Arc::new(AtomicBool::new(false)),
@@ -68,7 +72,7 @@ impl ServiceRuntime {
                 last_error: None,
             }),
             operation_lock: Mutex::new(()),
-            provider: DirectWindowsGlobalIndexProvider::new(),
+            provider,
         }
     }
 
@@ -117,7 +121,7 @@ impl ServiceRuntime {
     fn send_error(
         &self,
         request: &IndexServiceRequest,
-        connection: &mut IndexServiceServerConnection,
+        connection: &mut dyn IndexServiceServerIo,
         error_code: &str,
         message: impl Into<String>,
     ) -> Result<(), String> {
@@ -133,7 +137,7 @@ impl ServiceRuntime {
     fn handle_request(
         &self,
         request: IndexServiceRequest,
-        connection: &mut IndexServiceServerConnection,
+        connection: &mut dyn IndexServiceServerIo,
     ) -> Result<(), String> {
         match request.command.clone() {
             IndexServiceCommand::Status => connection.send_response(self.response(
@@ -196,7 +200,7 @@ impl ServiceRuntime {
         &self,
         command: IndexServiceCommand,
         request: IndexServiceRequest,
-        connection: &mut IndexServiceServerConnection,
+        connection: &mut dyn IndexServiceServerIo,
     ) -> Result<(), String> {
         if let Err(response) = self.try_begin_index_request(&request) {
             return connection.send_response(response);
@@ -213,10 +217,21 @@ impl ServiceRuntime {
                 .validated_source(source_id, request.source.as_ref())
                 .map_err(|message| ("index_failed", message))?;
             self.cancel.store(false, Ordering::Release);
+            connection
+                .send_event(IndexServiceEvent::Sources {
+                    sources: vec![source.volume.clone()],
+                })
+                .map_err(|error| {
+                    (
+                        "index_failed",
+                        format!("index_service_admission_send_failed: {error}"),
+                    )
+                })?;
             self.set_state("indexing", None);
             let mut sink = PipeSink {
                 connection,
                 cancel: self.cancel.clone(),
+                volume_id: source.volume.id.clone(),
             };
             let result = match command {
                 IndexServiceCommand::StartInitialIndex { .. } => {
@@ -288,6 +303,9 @@ impl ServiceRuntime {
         if snapshot.id != source_id {
             return Err("index_service_source_id_mismatch".to_string());
         }
+        if !snapshot.enabled {
+            return Err("index_service_source_disabled".to_string());
+        }
         let discovered = self
             .provider
             .discover_sources()
@@ -298,17 +316,10 @@ impl ServiceRuntime {
         else {
             return Err("index_service_source_unavailable".to_string());
         };
-        if current.volume.stable_volume_id != snapshot.stable_volume_id
-            || !provider_snapshot_is_compatible(&current.volume.provider, &snapshot.provider)
-            || !current
-                .volume
-                .mount_path
-                .eq_ignore_ascii_case(&snapshot.mount_path)
-            || !current
-                .volume
-                .filesystem_type
-                .eq_ignore_ascii_case(&snapshot.filesystem_type)
-        {
+        if !current.volume.enabled {
+            return Err("index_service_source_disabled".to_string());
+        }
+        if !super::service::source_identity_matches(snapshot, &current.volume) {
             return Err("index_service_source_changed".to_string());
         }
         // Only durable indexing state comes from the desktop snapshot. The
@@ -331,8 +342,7 @@ fn merge_durable_source_state(mut current: GlobalVolume, snapshot: &GlobalVolume
 }
 
 fn provider_snapshot_is_compatible(current: &str, snapshot: &str) -> bool {
-    current == snapshot
-        || (current == PROVIDER_WINDOWS_MFT_USN && snapshot == PROVIDER_WINDOWS_RECURSIVE_FALLBACK)
+    super::service::provider_snapshot_is_compatible(current, snapshot)
 }
 
 fn source_id(command: &IndexServiceCommand) -> &str {
@@ -345,8 +355,9 @@ fn source_id(command: &IndexServiceCommand) -> &str {
 }
 
 struct PipeSink<'a> {
-    connection: &'a mut IndexServiceServerConnection,
+    connection: &'a mut dyn IndexServiceServerIo,
     cancel: Arc<AtomicBool>,
+    volume_id: String,
 }
 
 impl PipeSink<'_> {
@@ -383,6 +394,7 @@ impl GlobalIndexSink for PipeSink<'_> {
         self.ensure_running()?;
         self.connection
             .send_event(IndexServiceEvent::EntryStale {
+                volume_id: self.volume_id.clone(),
                 entry_id: entry_id.to_string(),
             })
             .map_err(Self::lookup_error)
@@ -890,7 +902,13 @@ fn service_state_name(state: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::global_index::coordinator::{GlobalIndexProvider, GlobalIndexSink};
     use crate::global_index::models::INDEX_STATUS_DISCOVERED;
+    use crate::global_index::windows::service::{
+        IndexServiceCallError, IndexServiceClientIo, IndexServiceFrame, IndexServiceLookupResponse,
+    };
+    use crate::global_index::windows::WindowsGlobalIndexProvider;
+    use std::collections::VecDeque;
 
     fn index_request(request_id: &str, command: IndexServiceCommand) -> IndexServiceRequest {
         IndexServiceRequest {
@@ -1026,5 +1044,967 @@ mod tests {
         assert_eq!(current.provider, PROVIDER_WINDOWS_MFT_USN);
         assert_eq!(current.index_status, "permission_required");
         assert_eq!(current.last_full_index_at, Some(10));
+    }
+
+    #[derive(Clone)]
+    struct ContractProvider {
+        source: GlobalSourceDescriptor,
+        starts: Arc<AtomicUsize>,
+    }
+
+    impl ContractProvider {
+        fn new(source: GlobalSourceDescriptor) -> Self {
+            Self {
+                source,
+                starts: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    impl GlobalIndexProvider for ContractProvider {
+        fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+            Ok(vec![self.source.clone()])
+        }
+
+        fn start_initial_index(
+            &self,
+            source: &GlobalSourceDescriptor,
+            sink: &mut dyn GlobalIndexSink,
+            _cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            self.starts.fetch_add(1, Ordering::AcqRel);
+            sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_MFT_USN)?;
+            sink.mark_volume_entries_stale(&source.volume.id)?;
+            sink.write_batch(&[GlobalEntryInput {
+                volume_id: source.volume.id.clone(),
+                platform_file_id: "fixture-file".to_string(),
+                parent_platform_file_id: "fixture-root".to_string(),
+                name: "fixture.txt".to_string(),
+                path: "C:\\fixture.txt".to_string(),
+                extension: "txt".to_string(),
+                is_directory: false,
+                size: 1,
+                created_at_fs: None,
+                modified_at_fs: None,
+                file_attributes: 0,
+                is_hidden: false,
+                is_system: false,
+                source_provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+                last_seen_at: 1,
+            }])?;
+            Ok(())
+        }
+
+        fn resume_incremental_sync(
+            &self,
+            source: &GlobalSourceDescriptor,
+            sink: &mut dyn GlobalIndexSink,
+            _cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            self.starts.fetch_add(1, Ordering::AcqRel);
+            sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_MFT_USN)?;
+            sink.mark_entry_stale(&format!("entry-{}", source.volume.id))?;
+            sink.checkpoint(
+                &source.volume.id,
+                source.volume.journal_id.as_deref(),
+                source.volume.journal_cursor.as_deref(),
+            )?;
+            Ok(())
+        }
+
+        fn pause(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn status(&self) -> Result<String, GlobalIndexError> {
+            Ok("contract_provider".to_string())
+        }
+
+        fn shutdown(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct ContractSink {
+        actions: Vec<String>,
+        fail_active_status_with_sqlite_busy: bool,
+    }
+
+    impl GlobalIndexSink for ContractSink {
+        fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError> {
+            self.actions.push("entries".to_string());
+            Ok(entries.len())
+        }
+
+        fn mark_entry_stale(&mut self, entry_id: &str) -> Result<(), GlobalIndexError> {
+            self.actions.push(format!("entry_stale:{entry_id}"));
+            Ok(())
+        }
+
+        fn checkpoint(
+            &mut self,
+            _volume_id: &str,
+            _journal_id: Option<&str>,
+            _journal_cursor: Option<&str>,
+        ) -> Result<(), GlobalIndexError> {
+            self.actions.push("checkpoint".to_string());
+            Ok(())
+        }
+
+        fn set_source_state(
+            &mut self,
+            _volume_id: &str,
+            status: &str,
+            _error: Option<&str>,
+        ) -> Result<(), GlobalIndexError> {
+            if self.fail_active_status_with_sqlite_busy
+                && (status == crate::global_index::models::INDEX_STATUS_INDEXING
+                    || status == crate::global_index::models::INDEX_STATUS_SYNCING)
+            {
+                return Err(GlobalIndexError::Database(crate::db::DbError::Sqlite(
+                    rusqlite::Error::SqliteFailure(
+                        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                        None,
+                    ),
+                )));
+            }
+            self.actions.push(format!("source_state:{status}"));
+            Ok(())
+        }
+
+        fn set_source_provider(
+            &mut self,
+            _volume_id: &str,
+            provider: &str,
+        ) -> Result<(), GlobalIndexError> {
+            self.actions.push(format!("source_provider:{provider}"));
+            Ok(())
+        }
+
+        fn resolve_parent_path(
+            &mut self,
+            _volume_id: &str,
+            _parent_platform_file_id: &str,
+        ) -> Result<Option<String>, GlobalIndexError> {
+            Ok(None)
+        }
+
+        fn find_entry_by_identity(
+            &mut self,
+            _volume_id: &str,
+            _platform_file_id: &str,
+            _parent_platform_file_id: &str,
+            _name: &str,
+        ) -> Result<Option<GlobalEntry>, GlobalIndexError> {
+            Ok(None)
+        }
+
+        fn mark_volume_entries_stale(&mut self, volume_id: &str) -> Result<(), GlobalIndexError> {
+            self.actions.push(format!("volume_stale:{volume_id}"));
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum ContractMutation {
+        None,
+        DropAdmission,
+        LateAdmission,
+        WrongEventRequestId,
+        WrongAdmissionIdentity,
+        WrongAdmissionCardinality,
+        WrongEventVolume,
+        WrongEntryStaleVolume,
+        EntriesBeforeVolumeStale,
+        WrongProvider,
+        DuplicateAdmission,
+        SourceStateBeforeData,
+        ServiceBusyAfterAdmission,
+        WrongResponseProtocol,
+        WrongResponseRequestId,
+    }
+
+    struct ServiceClientTransport {
+        runtime: Arc<ServiceRuntime>,
+        request_id: String,
+        frames: VecDeque<IndexServiceFrame>,
+        service_frames: Vec<IndexServiceFrame>,
+        lookup_responses: Vec<IndexServiceLookupResponse>,
+        mutation: ContractMutation,
+        mutated: bool,
+        disconnect_after_admission: bool,
+        cancel_after_admission: Option<Arc<AtomicBool>>,
+        frames_read: usize,
+    }
+
+    impl ServiceClientTransport {
+        fn new(
+            runtime: Arc<ServiceRuntime>,
+            mutation: ContractMutation,
+            disconnect_after_admission: bool,
+            cancel_after_admission: Option<Arc<AtomicBool>>,
+        ) -> Self {
+            Self {
+                runtime,
+                request_id: String::new(),
+                frames: VecDeque::new(),
+                service_frames: Vec::new(),
+                lookup_responses: Vec::new(),
+                mutation,
+                mutated: false,
+                disconnect_after_admission,
+                cancel_after_admission,
+                frames_read: 0,
+            }
+        }
+
+        fn apply_mutation(&mut self) {
+            if self.mutated {
+                return;
+            }
+            self.mutated = true;
+            let admission_index = self.frames.iter().position(|frame| {
+                matches!(
+                    frame,
+                    IndexServiceFrame::Event {
+                        event: IndexServiceEvent::Sources { .. },
+                        ..
+                    }
+                )
+            });
+            match self.mutation {
+                ContractMutation::None => {}
+                ContractMutation::DropAdmission => {
+                    self.frames.retain(|frame| {
+                        !matches!(
+                            frame,
+                            IndexServiceFrame::Event {
+                                event: IndexServiceEvent::Sources { .. },
+                                ..
+                            }
+                        )
+                    });
+                }
+                ContractMutation::LateAdmission => {
+                    if let Some(index) = admission_index {
+                        let admission = self.frames.remove(index).expect("admission frame");
+                        self.frames
+                            .insert((index + 1).min(self.frames.len()), admission);
+                    }
+                }
+                ContractMutation::WrongEventRequestId => {
+                    if let Some(IndexServiceFrame::Event { request_id, .. }) = self
+                        .frames
+                        .iter_mut()
+                        .find(|frame| matches!(frame, IndexServiceFrame::Event { .. }))
+                    {
+                        *request_id = "replayed-request-id".to_string();
+                    }
+                }
+                ContractMutation::WrongAdmissionIdentity => {
+                    if let Some(IndexServiceFrame::Event {
+                        event: IndexServiceEvent::Sources { sources },
+                        ..
+                    }) = self.frames.iter_mut().find(|frame| {
+                        matches!(
+                            frame,
+                            IndexServiceFrame::Event {
+                                event: IndexServiceEvent::Sources { .. },
+                                ..
+                            }
+                        )
+                    }) {
+                        sources[0].stable_volume_id = "different-volume-identity".to_string();
+                    }
+                }
+                ContractMutation::WrongAdmissionCardinality => {
+                    if let Some(IndexServiceFrame::Event {
+                        event: IndexServiceEvent::Sources { sources },
+                        ..
+                    }) = self.frames.iter_mut().find(|frame| {
+                        matches!(
+                            frame,
+                            IndexServiceFrame::Event {
+                                event: IndexServiceEvent::Sources { .. },
+                                ..
+                            }
+                        )
+                    }) {
+                        sources.push(sources[0].clone());
+                    }
+                }
+                ContractMutation::WrongEventVolume => {
+                    if let Some(IndexServiceFrame::Event {
+                        event: IndexServiceEvent::VolumeEntriesStale { volume_id },
+                        ..
+                    }) = self.frames.iter_mut().find(|frame| {
+                        matches!(
+                            frame,
+                            IndexServiceFrame::Event {
+                                event: IndexServiceEvent::VolumeEntriesStale { .. },
+                                ..
+                            }
+                        )
+                    }) {
+                        *volume_id = "different-volume".to_string();
+                    }
+                }
+                ContractMutation::EntriesBeforeVolumeStale => {
+                    let stale_index = self.frames.iter().position(|frame| {
+                        matches!(
+                            frame,
+                            IndexServiceFrame::Event {
+                                event: IndexServiceEvent::VolumeEntriesStale { .. },
+                                ..
+                            }
+                        )
+                    });
+                    let entries_index = self.frames.iter().position(|frame| {
+                        matches!(
+                            frame,
+                            IndexServiceFrame::Event {
+                                event: IndexServiceEvent::Entries { .. },
+                                ..
+                            }
+                        )
+                    });
+                    if let (Some(stale_index), Some(entries_index)) = (stale_index, entries_index) {
+                        self.frames.swap(stale_index, entries_index);
+                    }
+                }
+                ContractMutation::WrongEntryStaleVolume => {
+                    if let Some(IndexServiceFrame::Event {
+                        event: IndexServiceEvent::EntryStale { volume_id, .. },
+                        ..
+                    }) = self.frames.iter_mut().find(|frame| {
+                        matches!(
+                            frame,
+                            IndexServiceFrame::Event {
+                                event: IndexServiceEvent::EntryStale { .. },
+                                ..
+                            }
+                        )
+                    }) {
+                        *volume_id = "different-volume".to_string();
+                    }
+                }
+                ContractMutation::WrongProvider => {
+                    if let Some(IndexServiceFrame::Event {
+                        event: IndexServiceEvent::SourceProvider { provider, .. },
+                        ..
+                    }) = self.frames.iter_mut().find(|frame| {
+                        matches!(
+                            frame,
+                            IndexServiceFrame::Event {
+                                event: IndexServiceEvent::SourceProvider { .. },
+                                ..
+                            }
+                        )
+                    }) {
+                        *provider = "unexpected-provider".to_string();
+                    }
+                }
+                ContractMutation::DuplicateAdmission => {
+                    if let Some(index) = admission_index {
+                        let duplicate = self.frames[index].clone();
+                        self.frames.insert(index + 1, duplicate);
+                    }
+                }
+                ContractMutation::SourceStateBeforeData => {
+                    if let Some(IndexServiceFrame::Event { event, .. }) =
+                        self.frames.iter_mut().find(|frame| {
+                            matches!(
+                                frame,
+                                IndexServiceFrame::Event {
+                                    event: IndexServiceEvent::SourceProvider { .. },
+                                    ..
+                                }
+                            )
+                        })
+                    {
+                        let volume_id = match event {
+                            IndexServiceEvent::SourceProvider { volume_id, .. } => {
+                                volume_id.clone()
+                            }
+                            _ => unreachable!(),
+                        };
+                        *event = IndexServiceEvent::SourceState {
+                            volume_id,
+                            status: "permission_required".to_string(),
+                            error: Some("terminal_state_fixture".to_string()),
+                        };
+                    }
+                }
+                ContractMutation::ServiceBusyAfterAdmission => {
+                    if let Some(IndexServiceFrame::Response { response }) = self
+                        .frames
+                        .iter_mut()
+                        .find(|frame| matches!(frame, IndexServiceFrame::Response { .. }))
+                    {
+                        response.ok = false;
+                        response.error_code = Some("index_service_busy".to_string());
+                    }
+                }
+                ContractMutation::WrongResponseProtocol => {
+                    if let Some(IndexServiceFrame::Response { response }) = self
+                        .frames
+                        .iter_mut()
+                        .find(|frame| matches!(frame, IndexServiceFrame::Response { .. }))
+                    {
+                        response.protocol_version += 1;
+                    }
+                }
+                ContractMutation::WrongResponseRequestId => {
+                    if let Some(IndexServiceFrame::Response { response }) = self
+                        .frames
+                        .iter_mut()
+                        .find(|frame| matches!(frame, IndexServiceFrame::Response { .. }))
+                    {
+                        response.request_id = "replayed-request-id".to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    impl IndexServiceServerIo for ServiceClientTransport {
+        fn send_event(&mut self, event: IndexServiceEvent) -> Result<(), String> {
+            let frame = IndexServiceFrame::Event {
+                request_id: self.request_id.clone(),
+                event,
+            };
+            self.service_frames.push(frame.clone());
+            self.frames.push_back(frame);
+            Ok(())
+        }
+
+        fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String> {
+            let frame = IndexServiceFrame::Response { response };
+            self.service_frames.push(frame.clone());
+            self.frames.push_back(frame);
+            Ok(())
+        }
+
+        fn read_lookup_response(
+            &mut self,
+            expected_lookup_id: &str,
+        ) -> Result<IndexServiceLookupResponse, String> {
+            Err(format!("unexpected test lookup {expected_lookup_id}"))
+        }
+    }
+
+    impl IndexServiceClientIo for ServiceClientTransport {
+        fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), String> {
+            self.request_id = request.request_id.clone();
+            let runtime = self.runtime.clone();
+            runtime.handle_request(request.clone(), self)?;
+            self.apply_mutation();
+            Ok(())
+        }
+
+        fn read_frame(&mut self) -> Result<IndexServiceFrame, String> {
+            if self.disconnect_after_admission && self.frames_read == 1 {
+                return Err("simulated_service_disconnect_after_admission".to_string());
+            }
+            let frame = self
+                .frames
+                .pop_front()
+                .ok_or_else(|| "simulated_service_stream_ended".to_string())?;
+            self.frames_read += 1;
+            if matches!(
+                &frame,
+                IndexServiceFrame::Event {
+                    event: IndexServiceEvent::Sources { .. },
+                    ..
+                }
+            ) {
+                if let Some(cancel) = &self.cancel_after_admission {
+                    cancel.store(true, Ordering::Release);
+                }
+            }
+            Ok(frame)
+        }
+
+        fn send_lookup_response(
+            &mut self,
+            response: IndexServiceLookupResponse,
+        ) -> Result<(), String> {
+            self.lookup_responses.push(response);
+            Ok(())
+        }
+    }
+
+    fn contract_source(enabled: bool) -> GlobalSourceDescriptor {
+        GlobalSourceDescriptor {
+            volume: GlobalVolume {
+                id: "volume-a".to_string(),
+                platform: "windows".to_string(),
+                stable_volume_id: "stable-volume-a".to_string(),
+                display_name: "C".to_string(),
+                mount_path: "C:\\".to_string(),
+                filesystem_type: "ntfs".to_string(),
+                drive_kind: "fixed".to_string(),
+                enabled,
+                provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+                index_status: "ready".to_string(),
+                last_error: None,
+                journal_id: Some("journal-a".to_string()),
+                journal_cursor: Some("44".to_string()),
+                last_full_index_at: Some(10),
+                last_incremental_sync_at: Some(9),
+                entry_count: 1,
+                created_at: 1,
+                updated_at: 11,
+            },
+        }
+    }
+
+    fn rebuild_request(source: GlobalSourceDescriptor) -> IndexServiceRequest {
+        IndexServiceRequest::new(
+            IndexServiceCommand::Rebuild {
+                source_id: source.volume.id.clone(),
+            },
+            Some(source.volume),
+        )
+    }
+
+    fn resume_request(source: GlobalSourceDescriptor) -> IndexServiceRequest {
+        IndexServiceRequest::new(
+            IndexServiceCommand::ResumeIncrementalSync {
+                source_id: source.volume.id.clone(),
+            },
+            Some(source.volume),
+        )
+    }
+
+    fn contract_runtime(
+        source: GlobalSourceDescriptor,
+    ) -> (Arc<ServiceRuntime>, Arc<ContractProvider>) {
+        let provider = Arc::new(ContractProvider::new(source));
+        let runtime = Arc::new(ServiceRuntime::with_provider(provider.clone()));
+        (runtime, provider)
+    }
+
+    fn execute_contract_request(
+        runtime: Arc<ServiceRuntime>,
+        request: &IndexServiceRequest,
+        sink: &mut ContractSink,
+        cancel: Arc<AtomicBool>,
+        mutation: ContractMutation,
+        disconnect_after_admission: bool,
+        cancel_after_admission: Option<Arc<AtomicBool>>,
+        direct_calls: &mut usize,
+    ) -> (Result<(), GlobalIndexError>, ServiceClientTransport) {
+        let desktop_provider = WindowsGlobalIndexProvider::new();
+        let mut transport = ServiceClientTransport::new(
+            runtime,
+            mutation,
+            disconnect_after_admission,
+            cancel_after_admission,
+        );
+        let result = desktop_provider.run_with_fallback_using(
+            request,
+            sink,
+            &cancel,
+            |_direct, _sink| {
+                *direct_calls += 1;
+                Ok(())
+            },
+            |provider, request, sink, cancel| {
+                provider.run_service_stream_with_client(request, sink, cancel, &mut transport)
+            },
+        );
+        (result, transport)
+    }
+
+    #[test]
+    fn real_service_client_path_admits_before_persisting_active_state_or_index_events() {
+        let source = contract_source(true);
+        let (runtime, provider) = contract_runtime(source.clone());
+        let request = rebuild_request(source);
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+        let (result, transport) = execute_contract_request(
+            runtime,
+            &request,
+            &mut sink,
+            Arc::new(AtomicBool::new(false)),
+            ContractMutation::None,
+            false,
+            None,
+            &mut direct_calls,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(direct_calls, 0);
+        assert_eq!(provider.starts.load(Ordering::Acquire), 1);
+        assert!(matches!(
+            transport.service_frames.first(),
+            Some(IndexServiceFrame::Event {
+                request_id,
+                event: IndexServiceEvent::Sources { sources },
+            }) if request_id == &request.request_id && sources.len() == 1
+        ));
+        assert_eq!(
+            sink.actions,
+            [
+                "source_state:syncing",
+                "source_provider:windows_mft_usn",
+                "volume_stale:volume-a",
+                "entries",
+            ]
+        );
+    }
+
+    #[test]
+    fn real_service_busy_is_typed_and_never_runs_direct_or_mutates_source_state() {
+        let source = contract_source(true);
+        let (runtime, provider) = contract_runtime(source.clone());
+        runtime.busy.store(true, Ordering::Release);
+        let request = rebuild_request(source);
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+        let (result, transport) = execute_contract_request(
+            runtime,
+            &request,
+            &mut sink,
+            Arc::new(AtomicBool::new(false)),
+            ContractMutation::None,
+            false,
+            None,
+            &mut direct_calls,
+        );
+
+        assert!(matches!(result, Err(GlobalIndexError::ServiceBusy)));
+        assert_eq!(direct_calls, 0);
+        assert_eq!(provider.starts.load(Ordering::Acquire), 0);
+        assert!(sink.actions.is_empty());
+        assert!(matches!(
+            transport.service_frames.as_slice(),
+            [IndexServiceFrame::Response { response }]
+                if response.error_code.as_deref() == Some("index_service_busy")
+        ));
+    }
+
+    #[test]
+    fn local_sqlite_busy_while_applying_admission_remains_a_database_error() {
+        let source = contract_source(true);
+        let (runtime, provider) = contract_runtime(source.clone());
+        let request = rebuild_request(source);
+        let mut sink = ContractSink {
+            fail_active_status_with_sqlite_busy: true,
+            ..ContractSink::default()
+        };
+        let mut direct_calls = 0;
+        let (result, _transport) = execute_contract_request(
+            runtime,
+            &request,
+            &mut sink,
+            Arc::new(AtomicBool::new(false)),
+            ContractMutation::None,
+            false,
+            None,
+            &mut direct_calls,
+        );
+
+        assert!(matches!(
+            result,
+            Err(GlobalIndexError::Database(crate::db::DbError::Sqlite(
+                rusqlite::Error::SqliteFailure(error, _)
+            ))) if error.code == rusqlite::ErrorCode::DatabaseBusy
+        ));
+        assert_eq!(direct_calls, 0);
+        assert_eq!(provider.starts.load(Ordering::Acquire), 1);
+        assert!(sink.actions.is_empty());
+    }
+
+    #[test]
+    fn direct_fallback_is_permitted_only_before_request_dispatch() {
+        let source = contract_source(true);
+        let request = rebuild_request(source);
+        let provider = WindowsGlobalIndexProvider::new();
+        let cancel = AtomicBool::new(false);
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+
+        let result = provider.run_with_fallback_using(
+            &request,
+            &mut sink,
+            &cancel,
+            |_direct, _sink| {
+                direct_calls += 1;
+                Ok(())
+            },
+            |_provider, _request, _sink, _cancel| {
+                Err(IndexServiceCallError::NotSent(
+                    "named pipe was unavailable before sending request".to_string(),
+                ))
+            },
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(direct_calls, 1);
+        assert_eq!(sink.actions, ["source_state:unavailable"]);
+    }
+
+    #[test]
+    fn old_v3_service_without_admission_fails_closed_before_the_sink() {
+        let source = contract_source(true);
+        let (runtime, provider) = contract_runtime(source.clone());
+        let request = rebuild_request(source);
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+        let (result, _transport) = execute_contract_request(
+            runtime,
+            &request,
+            &mut sink,
+            Arc::new(AtomicBool::new(false)),
+            ContractMutation::DropAdmission,
+            false,
+            None,
+            &mut direct_calls,
+        );
+
+        assert!(matches!(
+            result,
+            Err(GlobalIndexError::ServiceOutcomeUnknown(_))
+        ));
+        assert_eq!(direct_calls, 0);
+        assert_eq!(provider.starts.load(Ordering::Acquire), 1);
+        assert!(sink.actions.is_empty());
+    }
+
+    #[test]
+    fn request_event_source_and_order_mismatches_are_rejected_before_each_sink_write() {
+        for (mutation, expected_action_count) in [
+            (ContractMutation::WrongEventRequestId, 0),
+            (ContractMutation::WrongAdmissionIdentity, 0),
+            (ContractMutation::WrongAdmissionCardinality, 0),
+            (ContractMutation::WrongProvider, 1),
+            (ContractMutation::WrongEventVolume, 2),
+            (ContractMutation::WrongEntryStaleVolume, 2),
+            (ContractMutation::EntriesBeforeVolumeStale, 2),
+            (ContractMutation::DuplicateAdmission, 1),
+            (ContractMutation::SourceStateBeforeData, 2),
+            (ContractMutation::LateAdmission, 0),
+        ] {
+            let source = contract_source(true);
+            let (runtime, _provider) = contract_runtime(source.clone());
+            let request = if matches!(mutation, ContractMutation::WrongEntryStaleVolume) {
+                resume_request(source)
+            } else {
+                rebuild_request(source)
+            };
+            let mut sink = ContractSink::default();
+            let mut direct_calls = 0;
+            let (result, _transport) = execute_contract_request(
+                runtime,
+                &request,
+                &mut sink,
+                Arc::new(AtomicBool::new(false)),
+                mutation,
+                false,
+                None,
+                &mut direct_calls,
+            );
+
+            assert!(matches!(
+                result,
+                Err(GlobalIndexError::ServiceOutcomeUnknown(_))
+            ));
+            assert_eq!(sink.actions.len(), expected_action_count, "{mutation:?}");
+            assert_eq!(direct_calls, 0, "{mutation:?}");
+        }
+    }
+
+    #[test]
+    fn response_identity_mismatches_disconnect_and_cancel_never_use_direct_fallback() {
+        for mutation in [
+            ContractMutation::ServiceBusyAfterAdmission,
+            ContractMutation::WrongResponseProtocol,
+            ContractMutation::WrongResponseRequestId,
+        ] {
+            let source = contract_source(true);
+            let (runtime, _provider) = contract_runtime(source.clone());
+            let request = rebuild_request(source);
+            let mut sink = ContractSink::default();
+            let mut direct_calls = 0;
+            let (result, _transport) = execute_contract_request(
+                runtime,
+                &request,
+                &mut sink,
+                Arc::new(AtomicBool::new(false)),
+                mutation,
+                false,
+                None,
+                &mut direct_calls,
+            );
+            assert!(matches!(
+                result,
+                Err(GlobalIndexError::ServiceOutcomeUnknown(_))
+            ));
+            assert_eq!(direct_calls, 0);
+        }
+
+        let source = contract_source(true);
+        let (runtime, _provider) = contract_runtime(source.clone());
+        let request = rebuild_request(source);
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+        let (result, _transport) = execute_contract_request(
+            runtime,
+            &request,
+            &mut sink,
+            Arc::new(AtomicBool::new(false)),
+            ContractMutation::None,
+            true,
+            None,
+            &mut direct_calls,
+        );
+        assert!(matches!(
+            result,
+            Err(GlobalIndexError::ServiceOutcomeUnknown(_))
+        ));
+        assert_eq!(direct_calls, 0);
+        assert_eq!(sink.actions, ["source_state:syncing"]);
+
+        let source = contract_source(true);
+        let (runtime, _provider) = contract_runtime(source.clone());
+        let request = rebuild_request(source);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+        let (result, _transport) = execute_contract_request(
+            runtime,
+            &request,
+            &mut sink,
+            cancel.clone(),
+            ContractMutation::None,
+            false,
+            Some(cancel),
+            &mut direct_calls,
+        );
+        assert!(matches!(
+            result,
+            Err(GlobalIndexError::ServiceOutcomeUnknown(_))
+        ));
+        assert_eq!(direct_calls, 0);
+        assert!(sink.actions.is_empty());
+    }
+
+    #[test]
+    fn disabled_service_source_and_mismatched_request_snapshot_fail_closed() {
+        let service_source = contract_source(false);
+        let (runtime, provider) = contract_runtime(service_source);
+        let request = rebuild_request(contract_source(true));
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+        let (result, transport) = execute_contract_request(
+            runtime,
+            &request,
+            &mut sink,
+            Arc::new(AtomicBool::new(false)),
+            ContractMutation::None,
+            false,
+            None,
+            &mut direct_calls,
+        );
+        assert!(matches!(result, Err(GlobalIndexError::Provider(_))));
+        assert_eq!(provider.starts.load(Ordering::Acquire), 0);
+        assert_eq!(direct_calls, 0);
+        assert!(sink.actions.is_empty());
+        assert!(!transport.service_frames.iter().any(|frame| matches!(
+            frame,
+            IndexServiceFrame::Event {
+                event: IndexServiceEvent::Sources { .. },
+                ..
+            }
+        )));
+
+        let requested_source = contract_source(true);
+        let mut changed_source = contract_source(true);
+        changed_source.volume.stable_volume_id = "changed-stable-volume".to_string();
+        let (runtime, provider) = contract_runtime(changed_source);
+        let request = rebuild_request(requested_source);
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+        let (result, transport) = execute_contract_request(
+            runtime,
+            &request,
+            &mut sink,
+            Arc::new(AtomicBool::new(false)),
+            ContractMutation::None,
+            false,
+            None,
+            &mut direct_calls,
+        );
+        assert!(matches!(result, Err(GlobalIndexError::Provider(_))));
+        assert_eq!(provider.starts.load(Ordering::Acquire), 0);
+        assert_eq!(direct_calls, 0);
+        assert!(sink.actions.is_empty());
+        assert!(!transport.service_frames.iter().any(|frame| matches!(
+            frame,
+            IndexServiceFrame::Event {
+                event: IndexServiceEvent::Sources { .. },
+                ..
+            }
+        )));
+
+        let source = contract_source(true);
+        let (runtime, provider) = contract_runtime(source.clone());
+        let mut mismatched = rebuild_request(source);
+        mismatched.command = IndexServiceCommand::Rebuild {
+            source_id: "different-volume".to_string(),
+        };
+        let mut sink = ContractSink::default();
+        let mut direct_calls = 0;
+        let (result, transport) = execute_contract_request(
+            runtime,
+            &mismatched,
+            &mut sink,
+            Arc::new(AtomicBool::new(false)),
+            ContractMutation::None,
+            false,
+            None,
+            &mut direct_calls,
+        );
+        assert!(matches!(result, Err(GlobalIndexError::Provider(_))));
+        assert_eq!(provider.starts.load(Ordering::Acquire), 0);
+        assert_eq!(direct_calls, 0);
+        assert!(transport.service_frames.is_empty());
+        assert!(sink.actions.is_empty());
+    }
+
+    #[test]
+    fn invalid_request_protocol_or_request_id_never_dispatches_or_falls_back() {
+        for invalid_field in ["protocol_version", "request_id"] {
+            let source = contract_source(true);
+            let (runtime, provider) = contract_runtime(source.clone());
+            let mut request = rebuild_request(source);
+            match invalid_field {
+                "protocol_version" => request.protocol_version += 1,
+                "request_id" => request.request_id.clear(),
+                _ => unreachable!(),
+            }
+            let mut sink = ContractSink::default();
+            let mut direct_calls = 0;
+            let (result, transport) = execute_contract_request(
+                runtime,
+                &request,
+                &mut sink,
+                Arc::new(AtomicBool::new(false)),
+                ContractMutation::None,
+                false,
+                None,
+                &mut direct_calls,
+            );
+
+            assert!(matches!(result, Err(GlobalIndexError::Provider(_))));
+            assert_eq!(provider.starts.load(Ordering::Acquire), 0);
+            assert_eq!(direct_calls, 0);
+            assert!(sink.actions.is_empty());
+            assert!(transport.service_frames.is_empty());
+        }
     }
 }

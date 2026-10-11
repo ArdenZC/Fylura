@@ -2776,6 +2776,19 @@ mod tests {
         drop(stale_for);
         drop(conn);
 
+        // `last_seen_at` is stored in seconds. Make the ordinary row older than
+        // the next scan's cutoff so this assertion does not depend on whether
+        // both scans happen to start during the same second.
+        let conn = db.conn().expect("open timestamp setup connection");
+        let aged_rows = conn
+            .execute(
+                "UPDATE files SET last_seen_at = 1 WHERE id = ?1",
+                [&normalize_path(&current_file)],
+            )
+            .expect("age the observed ordinary file before the next scan");
+        assert_eq!(aged_rows, 1, "first scan inserted the ordinary file row");
+        drop(conn);
+
         fs::remove_file(&current_file).expect("remove ordinary file before incremental scan");
         let new_appdata_file = fixture.write(
             &main_root,

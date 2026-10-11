@@ -589,6 +589,7 @@ impl WindowsGlobalIndexProvider {
         self.finish_service_stream(request, admission, response)
     }
 
+    #[cfg(test)]
     fn run_service_stream_with_client<C: IndexServiceClientIo>(
         &self,
         request: &IndexServiceRequest,

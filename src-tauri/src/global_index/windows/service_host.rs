@@ -341,10 +341,6 @@ fn merge_durable_source_state(mut current: GlobalVolume, snapshot: &GlobalVolume
     current
 }
 
-fn provider_snapshot_is_compatible(current: &str, snapshot: &str) -> bool {
-    super::service::provider_snapshot_is_compatible(current, snapshot)
-}
-
 fn source_id(command: &IndexServiceCommand) -> &str {
     match command {
         IndexServiceCommand::StartInitialIndex { source_id }
@@ -1009,11 +1005,11 @@ mod tests {
 
     #[test]
     fn persisted_recursive_fallback_snapshot_is_accepted_for_native_normalization() {
-        assert!(provider_snapshot_is_compatible(
+        assert!(super::super::service::provider_snapshot_is_compatible(
             PROVIDER_WINDOWS_MFT_USN,
             PROVIDER_WINDOWS_RECURSIVE_FALLBACK
         ));
-        assert!(!provider_snapshot_is_compatible(
+        assert!(!super::super::service::provider_snapshot_is_compatible(
             PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
             PROVIDER_WINDOWS_MFT_USN
         ));
@@ -1588,16 +1584,30 @@ mod tests {
         (runtime, provider)
     }
 
-    fn execute_contract_request(
+    struct ContractExecution<'a> {
         runtime: Arc<ServiceRuntime>,
-        request: &IndexServiceRequest,
-        sink: &mut ContractSink,
+        request: &'a IndexServiceRequest,
+        sink: &'a mut ContractSink,
         cancel: Arc<AtomicBool>,
         mutation: ContractMutation,
         disconnect_after_admission: bool,
         cancel_after_admission: Option<Arc<AtomicBool>>,
-        direct_calls: &mut usize,
+        direct_calls: &'a mut usize,
+    }
+
+    fn execute_contract_request(
+        execution: ContractExecution<'_>,
     ) -> (Result<(), GlobalIndexError>, ServiceClientTransport) {
+        let ContractExecution {
+            runtime,
+            request,
+            sink,
+            cancel,
+            mutation,
+            disconnect_after_admission,
+            cancel_after_admission,
+            direct_calls,
+        } = execution;
         let desktop_provider = WindowsGlobalIndexProvider::new();
         let mut transport = ServiceClientTransport::new(
             runtime,
@@ -1627,16 +1637,16 @@ mod tests {
         let request = rebuild_request(source);
         let mut sink = ContractSink::default();
         let mut direct_calls = 0;
-        let (result, transport) = execute_contract_request(
+        let (result, transport) = execute_contract_request(ContractExecution {
             runtime,
-            &request,
-            &mut sink,
-            Arc::new(AtomicBool::new(false)),
-            ContractMutation::None,
-            false,
-            None,
-            &mut direct_calls,
-        );
+            request: &request,
+            sink: &mut sink,
+            cancel: Arc::new(AtomicBool::new(false)),
+            mutation: ContractMutation::None,
+            disconnect_after_admission: false,
+            cancel_after_admission: None,
+            direct_calls: &mut direct_calls,
+        });
 
         assert!(result.is_ok());
         assert_eq!(direct_calls, 0);
@@ -1667,16 +1677,16 @@ mod tests {
         let request = rebuild_request(source);
         let mut sink = ContractSink::default();
         let mut direct_calls = 0;
-        let (result, transport) = execute_contract_request(
+        let (result, transport) = execute_contract_request(ContractExecution {
             runtime,
-            &request,
-            &mut sink,
-            Arc::new(AtomicBool::new(false)),
-            ContractMutation::None,
-            false,
-            None,
-            &mut direct_calls,
-        );
+            request: &request,
+            sink: &mut sink,
+            cancel: Arc::new(AtomicBool::new(false)),
+            mutation: ContractMutation::None,
+            disconnect_after_admission: false,
+            cancel_after_admission: None,
+            direct_calls: &mut direct_calls,
+        });
 
         assert!(matches!(result, Err(GlobalIndexError::ServiceBusy)));
         assert_eq!(direct_calls, 0);
@@ -1699,16 +1709,16 @@ mod tests {
             ..ContractSink::default()
         };
         let mut direct_calls = 0;
-        let (result, _transport) = execute_contract_request(
+        let (result, _transport) = execute_contract_request(ContractExecution {
             runtime,
-            &request,
-            &mut sink,
-            Arc::new(AtomicBool::new(false)),
-            ContractMutation::None,
-            false,
-            None,
-            &mut direct_calls,
-        );
+            request: &request,
+            sink: &mut sink,
+            cancel: Arc::new(AtomicBool::new(false)),
+            mutation: ContractMutation::None,
+            disconnect_after_admission: false,
+            cancel_after_admission: None,
+            direct_calls: &mut direct_calls,
+        });
 
         assert!(matches!(
             result,
@@ -1757,16 +1767,16 @@ mod tests {
         let request = rebuild_request(source);
         let mut sink = ContractSink::default();
         let mut direct_calls = 0;
-        let (result, _transport) = execute_contract_request(
+        let (result, _transport) = execute_contract_request(ContractExecution {
             runtime,
-            &request,
-            &mut sink,
-            Arc::new(AtomicBool::new(false)),
-            ContractMutation::DropAdmission,
-            false,
-            None,
-            &mut direct_calls,
-        );
+            request: &request,
+            sink: &mut sink,
+            cancel: Arc::new(AtomicBool::new(false)),
+            mutation: ContractMutation::DropAdmission,
+            disconnect_after_admission: false,
+            cancel_after_admission: None,
+            direct_calls: &mut direct_calls,
+        });
 
         assert!(matches!(
             result,
@@ -1800,16 +1810,16 @@ mod tests {
             };
             let mut sink = ContractSink::default();
             let mut direct_calls = 0;
-            let (result, _transport) = execute_contract_request(
+            let (result, _transport) = execute_contract_request(ContractExecution {
                 runtime,
-                &request,
-                &mut sink,
-                Arc::new(AtomicBool::new(false)),
+                request: &request,
+                sink: &mut sink,
+                cancel: Arc::new(AtomicBool::new(false)),
                 mutation,
-                false,
-                None,
-                &mut direct_calls,
-            );
+                disconnect_after_admission: false,
+                cancel_after_admission: None,
+                direct_calls: &mut direct_calls,
+            });
 
             assert!(matches!(
                 result,
@@ -1832,16 +1842,16 @@ mod tests {
             let request = rebuild_request(source);
             let mut sink = ContractSink::default();
             let mut direct_calls = 0;
-            let (result, _transport) = execute_contract_request(
+            let (result, _transport) = execute_contract_request(ContractExecution {
                 runtime,
-                &request,
-                &mut sink,
-                Arc::new(AtomicBool::new(false)),
+                request: &request,
+                sink: &mut sink,
+                cancel: Arc::new(AtomicBool::new(false)),
                 mutation,
-                false,
-                None,
-                &mut direct_calls,
-            );
+                disconnect_after_admission: false,
+                cancel_after_admission: None,
+                direct_calls: &mut direct_calls,
+            });
             assert!(matches!(
                 result,
                 Err(GlobalIndexError::ServiceOutcomeUnknown(_))
@@ -1854,16 +1864,16 @@ mod tests {
         let request = rebuild_request(source);
         let mut sink = ContractSink::default();
         let mut direct_calls = 0;
-        let (result, _transport) = execute_contract_request(
+        let (result, _transport) = execute_contract_request(ContractExecution {
             runtime,
-            &request,
-            &mut sink,
-            Arc::new(AtomicBool::new(false)),
-            ContractMutation::None,
-            true,
-            None,
-            &mut direct_calls,
-        );
+            request: &request,
+            sink: &mut sink,
+            cancel: Arc::new(AtomicBool::new(false)),
+            mutation: ContractMutation::None,
+            disconnect_after_admission: true,
+            cancel_after_admission: None,
+            direct_calls: &mut direct_calls,
+        });
         assert!(matches!(
             result,
             Err(GlobalIndexError::ServiceOutcomeUnknown(_))
@@ -1877,16 +1887,16 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(false));
         let mut sink = ContractSink::default();
         let mut direct_calls = 0;
-        let (result, _transport) = execute_contract_request(
+        let (result, _transport) = execute_contract_request(ContractExecution {
             runtime,
-            &request,
-            &mut sink,
-            cancel.clone(),
-            ContractMutation::None,
-            false,
-            Some(cancel),
-            &mut direct_calls,
-        );
+            request: &request,
+            sink: &mut sink,
+            cancel: cancel.clone(),
+            mutation: ContractMutation::None,
+            disconnect_after_admission: false,
+            cancel_after_admission: Some(cancel),
+            direct_calls: &mut direct_calls,
+        });
         assert!(matches!(
             result,
             Err(GlobalIndexError::ServiceOutcomeUnknown(_))
@@ -1902,16 +1912,16 @@ mod tests {
         let request = rebuild_request(contract_source(true));
         let mut sink = ContractSink::default();
         let mut direct_calls = 0;
-        let (result, transport) = execute_contract_request(
+        let (result, transport) = execute_contract_request(ContractExecution {
             runtime,
-            &request,
-            &mut sink,
-            Arc::new(AtomicBool::new(false)),
-            ContractMutation::None,
-            false,
-            None,
-            &mut direct_calls,
-        );
+            request: &request,
+            sink: &mut sink,
+            cancel: Arc::new(AtomicBool::new(false)),
+            mutation: ContractMutation::None,
+            disconnect_after_admission: false,
+            cancel_after_admission: None,
+            direct_calls: &mut direct_calls,
+        });
         assert!(matches!(result, Err(GlobalIndexError::Provider(_))));
         assert_eq!(provider.starts.load(Ordering::Acquire), 0);
         assert_eq!(direct_calls, 0);
@@ -1931,16 +1941,16 @@ mod tests {
         let request = rebuild_request(requested_source);
         let mut sink = ContractSink::default();
         let mut direct_calls = 0;
-        let (result, transport) = execute_contract_request(
+        let (result, transport) = execute_contract_request(ContractExecution {
             runtime,
-            &request,
-            &mut sink,
-            Arc::new(AtomicBool::new(false)),
-            ContractMutation::None,
-            false,
-            None,
-            &mut direct_calls,
-        );
+            request: &request,
+            sink: &mut sink,
+            cancel: Arc::new(AtomicBool::new(false)),
+            mutation: ContractMutation::None,
+            disconnect_after_admission: false,
+            cancel_after_admission: None,
+            direct_calls: &mut direct_calls,
+        });
         assert!(matches!(result, Err(GlobalIndexError::Provider(_))));
         assert_eq!(provider.starts.load(Ordering::Acquire), 0);
         assert_eq!(direct_calls, 0);
@@ -1961,16 +1971,16 @@ mod tests {
         };
         let mut sink = ContractSink::default();
         let mut direct_calls = 0;
-        let (result, transport) = execute_contract_request(
+        let (result, transport) = execute_contract_request(ContractExecution {
             runtime,
-            &mismatched,
-            &mut sink,
-            Arc::new(AtomicBool::new(false)),
-            ContractMutation::None,
-            false,
-            None,
-            &mut direct_calls,
-        );
+            request: &mismatched,
+            sink: &mut sink,
+            cancel: Arc::new(AtomicBool::new(false)),
+            mutation: ContractMutation::None,
+            disconnect_after_admission: false,
+            cancel_after_admission: None,
+            direct_calls: &mut direct_calls,
+        });
         assert!(matches!(result, Err(GlobalIndexError::Provider(_))));
         assert_eq!(provider.starts.load(Ordering::Acquire), 0);
         assert_eq!(direct_calls, 0);
@@ -1991,16 +2001,16 @@ mod tests {
             }
             let mut sink = ContractSink::default();
             let mut direct_calls = 0;
-            let (result, transport) = execute_contract_request(
+            let (result, transport) = execute_contract_request(ContractExecution {
                 runtime,
-                &request,
-                &mut sink,
-                Arc::new(AtomicBool::new(false)),
-                ContractMutation::None,
-                false,
-                None,
-                &mut direct_calls,
-            );
+                request: &request,
+                sink: &mut sink,
+                cancel: Arc::new(AtomicBool::new(false)),
+                mutation: ContractMutation::None,
+                disconnect_after_admission: false,
+                cancel_after_admission: None,
+                direct_calls: &mut direct_calls,
+            });
 
             assert!(matches!(result, Err(GlobalIndexError::Provider(_))));
             assert_eq!(provider.starts.load(Ordering::Acquire), 0);

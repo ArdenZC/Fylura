@@ -221,32 +221,27 @@ pub(crate) fn call_with_client<C: IndexServiceClientIo>(
     client
         .send_request(request)
         .map_err(IndexServiceCallError::UnknownOutcome)?;
-    loop {
-        match client
-            .read_frame()
-            .map_err(IndexServiceCallError::UnknownOutcome)?
-        {
-            IndexServiceFrame::Response { response } => {
-                validate_response(request, &response)
-                    .map_err(IndexServiceCallError::UnknownOutcome)?;
-                return Ok(response);
-            }
-            IndexServiceFrame::Event { request_id, .. } => {
-                if request_id != request.request_id {
-                    return Err(IndexServiceCallError::UnknownOutcome(
-                        "index_service_event_request_id_mismatch".to_string(),
-                    ));
-                }
-                return Err(IndexServiceCallError::UnknownOutcome(
-                    "index_service_unexpected_event".to_string(),
-                ));
-            }
-            IndexServiceFrame::LookupResponse { .. } => {
-                return Err(IndexServiceCallError::UnknownOutcome(
-                    "index_service_unexpected_lookup_response".to_string(),
-                ));
-            }
+    match client
+        .read_frame()
+        .map_err(IndexServiceCallError::UnknownOutcome)?
+    {
+        IndexServiceFrame::Response { response } => {
+            validate_response(request, &response).map_err(IndexServiceCallError::UnknownOutcome)?;
+            Ok(response)
         }
+        IndexServiceFrame::Event { request_id, .. } => {
+            if request_id != request.request_id {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_event_request_id_mismatch".to_string(),
+                ));
+            }
+            Err(IndexServiceCallError::UnknownOutcome(
+                "index_service_unexpected_event".to_string(),
+            ))
+        }
+        IndexServiceFrame::LookupResponse { .. } => Err(IndexServiceCallError::UnknownOutcome(
+            "index_service_unexpected_lookup_response".to_string(),
+        )),
     }
 }
 

@@ -443,7 +443,7 @@ function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [strin
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     if (-not $process.Start()) { throw "failed to start installer $Installer" }
-    $exe = Join-Path $InstallDirectory "Zen Canvas.exe"
+    $exe = Join-Path $InstallDirectory "zen-canvas.exe"
     $samples = [Collections.Generic.List[object]]::new()
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $interrupted = $false

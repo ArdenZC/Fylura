@@ -134,6 +134,8 @@ pub enum IndexServiceCallError {
     InvalidRequest(String),
     #[error("index service unavailable before request dispatch: {0}")]
     NotSent(String),
+    #[error("index service did not provide the required admission event: {0}")]
+    MissingAdmission(String),
     #[error("index service request outcome unknown: {0}")]
     UnknownOutcome(String),
     #[error("index service event could not be applied to the local sink: {0}")]
@@ -142,6 +144,7 @@ pub enum IndexServiceCallError {
 
 #[derive(Debug)]
 pub(crate) enum IndexServiceEventError {
+    MissingAdmission(String),
     Rejected(String),
     Transport(String),
     Sink(GlobalIndexError),
@@ -195,6 +198,9 @@ where
                     ));
                 }
                 on_event(client, event).map_err(|error| match error {
+                    IndexServiceEventError::MissingAdmission(message) => {
+                        IndexServiceCallError::MissingAdmission(message)
+                    }
                     IndexServiceEventError::Rejected(message)
                     | IndexServiceEventError::Transport(message) => {
                         IndexServiceCallError::UnknownOutcome(message)

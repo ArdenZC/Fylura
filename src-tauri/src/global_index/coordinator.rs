@@ -23,6 +23,8 @@ pub enum GlobalIndexError {
     Provider(String),
     #[error("Windows index service rejected the request because it is busy")]
     ServiceBusy,
+    #[error("Windows index service did not provide a trusted admission event: {0}")]
+    ServiceAdmissionMissing(String),
     #[error("SQLite is busy or locked while applying a Windows index event: {0}")]
     DatabaseBusy(String),
     #[error("Windows index service outcome is unknown: {0}")]
@@ -642,6 +644,13 @@ fn run_index_cycle(
                 // durable source state. Preserve the prior valid state rather
                 // than turning request contention into a source failure.
                 super::qa_trace::record("global_index_service_busy_rejected");
+            }
+            Err(GlobalIndexError::ServiceAdmissionMissing(_)) => {
+                // A legacy v3 service can execute no desktop-side writes before its
+                // first operation event is rejected for missing Admission. Preserve
+                // the prior durable source state while refusing this incompatible
+                // peer; the caller must not retry through Direct fallback.
+                super::qa_trace::record("global_index_service_admission_missing");
             }
             Err(GlobalIndexError::RebuildRequired(message)) => {
                 db.update_global_volume_state(

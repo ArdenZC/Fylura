@@ -20,6 +20,9 @@ pub(super) fn classify(error: &GlobalIndexError) -> (&'static str, &'static str)
         GlobalIndexError::Provider(_) => ("index_provider_error", INDEX_STATUS_ERROR),
         GlobalIndexError::DatabaseBusy(_) => ("index_database_busy", INDEX_STATUS_ERROR),
         GlobalIndexError::ServiceBusy => ("index_service_busy", INDEX_STATUS_ERROR),
+        GlobalIndexError::ServiceAdmissionMissing(_) => {
+            ("index_outcome_unknown", INDEX_STATUS_ERROR)
+        }
         GlobalIndexError::ServiceOutcomeUnknown(_) => ("index_outcome_unknown", INDEX_STATUS_ERROR),
         GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(error, _)))
             if matches!(

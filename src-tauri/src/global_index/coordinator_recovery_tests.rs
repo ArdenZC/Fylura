@@ -59,11 +59,43 @@ impl GlobalIndexProvider for RecoveryOutcomeProvider {
     }
 }
 
-struct AdmissionDeferredBusyProvider {
-    source: GlobalSourceDescriptor,
+#[derive(Clone, Copy)]
+enum DeferredAdmissionRejection {
+    Busy,
+    Missing,
+    UnknownAfterAdmission,
 }
 
-impl GlobalIndexProvider for AdmissionDeferredBusyProvider {
+struct AdmissionContractProvider {
+    source: GlobalSourceDescriptor,
+    rejection: DeferredAdmissionRejection,
+}
+
+impl AdmissionContractProvider {
+    fn reject(
+        &self,
+        sink: &mut dyn GlobalIndexSink,
+    ) -> Result<(), GlobalIndexError> {
+        match self.rejection {
+            DeferredAdmissionRejection::Busy => Err(GlobalIndexError::ServiceBusy),
+            DeferredAdmissionRejection::Missing => Err(GlobalIndexError::ServiceAdmissionMissing(
+                "legacy v3 service".to_string(),
+            )),
+            DeferredAdmissionRejection::UnknownAfterAdmission => {
+                sink.set_source_state(
+                    &self.source.volume.id,
+                    INDEX_STATUS_SYNCING,
+                    None,
+                )?;
+                Err(GlobalIndexError::ServiceOutcomeUnknown(
+                    "malformed success response".to_string(),
+                ))
+            }
+        }
+    }
+}
+
+impl GlobalIndexProvider for AdmissionContractProvider {
     fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
         Ok(vec![self.source.clone()])
     }
@@ -71,19 +103,19 @@ impl GlobalIndexProvider for AdmissionDeferredBusyProvider {
     fn start_initial_index(
         &self,
         _: &GlobalSourceDescriptor,
-        _: &mut dyn GlobalIndexSink,
+        sink: &mut dyn GlobalIndexSink,
         _: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
-        Err(GlobalIndexError::ServiceBusy)
+        self.reject(sink)
     }
 
     fn resume_incremental_sync(
         &self,
         _: &GlobalSourceDescriptor,
-        _: &mut dyn GlobalIndexSink,
+        sink: &mut dyn GlobalIndexSink,
         _: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
-        Err(GlobalIndexError::ServiceBusy)
+        self.reject(sink)
     }
 
     fn pause(&self) -> Result<(), GlobalIndexError> {
@@ -117,7 +149,10 @@ fn service_busy_before_admission_preserves_a_valid_durable_source_status() {
     let cancel = Arc::new(AtomicBool::new(false));
 
     run_index_cycle(
-        &AdmissionDeferredBusyProvider { source },
+        &AdmissionContractProvider {
+            source,
+            rejection: DeferredAdmissionRejection::Busy,
+        },
         &db,
         &cancel,
         &GlobalIndexWakeSlot::default(),
@@ -135,6 +170,78 @@ fn service_busy_before_admission_preserves_a_valid_durable_source_status() {
         after.last_incremental_sync_at,
         before.last_incremental_sync_at
     );
+}
+
+#[test]
+fn legacy_service_missing_admission_preserves_prior_source_health_and_timestamps() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open isolated admission database");
+    let source = diagnostic_source("legacy-v3", INDEX_STATUS_READY, Some(77));
+    db.upsert_global_volume(&source.volume)
+        .expect("seed prior ready source state");
+    let before = db
+        .get_global_volume("legacy-v3")
+        .expect("read seeded source")
+        .expect("seeded source exists");
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    run_index_cycle(
+        &AdmissionContractProvider {
+            source,
+            rejection: DeferredAdmissionRejection::Missing,
+        },
+        &db,
+        &cancel,
+        &GlobalIndexWakeSlot::default(),
+    )
+    .expect("legacy peer is refused without mutating desktop source state");
+
+    let after = db
+        .get_global_volume("legacy-v3")
+        .expect("read source after missing admission");
+    let after = after.expect("source remains present");
+    assert_eq!(after.index_status, before.index_status);
+    assert_eq!(after.last_error, before.last_error);
+    assert_eq!(after.last_full_index_at, before.last_full_index_at);
+    assert_eq!(after.last_incremental_sync_at, before.last_incremental_sync_at);
+}
+
+#[test]
+fn incomplete_success_outcome_never_advances_ready_status_or_completion_timestamps() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open isolated incomplete-success database");
+    let source = diagnostic_source("incomplete-success", INDEX_STATUS_READY, Some(77));
+    db.upsert_global_volume(&source.volume)
+        .expect("seed prior ready source state");
+    let before = db
+        .get_global_volume("incomplete-success")
+        .expect("read seeded source")
+        .expect("seeded source exists");
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    run_index_cycle(
+        &AdmissionContractProvider {
+            source,
+            rejection: DeferredAdmissionRejection::UnknownAfterAdmission,
+        },
+        &db,
+        &cancel,
+        &GlobalIndexWakeSlot::default(),
+    )
+    .expect("unknown service outcome is recorded on the durable source");
+
+    let after = db
+        .get_global_volume("incomplete-success")
+        .expect("read source after incomplete success");
+    let after = after.expect("source remains present");
+    assert_eq!(after.index_status, INDEX_STATUS_ERROR);
+    assert_ne!(after.index_status, INDEX_STATUS_READY);
+    assert!(after
+        .last_error
+        .as_deref()
+        .is_some_and(|error| error.contains("malformed success response")));
+    assert_eq!(after.last_full_index_at, before.last_full_index_at);
+    assert_eq!(after.last_incremental_sync_at, before.last_incremental_sync_at);
 }
 
 #[test]

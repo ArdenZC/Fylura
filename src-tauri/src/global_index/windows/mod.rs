@@ -12,7 +12,7 @@ use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, Gl
 use crate::global_index::models::{
     GlobalSourceDescriptor, INDEX_STATUS_INDEXING, INDEX_STATUS_PERMISSION_REQUIRED,
     INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_SYNCING, INDEX_STATUS_UNAVAILABLE,
-    PROVIDER_WINDOWS_MFT_USN,
+    PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_UNSUPPORTED,
 };
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use service::{
@@ -187,6 +187,8 @@ struct IndexServiceAdmission {
     source_provider_seen: bool,
     operation_payload_seen: bool,
     volume_stale_seen: bool,
+    checkpoint_seen: bool,
+    operation_event_after_checkpoint_seen: bool,
     terminal_source_state_seen: bool,
 }
 
@@ -241,6 +243,8 @@ impl IndexServiceAdmission {
             source_provider_seen: false,
             operation_payload_seen: false,
             volume_stale_seen: false,
+            checkpoint_seen: false,
+            operation_event_after_checkpoint_seen: false,
             terminal_source_state_seen: false,
         })
     }
@@ -288,6 +292,9 @@ impl IndexServiceAdmission {
         if !volume_matches {
             return Err("index_service_event_source_mismatch".to_string());
         }
+        if self.checkpoint_seen && !matches!(event, IndexServiceEvent::SourceState { .. }) {
+            self.operation_event_after_checkpoint_seen = true;
+        }
         if self.requires_stale_before_entries
             && matches!(event, IndexServiceEvent::Entries { .. })
             && !self.volume_stale_seen
@@ -304,7 +311,36 @@ impl IndexServiceAdmission {
                 }
                 self.source_provider_seen = true;
             }
-            IndexServiceEvent::SourceState { .. } => {
+            IndexServiceEvent::SourceState { status, error, .. } => {
+                let has_diagnostic = error
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty());
+                match status.as_str() {
+                    INDEX_STATUS_PERMISSION_REQUIRED | INDEX_STATUS_REBUILD_REQUIRED => {
+                        if !self.source_provider_seen
+                            || (self.requires_stale_before_entries && !self.volume_stale_seen)
+                            || !has_diagnostic
+                        {
+                            return Err("index_service_source_state_event_out_of_order".to_string());
+                        }
+                    }
+                    INDEX_STATUS_UNAVAILABLE => {
+                        // The legacy Direct provider reports unsupported volumes without
+                        // entering MFT/USN. The coordinator normally filters these sources
+                        // before issuing a service command; retain this narrowly scoped
+                        // diagnostic path without treating it as an indexing completion.
+                        if self.expected.provider != PROVIDER_WINDOWS_UNSUPPORTED
+                            || self.source_provider_seen
+                            || self.operation_payload_seen
+                            || !has_diagnostic
+                        {
+                            return Err("index_service_source_state_event_out_of_order".to_string());
+                        }
+                    }
+                    _ => {
+                        return Err("index_service_source_state_status_invalid".to_string());
+                    }
+                }
                 self.terminal_source_state_seen = true;
             }
             IndexServiceEvent::VolumeEntriesStale { .. } => {
@@ -312,6 +348,13 @@ impl IndexServiceAdmission {
                     return Err("index_service_volume_stale_event_out_of_order".to_string());
                 }
                 self.volume_stale_seen = true;
+                self.operation_payload_seen = true;
+            }
+            IndexServiceEvent::Checkpoint { .. } => {
+                if !self.source_provider_seen || self.checkpoint_seen {
+                    return Err("index_service_checkpoint_event_out_of_order".to_string());
+                }
+                self.checkpoint_seen = true;
                 self.operation_payload_seen = true;
             }
             _ => {
@@ -621,6 +664,11 @@ impl WindowsGlobalIndexProvider {
                 "index_service_request_cancelled_after_dispatch".to_string(),
             ));
         }
+        if !admission.admitted && !matches!(&event, IndexServiceEvent::Sources { .. }) {
+            return Err(IndexServiceEventError::MissingAdmission(
+                "index_service_event_before_admission".to_string(),
+            ));
+        }
         match admission
             .validate(&event)
             .map_err(IndexServiceEventError::Rejected)?
@@ -640,14 +688,46 @@ impl WindowsGlobalIndexProvider {
 
     fn finish_service_stream(
         &self,
-        _request: &IndexServiceRequest,
+        request: &IndexServiceRequest,
         admission: IndexServiceAdmission,
         response: IndexServiceResponse,
     ) -> Result<Result<(), GlobalIndexError>, IndexServiceCallError> {
         if response.ok {
             if !admission.admitted {
-                return Err(IndexServiceCallError::UnknownOutcome(
+                return Err(IndexServiceCallError::MissingAdmission(
                     "index_service_success_before_admission".to_string(),
+                ));
+            }
+            if !admission.source_provider_seen {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_success_without_source_provider".to_string(),
+                ));
+            }
+            if !admission.checkpoint_seen {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_success_without_checkpoint".to_string(),
+                ));
+            }
+            if admission.requires_stale_before_entries && !admission.volume_stale_seen {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_full_scan_success_without_volume_stale".to_string(),
+                ));
+            }
+            if admission.terminal_source_state_seen
+                || admission.operation_event_after_checkpoint_seen
+            {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_success_after_terminal_or_post_checkpoint_event".to_string(),
+                ));
+            }
+            if !matches!(
+                &request.command,
+                IndexServiceCommand::StartInitialIndex { .. }
+                    | IndexServiceCommand::ResumeIncrementalSync { .. }
+                    | IndexServiceCommand::Rebuild { .. }
+            ) {
+                return Err(IndexServiceCallError::UnknownOutcome(
+                    "index_service_success_for_non_index_command".to_string(),
                 ));
             }
             super::qa_trace::record("windows_service_route_ok");
@@ -710,6 +790,10 @@ impl WindowsGlobalIndexProvider {
         match service_call(self, request, sink, cancel) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(error)) => Err(error),
+            Err(IndexServiceCallError::MissingAdmission(error)) => {
+                self.service_failed();
+                Err(GlobalIndexError::ServiceAdmissionMissing(error))
+            }
             Err(IndexServiceCallError::NotSent(error)) => {
                 self.service_failed();
                 let _ = sink.set_source_state(
@@ -786,7 +870,10 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
                 Err(GlobalIndexError::Provider(error))
             }
             Err(IndexServiceCallError::SinkFailure(error)) => Err(error),
-            Err(IndexServiceCallError::UnknownOutcome(error)) => {
+            Err(
+                IndexServiceCallError::MissingAdmission(error)
+                | IndexServiceCallError::UnknownOutcome(error),
+            ) => {
                 self.service_failed();
                 Err(GlobalIndexError::ServiceOutcomeUnknown(error))
             }
@@ -844,7 +931,10 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
                 Err(GlobalIndexError::Provider(error))
             }
             Err(IndexServiceCallError::SinkFailure(error)) => Err(error),
-            Err(IndexServiceCallError::UnknownOutcome(error)) => {
+            Err(
+                IndexServiceCallError::MissingAdmission(error)
+                | IndexServiceCallError::UnknownOutcome(error),
+            ) => {
                 self.service_failed();
                 Err(GlobalIndexError::ServiceOutcomeUnknown(error))
             }
@@ -870,7 +960,10 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
                 Err(GlobalIndexError::Provider(error))
             }
             Err(IndexServiceCallError::SinkFailure(error)) => Err(error),
-            Err(IndexServiceCallError::UnknownOutcome(error)) => {
+            Err(
+                IndexServiceCallError::MissingAdmission(error)
+                | IndexServiceCallError::UnknownOutcome(error),
+            ) => {
                 self.service_failed();
                 Err(GlobalIndexError::ServiceOutcomeUnknown(error))
             }

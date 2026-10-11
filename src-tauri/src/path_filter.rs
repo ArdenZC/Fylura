@@ -33,7 +33,6 @@ pub(crate) enum EligibilityReason {
     GeneratedOutput,
     CacheTree,
     ReservedTrash,
-    HistoricalIgnoredPath,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,7 +120,8 @@ pub(crate) fn most_specific_root<'a>(
 /// is used only by recursive traversals: the caller has already admitted the
 /// parent directory and the no-follow walker cannot cross a link between it
 /// and this child. Event paths and historical rows always use full boundary
-/// verification.
+/// verification. Stale reconciliation requires every parent to exist and be
+/// readable; only watcher events may carry a missing ancestor up to the root.
 pub(crate) fn evaluate_managed_path(
     path: &Path,
     root: &ManagedScanRootContext,
@@ -160,7 +160,13 @@ pub(crate) fn evaluate_managed_path(
             return EligibilityDecision::Incomplete(reason);
         }
     } else if !parent_verified {
-        match verify_directory_chain(path, &root.path, expected_volume, candidate_is_directory) {
+        match verify_directory_chain(
+            path,
+            &root.path,
+            expected_volume,
+            candidate_is_directory,
+            purpose != EligibilityPurpose::StaleReconciliation,
+        ) {
             Ok(()) => {}
             Err(reason) => return EligibilityDecision::Incomplete(reason),
         }
@@ -180,16 +186,6 @@ pub(crate) fn evaluate_managed_path(
         return EligibilityDecision::Include;
     }
 
-    if purpose == EligibilityPurpose::StaleReconciliation
-        && relative_components
-            .iter()
-            .any(|component| is_legacy_exclusion_component(component))
-    {
-        // Rows written under the previous basename-only policy are historical
-        // user state. Keep them until a successful scan observes them or an
-        // explicit user action changes them.
-        return EligibilityDecision::Exclude(EligibilityReason::HistoricalIgnoredPath);
-    }
     if relative_components
         .iter()
         .any(|component| component.starts_with('.'))
@@ -221,6 +217,23 @@ pub(crate) fn evaluate_managed_path(
     }
 
     EligibilityDecision::Include
+}
+
+pub(crate) fn has_legacy_exclusion_component(root: &str, path: &Path) -> bool {
+    let normalized_root = normalize_policy_path(root);
+    let candidate_text = normalize_policy_path(&path.to_string_lossy());
+    if !path_is_within_root(&normalized_root, &candidate_text) {
+        return false;
+    }
+    let selected_root_name_is_legacy = normalized_root
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .last()
+        .is_some_and(is_legacy_exclusion_component);
+    selected_root_name_is_legacy
+        || relative_path_components(&normalized_root, &candidate_text)
+            .iter()
+            .any(|component| is_legacy_exclusion_component(component))
 }
 
 pub(crate) fn path_is_within_root(root: &str, path: &str) -> bool {
@@ -355,6 +368,7 @@ fn verify_directory_chain(
     root: &str,
     expected_volume: &SourceVolume,
     candidate_is_directory: Option<bool>,
+    allow_missing_ancestors: bool,
 ) -> Result<(), EligibilityReason> {
     let mut current = if candidate_is_directory
         .or_else(|| {
@@ -375,7 +389,12 @@ fn verify_directory_chain(
         match verify_single_directory(&current, expected_volume) {
             Ok(()) => {}
             Err(EligibilityReason::AccessBoundary)
-                if !current.exists() && path_is_within_root(root, &current.to_string_lossy()) =>
+                if allow_missing_ancestors
+                    && matches!(
+                        fs::symlink_metadata(&current),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                    )
+                    && path_is_within_root(root, &current.to_string_lossy()) =>
             {
                 // Removed watcher paths have no leaf to inspect. Continue to
                 // the last existing parent so rename/remove events retain the
@@ -410,6 +429,7 @@ fn verify_single_directory(
     if !metadata.is_dir() {
         return Err(EligibilityReason::AccessBoundary);
     }
+    drop(fs::read_dir(path).map_err(|_| EligibilityReason::AccessBoundary)?);
     let (platform, volume) = capture_source_volume_identity(path).map_err(|error| match error {
         crate::fs_safety::PhysicalIdentityError::UnsupportedLink => {
             EligibilityReason::LinkOrReparseBoundary
@@ -1032,5 +1052,32 @@ mod tests {
             EligibilityDecision::Incomplete(EligibilityReason::LinkOrReparseBoundary)
         );
         let _ = fs::remove_dir_all(fixture);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn directory_chain_rejects_a_cross_volume_mount_boundary() {
+        let root = Path::new("/dev");
+        let mounted_child = Path::new("/dev/shm");
+        let (platform, id) =
+            capture_source_volume_identity(root).expect("Linux device root source volume identity");
+        let (mounted_platform, mounted_id) = capture_source_volume_identity(mounted_child)
+            .expect("Linux shared-memory mount source volume identity");
+        assert_ne!(
+            (platform, id.clone()),
+            (mounted_platform, mounted_id),
+            "the fixture must cross from /dev to its /dev/shm mount"
+        );
+
+        assert_eq!(
+            verify_directory_chain(
+                mounted_child,
+                &root.to_string_lossy(),
+                &SourceVolume { platform, id },
+                Some(true),
+                false,
+            ),
+            Err(EligibilityReason::SourceVolumeChanged)
+        );
     }
 }

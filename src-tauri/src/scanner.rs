@@ -1460,6 +1460,26 @@ fn run_scan_run<R: Runtime>(
             &root_context,
         )?;
         cursor.update(&reconciled);
+        if reconciled.dto.coverage_error_count > 0 {
+            let finalization = finish_scan_run(
+                db,
+                run_id,
+                "requires_reconciliation",
+                Some("coverage_incomplete"),
+                Some("The scan could not verify a managed path boundary; stale reconciliation was skipped."),
+                false,
+                false,
+            )?;
+            emit_terminal_events(
+                app,
+                db,
+                &finalization,
+                skipped.load(Ordering::Acquire),
+                started_at,
+                legacy,
+            );
+            return Ok(());
+        }
     } else {
         // The kill switch is engaged.  That is an operator decision, not evidence that
         // the index drifted, so the run stays on the normal success path: the terminal
@@ -2825,6 +2845,11 @@ mod tests {
             assert_eq!(record.dto.status, "completed", "run {}", record.dto.id);
             assert_eq!(record.dto.errors_count, 0, "run {}", record.dto.id);
             assert_eq!(record.dto.coverage_error_count, 0, "run {}", record.dto.id);
+            assert!(record.dto.stale_reconciliation_allowed);
+            assert_eq!(
+                record.current_watcher_revision,
+                record.dto.watcher_revision_at_start
+            );
         }
 
         let main_run = first_records

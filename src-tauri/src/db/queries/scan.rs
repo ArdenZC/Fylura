@@ -5,7 +5,8 @@ use super::*;
 use crate::ids::new_job_id;
 use crate::path_filter::is_protected_system_path;
 use crate::path_filter::{
-    evaluate_managed_path, EligibilityDecision, EligibilityPurpose, ManagedScanRootContext,
+    evaluate_managed_path, has_legacy_exclusion_component, EligibilityDecision, EligibilityPurpose,
+    ManagedScanRootContext,
 };
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
@@ -1744,19 +1745,98 @@ impl Database {
                     .collect::<Result<Vec<_>, _>>()?;
                 candidates
             };
-            let stale_ids = candidates
-                .into_iter()
-                .filter_map(|(id, path)| {
-                    (evaluate_managed_path(
-                        Path::new(&path),
-                        root_context,
-                        EligibilityPurpose::StaleReconciliation,
-                        Some(false),
-                        true,
-                    ) == EligibilityDecision::Include)
-                        .then_some(id)
-                })
-                .collect::<Vec<_>>();
+            let mut stale_ids = Vec::new();
+            let mut boundary_error = None;
+            for (id, path) in candidates {
+                let candidate_path = Path::new(&path);
+                if has_legacy_exclusion_component(&root_context.path, candidate_path)
+                    && !has_prior_successful_scan_observation(
+                        &tx,
+                        &record.dto.scan_root_id,
+                        record.dto.generation,
+                        &id,
+                        &path,
+                    )?
+                {
+                    // An old basename-only exclusion may have left this row
+                    // indexed without ever observing it under today's policy.
+                    // Keep it unless a prior complete generation proves that
+                    // this exact root and path were successfully covered.
+                    continue;
+                }
+                match evaluate_managed_path(
+                    candidate_path,
+                    root_context,
+                    EligibilityPurpose::StaleReconciliation,
+                    None,
+                    false,
+                ) {
+                    EligibilityDecision::Include => stale_ids.push(id),
+                    EligibilityDecision::Exclude(_) => {}
+                    EligibilityDecision::Incomplete(reason) => {
+                        boundary_error = Some((path, reason));
+                        break;
+                    }
+                }
+            }
+
+            if let Some((path, reason)) = boundary_error {
+                let now = current_unix_seconds();
+                let error = ScanErrorInput {
+                    path: Some(path),
+                    error_code: "stale_boundary_unverified".to_string(),
+                    error_message: format!(
+                        "A managed path boundary could not be verified during missing reconciliation: {reason:?}."
+                    ),
+                    affects_coverage: true,
+                    metadata_error: false,
+                };
+                insert_scan_errors_tx(&tx, run_id, std::slice::from_ref(&error), now)?;
+                let changed = tx.execute(
+                    r#"
+                    UPDATE scan_runs
+                    SET phase = 'reconciling_missing', coverage_complete = 0,
+                        stale_reconciliation_allowed = 0,
+                        errors_count = errors_count + 1,
+                        coverage_error_count = coverage_error_count + 1,
+                        last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+                    WHERE id = ?2 AND status = 'running' AND cancel_requested = 0
+                      AND coverage_error_count = 0 AND revision = ?3
+                      AND lease_token = ?4
+                    "#,
+                    params![now, run_id, expected_run_revision, record.lease_token],
+                )?;
+                if changed != 1 {
+                    return Err(DbError::Validation(
+                        "Boundary verification lost scan-run ownership; stale update was skipped."
+                            .to_string(),
+                    ));
+                }
+                let session_id = record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                    DbError::Validation("Scan run has no parent session.".to_string())
+                })?;
+                let session_changed = tx.execute(
+                    r#"
+                    UPDATE scan_sessions
+                    SET errors_count = errors_count + 1,
+                        last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+                    WHERE id = ?2 AND revision = ?3
+                      AND cancel_requested = 0 AND status = 'running'
+                    "#,
+                    params![now, session_id, record.session_revision],
+                )?;
+                if session_changed != 1 {
+                    return Err(DbError::Validation(
+                        "Boundary verification lost scan-session ownership; stale update was skipped."
+                            .to_string(),
+                    ));
+                }
+                let updated = load_scan_run_record(&tx, run_id)?;
+                tx.commit()?;
+                self.wake_automation_triggers();
+                return Ok(updated);
+            }
+
             let mut marked = 0;
             for chunk in stale_ids.chunks(400) {
                 let placeholders = (1..=chunk.len())
@@ -3158,6 +3238,39 @@ fn insert_scan_errors_tx(
         ])?;
     }
     Ok(())
+}
+
+fn has_prior_successful_scan_observation(
+    tx: &Transaction<'_>,
+    scan_root_id: &str,
+    generation: i64,
+    file_id: &str,
+    observed_path: &str,
+) -> Result<bool, DbError> {
+    tx.query_row(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM scan_runs AS prior INDEXED BY idx_scan_runs_root_created
+            WHERE prior.scan_root_id = ?1
+              AND prior.generation < ?2
+              AND prior.status IN ('completed', 'completed_with_warnings')
+              AND prior.coverage_complete = 1
+              AND prior.stale_reconciliation_allowed = 1
+              AND EXISTS (
+                  SELECT 1
+                  FROM scan_seen AS seen
+                  WHERE seen.run_id = prior.id
+                    AND seen.file_id = ?3
+                    AND seen.observed_path = ?4
+              )
+        )
+        "#,
+        params![scan_root_id, generation, file_id, observed_path],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|observed| observed != 0)
+    .map_err(DbError::from)
 }
 
 fn root_patterns(root: &str) -> (String, String, String, String) {
@@ -4812,6 +4925,8 @@ mod tests {
             (format!("{root}/project/Library/old.txt"), true),
         ];
         for (path, _) in &fixtures {
+            fs::create_dir_all(Path::new(path).parent().expect("fixture parent"))
+                .expect("create intact fixture parent chain");
             db.insert_file(InsertFileRequest {
                 id: path.clone(),
                 path: path.clone(),
@@ -4928,6 +5043,256 @@ mod tests {
             )
             .expect("read boundary coverage errors");
         assert_eq!(coverage_errors, 1);
+        drop(conn);
+
+        let finalization = db
+            .finalize_scan_run(
+                &reconciled.dto.id,
+                reconciled.dto.revision,
+                reconciled.root_revision,
+                reconciled.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "requires_reconciliation".to_string(),
+                    error_code: Some("coverage_incomplete".to_string()),
+                    error_message: Some(
+                        "A managed path boundary changed during the scan.".to_string(),
+                    ),
+                    allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
+                },
+            )
+            .expect("incomplete boundary cannot finalize as a healthy scan");
+        let health = db
+            .get_scan_root_health(Some(&finalization.run.dto.scan_root_id), None)
+            .expect("read root health after incomplete reconciliation");
+        assert_eq!(health.health_status, "reconciliation_required");
+        assert!(health.needs_reconciliation);
+    }
+
+    #[test]
+    fn stale_reconciliation_rejects_a_missing_ancestor_after_enumeration() {
+        let db = test_db("stale-boundary-missing-parent");
+        let root = PathBuf::from(test_scan_root("stale-boundary-missing-parent"));
+        let parent = root.join("Project/src");
+        fs::create_dir_all(&parent).expect("create intact candidate parent");
+        let candidate = parent.join("deleted.rs");
+        fs::write(&candidate, b"previously indexed file").expect("write candidate file");
+        let path = candidate.to_string_lossy().replace('\\', "/");
+        db.insert_file(InsertFileRequest {
+            id: path.clone(),
+            path: path.clone(),
+            name: "deleted.rs".into(),
+            extension: "rs".into(),
+            size: 23,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed missing candidate row");
+        db.conn()
+            .expect("open timestamp connection")
+            .execute("UPDATE files SET last_seen_at = 1 WHERE id = ?1", [&path])
+            .expect("age candidate row");
+        fs::remove_file(&candidate).expect("remove candidate after enumeration");
+
+        let admission = db
+            .admit_managed_scan(&request(
+                &root.to_string_lossy(),
+                "stale-boundary-missing-parent",
+            ))
+            .expect("admit scan after traversal enumeration");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan run");
+        let root_context = root_context_for(&db, &run);
+        fs::remove_dir(&parent).expect("remove candidate parent after enumeration");
+
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .expect("missing parent uncertainty is recorded without staling the row");
+        assert_eq!(reconciled.dto.coverage_error_count, 1);
+        assert!(!reconciled.dto.coverage_complete);
+        assert!(!reconciled.dto.stale_reconciliation_allowed);
+        let conn = db.conn().expect("inspect missing-parent result");
+        let stale: i64 = conn
+            .query_row("SELECT is_stale FROM files WHERE id = ?1", [&path], |row| {
+                row.get(0)
+            })
+            .expect("read candidate stale state");
+        assert_eq!(
+            stale, 0,
+            "an unverified parent preserves the historical row"
+        );
+        let coverage_errors: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1 AND affects_coverage = 1",
+                [&run.dto.id],
+                |row| row.get(0),
+            )
+            .expect("read missing-parent coverage errors");
+        assert_eq!(coverage_errors, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_reconciliation_rejects_a_permission_changed_ancestor_after_enumeration() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let db = test_db("stale-boundary-permission");
+        let root = PathBuf::from(test_scan_root("stale-boundary-permission"));
+        let parent = root.join("Project/private");
+        fs::create_dir_all(&parent).expect("create readable candidate parent");
+        let candidate = parent.join("deleted.txt");
+        fs::write(&candidate, b"previously indexed file").expect("write candidate file");
+        let path = candidate.to_string_lossy().replace('\\', "/");
+        db.insert_file(InsertFileRequest {
+            id: path.clone(),
+            path: path.clone(),
+            name: "deleted.txt".into(),
+            extension: "txt".into(),
+            size: 23,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed missing candidate row");
+        db.conn()
+            .expect("open timestamp connection")
+            .execute("UPDATE files SET last_seen_at = 1 WHERE id = ?1", [&path])
+            .expect("age candidate row");
+        fs::remove_file(&candidate).expect("remove candidate after enumeration");
+
+        let admission = db
+            .admit_managed_scan(&request(
+                &root.to_string_lossy(),
+                "stale-boundary-permission",
+            ))
+            .expect("admit scan after traversal enumeration");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan run");
+        let root_context = root_context_for(&db, &run);
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o000))
+            .expect("revoke directory traversal access after enumeration");
+
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .expect("permission uncertainty is recorded without staling the row");
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700))
+            .expect("restore fixture access");
+        assert_eq!(reconciled.dto.coverage_error_count, 1);
+        assert!(!reconciled.dto.coverage_complete);
+        assert!(!reconciled.dto.stale_reconciliation_allowed);
+        let conn = db.conn().expect("inspect permission boundary result");
+        let stale: i64 = conn
+            .query_row("SELECT is_stale FROM files WHERE id = ?1", [&path], |row| {
+                row.get(0)
+            })
+            .expect("read candidate stale state");
+        assert_eq!(stale, 0, "permission change preserves the historical row");
+        let coverage_errors: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1 AND affects_coverage = 1",
+                [&run.dto.id],
+                |row| row.get(0),
+            )
+            .expect("read permission coverage errors");
+        assert_eq!(coverage_errors, 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn stale_reconciliation_rejects_a_junctioned_ancestor_after_enumeration() {
+        use std::process::Command;
+
+        let db = test_db("stale-boundary-junction");
+        let root = PathBuf::from(test_scan_root("stale-boundary-junction"));
+        let parent = root.join("Project/src");
+        let outside = root.with_file_name(format!("{}-outside", new_job_id("source")));
+        fs::create_dir_all(&parent).expect("create intact candidate parent");
+        fs::create_dir_all(&outside).expect("create junction target");
+        let candidate = parent.join("deleted.rs");
+        fs::write(&candidate, b"previously indexed file").expect("write candidate file");
+        let path = candidate.to_string_lossy().replace('\\', "/");
+        db.insert_file(InsertFileRequest {
+            id: path.clone(),
+            path: path.clone(),
+            name: "deleted.rs".into(),
+            extension: "rs".into(),
+            size: 23,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed missing candidate row");
+        db.conn()
+            .expect("open timestamp connection")
+            .execute("UPDATE files SET last_seen_at = 1 WHERE id = ?1", [&path])
+            .expect("age candidate row");
+        fs::remove_file(&candidate).expect("remove candidate after enumeration");
+
+        let admission = db
+            .admit_managed_scan(&request(&root.to_string_lossy(), "stale-boundary-junction"))
+            .expect("admit scan after traversal enumeration");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan run");
+        let root_context = root_context_for(&db, &run);
+        fs::remove_dir(&parent).expect("remove candidate parent directory");
+        let link = parent.to_string_lossy().into_owned();
+        let target = outside.to_string_lossy().into_owned();
+        let status = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .status()
+            .expect("launch junction creation command");
+        assert!(status.success(), "create parent junction for boundary test");
+
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .expect("junction uncertainty is recorded without staling the row");
+        assert_eq!(reconciled.dto.coverage_error_count, 1);
+        assert!(!reconciled.dto.coverage_complete);
+        assert!(!reconciled.dto.stale_reconciliation_allowed);
+        let conn = db.conn().expect("inspect junction boundary result");
+        let stale: i64 = conn
+            .query_row("SELECT is_stale FROM files WHERE id = ?1", [&path], |row| {
+                row.get(0)
+            })
+            .expect("read candidate stale state");
+        assert_eq!(stale, 0, "a changed junction boundary preserves the row");
+        let coverage_errors: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1 AND affects_coverage = 1",
+                [&run.dto.id],
+                |row| row.get(0),
+            )
+            .expect("read junction coverage errors");
+        assert_eq!(coverage_errors, 1);
+        drop(conn);
+        fs::remove_dir(&parent).expect("remove test junction");
     }
 
     #[test]
@@ -6004,6 +6369,31 @@ mod tests {
         let db = test_db("watcher-active-scan");
         let root = test_scan_root("watcher-active");
         fs::create_dir_all(&root).expect("create watcher root fixture");
+        let parent = PathBuf::from(&root).join("Project/src");
+        fs::create_dir_all(&parent).expect("create intact candidate parent");
+        let candidate = parent.join("deleted.rs");
+        fs::write(&candidate, b"previously indexed file").expect("write candidate file");
+        let candidate_path = candidate.to_string_lossy().replace('\\', "/");
+        db.insert_file(InsertFileRequest {
+            id: candidate_path.clone(),
+            path: candidate_path.clone(),
+            name: "deleted.rs".to_string(),
+            extension: "rs".to_string(),
+            size: 23,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed candidate row");
+        db.conn()
+            .expect("open timestamp connection")
+            .execute(
+                "UPDATE files SET last_seen_at = 0 WHERE id = ?1",
+                [&candidate_path],
+            )
+            .expect("age candidate row");
+        fs::remove_file(&candidate).expect("delete candidate before reconciliation");
         let admission = db
             .admit_managed_scan(&request(&root, "watcher-active-scan-1"))
             .expect("admit scan");
@@ -6027,6 +6417,16 @@ mod tests {
             )
             .expect("safe reconcile gate");
         assert!(!reconciled.dto.stale_reconciliation_allowed);
+        let stale: i64 = db
+            .conn()
+            .expect("inspect watcher-gated candidate")
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                [&candidate_path],
+                |row| row.get(0),
+            )
+            .expect("read candidate stale state");
+        assert_eq!(stale, 0, "a changed watcher revision preserves the row");
         db.begin_watcher_revision(&claimed.dto.scan_root_id)
             .expect("second watcher event")
             .expect("watcher root for second event");

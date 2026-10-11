@@ -1729,7 +1729,7 @@ impl Database {
                       )
                     "#,
                 )?;
-                statement
+                let candidates = statement
                     .query_map(
                         params![
                             started_at,
@@ -1741,7 +1741,8 @@ impl Database {
                         ],
                         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                     )?
-                    .collect::<Result<Vec<_>, _>>()?
+                    .collect::<Result<Vec<_>, _>>()?;
+                candidates
             };
             let stale_ids = candidates
                 .into_iter()

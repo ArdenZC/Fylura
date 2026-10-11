@@ -466,6 +466,35 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     assert_eq!(active_aggregate.total_entries, 0);
     assert!(!active_aggregate.collection_complete);
 
+    let mut evidence = BoundedDiagnosticEvidence::new();
+    evidence.push(
+        "source-a",
+        "fixture-operation-a-active",
+        "fixture-request-a-active",
+        None,
+        "accepted",
+        "none",
+        &active_source.index_status,
+    );
+    evidence.push(
+        "source-b",
+        "fixture-operation-b-prior",
+        "fixture-request-b-prior",
+        None,
+        "prior_rejected",
+        "service_busy",
+        &prior_busy_source.index_status,
+    );
+    evidence.push(
+        "source-c",
+        "fixture-operation-c-prior",
+        "fixture-request-c-prior",
+        None,
+        "prior_failed",
+        "source_permission_error",
+        &prior_permission_source.index_status,
+    );
+
     release_operation_tx
         .send(())
         .expect("release active first volume");
@@ -500,11 +529,10 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     assert_eq!(aggregate.pending_volumes, 0);
     assert!(!aggregate.collection_complete);
 
-    let mut evidence = BoundedDiagnosticEvidence::new();
     evidence.push(
         "source-a",
-        "fixture-operation-a-1",
-        "fixture-request-a-1",
+        "fixture-operation-a-cycle-1",
+        "fixture-request-a-cycle-1",
         None,
         "accepted",
         "none",
@@ -512,8 +540,8 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     );
     evidence.push(
         "source-b",
-        "fixture-operation-b-1",
-        "fixture-request-b-1",
+        "fixture-operation-b-cycle-1",
+        "fixture-request-b-cycle-1",
         Some("indexing"),
         "rejected",
         "service_busy",
@@ -521,8 +549,8 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     );
     evidence.push(
         "source-c",
-        "fixture-operation-c-1",
-        "fixture-request-c-1",
+        "fixture-operation-c-cycle-1",
+        "fixture-request-c-cycle-1",
         None,
         "failed",
         "source_permission_error",
@@ -539,6 +567,16 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     assert_eq!(retried_source.index_status, INDEX_STATUS_READY);
     assert_eq!(provider.operation_count("source-b"), 2);
     assert_eq!(provider.operation_count("source-c"), 2);
+    evidence.push(
+        "source-b",
+        "fixture-operation-b-retry",
+        "fixture-request-b-retry",
+        None,
+        "explicit_wake_succeeded",
+        "none",
+        &retried_source.index_status,
+    );
+    evidence.emit();
 
     drop(db);
     drop(path);

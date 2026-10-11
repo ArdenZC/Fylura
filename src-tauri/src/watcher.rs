@@ -2504,6 +2504,175 @@ mod tests {
         ));
     }
 
+    /// Issue #375 characterization: exercise the production Notify-event
+    /// conversion and backend payload processor against real fixture files.
+    /// Ignored-name paths are dropped before root routing, including paths
+    /// whose selected watcher root itself is named `build`.
+    #[cfg(feature = "performance-test-tauri")]
+    #[test]
+    fn issue375_watcher_filters_ignored_components_before_root_routing() {
+        let fixture = WatcherTestTree::new("issue375-filter");
+        let project_root = fixture.0.join("project");
+        let selected_build_root = fixture.0.join("chosen").join("build");
+        fs::create_dir_all(&project_root).expect("create project watcher root");
+        fs::create_dir_all(&selected_build_root).expect("create selected build watcher root");
+
+        let ignored_relative_paths = [
+            "Projects/Windows/README.md",
+            "Design/build/logo.ai",
+            "Configs/AppData/important.json",
+            "Project/.vscode/settings.json",
+            "Project/node_modules/pkg/index.js",
+            "Project/.venv/pyvenv.cfg",
+        ];
+        let mut ignored_paths = ignored_relative_paths
+            .iter()
+            .map(|relative| project_root.join(relative))
+            .collect::<Vec<_>>();
+        ignored_paths.push(selected_build_root.join("README.md"));
+        for path in &ignored_paths {
+            fs::create_dir_all(path.parent().expect("ignored event parent"))
+                .expect("create ignored event directory");
+            fs::write(path, b"watcher fixture").expect("create ignored event file");
+        }
+        let ordinary_path = project_root.join("Project/src/current.rs");
+        fs::create_dir_all(ordinary_path.parent().expect("ordinary event parent"))
+            .expect("create ordinary event directory");
+        fs::write(&ordinary_path, b"ordinary watcher event").expect("create ordinary event file");
+
+        let db = Database::open(fixture.0.join("watcher.sqlite3"))
+            .expect("open isolated watcher database");
+        let roots = [
+            scan_root("issue375-project", &project_root.to_string_lossy(), true),
+            scan_root(
+                "issue375-explicit-build",
+                &selected_build_root.to_string_lossy(),
+                true,
+            ),
+        ];
+        db.sync_file_library_watcher_roots(&roots)
+            .expect("register project and selected build watcher roots");
+        let root_configs = db
+            .list_watcher_root_configs()
+            .expect("read watcher root configs");
+        let project_config = root_configs
+            .iter()
+            .find(|root| root.path == normalize_path(&project_root))
+            .expect("project watcher config");
+        let build_config = root_configs
+            .iter()
+            .find(|root| root.path == normalize_path(&selected_build_root))
+            .expect("selected build watcher config");
+        let project_before = db
+            .get_scan_root_health(Some(&project_config.id), None)
+            .expect("read project watcher state before events");
+        let build_before = db
+            .get_scan_root_health(Some(&build_config.id), None)
+            .expect("read selected build watcher state before events");
+
+        for path in &ignored_paths {
+            let payload = event_to_payload(Event {
+                kind: EventKind::Create(notify::event::CreateKind::File),
+                paths: vec![path.clone()],
+                attrs: EventAttributes::new(),
+            });
+            assert!(
+                payload.is_none(),
+                "Notify event below ignored name should be discarded: {}",
+                path.display()
+            );
+        }
+        let project_after_ignored = db
+            .get_scan_root_health(Some(&project_config.id), None)
+            .expect("read project watcher state after ignored events");
+        let build_after_ignored = db
+            .get_scan_root_health(Some(&build_config.id), None)
+            .expect("read selected build watcher state after ignored events");
+        assert_eq!(
+            project_after_ignored.watcher_revision,
+            project_before.watcher_revision
+        );
+        assert_eq!(
+            project_after_ignored.watcher_applied_revision,
+            project_before.watcher_applied_revision
+        );
+        assert_eq!(
+            build_after_ignored.watcher_revision,
+            build_before.watcher_revision
+        );
+
+        let app = tauri::test::mock_app();
+        let app_handle = app.handle().clone();
+        let jobs = ScanJobManager::default();
+        let dedupe_jobs = DedupeJobManager::default();
+        let ordinary_payload = event_to_payload(Event {
+            kind: EventKind::Create(notify::event::CreateKind::File),
+            paths: vec![ordinary_path.clone()],
+            attrs: EventAttributes::new(),
+        })
+        .expect("ordinary file create reaches backend payload processing");
+        process_backend_payload(&app_handle, &db, &jobs, &dedupe_jobs, ordinary_payload);
+
+        let project_after = db
+            .get_scan_root_health(Some(&project_config.id), None)
+            .expect("read project watcher state after ordinary event");
+        let build_after = db
+            .get_scan_root_health(Some(&build_config.id), None)
+            .expect("read selected build watcher state after events");
+        assert!(project_after.watcher_revision > project_before.watcher_revision);
+        assert_eq!(
+            project_after.watcher_revision,
+            project_after.watcher_applied_revision
+        );
+        assert_eq!(build_after.watcher_revision, build_before.watcher_revision);
+        assert_eq!(
+            build_after.watcher_applied_revision,
+            build_before.watcher_applied_revision
+        );
+
+        let conn = db.conn().expect("open watcher publication connection");
+        let exists = |path: &Path| {
+            let normalized = normalize_path(path);
+            conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM files WHERE path = ?1 AND is_stale = 0)",
+                [&normalized],
+                |row| row.get::<_, bool>(0),
+            )
+            .expect("read watcher publication")
+        };
+        assert!(exists(&ordinary_path), "ordinary event reaches file upsert");
+        for path in &ignored_paths {
+            assert!(
+                !exists(path),
+                "ignored event never reaches file upsert: {}",
+                path.display()
+            );
+        }
+    }
+
+    #[cfg(all(windows, feature = "performance-test-tauri"))]
+    #[test]
+    fn issue375_windows_case_and_extended_paths_keep_filter_and_root_identity() {
+        let ignored = event_to_payload(Event {
+            kind: EventKind::Create(notify::event::CreateKind::File),
+            paths: vec![PathBuf::from(r"\\?\C:\ZC-375\Design\bUiLd\logo.ai")],
+            attrs: EventAttributes::new(),
+        });
+        assert!(
+            ignored.is_none(),
+            "extended mixed-case build path is filtered"
+        );
+        assert!(is_ignored_dir_name(std::ffi::OsStr::new("aPpDaTa")));
+
+        let root = r"\\?\C:\ZC-375\Project";
+        let child = r"\\?\c:\zc-375\project\src\main.rs";
+        assert!(path_within_root(root, child));
+        assert_eq!(
+            normalize_path(Path::new(child)),
+            "c:/zc-375/project/src/main.rs"
+        );
+    }
+
     #[test]
     fn watcher_lifecycle_cancels_delayed_reconciliation_wakes() {
         let manager = FileWatcherManager::default();

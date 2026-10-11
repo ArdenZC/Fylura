@@ -2103,6 +2103,10 @@ fn emit_scan_complete_then_schedule_dedupe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "performance-test-tauri")]
+    use crate::db::{FileLibraryScopeV2, FileQueryFiltersV2, FileQueryRequestV2, FileQuerySpecV2};
+    #[cfg(feature = "performance-test-tauri")]
+    use crate::dedupe::DedupeJobManager;
     use std::{
         cell::RefCell,
         ffi::OsStr,
@@ -2619,6 +2623,327 @@ mod tests {
         assert!(is_ignored_dir_name(OsStr::new("System Volume Information")));
         assert!(!is_ignored_dir_name(OsStr::new("Library")));
         assert!(!is_ignored_dir_name(OsStr::new("client-documents")));
+    }
+
+    /// Issue #375 characterization: run the real managed-scan worker over a
+    /// disposable filesystem tree and retain the current name-only omissions
+    /// as passing evidence. This test intentionally does not change the
+    /// production path filter.
+    #[cfg(feature = "performance-test-tauri")]
+    #[test]
+    fn issue375_managed_scan_characterizes_directory_name_exclusions() {
+        let fixture = Issue375Fixture::new();
+        let main_root = fixture.0.join("library");
+        let selected_build_root = fixture.0.join("chosen").join("build");
+        fs::create_dir_all(&main_root).expect("create managed root");
+
+        let excluded_paths = [
+            "Projects/Windows/README.md",
+            "Design/build/logo.ai",
+            "Configs/AppData/important.json",
+            "Project/.vscode/settings.json",
+            "Project/node_modules/pkg/index.js",
+            "Project/.venv/pyvenv.cfg",
+        ];
+        for relative in excluded_paths {
+            fixture.write(&main_root, relative, b"previously indexed fixture");
+        }
+        let newly_created_build_file = fixture.write(
+            &main_root,
+            "Design/build/new-logo.ai",
+            b"not previously indexed",
+        );
+        let current_file = fixture.write(&main_root, "Project/src/current.rs", b"current");
+        let selected_root_file = fixture.write(&selected_build_root, "README.md", b"selected root");
+
+        let db = Database::open(fixture.0.join("managed-scan.sqlite3"))
+            .expect("open isolated managed-scan database");
+        let deleted_ordinary = main_root.join("Project/src/deleted.rs");
+        let deleted_ignored = main_root.join("Project/node_modules/removed/index.js");
+        let mut seeded_paths = excluded_paths
+            .iter()
+            .map(|relative| main_root.join(relative))
+            .collect::<Vec<_>>();
+        seeded_paths.extend([deleted_ordinary.clone(), deleted_ignored.clone()]);
+        for path in &seeded_paths {
+            seed_issue375_file_row(&db, path);
+        }
+
+        let jobs = ScanJobManager::default();
+        let dedupe_jobs = DedupeJobManager::default();
+        let app = tauri::test::mock_app();
+        let first = start_performance_managed_scan_roots(
+            app.handle().clone(),
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+            vec![main_root.clone(), selected_build_root.clone()],
+            new_job_id("issue375-first"),
+            "background",
+        )
+        .expect("start real managed scan over both selected roots");
+        first
+            .worker
+            .join()
+            .expect("first managed-scan worker joins");
+
+        let first_records = first
+            .run_ids
+            .iter()
+            .map(|run_id| db.get_scan_run_record(run_id).expect("read first scan run"))
+            .collect::<Vec<_>>();
+        for record in &first_records {
+            assert_eq!(record.dto.status, "completed", "run {}", record.dto.id);
+            assert_eq!(record.dto.errors_count, 0, "run {}", record.dto.id);
+            assert_eq!(record.dto.coverage_error_count, 0, "run {}", record.dto.id);
+        }
+
+        let main_run = first_records
+            .iter()
+            .find(|record| record.dto.root_path == normalize_path(&main_root))
+            .expect("main fixture root run");
+        let selected_build_run = first_records
+            .iter()
+            .find(|record| record.dto.root_path == normalize_path(&selected_build_root))
+            .expect("explicit build root run");
+        assert!(
+            scan_seen_path(&db, &main_run.dto.id, &current_file),
+            "ordinary files are discovered by the managed scan"
+        );
+        assert!(
+            scan_seen_path(&db, &selected_build_run.dto.id, &selected_root_file),
+            "a user-selected root named build is traversed"
+        );
+        for relative in excluded_paths {
+            let path = main_root.join(relative);
+            assert!(
+                !scan_seen_path(&db, &main_run.dto.id, &path),
+                "name-filtered subtree should remain unseen: {relative}"
+            );
+        }
+        assert!(
+            !scan_seen_path(&db, &main_run.dto.id, &newly_created_build_file),
+            "a new file below a build descendant is not discovered"
+        );
+
+        let main_health = db
+            .get_scan_root_health(Some(&main_run.dto.scan_root_id), None)
+            .expect("read main scan-root health");
+        let selected_build_health = db
+            .get_scan_root_health(Some(&selected_build_run.dto.scan_root_id), None)
+            .expect("read selected build-root health");
+        assert_eq!(main_health.health_status, "healthy");
+        assert!(!main_health.needs_reconciliation);
+        assert_eq!(selected_build_health.health_status, "healthy");
+
+        let first_query = db
+            .query_file_library_v2(issue375_library_query("issue375-first-query"))
+            .expect("query File Library after first scan");
+        let first_visible = first_query
+            .files
+            .iter()
+            .map(|file| file.id.as_str())
+            .collect::<HashSet<_>>();
+        for relative in excluded_paths {
+            let path = main_root.join(relative);
+            let id = normalize_path(&path);
+            assert!(
+                first_visible.contains(id.as_str()),
+                "previously indexed ignored row remains visible in File Library: {relative}"
+            );
+        }
+        assert!(
+            !first_visible.contains(normalize_path(&newly_created_build_file).as_str()),
+            "File Library cannot return a newly created file that scanning never inserted"
+        );
+        assert!(
+            first_visible.contains(normalize_path(&selected_root_file).as_str()),
+            "File Library query includes content under an explicitly selected build root"
+        );
+
+        let deleted_ordinary_id = normalize_path(&deleted_ordinary);
+        let deleted_ignored_id = normalize_path(&deleted_ignored);
+        let conn = db.conn().expect("open first reconciliation connection");
+        let stale_for = |id: &str| {
+            conn.query_row("SELECT is_stale FROM files WHERE id = ?1", [id], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("read stale state")
+        };
+        assert_eq!(stale_for(&deleted_ordinary_id), 1);
+        assert_eq!(
+            stale_for(&deleted_ignored_id),
+            0,
+            "stale reconciliation deliberately preserves rows below ignored subtrees"
+        );
+        drop(stale_for);
+        drop(conn);
+
+        fs::remove_file(&current_file).expect("remove ordinary file before incremental scan");
+        let new_appdata_file = fixture.write(
+            &main_root,
+            "Configs/AppData/new-important.json",
+            b"created between scans",
+        );
+        let second = start_performance_managed_scan(
+            app.handle().clone(),
+            db.clone(),
+            jobs,
+            dedupe_jobs,
+            main_root.clone(),
+            new_job_id("issue375-second"),
+            "background",
+        )
+        .expect("start incremental managed scan");
+        second.worker.join().expect("incremental scan worker joins");
+        let second_run = db
+            .get_scan_run_record(&second.run_id)
+            .expect("read incremental scan run");
+        assert_eq!(second_run.dto.status, "completed");
+        assert!(
+            second_run.dto.generation > main_run.dto.generation,
+            "the next scan advances the generation despite the filtered subtree"
+        );
+        assert!(!scan_seen_path(&db, &second.run_id, &current_file));
+        assert!(
+            !scan_seen_path(&db, &second.run_id, &new_appdata_file),
+            "a new AppData descendant remains undiscovered during the next scan"
+        );
+        assert_eq!(
+            db.get_scan_root_health(Some(&second_run.dto.scan_root_id), None)
+                .expect("read incremental root health")
+                .health_status,
+            "healthy"
+        );
+
+        let conn = db
+            .conn()
+            .expect("open incremental reconciliation connection");
+        let current_stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                [&normalize_path(&current_file)],
+                |row| row.get(0),
+            )
+            .expect("read deleted ordinary file stale state");
+        let ignored_stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                [&deleted_ignored_id],
+                |row| row.get(0),
+            )
+            .expect("read deleted ignored file stale state");
+        assert_eq!(current_stale, 1, "deleted ordinary file becomes stale");
+        assert_eq!(
+            ignored_stale, 0,
+            "deleted ignored file remains non-stale by policy"
+        );
+        drop(conn);
+
+        let second_query = db
+            .query_file_library_v2(issue375_library_query("issue375-second-query"))
+            .expect("query File Library after incremental scan");
+        let second_visible = second_query
+            .files
+            .iter()
+            .map(|file| file.id.as_str())
+            .collect::<HashSet<_>>();
+        assert!(second_visible.contains(deleted_ignored_id.as_str()));
+        assert!(!second_visible.contains(normalize_path(&new_appdata_file).as_str()));
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    struct Issue375Fixture(PathBuf);
+
+    #[cfg(feature = "performance-test-tauri")]
+    impl Issue375Fixture {
+        fn new() -> Self {
+            let root =
+                std::env::temp_dir().join(format!("zen-canvas-issue375-{}", new_job_id("fixture")));
+            fs::create_dir_all(&root).expect("create isolated Issue #375 fixture");
+            Self(root)
+        }
+
+        fn write(&self, root: &Path, relative: &str, contents: &[u8]) -> PathBuf {
+            assert!(
+                root.starts_with(&self.0),
+                "Issue #375 fixture writes must remain inside the disposable fixture root"
+            );
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("fixture parent"))
+                .expect("create fixture directory");
+            fs::write(&path, contents).expect("write fixture file");
+            path
+        }
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    impl Drop for Issue375Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    fn seed_issue375_file_row(db: &Database, path: &Path) {
+        let path_text = normalize_path(path);
+        let name = path
+            .file_name()
+            .expect("seed file name")
+            .to_string_lossy()
+            .into_owned();
+        db.insert_file(InsertFileRequest {
+            id: path_text.clone(),
+            path: path_text.clone(),
+            name: name.clone(),
+            extension: path
+                .extension()
+                .and_then(OsStr::to_str)
+                .unwrap_or_default()
+                .to_ascii_lowercase(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed previously indexed File Library row");
+        db.conn()
+            .expect("open seed timestamp connection")
+            .execute(
+                "UPDATE files SET last_seen_at = 1 WHERE id = ?1",
+                [&path_text],
+            )
+            .expect("age seeded File Library row before scan");
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    fn scan_seen_path(db: &Database, run_id: &str, path: &Path) -> bool {
+        let path = normalize_path(path);
+        db.conn()
+            .expect("open scan_seen connection")
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM scan_seen WHERE run_id = ?1 AND (observed_path = ?2 OR file_id = ?2))",
+                rusqlite::params![run_id, path],
+                |row| row.get(0),
+            )
+            .expect("query scan_seen for path")
+    }
+
+    #[cfg(feature = "performance-test-tauri")]
+    fn issue375_library_query(request_id: &str) -> FileQueryRequestV2 {
+        FileQueryRequestV2 {
+            version: 2,
+            request_id: request_id.to_string(),
+            query: FileQuerySpecV2 {
+                scope: FileLibraryScopeV2::AllEnabledRoots,
+                text: None,
+                filters: FileQueryFiltersV2::default(),
+                sort: Default::default(),
+            },
+            page_size: 200,
+            cursor: None,
+        }
     }
 
     #[test]

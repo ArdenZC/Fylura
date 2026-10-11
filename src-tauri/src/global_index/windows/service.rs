@@ -153,7 +153,7 @@ pub(crate) trait IndexServiceClientIo {
     fn send_lookup_response(&mut self, response: IndexServiceLookupResponse) -> Result<(), String>;
 }
 
-pub(crate) trait IndexServiceServerIo {
+pub(crate) trait IndexServiceServerIo: Send {
     fn send_event(&mut self, event: IndexServiceEvent) -> Result<(), String>;
     fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String>;
     fn read_lookup_response(

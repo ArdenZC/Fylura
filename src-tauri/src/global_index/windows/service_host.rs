@@ -6,13 +6,13 @@
 
 use super::service::{
     IndexServiceCommand, IndexServiceEvent, IndexServiceLookupResponse, IndexServiceRequest,
-    IndexServiceResponse, IndexServiceServerConnection, IndexServiceServerIo,
+    IndexServiceResponse, IndexServiceServerIo,
 };
 use super::{volumes, DirectWindowsGlobalIndexProvider};
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use crate::global_index::models::{
     GlobalEntry, GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_PAUSED,
-    INDEX_STATUS_READY, PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
+    INDEX_STATUS_READY,
 };
 use std::path::Path;
 use std::ptr;
@@ -903,7 +903,9 @@ fn service_state_name(state: u32) -> &'static str {
 mod tests {
     use super::*;
     use crate::global_index::coordinator::{GlobalIndexProvider, GlobalIndexSink};
-    use crate::global_index::models::INDEX_STATUS_DISCOVERED;
+    use crate::global_index::models::{
+        INDEX_STATUS_DISCOVERED, PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
+    };
     use crate::global_index::windows::service::{
         IndexServiceCallError, IndexServiceClientIo, IndexServiceFrame, IndexServiceLookupResponse,
     };

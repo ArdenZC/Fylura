@@ -5255,10 +5255,10 @@ mod tests {
         let target = outside.to_string_lossy().into_owned();
         let link_for_command = link.replace('/', "\\");
         let target_for_command = target.replace('/', "\\");
-        let junction_command = format!("mklink /J \"{link_for_command}\" \"{target_for_command}\"");
         let output = Command::new("cmd")
-            .arg("/C")
-            .arg(junction_command)
+            .args(["/C", "mklink", "/J"])
+            .arg(&link_for_command)
+            .arg(&target_for_command)
             .output()
             .expect("launch junction creation command");
         assert!(

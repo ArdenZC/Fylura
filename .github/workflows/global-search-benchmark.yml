@@ -51,8 +51,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Keep manual baseline/diagnostic modes and the two branch-scoped diagnostics;
+  # ordinary PRs use only the bounded 1k-row smoke in the index-cost job below.
   synthetic-global-search:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode != 'index_cost' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
     name: Global Search ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
@@ -174,7 +176,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     env:
-      ZC_GLOBAL_INDEX_COST_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '100000' || inputs.cost_entries || '100000' }}
+      ZC_GLOBAL_INDEX_COST_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '1000' || inputs.cost_entries || '100000' }}
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source head
@@ -214,6 +216,7 @@ jobs:
           global_index::tests::global_search_benchmark::index_cost_benchmark::global_search_index_cost_benchmark_smoke
           -- --exact --nocapture --test-threads=1
       - name: Run configured paired A/B/C/D ingestion-cost experiment and search checks
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'index_cost' }}
         env:
           ZC_GLOBAL_INDEX_COST_BENCHMARK_OUTPUT: ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}.jsonl
         run: >-

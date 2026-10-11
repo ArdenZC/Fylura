@@ -502,6 +502,8 @@ jobs:
           cache-on-failure: true
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Windows fixture lifecycle concurrency regression
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib file_workspace::change::tests::concurrent_fixture_lifecycles_preserve_their_shared_parent -- --exact --nocapture
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Windows watcher durable event regression

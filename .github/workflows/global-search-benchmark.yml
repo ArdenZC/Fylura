@@ -175,7 +175,6 @@ jobs:
     timeout-minutes: 180
     env:
       ZC_GLOBAL_INDEX_COST_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '100000' || inputs.cost_entries || '100000' }}
-      ZC_GLOBAL_INDEX_COST_BENCHMARK_OUTPUT: ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}.jsonl
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source head
@@ -214,7 +213,9 @@ jobs:
           --lib
           global_index::tests::global_search_benchmark::index_cost_benchmark::global_search_index_cost_benchmark_smoke
           -- --exact --nocapture --test-threads=1
-      - name: Run paired ${{ env.ZC_GLOBAL_INDEX_COST_BENCHMARK_ENTRIES }} A/B/C/D ingestion-cost experiment and search checks
+      - name: Run configured paired A/B/C/D ingestion-cost experiment and search checks
+        env:
+          ZC_GLOBAL_INDEX_COST_BENCHMARK_OUTPUT: ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}.jsonl
         run: >-
           cargo test --manifest-path src-tauri/Cargo.toml
           --features desktop-runtime
@@ -225,7 +226,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: isg-00e-${{ matrix.runner_key }}-${{ env.ZC_GLOBAL_INDEX_COST_BENCHMARK_ENTRIES }}-rows-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: isg-00e-${{ matrix.runner_key }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}-smoke.jsonl
             ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}.jsonl

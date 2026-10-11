@@ -2008,10 +2008,7 @@ pub enum MacNativeQaTrayIcon {
     feature = "native-qa",
     feature = "desktop-runtime"
 ))]
-pub fn setup_tray_for_native_qa(
-    app: &mut App,
-    icon: MacNativeQaTrayIcon,
-) -> tauri::Result<()> {
+pub fn setup_tray_for_native_qa(app: &mut App, icon: MacNativeQaTrayIcon) -> tauri::Result<()> {
     let source = match icon {
         MacNativeQaTrayIcon::Omitted => TrayIconSource::Omitted,
         MacNativeQaTrayIcon::KnownGoodRgba => TrayIconSource::KnownGoodRgba,

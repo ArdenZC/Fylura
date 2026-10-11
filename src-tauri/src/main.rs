@@ -40,7 +40,10 @@ fn macos_native_qa_checkpoint(name: &str) {
     use std::{sync::OnceLock, time::Instant};
 
     static PROCESS_START: OnceLock<Instant> = OnceLock::new();
-    let elapsed_ms = PROCESS_START.get_or_init(Instant::now).elapsed().as_millis();
+    let elapsed_ms = PROCESS_START
+        .get_or_init(Instant::now)
+        .elapsed()
+        .as_millis();
     let is_main_thread = unsafe { pthread_main_np() != 0 };
     eprintln!(
         "native_qa macos_checkpoint={name} elapsed_ms={elapsed_ms} main_thread={is_main_thread}"
@@ -100,9 +103,7 @@ fn main() {
             case
         }
         Err(reason) => {
-            eprintln!(
-                "native_qa mac_tray_selector_error reason={reason} allowed=m0,m1,m2,m3"
-            );
+            eprintln!("native_qa mac_tray_selector_error reason={reason} allowed=m0,m1,m2,m3");
             std::process::exit(64);
         }
     };

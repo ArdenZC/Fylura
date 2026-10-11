@@ -15,8 +15,10 @@ use crate::path_identity::normalize_text_for_compare;
 use rusqlite::{params, params_from_iter, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
+use std::time::Instant;
 
 mod materialize;
 pub(crate) use materialize::materialize_organization_plan;
@@ -91,6 +93,54 @@ const ORGANIZATION_GROUP_PROJECTION_VERSION: &str = "organization-groups-project
 #[cfg(test)]
 thread_local! {
     static ORGANIZATION_FULL_PROJECTION_COUNT: Cell<usize> = const { Cell::new(0) };
+    static ORGANIZATION_EXECUTION_PROFILE: RefCell<Option<HashMap<&'static str, Vec<f64>>>> =
+        const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+struct OrganizationExecutionProfileTimer {
+    phase: &'static str,
+    started: Option<Instant>,
+}
+
+#[cfg(test)]
+impl OrganizationExecutionProfileTimer {
+    fn new(phase: &'static str) -> Self {
+        let active = ORGANIZATION_EXECUTION_PROFILE.with(|profile| profile.borrow().is_some());
+        Self {
+            phase,
+            started: active.then(Instant::now),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for OrganizationExecutionProfileTimer {
+    fn drop(&mut self) {
+        let Some(started) = self.started else {
+            return;
+        };
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        ORGANIZATION_EXECUTION_PROFILE.with(|profile| {
+            if let Some(samples) = profile.borrow_mut().as_mut() {
+                samples.entry(self.phase).or_default().push(elapsed_ms);
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+fn start_organization_execution_profile() {
+    ORGANIZATION_EXECUTION_PROFILE.with(|profile| {
+        profile.replace(Some(HashMap::new()));
+    });
+}
+
+#[cfg(test)]
+fn take_organization_execution_profile() -> HashMap<&'static str, Vec<f64>> {
+    ORGANIZATION_EXECUTION_PROFILE
+        .with(|profile| profile.borrow_mut().take())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1214,74 +1264,92 @@ impl Database {
         &self,
         request: &ExecuteOrganizationPlanRequest,
     ) -> Result<OrganizationExecutionDispatch, DbError> {
+        #[cfg(test)]
+        let _total_profile = OrganizationExecutionProfileTimer::new("execution.total");
         if !request.confirmed {
             return Err(DbError::Validation(
                 "organization_execution_confirmation_required".to_string(),
             ));
         }
-        let dry_run = self.get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
-            plan_id: request.plan_id.clone(),
-            expected_plan_revision: request.expected_plan_revision,
-            item_ids: request.item_ids.clone(),
-            all_accepted: request.all_accepted,
-        })?;
-        if dry_run.dry_run_fingerprint != request.dry_run_fingerprint {
-            return Err(DbError::Validation(
-                "organization_dry_run_expired".to_string(),
-            ));
-        }
         let execution_id = format!("organization-execution-{}", uuid::Uuid::new_v4());
         let operation_batch_id = format!("organization-operation-{}", uuid::Uuid::new_v4());
-        let mut conn = self.conn()?;
-        let tx = conn.transaction()?;
-        require_plan_revision_and_status(
-            &tx,
-            &request.plan_id,
-            request.expected_plan_revision,
-            &["ready", "partially_completed"],
-        )?;
-        let live_dry_run = build_organization_dry_run(
-            &tx,
-            &OrganizationPlanSelectionRequest {
-                plan_id: request.plan_id.clone(),
-                expected_plan_revision: request.expected_plan_revision,
-                item_ids: request.item_ids.clone(),
-                all_accepted: request.all_accepted,
-            },
-        )?;
-        if live_dry_run.dry_run_fingerprint != request.dry_run_fingerprint
-            || live_dry_run.dry_run_fingerprint != dry_run.dry_run_fingerprint
+        let mut conn = {
+            #[cfg(test)]
+            let _profile = OrganizationExecutionProfileTimer::new("execution.connection_checkout");
+            self.conn()?
+        };
+        let tx = {
+            #[cfg(test)]
+            let _profile = OrganizationExecutionProfileTimer::new("execution.transaction_begin");
+            conn.transaction()?
+        };
         {
+            #[cfg(test)]
+            let _profile = OrganizationExecutionProfileTimer::new("execution.revision_guard");
+            require_plan_revision_and_status(
+                &tx,
+                &request.plan_id,
+                request.expected_plan_revision,
+                &["ready", "partially_completed"],
+            )?;
+        }
+        let live_dry_run = {
+            #[cfg(test)]
+            let _profile = OrganizationExecutionProfileTimer::new("execution.live_dry_run");
+            build_organization_dry_run(
+                &tx,
+                &OrganizationPlanSelectionRequest {
+                    plan_id: request.plan_id.clone(),
+                    expected_plan_revision: request.expected_plan_revision,
+                    item_ids: request.item_ids.clone(),
+                    all_accepted: request.all_accepted,
+                },
+            )?
+        };
+        if live_dry_run.dry_run_fingerprint != request.dry_run_fingerprint {
             return Err(DbError::Validation(
                 "organization_dry_run_expired".to_string(),
             ));
         }
-        let executable_items = live_dry_run
-            .items
-            .iter()
-            .filter(|item| item.executable)
-            .take(ORGANIZATION_EXECUTION_MAX_ITEMS)
-            .collect::<Vec<_>>();
+        let executable_items = {
+            #[cfg(test)]
+            let _profile =
+                OrganizationExecutionProfileTimer::new("execution.select_executable_items");
+            live_dry_run
+                .items
+                .iter()
+                .filter(|item| item.executable)
+                .take(ORGANIZATION_EXECUTION_MAX_ITEMS)
+                .collect::<Vec<_>>()
+        };
         if executable_items.is_empty() {
             return Err(DbError::Validation(
                 "organization_execution_no_executable_items".to_string(),
             ));
         }
-        let executable_ids = executable_items
-            .iter()
-            .map(|item| item.item_id.clone())
-            .collect::<Vec<_>>();
+        let executable_ids = {
+            #[cfg(test)]
+            let _profile = OrganizationExecutionProfileTimer::new("execution.collect_item_ids");
+            executable_items
+                .iter()
+                .map(|item| item.item_id.clone())
+                .collect::<Vec<_>>()
+        };
         let now = current_unix_seconds();
         let mut selections = Vec::with_capacity(executable_ids.len());
         for live_item in executable_items {
             let item_id = &live_item.item_id;
-            let (file_id, source_name, validity, decision): (String, String, String, String) = tx
-                .query_row(
-                "SELECT file_id_snapshot, source_name_snapshot, validity, decision
+            let (file_id, source_name, validity, decision): (String, String, String, String) = {
+                #[cfg(test)]
+                let _profile =
+                    OrganizationExecutionProfileTimer::new("execution.item_snapshot_select");
+                tx.query_row(
+                    "SELECT file_id_snapshot, source_name_snapshot, validity, decision
                  FROM organization_plan_items WHERE id = ?1 AND plan_id = ?2",
-                params![item_id, request.plan_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )?;
+                    params![item_id, request.plan_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )?
+            };
             if !matches!(validity.as_str(), "ready" | "needs_review")
                 || !matches!(decision.as_str(), "accepted" | "edited")
             {
@@ -1289,56 +1357,73 @@ impl Database {
                     "organization_execution_item_changed".to_string(),
                 ));
             }
-            selections.push(crate::file_ops::OperationPreviewRequest {
-                id: live_item.authoritative_preview_id.clone().ok_or_else(|| {
-                    DbError::Validation("organization_preview_missing".to_string())
-                })?,
-                file_id,
-                operation_type: live_item.operation_kind.clone(),
-                source_path: live_item.from.clone(),
-                target_path: live_item.to.clone(),
-                old_name: source_name,
-                new_name: std::path::Path::new(&live_item.to)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .ok_or_else(|| {
-                        DbError::Validation("organization_target_name_invalid".to_string())
-                    })?
-                    .to_string(),
-                is_executable: Some(true),
-            });
-            let claimed = tx.execute(
-                "UPDATE organization_plan_items SET validity = 'executing',
-                        execution_id = ?2, revision = revision + 1, updated_at = ?3
-                 WHERE id = ?1 AND validity IN ('ready', 'needs_review')",
-                params![item_id, execution_id, now],
-            )?;
+            {
+                #[cfg(test)]
+                let _profile = OrganizationExecutionProfileTimer::new("execution.selection_build");
+                selections.push(crate::file_ops::OperationPreviewRequest {
+                    id: live_item.authoritative_preview_id.clone().ok_or_else(|| {
+                        DbError::Validation("organization_preview_missing".to_string())
+                    })?,
+                    file_id,
+                    operation_type: live_item.operation_kind.clone(),
+                    source_path: live_item.from.clone(),
+                    target_path: live_item.to.clone(),
+                    old_name: source_name,
+                    new_name: std::path::Path::new(&live_item.to)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .ok_or_else(|| {
+                            DbError::Validation("organization_target_name_invalid".to_string())
+                        })?
+                        .to_string(),
+                    is_executable: Some(true),
+                });
+            }
+            let claimed = {
+                #[cfg(test)]
+                let _profile =
+                    OrganizationExecutionProfileTimer::new("execution.item_claim_update");
+                tx.execute(
+                    "UPDATE organization_plan_items SET validity = 'executing',
+                            execution_id = ?2, revision = revision + 1, updated_at = ?3
+                     WHERE id = ?1 AND validity IN ('ready', 'needs_review')",
+                    params![item_id, execution_id, now],
+                )?
+            };
             if claimed != 1 {
                 return Err(DbError::Validation(
                     "organization_execution_item_changed".to_string(),
                 ));
             }
         }
-        let updated = tx.execute(
-            "UPDATE organization_plans SET status = 'executing',
-                    active_execution_id = ?3, active_operation_batch_id = ?4,
-                    revision = revision + 1, updated_at = ?5
-             WHERE id = ?1 AND revision = ?2
-               AND status IN ('ready', 'partially_completed')",
-            params![
-                request.plan_id,
-                request.expected_plan_revision,
-                execution_id,
-                operation_batch_id,
-                now
-            ],
-        )?;
+        let updated = {
+            #[cfg(test)]
+            let _profile = OrganizationExecutionProfileTimer::new("execution.plan_claim_update");
+            tx.execute(
+                "UPDATE organization_plans SET status = 'executing',
+                        active_execution_id = ?3, active_operation_batch_id = ?4,
+                        revision = revision + 1, updated_at = ?5
+                 WHERE id = ?1 AND revision = ?2
+                   AND status IN ('ready', 'partially_completed')",
+                params![
+                    request.plan_id,
+                    request.expected_plan_revision,
+                    execution_id,
+                    operation_batch_id,
+                    now
+                ],
+            )?
+        };
         if updated != 1 {
             return Err(DbError::Validation(
                 "organization_plan_revision_conflict".to_string(),
             ));
         }
-        tx.commit()?;
+        {
+            #[cfg(test)]
+            let _profile = OrganizationExecutionProfileTimer::new("execution.transaction_commit");
+            tx.commit()?;
+        }
         Ok(OrganizationExecutionDispatch {
             execution_id,
             operation_batch_id,
@@ -2416,20 +2501,65 @@ fn build_organization_dry_run(
     conn: &rusqlite::Connection,
     request: &OrganizationPlanSelectionRequest,
 ) -> Result<OrganizationPlanDryRunDto, DbError> {
-    let plan_id = validate_id(&request.plan_id, "organization_plan_id_invalid")?;
-    require_plan_revision_and_status(
-        conn,
-        &plan_id,
-        request.expected_plan_revision,
-        &["ready", "partially_completed"],
-    )?;
-    let source_query = load_plan_source_query(conn, &plan_id)?;
-    let selected = selected_plan_items(conn, request)?;
+    let plan_id = {
+        #[cfg(test)]
+        let _profile = OrganizationExecutionProfileTimer::new("dry_run.validate_plan_id");
+        validate_id(&request.plan_id, "organization_plan_id_invalid")?
+    };
+    {
+        #[cfg(test)]
+        let _profile = OrganizationExecutionProfileTimer::new("dry_run.revision_status_query");
+        require_plan_revision_and_status(
+            conn,
+            &plan_id,
+            request.expected_plan_revision,
+            &["ready", "partially_completed"],
+        )?;
+    }
+    let source_query = {
+        #[cfg(test)]
+        let _profile = OrganizationExecutionProfileTimer::new("dry_run.source_query_load");
+        load_plan_source_query(conn, &plan_id)?
+    };
+    let selected = {
+        #[cfg(test)]
+        let _profile = OrganizationExecutionProfileTimer::new("dry_run.selected_items_query");
+        selected_plan_items(conn, request)?
+    };
     let file_ids = selected
         .iter()
         .map(|item| item.file_id_snapshot.clone())
         .collect::<Vec<_>>();
-    let current_files = load_indexed_files_for_projection(conn, &file_ids)?;
+    let current_files = {
+        #[cfg(test)]
+        let _profile = OrganizationExecutionProfileTimer::new("dry_run.current_files_batch_load");
+        load_indexed_files_for_projection(conn, &file_ids)?
+    };
+    let scope_memberships = {
+        const SCOPE_ID_CHUNK: usize = 500;
+        let mut memberships = HashMap::with_capacity(file_ids.len());
+        for chunk in file_ids.chunks(SCOPE_ID_CHUNK) {
+            let matching_ids = {
+                #[cfg(test)]
+                let _profile =
+                    OrganizationExecutionProfileTimer::new("dry_run.scope_membership_query");
+                files_matching_authoritative_query_scope(conn, &source_query, chunk)
+            };
+            match matching_ids {
+                Ok(matching_ids) => {
+                    for file_id in chunk {
+                        memberships.insert(file_id.clone(), Ok(matching_ids.contains(file_id)));
+                    }
+                }
+                Err(_) => {
+                    for file_id in chunk {
+                        memberships.insert(file_id.clone(), Err(()));
+                    }
+                }
+            }
+        }
+        memberships
+    };
     let mut items = Vec::with_capacity(selected.len());
     let mut kinds = HashSet::new();
     let mut total_bytes = 0_i64;
@@ -2458,11 +2588,11 @@ fn build_organization_dry_run(
                 source_health = "stale";
                 blocking_code = Some("source_identity_changed".to_string());
             }
-            match file_matches_authoritative_query_scope(
-                conn,
-                &source_query,
-                &item.file_id_snapshot,
-            ) {
+            let scope_match = scope_memberships
+                .get(&item.file_id_snapshot)
+                .copied()
+                .unwrap_or(Err(()));
+            match scope_match {
                 Ok(true) => {}
                 Ok(false) => {
                     source_health = "invalid_scope";
@@ -2494,7 +2624,12 @@ fn build_organization_dry_run(
                 row.last_classified_mtime.to_string(),
                 row.last_classified_size.to_string(),
             ]);
-            let proposal = current_organization_proposal(conn, row)?;
+            let proposal = {
+                #[cfg(test)]
+                let _profile =
+                    OrganizationExecutionProfileTimer::new("dry_run.current_proposal_query");
+                current_organization_proposal(conn, row)?
+            };
             if proposal.fingerprint != item.proposal_fingerprint {
                 source_health = "stale";
                 blocking_code = Some("live_proposal_changed".to_string());
@@ -2511,9 +2646,14 @@ fn build_organization_dry_run(
             } else {
                 proposal.target_path.clone()
             };
-            collision = normalize_text_for_compare(&final_target)
-                != normalize_text_for_compare(&row.path)
-                && std::path::Path::new(&final_target).exists();
+            collision = {
+                #[cfg(test)]
+                let _profile = OrganizationExecutionProfileTimer::new(
+                    "dry_run.target_collision_filesystem_check",
+                );
+                normalize_text_for_compare(&final_target) != normalize_text_for_compare(&row.path)
+                    && std::path::Path::new(&final_target).exists()
+            };
             if collision {
                 blocking_code = Some("organization_target_collision".to_string());
             }
@@ -2587,11 +2727,19 @@ fn build_organization_dry_run(
                 stale_count += 1;
             }
         }
-        let parent_directory_to_create = std::path::Path::new(&final_target)
-            .parent()
-            .filter(|path| !path.exists())
-            .map(|path| path.to_string_lossy().to_string());
+        let parent_directory_to_create = {
+            #[cfg(test)]
+            let _profile =
+                OrganizationExecutionProfileTimer::new("dry_run.parent_directory_filesystem_check");
+            std::path::Path::new(&final_target)
+                .parent()
+                .filter(|path| !path.exists())
+                .map(|path| path.to_string_lossy().to_string())
+        };
         let cross_volume = paths_cross_volume(&item.source_path_snapshot, &final_target);
+        #[cfg(test)]
+        let _fingerprint_profile =
+            OrganizationExecutionProfileTimer::new("dry_run.fingerprint_and_result_build");
         let canonical_item_fingerprint = blake3::hash(
             [
                 vec![
@@ -5351,6 +5499,19 @@ pub(crate) mod tests {
             "live item must be executable: {:?}",
             dry_run.items[0]
         );
+        let stale_dispatch =
+            db.begin_organization_plan_execution(&ExecuteOrganizationPlanRequest {
+                plan_id: plan.id.clone(),
+                expected_plan_revision: reviewed.revision,
+                dry_run_fingerprint: "stale-fingerprint".into(),
+                item_ids: Vec::new(),
+                all_accepted: true,
+                confirmed: true,
+            });
+        assert!(matches!(
+            stale_dispatch,
+            Err(DbError::Validation(code)) if code == "organization_dry_run_expired"
+        ));
         let dispatch = db
             .begin_organization_plan_execution(&ExecuteOrganizationPlanRequest {
                 plan_id: plan.id.clone(),
@@ -5802,6 +5963,235 @@ pub(crate) mod tests {
         tx.commit().expect("publish benchmark semantic fixtures");
     }
 
+    fn organization_profile_quantile(samples: &[f64], quantile: f64) -> f64 {
+        if samples.is_empty() {
+            return 0.0;
+        }
+        let mut sorted = samples.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        let position = (sorted.len() - 1) as f64 * quantile;
+        let lower = position.floor() as usize;
+        let upper = position.ceil() as usize;
+        let fraction = position - lower as f64;
+        sorted[lower] + (sorted[upper] - sorted[lower]) * fraction
+    }
+
+    fn print_organization_execution_profile(
+        scope: &str,
+        samples: HashMap<&'static str, Vec<f64>>,
+        total_ms: f64,
+        cpu_ms: Option<f64>,
+        before: Option<OrganizationProcessSample>,
+        after: Option<OrganizationProcessSample>,
+    ) {
+        let mut phases = samples.into_iter().collect::<Vec<_>>();
+        phases.sort_by_key(|(phase, _)| *phase);
+        for (phase, values) in phases {
+            println!(
+                "[organization-plan-profile] phase={phase} samples={} p50_ms={:.3} p95_ms={:.3} p99_ms={:.3}",
+                values.len(),
+                organization_profile_quantile(&values, 0.50),
+                organization_profile_quantile(&values, 0.95),
+                organization_profile_quantile(&values, 0.99),
+            );
+        }
+        let cpu_percent = cpu_ms.map(|cpu| cpu / total_ms * 100.0);
+        let memory = |sample: Option<OrganizationProcessSample>| {
+            sample.map(|value| {
+                format!(
+                    "ws_mib={:.1} private_mib={:.1}",
+                    value.working_set_bytes as f64 / (1024.0 * 1024.0),
+                    value.private_bytes as f64 / (1024.0 * 1024.0),
+                )
+            })
+        };
+        println!(
+            "[organization-plan-profile] phase={scope}.resources wall_ms={total_ms:.3} process_cpu_ms={cpu_ms:?} process_cpu_pct_one_core={cpu_percent:?} before=({}) after=({})",
+            memory(before).unwrap_or_else(|| "unavailable".to_string()),
+            memory(after).unwrap_or_else(|| "unavailable".to_string()),
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    struct OrganizationProcessSample {
+        cpu_time_100ns: u64,
+        working_set_bytes: u64,
+        private_bytes: u64,
+    }
+
+    #[cfg(target_os = "windows")]
+    fn organization_process_sample() -> Option<OrganizationProcessSample> {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::ProcessStatus::{
+            GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+        };
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+
+        let process = unsafe { GetCurrentProcess() };
+        let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+            cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
+            ..Default::default()
+        };
+        let memory_ok = unsafe {
+            GetProcessMemoryInfo(
+                process,
+                (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX)
+                    .cast::<PROCESS_MEMORY_COUNTERS>(),
+                counters.cb,
+            )
+        };
+        let mut created = FILETIME::default();
+        let mut exited = FILETIME::default();
+        let mut kernel = FILETIME::default();
+        let mut user = FILETIME::default();
+        let cpu_ok =
+            unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) };
+        if memory_ok == 0 || cpu_ok == 0 {
+            return None;
+        }
+        let filetime = |value: FILETIME| {
+            (u64::from(value.dwHighDateTime) << 32) | u64::from(value.dwLowDateTime)
+        };
+        Some(OrganizationProcessSample {
+            cpu_time_100ns: filetime(kernel).saturating_add(filetime(user)),
+            working_set_bytes: counters.WorkingSetSize as u64,
+            private_bytes: counters.PrivateUsage as u64,
+        })
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn organization_process_sample() -> Option<OrganizationProcessSample> {
+        None
+    }
+
+    fn print_organization_execution_database_profile(
+        conn: &rusqlite::Connection,
+        path: &std::path::Path,
+    ) {
+        let sqlite_version: String = conn
+            .query_row("SELECT sqlite_version()", [], |row| row.get(0))
+            .expect("read SQLite version");
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("read journal mode");
+        let synchronous: i64 = conn
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .expect("read synchronous mode");
+        let temp_store: i64 = conn
+            .query_row("PRAGMA temp_store", [], |row| row.get(0))
+            .expect("read temp store");
+        let mmap_size: i64 = conn
+            .query_row("PRAGMA mmap_size", [], |row| row.get(0))
+            .expect("read mmap size");
+        let page_count: i64 = conn
+            .query_row("PRAGMA page_count", [], |row| row.get(0))
+            .expect("read page count");
+        let page_size: i64 = conn
+            .query_row("PRAGMA page_size", [], |row| row.get(0))
+            .expect("read page size");
+        let file_bytes = |suffix: &str| {
+            let candidate = std::path::PathBuf::from(format!("{}{suffix}", path.display()));
+            std::fs::metadata(candidate)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0)
+        };
+        println!(
+            "[organization-plan-profile] database sqlite={sqlite_version} journal_mode={journal_mode} synchronous={synchronous} temp_store={temp_store} mmap_size={mmap_size} page_size={page_size} page_count={page_count} main_bytes={} wal_bytes={} shm_bytes={}",
+            file_bytes(""),
+            file_bytes("-wal"),
+            file_bytes("-shm"),
+        );
+    }
+
+    fn print_organization_execution_query_plans(
+        conn: &rusqlite::Connection,
+        execution_fixture: &std::path::Path,
+    ) {
+        use rusqlite::ToSql;
+
+        fn print_plan(conn: &rusqlite::Connection, label: &str, sql: &str, params: &[&dyn ToSql]) {
+            let explain_sql = format!("EXPLAIN QUERY PLAN {sql}");
+            let mut statement = conn.prepare(&explain_sql).expect("prepare query plan");
+            let details = statement
+                .query_map(params, |row| row.get::<_, String>(3))
+                .expect("read query plan")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("collect query plan");
+            println!("[organization-plan-profile] query_plan={label} details={details:?}");
+        }
+
+        let root = execution_fixture.to_string_lossy().replace('\\', "/");
+        let root_prefix = format!("{root}/%");
+        let windows_root_prefix = format!("{root}\\%");
+        let source_path = format!("{root}/source-00000.txt");
+        let scope_file_ids = (0..500)
+            .map(|index| format!("bench-file-{index:05}"))
+            .collect::<Vec<_>>();
+        let scope_placeholders = (1..=scope_file_ids.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut scope_params = scope_file_ids
+            .iter()
+            .map(|id| id as &dyn ToSql)
+            .collect::<Vec<_>>();
+        scope_params.extend([
+            &root as &dyn ToSql,
+            &root_prefix as &dyn ToSql,
+            &windows_root_prefix as &dyn ToSql,
+        ]);
+        let scope_sql = format!(
+            "SELECT f.id FROM files AS f WHERE f.id IN ({scope_placeholders}) AND f.is_stale = 0
+               AND (f.path = ?501 OR f.path LIKE ?502 ESCAPE '~' OR f.path LIKE ?503 ESCAPE '~')"
+        );
+        print_plan(
+            conn,
+            "selected_plan_items",
+            "SELECT id, plan_id, ordinal, file_id_snapshot, source_path_snapshot,
+                    source_name_snapshot, source_size_snapshot, source_mtime_snapshot,
+                    source_is_dir_snapshot, proposal_fingerprint, proposal_kind,
+                    proposed_target_directory, proposed_name, proposed_target_path,
+                    decision, edited_name, validity, confidence, risk_level,
+                    requires_confirmation, blocking_code, blocking_detail,
+                    authoritative_preview_id, operation_log_id, execution_id, revision,
+                    created_at, updated_at
+             FROM organization_plan_items WHERE plan_id = ?1
+               AND decision IN ('accepted', 'edited')",
+            &[&"plan-bench"],
+        );
+        print_plan(
+            conn,
+            "file_scope_membership_500_ids",
+            &scope_sql,
+            &scope_params,
+        );
+        print_plan(
+            conn,
+            "global_identity_for_semantic_proposal",
+            "SELECT entry.id, entry.volume_id, entry.platform_file_id, entry.name,
+                    entry.path, entry.extension, entry.is_directory, entry.size,
+                    entry.modified_at_fs, entry.is_stale, volume.enabled
+             FROM global_entries entry JOIN global_volumes volume ON volume.id = entry.volume_id
+             WHERE entry.path_normalized = ?1 ORDER BY entry.id LIMIT 2",
+            &[&source_path],
+        );
+        print_plan(
+            conn,
+            "execution_item_snapshot",
+            "SELECT file_id_snapshot, source_name_snapshot, validity, decision
+             FROM organization_plan_items WHERE id = ?1 AND plan_id = ?2",
+            &[&"bench-item-00000", &"plan-bench"],
+        );
+        print_plan(
+            conn,
+            "execution_item_claim",
+            "UPDATE organization_plan_items SET validity = 'executing',
+                    execution_id = 'profile', revision = revision + 1, updated_at = 1
+             WHERE id = 'bench-item-00000' AND validity IN ('ready', 'needs_review')",
+            &[],
+        );
+    }
+
     #[test]
     #[ignore = "Task 06 100/1k/10k plan ledger, review, dry-run, refresh, WAL and prune benchmark"]
     fn performance_task06_plan_100_1k_10k_repository() {
@@ -6176,6 +6566,8 @@ pub(crate) mod tests {
             let mut dry_ms = None;
             let mut dry_run_for_execution = None;
             if count <= 1_000 {
+                start_organization_execution_profile();
+                let dry_process_before = organization_process_sample();
                 let dry_start = Instant::now();
                 let dry = db
                     .get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
@@ -6186,6 +6578,22 @@ pub(crate) mod tests {
                     })
                     .expect("benchmark dry run");
                 dry_ms = Some(dry_start.elapsed().as_secs_f64() * 1000.0);
+                let dry_process_after = organization_process_sample();
+                let dry_process_cpu_ms =
+                    dry_process_before
+                        .zip(dry_process_after)
+                        .map(|(before, after)| {
+                            after.cpu_time_100ns.saturating_sub(before.cpu_time_100ns) as f64
+                                / 10_000.0
+                        });
+                print_organization_execution_profile(
+                    &format!("standalone_dry_run_{count}"),
+                    take_organization_execution_profile(),
+                    dry_ms.unwrap(),
+                    dry_process_cpu_ms,
+                    dry_process_before,
+                    dry_process_after,
+                );
                 assert_eq!(dry.selected_count, count as i64);
                 if count == 1_000 {
                     assert!(dry_ms.unwrap() <= 1_000.0, "1k dry run {dry_ms:?}ms");
@@ -6208,6 +6616,14 @@ pub(crate) mod tests {
 
             let mut execution_ms = None;
             let refresh_ms = if let Some(dry) = dry_run_for_execution {
+                if count == 1_000 {
+                    start_organization_execution_profile();
+                }
+                let process_before = if count == 1_000 {
+                    organization_process_sample()
+                } else {
+                    None
+                };
                 let execution_start = Instant::now();
                 let dispatch = db
                     .begin_organization_plan_execution(&ExecuteOrganizationPlanRequest {
@@ -6220,6 +6636,37 @@ pub(crate) mod tests {
                     })
                     .expect("benchmark execution preparation");
                 execution_ms = Some(execution_start.elapsed().as_secs_f64() * 1000.0);
+                if count == 1_000 {
+                    let process_after = organization_process_sample();
+                    let execution_wall_ms = execution_ms.unwrap();
+                    let process_cpu_ms =
+                        process_before.zip(process_after).map(|(before, after)| {
+                            after.cpu_time_100ns.saturating_sub(before.cpu_time_100ns) as f64
+                                / 10_000.0
+                        });
+                    print_organization_execution_profile(
+                        "execution_1k",
+                        take_organization_execution_profile(),
+                        execution_wall_ms,
+                        process_cpu_ms,
+                        process_before,
+                        process_after,
+                    );
+                    let selected_count = dispatch.item_ids.len();
+                    let file_id_chunks = selected_count.div_ceil(500);
+                    let scope_sql_statements = file_id_chunks * 3;
+                    let sql_statements_per_dry_run =
+                        3 + file_id_chunks + scope_sql_statements + selected_count * 6;
+                    let execution_sql_statements =
+                        sql_statements_per_dry_run + 1 + 2 * selected_count + 1;
+                    println!(
+                        "[organization-plan-profile] query_counts source_derived=true internal_dry_run_builds=1 selected_items={selected_count} file_id_chunks_per_build={file_id_chunks} scope_validation_batches_per_build={file_id_chunks} scope_sql_statements_per_batch=3 semantic_proposal_calls_per_build={selected_count} semantic_sql_per_proposal=6 execution_item_snapshot_selects={selected_count} execution_item_claim_updates={selected_count} plan_claim_updates=1 estimated_execution_sql_statements={execution_sql_statements} filesystem_exists_checks_per_build={}",
+                        selected_count * 2,
+                    );
+                    let conn = db.conn().expect("profile organization database");
+                    print_organization_execution_database_profile(&conn, &path);
+                    print_organization_execution_query_plans(&conn, &execution_fixture);
+                }
                 assert_eq!(dispatch.item_ids.len(), 1_000);
                 assert!(
                     execution_ms.unwrap() <= 1_000.0,

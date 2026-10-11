@@ -3803,14 +3803,7 @@ mod tests {
         let holder = HeldManagedScanWriter::start(db.clone());
         holder.wait_until_held();
 
-        let root = normalize_scan_root_path(
-            &std::env::temp_dir()
-                .join(format!(
-                    "zen-canvas-issue345-admission-{}",
-                    new_job_id("root")
-                ))
-                .to_string_lossy(),
-        );
+        let root = normalize_scan_root_path(&test_scan_root("issue345-admission-short-lock"));
         let options = request(&root, &new_job_id("issue345-admission-short"));
         let contender_db = db.clone();
         let (started_tx, started_rx) = mpsc::sync_channel(1);
@@ -3869,14 +3862,7 @@ mod tests {
             "[issue366-test] request_key={request_key} stage=writer_begin_immediate_returned elapsed_from_test_start_us={} ",
             writer_lock_acquired_at.duration_since(test_started_at).as_micros()
         );
-        let root = normalize_scan_root_path(
-            &std::env::temp_dir()
-                .join(format!(
-                    "zen-canvas-issue366-admission-timeout-{}",
-                    new_job_id("root")
-                ))
-                .to_string_lossy(),
-        );
+        let root = normalize_scan_root_path(&test_scan_root("issue366-admission-timeout"));
         let options = request(&root, &request_key);
         let contender_db = db.clone();
         let worker_request_key = request_key.clone();
@@ -4083,10 +4069,9 @@ mod tests {
     #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
     fn managed_scan_batch_write_returns_busy_atomically_and_succeeds_after_release() {
         let db = test_db("issue345-batch-timeout-lock");
-        let root =
-            std::env::temp_dir().join(format!("zen-canvas-issue345-batch-{}", new_job_id("root")));
+        let root = PathBuf::from(test_scan_root("issue345-batch"));
         fs::create_dir_all(&root).expect("create managed scan root");
-        let root_text = root.to_string_lossy().replace('\\', "/");
+        let root_text = normalize_scan_root_path(&root.to_string_lossy());
         let admission = db
             .admit_managed_scan(&request(&root_text, &new_job_id("issue345-batch")))
             .expect("admit durable batch fixture");

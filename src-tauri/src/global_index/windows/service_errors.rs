@@ -87,10 +87,9 @@ mod tests {
         };
 
         match decode(&response) {
-            GlobalIndexError::Provider(message) => assert_eq!(
-                message,
-                "Another global index operation is already running"
-            ),
+            GlobalIndexError::Provider(message) => {
+                assert_eq!(message, "Another global index operation is already running")
+            }
             other => panic!("service busy must remain a provider/service error: {other:?}"),
         }
         println!(

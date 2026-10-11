@@ -28,7 +28,7 @@
 
 这些是从指定源码构建的正常 release-mode desktop executable 和 NSIS package；不是已发布、正式签名并经真实自动更新分发的安装包。签名验证、更新器下载/替换路径及发行渠道回滚没有在 U1 覆盖。
 
-**Hosted Windows 证据：** 最终 run job `114586872352`，链接 [run 38178838324](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38178838324)。artifact ID `11717268713`，大小 173,029 bytes，归档 SHA-256 `daca764e93304e203c892df8f36f40e414bcc98c5cb71dee30d3b3b8e4c6e752`；[GitHub artifact](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38178838324/artifacts/11717268713)。归档和独立 JSON/qualification 文件保存在 `docs/research/evidence/issue-380-u1/`。早期 runs 是 Harness 校准过程，不用于本报告最终兼容性结论。
+**Hosted Windows 证据：** 最终 run job `114586872352`，链接 [run 38178838324](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38178838324)。artifact ID `11717268713`，大小 173,029 bytes，归档 SHA-256 `daca764e93304e203c892df8f36f40e414bcc98c5cb71dee30d3b3b8e4c6e752`；[GitHub artifact](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38178838324/artifacts/11717268713)。归档和独立 JSON/qualification 文件保存在 `docs/research/evidence/issue-380-u1/`；归档 ZIP 是逐字节原件，便于审阅的独立 JSON 副本统一为 LF 行尾。早期 runs 是 Harness 校准过程，不用于本报告最终兼容性结论。
 
 ### 证据分类
 

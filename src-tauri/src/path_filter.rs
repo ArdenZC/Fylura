@@ -474,6 +474,44 @@ pub(crate) fn is_protected_system_path(path: &str) -> bool {
     is_protected_system_location(&normalize_policy_path(path))
 }
 
+#[cfg(any(windows, test))]
+fn windows_appdata_protection_roots(
+    user_profile: Option<&str>,
+    appdata: Option<&str>,
+    local_appdata: Option<&str>,
+) -> Vec<String> {
+    let mut roots = Vec::new();
+    for value in [appdata, local_appdata].into_iter().flatten() {
+        let normalized = normalize_policy_path(value);
+        roots.push(normalized.clone());
+        if let Some(parent) = standard_appdata_container_parent(&normalized) {
+            roots.push(parent);
+        }
+    }
+    if let Some(profile) = user_profile {
+        let profile = normalize_policy_path(profile);
+        roots.push(format!("{}/AppData", profile.trim_end_matches('/')));
+    }
+    roots
+}
+
+#[cfg(any(windows, test))]
+fn standard_appdata_container_parent(path: &str) -> Option<String> {
+    let normalized = normalize_policy_path(path);
+    let (parent, leaf) = normalized.rsplit_once('/')?;
+    if !["local", "locallow", "roaming"]
+        .iter()
+        .any(|name| leaf.eq_ignore_ascii_case(name))
+    {
+        return None;
+    }
+    parent
+        .rsplit('/')
+        .next()
+        .is_some_and(|component| component.eq_ignore_ascii_case("appdata"))
+        .then(|| parent.to_string())
+}
+
 fn contextual_directory_exclusion(
     directory: &Path,
     component: &str,
@@ -700,21 +738,15 @@ fn is_protected_system_location(path: &str) -> bool {
         if protected.iter().any(|root| path_is_within_root(root, path)) {
             return true;
         }
-        let mut appdata_roots = Vec::new();
-        for variable in ["APPDATA", "LOCALAPPDATA"] {
-            if let Some(value) = env::var_os(variable) {
-                let value = PathBuf::from(value);
-                if let Some(parent) = value.parent() {
-                    appdata_roots.push(normalize_policy_path(&parent.to_string_lossy()));
-                }
-                appdata_roots.push(normalize_policy_path(&value.to_string_lossy()));
-            }
-        }
-        if let Some(profile) = env::var_os("USERPROFILE") {
-            appdata_roots.push(normalize_policy_path(
-                &PathBuf::from(profile).join("AppData").to_string_lossy(),
-            ));
-        }
+        let profile = env::var_os("USERPROFILE").map(|value| value.to_string_lossy().into_owned());
+        let appdata = env::var_os("APPDATA").map(|value| value.to_string_lossy().into_owned());
+        let local_appdata =
+            env::var_os("LOCALAPPDATA").map(|value| value.to_string_lossy().into_owned());
+        let appdata_roots = windows_appdata_protection_roots(
+            profile.as_deref(),
+            appdata.as_deref(),
+            local_appdata.as_deref(),
+        );
         let is_appdata = appdata_roots
             .iter()
             .any(|root| path_is_within_root(root, path));
@@ -870,6 +902,28 @@ mod tests {
         assert!(!is_protected_system_location(
             "/Users/zen/Design/build/logo.ai"
         ));
+    }
+
+    #[test]
+    fn custom_appdata_environment_does_not_protect_sibling_paths() {
+        let roots = windows_appdata_protection_roots(
+            Some(r"C:\Users\zen"),
+            Some(r"D:\a\_temp\qa\background\appdata"),
+            Some(r"D:\a\_temp\qa\background\localappdata"),
+        );
+        assert!(roots.iter().any(|root| path_is_within_root(
+            root,
+            r"D:\a\_temp\qa\background\appdata\settings.json"
+        )));
+        assert!(!roots.iter().any(|root| {
+            path_is_within_root(root, r"D:\a\_temp\qa\background\profile\resident-fixture")
+        }));
+        assert!(roots
+            .iter()
+            .any(|root| path_is_within_root(root, r"C:\Users\zen\AppData\Roaming\settings.json")));
+        assert!(roots
+            .iter()
+            .any(|root| { path_is_within_root(root, r"C:\Users\zen\AppData\Local\cache\item") }));
     }
 
     #[cfg(windows)]

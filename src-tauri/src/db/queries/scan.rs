@@ -5,8 +5,11 @@ use super::*;
 use crate::ids::new_job_id;
 use crate::path_filter::is_protected_system_path;
 use crate::path_filter::{
-    evaluate_managed_path, has_legacy_exclusion_component, EligibilityDecision, EligibilityPurpose,
-    ManagedScanRootContext,
+    evaluate_managed_path, evaluate_stale_candidate_with_verified_directory,
+    has_legacy_exclusion_component, observe_stale_candidate, path_is_within_root,
+    revalidate_stale_candidate_directory, verify_stale_candidate_directory, EligibilityDecision,
+    EligibilityPurpose, ManagedScanRootContext, StaleCandidateObservation,
+    VerifiedStaleDirectoryChain,
 };
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
@@ -125,6 +128,22 @@ pub(crate) enum ManagedScanWriteTestPoint {
     BeforeTransaction,
     TransactionAcquired,
     AfterCommit,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+#[derive(Default)]
+struct ReconcileMissingTestMetrics {
+    candidate_count: usize,
+    root_boundary_validation: std::time::Duration,
+    candidate_query: std::time::Duration,
+    legacy_proof_sql: std::time::Duration,
+    candidate_leaf_observation: std::time::Duration,
+    directory_chain_initial: std::time::Duration,
+    candidate_policy: std::time::Duration,
+    candidate_leaf_revalidation: std::time::Duration,
+    directory_chain_revalidation: std::time::Duration,
+    stale_row_update_sql: std::time::Duration,
+    final_revision_sql: std::time::Duration,
 }
 
 #[cfg(all(test, feature = "performance-test-tauri"))]
@@ -1655,8 +1674,17 @@ impl Database {
         root_context: &ManagedScanRootContext,
     ) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let transaction_begin_call_started = std::time::Instant::now();
         let tx =
             begin_managed_scan_write_transaction!(&mut conn, "reconcile_missing", Some(run_id))?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let transaction_lock_acquired = std::time::Instant::now();
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let transaction_begin_wait =
+            transaction_lock_acquired.duration_since(transaction_begin_call_started);
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let mut test_metrics = ReconcileMissingTestMetrics::default();
         #[cfg(all(test, feature = "performance-test-tauri"))]
         invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::TransactionAcquired);
         let record = load_scan_run_record(&tx, run_id)?;
@@ -1690,7 +1718,9 @@ impl Database {
             ));
         }
         let root_path = Path::new(&record.dto.root_path);
-        if evaluate_managed_path(
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let root_boundary_started = std::time::Instant::now();
+        let root_boundary_decision = evaluate_managed_path(
             root_path,
             root_context,
             EligibilityPurpose::StaleReconciliation,
@@ -1698,8 +1728,12 @@ impl Database {
                 .ok()
                 .map(|metadata| metadata.is_dir()),
             false,
-        ) != EligibilityDecision::Include
+        );
+        #[cfg(all(test, feature = "performance-test-tauri"))]
         {
+            test_metrics.root_boundary_validation = root_boundary_started.elapsed();
+        }
+        if root_boundary_decision != EligibilityDecision::Include {
             return Err(DbError::Validation(
                 "Stale reconciliation source identity or access boundary changed.".to_string(),
             ));
@@ -1714,6 +1748,8 @@ impl Database {
             let root = &record.dto.root_path;
             let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
                 root_patterns(root);
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            let candidate_query_started = std::time::Instant::now();
             let candidates = {
                 let mut statement = tx.prepare(
                     r#"
@@ -1747,38 +1783,148 @@ impl Database {
                     .collect::<Result<Vec<_>, _>>()?;
                 candidates
             };
-            let mut stale_ids = Vec::new();
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            {
+                test_metrics.candidate_query = candidate_query_started.elapsed();
+                test_metrics.candidate_count = candidates.len();
+            }
+            let mut stale_candidates: Vec<(String, String, StaleCandidateObservation)> = Vec::new();
+            let mut verified_directories: HashMap<PathBuf, VerifiedStaleDirectoryChain> =
+                HashMap::new();
             let mut boundary_error = None;
             for (id, path) in candidates {
                 let candidate_path = Path::new(&path);
-                if has_legacy_exclusion_component(&root_context.path, candidate_path)
-                    && !has_prior_successful_scan_observation(
+                if has_legacy_exclusion_component(&root_context.path, candidate_path) {
+                    #[cfg(all(test, feature = "performance-test-tauri"))]
+                    let history_sql_started = std::time::Instant::now();
+                    let has_prior_observation = has_prior_successful_scan_observation(
                         &tx,
                         &record.dto.scan_root_id,
                         record.dto.generation,
                         &id,
                         &path,
-                    )?
+                    )?;
+                    #[cfg(all(test, feature = "performance-test-tauri"))]
+                    {
+                        test_metrics.legacy_proof_sql += history_sql_started.elapsed();
+                    }
+                    if !has_prior_observation {
+                        // An old basename-only exclusion may have left this
+                        // row indexed without ever observing it under today's
+                        // policy. Keep it unless a prior complete generation
+                        // proves this exact root and path were successfully
+                        // covered.
+                        continue;
+                    }
+                }
+
+                // Match the inexpensive policy checks that precede boundary
+                // validation in evaluate_managed_path. The root context was
+                // already validated above, and the SQL candidate query is
+                // root-scoped, but keep these checks explicit at the trust
+                // boundary rather than creating a proof for another path.
+                if !path_is_within_root(&root_context.path, &path)
+                    || is_protected_system_path(&path)
                 {
-                    // An old basename-only exclusion may have left this row
-                    // indexed without ever observing it under today's policy.
-                    // Keep it unless a prior complete generation proves that
-                    // this exact root and path were successfully covered.
                     continue;
                 }
-                match evaluate_managed_path(
+
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                let leaf_observation_started = std::time::Instant::now();
+                let observation = match observe_stale_candidate(candidate_path) {
+                    Ok(observation) => observation,
+                    Err(reason) => {
+                        boundary_error = Some((path, reason));
+                        break;
+                    }
+                };
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                {
+                    test_metrics.candidate_leaf_observation += leaf_observation_started.elapsed();
+                }
+                let directory_key = observation.directory_path().to_path_buf();
+                if !verified_directories.contains_key(&directory_key) {
+                    #[cfg(all(test, feature = "performance-test-tauri"))]
+                    let directory_chain_started = std::time::Instant::now();
+                    let proof = match verify_stale_candidate_directory(&observation, root_context) {
+                        Ok(proof) => proof,
+                        Err(reason) => {
+                            boundary_error = Some((path, reason));
+                            break;
+                        }
+                    };
+                    #[cfg(all(test, feature = "performance-test-tauri"))]
+                    {
+                        test_metrics.directory_chain_initial += directory_chain_started.elapsed();
+                    }
+                    verified_directories.insert(directory_key.clone(), proof);
+                }
+                let proof = verified_directories
+                    .get(&directory_key)
+                    .expect("directory proof was inserted before candidate evaluation");
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                let policy_started = std::time::Instant::now();
+                match evaluate_stale_candidate_with_verified_directory(
                     candidate_path,
                     root_context,
-                    EligibilityPurpose::StaleReconciliation,
-                    None,
-                    false,
+                    &observation,
+                    proof,
                 ) {
-                    EligibilityDecision::Include => stale_ids.push(id),
+                    EligibilityDecision::Include => stale_candidates.push((id, path, observation)),
                     EligibilityDecision::Exclude(_) => {}
                     EligibilityDecision::Incomplete(reason) => {
                         boundary_error = Some((path, reason));
                         break;
                     }
+                }
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                {
+                    test_metrics.candidate_policy += policy_started.elapsed();
+                }
+            }
+
+            if boundary_error.is_none() {
+                // Recheck cached proofs and every candidate leaf while still
+                // in the write transaction. This fences path/link/source
+                // changes since the first grouped lookup before any stale
+                // row is changed; the proof is never carried across runs.
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                let leaf_revalidation_started = std::time::Instant::now();
+                for (_, path, observation) in &stale_candidates {
+                    match observe_stale_candidate(Path::new(path)) {
+                        Ok(current) if observation.has_same_boundary(&current) => {}
+                        Ok(_) => {
+                            boundary_error = Some((
+                                path.clone(),
+                                crate::path_filter::EligibilityReason::AccessBoundary,
+                            ));
+                            break;
+                        }
+                        Err(reason) => {
+                            boundary_error = Some((path.clone(), reason));
+                            break;
+                        }
+                    }
+                }
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                {
+                    test_metrics.candidate_leaf_revalidation = leaf_revalidation_started.elapsed();
+                }
+            }
+            if boundary_error.is_none() {
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                let directory_revalidation_started = std::time::Instant::now();
+                for (directory_path, proof) in &verified_directories {
+                    if let Err(reason) = revalidate_stale_candidate_directory(proof, root_context) {
+                        boundary_error =
+                            Some((directory_path.to_string_lossy().into_owned(), reason));
+                        break;
+                    }
+                }
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                {
+                    test_metrics.directory_chain_revalidation =
+                        directory_revalidation_started.elapsed();
                 }
             }
 
@@ -1839,6 +1985,12 @@ impl Database {
                 return Ok(updated);
             }
 
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            let stale_row_update_started = std::time::Instant::now();
+            let stale_ids = stale_candidates
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect::<Vec<_>>();
             let mut marked = 0;
             for chunk in stale_ids.chunks(400) {
                 let placeholders = (1..=chunk.len())
@@ -1857,10 +2009,16 @@ impl Database {
                     params_from_iter(values),
                 )?;
             }
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            {
+                test_metrics.stale_row_update_sql = stale_row_update_started.elapsed();
+            }
             marked
         } else {
             0
         };
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let final_revision_started = std::time::Instant::now();
         let now = current_unix_seconds();
         if changed > 0 {
             bump_root_change_revision(&tx, &record.dto.scan_root_id)?;
@@ -1909,8 +2067,50 @@ impl Database {
             )?;
         }
         let updated = load_scan_run_record(&tx, run_id)?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        {
+            test_metrics.final_revision_sql = final_revision_started.elapsed();
+        }
         let _ = changed;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let commit_started = std::time::Instant::now();
         tx.commit()?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if run_id.contains("issue381-reconcile-lock") {
+            let commit_elapsed = commit_started.elapsed();
+            let lock_residency = transaction_lock_acquired.elapsed();
+            let measured = test_metrics.root_boundary_validation
+                + test_metrics.candidate_query
+                + test_metrics.legacy_proof_sql
+                + test_metrics.candidate_leaf_observation
+                + test_metrics.directory_chain_initial
+                + test_metrics.candidate_policy
+                + test_metrics.candidate_leaf_revalidation
+                + test_metrics.directory_chain_revalidation
+                + test_metrics.stale_row_update_sql
+                + test_metrics.final_revision_sql
+                + commit_elapsed;
+            let unclassified = lock_residency.saturating_sub(measured);
+            eprintln!(
+                "issue381 reconcile_lock candidates={} begin_call_to_commit_us={} begin_wait_us={} lock_residency_us={} root_boundary_fs_us={} candidate_query_sql_us={} legacy_proof_sql_us={} leaf_observation_fs_us={} directory_chain_initial_fs_us={} candidate_policy_us={} leaf_revalidation_fs_us={} directory_chain_revalidation_fs_us={} stale_row_update_sql_us={} final_revision_sql_us={} commit_us={} unclassified_us={}",
+                test_metrics.candidate_count,
+                transaction_begin_call_started.elapsed().as_micros(),
+                transaction_begin_wait.as_micros(),
+                lock_residency.as_micros(),
+                test_metrics.root_boundary_validation.as_micros(),
+                test_metrics.candidate_query.as_micros(),
+                test_metrics.legacy_proof_sql.as_micros(),
+                test_metrics.candidate_leaf_observation.as_micros(),
+                test_metrics.directory_chain_initial.as_micros(),
+                test_metrics.candidate_policy.as_micros(),
+                test_metrics.candidate_leaf_revalidation.as_micros(),
+                test_metrics.directory_chain_revalidation.as_micros(),
+                test_metrics.stale_row_update_sql.as_micros(),
+                test_metrics.final_revision_sql.as_micros(),
+                commit_elapsed.as_micros(),
+                unclassified.as_micros(),
+            );
+        }
         self.wake_automation_triggers();
         Ok(updated)
     }
@@ -6225,6 +6425,16 @@ mod tests {
             drop(_writer_hook_reset);
         }
         assert!(reconciled.dto.stale_reconciliation_allowed);
+        let stale_missing_count: i64 = db
+            .conn()
+            .expect("verify reconciled missing rows")
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE is_stale = 1 AND path LIKE ?1",
+                [format!("{missing_root}/missing-%")],
+                |row| row.get(0),
+            )
+            .expect("count stale missing rows");
+        assert_eq!(stale_missing_count, FILE_COUNT as i64);
         let missing_final = db
             .finalize_scan_run(
                 &reconciled.dto.id,

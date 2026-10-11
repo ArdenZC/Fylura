@@ -42,7 +42,7 @@ pub(crate) enum EligibilityDecision {
     Incomplete(EligibilityReason),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct SourceVolume {
     platform: PhysicalPlatform,
     id: String,
@@ -102,6 +102,151 @@ impl ManagedScanRootContext {
     }
 }
 
+/// A no-follow leaf observation and the directory whose verified chain
+/// authorizes a stale reconciliation candidate. This token is created from
+/// the current filesystem state and is scoped to one reconciliation attempt.
+#[derive(Debug, Clone)]
+pub(crate) struct StaleCandidateObservation {
+    candidate_path_key: String,
+    directory_path: PathBuf,
+    directory_path_key: String,
+    is_directory: bool,
+}
+
+impl StaleCandidateObservation {
+    pub(crate) fn directory_path(&self) -> &Path {
+        &self.directory_path
+    }
+
+    pub(crate) fn matches_path(&self, path: &Path) -> bool {
+        self.candidate_path_key
+            == path_identity_key(&normalize_policy_path(&path.to_string_lossy()))
+    }
+
+    pub(crate) fn has_same_boundary(&self, other: &Self) -> bool {
+        self.candidate_path_key == other.candidate_path_key
+            && self.directory_path_key == other.directory_path_key
+            && self.is_directory == other.is_directory
+    }
+}
+
+/// An in-memory proof that one exact directory chain was checked without
+/// crossing links/reparse points or source-volume boundaries. It is only
+/// reusable for candidates whose checked directory path is identical, and
+/// callers must revalidate it immediately before applying stale writes.
+#[derive(Debug, Clone)]
+pub(crate) struct VerifiedStaleDirectoryChain {
+    root_id: String,
+    root_path_key: String,
+    directory_path: PathBuf,
+    directory_path_key: String,
+    source_volume: SourceVolume,
+}
+
+pub(crate) fn observe_stale_candidate(
+    path: &Path,
+) -> Result<StaleCandidateObservation, EligibilityReason> {
+    let is_directory = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata_is_link_or_reparse(&metadata) => {
+            return Err(EligibilityReason::LinkOrReparseBoundary);
+        }
+        Ok(metadata) => metadata.is_dir(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => return Err(EligibilityReason::AccessBoundary),
+    };
+    let directory_path = if is_directory {
+        path.to_path_buf()
+    } else {
+        path.parent().unwrap_or(path).to_path_buf()
+    };
+    let candidate_path_key = path_identity_key(&normalize_policy_path(&path.to_string_lossy()));
+    let directory_path_key =
+        path_identity_key(&normalize_policy_path(&directory_path.to_string_lossy()));
+    Ok(StaleCandidateObservation {
+        candidate_path_key,
+        directory_path,
+        directory_path_key,
+        is_directory,
+    })
+}
+
+pub(crate) fn verify_stale_candidate_directory(
+    observation: &StaleCandidateObservation,
+    root: &ManagedScanRootContext,
+) -> Result<VerifiedStaleDirectoryChain, EligibilityReason> {
+    if !root.enabled {
+        return Err(EligibilityReason::RootNotEnabled);
+    }
+    if root.source_kind != "file_library" || root.id.trim().is_empty() {
+        return Err(EligibilityReason::WrongRootSource);
+    }
+    if !path_is_within_root(&root.path, &observation.directory_path.to_string_lossy()) {
+        return Err(EligibilityReason::OutsideSelectedRoot);
+    }
+    let source_volume = root.source_volume.clone()?;
+    verify_directory_chain(
+        &observation.directory_path,
+        &root.path,
+        &source_volume,
+        Some(true),
+        true,
+    )?;
+    Ok(VerifiedStaleDirectoryChain {
+        root_id: root.id.clone(),
+        root_path_key: path_identity_key(&root.path),
+        directory_path: observation.directory_path.clone(),
+        directory_path_key: observation.directory_path_key.clone(),
+        source_volume,
+    })
+}
+
+pub(crate) fn revalidate_stale_candidate_directory(
+    proof: &VerifiedStaleDirectoryChain,
+    root: &ManagedScanRootContext,
+) -> Result<(), EligibilityReason> {
+    let expected_volume = root.source_volume.as_ref().map_err(|reason| *reason)?;
+    if !root.enabled
+        || root.source_kind != "file_library"
+        || proof.root_id != root.id
+        || proof.root_path_key != path_identity_key(&root.path)
+        || proof.source_volume != *expected_volume
+        || proof.directory_path_key
+            != path_identity_key(&normalize_policy_path(
+                &proof.directory_path.to_string_lossy(),
+            ))
+        || !path_is_within_root(&root.path, &proof.directory_path.to_string_lossy())
+    {
+        return Err(EligibilityReason::AccessBoundary);
+    }
+    verify_directory_chain(
+        &proof.directory_path,
+        &root.path,
+        expected_volume,
+        Some(true),
+        true,
+    )
+}
+
+pub(crate) fn evaluate_stale_candidate_with_verified_directory(
+    path: &Path,
+    root: &ManagedScanRootContext,
+    observation: &StaleCandidateObservation,
+    proof: &VerifiedStaleDirectoryChain,
+) -> EligibilityDecision {
+    if !observation.matches_path(path) || !verified_chain_applies(path, root, observation, proof) {
+        return EligibilityDecision::Incomplete(EligibilityReason::AccessBoundary);
+    }
+    evaluate_managed_path_inner(
+        path,
+        root,
+        EligibilityPurpose::StaleReconciliation,
+        Some(observation.is_directory),
+        false,
+        Some(proof),
+        true,
+    )
+}
+
 pub(crate) fn most_specific_root<'a>(
     roots: &'a [ManagedScanRootContext],
     path: &str,
@@ -122,13 +267,59 @@ pub(crate) fn most_specific_root<'a>(
 /// and this child. Event paths and historical rows always use full boundary
 /// verification. Watcher and stale-reconciliation paths may contain genuinely
 /// missing ancestors, but every surviving directory up to the selected root
-/// must still pass access, link and source-volume checks.
+/// must still pass access, link and source-volume checks. Stale reconciliation
+/// may reuse only the separate, typed directory-chain proof above; it never
+/// turns an arbitrary historical path into `parent_verified` traversal.
 pub(crate) fn evaluate_managed_path(
     path: &Path,
     root: &ManagedScanRootContext,
     purpose: EligibilityPurpose,
     candidate_is_directory: Option<bool>,
     parent_verified: bool,
+) -> EligibilityDecision {
+    evaluate_managed_path_inner(
+        path,
+        root,
+        purpose,
+        candidate_is_directory,
+        parent_verified,
+        None,
+        false,
+    )
+}
+
+fn verified_chain_applies(
+    path: &Path,
+    root: &ManagedScanRootContext,
+    observation: &StaleCandidateObservation,
+    proof: &VerifiedStaleDirectoryChain,
+) -> bool {
+    let expected_directory = if observation.is_directory {
+        path.to_path_buf()
+    } else {
+        path.parent().unwrap_or(path).to_path_buf()
+    };
+    let Ok(expected_volume) = &root.source_volume else {
+        return false;
+    };
+    observation.directory_path_key
+        == path_identity_key(&normalize_policy_path(
+            &expected_directory.to_string_lossy(),
+        ))
+        && proof.root_id == root.id
+        && proof.root_path_key == path_identity_key(&root.path)
+        && proof.directory_path_key == observation.directory_path_key
+        && proof.source_volume == *expected_volume
+}
+
+fn evaluate_managed_path_inner(
+    path: &Path,
+    root: &ManagedScanRootContext,
+    purpose: EligibilityPurpose,
+    candidate_is_directory: Option<bool>,
+    parent_verified: bool,
+    verified_chain: Option<&VerifiedStaleDirectoryChain>,
+    candidate_metadata_verified: bool,
 ) -> EligibilityDecision {
     if !root.enabled {
         return EligibilityDecision::Exclude(EligibilityReason::RootNotEnabled);
@@ -144,9 +335,10 @@ pub(crate) fn evaluate_managed_path(
     if is_protected_system_path(&candidate_text) {
         return EligibilityDecision::Exclude(EligibilityReason::ProtectedSystemLocation);
     }
-    if fs::symlink_metadata(path)
-        .ok()
-        .is_some_and(|metadata| metadata_is_link_or_reparse(&metadata))
+    if !candidate_metadata_verified
+        && fs::symlink_metadata(path)
+            .ok()
+            .is_some_and(|metadata| metadata_is_link_or_reparse(&metadata))
     {
         return EligibilityDecision::Incomplete(EligibilityReason::LinkOrReparseBoundary);
     }
@@ -156,7 +348,14 @@ pub(crate) fn evaluate_managed_path(
         Err(reason) => return EligibilityDecision::Incomplete(*reason),
     };
     let is_selected_root = path_identity_key(&candidate_text) == path_identity_key(&root.path);
-    if is_selected_root {
+    if let Some(proof) = verified_chain {
+        if proof.root_id != root.id
+            || proof.root_path_key != path_identity_key(&root.path)
+            || proof.source_volume != *expected_volume
+        {
+            return EligibilityDecision::Incomplete(EligibilityReason::AccessBoundary);
+        }
+    } else if is_selected_root {
         if let Err(reason) = verify_source_object(path, expected_volume) {
             return EligibilityDecision::Incomplete(reason);
         }
@@ -1053,6 +1252,62 @@ mod tests {
                 false,
             ),
             EligibilityDecision::Incomplete(EligibilityReason::LinkOrReparseBoundary)
+        );
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_directory_proof_is_parent_bound_and_rechecked_before_use() {
+        let fixture = fixture_root("stale-directory-proof");
+        let root_path = fixture.join("root");
+        let parent = root_path.join("Project");
+        let other_parent = root_path.join("Other");
+        let outside = fixture.join("outside");
+        fs::create_dir_all(&parent).expect("create candidate parent");
+        fs::create_dir_all(&other_parent).expect("create sibling candidate parent");
+        fs::create_dir_all(&outside).expect("create outside target");
+        let context = ManagedScanRootContext::new(
+            "stale-proof-root",
+            root_path.to_string_lossy().into_owned(),
+            true,
+            "file_library",
+        );
+        let first_candidate = parent.join("deleted.txt");
+        let first_observation =
+            observe_stale_candidate(&first_candidate).expect("observe missing file leaf");
+        let proof = verify_stale_candidate_directory(&first_observation, &context)
+            .expect("verify candidate parent chain");
+        assert_eq!(
+            evaluate_stale_candidate_with_verified_directory(
+                &first_candidate,
+                &context,
+                &first_observation,
+                &proof,
+            ),
+            EligibilityDecision::Include
+        );
+
+        let sibling_candidate = other_parent.join("deleted.txt");
+        let sibling_observation =
+            observe_stale_candidate(&sibling_candidate).expect("observe sibling missing leaf");
+        assert_eq!(
+            evaluate_stale_candidate_with_verified_directory(
+                &sibling_candidate,
+                &context,
+                &sibling_observation,
+                &proof,
+            ),
+            EligibilityDecision::Incomplete(EligibilityReason::AccessBoundary),
+            "a verified parent proof cannot authorize a different parent path"
+        );
+
+        fs::remove_dir(&parent).expect("remove verified parent");
+        std::os::unix::fs::symlink(&outside, &parent).expect("replace parent with symlink");
+        assert_eq!(
+            revalidate_stale_candidate_directory(&proof, &context),
+            Err(EligibilityReason::LinkOrReparseBoundary),
+            "revalidation detects a boundary change before stale writes"
         );
         let _ = fs::remove_dir_all(fixture);
     }

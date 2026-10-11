@@ -1,10 +1,10 @@
 # Zen Canvas — ISG-00 低价值文件索引治理：Owner 源码研究、成本模型与实测合同
 
-> **版本**：2026-10-11 · Owner Research R1（静态研究已完成；成本实测未完成）  
-> **源码基线**：`ArdenZC/Zen-Canvas master@df37531f785193a948409e2f8cb36369561c6a6f`  
-> **合并后 CI**：[38111501260](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38111501260) **SUCCESS**；此前 #335 已 MERGED，#329 CLOSED  
-> **跟踪**：[#370](https://github.com/ArdenZC/Zen-Canvas/issues/370) / [#371](https://github.com/ArdenZC/Zen-Canvas/issues/371)；关联 [#328](https://github.com/ArdenZC/Zen-Canvas/issues/328)、[#340](https://github.com/ArdenZC/Zen-Canvas/issues/340)  
-> **职责**：ChatGPT/Owner 负责研究、方案、源码复核、实验设计和解释；Codex Cloud 仅负责必要测试/benchmark/诊断代码和执行验证。  
+> **版本**：2026-10-11 · Owner Research R1（静态研究已完成；成本实测未完成）
+> **源码基线**：`ArdenZC/Zen-Canvas master@df37531f785193a948409e2f8cb36369561c6a6f`
+> **合并后 CI**：[38111501260](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38111501260) **SUCCESS**；此前 #335 已 MERGED，#329 CLOSED
+> **跟踪**：[#370](https://github.com/ArdenZC/Zen-Canvas/issues/370) / [#371](https://github.com/ArdenZC/Zen-Canvas/issues/371)；关联 [#328](https://github.com/ArdenZC/Zen-Canvas/issues/328)、[#340](https://github.com/ArdenZC/Zen-Canvas/issues/340)
+> **职责**：ChatGPT/Owner 负责研究、方案、源码复核、实验设计和解释；Codex Cloud 仅负责必要测试/benchmark/诊断代码和执行验证。
 > **证据边界**：这是基于真实代码、已保存的 CI/benchmark 任务材料及官方 API 的**静态研究和实测设计**，不是已采集 Zen 真实设备的资源改善数字；不授权直接更改生产默认索引。
 
 ## 1. Executive Decision

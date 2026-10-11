@@ -1,8 +1,11 @@
 use crate::{
     db::{Database, DbError},
-    global_index::models::{
-        GlobalVolume, INDEX_STATUS_INDEXING, INDEX_STATUS_READY, INDEX_STATUS_SYNCING,
-        PROVIDER_WINDOWS_MFT_USN,
+    global_index::{
+        coordinator::GlobalIndexError,
+        models::{
+            GlobalVolume, INDEX_STATUS_INDEXING, INDEX_STATUS_READY, INDEX_STATUS_SYNCING,
+            PROVIDER_WINDOWS_MFT_USN,
+        },
     },
     settings::{
         get_versioned_app_settings, save_app_settings, save_app_settings_cas,
@@ -353,6 +356,10 @@ fn global_index_state_write_reproduces_busy_and_recovers_after_holder_release() 
         .expect_err("a second writer must wait, then fail while the holder owns WAL write access");
     let elapsed = started.elapsed();
     assert_busy(db_sqlite_error(&error));
+    assert!(matches!(
+        GlobalIndexError::from(error),
+        GlobalIndexError::Database(DbError::Sqlite(_))
+    ));
     assert_busy_wait(elapsed);
 
     let status_while_locked = database
@@ -391,7 +398,7 @@ fn global_index_state_write_reproduces_busy_and_recovers_after_holder_release() 
     assert_eq!(recovered.status, INDEX_STATUS_READY);
     assert_eq!(recovered.last_error, None);
     println!(
-        "issue_328_reproducer holder=second_pooled_connection transaction=BEGIN_IMMEDIATE table=global_volumes contender=Database::update_global_volume_state stage=UPDATE result=SQLITE_BUSY(5) extended_code=5 elapsed_ms={} released_retry=success final_status={}",
+        "issue_328_reproducer holder=second_pooled_connection transaction=BEGIN_IMMEDIATE table=global_volumes contender=Database::update_global_volume_state stage=UPDATE result=SQLITE_BUSY(5) extended_code=5 error_category=sqlite_busy elapsed_ms={} released_retry=success final_status={}",
         elapsed.as_millis(), recovered.status
     );
 }

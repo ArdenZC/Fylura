@@ -1657,6 +1657,8 @@ impl Database {
         let mut conn = self.conn()?;
         let tx =
             begin_managed_scan_write_transaction!(&mut conn, "reconcile_missing", Some(run_id))?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::TransactionAcquired);
         let record = load_scan_run_record(&tx, run_id)?;
         validate_worker_ownership(
             &record,
@@ -3890,6 +3892,16 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "performance-test-tauri")]
+    struct ManagedScanWriteTestHookReset;
+
+    #[cfg(feature = "performance-test-tauri")]
+    impl Drop for ManagedScanWriteTestHookReset {
+        fn drop(&mut self) {
+            set_managed_scan_write_test_hook(None);
+        }
+    }
+
     fn sqlite_failure_codes(error: &DbError) -> Option<(rusqlite::ErrorCode, i32)> {
         match error {
             DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _)) => {
@@ -6074,13 +6086,103 @@ mod tests {
             drop(statement);
             tx.commit().expect("commit missing fixture");
         }
+        #[cfg(feature = "performance-test-tauri")]
+        let writer_control_path = format!(
+            "{}/metadata-control.txt",
+            test_scan_root("performance-writer-control")
+        );
+        #[cfg(feature = "performance-test-tauri")]
+        {
+            db.conn()
+                .expect("seed ordinary metadata writer control row")
+                .execute(
+                    "INSERT INTO files (id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, suggested_name, classification_status, is_stale, last_seen_at) VALUES (?1, ?1, 'metadata-control.txt', 'txt', 1, 1, 1, 0, 0, 'Other', 'metadata-control.txt', 'unclassified', 0, 0)",
+                    [&writer_control_path],
+                )
+                .expect("insert ordinary metadata writer control row");
+        }
+        #[cfg(feature = "performance-test-tauri")]
+        let missing_request = {
+            let mut request = request(&missing_root, "performance-missing-1");
+            request.run_id_override = Some("issue345-d4-issue381-reconcile-lock".to_string());
+            request
+        };
+        #[cfg(not(feature = "performance-test-tauri"))]
+        let missing_request = request(&missing_root, "performance-missing-1");
         let missing_admission = db
-            .admit_managed_scan(&request(&missing_root, "performance-missing-1"))
+            .admit_managed_scan(&missing_request)
             .expect("admit missing fixture");
         let missing_run = db
             .claim_queued_scan_run(&missing_admission.runs[0].id)
             .expect("claim missing fixture");
         let missing_root_context = root_context_for(&db, &missing_run);
+
+        #[cfg(feature = "performance-test-tauri")]
+        let (_writer_hook_reset, writer_thread, writer_result_rx) = {
+            let expected_run_id = missing_run.dto.id.clone();
+            let writer_db = db.clone();
+            let writer_control_path = writer_control_path.clone();
+            let (writer_start_tx, writer_start_rx) = mpsc::sync_channel(1);
+            let (writer_attempted_tx, writer_attempted_rx) = mpsc::sync_channel(1);
+            let writer_attempted_rx =
+                std::sync::Arc::new(std::sync::Mutex::new(writer_attempted_rx));
+            let (writer_result_tx, writer_result_rx) = mpsc::sync_channel(1);
+            set_managed_scan_write_test_hook(Some(std::sync::Arc::new(move |run_id, point| {
+                if run_id == expected_run_id
+                    && point == ManagedScanWriteTestPoint::TransactionAcquired
+                {
+                    writer_start_tx
+                        .send(())
+                        .expect("start the unrelated writer after reconcile locks SQLite");
+                    writer_attempted_rx
+                        .lock()
+                        .expect("writer-attempt receiver mutex")
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("unrelated writer reaches BEGIN IMMEDIATE");
+                }
+            })));
+            let writer_hook_reset = ManagedScanWriteTestHookReset;
+            let writer_thread = std::thread::spawn(move || {
+                let result = (|| -> Result<Duration, String> {
+                    writer_start_rx
+                        .recv_timeout(Duration::from_secs(5))
+                        .map_err(|error| format!("writer start signal: {error}"))?;
+                    let connection = writer_db.conn().map_err(|error| error.to_string())?;
+                    let configured_timeout_ms = connection
+                        .query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))
+                        .map_err(|error| error.to_string())?;
+                    if configured_timeout_ms != 5_000 {
+                        return Err(format!(
+                            "writer busy_timeout was {configured_timeout_ms}ms, expected production default 5000ms"
+                        ));
+                    }
+                    let started = Instant::now();
+                    writer_attempted_tx
+                        .send(())
+                        .map_err(|error| format!("writer attempt signal: {error}"))?;
+                    connection
+                        .execute_batch("BEGIN IMMEDIATE")
+                        .map_err(|error| format!("ordinary writer BEGIN IMMEDIATE: {error}"))?;
+                    let changed = connection
+                        .execute(
+                            "UPDATE files SET name = 'metadata-write-complete' WHERE id = ?1",
+                            [&writer_control_path],
+                        )
+                        .map_err(|error| format!("ordinary metadata update: {error}"))?;
+                    if changed != 1 {
+                        let _ = connection.execute_batch("ROLLBACK");
+                        return Err(format!("ordinary metadata update changed {changed} rows"));
+                    }
+                    connection
+                        .execute_batch("COMMIT")
+                        .map_err(|error| format!("ordinary writer COMMIT: {error}"))?;
+                    Ok(started.elapsed())
+                })();
+                let _ = writer_result_tx.send(result);
+            });
+            (writer_hook_reset, writer_thread, writer_result_rx)
+        };
+
         let reconcile_started = Instant::now();
         let reconciled = db
             .reconcile_missing(
@@ -6092,6 +6194,36 @@ mod tests {
             )
             .expect("reconcile 100k missing rows");
         let reconcile_elapsed = reconcile_started.elapsed();
+        #[cfg(feature = "performance-test-tauri")]
+        {
+            set_managed_scan_write_test_hook(None);
+            let writer_elapsed = writer_result_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("ordinary metadata writer completes after reconciliation")
+                .expect("ordinary metadata writer remains live under the 5 s timeout");
+            writer_thread
+                .join()
+                .expect("ordinary metadata writer thread does not panic");
+            assert!(
+                writer_elapsed < Duration::from_secs(5),
+                "ordinary metadata writer took {writer_elapsed:?}, exceeding SQLite's 5 s busy timeout"
+            );
+            let metadata_name: String = db
+                .conn()
+                .expect("verify ordinary writer connection")
+                .query_row(
+                    "SELECT name FROM files WHERE id = ?1",
+                    [&writer_control_path],
+                    |row| row.get(0),
+                )
+                .expect("read ordinary writer control row");
+            assert_eq!(metadata_name, "metadata-write-complete");
+            eprintln!(
+                "issue381 writer_contention rows={FILE_COUNT} timeout_ms=5000 writer_elapsed_us={} result=success",
+                writer_elapsed.as_micros()
+            );
+            drop(_writer_hook_reset);
+        }
         assert!(reconciled.dto.stale_reconciliation_allowed);
         let missing_final = db
             .finalize_scan_run(

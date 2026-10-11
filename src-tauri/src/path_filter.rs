@@ -120,8 +120,9 @@ pub(crate) fn most_specific_root<'a>(
 /// is used only by recursive traversals: the caller has already admitted the
 /// parent directory and the no-follow walker cannot cross a link between it
 /// and this child. Event paths and historical rows always use full boundary
-/// verification. Stale reconciliation requires every parent to exist and be
-/// readable; only watcher events may carry a missing ancestor up to the root.
+/// verification. Watcher and stale-reconciliation paths may contain genuinely
+/// missing ancestors, but every surviving directory up to the selected root
+/// must still pass access, link and source-volume checks.
 pub(crate) fn evaluate_managed_path(
     path: &Path,
     root: &ManagedScanRootContext,
@@ -165,7 +166,10 @@ pub(crate) fn evaluate_managed_path(
             &root.path,
             expected_volume,
             candidate_is_directory,
-            purpose != EligibilityPurpose::StaleReconciliation,
+            matches!(
+                purpose,
+                EligibilityPurpose::Watcher | EligibilityPurpose::StaleReconciliation
+            ),
         ) {
             Ok(()) => {}
             Err(reason) => return EligibilityDecision::Incomplete(reason),

@@ -5070,7 +5070,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_reconciliation_rejects_a_missing_ancestor_after_enumeration() {
+    fn stale_reconciliation_accepts_a_missing_ancestor_with_verified_survivors() {
         let db = test_db("stale-boundary-missing-parent");
         let root = PathBuf::from(test_scan_root("stale-boundary-missing-parent"));
         let parent = root.join("Project/src");
@@ -5116,20 +5116,17 @@ mod tests {
                 run.session_revision,
                 &root_context,
             )
-            .expect("missing parent uncertainty is recorded without staling the row");
-        assert_eq!(reconciled.dto.coverage_error_count, 1);
-        assert!(!reconciled.dto.coverage_complete);
-        assert!(!reconciled.dto.stale_reconciliation_allowed);
+            .expect("missing ancestor is reconciled after verifying surviving parents");
+        assert_eq!(reconciled.dto.coverage_error_count, 0);
+        assert!(reconciled.dto.coverage_complete);
+        assert!(reconciled.dto.stale_reconciliation_allowed);
         let conn = db.conn().expect("inspect missing-parent result");
         let stale: i64 = conn
             .query_row("SELECT is_stale FROM files WHERE id = ?1", [&path], |row| {
                 row.get(0)
             })
             .expect("read candidate stale state");
-        assert_eq!(
-            stale, 0,
-            "an unverified parent preserves the historical row"
-        );
+        assert_eq!(stale, 1, "a removed directory tree is absent from the root");
         let coverage_errors: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1 AND affects_coverage = 1",
@@ -5137,7 +5134,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("read missing-parent coverage errors");
-        assert_eq!(coverage_errors, 1);
+        assert_eq!(coverage_errors, 0);
     }
 
     #[cfg(unix)]

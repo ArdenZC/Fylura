@@ -233,14 +233,21 @@ def parse_startup(log):
             for item in stages
         ),
         "knownGoodIconValidated": any(
-            item["name"] == "icon_rgba_validated" and "length=1600" in item["details"]
+            item["name"] == "icon_rgba_validated"
+            and all(
+                value in item["details"]
+                for value in ("variant=m3", "width=20", "height=20", "length=1600")
+            )
             for item in stages
         ),
         "knownGoodIconConstructed": any(
             item["name"] == "icon_construction_complete" and "variant=m3" in item["details"]
             for item in stages
         ),
-        "iconOmitted": any(item["name"] == "icon_omitted" for item in stages),
+        "iconOmitted": any(
+            item["name"] == "icon_omitted" and "variant=m2" in item["details"]
+            for item in stages
+        ),
         "trayBuilderCompleted": any(item["name"] == "tray_builder_complete" for item in stages),
         "coreRuntimeOwnersReady": "core_runtime_owners_ready" in checkpoints,
         "trayReady": "tray_ready" in checkpoints,
@@ -339,6 +346,32 @@ def validation_errors(case, parsed):
             errors.append("non_M1_logged_tray_skipped_for_control")
         if parsed["setupComplete"] and not parsed["trayReady"]:
             errors.append("Tray_mode_setup_completed_without_tray_ready")
+        if parsed["setupComplete"]:
+            expected_stages = {
+                "m0": ["menu_construction_complete", "icon_decode_complete", "tray_builder_complete"],
+                "m2": ["menu_construction_complete", "icon_omitted", "tray_builder_complete"],
+                "m3": [
+                    "menu_construction_complete",
+                    "icon_rgba_validated",
+                    "icon_construction_complete",
+                    "tray_builder_complete",
+                ],
+            }[case]
+            actual_stages = [item["name"] for item in parsed["trayStageEvents"]]
+            if actual_stages != expected_stages:
+                errors.append(f"{case}_unexpected_tray_stage_sequence")
+            if not parsed["menuConstructionCompleted"]:
+                errors.append(f"{case}_menu_construction_checkpoint_missing")
+            if not parsed["trayBuilderCompleted"]:
+                errors.append(f"{case}_tray_builder_checkpoint_missing")
+            if case == "m0" and not parsed["productIconDecodeCompleted"]:
+                errors.append("m0_product_png_decode_checkpoint_missing")
+            if case == "m2" and not parsed["iconOmitted"]:
+                errors.append("m2_icon_omission_checkpoint_missing")
+            if case == "m3" and not parsed["knownGoodIconValidated"]:
+                errors.append("m3_known_good_rgba_validation_missing")
+            if case == "m3" and not parsed["knownGoodIconConstructed"]:
+                errors.append("m3_known_good_rgba_construction_missing")
     return errors
 
 

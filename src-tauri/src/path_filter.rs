@@ -230,9 +230,8 @@ pub(crate) fn has_legacy_exclusion_component(root: &str, path: &Path) -> bool {
         return false;
     }
     let selected_root_name_is_legacy = normalized_root
-        .split('/')
-        .filter(|component| !component.is_empty())
-        .last()
+        .rsplit('/')
+        .find(|component| !component.is_empty())
         .is_some_and(is_legacy_exclusion_component);
     selected_root_name_is_legacy
         || relative_path_components(&normalized_root, &candidate_text)

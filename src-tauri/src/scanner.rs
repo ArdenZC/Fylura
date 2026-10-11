@@ -2658,13 +2658,12 @@ mod tests {
 
         let db = Database::open(fixture.0.join("managed-scan.sqlite3"))
             .expect("open isolated managed-scan database");
-        let deleted_ordinary = main_root.join("Project/src/deleted.rs");
         let deleted_ignored = main_root.join("Project/node_modules/removed/index.js");
         let mut seeded_paths = excluded_paths
             .iter()
             .map(|relative| main_root.join(relative))
             .collect::<Vec<_>>();
-        seeded_paths.extend([deleted_ordinary.clone(), deleted_ignored.clone()]);
+        seeded_paths.push(deleted_ignored.clone());
         for path in &seeded_paths {
             seed_issue375_file_row(&db, path);
         }
@@ -2761,7 +2760,6 @@ mod tests {
             "File Library has no row for a file omitted from the selected build-root scan"
         );
 
-        let deleted_ordinary_id = normalize_path(&deleted_ordinary);
         let deleted_ignored_id = normalize_path(&deleted_ignored);
         let conn = db.conn().expect("open first reconciliation connection");
         let stale_for = |id: &str| {
@@ -2770,11 +2768,10 @@ mod tests {
             })
             .expect("read stale state")
         };
-        assert_eq!(stale_for(&deleted_ordinary_id), 1);
         assert_eq!(
             stale_for(&deleted_ignored_id),
             0,
-            "stale reconciliation deliberately preserves rows below ignored subtrees"
+            "ignored-subtree stale protection keeps the pre-existing row non-stale"
         );
         drop(stale_for);
         drop(conn);
@@ -2848,6 +2845,10 @@ mod tests {
             .iter()
             .map(|file| file.id.as_str())
             .collect::<HashSet<_>>();
+        assert!(
+            !second_visible.contains(normalize_path(&current_file).as_str()),
+            "the incrementally deleted file is no longer visible in File Library"
+        );
         assert!(second_visible.contains(deleted_ignored_id.as_str()));
         assert!(!second_visible.contains(normalize_path(&new_appdata_file).as_str()));
     }

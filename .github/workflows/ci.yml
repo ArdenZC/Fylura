@@ -505,8 +505,10 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Managed Scan name-only exclusion characterization
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime performance-test-tauri" --lib issue375_ -- --nocapture --test-threads=1
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib issue375_ -- --nocapture --test-threads=1
       - name: Windows watcher durable event regression
+        if: ${{ !cancelled() }}
         env:
           ZC_NATIVE_QA_WATCHER_TRACE: "1"
           ZC_NATIVE_QA_WATCHER_FIXTURE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
@@ -836,7 +838,8 @@ jobs:
             --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
             --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
       - name: Managed Scan name-only exclusion characterization
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime performance-test-tauri" --lib issue375_ -- --nocapture --test-threads=1
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib issue375_ -- --nocapture --test-threads=1
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
       - name: Native macOS lifecycle blocking lifetime

@@ -18,7 +18,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-const FIXTURE_SEED: u64 = 0x4953_4700_45;
+const FIXTURE_SEED: u64 = 0x0049_5347_0045;
 const SMOKE_ENTRIES: u64 = 1_000;
 const ALLOWED_ENTRIES: [u64; 3] = [1_000, 10_000, 100_000];
 const REPEAT_SAMPLES: usize = 3;
@@ -389,7 +389,7 @@ fn fixture_row(index: u64) -> CorpusRow {
             )
         }
         CorpusClass::ProtectedSystemInternals => {
-            let directory = if index % 2 == 0 {
+            let directory = if index.is_multiple_of(2) {
                 r"C:\Windows\System32\drivers"
             } else {
                 r"C:\Program Files\WindowsApps\Synthetic.Package"
@@ -409,7 +409,7 @@ fn fixture_row(index: u64) -> CorpusRow {
             )
         }
         CorpusClass::UnknownUnicodePaths => {
-            let directory = if index % 2 == 0 {
+            let directory = if index.is_multiple_of(2) {
                 "D:\\資料\\Résumé\\Cafe\u{301}"
             } else {
                 "D:\\資料\\履歷\\Café"

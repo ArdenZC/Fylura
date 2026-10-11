@@ -1646,10 +1646,8 @@ mod tests {
             .expect("repo parent")
             .to_path_buf();
         let temp_root = repo_root.join(".tmp-tests");
-        let lifecycle_parent = temp_root.join(format!(
-            "browse-fixture-lifecycle-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let lifecycle_parent =
+            temp_root.join(format!("browse-fixture-lifecycle-{}", uuid::Uuid::new_v4()));
         let root = {
             let fixture = Fixture::new_under(lifecycle_parent.clone());
             assert!(fixture.root.starts_with(&temp_root));

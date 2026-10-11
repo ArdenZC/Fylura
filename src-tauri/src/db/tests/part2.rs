@@ -1094,6 +1094,7 @@
         let root = test_dir();
         let file = root.join("new-report.txt");
         fs::write(&file, "hello").expect("write file");
+        register_test_file_library_roots(&db, &[root.as_path()]);
 
         let upserted = upsert_files_by_paths_for_db(&db, &[file.to_string_lossy().into_owned()])
             .expect("upsert paths");
@@ -1112,6 +1113,7 @@
         let root = test_dir();
         let file = root.join("notes.txt");
         fs::write(&file, "old").expect("write file");
+        register_test_file_library_roots(&db, &[root.as_path()]);
         let path = normalized_test_path(&file);
         db.insert_file(InsertFileRequest {
             id: path.clone(),
@@ -1143,6 +1145,7 @@
         let root = test_dir();
         let file = root.join("revived.txt");
         fs::write(&file, "hello").expect("write file");
+        register_test_file_library_roots(&db, &[root.as_path()]);
         let path = normalized_test_path(&file);
         db.insert_file(InsertFileRequest {
             id: path.clone(),
@@ -1174,6 +1177,7 @@
         let db = Database::open(test_db_path()).expect("open test database");
         let root = test_dir();
         let missing = root.join("missing.txt");
+        register_test_file_library_roots(&db, &[root.as_path()]);
 
         let upserted = upsert_files_by_paths_for_db(&db, &[missing.to_string_lossy().into_owned()])
             .expect("upsert paths");
@@ -1194,7 +1198,10 @@
         fs::create_dir_all(&ignored).expect("ignored dir");
         fs::write(imported.join("top-level.txt"), "top").expect("write top-level file");
         fs::write(nested.join("deep-note.md"), "deep").expect("write nested file");
+        fs::write(imported.join("package.json"), br#"{"name":"fixture"}"#)
+            .expect("write dependency context marker");
         fs::write(ignored.join("package-file.js"), "ignored").expect("write ignored file");
+        register_test_file_library_roots(&db, &[root.as_path()]);
 
         let upserted = upsert_files_by_paths_for_db(&db, &[imported.to_string_lossy().into_owned()])
             .expect("upsert directory");
@@ -1205,11 +1212,12 @@
             .map(|file| file.name.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(upserted, 4);
+        assert_eq!(upserted, 5);
         assert!(names.contains(&"imported"));
         assert!(names.contains(&"nested"));
         assert!(names.contains(&"top-level.txt"));
         assert!(names.contains(&"deep-note.md"));
+        assert!(names.contains(&"package.json"));
         assert!(!names.contains(&"node_modules"));
         assert!(!names.contains(&"package-file.js"));
     }
@@ -1218,6 +1226,7 @@
     fn upsert_files_by_paths_with_optional_optimize_handles_large_batch() {
         let db = Database::open(test_db_path()).expect("open test database");
         let root = test_dir();
+        register_test_file_library_roots(&db, &[root.as_path()]);
         let mut paths = Vec::with_capacity(OPTIMIZE_AFTER_UPSERT_THRESHOLD);
         for index in 0..OPTIMIZE_AFTER_UPSERT_THRESHOLD {
             let file = root.join(format!("large-upsert-{index:04}.txt"));

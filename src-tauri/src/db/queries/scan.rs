@@ -3,7 +3,10 @@ use super::analysis::{bump_dedupe_authority_tx, invalidate_analysis_findings_for
 use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
 use super::*;
 use crate::ids::new_job_id;
-use crate::path_filter::{generated_dir_variant_bases, ignored_dir_names};
+use crate::path_filter::is_protected_system_path;
+use crate::path_filter::{
+    evaluate_managed_path, EligibilityDecision, EligibilityPurpose, ManagedScanRootContext,
+};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
     Transaction, TransactionBehavior,
@@ -488,6 +491,14 @@ impl Database {
         #[cfg(all(test, feature = "performance-test-tauri"))]
         let issue366_roots_started = issue366_diagnostic_key.map(|_| std::time::Instant::now());
         let resolved = resolve_requested_roots(&options.request.roots);
+        for effective in effective_roots(&resolved) {
+            if is_protected_system_path(&effective.path) {
+                return Err(DbError::Validation(format!(
+                    "Managed Scan cannot select a protected system location: {}",
+                    effective.path
+                )));
+            }
+        }
         #[cfg(all(test, feature = "performance-test-tauri"))]
         if let Some(key) = issue366_diagnostic_key {
             eprintln!(
@@ -1288,11 +1299,17 @@ impl Database {
     ) -> Result<WatcherMutationResult, DbError> {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let root_path: String = tx.query_row(
-            "SELECT normalized_path FROM scan_roots WHERE id = ?1 AND enabled = 1 AND source_kind = 'file_library'",
+        let (root_path, root_enabled, root_source_kind): (String, i64, String) = tx.query_row(
+            "SELECT normalized_path, enabled, source_kind FROM scan_roots WHERE id = ?1 AND enabled = 1 AND source_kind = 'file_library'",
             params![root_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
+        let root_context = ManagedScanRootContext::new(
+            root_id.to_string(),
+            root_path.clone(),
+            root_enabled != 0,
+            root_source_kind,
+        );
         let observed_at = current_unix_seconds();
         let mut files = Vec::new();
         let mut stale_paths = Vec::new();
@@ -1314,6 +1331,28 @@ impl Database {
             let path = PathBuf::from(&normalized);
             if directory_paths.contains(&normalized) {
                 reconciliation_required = true;
+            }
+            let path_is_directory = directory_paths.contains(&normalized)
+                || fs::symlink_metadata(&path)
+                    .ok()
+                    .is_some_and(|metadata| metadata.is_dir());
+            match evaluate_managed_path(
+                &path,
+                &root_context,
+                EligibilityPurpose::Watcher,
+                Some(path_is_directory),
+                false,
+            ) {
+                EligibilityDecision::Include => {}
+                EligibilityDecision::Exclude(_) => continue,
+                EligibilityDecision::Incomplete(_) => {
+                    reconciliation_required = true;
+                    warning = Some(
+                        "Watcher path crossed an unverified link, permission or source-volume boundary."
+                            .to_string(),
+                    );
+                    continue;
+                }
             }
             match fs::symlink_metadata(&path) {
                 Ok(metadata) if watcher_metadata_is_link_or_reparse(&metadata) => {
@@ -1612,6 +1651,7 @@ impl Database {
         expected_run_revision: i64,
         expected_root_revision: i64,
         expected_session_revision: i64,
+        root_context: &ManagedScanRootContext,
     ) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
         let tx =
@@ -1630,6 +1670,37 @@ impl Database {
                 "Scan coverage is incomplete; stale reconciliation is forbidden.".to_string(),
             ));
         }
+        let (root_enabled, root_source_kind, normalized_root): (i64, String, String) = tx
+            .query_row(
+                "SELECT enabled, source_kind, normalized_path FROM scan_roots WHERE id = ?1",
+                params![record.dto.scan_root_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+        if root_context.id != record.dto.scan_root_id
+            || root_enabled != bool_to_i64(root_context.enabled)
+            || root_source_kind != root_context.source_kind
+            || crate::path_filter::normalize_policy_path(&normalized_root)
+                != crate::path_filter::normalize_policy_path(&root_context.path)
+        {
+            return Err(DbError::Validation(
+                "Stale reconciliation lost its selected-root authority.".to_string(),
+            ));
+        }
+        let root_path = Path::new(&record.dto.root_path);
+        if evaluate_managed_path(
+            root_path,
+            root_context,
+            EligibilityPurpose::StaleReconciliation,
+            fs::symlink_metadata(root_path)
+                .ok()
+                .map(|metadata| metadata.is_dir()),
+            false,
+        ) != EligibilityDecision::Include
+        {
+            return Err(DbError::Validation(
+                "Stale reconciliation source identity or access boundary changed.".to_string(),
+            ));
+        }
         let started_at = record
             .dto
             .started_at
@@ -1640,30 +1711,11 @@ impl Database {
             let root = &record.dto.root_path;
             let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
                 root_patterns(root);
-            let ignored_patterns = ignored_subtree_like_patterns(root);
-            let ignored_clauses = ignored_patterns
-                .iter()
-                .enumerate()
-                .map(|(index, _)| {
-                    let parameter_index = 7 + index;
-                    format!("LOWER(f.path) NOT LIKE LOWER(?{parameter_index}) ESCAPE '~'")
-                })
-                .collect::<Vec<_>>()
-                .join(" AND ");
-            let mut values = vec![
-                SqlValue::Integer(started_at),
-                SqlValue::Text(root_slash),
-                SqlValue::Text(root_slash_descendant),
-                SqlValue::Text(root_backslash),
-                SqlValue::Text(root_backslash_descendant),
-                SqlValue::Text(run_id.to_string()),
-            ];
-            values.extend(ignored_patterns.into_iter().map(SqlValue::Text));
-            tx.execute(
-                &format!(
+            let candidates = {
+                let mut statement = tx.prepare(
                     r#"
-                    UPDATE files AS f
-                    SET is_stale = 1
+                    SELECT f.id, f.path
+                    FROM files AS f
                     WHERE f.is_stale = 0
                       AND f.last_seen_at < ?1
                       AND (
@@ -1675,11 +1727,54 @@ impl Database {
                           WHERE seen.run_id = ?6
                             AND (seen.file_id = f.id OR seen.observed_path = f.path)
                       )
-                      AND {ignored_clauses}
-                    "#
-                ),
-                params_from_iter(values),
-            )?
+                    "#,
+                )?;
+                statement
+                    .query_map(
+                        params![
+                            started_at,
+                            root_slash,
+                            root_slash_descendant,
+                            root_backslash,
+                            root_backslash_descendant,
+                            run_id,
+                        ],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            let stale_ids = candidates
+                .into_iter()
+                .filter_map(|(id, path)| {
+                    (evaluate_managed_path(
+                        Path::new(&path),
+                        root_context,
+                        EligibilityPurpose::StaleReconciliation,
+                        Some(false),
+                        true,
+                    ) == EligibilityDecision::Include)
+                        .then_some(id)
+                })
+                .collect::<Vec<_>>();
+            let mut marked = 0;
+            for chunk in stale_ids.chunks(400) {
+                let placeholders = (1..=chunk.len())
+                    .map(|index| format!("?{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let values = chunk
+                    .iter()
+                    .cloned()
+                    .map(SqlValue::Text)
+                    .collect::<Vec<_>>();
+                marked += tx.execute(
+                    &format!(
+                        "UPDATE files SET is_stale = 1 WHERE is_stale = 0 AND id IN ({placeholders})"
+                    ),
+                    params_from_iter(values),
+                )?;
+            }
+            marked
         } else {
             0
         };
@@ -3077,42 +3172,6 @@ fn root_patterns(root: &str) -> (String, String, String, String) {
     )
 }
 
-fn ignored_subtree_like_patterns(root: &str) -> Vec<String> {
-    let slash_root = escape_like_pattern_local(&root.replace('\\', "/"));
-    let backslash_root = escape_like_pattern_local(&root.replace('\\', "/").replace('/', "\\"));
-    let mut patterns = Vec::new();
-
-    for name in ignored_dir_names() {
-        let name = escape_like_pattern_local(name);
-        patterns.extend([
-            format!("{slash_root}/{name}"),
-            format!("{slash_root}/{name}/%"),
-            format!("{slash_root}/%/{name}"),
-            format!("{slash_root}/%/{name}/%"),
-            format!("{backslash_root}\\{name}"),
-            format!("{backslash_root}\\{name}\\%"),
-            format!("{backslash_root}\\%\\{name}"),
-            format!("{backslash_root}\\%\\{name}\\%"),
-        ]);
-    }
-    for base in generated_dir_variant_bases() {
-        for marker in ['.', '-', '_'] {
-            let variant = escape_like_pattern_local(&format!("{base}{marker}"));
-            patterns.extend([
-                format!("{slash_root}/{variant}%"),
-                format!("{slash_root}/{variant}%/%"),
-                format!("{slash_root}/%/{variant}%"),
-                format!("{slash_root}/%/{variant}%/%"),
-                format!("{backslash_root}\\{variant}%"),
-                format!("{backslash_root}\\{variant}%\\%"),
-                format!("{backslash_root}\\%\\{variant}%"),
-                format!("{backslash_root}\\%\\{variant}%\\%"),
-            ]);
-        }
-    }
-    patterns
-}
-
 fn escape_like_pattern_local(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for ch in value.chars() {
@@ -3613,6 +3672,28 @@ mod tests {
             },
             run_id_override: None,
         }
+    }
+
+    fn test_scan_root(label: &str) -> String {
+        std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!("zen-canvas-scan-{label}-{}", new_job_id("root")))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn root_context_for(db: &Database, run: &ScanRunRecord) -> ManagedScanRootContext {
+        let root = db
+            .get_scan_root_health(Some(&run.dto.scan_root_id), None)
+            .expect("read scan root for eligibility context");
+        ManagedScanRootContext::new(
+            run.dto.scan_root_id.clone(),
+            run.dto.root_path.clone(),
+            root.enabled,
+            root.source_kind,
+        )
     }
 
     fn persist_default_scan_folders(db: &Database, roots: Vec<crate::settings::ScanRootSetting>) {
@@ -4179,7 +4260,11 @@ mod tests {
         settings.default_scan_folders.clear();
         crate::settings::save_app_settings(&db, &settings).expect("persist empty watcher settings");
 
-        let path = std::env::temp_dir().join(format!("zen-canvas-ad-hoc-{}", new_job_id("root")));
+        let path = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!("zen-canvas-ad-hoc-{}", new_job_id("root")));
         fs::create_dir_all(&path).expect("create ad-hoc scan root");
         let normalized = normalize_scan_root_path(&path.to_string_lossy());
         db.admit_managed_scan(&request(&normalized, "ad-hoc-watcher-authority"))
@@ -4712,12 +4797,14 @@ mod tests {
         assert_eq!(error_count, 1);
         assert_eq!(old_stale, 0);
         drop(conn);
+        let root_context = root_context_for(&db, &updated);
         assert!(db
             .reconcile_missing(
                 &updated.dto.id,
                 updated.dto.revision,
                 updated.root_revision,
                 updated.session_revision,
+                &root_context,
             )
             .is_err());
     }
@@ -4725,12 +4812,13 @@ mod tests {
     #[test]
     fn stale_reconciliation_uses_the_authoritative_ignore_contract_at_any_depth() {
         let db = test_db("stale-ignore-contract");
-        let root = format!("/tmp/zen-canvas-scan-ignore-{}", new_job_id("root"));
+        let root = test_scan_root("ignore");
+        fs::create_dir_all(&root).expect("create scan root fixture");
         let fixtures = [
             (format!("{root}/node_modules/cache.txt"), false),
             (format!("{root}/project/.git-worktree/data.txt"), false),
             (format!("{root}/project/Node_Modules.CACHE/data.txt"), false),
-            (format!("{root}\\project\\__PYcache__\\entry.txt"), false),
+            (format!("{root}/project/__PYcache__/entry.txt"), false),
             (format!("{root}/project/Library/old.txt"), true),
         ];
         for (path, _) in &fixtures {
@@ -4758,12 +4846,14 @@ mod tests {
         let run = db
             .claim_queued_scan_run(&admission.runs[0].id)
             .expect("claim ignore fixture");
+        let root_context = root_context_for(&db, &run);
         let reconciled = db
             .reconcile_missing(
                 &run.dto.id,
                 run.dto.revision,
                 run.root_revision,
                 run.session_revision,
+                &root_context,
             )
             .expect("reconcile ignore fixture");
         assert!(reconciled.dto.stale_reconciliation_allowed);
@@ -4934,7 +5024,8 @@ mod tests {
     #[test]
     fn complete_reconciliation_stales_only_unseen_rows_and_advances_success_generation() {
         let db = test_db("stale-success");
-        let root = format!("/tmp/zen-canvas-scan-stale-{}", new_job_id("root"));
+        let root = test_scan_root("stale");
+        fs::create_dir_all(&root).expect("create scan root fixture");
         let old_path = format!("{root}/old.txt");
         db.insert_file(InsertFileRequest {
             id: old_path.clone(),
@@ -4989,12 +5080,14 @@ mod tests {
                 },
             )
             .expect("persist");
+        let root_context = root_context_for(&db, &updated);
         let reconciled = db
             .reconcile_missing(
                 &updated.dto.id,
                 updated.dto.revision,
                 updated.root_revision,
                 updated.session_revision,
+                &root_context,
             )
             .expect("reconcile");
         assert!(reconciled.dto.stale_reconciliation_allowed);
@@ -5472,10 +5565,8 @@ mod tests {
     fn performance_100k_scan_seen_missing_reconcile_and_wal_reader() {
         const FILE_COUNT: usize = 100_000;
         let db = test_db("performance-100k");
-        let seen_root = format!(
-            "/tmp/zen-canvas-scan-performance-seen-{}",
-            new_job_id("root")
-        );
+        let seen_root = test_scan_root("performance-seen");
+        fs::create_dir_all(&seen_root).expect("create seen root fixture");
         let seen_admission = db
             .admit_managed_scan(&request(&seen_root, "performance-seen-1"))
             .expect("admit seen fixture");
@@ -5532,10 +5623,8 @@ mod tests {
             )
             .expect("finalize seen fixture");
 
-        let missing_root = format!(
-            "/tmp/zen-canvas-scan-performance-missing-{}",
-            new_job_id("root")
-        );
+        let missing_root = test_scan_root("performance-missing");
+        fs::create_dir_all(&missing_root).expect("create missing root fixture");
         {
             let mut conn = db.conn().expect("db connection");
             let tx = conn
@@ -5562,6 +5651,7 @@ mod tests {
         let missing_run = db
             .claim_queued_scan_run(&missing_admission.runs[0].id)
             .expect("claim missing fixture");
+        let missing_root_context = root_context_for(&db, &missing_run);
         let reconcile_started = Instant::now();
         let reconciled = db
             .reconcile_missing(
@@ -5569,6 +5659,7 @@ mod tests {
                 missing_run.dto.revision,
                 missing_run.root_revision,
                 missing_run.session_revision,
+                &missing_root_context,
             )
             .expect("reconcile 100k missing rows");
         let reconcile_elapsed = reconcile_started.elapsed();
@@ -5641,8 +5732,11 @@ mod tests {
     #[test]
     fn watcher_exact_mutation_uses_durable_revision_without_scan_seen_or_generation() {
         let db = test_db("watcher-exact");
-        let root_path =
-            std::env::temp_dir().join(format!("zen-canvas-watcher-root-{}", new_job_id("root")));
+        let root_path = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!("zen-canvas-watcher-root-{}", new_job_id("root")));
         fs::create_dir_all(&root_path).expect("create watcher root");
         let file_path = root_path.join("new.txt");
         fs::write(&file_path, b"watcher").expect("create watcher file");
@@ -5711,11 +5805,15 @@ mod tests {
     #[test]
     fn moved_directory_old_descendants_are_removed_only_by_full_reconciliation() {
         let db = test_db("watcher-cross-root-directory-rename");
-        let old_root_path = std::env::temp_dir().join(format!(
+        let fixture_root = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures");
+        let old_root_path = fixture_root.join(format!(
             "zen-canvas-watcher-cross-root-old-{}",
             new_job_id("root")
         ));
-        let new_root_path = std::env::temp_dir().join(format!(
+        let new_root_path = fixture_root.join(format!(
             "zen-canvas-watcher-cross-root-new-{}",
             new_job_id("root")
         ));
@@ -5802,12 +5900,14 @@ mod tests {
         let run = db
             .claim_queued_scan_run(&admission.runs[0].id)
             .expect("claim old root reconciliation");
+        let root_context = root_context_for(&db, &run);
         let reconciled = db
             .reconcile_missing(
                 &run.dto.id,
                 run.dto.revision,
                 run.root_revision,
                 run.session_revision,
+                &root_context,
             )
             .expect("reconcile old directory descendants");
         assert!(reconciled.dto.stale_reconciliation_allowed);
@@ -5843,7 +5943,8 @@ mod tests {
     #[test]
     fn watcher_revision_change_during_scan_skips_stale_and_finalizes_with_warning() {
         let db = test_db("watcher-active-scan");
-        let root = format!("/tmp/zen-canvas-watcher-active-{}", new_job_id("root"));
+        let root = test_scan_root("watcher-active");
+        fs::create_dir_all(&root).expect("create watcher root fixture");
         let admission = db
             .admit_managed_scan(&request(&root, "watcher-active-scan-1"))
             .expect("admit scan");
@@ -5856,12 +5957,14 @@ mod tests {
         let latest = db
             .get_scan_run_record(&claimed.dto.id)
             .expect("reload scan after watcher event");
+        let root_context = root_context_for(&db, &latest);
         let reconciled = db
             .reconcile_missing(
                 &latest.dto.id,
                 latest.dto.revision,
                 latest.root_revision,
                 latest.session_revision,
+                &root_context,
             )
             .expect("safe reconcile gate");
         assert!(!reconciled.dto.stale_reconciliation_allowed);
@@ -5895,7 +5998,8 @@ mod tests {
     #[test]
     fn successful_full_scan_advances_watcher_applied_revision() {
         let db = test_db("watcher-full-reconcile");
-        let root = format!("/tmp/zen-canvas-watcher-full-{}", new_job_id("root"));
+        let root = test_scan_root("watcher-full");
+        fs::create_dir_all(&root).expect("create watcher root fixture");
         let admission = db
             .admit_managed_scan(&request(&root, "watcher-full-reconcile-1"))
             .expect("admit scan");
@@ -5907,12 +6011,14 @@ mod tests {
             .claim_queued_scan_run(&admission.runs[0].id)
             .expect("claim reconciliation scan");
         assert_eq!(claimed.dto.watcher_revision_at_start, 1);
+        let root_context = root_context_for(&db, &claimed);
         let reconciled = db
             .reconcile_missing(
                 &claimed.dto.id,
                 claimed.dto.revision,
                 claimed.root_revision,
                 claimed.session_revision,
+                &root_context,
             )
             .expect("reconcile missing files");
         let finalization = db

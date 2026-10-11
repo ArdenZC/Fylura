@@ -1,7 +1,10 @@
 use crate::{
     db::{current_unix_seconds, Database, DbError},
     dedupe::DedupeJobManager,
-    path_filter::is_ignored_dir_name,
+    path_filter::{
+        evaluate_managed_path, path_is_within_root, EligibilityDecision, EligibilityPurpose,
+        ManagedScanRootContext,
+    },
     scanner::ScanJobManager,
     settings::{AppSettings, ScanRootSetting, SearchRootSetting},
 };
@@ -212,20 +215,13 @@ fn event_to_payload_with_native_qa_trace(
             .map(|path| native_qa_watcher_trace_path_prefix(path))
             .take(8)
             .collect::<Vec<_>>();
-        let ignored = event
-            .paths
-            .iter()
-            .filter(|path| is_ignored_path(path))
-            .filter_map(|path| native_qa_watcher_trace_relative_path(path))
-            .take(8)
-            .collect::<Vec<_>>();
-        (!paths.is_empty()).then(|| (format!("{:?}", event.kind), paths, prefixes, ignored))
+        (!paths.is_empty()).then(|| (format!("{:?}", event.kind), paths, prefixes))
     };
 
     let payload = event_to_payload(event);
 
     #[cfg(feature = "native-qa")]
-    if let Some((kind, paths, prefixes, ignored)) = trace_input {
+    if let Some((kind, paths, prefixes)) = trace_input {
         let normalized = payload
             .as_ref()
             .map(|payload| {
@@ -239,11 +235,10 @@ fn event_to_payload_with_native_qa_trace(
             .unwrap_or_default();
         native_qa_watcher_trace("event_to_payload", || {
             format!(
-                "source={source} kind={kind} raw_paths={} raw_path_prefixes={} normalized={} ignored={} result={}",
+                "source={source} kind={kind} raw_paths={} raw_path_prefixes={} normalized={} root_context=deferred result={}",
                 paths.join("|"),
                 prefixes.join("|"),
                 normalized.join("|"),
-                ignored.join("|"),
                 if payload.is_some() {
                     "payload"
                 } else {
@@ -1280,16 +1275,21 @@ fn process_backend_payload<R: Runtime>(
         .paths
         .iter()
         .map(|path| normalize_path(&PathBuf::from(path)))
-        .filter(|path| !is_ignored_path(Path::new(path)))
         .collect::<HashSet<_>>();
+    let root_contexts = configs
+        .iter()
+        .map(|root| {
+            ManagedScanRootContext::new(root.id.clone(), root.path.clone(), true, "file_library")
+        })
+        .collect::<Vec<_>>();
     let mut grouped = HashMap::<String, Vec<String>>::new();
-    let mut ambiguous = HashMap::<String, Vec<String>>::new();
     let mut roots_requiring_reconciliation = HashSet::new();
+    let mut boundary_roots = HashSet::new();
 
     for path in paths {
-        let matches = configs
+        let matches = root_contexts
             .iter()
-            .filter(|root| path_within_root(&root.path, &path))
+            .filter(|root| path_is_within_root(&root.path, &path))
             .collect::<Vec<_>>();
         if let Some(relative) = native_qa_watcher_trace_relative_path(Path::new(&path)) {
             native_qa_watcher_trace("root_route", || {
@@ -1304,31 +1304,27 @@ fn process_backend_payload<R: Runtime>(
                 )
             });
         }
-        match matches.as_slice() {
-            [root] => grouped.entry(root.id.clone()).or_default().push(path),
-            [] => {}
-            _ => {
-                for root in matches {
-                    ambiguous
+        for root in matches {
+            let directory = directory_paths.contains(&path);
+            match evaluate_managed_path(
+                Path::new(&path),
+                root,
+                EligibilityPurpose::Watcher,
+                Some(directory),
+                false,
+            ) {
+                EligibilityDecision::Include => {
+                    grouped
                         .entry(root.id.clone())
                         .or_default()
                         .push(path.clone());
                 }
+                EligibilityDecision::Exclude(_) => {}
+                EligibilityDecision::Incomplete(_) => {
+                    boundary_roots.insert(root.id.clone());
+                }
             }
         }
-    }
-
-    for (root_id, paths) in ambiguous {
-        let Some(batch) = begin_watcher_batch(app, db, &root_id) else {
-            continue;
-        };
-        let message = format!(
-            "Watcher path batch is ambiguous across managed roots: {}",
-            paths.join(", ")
-        );
-        let _ = db.mark_watcher_reconciliation(&root_id, "ambiguous_root", &message);
-        emit_root_status(app, db, &root_id, Some(batch.watcher_revision));
-        roots_requiring_reconciliation.insert(root_id);
     }
 
     for (root_id, mut paths) in grouped {
@@ -1380,7 +1376,7 @@ fn process_backend_payload<R: Runtime>(
                         rule_warning
                     } else {
                         result.warning.as_deref().unwrap_or(
-                            "Watcher directory or ambiguous event requires reconciliation.",
+                            "Watcher directory or overlapping root event requires reconciliation.",
                         )
                     };
                     let _ = db.mark_watcher_reconciliation(
@@ -1420,6 +1416,22 @@ fn process_backend_payload<R: Runtime>(
         if should_reconcile {
             roots_requiring_reconciliation.insert(root_id);
         }
+    }
+
+    for root_id in boundary_roots {
+        if roots_requiring_reconciliation.contains(&root_id) {
+            continue;
+        }
+        let Some(batch) = begin_watcher_batch(app, db, &root_id) else {
+            continue;
+        };
+        let _ = db.mark_watcher_reconciliation(
+            &root_id,
+            "watcher_source_boundary",
+            "Watcher path reached a link, permission or source-volume boundary.",
+        );
+        emit_root_status(app, db, &root_id, Some(batch.watcher_revision));
+        roots_requiring_reconciliation.insert(root_id);
     }
 
     if !roots_requiring_reconciliation.is_empty() {
@@ -1617,19 +1629,7 @@ fn emit_root_status<R: Runtime>(
 }
 
 fn path_within_root(root: &str, path: &str) -> bool {
-    let root = normalize_path(Path::new(root))
-        .trim_end_matches('/')
-        .to_string();
-    let path = normalize_path(Path::new(path));
-    let (root, path) = if cfg!(windows) {
-        (root.to_ascii_lowercase(), path.to_ascii_lowercase())
-    } else {
-        (root, path)
-    };
-    path == root
-        || path
-            .strip_prefix(&root)
-            .is_some_and(|suffix| suffix.starts_with('/'))
+    path_is_within_root(root, path)
 }
 
 pub fn recover_watcher_reconciliation_state<R: Runtime>(
@@ -2356,7 +2356,10 @@ mod tests {
             std::env::var_os("ZC_NATIVE_QA_WATCHER_FIXTURE_ROOT").map(PathBuf::from);
         let remove_parent = supplied_root.is_none();
         let root = supplied_root.unwrap_or_else(|| {
-            std::env::temp_dir()
+            std::env::current_dir()
+                .expect("workspace directory")
+                .join("target")
+                .join("issue381-fixtures")
                 .join(format!("pm02b-windows-notify-{}", uuid::Uuid::new_v4()))
                 .join("watch-root")
         });
@@ -2504,20 +2507,19 @@ mod tests {
         ));
     }
 
-    /// Issue #375 characterization: exercise the production Notify-event
-    /// conversion and backend payload processor against real fixture files.
-    /// Ignored-name paths are dropped before root routing, including paths
-    /// whose selected watcher root itself is named `build`.
+    /// Issue #381 synthetic Notify-event regression. This test exercises the
+    /// production event conversion and root-aware backend routing; it does not
+    /// claim evidence from a native OS Watcher callback.
     #[cfg(feature = "performance-test-tauri")]
     #[test]
-    fn issue375_watcher_filters_ignored_components_before_root_routing() {
-        let fixture = WatcherTestTree::new("issue375-filter");
+    fn issue375_issue381_watcher_routes_lookalikes_and_selected_build_root_by_context() {
+        let fixture = WatcherTestTree::new("issue381-root-aware");
         let project_root = fixture.0.join("project");
         let selected_build_root = fixture.0.join("chosen").join("build");
         fs::create_dir_all(&project_root).expect("create project watcher root");
         fs::create_dir_all(&selected_build_root).expect("create selected build watcher root");
 
-        let ignored_relative_paths = [
+        let candidate_relative_paths = [
             "Projects/Windows/README.md",
             "Design/build/logo.ai",
             "Configs/AppData/important.json",
@@ -2525,16 +2527,24 @@ mod tests {
             "Project/node_modules/pkg/index.js",
             "Project/.venv/pyvenv.cfg",
         ];
-        let mut ignored_paths = ignored_relative_paths
+        let candidate_paths = candidate_relative_paths
             .iter()
             .map(|relative| project_root.join(relative))
             .collect::<Vec<_>>();
-        ignored_paths.push(selected_build_root.join("README.md"));
-        for path in &ignored_paths {
+        let selected_root_file = selected_build_root.join("README.md");
+        for path in candidate_paths
+            .iter()
+            .chain(std::iter::once(&selected_root_file))
+        {
             fs::create_dir_all(path.parent().expect("ignored event parent"))
                 .expect("create ignored event directory");
             fs::write(path, b"watcher fixture").expect("create ignored event file");
         }
+        fs::write(
+            project_root.join("Project/package.json"),
+            br#"{"name":"fixture"}"#,
+        )
+        .expect("create project dependency context marker");
         let ordinary_path = project_root.join("Project/src/current.rs");
         fs::create_dir_all(ordinary_path.parent().expect("ordinary event parent"))
             .expect("create ordinary event directory");
@@ -2543,9 +2553,14 @@ mod tests {
         let db = Database::open(fixture.0.join("watcher.sqlite3"))
             .expect("open isolated watcher database");
         let roots = [
-            scan_root("issue375-project", &project_root.to_string_lossy(), true),
+            scan_root("issue381-project", &project_root.to_string_lossy(), true),
             scan_root(
-                "issue375-explicit-build",
+                "issue381-nested-projects",
+                &project_root.join("Projects").to_string_lossy(),
+                true,
+            ),
+            scan_root(
+                "issue381-explicit-build",
                 &selected_build_root.to_string_lossy(),
                 true,
             ),
@@ -2554,9 +2569,9 @@ mod tests {
             crate::settings::get_app_settings(&db).expect("read isolated watcher test settings");
         settings.default_scan_folders = roots.to_vec();
         crate::settings::save_app_settings(&db, &settings)
-            .expect("persist project and selected build watcher roots");
+            .expect("persist project, nested and selected build watcher roots");
         db.sync_file_library_watcher_roots(&roots)
-            .expect("register project and selected build watcher roots");
+            .expect("register project, nested and selected build watcher roots");
         let root_configs = db
             .list_watcher_root_configs()
             .expect("read watcher root configs");
@@ -2564,6 +2579,10 @@ mod tests {
             .iter()
             .find(|root| root.path == normalize_path(&project_root))
             .expect("project watcher config");
+        let nested_config = root_configs
+            .iter()
+            .find(|root| root.path == normalize_path(&project_root.join("Projects")))
+            .expect("nested watcher config");
         let build_config = root_configs
             .iter()
             .find(|root| root.path == normalize_path(&selected_build_root))
@@ -2571,56 +2590,81 @@ mod tests {
         let project_before = db
             .get_scan_root_health(Some(&project_config.id), None)
             .expect("read project watcher state before events");
+        let nested_before = db
+            .get_scan_root_health(Some(&nested_config.id), None)
+            .expect("read nested watcher state before events");
         let build_before = db
             .get_scan_root_health(Some(&build_config.id), None)
             .expect("read selected build watcher state before events");
 
-        for path in &ignored_paths {
+        let app = tauri::test::mock_app();
+        let app_handle = app.handle().clone();
+        let jobs = ScanJobManager::default();
+        let dedupe_jobs = DedupeJobManager::default();
+        for path in candidate_paths
+            .iter()
+            .filter(|path| watcher_policy_excludes(path))
+        {
             let payload = event_to_payload(Event {
                 kind: EventKind::Create(notify::event::CreateKind::File),
                 paths: vec![path.clone()],
                 attrs: EventAttributes::new(),
             });
             assert!(
-                payload.is_none(),
-                "Notify event below ignored name should be discarded: {}",
+                payload.is_some(),
+                "synthetic Notify conversion retains path context until root routing: {}",
                 path.display()
             );
+            process_backend_payload(
+                &app_handle,
+                &db,
+                &jobs,
+                &dedupe_jobs,
+                payload.expect("filtered paths are still converted to payloads"),
+            );
         }
-        let project_after_ignored = db
+        let project_after_excluded = db
             .get_scan_root_health(Some(&project_config.id), None)
-            .expect("read project watcher state after ignored events");
-        let build_after_ignored = db
+            .expect("read project watcher state after excluded events");
+        let build_after_excluded = db
             .get_scan_root_health(Some(&build_config.id), None)
-            .expect("read selected build watcher state after ignored events");
+            .expect("read selected build watcher state after excluded events");
         assert_eq!(
-            project_after_ignored.watcher_revision,
+            project_after_excluded.watcher_revision,
             project_before.watcher_revision
         );
         assert_eq!(
-            project_after_ignored.watcher_applied_revision,
+            project_after_excluded.watcher_applied_revision,
             project_before.watcher_applied_revision
         );
         assert_eq!(
-            build_after_ignored.watcher_revision,
+            build_after_excluded.watcher_revision,
             build_before.watcher_revision
         );
 
-        let app = tauri::test::mock_app();
-        let app_handle = app.handle().clone();
-        let jobs = ScanJobManager::default();
-        let dedupe_jobs = DedupeJobManager::default();
-        let ordinary_payload = event_to_payload(Event {
-            kind: EventKind::Create(notify::event::CreateKind::File),
-            paths: vec![ordinary_path.clone()],
-            attrs: EventAttributes::new(),
-        })
-        .expect("ordinary file create reaches backend payload processing");
-        process_backend_payload(&app_handle, &db, &jobs, &dedupe_jobs, ordinary_payload);
+        let mut eligible_paths = candidate_paths
+            .iter()
+            .filter(|path| !watcher_policy_excludes(path))
+            .cloned()
+            .collect::<Vec<_>>();
+        eligible_paths.push(ordinary_path.clone());
+        eligible_paths.push(selected_root_file.clone());
+        for path in &eligible_paths {
+            let payload = event_to_payload(Event {
+                kind: EventKind::Create(notify::event::CreateKind::File),
+                paths: vec![path.clone()],
+                attrs: EventAttributes::new(),
+            })
+            .expect("eligible synthetic Notify path becomes a backend payload");
+            process_backend_payload(&app_handle, &db, &jobs, &dedupe_jobs, payload);
+        }
 
         let project_after = db
             .get_scan_root_health(Some(&project_config.id), None)
             .expect("read project watcher state after ordinary event");
+        let nested_after = db
+            .get_scan_root_health(Some(&nested_config.id), None)
+            .expect("read nested watcher state after overlapping event");
         let build_after = db
             .get_scan_root_health(Some(&build_config.id), None)
             .expect("read selected build watcher state after events");
@@ -2629,10 +2673,15 @@ mod tests {
             project_after.watcher_revision,
             project_after.watcher_applied_revision
         );
-        assert_eq!(build_after.watcher_revision, build_before.watcher_revision);
+        assert!(nested_after.watcher_revision > nested_before.watcher_revision);
+        assert_eq!(
+            nested_after.watcher_revision, nested_after.watcher_applied_revision,
+            "overlapping settings-owned root also applies the shared path"
+        );
+        assert!(build_after.watcher_revision > build_before.watcher_revision);
         assert_eq!(
             build_after.watcher_applied_revision,
-            build_before.watcher_applied_revision
+            build_after.watcher_revision
         );
 
         let conn = db.conn().expect("open watcher publication connection");
@@ -2646,28 +2695,50 @@ mod tests {
             .expect("read watcher publication")
         };
         assert!(exists(&ordinary_path), "ordinary event reaches file upsert");
-        for path in &ignored_paths {
+        for path in candidate_paths
+            .iter()
+            .filter(|path| watcher_policy_excludes(path))
+        {
             assert!(
                 !exists(path),
-                "ignored event never reaches file upsert: {}",
+                "context-proven exclusion never reaches file upsert: {}",
+                path.display()
+            );
+        }
+        for path in eligible_paths {
+            assert!(
+                exists(&path),
+                "eligible path reaches watcher upsert: {}",
                 path.display()
             );
         }
     }
 
+    #[cfg(feature = "performance-test-tauri")]
+    fn watcher_policy_excludes(path: &Path) -> bool {
+        path.components().any(|component| {
+            matches!(
+                component
+                    .as_os_str()
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                ".vscode" | ".venv" | "node_modules"
+            )
+        })
+    }
+
     #[cfg(all(windows, feature = "performance-test-tauri"))]
     #[test]
-    fn issue375_windows_case_and_extended_paths_keep_filter_and_root_identity() {
-        let ignored = event_to_payload(Event {
+    fn issue375_issue381_windows_case_unc_and_extended_paths_keep_root_identity() {
+        let payload = event_to_payload(Event {
             kind: EventKind::Create(notify::event::CreateKind::File),
             paths: vec![PathBuf::from(r"\\?\C:\ZC-375\Design\bUiLd\logo.ai")],
             attrs: EventAttributes::new(),
         });
-        assert!(
-            ignored.is_none(),
-            "extended mixed-case build path is filtered"
-        );
-        assert!(is_ignored_dir_name(std::ffi::OsStr::new("aPpDaTa")));
+        let payload = payload.expect("extended path keeps its event context until routing");
+        assert_eq!(payload.paths.len(), 1);
+        assert!(payload.paths[0].ends_with("/Design/bUiLd/logo.ai"));
 
         let root = r"\\?\C:\ZC-375\Project";
         let child = r"\\?\c:\zc-375\project\src\main.rs";
@@ -2676,6 +2747,13 @@ mod tests {
             normalize_path(Path::new(child)),
             "c:/zc-375/project/src/main.rs"
         );
+        assert!(path_within_root(
+            r"\\?\UNC\Server\Share\Project",
+            r"\\?\unc\server\share\project\src\main.rs"
+        ));
+        assert!(!crate::path_filter::is_protected_system_path(
+            r"C:\ZC-375\Design\Windows\README.md"
+        ));
     }
 
     #[test]
@@ -3042,16 +3120,11 @@ fn normalize_watch_roots(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, WatcherErr
     Ok(roots)
 }
 
-fn is_ignored_path(path: &Path) -> bool {
-    path.components()
-        .any(|component| is_ignored_dir_name(component.as_os_str()))
-}
-
 fn normalize_event_paths(paths: &[PathBuf]) -> Vec<String> {
     paths
         .iter()
-        .filter(|path| !is_ignored_path(path))
         .map(|path| normalize_path(path))
+        .filter(|path| !path.trim().is_empty())
         .collect()
 }
 

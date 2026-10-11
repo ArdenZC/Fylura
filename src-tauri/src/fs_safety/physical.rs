@@ -51,6 +51,34 @@ pub enum PhysicalIdentityError {
     Io(#[from] io::Error),
 }
 
+/// Capture the filesystem identity used to bind a managed scan to the volume
+/// on which its selected root lives. This is transient scan context; it is not
+/// persisted as a second root authority.
+pub fn capture_source_volume_identity(
+    path: &Path,
+) -> Result<(PhysicalPlatform, String), PhysicalIdentityError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            PhysicalIdentityError::Missing
+        } else {
+            PhysicalIdentityError::Io(error)
+        }
+    })?;
+    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+        return Err(PhysicalIdentityError::UnsupportedLink);
+    }
+    if !metadata.is_file() && !metadata.is_dir() {
+        return Err(PhysicalIdentityError::UnsupportedType);
+    }
+    let (platform, volume_id, _, _) = platform_identity(path, &metadata);
+    volume_id.map(|volume| (platform, volume)).ok_or_else(|| {
+        PhysicalIdentityError::Io(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "source volume identity unavailable",
+        ))
+    })
+}
+
 pub fn capture_physical_identity(
     path: &Path,
 ) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {

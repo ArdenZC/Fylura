@@ -1,67 +1,996 @@
-use std::{collections::HashSet, ffi::OsStr, sync::OnceLock};
+//! Root-aware Managed Scan path eligibility.
+//!
+//! This is an in-memory policy decision. The existing scan root and watcher
+//! settings remain the only durable root authorities.
 
-pub fn is_ignored_dir_name(name: &OsStr) -> bool {
-    let name = name.to_string_lossy();
-    let lower = name.to_ascii_lowercase();
-    let lower = lower.as_str();
+use crate::fs_safety::{capture_source_volume_identity, PhysicalPlatform};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
-    skip_dir_names().contains(lower) || has_generated_dir_variant(lower)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EligibilityPurpose {
+    Discovery,
+    Watcher,
+    Upsert,
+    StaleReconciliation,
 }
 
-pub(crate) fn ignored_dir_names() -> &'static [&'static str] {
-    SKIP_DIR_NAMES
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EligibilityReason {
+    RootNotEnabled,
+    WrongRootSource,
+    OutsideSelectedRoot,
+    ProtectedSystemLocation,
+    SourceIdentityUnavailable,
+    SourceVolumeChanged,
+    LinkOrReparseBoundary,
+    AccessBoundary,
+    HiddenPath,
+    DependencyTree,
+    IdeMetadata,
+    GeneratedOutput,
+    CacheTree,
+    ReservedTrash,
+    HistoricalIgnoredPath,
 }
 
-pub(crate) fn generated_dir_variant_bases() -> &'static [&'static str] {
-    GENERATED_DIR_VARIANT_BASES
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EligibilityDecision {
+    Include,
+    Exclude(EligibilityReason),
+    Incomplete(EligibilityReason),
 }
 
-const SKIP_DIR_NAMES: &[&str] = &[
-    ".git",
-    ".hg",
-    ".svn",
-    ".idea",
-    ".vscode",
-    ".cache",
-    ".zen-canvas-trash",
-    ".parcel-cache",
-    ".turbo",
-    ".next",
-    ".nuxt",
-    ".venv",
-    "__pycache__",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    "coverage",
-    "vendor",
-    "venv",
-    "pods",
-    "deriveddata",
-    "appdata",
-    "system volume information",
-    "$recycle.bin",
-    "windows",
-    "program files",
-    "program files (x86)",
-    "programdata",
-    "$windows.~bt",
-    "$winreagent",
-    "recovery",
-];
-
-const GENERATED_DIR_VARIANT_BASES: &[&str] = &[".git", ".cache", "__pycache__", "node_modules"];
-
-fn skip_dir_names() -> &'static HashSet<&'static str> {
-    static SKIP_DIR_NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
-    SKIP_DIR_NAMES.get_or_init(|| ignored_dir_names().iter().copied().collect())
+#[derive(Debug, Clone)]
+struct SourceVolume {
+    platform: PhysicalPlatform,
+    id: String,
 }
 
-fn has_generated_dir_variant(lower: &str) -> bool {
-    generated_dir_variant_bases().iter().any(|base| {
-        lower
-            .strip_prefix(base)
-            .is_some_and(|suffix| matches!(suffix.as_bytes().first(), Some(b'.' | b'-' | b'_')))
-    })
+/// Root context is assembled only from an active scan run or an enabled,
+/// settings-owned watcher root. It is deliberately not stored durably.
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedScanRootContext {
+    pub(crate) id: String,
+    pub(crate) path: String,
+    pub(crate) enabled: bool,
+    pub(crate) source_kind: String,
+    source_volume: Result<SourceVolume, EligibilityReason>,
+}
+
+impl ManagedScanRootContext {
+    pub(crate) fn new(
+        id: impl Into<String>,
+        path: impl Into<String>,
+        enabled: bool,
+        source_kind: impl Into<String>,
+    ) -> Self {
+        let id = id.into();
+        let path = normalize_policy_path(&path.into());
+        let source = capture_source_volume_identity(Path::new(&path))
+            .map(|(platform, id)| SourceVolume { platform, id })
+            .map_err(|error| match error {
+                crate::fs_safety::PhysicalIdentityError::Missing => {
+                    EligibilityReason::AccessBoundary
+                }
+                crate::fs_safety::PhysicalIdentityError::UnsupportedLink => {
+                    EligibilityReason::LinkOrReparseBoundary
+                }
+                crate::fs_safety::PhysicalIdentityError::UnsupportedType => {
+                    EligibilityReason::AccessBoundary
+                }
+                crate::fs_safety::PhysicalIdentityError::Io(error)
+                    if error.kind() == std::io::ErrorKind::PermissionDenied =>
+                {
+                    EligibilityReason::AccessBoundary
+                }
+                crate::fs_safety::PhysicalIdentityError::Io(error)
+                    if error.kind() == std::io::ErrorKind::Unsupported =>
+                {
+                    EligibilityReason::SourceIdentityUnavailable
+                }
+                crate::fs_safety::PhysicalIdentityError::Io(_) => EligibilityReason::AccessBoundary,
+            });
+        Self {
+            id,
+            path,
+            enabled,
+            source_kind: source_kind.into(),
+            source_volume: source,
+        }
+    }
+}
+
+pub(crate) fn most_specific_root<'a>(
+    roots: &'a [ManagedScanRootContext],
+    path: &str,
+) -> Option<&'a ManagedScanRootContext> {
+    roots
+        .iter()
+        .filter(|root| {
+            root.enabled
+                && root.source_kind == "file_library"
+                && path_is_within_root(&root.path, path)
+        })
+        .max_by_key(|root| normalize_policy_path(&root.path).len())
+}
+
+/// Evaluate one path in the context of its selected root. `parent_verified`
+/// is used only by recursive traversals: the caller has already admitted the
+/// parent directory and the no-follow walker cannot cross a link between it
+/// and this child. Event paths and historical rows always use full boundary
+/// verification.
+pub(crate) fn evaluate_managed_path(
+    path: &Path,
+    root: &ManagedScanRootContext,
+    purpose: EligibilityPurpose,
+    candidate_is_directory: Option<bool>,
+    parent_verified: bool,
+) -> EligibilityDecision {
+    if !root.enabled {
+        return EligibilityDecision::Exclude(EligibilityReason::RootNotEnabled);
+    }
+    if root.source_kind != "file_library" || root.id.trim().is_empty() {
+        return EligibilityDecision::Exclude(EligibilityReason::WrongRootSource);
+    }
+
+    let candidate_text = normalize_policy_path(&path.to_string_lossy());
+    if !path_is_within_root(&root.path, &candidate_text) {
+        return EligibilityDecision::Exclude(EligibilityReason::OutsideSelectedRoot);
+    }
+    if is_protected_system_path(&candidate_text) {
+        return EligibilityDecision::Exclude(EligibilityReason::ProtectedSystemLocation);
+    }
+    if fs::symlink_metadata(path)
+        .ok()
+        .is_some_and(|metadata| metadata_is_link_or_reparse(&metadata))
+    {
+        return EligibilityDecision::Incomplete(EligibilityReason::LinkOrReparseBoundary);
+    }
+
+    let expected_volume = match &root.source_volume {
+        Ok(volume) => volume,
+        Err(reason) => return EligibilityDecision::Incomplete(*reason),
+    };
+    let is_selected_root = path_identity_key(&candidate_text) == path_identity_key(&root.path);
+    if is_selected_root {
+        if let Err(reason) = verify_source_object(path, expected_volume) {
+            return EligibilityDecision::Incomplete(reason);
+        }
+    } else if !parent_verified {
+        match verify_directory_chain(path, &root.path, expected_volume, candidate_is_directory) {
+            Ok(()) => {}
+            Err(reason) => return EligibilityDecision::Incomplete(reason),
+        }
+    } else if candidate_is_directory == Some(true) {
+        match verify_single_directory(path, expected_volume) {
+            Ok(()) => {}
+            Err(reason) => return EligibilityDecision::Incomplete(reason),
+        }
+    }
+
+    // The chosen root owns its basename. A selected `build` directory is
+    // eligible as a root; only context-proven generated descendants are
+    // excluded below it. Protected system locations and access boundaries
+    // have already taken precedence.
+    let relative_components = relative_path_components(&root.path, &candidate_text);
+    if relative_components.is_empty() {
+        return EligibilityDecision::Include;
+    }
+
+    if purpose == EligibilityPurpose::StaleReconciliation
+        && relative_components
+            .iter()
+            .any(|component| is_legacy_exclusion_component(component))
+    {
+        // Rows written under the previous basename-only policy are historical
+        // user state. Keep them until a successful scan observes them or an
+        // explicit user action changes them.
+        return EligibilityDecision::Exclude(EligibilityReason::HistoricalIgnoredPath);
+    }
+    if relative_components
+        .iter()
+        .any(|component| component.starts_with('.'))
+    {
+        return EligibilityDecision::Exclude(EligibilityReason::HiddenPath);
+    }
+
+    let mut directory = PathBuf::from(&root.path);
+    let is_directory = candidate_is_directory.or_else(|| {
+        fs::symlink_metadata(path)
+            .ok()
+            .map(|metadata| metadata.is_dir())
+    });
+    let component_count = relative_components.len();
+    for (index, component) in relative_components.iter().enumerate() {
+        directory.push(component);
+        let final_component = index + 1 == component_count;
+        let component_is_directory = if final_component {
+            is_directory.unwrap_or(false)
+        } else {
+            true
+        };
+        if !component_is_directory {
+            continue;
+        }
+        if let Some(reason) = contextual_directory_exclusion(&directory, component, &root.path) {
+            return EligibilityDecision::Exclude(reason);
+        }
+    }
+
+    EligibilityDecision::Include
+}
+
+pub(crate) fn path_is_within_root(root: &str, path: &str) -> bool {
+    let root = path_identity_key(root);
+    let path = path_identity_key(path);
+    let root = trim_policy_root(&root);
+    path == root
+        || if root.ends_with('/') {
+            path.starts_with(&root)
+        } else {
+            path.strip_prefix(&root)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+        }
+}
+
+pub(crate) fn normalize_policy_path(path: &str) -> String {
+    let mut value = path.replace('\\', "/");
+    if value
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/UNC/"))
+    {
+        value = format!("//{}", &value[8..]);
+    } else if value
+        .get(..4)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/"))
+    {
+        value = value[4..].to_string();
+    }
+
+    let (prefix, remainder) = if value.starts_with("//") {
+        let mut parts = value[2..].split('/').filter(|part| !part.is_empty());
+        let server = parts.next().unwrap_or_default();
+        let share = parts.next().unwrap_or_default();
+        let prefix = if server.is_empty() {
+            "//".to_string()
+        } else if share.is_empty() {
+            format!("//{server}")
+        } else {
+            format!("//{server}/{share}")
+        };
+        let consumed = if share.is_empty() {
+            2 + server.len()
+        } else {
+            4 + server.len() + share.len()
+        };
+        let remainder = value
+            .get(consumed..)
+            .unwrap_or_default()
+            .trim_start_matches('/');
+        (prefix, remainder)
+    } else if value.as_bytes().get(1) == Some(&b':') {
+        let prefix = value[..2].to_string();
+        let remainder = value[2..].trim_start_matches('/');
+        (prefix, remainder)
+    } else if value.starts_with('/') {
+        ("/".to_string(), value.trim_start_matches('/'))
+    } else {
+        (String::new(), value.as_str())
+    };
+
+    let mut components = Vec::new();
+    for component in remainder.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                if components.last().is_some_and(|part| *part != "..") {
+                    components.pop();
+                } else if prefix.is_empty() {
+                    components.push("..".to_string());
+                }
+            }
+            other => components.push(other.to_string()),
+        }
+    }
+    if prefix == "/" {
+        if components.is_empty() {
+            return prefix;
+        }
+        return format!("/{components}", components = components.join("/"));
+    }
+    let joined = components.join("/");
+    if joined.is_empty() {
+        if prefix.ends_with(':') {
+            format!("{prefix}/")
+        } else {
+            prefix
+        }
+    } else if prefix.ends_with(':') || prefix.starts_with("//") {
+        format!("{prefix}/{joined}")
+    } else if prefix.is_empty() {
+        joined
+    } else {
+        format!("{prefix}/{joined}")
+    }
+}
+
+fn path_identity_key(path: &str) -> String {
+    let normalized = normalize_policy_path(path);
+    if cfg!(windows) || is_windows_style_path(&normalized) {
+        normalized.to_ascii_lowercase()
+    } else {
+        normalized
+    }
+}
+
+fn trim_policy_root(path: &str) -> String {
+    if path == "/" || (path.len() == 3 && path.as_bytes().get(1) == Some(&b':')) {
+        path.to_string()
+    } else {
+        path.trim_end_matches('/').to_string()
+    }
+}
+
+fn is_windows_style_path(path: &str) -> bool {
+    path.starts_with("//") || (path.as_bytes().get(1) == Some(&b':'))
+}
+
+fn relative_path_components(root: &str, path: &str) -> Vec<String> {
+    let root = trim_policy_root(&path_identity_key(root));
+    let path = path_identity_key(path);
+    if path == root {
+        return Vec::new();
+    }
+    let Some(relative) = path.strip_prefix(&root) else {
+        return Vec::new();
+    };
+    relative
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn verify_directory_chain(
+    candidate: &Path,
+    root: &str,
+    expected_volume: &SourceVolume,
+    candidate_is_directory: Option<bool>,
+) -> Result<(), EligibilityReason> {
+    let mut current = if candidate_is_directory
+        .or_else(|| {
+            fs::symlink_metadata(candidate)
+                .ok()
+                .map(|metadata| metadata.is_dir())
+        })
+        .unwrap_or(false)
+    {
+        candidate.to_path_buf()
+    } else {
+        candidate.parent().unwrap_or(candidate).to_path_buf()
+    };
+    loop {
+        if path_identity_key(&current.to_string_lossy()) == path_identity_key(root) {
+            return verify_single_directory(&current, expected_volume);
+        }
+        match verify_single_directory(&current, expected_volume) {
+            Ok(()) => {}
+            Err(EligibilityReason::AccessBoundary)
+                if !current.exists() && path_is_within_root(root, &current.to_string_lossy()) =>
+            {
+                // Removed watcher paths have no leaf to inspect. Continue to
+                // the last existing parent so rename/remove events retain the
+                // correct root and volume context.
+            }
+            Err(reason) => return Err(reason),
+        }
+        let Some(parent) = current.parent() else {
+            return Err(EligibilityReason::OutsideSelectedRoot);
+        };
+        if parent == current {
+            return Err(EligibilityReason::OutsideSelectedRoot);
+        }
+        current = parent.to_path_buf();
+    }
+}
+
+fn verify_single_directory(
+    path: &Path,
+    expected_volume: &SourceVolume,
+) -> Result<(), EligibilityReason> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(EligibilityReason::AccessBoundary)
+        }
+        Err(_) => return Err(EligibilityReason::AccessBoundary),
+    };
+    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+        return Err(EligibilityReason::LinkOrReparseBoundary);
+    }
+    if !metadata.is_dir() {
+        return Err(EligibilityReason::AccessBoundary);
+    }
+    let (platform, volume) = capture_source_volume_identity(path).map_err(|error| match error {
+        crate::fs_safety::PhysicalIdentityError::UnsupportedLink => {
+            EligibilityReason::LinkOrReparseBoundary
+        }
+        crate::fs_safety::PhysicalIdentityError::Io(error)
+            if error.kind() == std::io::ErrorKind::Unsupported =>
+        {
+            EligibilityReason::SourceIdentityUnavailable
+        }
+        _ => EligibilityReason::AccessBoundary,
+    })?;
+    if platform != expected_volume.platform || volume != expected_volume.id {
+        return Err(EligibilityReason::SourceVolumeChanged);
+    }
+    Ok(())
+}
+
+fn verify_source_object(
+    path: &Path,
+    expected_volume: &SourceVolume,
+) -> Result<(), EligibilityReason> {
+    let metadata = fs::symlink_metadata(path).map_err(|_| EligibilityReason::AccessBoundary)?;
+    if metadata_is_link_or_reparse(&metadata) {
+        return Err(EligibilityReason::LinkOrReparseBoundary);
+    }
+    let (platform, volume) = capture_source_volume_identity(path).map_err(|error| match error {
+        crate::fs_safety::PhysicalIdentityError::UnsupportedLink => {
+            EligibilityReason::LinkOrReparseBoundary
+        }
+        crate::fs_safety::PhysicalIdentityError::Io(error)
+            if error.kind() == std::io::ErrorKind::Unsupported =>
+        {
+            EligibilityReason::SourceIdentityUnavailable
+        }
+        _ => EligibilityReason::AccessBoundary,
+    })?;
+    if platform != expected_volume.platform || volume != expected_volume.id {
+        return Err(EligibilityReason::SourceVolumeChanged);
+    }
+    Ok(())
+}
+
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = metadata;
+        false
+    }
+}
+
+pub(crate) fn metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink() || is_reparse_point(metadata)
+}
+
+pub(crate) fn is_protected_system_path(path: &str) -> bool {
+    is_protected_system_location(&normalize_policy_path(path))
+}
+
+fn contextual_directory_exclusion(
+    directory: &Path,
+    component: &str,
+    root: &str,
+) -> Option<EligibilityReason> {
+    #[cfg(target_os = "macos")]
+    if crate::platform::macos::package::is_package(directory) {
+        return Some(EligibilityReason::GeneratedOutput);
+    }
+    let name = component.to_ascii_lowercase();
+    let parent = directory.parent().unwrap_or(directory);
+    match name.as_str() {
+        ".zen-canvas-trash" => Some(EligibilityReason::ReservedTrash),
+        "node_modules"
+            if has_any_file(
+                parent,
+                &[
+                    "package.json",
+                    "package-lock.json",
+                    "yarn.lock",
+                    "pnpm-lock.yaml",
+                ],
+            ) || has_any_file(directory, &[".package-lock.json", ".yarn-integrity"]) =>
+        {
+            Some(EligibilityReason::DependencyTree)
+        }
+        "vendor"
+            if has_any_file(directory, &["autoload.php", "modules.txt"])
+                || has_any_file(parent, &["composer.json", "go.mod"]) =>
+        {
+            Some(EligibilityReason::DependencyTree)
+        }
+        "pods"
+            if has_any_file(parent, &["Podfile", "Podfile.lock"])
+                || directory.join("Manifest.lock").is_file() =>
+        {
+            Some(EligibilityReason::DependencyTree)
+        }
+        "venv" | ".venv"
+            if directory.join("pyvenv.cfg").is_file() || has_any_file(parent, &["pyvenv.cfg"]) =>
+        {
+            Some(EligibilityReason::DependencyTree)
+        }
+        "target"
+            if has_any_file(parent, &["Cargo.toml"])
+                || directory.join(".rustc_info.json").is_file() =>
+        {
+            Some(EligibilityReason::GeneratedOutput)
+        }
+        "build"
+            if has_any_file(directory, &["CMakeCache.txt", "build.ninja"])
+                || directory.join("CMakeFiles").is_dir()
+                || (has_any_file(parent, &["CMakeLists.txt"])
+                    && has_any_file(directory, &["Makefile"])) =>
+        {
+            Some(EligibilityReason::GeneratedOutput)
+        }
+        "dist"
+            if has_any_file(
+                parent,
+                &[
+                    "vite.config.js",
+                    "vite.config.ts",
+                    "webpack.config.js",
+                    "rollup.config.js",
+                ],
+            ) && parent.join("package.json").is_file() =>
+        {
+            Some(EligibilityReason::GeneratedOutput)
+        }
+        "coverage"
+            if directory.join("lcov.info").is_file()
+                || directory.join("lcov-report").is_dir()
+                || parent.join(".nyc_output").is_dir() =>
+        {
+            Some(EligibilityReason::GeneratedOutput)
+        }
+        "__pycache__" if directory.is_dir() => Some(EligibilityReason::CacheTree),
+        ".cache"
+            if directory.join("CACHEDIR.TAG").is_file() || is_user_cache_directory(directory) =>
+        {
+            Some(EligibilityReason::CacheTree)
+        }
+        ".next"
+            if has_any_file(
+                parent,
+                &["next.config.js", "next.config.mjs", "next.config.ts"],
+            ) || directory.join("BUILD_ID").is_file() =>
+        {
+            Some(EligibilityReason::GeneratedOutput)
+        }
+        ".nuxt"
+            if has_any_file(parent, &["nuxt.config.js", "nuxt.config.ts"])
+                || directory.join("builds").is_dir() =>
+        {
+            Some(EligibilityReason::GeneratedOutput)
+        }
+        ".parcel-cache"
+            if has_any_file(parent, &[".parcelrc"])
+                || has_any_file(directory, &["data.mdb", "meta.json"]) =>
+        {
+            Some(EligibilityReason::CacheTree)
+        }
+        ".turbo" if parent.join("turbo.json").is_file() || directory.join("cache").is_dir() => {
+            Some(EligibilityReason::CacheTree)
+        }
+        "deriveddata" if is_xcode_derived_data(directory, root) => {
+            Some(EligibilityReason::GeneratedOutput)
+        }
+        ".git" if has_any_file(directory, &["HEAD", "config"]) => {
+            Some(EligibilityReason::IdeMetadata)
+        }
+        ".hg" if directory.join(".hg").exists() || has_any_file(directory, &["hgrc", "store"]) => {
+            Some(EligibilityReason::IdeMetadata)
+        }
+        ".svn" if has_any_file(directory, &["entries", "wc.db"]) => {
+            Some(EligibilityReason::IdeMetadata)
+        }
+        ".idea" if has_any_file(directory, &["workspace.xml", "modules.xml", "misc.xml"]) => {
+            Some(EligibilityReason::IdeMetadata)
+        }
+        ".vscode"
+            if has_any_file(
+                directory,
+                &[
+                    "settings.json",
+                    "launch.json",
+                    "tasks.json",
+                    "extensions.json",
+                ],
+            ) =>
+        {
+            Some(EligibilityReason::IdeMetadata)
+        }
+        _ => None,
+    }
+}
+
+fn has_any_file(directory: &Path, names: &[&str]) -> bool {
+    names.iter().any(|name| directory.join(name).is_file())
+}
+
+fn is_user_cache_directory(directory: &Path) -> bool {
+    env::var_os("XDG_CACHE_HOME")
+        .or_else(|| {
+            env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache").into_os_string())
+        })
+        .is_some_and(|cache| {
+            path_is_within_root(&cache.to_string_lossy(), &directory.to_string_lossy())
+        })
+}
+
+fn is_xcode_derived_data(directory: &Path, root: &str) -> bool {
+    let home = env::var_os("HOME").map(PathBuf::from);
+    home.is_some_and(|home| {
+        let derived = home.join("Library/Developer/Xcode/DerivedData");
+        path_is_within_root(&derived.to_string_lossy(), &directory.to_string_lossy())
+    }) || (path_is_within_root(root, &directory.to_string_lossy())
+        && directory.join("Build/Intermediates.noindex").is_dir())
+}
+
+fn is_legacy_exclusion_component(component: &str) -> bool {
+    let lower = component.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        ".git"
+            | ".hg"
+            | ".svn"
+            | ".idea"
+            | ".vscode"
+            | ".cache"
+            | ".zen-canvas-trash"
+            | ".parcel-cache"
+            | ".turbo"
+            | ".next"
+            | ".nuxt"
+            | ".venv"
+            | "__pycache__"
+            | "node_modules"
+            | "target"
+            | "dist"
+            | "build"
+            | "coverage"
+            | "vendor"
+            | "venv"
+            | "pods"
+            | "deriveddata"
+            | "appdata"
+            | "system volume information"
+            | "$recycle.bin"
+            | "windows"
+            | "program files"
+            | "program files (x86)"
+            | "programdata"
+            | "$windows.~bt"
+            | "$winreagent"
+            | "recovery"
+    ) || [".git", ".cache", "__pycache__", "node_modules"]
+        .iter()
+        .any(|base| {
+            lower
+                .strip_prefix(base)
+                .is_some_and(|suffix| matches!(suffix.as_bytes().first(), Some(b'.' | b'-' | b'_')))
+        })
+}
+
+fn is_protected_system_location(path: &str) -> bool {
+    #[cfg(windows)]
+    {
+        let mut protected = Vec::new();
+        for variable in [
+            "SystemRoot",
+            "windir",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramData",
+        ] {
+            if let Some(value) = env::var_os(variable) {
+                protected.push(normalize_policy_path(
+                    &PathBuf::from(value).to_string_lossy(),
+                ));
+            }
+        }
+        if protected.iter().any(|root| path_is_within_root(root, path)) {
+            return true;
+        }
+        let mut appdata_roots = Vec::new();
+        for variable in ["APPDATA", "LOCALAPPDATA"] {
+            if let Some(value) = env::var_os(variable) {
+                let value = PathBuf::from(value);
+                if let Some(parent) = value.parent() {
+                    appdata_roots.push(normalize_policy_path(&parent.to_string_lossy()));
+                }
+                appdata_roots.push(normalize_policy_path(&value.to_string_lossy()));
+            }
+        }
+        if let Some(profile) = env::var_os("USERPROFILE") {
+            appdata_roots.push(normalize_policy_path(
+                &PathBuf::from(profile).join("AppData").to_string_lossy(),
+            ));
+        }
+        let is_appdata = appdata_roots
+            .iter()
+            .any(|root| path_is_within_root(root, path));
+        let is_user_temp = ["TEMP", "TMP"]
+            .iter()
+            .filter_map(|variable| env::var_os(variable))
+            .map(|path| normalize_policy_path(&PathBuf::from(path).to_string_lossy()))
+            .any(|root| path_is_within_root(&root, path));
+        if is_appdata && !is_user_temp {
+            return true;
+        }
+        if windows_volume_root_component_is_protected(path) {
+            return true;
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        const PROTECTED: &[&str] = &[
+            "/system", "/private", "/usr", "/bin", "/sbin", "/etc", "/var", "/dev",
+        ];
+        let path = path.to_ascii_lowercase();
+        if PROTECTED
+            .iter()
+            .any(|root| path_is_within_root(root, &path))
+        {
+            return true;
+        }
+        if macos_volume_root_component_is_protected(&path) {
+            return true;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        const PROTECTED: &[&str] = &["/proc", "/sys", "/dev", "/run"];
+        if PROTECTED.iter().any(|root| path_is_within_root(root, path)) {
+            return true;
+        }
+    }
+    let _ = path;
+    false
+}
+
+#[cfg(windows)]
+fn windows_volume_root_component_is_protected(path: &str) -> bool {
+    volume_root_component(
+        path,
+        &[
+            "windows",
+            "program files",
+            "program files (x86)",
+            "programdata",
+            "system volume information",
+            "$recycle.bin",
+            "$windows.~bt",
+            "$winreagent",
+            "recovery",
+        ],
+    )
+}
+
+#[cfg(not(windows))]
+fn windows_volume_root_component_is_protected(_path: &str) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn macos_volume_root_component_is_protected(path: &str) -> bool {
+    const NAMES: &[&str] = &[
+        ".spotlight-v100",
+        ".trashes",
+        ".fseventsd",
+        ".documentrevisions-v100",
+    ];
+    if volume_root_component(path, NAMES) {
+        return true;
+    }
+
+    let components = normalize_policy_path(path)
+        .to_ascii_lowercase()
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let mounted_volume_metadata = components
+        .windows(3)
+        .any(|parts| parts[0] == "volumes" && NAMES.contains(&parts[2].as_str()))
+        || components.windows(4).any(|parts| {
+            parts[0] == "system" && parts[1] == "volumes" && NAMES.contains(&parts[3].as_str())
+        });
+    mounted_volume_metadata
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_volume_root_component_is_protected(_path: &str) -> bool {
+    false
+}
+
+fn volume_root_component(path: &str, names: &[&str]) -> bool {
+    let path = normalize_policy_path(path).to_ascii_lowercase();
+    let remainder = if path.as_bytes().get(1) == Some(&b':') {
+        path.get(3..).unwrap_or_default()
+    } else if path.starts_with("//") {
+        let mut parts = path[2..].split('/');
+        let server = parts.next().unwrap_or_default();
+        let share = parts.next().unwrap_or_default();
+        let prefix_len = 4 + server.len() + share.len();
+        path.get(prefix_len..)
+            .unwrap_or_default()
+            .trim_start_matches('/')
+    } else if path.starts_with('/') {
+        path.trim_start_matches('/')
+    } else {
+        return false;
+    };
+    let first = remainder.split('/').next().unwrap_or_default();
+    names.iter().any(|name| first == *name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    fn fixture_root(label: &str) -> PathBuf {
+        let root = env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!("path-filter-{label}-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create path-filter fixture");
+        root
+    }
+
+    #[test]
+    fn windows_and_extended_paths_normalize_by_component_and_source() {
+        assert!(path_is_within_root(
+            "C:/Fixture/Root",
+            "c:\\fixture\\ROOT\\Design\\build\\logo.ai"
+        ));
+        assert!(!path_is_within_root(
+            "C:/Fixture/Root",
+            "C:/Fixture/Rooted/file.txt"
+        ));
+        assert_eq!(
+            normalize_policy_path(r"\\?\UNC\server\share\folder\..\file.txt"),
+            "//server/share/file.txt"
+        );
+        assert_eq!(
+            normalize_policy_path(r"\\?\C:\Fixture\Root\file.txt"),
+            "C:/Fixture/Root/file.txt"
+        );
+    }
+
+    #[test]
+    fn system_lookalike_components_are_not_platform_protected_by_name() {
+        assert!(!is_protected_system_location(
+            "/Users/zen/Projects/Windows/README.md"
+        ));
+        assert!(!is_protected_system_location(
+            "/Users/zen/Configs/AppData/important.json"
+        ));
+        assert!(!is_protected_system_location(
+            "/Users/zen/Design/build/logo.ai"
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn actual_windows_system_locations_are_protected_but_user_lookalikes_are_not() {
+        let system_root = env::var_os("SystemRoot").expect("Windows SystemRoot");
+        assert!(is_protected_system_location(
+            &PathBuf::from(&system_root).to_string_lossy()
+        ));
+        for variable in ["ProgramFiles", "ProgramData"] {
+            if let Some(path) = env::var_os(variable) {
+                assert!(
+                    is_protected_system_location(&PathBuf::from(path).to_string_lossy()),
+                    "actual Windows {variable} location is protected"
+                );
+            }
+        }
+        if let Some(path) = env::var_os("APPDATA") {
+            assert!(
+                is_protected_system_location(&PathBuf::from(path).to_string_lossy()),
+                "the actual Windows AppData location remains protected"
+            );
+        }
+        if let Some(path) = env::var_os("TEMP") {
+            assert!(
+                !is_protected_system_location(&PathBuf::from(path).to_string_lossy()),
+                "the explicit per-user temporary directory remains available for managed scans"
+            );
+        }
+        assert!(is_protected_system_location("C:/System Volume Information"));
+        assert!(!is_protected_system_location(
+            "C:/Users/zen/Projects/Windows/README.md"
+        ));
+        assert!(!is_protected_system_location(
+            "C:/Users/zen/Configs/AppData/important.json"
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_unicode_user_paths_remain_eligible_and_packages_remain_atomic() {
+        assert!(is_protected_system_location("/sYSTEM/Applications"));
+        let fixture = fixture_root("macos");
+        let root_path = fixture.join("Élodie").join("资料");
+        let package = root_path.join("Design.app");
+        let ordinary = root_path.join("Projects/Windows");
+        fs::create_dir_all(&package).expect("create package fixture");
+        fs::create_dir_all(&ordinary).expect("create ordinary fixture");
+        let context = ManagedScanRootContext::new(
+            "macos-unicode-root",
+            root_path.to_string_lossy().into_owned(),
+            true,
+            "file_library",
+        );
+        assert!(path_is_within_root(
+            &root_path.to_string_lossy(),
+            &ordinary.join("README.md").to_string_lossy()
+        ));
+        assert_eq!(
+            evaluate_managed_path(
+                &ordinary,
+                &context,
+                EligibilityPurpose::Discovery,
+                Some(true),
+                false,
+            ),
+            EligibilityDecision::Include
+        );
+        assert_eq!(
+            evaluate_managed_path(
+                &package,
+                &context,
+                EligibilityPurpose::Discovery,
+                Some(true),
+                false,
+            ),
+            EligibilityDecision::Exclude(EligibilityReason::GeneratedOutput)
+        );
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_watcher_path_is_an_incomplete_boundary() {
+        let fixture = fixture_root("symlink");
+        let root_path = fixture.join("root");
+        let outside = fixture.join("outside");
+        let link = root_path.join("linked");
+        fs::create_dir_all(&root_path).expect("create selected root");
+        fs::create_dir_all(&outside).expect("create outside directory");
+        std::os::unix::fs::symlink(&outside, &link).expect("create directory symlink");
+        let context = ManagedScanRootContext::new(
+            "symlink-root",
+            root_path.to_string_lossy().into_owned(),
+            true,
+            "file_library",
+        );
+        assert_eq!(
+            evaluate_managed_path(
+                &link,
+                &context,
+                EligibilityPurpose::Watcher,
+                Some(true),
+                false,
+            ),
+            EligibilityDecision::Incomplete(EligibilityReason::LinkOrReparseBoundary)
+        );
+        let _ = fs::remove_dir_all(fixture);
+    }
 }

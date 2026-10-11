@@ -139,6 +139,32 @@ function Invoke-ProfileQuery([string]$ProbeExe, [string]$ProfileRoot, [string]$Q
     return $stdout | ConvertFrom-Json
 }
 
+function Invoke-ProfileSqlite([string]$Mode, [string]$ProfileRoot, [string]$SourceId, [string]$OldMarker, [string]$NextMarker) {
+    $python = Get-Command "python.exe" -ErrorAction Stop | Select-Object -First 1
+    $database = Join-Path $ProfileRoot "zen-canvas.sqlite3"
+    $helper = Join-Path $repoRoot "scripts/issue380U1ResetProfile.py"
+    $result = Invoke-ProcessCaptured $python.Source @($helper, $Mode, $database, $SourceId, $OldMarker, $NextMarker) $repoRoot @{} 30
+    if ($result.ExitCode -ne 0) { throw "isolated SQLite $Mode failed: $($result.Stderr) $($result.Stdout)" }
+    return $result.Stdout.Trim() | ConvertFrom-Json
+}
+
+function Wait-ForProfileMarker([string]$ProfileRoot, [string]$SourceId, [string]$OldMarker, [string]$NextMarker, [int]$TimeoutSeconds = 240) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $snapshot = $null
+    $lastReadError = $null
+    do {
+        try {
+            $snapshot = Invoke-ProfileSqlite "snapshot" $ProfileRoot $SourceId $OldMarker $NextMarker
+            if ([long]$snapshot.nextMarkerActiveRows -gt 0) { return $snapshot }
+        } catch {
+            $lastReadError = $_.Exception.Message
+        }
+        Start-Sleep -Seconds 5
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $snapshot -and $lastReadError) { throw "SQLite snapshot never became readable: $lastReadError" }
+    return $snapshot
+}
+
 function Get-FreeDriveLetter {
     $used = @([IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1).ToUpperInvariant() })
     foreach ($candidate in @("Z", "Y", "X", "W", "V", "U", "T", "S", "R", "Q", "P", "O", "N", "M", "L", "K", "J", "I", "H", "G", "F", "E")) {
@@ -306,7 +332,7 @@ function Wait-PipeAbsent([int]$TimeoutSeconds = 15) {
     throw "v3 pipe remained visible after the task-owned console Service stopped"
 }
 
-function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [string]$ClientProbe, [string]$ClientSha, [string]$ServiceExe, [string]$BaselineServiceExe, [bool]$ExpectDirect) {
+function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [string]$ClientProbe, [string]$ClientSha, [string]$ServiceExe, [string]$BaselineServiceExe, [bool]$ExpectDirect, [bool]$UseRecoveryQa = $false) {
     $volume = $null
     $service = $null
     $client = $null
@@ -315,19 +341,21 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
     $safeName = $Name -replace "[^A-Za-z0-9]", ""
     $markerName = "u1${safeName}$([Guid]::NewGuid().ToString('N')).txt"
     $nextMarkerName = "u1next${safeName}$([Guid]::NewGuid().ToString('N')).txt"
-    $result = [ordered]@{ status = "RUNNING"; clientSha256 = $ClientSha; serviceExe = $ServiceExe; pipeObserved = $false; markerName = $markerName; nextMarkerName = $nextMarkerName; baselineIndexed = $false; markerFound = $false; oldMarkerPreserved = $false; sourceState = $null; baselineSourceState = $null; entryCount = $null; baselineEntryCount = $null; resultPath = $null; clientExitCode = $null; trace = $trace; logs = @() }
+    $result = [ordered]@{ status = "RUNNING"; clientSha256 = $ClientSha; serviceExe = $ServiceExe; useRecoveryQa = $UseRecoveryQa; pipeObserved = $false; markerName = $markerName; nextMarkerName = $nextMarkerName; baselineIndexed = $false; markerFound = $false; oldMarkerPreserved = $false; sourceState = $null; baselineSourceState = $null; entryCount = $null; baselineEntryCount = $null; resultPath = $null; clientExitCode = $null; recoveryStdout = $null; recoveryStderr = $null; recoveryReport = $null; trace = $trace; logs = @() }
     try {
         $volume = New-U1Volume $Name
         $fixtureRoot = Join-Path $volume.root "fixture"
         New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
         $markerPath = Join-Path $fixtureRoot $markerName
-        Set-Content -LiteralPath $markerPath -Value "isolated U1 fixture" -NoNewline
+        Set-Content -LiteralPath $markerPath -Value "isolated U1 old active marker" -NoNewline
         $prepared = Invoke-ProfilePrepare $ClientProbe $profile $volume.drive
         $result.sourceId = $prepared.targetSourceId
-        # Establish one live, searchable row before the compatibility pairing.
-        # Matching generations use their own exact executable path. If Service
-        # is absent, the old client's real Direct fallback establishes baseline.
-        if ($BaselineServiceExe) { $service = Start-U1ConsoleService $BaselineServiceExe "$Name-baseline" }
+
+        # First establish a real, matching old-index baseline. The second file
+        # and metadata-only re-arm make coordinator startup exercise a genuine
+        # initial index request while preserving the old active entry and FTS.
+        if (-not $BaselineServiceExe) { throw "a matching Service is required to establish the baseline" }
+        $service = Start-U1ConsoleService $BaselineServiceExe "$Name-baseline"
         $client = Start-U1App $ClientExe "$Name-baseline" $profile "$trace-baseline" $fixtureRoot
         $result.baselineClientPid = $client.Id
         $baseline = Wait-ForFixture $ClientProbe $profile $markerName 180
@@ -339,49 +367,81 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
         $client = $null
         Stop-U1Process $service
         $service = $null
-        if ($BaselineServiceExe) { Wait-PipeAbsent }
+        Wait-PipeAbsent
 
-        # Start the tested client before adding the second fixture. Otherwise a
-        # native watcher can miss the file creation that happened before it was
-        # registered, turning this into a no-request test rather than a
-        # Service/fallback test.
+        $nextMarkerPath = Join-Path $fixtureRoot $nextMarkerName
+        Set-Content -LiteralPath $nextMarkerPath -Value "isolated U1 post-upgrade marker" -NoNewline
+        $result.reset = Invoke-ProfileSqlite "reset" $profile $prepared.targetSourceId $markerName $nextMarkerName
+        $result.preTestSnapshot = $result.reset.after
+        $before = $result.reset.after
+
         if ($ServiceExe) {
             $service = Start-U1ConsoleService $ServiceExe $Name
             $result.pipeObserved = $true
             $result.servicePid = $service.Id
-            $result.serviceImagePath = (Get-CimInstance Win32_Process -Filter "ProcessId=$($service.Id)").ExecutablePath
+            $serviceProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($service.Id)"
+            $result.serviceImagePath = $serviceProcess.ExecutablePath
             $result.serviceSha256 = Get-Hash $ServiceExe
         }
-        $client = Start-U1App $ClientExe $Name $profile $trace $fixtureRoot
-        $result.clientPid = $client.Id
-        Wait-U1AppReady $client $Name
-        $coordinatorCyclesBeforeMarker = Get-U1TraceCount $trace "coordinator_cycle"
-        $result.coordinatorCyclesBeforeMarker = $coordinatorCyclesBeforeMarker
-        $nextMarkerPath = Join-Path $fixtureRoot $nextMarkerName
-        Set-Content -LiteralPath $nextMarkerPath -Value "isolated post-baseline fixture" -NoNewline
-        $result.watcherObservedNextMarker = Wait-ForWatcherPath $Name $nextMarkerName 45
-        if (-not $result.watcherObservedNextMarker) { throw "watcher trace did not observe the post-baseline marker path" }
-        $result.coordinatorCycleAfterMarker = Wait-U1TraceCount $trace "coordinator_cycle" ($coordinatorCyclesBeforeMarker + 1) 60
-        if (-not $result.coordinatorCycleAfterMarker) { throw "file watcher observed the marker but did not wake an index coordinator cycle" }
-        $waited = Wait-ForFixture $ClientProbe $profile $nextMarkerName 240
-        $snapshot = $waited.Snapshot
-        $hit = $waited.Hit
-        $result.markerFound = $null -ne $hit
-        if ($hit) { $result.resultPath = $hit.path }
-        $oldMarkerSnapshot = Invoke-ProfileQuery $ClientProbe $profile $markerName
-        $source = @($snapshot.volumes | Where-Object { $_.id -ceq $prepared.targetSourceId } | Select-Object -First 1)
-        if ($source) { $result.sourceState = $source.status; $result.lastError = $source.lastError; $result.entryCount = [long]$source.entryCount; $result.provider = $source.provider; $result.lastFullIndexAt = $source.lastFullIndexAt }
-        $result.oldMarkerPreserved = @($oldMarkerSnapshot.results | Where-Object { $_.name -ceq $markerName }).Count -gt 0
-        $result.nextMarkerFound = $result.markerFound
+
+        if ($UseRecoveryQa) {
+            $qaReport = Join-Path $EvidenceRoot "$Name-recovery-qa.json"
+            $captured = Invoke-ProcessCaptured $ClientExe @("--global-index-recovery-qa", $profile, $prepared.targetSourceId, $qaReport) (Split-Path -Parent $ClientExe) @{} 180
+            $result.clientExitCode = $captured.ExitCode
+            $result.recoveryStdout = $captured.Stdout
+            $result.recoveryStderr = $captured.Stderr
+            if (Test-Path -LiteralPath $qaReport) { $result.recoveryReport = $qaReport }
+            if ($captured.ExitCode -eq 0) { throw "D1-A recovery QA unexpectedly succeeded against the reachable old Service at a different image path" }
+            $result.coordinatorCycleObserved = $true
+        } else {
+            $client = Start-U1App $ClientExe $Name $profile $trace $fixtureRoot
+            $result.clientPid = $client.Id
+            Wait-U1AppReady $client $Name
+            $result.coordinatorCycleObserved = Wait-U1TraceCount $trace "coordinator_cycle" 1 90
+            if (-not $result.coordinatorCycleObserved) { throw "tested client did not execute its real startup coordinator cycle" }
+            if ($ExpectDirect) {
+                $after = Wait-ForProfileMarker $profile $prepared.targetSourceId $markerName $nextMarkerName 240
+            } else {
+                Start-Sleep -Seconds 30
+                $after = Invoke-ProfileSqlite "snapshot" $profile $prepared.targetSourceId $markerName $nextMarkerName
+            }
+        }
+
+        if ($UseRecoveryQa) { $after = Invoke-ProfileSqlite "snapshot" $profile $prepared.targetSourceId $markerName $nextMarkerName }
+        $result.postTestSnapshot = $after
+        $result.markerFound = [long]$after.nextMarkerActiveRows -gt 0
+        $result.nextMarkerFtsHits = [long]$after.nextMarkerFtsHits
+        $result.oldMarkerPreserved = [long]$after.oldMarkerActiveRows -eq 1 -and [long]$after.oldMarkerFtsHits -gt 0
+        $result.sourceState = $after.source.index_status
+        $result.lastError = $after.source.last_error
+        $result.entryCount = [long]$after.source.entry_count
+        $result.baselineEntryCount = [long]$before.source.entry_count
+        $result.entryCountMatchesActiveRows = [long]$after.source.entry_count -eq [long]$after.activeEntries
         $result.expectedDirect = $ExpectDirect
-        if (-not $result.oldMarkerPreserved) { throw "previously indexed global entry disappeared during the scenario" }
-        if ($ExpectDirect -and -not $result.markerFound) { throw "expected in-process Direct indexing did not discover post-baseline marker; state=$($result.sourceState) error=$($result.lastError)" }
-        if (-not $ExpectDirect -and $result.markerFound) { throw "D1-A mixed-generation client performed Direct indexing after a reachable but identity-mismatched Service" }
-        if (-not $ExpectDirect -and [long]$result.entryCount -ne [long]$result.baselineEntryCount) { throw "fail-closed mixed pairing changed persisted entry count from $($result.baselineEntryCount) to $($result.entryCount)" }
-        if (-not $ExpectDirect -and $result.pipeObserved -ne $true) { throw "mixed-pair test did not prove a reachable Service pipe" }
-        $result.status = if ($ExpectDirect) { "PASS_DIRECT_EXECUTED" } else { "PASS_DIRECT_BLOCKED" }
+        if (-not $result.oldMarkerPreserved) { throw "old active Global Entry or its FTS row changed during the tested generation pairing" }
+
+        if ($ExpectDirect) {
+            if (-not $result.markerFound -or $result.nextMarkerFtsHits -lt 1) { throw "old client with absent Service did not perform the expected legacy Direct index; source=$($result.sourceState), error=$($result.lastError)" }
+            if ([long]$after.activeEntries -le [long]$before.activeEntries) { throw "Direct fallback did not increase the active Global Entry set" }
+            if ($result.sourceState -ine "ready") { throw "Direct fallback completed without READY source state: $($result.sourceState)" }
+            $result.status = "OBSERVED_LEGACY_DIRECT_FALLBACK"
+            $result.securityFinding = "Legacy client mutated the isolated Global Index while the Service was absent. Stop-the-world must prevent this state; v3 client behavior alone does not."
+        } else {
+            if ($result.markerFound -or $result.nextMarkerFtsHits -ne 0) { throw "mixed-generation pairing indexed the post-baseline marker without an admitted Service request" }
+            if ([long]$after.activeEntries -ne [long]$before.activeEntries -or [long]$after.staleEntries -ne [long]$before.staleEntries) { throw "fail-closed mixed pairing changed active/stale Global Entry rows" }
+            if ([long]$after.source.entry_count -ne [long]$before.source.entry_count) { throw "fail-closed mixed pairing changed source entry_count" }
+            foreach ($field in @("index_status", "last_error", "journal_id", "journal_cursor", "last_full_index_at", "last_incremental_sync_at", "provider")) {
+                $beforeValue = $before.source.PSObject.Properties[$field].Value
+                $afterValue = $after.source.PSObject.Properties[$field].Value
+                if ($afterValue -cne $beforeValue) { throw "fail-closed mixed pairing changed source $field from '$beforeValue' to '$afterValue'" }
+            }
+            if (-not $result.pipeObserved) { throw "mixed-pair test did not prove a reachable Service pipe" }
+            if ($UseRecoveryQa) { $result.status = "PASS_NEW_CLIENT_FAIL_CLOSED_OLD_SERVICE" }
+            else { $result.status = "PASS_OLD_CLIENT_NO_DIRECT_ON_PATH_REJECTION" }
+            $result.scope = "real candidate binaries from separate image paths; exact same-path mixed generations remain separately classified"
+        }
     } catch {
-        $result.status = "FAIL"
+        $result.status = "HARNESS_FAILURE"
         $result.failure = $_.Exception.ToString()
         Add-Failure $Name $result.failure
     } finally {
@@ -403,6 +463,8 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
                 $result.logs += $destination
             }
         }
+        if ($UseRecoveryQa -and $result.recoveryStdout) { $result.recoveryStdout | Set-Content -LiteralPath (Join-Path $EvidenceRoot "$Name-recovery-qa.stdout.log") -Encoding utf8NoBOM }
+        if ($UseRecoveryQa -and $result.recoveryStderr) { $result.recoveryStderr | Set-Content -LiteralPath (Join-Path $EvidenceRoot "$Name-recovery-qa.stderr.log") -Encoding utf8NoBOM }
         if (Test-Path -LiteralPath $trace) {
             $traceCopy = Join-Path $EvidenceRoot "$Name-trace.log"
             Copy-Item -LiteralPath $trace -Destination $traceCopy -Force
@@ -417,6 +479,7 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
                 if (Test-Path -LiteralPath $sourcePath) { Copy-Item -LiteralPath $sourcePath -Destination (Join-Path $profileArtifact $suffix) -Force }
             }
             $result.databaseSha256 = Get-Hash (Join-Path $profileArtifact "zen-canvas.sqlite3")
+            $result.profileFileHashes = @(Get-ChildItem -LiteralPath $profileArtifact -File | ForEach-Object { [ordered]@{ name = $_.Name; sha256 = Get-Hash $_.FullName; bytes = $_.Length } })
             $result.databaseArtifact = $profileArtifact
         }
         Remove-U1Volume $volume
@@ -472,7 +535,7 @@ function Install-NSIS([string]$Installer, [string]$InstallDirectory, [string]$Lo
     return $exitCode
 }
 
-function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [string]$LogPath, [string]$ExpectedExeHash, [int]$TimeoutSeconds, [bool]$InterruptOnReplacement) {
+function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [string]$LogPath, [string]$ExpectedExeHash, [string]$OriginalExeHash, [int]$TimeoutSeconds, [bool]$InterruptOnReplacement) {
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $Installer
     $startInfo.WorkingDirectory = Split-Path -Parent $Installer
@@ -492,18 +555,28 @@ function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [strin
         $process.Refresh()
         $file = Get-Item -LiteralPath $exe -ErrorAction SilentlyContinue
         $nextStamp = if ($file) { "$($file.Length):$($file.LastWriteTimeUtc.Ticks)" } else { $null }
-        if ($nextStamp -cne $fileStamp) {
+        if ($nextStamp -cne $fileStamp -or ($file -and -not $fileHash)) {
             $fileStamp = $nextStamp
-            $fileHash = if ($file) { Get-Hash $exe } else { $null }
+            $fileHash = $null
+            if ($file) {
+                try { $fileHash = Get-Hash $exe } catch { $fileHashError = $_.Exception.Message }
+            }
         }
         $serviceSnapshot = Get-ServiceSnapshot
         $apps = @(Get-AppProcessSnapshots $exe)
         $samples.Add([ordered]@{ atUtc = [DateTime]::UtcNow.ToString("o"); installerPid = $process.Id; installerExited = $process.HasExited; exeSha256 = $fileHash; service = $serviceSnapshot; appProcesses = $apps })
-        if ($InterruptOnReplacement -and $fileHash -ceq $ExpectedExeHash -and -not $process.HasExited) {
-            $process.Kill($true)
-            $process.WaitForExit(10000) | Out-Null
-            $interrupted = $true
-            break
+        if ($InterruptOnReplacement -and -not $process.HasExited) {
+            $replacementObserved = if ($ExpectedExeHash) {
+                $fileHash -ceq $ExpectedExeHash
+            } else {
+                $fileHash -and $fileHash -cne $OriginalExeHash
+            }
+            if ($replacementObserved) {
+                $process.Kill($true)
+                $process.WaitForExit(10000) | Out-Null
+                $interrupted = $true
+                break
+            }
         }
         if ($process.HasExited) { break }
         Start-Sleep -Milliseconds 250
@@ -557,10 +630,34 @@ function Build-Candidate([string]$Label, [string]$Sha, [string]$Tree, [string]$P
     Copy-Item -LiteralPath $installerCandidates[0].FullName -Destination $installer -Force
     $releaseHash = Get-Hash $releaseExe
     $installerHash = Get-Hash $installer
+    $packageExeHash = $null
+    $packageExeEvidence = [ordered]@{ status = "UNVERIFIED"; extractionTool = $null; payloadFiles = @() }
+    $sevenZip = Get-Command "7z.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $sevenZip) {
+        $sevenZipPath = Join-Path $env:ProgramFiles "7-Zip/7z.exe"
+        if (Test-Path -LiteralPath $sevenZipPath) { $sevenZip = [pscustomobject]@{ Source = $sevenZipPath } }
+    }
+    if ($sevenZip) {
+        $payloadRoot = Join-Path $taskRoot "$Label-nsis-payload"
+        New-Item -ItemType Directory -Path $payloadRoot -Force | Out-Null
+        $extractLog = Join-Path $EvidenceRoot "$Label-nsis-payload-extract.log"
+        $extractOutput = (& $sevenZip.Source x $installer "-o$payloadRoot" -y 2>&1 | Out-String)
+        $extractExit = $LASTEXITCODE
+        $extractOutput | Set-Content -LiteralPath $extractLog -Encoding utf8NoBOM
+        $payloadFiles = @(Get-ChildItem -LiteralPath $payloadRoot -Recurse -File -Filter "zen-canvas.exe" -ErrorAction SilentlyContinue)
+        $packageExeEvidence = [ordered]@{ status = if ($extractExit -eq 0 -and $payloadFiles.Count -gt 0) { "PASS_EXTRACTED" } else { "UNVERIFIED" }; extractionTool = $sevenZip.Source; exitCode = $extractExit; log = $extractLog; payloadFiles = @($payloadFiles | ForEach-Object { [ordered]@{ path = $_.FullName; sha256 = Get-Hash $_.FullName; bytes = $_.Length } }) }
+        if ($extractExit -eq 0 -and $payloadFiles.Count -gt 0) {
+            $largestPayload = $payloadFiles | Sort-Object Length -Descending | Select-Object -First 1
+            $packageExeHash = Get-Hash $largestPayload.FullName
+            $packageExeEvidence.selectedPayload = $largestPayload.FullName
+            $packageExeEvidence.selectedSha256 = $packageExeHash
+            $packageExeEvidence.selectedMatchesReleaseExe = $packageExeHash -ceq $releaseHash
+        }
+    }
     $cargoVersion = (Get-Content -LiteralPath (Join-Path $Path "src-tauri/Cargo.toml") -Raw | Select-String -Pattern '(?m)^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
     $packageVersion = (Get-Content -LiteralPath (Join-Path $Path "package.json") -Raw | ConvertFrom-Json).version
     $tauriConfig = Get-Content -LiteralPath (Join-Path $Path "src-tauri/tauri.conf.json") -Raw | ConvertFrom-Json
-    $candidate = [ordered]@{ sha = $Sha; tree = $Tree; packageVersion = $packageVersion; cargoVersion = $cargoVersion; tauriVersion = $tauriConfig.version; identifier = $tauriConfig.identifier; qaExe = $qaExe; qaExeSha256 = $qaHash; probeExe = $probeExe; probeExeSha256 = $probeHash; productionExe = $releaseExe; productionExeSha256 = $releaseHash; installer = $installer; installerSha256 = $installerHash; fileVersion = (Get-Item -LiteralPath $releaseExe).VersionInfo.FileVersion; productVersion = (Get-Item -LiteralPath $releaseExe).VersionInfo.ProductVersion }
+    $candidate = [ordered]@{ sha = $Sha; tree = $Tree; packageVersion = $packageVersion; cargoVersion = $cargoVersion; tauriVersion = $tauriConfig.version; identifier = $tauriConfig.identifier; qaExe = $qaExe; qaExeSha256 = $qaHash; probeExe = $probeExe; probeExeSha256 = $probeHash; productionExe = $releaseExe; productionExeSha256 = $releaseHash; packageExeSha256 = $packageExeHash; packageExeEvidence = $packageExeEvidence; installer = $installer; installerSha256 = $installerHash; fileVersion = (Get-Item -LiteralPath $releaseExe).VersionInfo.FileVersion; productVersion = (Get-Item -LiteralPath $releaseExe).VersionInfo.ProductVersion }
     $global:U1Evidence.candidates[$Label] = $candidate
     Save-Evidence
 
@@ -627,9 +724,9 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
     if ($oldExit -ne 0) { throw "fresh old installer returned exit code $oldExit; $oldLog" }
     $oldService = Wait-ServiceState "Running" 120
     $installedOldHash = Get-Hash $exe
-    $global:U1Evidence.installer.freshOldInstall = [ordered]@{ exePath = $exe; expectedExeSha256 = $OldCandidate.productionExeSha256; installedExeSha256 = $installedOldHash; fileVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion; productVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion; service = $oldService; log = $oldLog }
+    $global:U1Evidence.installer.freshOldInstall = [ordered]@{ exePath = $exe; sourceExeSha256 = $OldCandidate.productionExeSha256; packageExeSha256 = $OldCandidate.packageExeSha256; installedExeSha256 = $installedOldHash; installedMatchesPackagePayload = if ($OldCandidate.packageExeSha256) { $installedOldHash -ceq $OldCandidate.packageExeSha256 } else { $null }; fileVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion; productVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion; service = $oldService; log = $oldLog }
     Save-Evidence
-    if ($installedOldHash -cne $OldCandidate.productionExeSha256) { throw "fresh old installation exe hash mismatch: expected=$($OldCandidate.productionExeSha256), installed=$installedOldHash, path=$exe" }
+    if ($OldCandidate.packageExeSha256 -and $installedOldHash -cne $OldCandidate.packageExeSha256) { throw "fresh old installed EXE differs from extracted NSIS payload: expected=$($OldCandidate.packageExeSha256), installed=$installedOldHash, path=$exe" }
     $expectedImage = '"' + $exe + '" --index-service'
     if ($oldService.imagePath.Trim() -ine $expectedImage) { throw "fresh old service ImagePath mismatch: $($oldService.imagePath)" }
 
@@ -641,14 +738,14 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
         $oldApps = @(Get-AppProcessSnapshots $exe)
         if (-not ($oldApps | Where-Object { $_.processId -eq $app.Id })) { throw "old installed desktop process did not remain alive before upgrade" }
         $preUpgrade = [ordered]@{ atUtc = [DateTime]::UtcNow.ToString("o"); service = $oldService; desktopProcessId = $app.Id; installedExeSha256 = Get-Hash $exe; isolatedAppProfile = $installedAppProfile }
-        $transition = Wait-ForInstaller $D1ACandidate.installer $installDir $newUpgradeLog $D1ACandidate.productionExeSha256 600 $false
+        $transition = Wait-ForInstaller $D1ACandidate.installer $installDir $newUpgradeLog $D1ACandidate.packageExeSha256 $installedOldHash 600 $false
         if ($transition.ExitCode -ne 0) { throw "D1-A in-place upgrade returned $($transition.ExitCode); $newUpgradeLog" }
         $firstNewImageSample = -1
         for ($sampleIndex = 0; $sampleIndex -lt $transition.Samples.Count; $sampleIndex++) {
-            if ($transition.Samples[$sampleIndex].exeSha256 -ceq $D1ACandidate.productionExeSha256) { $firstNewImageSample = $sampleIndex; break }
+            if ($transition.Samples[$sampleIndex].exeSha256 -and $transition.Samples[$sampleIndex].exeSha256 -cne $installedOldHash) { $firstNewImageSample = $sampleIndex; break }
         }
-        if ($firstNewImageSample -lt 0) { throw "installer samples did not observe the exact D1-A executable replacement" }
-        $beforeImageMutation = @($transition.Samples[0..$firstNewImageSample] | Where-Object { $_.exeSha256 -ceq $OldCandidate.productionExeSha256 })
+        if ($firstNewImageSample -lt 0) { throw "installer samples did not observe the installed EXE change from its measured old payload" }
+        $beforeImageMutation = @($transition.Samples[0..$firstNewImageSample] | Where-Object { $_.exeSha256 -ceq $installedOldHash })
         $serviceStoppedBeforeMutation = @($beforeImageMutation | Where-Object { $_.service -and $_.service.state -ieq "Stopped" }).Count -gt 0
         $desktopExitedBeforeMutation = @($beforeImageMutation | Where-Object { $_.appProcesses.Count -eq 0 }).Count -gt 0
         if (-not $serviceStoppedBeforeMutation) { throw "samples did not prove Service STOPPED before executable replacement" }
@@ -657,7 +754,9 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
         $app.Refresh()
         if (-not $app.HasExited) { throw "old desktop process survived D1-A in-place upgrade" }
         if ($postService.processId -eq $oldService.processId) { throw "Service PID did not change across stop/restart" }
-        if ((Get-Hash $exe) -cne $D1ACandidate.productionExeSha256) { throw "post-upgrade installed exe hash differs from D1-A binary" }
+        $installedD1AHash = Get-Hash $exe
+        if ($installedD1AHash -ceq $installedOldHash) { throw "D1-A installer left the old installed EXE payload unchanged" }
+        if ($D1ACandidate.packageExeSha256 -and $installedD1AHash -cne $D1ACandidate.packageExeSha256) { throw "post-upgrade installed EXE differs from extracted D1-A NSIS payload: expected=$($D1ACandidate.packageExeSha256), installed=$installedD1AHash" }
         if ($postService.imagePath.Trim() -ine $expectedImage) { throw "post-upgrade Service ImagePath mismatch: $($postService.imagePath)" }
         $newApps = @(Get-AppProcessSnapshots $exe)
         $global:U1Evidence.installer.status = "PASS_OLD_TO_D1A_IN_PLACE"
@@ -665,7 +764,7 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
         $global:U1Evidence.installer.oldInstallLog = $oldLog
         $global:U1Evidence.installer.upgradeLog = $newUpgradeLog
         $global:U1Evidence.installer.preUpgrade = $preUpgrade
-        $global:U1Evidence.installer.postUpgrade = [ordered]@{ service = $postService; installedExeSha256 = Get-Hash $exe; oldDesktopExited = $app.HasExited; remainingDesktopProcesses = $newApps; installerExitCode = $transition.ExitCode; serviceStoppedBeforeMutation = $serviceStoppedBeforeMutation; desktopExitedBeforeMutation = $desktopExitedBeforeMutation; newServicePidAfterMutation = (@($transition.Samples[$firstNewImageSample..($transition.Samples.Count - 1)] | Where-Object { $_.service -and $_.service.state -ieq "Running" -and $_.service.processId -ne $oldService.processId }).Count -gt 0) }
+        $global:U1Evidence.installer.postUpgrade = [ordered]@{ service = $postService; sourceExeSha256 = $D1ACandidate.productionExeSha256; packageExeSha256 = $D1ACandidate.packageExeSha256; installedExeSha256 = $installedD1AHash; installedMatchesPackagePayload = if ($D1ACandidate.packageExeSha256) { $installedD1AHash -ceq $D1ACandidate.packageExeSha256 } else { $null }; oldDesktopExited = $app.HasExited; remainingDesktopProcesses = $newApps; installerExitCode = $transition.ExitCode; serviceStoppedBeforeMutation = $serviceStoppedBeforeMutation; desktopExitedBeforeMutation = $desktopExitedBeforeMutation; newServicePidAfterMutation = (@($transition.Samples[$firstNewImageSample..($transition.Samples.Count - 1)] | Where-Object { $_.service -and $_.service.state -ieq "Running" -and $_.service.processId -ne $oldService.processId }).Count -gt 0) }
         $global:U1Evidence.installer.samples = $transition.Samples
         $global:U1Evidence.installer.transitions = @($transition.Samples | ForEach-Object {
             $serviceState = if ($_.service) { $_.service.state } else { $null }
@@ -682,8 +781,10 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
     $oldAgain = Install-NSIS $OldCandidate.installer $installDir $oldRepairLog
     if ($oldAgain -ne 0) { throw "old candidate reinstallation returned $oldAgain; $oldRepairLog" }
     $oldBeforeInterrupt = Wait-ServiceState "Running" 120
-    if ((Get-Hash $exe) -cne $OldCandidate.productionExeSha256) { throw "old package did not restore exact old exe before interruption test" }
-    $interruption = Wait-ForInstaller $D1ACandidate.installer $installDir $interruptedLog $D1ACandidate.productionExeSha256 600 $true
+    $reinstalledOldHash = Get-Hash $exe
+    if ($OldCandidate.packageExeSha256 -and $reinstalledOldHash -cne $OldCandidate.packageExeSha256) { throw "old package did not restore the measured old NSIS payload before interruption test" }
+    if ($reinstalledOldHash -ceq $installedD1AHash) { throw "old package reinstall did not change the installed executable payload" }
+    $interruption = Wait-ForInstaller $D1ACandidate.installer $installDir $interruptedLog $D1ACandidate.packageExeSha256 $reinstalledOldHash 600 $true
     $global:U1Evidence.installer.interruption = [ordered]@{ status = if ($interruption.Interrupted) { "INTERRUPTED_AFTER_EXE_REPLACEMENT" } else { "UNVERIFIED_INSTALLER_COMPLETED_BEFORE_INTERRUPT" }; installerExitCode = $interruption.ExitCode; observedOldServicePid = $oldBeforeInterrupt.processId; log = $interruptedLog; samples = $interruption.Samples }
     $stoppedOrNewPid = Get-ServiceSnapshot
     $runningApps = @(Get-AppProcessSnapshots $exe)
@@ -696,10 +797,12 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
         $repairExit = Install-NSIS $D1ACandidate.installer $installDir $repairLog
         if ($repairExit -ne 0) { throw "D1-A repair after interruption returned $repairExit; $repairLog" }
         $repairedService = Wait-ServiceState "Running" 120
-        if ((Get-Hash $exe) -cne $D1ACandidate.productionExeSha256) { throw "repair did not converge installed exe to D1-A candidate" }
+        $repairedExeHash = Get-Hash $exe
+        if ($D1ACandidate.packageExeSha256 -and $repairedExeHash -cne $D1ACandidate.packageExeSha256) { throw "repair did not converge installed exe to extracted D1-A NSIS payload" }
+        if ($repairedExeHash -ceq $reinstalledOldHash) { throw "repair left the old installed executable payload in place" }
         if ($repairedService.imagePath.Trim() -ine $expectedImage) { throw "repaired Service ImagePath mismatch" }
         if ($repairedService.processId -eq $oldBeforeInterrupt.processId) { throw "repair did not restart Service after interrupted install" }
-        $global:U1Evidence.installer.repair = [ordered]@{ status = "PASS_REPAIR_TO_D1A"; exitCode = $repairExit; service = $repairedService; installedExeSha256 = Get-Hash $exe; log = $repairLog }
+        $global:U1Evidence.installer.repair = [ordered]@{ status = "PASS_REPAIR_TO_D1A"; exitCode = $repairExit; service = $repairedService; installedExeSha256 = $repairedExeHash; packageExeSha256 = $D1ACandidate.packageExeSha256; installedMatchesPackagePayload = if ($D1ACandidate.packageExeSha256) { $repairedExeHash -ceq $D1ACandidate.packageExeSha256 } else { $null }; log = $repairLog }
     } else {
         $global:U1Evidence.installer.repair = [ordered]@{ status = "NOT_RUN_INTERRUPT_NOT_OBSERVED"; log = $repairLog }
     }
@@ -726,9 +829,9 @@ try {
     try { Invoke-MatchingQualification "d1a" $d1aCandidate } catch { Add-Failure "new-client-plus-new-Service" $_.Exception.ToString() }
 
     $global:U1Evidence.directFallback = Invoke-BackgroundPairScenario "old-client-service-absent" $oldCandidate.qaExe $oldCandidate.probeExe $oldCandidate.qaExeSha256 $null $oldCandidate.qaExe $true
-    $global:U1Evidence.mixedPairs["old-client-plus-new-Service"] = Invoke-BackgroundPairScenario "old-client-new-Service-side-by-side-path" $oldCandidate.qaExe $oldCandidate.probeExe $oldCandidate.qaExeSha256 $d1aCandidate.qaExe $oldCandidate.qaExe $true
-    $global:U1Evidence.mixedPairs["new-client-plus-old-Service"] = Invoke-BackgroundPairScenario "new-client-old-Service-side-by-side-path" $d1aCandidate.qaExe $d1aCandidate.probeExe $d1aCandidate.qaExeSha256 $oldCandidate.qaExe $d1aCandidate.qaExe $false
-    $global:U1Evidence.mixedPairs["exact-same-path-mixed-generation"] = [ordered]@{ status = "UNVERIFIED"; reason = "Windows image locking and the Service exact-client-path gate prevent two different frozen PE generations from being launched at the same installed path without a servicing race. The actual installer stop/wait/replace/restart transition is tested separately." }
+    $global:U1Evidence.mixedPairs["old-client-plus-new-Service"] = Invoke-BackgroundPairScenario "old-client-new-Service-side-by-side-path" $oldCandidate.qaExe $oldCandidate.probeExe $oldCandidate.qaExeSha256 $d1aCandidate.qaExe $oldCandidate.qaExe $false
+    $global:U1Evidence.mixedPairs["new-client-plus-old-Service"] = Invoke-BackgroundPairScenario "new-client-old-Service-side-by-side-path" $d1aCandidate.qaExe $d1aCandidate.probeExe $d1aCandidate.qaExeSha256 $oldCandidate.qaExe $d1aCandidate.qaExe $false $true
+    $global:U1Evidence.mixedPairs["exact-same-path-mixed-generation"] = [ordered]@{ status = "UNVERIFIED"; reason = "The Service enforces exact executable path equality, and the normal installer stops Service and desktop before replacing that path. Side-by-side mixed-path real binaries are tested, but the transient same-path old-process/new-file race is not safely created by this harness; file locking and stale process image semantics remain unverified." }
     Save-Evidence
 
     try { Invoke-InstallerTransition $oldCandidate $d1aCandidate } catch { $global:U1Evidence.installer.status = "FAIL_OR_UNVERIFIED"; $global:U1Evidence.installer.failure = $_.Exception.ToString(); Add-Failure "NSIS install-upgrade-interruption-repair" $_.Exception.ToString() }

@@ -29,6 +29,11 @@ jobs:
         with:
           node-version: 24
 
+      - name: Setup Python for isolated SQLite evidence
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
       - name: Rust cache for exact old and D1-A candidates
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:

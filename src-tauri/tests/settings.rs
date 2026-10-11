@@ -129,6 +129,154 @@ fn app_settings_roundtrip_persists_single_json_row() {
 }
 
 #[test]
+fn clean_first_run_scan_scope_cas_syncs_one_enabled_root_and_survives_reload() {
+    let database_path = test_db_path();
+    let root_path = std::env::temp_dir().join(format!(
+        "zen-canvas-onboarding-root-{}-{}",
+        std::process::id(),
+        TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&root_path).expect("create permitted existing scan root");
+
+    let db = Database::open(&database_path).expect("open clean settings database");
+    let initial = get_versioned_app_settings(&db).expect("load clean default settings");
+    assert!(initial.settings.default_scan_folders.is_empty());
+    let root = scan_root(
+        "onboarding-fixture",
+        &root_path.to_string_lossy(),
+        "fixture",
+        true,
+    );
+    let mut next = initial.settings.clone();
+    next.default_scan_folders = vec![root];
+    let saved = save_versioned_app_settings_with_launch_at_login(
+        &db,
+        &SaveSettingsRequest {
+            settings: next,
+            expected_revision: initial.revision,
+        },
+        &RecordingLaunchAtLoginController::new(false),
+    )
+    .expect("CAS-persist first-run scan scope");
+    db.sync_file_library_watcher_roots(&saved.settings.default_scan_folders)
+        .expect("synchronize the settings-owned watcher root");
+    drop(db);
+
+    let db = Database::open(&database_path).expect("reopen clean settings database");
+    let reloaded = get_versioned_app_settings(&db).expect("reload authoritative settings");
+    assert_eq!(reloaded.revision, saved.revision);
+    assert_eq!(
+        reloaded.settings.default_scan_folders,
+        saved.settings.default_scan_folders
+    );
+    let conn = Connection::open(db.path()).expect("open synchronized root database");
+    let normalized_path = root_path.to_string_lossy().replace('\\', "/");
+    let roots = conn
+        .prepare(
+            "SELECT normalized_path, enabled, source_kind FROM scan_roots WHERE lower(normalized_path) = lower(?1)",
+        )
+        .expect("prepare synchronized root lookup")
+        .query_map(params![normalized_path], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)? != 0,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .expect("query synchronized root")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("read synchronized root rows");
+
+    assert_eq!(roots.len(), 1);
+    assert!(roots[0].1);
+    assert_eq!(roots[0].2, "file_library");
+    std::fs::remove_dir_all(&root_path).expect("remove disposable scan root");
+}
+
+#[test]
+fn versioned_settings_return_backend_normalized_scan_root_fields() {
+    let db = Database::open(test_db_path()).expect("open clean settings database");
+    let initial = get_versioned_app_settings(&db).expect("load clean default settings");
+    let mut next = initial.settings.clone();
+    let mut root = scan_root(" ", "  C:\\OwnerQualification\\fixture\\  ", " ", true);
+    root.created_at = " ".to_string();
+    next.default_scan_folders = vec![root];
+
+    let saved = save_app_settings_cas(&db, &next, initial.revision)
+        .expect("save scan root using backend canonicalization");
+    let normalized = &saved.settings.default_scan_folders[0];
+
+    assert_eq!(normalized.path, "C:/OwnerQualification/fixture");
+    assert_eq!(normalized.label, "fixture");
+    assert_eq!(normalized.created_at, "1970-01-01T00:00:00.000Z");
+    assert!(!normalized.id.trim().is_empty());
+}
+
+#[test]
+fn side_effect_rollback_restores_settings_and_disables_the_synchronized_root() {
+    let database_path = test_db_path();
+    let root_path = std::env::temp_dir().join(format!(
+        "zen-canvas-onboarding-rollback-root-{}-{}",
+        std::process::id(),
+        TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&root_path).expect("create disposable scan root");
+
+    let db = Database::open(&database_path).expect("open clean settings database");
+    let previous = get_versioned_app_settings(&db).expect("load clean default settings");
+    let root = scan_root(
+        "onboarding-rollback",
+        &root_path.to_string_lossy(),
+        "fixture",
+        true,
+    );
+    let mut next = previous.settings.clone();
+    next.default_scan_folders = vec![root];
+    let launch_controller = RecordingLaunchAtLoginController::new(false);
+    let saved = save_versioned_app_settings_with_launch_at_login(
+        &db,
+        &SaveSettingsRequest {
+            settings: next,
+            expected_revision: previous.revision,
+        },
+        &launch_controller,
+    )
+    .expect("persist selected scan scope before watcher side effect");
+    db.sync_file_library_watcher_roots(&saved.settings.default_scan_folders)
+        .expect("synchronize selected root before injected watcher failure");
+
+    let error = reconcile_versioned_settings_side_effect_failure(
+        &db,
+        &previous,
+        &saved,
+        &launch_controller,
+        |restored_settings| {
+            db.sync_file_library_watcher_roots(&restored_settings.default_scan_folders)
+                .map_err(|error| error.to_string())?;
+            Err("injected watcher restart failure".to_string())
+        },
+    )
+    .expect_err("watcher side-effect failure remains visible after rollback");
+
+    assert_eq!(
+        error.to_string(),
+        "settings side-effect reconciliation failed"
+    );
+    let reloaded = get_versioned_app_settings(&db).expect("reload rolled-back settings");
+    assert!(reloaded.settings.default_scan_folders.is_empty());
+    let conn = Connection::open(db.path()).expect("open synchronized root database");
+    let enabled: i64 = conn
+        .query_row(
+            "SELECT enabled FROM scan_roots WHERE lower(normalized_path) = lower(?1)",
+            params![root_path.to_string_lossy().replace('\\', "/")],
+            |row| row.get(0),
+        )
+        .expect("read root after watcher failure rollback");
+    assert_eq!(enabled, 0);
+    std::fs::remove_dir_all(&root_path).expect("remove disposable scan root");
+}
+
+#[test]
 fn stale_settings_revision_cannot_overwrite_a_newer_save() {
     let db = Database::open(test_db_path()).expect("open test database");
     let initial = get_versioned_app_settings(&db).expect("initial versioned settings");

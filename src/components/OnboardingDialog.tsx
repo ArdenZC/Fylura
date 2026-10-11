@@ -128,7 +128,10 @@ export function OnboardingDialog() {
       if (selectedFolderPath) {
         const nextRoots = upsertDefaultScanRoot(settings.defaultScanFolders, selectedFolderPath);
         const saved = await setDefaultScanFolders(nextRoots);
-        if (!saved) throw new Error("onboarding_scan_scope_save_failed");
+        if (!saved) {
+          setError(t("onboardingSaveFailed"));
+          return;
+        }
         setFolderAdded(true);
         managedScopePaths = [selectedFolderPath];
       }

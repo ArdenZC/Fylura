@@ -319,6 +319,10 @@ export function readableError(error: unknown): string {
 
 export function localizedStableError(error: unknown, t: Translator): string {
   const message = readableError(error);
+  const settingsSaveFailure = /^settings_save_failure:([a-z_]+)$/.exec(message);
+  if (settingsSaveFailure) {
+    return `${t("settingsSaveFailed")} (${t("settingsFailureCode")}: ${settingsSaveFailure[1]})`;
+  }
   if (message.startsWith("source_changed") || message.startsWith("source_identity_changed")) {
     return t("errorSourceIdentityChanged");
   }

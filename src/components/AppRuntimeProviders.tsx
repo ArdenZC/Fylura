@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { tauriApi } from "../api/tauriApi";
 import { ChromeProvider, RulesProvider, RuntimeCapabilitiesProvider, SettingsProvider } from "../contexts/AppContexts";
 import { useAppChrome } from "../hooks/useAppChrome";
-import { enabledScanRootPaths, enabledSearchRootPaths, useAppSettings } from "../hooks/useAppSettings";
+import { defaultScanRootSettingsEqual, enabledScanRootPaths, enabledSearchRootPaths, useAppSettings } from "../hooks/useAppSettings";
 import { useFsWatcher } from "../hooks/useFsWatcher";
 import { useRulePersistence } from "../hooks/useRulePersistence";
 import { useWindowBehavior } from "../hooks/useWindowBehavior";
@@ -84,7 +84,12 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     [t]
   );
   const formatSettingsSaveError = useCallback(
-    (error: unknown) => `${t("settingsSaveFailed")}：${localizedStableError(error, t)}`,
+    (error: unknown) => {
+      const detail = localizedStableError(error, t);
+      return detail.startsWith(t("settingsSaveFailed"))
+        ? detail
+        : `${t("settingsSaveFailed")}：${detail}`;
+    },
     [t]
   );
   const formatRuleSyncError = useCallback(() => t("ruleSyncFailed"), [t]);
@@ -105,7 +110,13 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     formatLoadError: formatSettingsLoadError,
     formatSaveError: formatSettingsSaveError
   });
-  const { settings: appSettings, isLoadingSettings, updateSettings } = appSettingsState;
+  const {
+    settings: appSettings,
+    persistedSettings,
+    isLoadingSettings,
+    updateSettings,
+    updateSettingsWithResult
+  } = appSettingsState;
   const appChrome = useAppChrome({
     theme,
     setTheme,
@@ -134,16 +145,20 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   useFsWatcher({ onRefreshData: refreshCurrentQuery, onError: showError, rules, enabled: !isSearchMode });
 
   useEffect(() => {
-    if (isSearchMode) return;
-    useScanManagerStore.getState().setDefaultScanRoots(appSettings.defaultScanFolders);
-  }, [appSettings.defaultScanFolders, isSearchMode]);
+    if (isSearchMode || isLoadingSettings) return;
+    useScanManagerStore.getState().setDefaultScanRoots(persistedSettings.defaultScanFolders);
+    const library = useFileLibraryStore.getState();
+    if (library.adoptConfiguredRootsIfScopeEmpty(persistedSettings.defaultScanFolders)) {
+      void library.refresh(useAppStore.getState().searchQuery);
+    }
+  }, [isLoadingSettings, isSearchMode, persistedSettings.defaultScanFolders]);
 
   const backgroundIndexRoots = useMemo(
     () => [
-      ...enabledScanRootPaths(appSettings.defaultScanFolders),
-      ...enabledSearchRootPaths(appSettings.customSearchRoots)
+      ...enabledScanRootPaths(persistedSettings.defaultScanFolders),
+      ...enabledSearchRootPaths(persistedSettings.customSearchRoots)
     ],
-    [appSettings.defaultScanFolders, appSettings.customSearchRoots]
+    [persistedSettings.defaultScanFolders, persistedSettings.customSearchRoots]
   );
   const backgroundIndexRootSignature = useMemo(
     () => backgroundIndexRoots.map(backgroundIndexRootKey).sort().join("\n"),
@@ -152,14 +167,14 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isSearchMode || isLoadingSettings) return;
-    if (appSettings.backgroundIndexOnStartup === false) return;
+    if (persistedSettings.backgroundIndexOnStartup === false) return;
     enqueueBackgroundIndexRoots(backgroundIndexRoots);
   }, [
-    appSettings.backgroundIndexOnStartup,
     backgroundIndexRootSignature,
     enqueueBackgroundIndexRoots,
     isLoadingSettings,
-    isSearchMode
+    isSearchMode,
+    persistedSettings.backgroundIndexOnStartup
   ]);
 
   useSearchNavigationHandoff(isSearchMode, setView, activateFileLibraryFile, showError);
@@ -202,10 +217,14 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   );
   const setDefaultScanFolders = useCallback(
     async (next: ScanRootSetting[]) => {
-      const savedSettings = await updateSettings({ defaultScanFolders: next });
-      return arraysEqual(savedSettings.defaultScanFolders, next);
+      const result = await updateSettingsWithResult({ defaultScanFolders: next });
+      const rootsMatch = defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next);
+      if (result.persisted && !rootsMatch) {
+        showError(`${t("settingsSaveFailed")} (${t("settingsFailureCode")}: unknown_failure)`);
+      }
+      return result.persisted && rootsMatch;
     },
-    [updateSettings]
+    [showError, t, updateSettingsWithResult]
   );
   const setRestoreRetentionDays = useCallback(
     async (next: RestoreRetentionDays) => {

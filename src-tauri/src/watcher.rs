@@ -274,6 +274,56 @@ enum WatcherError {
     StateLock,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettingsWatcherReloadFailure {
+    RootSynchronization,
+    RuntimeRestart,
+    ReconciliationScheduling,
+}
+
+impl SettingsWatcherReloadFailure {
+    pub(crate) const fn as_support_code(self) -> &'static str {
+        match self {
+            Self::RootSynchronization => "watcher_root_sync_failure",
+            Self::RuntimeRestart => "watcher_runtime_failure",
+            Self::ReconciliationScheduling => "watcher_reconciliation_schedule_failure",
+        }
+    }
+}
+
+impl std::fmt::Display for SettingsWatcherReloadFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_support_code())
+    }
+}
+
+impl std::error::Error for SettingsWatcherReloadFailure {}
+
+fn restart_and_schedule_for_settings(
+    restart: impl FnOnce() -> Result<bool, SettingsWatcherReloadFailure>,
+    schedule: impl FnOnce() -> Result<(), SettingsWatcherReloadFailure>,
+) -> Result<bool, SettingsWatcherReloadFailure> {
+    // Startup and lifecycle recovery must still admit durable reconciliation
+    // work after a watcher restart failure. Preserve restart as the reported
+    // error when both stages fail.
+    let restart_result = restart();
+    native_qa_watcher_trace("settings_reload_restart", || match &restart_result {
+        Ok(changed) => format!("result=success changed={changed}"),
+        Err(error) => format!("result=failure code={}", error.as_support_code()),
+    });
+    let schedule_result = schedule();
+    native_qa_watcher_trace(
+        "settings_reload_reconciliation_schedule",
+        || match &schedule_result {
+            Ok(()) => "result=success".to_string(),
+            Err(error) => format!("result=failure code={}", error.as_support_code()),
+        },
+    );
+    let changed = restart_result?;
+    schedule_result?;
+    Ok(changed)
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileWatchEvent {
@@ -646,8 +696,20 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
     dedupe_jobs: &DedupeJobManager,
     settings: &AppSettings,
 ) -> Result<bool, String> {
+    reload_file_watcher_for_settings_with_stage(app, manager, db, jobs, dedupe_jobs, settings)
+        .map_err(|failure| failure.as_support_code().to_string())
+}
+
+pub(crate) fn reload_file_watcher_for_settings_with_stage<R: Runtime>(
+    app: AppHandle<R>,
+    manager: &FileWatcherManager,
+    db: &Database,
+    jobs: &ScanJobManager,
+    dedupe_jobs: &DedupeJobManager,
+    settings: &AppSettings,
+) -> Result<bool, SettingsWatcherReloadFailure> {
     db.sync_file_library_watcher_roots(&settings.default_scan_folders)
-        .map_err(|error| error.to_string())?;
+        .map_err(|_| SettingsWatcherReloadFailure::RootSynchronization)?;
     let backend_enabled = backend_watcher_reconciliation_enabled();
     native_qa_watcher_trace("watcher_mode", || {
         format!("backend_reconciliation_enabled={backend_enabled}")
@@ -659,25 +721,32 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
             .iter()
             .map(|path| normalize_path(path))
             .collect::<Vec<_>>();
-        let restart_result = manager
-            .restart_backend(
-                app.clone(),
-                paths,
-                db.clone(),
-                jobs.clone(),
-                dedupe_jobs.clone(),
-            )
-            .map_err(|error| error.to_string());
-        let schedule_result = crate::scanner::schedule_watcher_reconciliations(
-            app.clone(),
-            db.clone(),
-            jobs.clone(),
-            dedupe_jobs.clone(),
-        );
-        let changed = restart_result?;
-        schedule_result?;
+        let changed = restart_and_schedule_for_settings(
+            || {
+                manager
+                    .restart_backend(
+                        app.clone(),
+                        paths,
+                        db.clone(),
+                        jobs.clone(),
+                        dedupe_jobs.clone(),
+                    )
+                    .map_err(|_| SettingsWatcherReloadFailure::RuntimeRestart)
+            },
+            || {
+                crate::scanner::schedule_watcher_reconciliations(
+                    app.clone(),
+                    db.clone(),
+                    jobs.clone(),
+                    dedupe_jobs.clone(),
+                )
+                .map(|_| ())
+                .map_err(|_| SettingsWatcherReloadFailure::ReconciliationScheduling)
+            },
+        )?;
         if changed {
-            emit_watcher_ready(&app, root_labels).map_err(|error| error.to_string())?;
+            emit_watcher_ready(&app, root_labels)
+                .map_err(|_| SettingsWatcherReloadFailure::RuntimeRestart)?;
         }
         Ok(changed)
     } else {
@@ -687,7 +756,7 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
         let paths = existing_legacy_watch_paths_from_settings(settings);
         manager
             .restart(app, paths)
-            .map_err(|error| error.to_string())
+            .map_err(|_| SettingsWatcherReloadFailure::RuntimeRestart)
     }
 }
 
@@ -1701,6 +1770,7 @@ mod tests {
     use super::*;
     use crate::settings::ScanRootSetting;
     use notify::event::{AccessKind, EventAttributes, RenameMode};
+    use std::cell::Cell;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -1750,6 +1820,21 @@ mod tests {
                 PathBuf::from("/Volumes/Work/Projects")
             ]
         );
+    }
+
+    #[test]
+    fn settings_reload_still_schedules_pending_roots_after_runtime_restart_failure() {
+        let schedule_attempted = Cell::new(false);
+        let result = restart_and_schedule_for_settings(
+            || Err(SettingsWatcherReloadFailure::RuntimeRestart),
+            || {
+                schedule_attempted.set(true);
+                Ok(())
+            },
+        );
+
+        assert!(schedule_attempted.get());
+        assert_eq!(result, Err(SettingsWatcherReloadFailure::RuntimeRestart));
     }
 
     #[test]
@@ -1918,6 +2003,30 @@ mod tests {
         assert!(result.is_err());
         assert!(manager.active_roots().expect("active roots").is_empty());
         assert_eq!(gaps.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn valid_existing_root_can_fail_during_runtime_start_without_database_contention() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-issue-329-watcher-runtime-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create a valid existing watcher root");
+        assert!(root.is_dir());
+
+        let manager = FileWatcherManager::default();
+        let result = manager.restart_with_roots(
+            vec![root.clone()],
+            |_| Err(WatcherError::StateLock),
+            |_, _| {},
+        );
+
+        assert!(matches!(result, Err(WatcherError::StateLock)));
+        assert!(manager
+            .active_roots()
+            .expect("read active watcher roots")
+            .is_empty());
+        std::fs::remove_dir_all(root).expect("remove valid watcher root fixture");
     }
 
     #[test]

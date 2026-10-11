@@ -205,6 +205,38 @@ describe("library scope store", () => {
     expect(useFileLibraryStore.getState().scope.kind).toBe("all");
   });
 
+  it("adopts configured Settings roots only when the saved Library scope is still empty", () => {
+    const configuredRoot = {
+      id: "downloads",
+      path: "F:/Downloads",
+      label: "Downloads",
+      enabled: true,
+      createdAt: "2026-06-22T00:00:00.000Z"
+    };
+
+    expect(useFileLibraryStore.getState().adoptConfiguredRootsIfScopeEmpty([configuredRoot])).toBe(true);
+    expect(useFileLibraryStore.getState().scope).toEqual({ kind: "all" });
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      LIBRARY_SCOPE_STORAGE_KEY,
+      JSON.stringify({ version: 1, scope: { kind: "all" } })
+    );
+    expect(readPersistedLibraryScope()).toEqual({ kind: "all" });
+
+    const selectedScan = {
+      kind: "current_scan" as const,
+      roots: ["F:/Downloads"],
+      scanSessionId: "completed-session"
+    };
+    useFileLibraryStore.getState().setScope(selectedScan);
+    expect(useFileLibraryStore.getState().adoptConfiguredRootsIfScopeEmpty([configuredRoot])).toBe(false);
+    expect(useFileLibraryStore.getState().scope).toEqual(selectedScan);
+
+    const disabledRoot = { ...configuredRoot, enabled: false };
+    useFileLibraryStore.getState().setScope({ kind: "current_scan", roots: [] });
+    expect(useFileLibraryStore.getState().adoptConfiguredRootsIfScopeEmpty([disabledRoot])).toBe(false);
+    expect(useFileLibraryStore.getState().scope).toEqual({ kind: "current_scan", roots: [] });
+  });
+
   it("scan button scans enabled default roots without opening the folder picker", async () => {
     useScanManagerStore.setState({
       defaultScanRoots: [

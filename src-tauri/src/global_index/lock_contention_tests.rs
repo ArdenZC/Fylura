@@ -5,20 +5,24 @@ use crate::{
         PROVIDER_WINDOWS_MFT_USN,
     },
     settings::{
-        get_versioned_app_settings, save_app_settings, save_app_settings_cas, AppSettings,
-        ScanRootSetting, SettingsError,
+        get_versioned_app_settings, save_app_settings, save_app_settings_cas,
+        save_app_settings_cas_for_test, AppSettings, ScanRootSetting, SettingsError,
     },
 };
-use rusqlite::{Connection, Error as SqliteError, ErrorCode, OpenFlags};
+use rusqlite::{Connection, Error as SqliteError, ErrorCode, OpenFlags, TransactionBehavior};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Mutex,
+    },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+static SETTINGS_CONTENTION_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 struct FixtureDirectory(PathBuf);
 
@@ -443,7 +447,123 @@ fn read_only_wal_observer_does_not_block_global_index_writer() {
 }
 
 #[test]
+fn deferred_settings_cas_reproduces_the_immediate_upgrade_failure_baseline() {
+    let _test_guard = SETTINGS_CONTENTION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (_directory, database, volume) = fixture();
+    assert_database_configuration(&database);
+    save_app_settings(&database, &AppSettings::default()).expect("seed default app settings");
+    let previous = get_versioned_app_settings(&database).expect("load initial settings revision");
+    let mut next = previous.settings.clone();
+    next.background_index_on_startup = !previous.settings.background_index_on_startup;
+
+    let holder = HeldWriteLock::begin(&database, &volume.id);
+    let release_thread = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(300));
+        holder.release()
+    });
+    let cas_started = Instant::now();
+    let cas_error = save_app_settings_cas_for_test(
+        &database,
+        &next,
+        previous.revision,
+        TransactionBehavior::Deferred,
+    )
+    .expect_err("deferred read-to-write upgrade should fail while the writer is active");
+    let cas_elapsed = cas_started.elapsed();
+    assert_busy(settings_sqlite_error(&cas_error));
+    assert!(
+        cas_elapsed < Duration::from_millis(200),
+        "deferred upgrade should reproduce the immediate SQLITE_BUSY failure: {cas_elapsed:?}"
+    );
+    let release_result = release_thread
+        .join()
+        .expect("deferred baseline writer release thread should not panic");
+    assert!(
+        release_result.is_ok(),
+        "deferred baseline writer should commit: {release_result:?}"
+    );
+    let persisted = get_versioned_app_settings(&database).expect("reload baseline settings");
+    assert_eq!(persisted.revision, previous.revision);
+    assert_eq!(
+        serde_json::to_value(&persisted.settings).expect("serialize persisted settings"),
+        serde_json::to_value(&previous.settings).expect("serialize previous settings")
+    );
+    println!(
+        "issue_329_correlation baseline=deferred_settings_cas stage=read_to_write_upgrade result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} configured_busy_timeout_ms={} correlation=POSSIBLE_SHARED_CONTENTION",
+        cas_elapsed.as_millis(),
+        BUSY_TIMEOUT.as_millis()
+    );
+}
+
+#[test]
+fn settings_cas_waits_for_a_short_writer_and_saves_one_revision() {
+    let _test_guard = SETTINGS_CONTENTION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (directory, database, volume) = fixture();
+    assert_database_configuration(&database);
+    save_app_settings(&database, &AppSettings::default()).expect("seed default app settings");
+    let previous = get_versioned_app_settings(&database).expect("load initial settings revision");
+
+    let fixture_root = directory.0.join("short-contention-root");
+    fs::create_dir_all(&fixture_root).expect("create permitted scan-root fixture");
+    let mut next = previous.settings.clone();
+    next.default_scan_folders = vec![ScanRootSetting {
+        id: "fixture-short-contention-root".to_string(),
+        path: fixture_root.to_string_lossy().into_owned(),
+        label: "Fixture root".to_string(),
+        enabled: true,
+        created_at: "2026-10-08T00:00:00.000Z".to_string(),
+    }];
+
+    let holder = HeldWriteLock::begin(&database, &volume.id);
+    let release_thread = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(300));
+        holder.release()
+    });
+    let cas_started = Instant::now();
+    let saved = save_app_settings_cas(&database, &next, previous.revision)
+        .expect("CAS should wait for a short competing writer and save");
+    let cas_elapsed = cas_started.elapsed();
+    let release_result = release_thread
+        .join()
+        .expect("short writer release thread should not panic");
+    assert!(
+        release_result.is_ok(),
+        "short writer should commit: {release_result:?}"
+    );
+    assert!(
+        cas_elapsed >= Duration::from_millis(200),
+        "CAS should overlap the held writer: {cas_elapsed:?}"
+    );
+    assert!(
+        cas_elapsed < BUSY_TIMEOUT,
+        "short contention should resolve inside the configured timeout: {cas_elapsed:?}"
+    );
+
+    let persisted = get_versioned_app_settings(&database).expect("reload persisted settings");
+    assert_eq!(saved.revision, previous.revision + 1);
+    assert_eq!(persisted.revision, previous.revision + 1);
+    let mut expected_scan_root = next.default_scan_folders[0].clone();
+    expected_scan_root.path = expected_scan_root.path.replace('\\', "/");
+    assert_eq!(
+        persisted.settings.default_scan_folders,
+        vec![expected_scan_root]
+    );
+    println!(
+        "issue_329_correlation holder=synthetic_second_pooled_connection_BEGIN_IMMEDIATE cas_operation=save_app_settings_cas stage=BEGIN_IMMEDIATE_acquisition result=success elapsed_ms={} timeout_ms={} correlation=POSSIBLE_SHARED_CONTENTION",
+        cas_elapsed.as_millis(),
+        BUSY_TIMEOUT.as_millis()
+    );
+}
+
+#[test]
 fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
+    let _test_guard = SETTINGS_CONTENTION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let (directory, database, volume) = fixture();
     assert_database_configuration(&database);
     let initial = AppSettings::default();
@@ -467,6 +587,7 @@ fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
         .expect_err("settings CAS must surface the active SQLite writer conflict");
     let cas_elapsed = cas_started.elapsed();
     assert_busy(settings_sqlite_error(&cas_error));
+    assert_busy_wait(cas_elapsed);
 
     // save_settings stops after the failed CAS. Exercise the next real boundary
     // separately to classify sync_file_library_watcher_roots' BEGIN IMMEDIATE.
@@ -485,6 +606,16 @@ fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
         .settings
         .default_scan_folders
         .is_empty());
+    let root_count_while_locked: i64 = database
+        .conn()
+        .expect("borrow pooled connection for pre-commit root assertion")
+        .query_row(
+            "SELECT COUNT(*) FROM scan_roots WHERE source_kind = 'file_library' AND normalized_path = ?1",
+            [fixture_root.to_string_lossy().as_ref()],
+            |row| row.get(0),
+        )
+        .expect("read roots after both begin-time failures");
+    assert_eq!(root_count_while_locked, 0);
 
     let release_result = holder.release();
     assert!(
@@ -513,7 +644,7 @@ fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
     assert_eq!(enabled_roots, 1);
 
     println!(
-        "issue_329_correlation holder=synthetic_second_pooled_connection_BEGIN_IMMEDIATE cas_operation=save_app_settings_cas stage=UPDATE result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} root_sync_operation=sync_file_library_watcher_roots stage=BEGIN_IMMEDIATE result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} released_retry=cas_and_root_sync_success watcher_reload=not_exercised correlation=POSSIBLE_SHARED_CONTENTION",
+        "issue_329_correlation holder=synthetic_second_pooled_connection_BEGIN_IMMEDIATE cas_operation=save_app_settings_cas stage=BEGIN_IMMEDIATE_acquisition result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} root_sync_operation=sync_file_library_watcher_roots stage=BEGIN_IMMEDIATE_acquisition result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} no_mutations_before_begin=true released_retry=cas_and_root_sync_success watcher_reload=not_exercised correlation=POSSIBLE_SHARED_CONTENTION",
         cas_elapsed.as_millis(),
         sync_elapsed.as_millis()
     );

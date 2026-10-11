@@ -20,7 +20,10 @@ type ProviderProps<T> = {
   children: ReactNode;
 };
 
-export type AppSettingsContextState = ReturnType<typeof useAppSettings>;
+export type AppSettingsContextState = Pick<
+  ReturnType<typeof useAppSettings>,
+  "settings" | "isLoadingSettings" | "updateSettings"
+>;
 
 export interface SettingsContextValue extends AppSettingsContextState {
   setFolderNamingLanguage: (next: FolderNamingLanguage) => Promise<boolean>;

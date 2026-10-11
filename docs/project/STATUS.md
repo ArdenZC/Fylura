@@ -1,6 +1,6 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-08
+Last verified: 2026-10-09
 
 ## Current execution truth
 
@@ -45,6 +45,12 @@ Workflow ownership is now binding: Owner/ChatGPT owns architecture and GitHub go
 Status: **COMPLETE / MERGED / CLOSED — SCOPED WINDOWS NATIVE RECOVERY OWNER ACCEPTED WITH EVIDENCE EXCEPTIONS; MERGE-AFTER MASTER CI SUCCESS.**
 
 PR #327 squash-merged as `master@1619e335468c432da5a5b3a6e246e1ea1c7db32c` / tree `70c1e97eb68a01506a796140277af640a5e0fe60`; merge-after master CI [37722150775](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37722150775) is **SUCCESS**. Issue #323 is CLOSED / completed. The original native qualification remains historically INCOMPLETE and its explicit evidence exceptions are preserved. Issues #328 and #329 remain independent OPEN defects.
+
+### Issue #329 V2 native failure remediation
+
+Status: **CLOUD REMEDIATION IN PROGRESS — SOURCE FIXES AND REGRESSION TESTS PREPARED; EXACT-HEAD HOSTED CI PENDING.** Issue #329 remains OPEN; PR #335 remains OPEN / Draft. The starting PR HEAD `8fe826238052846df37414944af732f200224d23` was reconciled with latest fetched `master@58062c5c356969f332f19c7458028bf2e097595e` by history-preserving merge `52650e4fc440dcfe46afcea1ff6cf5a23c6d64ee` (tree `6b3d25e73b94875d0c217face71e079b2ffa65a6`), without conflicts. The remediation keeps optimistic Settings editor state separate from persisted runtime roots, prevents background index admission before persistence, initializes the empty File Library scope from persisted enabled roots, and adds opt-in native Settings/watcher stage diagnostics. Focused frontend checks (38 tests), the full frontend suite (176 files / 1,874 tests), typecheck, performance architecture (30 tests), frontend build, governance, documentation, Cargo format, and diff check pass. Local Rust tests are blocked before test execution by the existing Linux-only missing `keyring` target dependency; Windows/macOS Hosted CI is required for Rust test evidence. The frozen native report is not accessible from Cloud, so the exact first-save and rollback failure stages remain unproved. No #328 shared root cause is claimed; Global Index code is unchanged. See [Issue #329 V2 remediation report](tasks/ISSUE-329-V2-NATIVE-FAILURE-ROOT-CAUSE-REMEDIATION.md).
+
+This status does not authorize Ready, merge, installer creation, Windows native qualification, or issue closure.
 
 ## Completed AI-only Product Migration
 

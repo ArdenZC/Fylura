@@ -14,10 +14,10 @@ describe("background indexer", () => {
 
     expect(runtimeProviders).toContain("useBackgroundIndexerStore");
     expect(runtimeProviders).toContain("enqueueBackgroundIndexRoots");
-    expect(runtimeProviders).toContain("enabledScanRootPaths(appSettings.defaultScanFolders)");
-    expect(runtimeProviders).toContain("enabledSearchRootPaths(appSettings.customSearchRoots)");
+    expect(runtimeProviders).toContain("enabledScanRootPaths(persistedSettings.defaultScanFolders)");
+    expect(runtimeProviders).toContain("enabledSearchRootPaths(persistedSettings.customSearchRoots)");
     expect(runtimeProviders).toContain("if (isSearchMode || isLoadingSettings) return");
-    expect(runtimeProviders).toContain("appSettings.backgroundIndexOnStartup === false");
+    expect(runtimeProviders).toContain("persistedSettings.backgroundIndexOnStartup === false");
     expect(runtimeProviders).toContain("const backgroundIndexRoots = useMemo");
     expect(runtimeProviders).toContain("const backgroundIndexRootSignature = useMemo");
     expect(runtimeProviders).toContain("backgroundIndexRootSignature");

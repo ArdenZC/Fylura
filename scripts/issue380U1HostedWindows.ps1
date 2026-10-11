@@ -16,6 +16,7 @@ $EvidenceRoot = [IO.Path]::GetFullPath($EvidenceRoot)
 $worktreeRoot = Join-Path $env:RUNNER_TEMP "issue-380-u1-worktrees-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 $cargoTarget = Join-Path $repoRoot "src-tauri/target"
 $taskRoot = Join-Path $env:RUNNER_TEMP "issue-380-u1-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+$global:U1OwnedInstallDirectory = $null
 $global:U1Evidence = [ordered]@{
     contract = "U1 frozen-candidate compatibility; test-only; not a production fix"
     u1Head = $u1Head
@@ -212,6 +213,21 @@ function Start-U1App([string]$Exe, [string]$Scenario, [string]$ProfileRoot, [str
     }
 }
 
+function Wait-U1AppReady($Process, [string]$Scenario, [int]$TimeoutSeconds = 90) {
+    $stderr = Join-Path $taskRoot "$Scenario-app.stderr.log"
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $Process.Refresh()
+        if ($Process.HasExited) { throw "$Scenario desktop exited before its isolated watcher was ready (exit=$($Process.ExitCode))" }
+        if (Test-Path -LiteralPath $stderr) {
+            $content = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
+            if ($content -match "native_qa startup_checkpoint=setup_complete") { return }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "$Scenario desktop did not reach setup_complete within $TimeoutSeconds seconds"
+}
+
 function Start-U1ConsoleService([string]$Exe, [string]$Scenario) {
     $stdout = Join-Path $taskRoot "$Scenario-service.stdout.log"
     $stderr = Join-Path $taskRoot "$Scenario-service.stderr.log"
@@ -292,11 +308,10 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
         $service = $null
         if ($ServiceExe) { Wait-PipeAbsent }
 
-        # Introduce a second fixture only after the baseline. This distinguishes
-        # blocked Direct fallback from the old catch-all fallback while proving
-        # the previously published row remains searchable.
-        $nextMarkerPath = Join-Path $fixtureRoot $nextMarkerName
-        Set-Content -LiteralPath $nextMarkerPath -Value "isolated post-baseline fixture" -NoNewline
+        # Start the tested client before adding the second fixture. Otherwise a
+        # native watcher can miss the file creation that happened before it was
+        # registered, turning this into a no-request test rather than a
+        # Service/fallback test.
         if ($ServiceExe) {
             $service = Start-U1ConsoleService $ServiceExe $Name
             $result.pipeObserved = $true
@@ -306,14 +321,18 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
         }
         $client = Start-U1App $ClientExe $Name $profile $trace
         $result.clientPid = $client.Id
+        Wait-U1AppReady $client $Name
+        $nextMarkerPath = Join-Path $fixtureRoot $nextMarkerName
+        Set-Content -LiteralPath $nextMarkerPath -Value "isolated post-baseline fixture" -NoNewline
         $waited = Wait-ForFixture $ClientProbe $profile $nextMarkerName 240
         $snapshot = $waited.Snapshot
         $hit = $waited.Hit
         $result.markerFound = $null -ne $hit
         if ($hit) { $result.resultPath = $hit.path }
+        $oldMarkerSnapshot = Invoke-ProfileQuery $ClientProbe $profile $markerName
         $source = @($snapshot.volumes | Where-Object { $_.id -ceq $prepared.targetSourceId } | Select-Object -First 1)
         if ($source) { $result.sourceState = $source.status; $result.lastError = $source.lastError; $result.entryCount = [long]$source.entryCount; $result.provider = $source.provider; $result.lastFullIndexAt = $source.lastFullIndexAt }
-        $result.oldMarkerPreserved = @($snapshot.results | Where-Object { $_.name -ceq $markerName }).Count -gt 0
+        $result.oldMarkerPreserved = @($oldMarkerSnapshot.results | Where-Object { $_.name -ceq $markerName }).Count -gt 0
         $result.nextMarkerFound = $result.markerFound
         $result.expectedDirect = $ExpectDirect
         if (-not $result.oldMarkerPreserved) { throw "previously indexed global entry disappeared during the scenario" }
@@ -385,7 +404,8 @@ function Wait-ServiceState([string]$State, [int]$TimeoutSeconds = 90) {
 
 function Get-AppProcessSnapshots([string]$ExePath) {
     $canonical = [IO.Path]::GetFullPath($ExePath)
-    return @(Get-CimInstance Win32_Process -Filter "Name='Zen Canvas.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath).Equals($canonical, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { [ordered]@{ processId = [int]$_.ProcessId; path = $_.ExecutablePath; commandLine = $_.CommandLine; created = $_.CreationDate } })
+    $imageName = [IO.Path]::GetFileName($canonical)
+    return @(Get-CimInstance Win32_Process -Filter "Name='$imageName'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath).Equals($canonical, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { [ordered]@{ processId = [int]$_.ProcessId; path = $_.ExecutablePath; commandLine = $_.CommandLine; created = $_.CreationDate } })
 }
 
 function Install-NSIS([string]$Installer, [string]$InstallDirectory, [string]$LogPath, [int]$TimeoutSeconds = 600) {
@@ -394,7 +414,11 @@ function Install-NSIS([string]$Installer, [string]$InstallDirectory, [string]$Lo
     $startInfo.WorkingDirectory = Split-Path -Parent $Installer
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
-    foreach ($argument in @("/S", "/LOG=$LogPath", "/D=$InstallDirectory")) { $startInfo.ArgumentList.Add($argument) }
+    # The frozen per-machine package intentionally uses its canonical
+    # Program Files install location on this disposable Hosted Windows runner.
+    # Avoid relying on NSIS /D parsing for a path containing spaces; the caller
+    # first verifies that this exact location is absent and task-owned.
+    foreach ($argument in @("/S", "/LOG=$LogPath")) { $startInfo.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     if (-not $process.Start()) { throw "failed to start installer $Installer" }
@@ -415,7 +439,7 @@ function Wait-ForInstaller([string]$Installer, [string]$InstallDirectory, [strin
     $startInfo.WorkingDirectory = Split-Path -Parent $Installer
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
-    foreach ($argument in @("/S", "/LOG=$LogPath", "/D=$InstallDirectory")) { $startInfo.ArgumentList.Add($argument) }
+    foreach ($argument in @("/S", "/LOG=$LogPath")) { $startInfo.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     if (-not $process.Start()) { throw "failed to start installer $Installer" }
@@ -550,8 +574,10 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
     $serviceName = "ZenCanvasGlobalIndex"
     $existing = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
     if ($existing) { throw "refusing installer test because $serviceName pre-exists: $($existing.PathName)" }
-    $installDir = Join-Path $taskRoot "Zen Canvas U1 Install"
-    $exe = Join-Path $installDir "Zen Canvas.exe"
+    $installDir = Join-Path $env:ProgramFiles "Zen Canvas"
+    $exe = Join-Path $installDir "zen-canvas.exe"
+    if (Test-Path -LiteralPath $installDir) { throw "refusing installer test because canonical per-machine path already exists: $installDir" }
+    $global:U1OwnedInstallDirectory = $installDir
     $oldLog = Join-Path $EvidenceRoot "installer-old-fresh.log"
     $newUpgradeLog = Join-Path $EvidenceRoot "installer-d1a-upgrade.log"
     $oldRepairLog = Join-Path $EvidenceRoot "installer-old-reinstall.log"
@@ -671,24 +697,59 @@ try {
     Save-Evidence
     try {
         $service = Get-CimInstance Win32_Service -Filter "Name='ZenCanvasGlobalIndex'" -ErrorAction SilentlyContinue
+        $installedExe = if ($global:U1OwnedInstallDirectory) { Join-Path $global:U1OwnedInstallDirectory "zen-canvas.exe" } else { $null }
+        $installedImagePath = if ($installedExe) { ('"' + $installedExe + '" --index-service') } else { $null }
         if ($service) {
             if ($service.State -ne "Stopped") { & sc.exe stop "ZenCanvasGlobalIndex" *> (Join-Path $EvidenceRoot "cleanup-service-stop.log"); Start-Sleep -Seconds 3 }
             $service = Get-CimInstance Win32_Service -Filter "Name='ZenCanvasGlobalIndex'" -ErrorAction SilentlyContinue
             if ($service -and $service.PathName -match [regex]::Escape($taskRoot)) {
                 & sc.exe delete "ZenCanvasGlobalIndex" *> (Join-Path $EvidenceRoot "cleanup-service-delete.log")
-            } elseif ($service -and $service.PathName -match [regex]::Escape((Join-Path $taskRoot "Zen Canvas U1 Install"))) {
+            } elseif ($service -and $installedImagePath -and $service.PathName.Trim() -ieq $installedImagePath) {
                 & sc.exe stop "ZenCanvasGlobalIndex" *> (Join-Path $EvidenceRoot "cleanup-installed-service-stop.log")
-                Start-Sleep -Seconds 2
+                $stopDeadline = [DateTime]::UtcNow.AddSeconds(90)
+                do {
+                    $service = Get-CimInstance Win32_Service -Filter "Name='ZenCanvasGlobalIndex'" -ErrorAction SilentlyContinue
+                    if (-not $service -or $service.State -ieq "Stopped") { break }
+                    Start-Sleep -Milliseconds 500
+                } while ([DateTime]::UtcNow -lt $stopDeadline)
+                if ($service -and $service.State -ine "Stopped") {
+                    $servicePid = [int]$service.ProcessId
+                    $serviceImage = if ($servicePid) { (Get-CimInstance Win32_Process -Filter "ProcessId=$servicePid" -ErrorAction SilentlyContinue).ExecutablePath } else { $null }
+                    if ($serviceImage -and [IO.Path]::GetFullPath($serviceImage).Equals([IO.Path]::GetFullPath($installedExe), [StringComparison]::OrdinalIgnoreCase)) {
+                        Stop-Process -Id $servicePid -Force -ErrorAction SilentlyContinue
+                    } else {
+                        throw "refusing to terminate non-matching installer Service process: $serviceImage"
+                    }
+                }
                 & sc.exe delete "ZenCanvasGlobalIndex" *> (Join-Path $EvidenceRoot "cleanup-installed-service-delete.log")
+                $deleteDeadline = [DateTime]::UtcNow.AddSeconds(45)
+                do {
+                    $service = Get-CimInstance Win32_Service -Filter "Name='ZenCanvasGlobalIndex'" -ErrorAction SilentlyContinue
+                    if (-not $service) { break }
+                    Start-Sleep -Milliseconds 500
+                } while ([DateTime]::UtcNow -lt $deleteDeadline)
             } else {
                 $global:U1Evidence.cleanup.failures += "refused SCM cleanup because service ImagePath was not within the task-owned directories: $($service.PathName)"
             }
         }
-        Get-CimInstance Win32_Process -Filter "Name='Zen Canvas.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and ($_.ExecutablePath.StartsWith($taskRoot, [StringComparison]::OrdinalIgnoreCase) -or $_.ExecutablePath.StartsWith($worktreeRoot, [StringComparison]::OrdinalIgnoreCase)) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Get-CimInstance Win32_Process -Filter "Name='zen-canvas.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and (($global:U1OwnedInstallDirectory -and [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith([IO.Path]::GetFullPath($global:U1OwnedInstallDirectory), [StringComparison]::OrdinalIgnoreCase)) -or $_.ExecutablePath.StartsWith($taskRoot, [StringComparison]::OrdinalIgnoreCase) -or $_.ExecutablePath.StartsWith($worktreeRoot, [StringComparison]::OrdinalIgnoreCase)) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         Get-CimInstance Win32_Process -Filter "Name='zen-canvas-qa.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($worktreeRoot, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        if ($global:U1OwnedInstallDirectory -and (Test-Path -LiteralPath $global:U1OwnedInstallDirectory)) {
+            $uninstaller = Join-Path $global:U1OwnedInstallDirectory "uninstall.exe"
+            if (Test-Path -LiteralPath $uninstaller) {
+                $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @("/S") -PassThru -WindowStyle Hidden
+                if (-not $uninstallProcess.WaitForExit(120000)) { $uninstallProcess.Kill($true); throw "task-owned test install uninstaller timed out" }
+                if ($uninstallProcess.ExitCode -ne 0) { throw "task-owned test install uninstaller returned $($uninstallProcess.ExitCode)" }
+                $uninstallProcess.Dispose()
+            }
+        }
         $remainingService = Get-CimInstance Win32_Service -Filter "Name='ZenCanvasGlobalIndex'" -ErrorAction SilentlyContinue
-        if ($remainingService -and ($remainingService.PathName -match [regex]::Escape($taskRoot) -or $remainingService.PathName -match [regex]::Escape($worktreeRoot))) {
+        if ($remainingService -and ($remainingService.PathName -match [regex]::Escape($taskRoot) -or $remainingService.PathName -match [regex]::Escape($worktreeRoot) -or ($installedImagePath -and $remainingService.PathName.Trim() -ieq $installedImagePath))) {
             $global:U1Evidence.cleanup.failures += "task-owned service registration remains after cleanup: $($remainingService.PathName)"
+        }
+        if ($global:U1OwnedInstallDirectory -and (Test-Path -LiteralPath $global:U1OwnedInstallDirectory)) {
+            Remove-Item -LiteralPath $global:U1OwnedInstallDirectory -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $global:U1OwnedInstallDirectory) { $global:U1Evidence.cleanup.failures += "task-owned canonical install directory remains: $global:U1OwnedInstallDirectory" }
         }
         $global:U1Evidence.cleanup.details += "cleanup inspected only the task service name and task-owned process paths"
     } catch { $global:U1Evidence.cleanup.failures += $_.Exception.ToString() }

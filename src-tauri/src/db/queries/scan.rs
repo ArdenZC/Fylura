@@ -5253,7 +5253,9 @@ mod tests {
         fs::remove_dir(&parent).expect("remove candidate parent directory");
         let link = parent.to_string_lossy().into_owned();
         let target = outside.to_string_lossy().into_owned();
-        let junction_command = format!("mklink /J \"{link}\" \"{target}\"");
+        let link_for_command = link.replace('/', "\\");
+        let target_for_command = target.replace('/', "\\");
+        let junction_command = format!("mklink /J \"{link_for_command}\" \"{target_for_command}\"");
         let output = Command::new("cmd")
             .arg("/C")
             .arg(junction_command)
@@ -5261,7 +5263,7 @@ mod tests {
             .expect("launch junction creation command");
         assert!(
             output.status.success(),
-            "create parent junction for boundary test: exit={:?}, stdout={}, stderr={}",
+            "create parent junction for boundary test ({link} -> {target}): exit={:?}, stdout={}, stderr={}",
             output.status.code(),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)

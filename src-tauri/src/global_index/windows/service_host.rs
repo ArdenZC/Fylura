@@ -198,17 +198,8 @@ impl ServiceRuntime {
         request: IndexServiceRequest,
         connection: &mut IndexServiceServerConnection,
     ) -> Result<(), String> {
-        if self
-            .busy
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return self.send_error(
-                &request,
-                connection,
-                "index_service_busy",
-                "Another global index operation is already running",
-            );
+        if let Err(response) = self.try_begin_index_request(&request) {
+            return connection.send_response(response);
         }
         let operation_result = (|| {
             let _operation_guard = self.operation_lock.lock().map_err(|_| {
@@ -266,6 +257,24 @@ impl ServiceRuntime {
             )),
             Err((code, message)) => self.send_error(&request, connection, code, message),
         }
+    }
+
+    fn try_begin_index_request(
+        &self,
+        request: &IndexServiceRequest,
+    ) -> Result<(), IndexServiceResponse> {
+        self.busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ())
+            .map_err(|_| {
+                self.response(
+                    request,
+                    false,
+                    Some("index_service_busy"),
+                    Some("Another global index operation is already running".to_string()),
+                    Some(self.status()),
+                )
+            })
     }
 
     fn validated_source(
@@ -883,6 +892,15 @@ mod tests {
     use super::*;
     use crate::global_index::models::INDEX_STATUS_DISCOVERED;
 
+    fn index_request(request_id: &str, command: IndexServiceCommand) -> IndexServiceRequest {
+        IndexServiceRequest {
+            protocol_version: super::super::service::IPC_PROTOCOL_VERSION,
+            request_id: request_id.to_string(),
+            command,
+            source: None,
+        }
+    }
+
     #[test]
     fn service_contract_uses_stable_name_and_console_switch() {
         assert_eq!(INDEX_SERVICE_NAME, "ZenCanvasGlobalIndex");
@@ -901,6 +919,60 @@ mod tests {
             runtime.provider.status().expect("direct provider status"),
             "windows_mft_usn"
         );
+    }
+
+    #[test]
+    fn same_source_start_resume_and_rebuild_contenders_get_busy_without_service_fault_state() {
+        let runtime = ServiceRuntime::new();
+        let active = index_request(
+            "request-active",
+            IndexServiceCommand::StartInitialIndex {
+                source_id: "source-a".to_string(),
+            },
+        );
+        runtime
+            .try_begin_index_request(&active)
+            .expect("first operation owns the service slot");
+
+        for (request_id, command) in [
+            (
+                "request-duplicate-start",
+                IndexServiceCommand::StartInitialIndex {
+                    source_id: "source-a".to_string(),
+                },
+            ),
+            (
+                "request-duplicate-resume",
+                IndexServiceCommand::ResumeIncrementalSync {
+                    source_id: "source-a".to_string(),
+                },
+            ),
+            (
+                "request-duplicate-rebuild",
+                IndexServiceCommand::Rebuild {
+                    source_id: "source-a".to_string(),
+                },
+            ),
+        ] {
+            let request = index_request(request_id, command);
+            assert_eq!(source_id(&request.command), "source-a");
+            let response = runtime
+                .try_begin_index_request(&request)
+                .expect_err("overlapping request must be rejected as busy");
+            assert!(!response.ok);
+            assert_eq!(response.request_id, request_id);
+            assert_eq!(response.error_code.as_deref(), Some("index_service_busy"));
+            assert_eq!(
+                response.message.as_deref(),
+                Some("Another global index operation is already running")
+            );
+            assert_eq!(response.status.as_deref(), Some("indexing"));
+        }
+
+        assert_eq!(runtime.status(), "indexing");
+        let state = runtime.state.lock().expect("service lifecycle state");
+        assert_eq!(state.status, "starting");
+        assert!(state.last_error.is_none());
     }
 
     #[test]

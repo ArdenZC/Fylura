@@ -74,4 +74,27 @@ mod tests {
             assert!(matches!(decode(&response), GlobalIndexError::Provider(_)));
         }
     }
+
+    #[test]
+    fn service_busy_decodes_as_service_provider_contention() {
+        let response = IndexServiceResponse {
+            protocol_version: IPC_PROTOCOL_VERSION,
+            request_id: "request-contender".into(),
+            ok: false,
+            error_code: Some("index_service_busy".into()),
+            message: Some("Another global index operation is already running".into()),
+            status: Some("indexing".into()),
+        };
+
+        match decode(&response) {
+            GlobalIndexError::Provider(message) => assert_eq!(
+                message,
+                "Another global index operation is already running"
+            ),
+            other => panic!("service busy must remain a provider/service error: {other:?}"),
+        }
+        println!(
+            "issue328_service_busy request_id=request-contender service_status=indexing request_result=rejected error_category=service_busy"
+        );
+    }
 }

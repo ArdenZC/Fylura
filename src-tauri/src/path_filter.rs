@@ -250,8 +250,8 @@ pub(crate) fn normalize_policy_path(path: &str) -> String {
         value = value[4..].to_string();
     }
 
-    let (prefix, remainder) = if value.starts_with("//") {
-        let mut parts = value[2..].split('/').filter(|part| !part.is_empty());
+    let (prefix, remainder) = if let Some(network_path) = value.strip_prefix("//") {
+        let mut parts = network_path.split('/').filter(|part| !part.is_empty());
         let server = parts.next().unwrap_or_default();
         let share = parts.next().unwrap_or_default();
         let prefix = if server.is_empty() {
@@ -261,13 +261,8 @@ pub(crate) fn normalize_policy_path(path: &str) -> String {
         } else {
             format!("//{server}/{share}")
         };
-        let consumed = if share.is_empty() {
-            2 + server.len()
-        } else {
-            4 + server.len() + share.len()
-        };
         let remainder = value
-            .get(consumed..)
+            .get(prefix.len()..)
             .unwrap_or_default()
             .trim_start_matches('/');
         (prefix, remainder)
@@ -725,7 +720,7 @@ fn is_protected_system_location(path: &str) -> bool {
             .any(|root| path_is_within_root(root, path));
         let is_user_temp = ["TEMP", "TMP"]
             .iter()
-            .filter_map(|variable| env::var_os(variable))
+            .filter_map(env::var_os)
             .map(|path| normalize_policy_path(&PathBuf::from(path).to_string_lossy()))
             .any(|root| path_is_within_root(&root, path));
         if is_appdata && !is_user_temp {
@@ -780,11 +775,6 @@ fn windows_volume_root_component_is_protected(path: &str) -> bool {
     )
 }
 
-#[cfg(not(windows))]
-fn windows_volume_root_component_is_protected(_path: &str) -> bool {
-    false
-}
-
 #[cfg(target_os = "macos")]
 fn macos_volume_root_component_is_protected(path: &str) -> bool {
     const NAMES: &[&str] = &[
@@ -812,20 +802,16 @@ fn macos_volume_root_component_is_protected(path: &str) -> bool {
     mounted_volume_metadata
 }
 
-#[cfg(not(target_os = "macos"))]
-fn macos_volume_root_component_is_protected(_path: &str) -> bool {
-    false
-}
-
+#[cfg(any(windows, target_os = "macos"))]
 fn volume_root_component(path: &str, names: &[&str]) -> bool {
     let path = normalize_policy_path(path).to_ascii_lowercase();
     let remainder = if path.as_bytes().get(1) == Some(&b':') {
         path.get(3..).unwrap_or_default()
-    } else if path.starts_with("//") {
-        let mut parts = path[2..].split('/');
+    } else if let Some(network_path) = path.strip_prefix("//") {
+        let mut parts = network_path.split('/');
         let server = parts.next().unwrap_or_default();
         let share = parts.next().unwrap_or_default();
-        let prefix_len = 4 + server.len() + share.len();
+        let prefix_len = 3 + server.len() + share.len();
         path.get(prefix_len..)
             .unwrap_or_default()
             .trim_start_matches('/')
@@ -835,7 +821,7 @@ fn volume_root_component(path: &str, names: &[&str]) -> bool {
         return false;
     };
     let first = remainder.split('/').next().unwrap_or_default();
-    names.iter().any(|name| first == *name)
+    names.contains(&first)
 }
 
 #[cfg(test)]

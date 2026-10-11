@@ -1628,10 +1628,6 @@ fn emit_root_status<R: Runtime>(
     emit_watcher_reconciliation_status(app, db, root_id, batch_revision);
 }
 
-fn path_within_root(root: &str, path: &str) -> bool {
-    path_is_within_root(root, path)
-}
-
 pub fn recover_watcher_reconciliation_state<R: Runtime>(
     app: AppHandle<R>,
     db: Database,
@@ -2204,12 +2200,12 @@ mod tests {
 
     #[test]
     fn watcher_root_matching_is_boundary_aware() {
-        assert!(path_within_root(
+        assert!(path_is_within_root(
             "/Users/zen/Library",
             "/Users/zen/Library/report.pdf"
         ));
-        assert!(path_within_root("C:/Library", "C:/Library/report.pdf"));
-        assert!(!path_within_root(
+        assert!(path_is_within_root("C:/Library", "C:/Library/report.pdf"));
+        assert!(!path_is_within_root(
             "/Users/zen/Library",
             "/Users/zen/Library-old/report.pdf"
         ));
@@ -2242,7 +2238,7 @@ mod tests {
             .expect("parent watcher roots");
         let matches = parent_only
             .iter()
-            .filter(|root| path_within_root(&root.path, path))
+            .filter(|root| path_is_within_root(&root.path, path))
             .collect::<Vec<_>>();
         assert_eq!(
             matches.len(),
@@ -2265,7 +2261,7 @@ mod tests {
             .expect("overlapping watcher roots");
         let matches = both_watched
             .iter()
-            .filter(|root| path_within_root(&root.path, path))
+            .filter(|root| path_is_within_root(&root.path, path))
             .collect::<Vec<_>>();
         assert_eq!(
             matches.len(),
@@ -2742,12 +2738,12 @@ mod tests {
 
         let root = r"\\?\C:\ZC-375\Project";
         let child = r"\\?\c:\zc-375\project\src\main.rs";
-        assert!(path_within_root(root, child));
+        assert!(path_is_within_root(root, child));
         assert_eq!(
             normalize_path(Path::new(child)),
             "c:/zc-375/project/src/main.rs"
         );
-        assert!(path_within_root(
+        assert!(path_is_within_root(
             r"\\?\UNC\Server\Share\Project",
             r"\\?\unc\server\share\project\src\main.rs"
         ));

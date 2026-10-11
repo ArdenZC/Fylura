@@ -2215,9 +2215,10 @@ mod tests {
     };
     #[cfg(feature = "performance-test-tauri")]
     use crate::dedupe::DedupeJobManager;
+    #[cfg(feature = "performance-test-tauri")]
+    use std::ffi::OsStr;
     use std::{
         cell::RefCell,
-        ffi::OsStr,
         fs,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},

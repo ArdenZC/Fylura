@@ -60,14 +60,14 @@ behavior. No retry or scheduling change is proposed by this test branch.
   **PASS**.
 - Local Coordinator Rust tests: **BLOCKED**; compilation requires the missing
   system development package `glib-2.0 >= 2.70`.
-- Exact-head hosted CI run `38116710256` on
-  `e501630179cf59662ae806db052992ed4dd5c43b`: **IN PROGRESS**. Both Windows
-  Rust quality lanes completed successfully, including tests, Clippy, and
-  Windows lifecycle regressions. The macOS merge-integration Rust quality lane
-  completed successfully. The macOS head-validation Rust tests remain in
-  progress; the run has not reached a final conclusion.
-- Disposable Windows Global Index Service qualification in run `38116710256`:
-  **PASS**. It does not reproduce the Owner's real-volume symptoms.
+- Hosted source validation on `e501630179cf59662ae806db052992ed4dd5c43b` in
+  run `38116710256`: both Windows Rust quality lanes and the macOS
+  merge-integration Rust quality lane **PASS**, including tests and Clippy.
+  Windows Release compiles, macOS head Release compile, and both performance
+  search lanes **PASS**. The disposable Windows Global Index Service
+  qualification **PASS**. The macOS head-validation Rust test step was
+  cancelled when a later documentation-only commit changed the PR head; it
+  had not reported a failure. No source code changed after `e501630`.
 - Previous run `38116172965` on `01dd163a2ada651101d40adbd28395f99c9e5185`:
   Windows/macOS Rust format and tests **PASS**. macOS Clippy identified two
   test-only issues; both were fixed in `e501630`, and that earlier run was

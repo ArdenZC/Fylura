@@ -376,16 +376,22 @@ def validation_errors(case, parsed):
 
 
 def attempt_result_class(attempt):
+    stages = attempt.get("trayStageEvents", [])
+    last_tray_stage = stages[-1]["name"] if stages else "no_tray_stage"
     if attempt.get("validationErrors"):
-        return "protocol_error:" + ",".join(attempt["validationErrors"])
+        return (
+            "protocol_error:"
+            + ",".join(attempt["validationErrors"])
+            + f":{last_tray_stage}"
+        )
     if attempt["outcome"] == "stable_survived_30s":
         return "stable"
     if attempt["outcome"] in ("exited_before_setup", "exited_after_setup"):
         exit_details = attempt.get("processExitDetails", {})
         exit_signature = exit_details.get("signalName") or exit_details.get("exitCode")
         checkpoint = attempt.get("lastSuccessfulCheckpoint") or "no_checkpoint"
-        return f"{attempt['outcome']}:{exit_signature}:{checkpoint}"
-    return f"incomplete:{attempt['outcome']}"
+        return f"{attempt['outcome']}:{exit_signature}:{checkpoint}:{last_tray_stage}"
+    return f"incomplete:{attempt['outcome']}:{last_tray_stage}"
 
 
 def run_attempt(case, ordinal, executable, frozen_identity, artifact_root, runner_temp):

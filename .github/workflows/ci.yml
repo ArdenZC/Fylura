@@ -506,6 +506,9 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib file_workspace::change::tests::concurrent_fixture_lifecycles_preserve_their_shared_parent -- --exact --nocapture
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
+      - name: Managed Scan name-only exclusion characterization
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib issue375_ -- --nocapture --test-threads=1
       - name: Windows watcher durable event regression
         env:
           ZC_NATIVE_QA_WATCHER_TRACE: "1"
@@ -835,6 +838,9 @@ jobs:
             --skip macos_target_creation_race_never_loses_source_payload \
             --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
             --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
+      - name: Managed Scan name-only exclusion characterization
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib issue375_ -- --nocapture --test-threads=1
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
       - name: Native macOS lifecycle blocking lifetime

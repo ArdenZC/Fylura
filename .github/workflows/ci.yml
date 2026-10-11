@@ -510,7 +510,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo test --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib issue375_ -- --nocapture --test-threads=1
       - name: Windows watcher durable event regression
-        if: ${{ !cancelled() }}
         env:
           ZC_NATIVE_QA_WATCHER_TRACE: "1"
           ZC_NATIVE_QA_WATCHER_FIXTURE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root

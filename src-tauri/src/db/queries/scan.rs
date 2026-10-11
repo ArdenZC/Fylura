@@ -5253,13 +5253,19 @@ mod tests {
         fs::remove_dir(&parent).expect("remove candidate parent directory");
         let link = parent.to_string_lossy().into_owned();
         let target = outside.to_string_lossy().into_owned();
-        let status = Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(&link)
-            .arg(&target)
-            .status()
+        let junction_command = format!("mklink /J \"{link}\" \"{target}\"");
+        let output = Command::new("cmd")
+            .arg("/C")
+            .arg(junction_command)
+            .output()
             .expect("launch junction creation command");
-        assert!(status.success(), "create parent junction for boundary test");
+        assert!(
+            output.status.success(),
+            "create parent junction for boundary test: exit={:?}, stdout={}, stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         let reconciled = db
             .reconcile_missing(

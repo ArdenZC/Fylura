@@ -933,6 +933,7 @@ mod tests {
         runtime
             .try_begin_index_request(&active)
             .expect("first operation owns the service slot");
+        runtime.set_state("indexing", None);
 
         for (request_id, command) in [
             (
@@ -971,7 +972,7 @@ mod tests {
 
         assert_eq!(runtime.status(), "indexing");
         let state = runtime.state.lock().expect("service lifecycle state");
-        assert_eq!(state.status, "starting");
+        assert_eq!(state.status, "indexing");
         assert!(state.last_error.is_none());
     }
 

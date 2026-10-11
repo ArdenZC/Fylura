@@ -18,17 +18,94 @@ use zen_canvas_tauri::{
     ScanJobManager,
 };
 
+#[cfg(all(target_os = "macos", feature = "native-qa"))]
+extern "C" {
+    fn pthread_main_np() -> i32;
+}
+
 #[inline]
 fn qualification_startup_checkpoint(name: &str) {
     #[cfg(feature = "native-qa")]
     eprintln!("native_qa startup_checkpoint={name}");
 
+    #[cfg(all(target_os = "macos", feature = "native-qa"))]
+    macos_native_qa_checkpoint(name);
+
     #[cfg(not(feature = "native-qa"))]
     let _ = name;
 }
 
+#[cfg(all(target_os = "macos", feature = "native-qa"))]
+fn macos_native_qa_checkpoint(name: &str) {
+    use std::{sync::OnceLock, time::Instant};
+
+    static PROCESS_START: OnceLock<Instant> = OnceLock::new();
+    let elapsed_ms = PROCESS_START.get_or_init(Instant::now).elapsed().as_millis();
+    let is_main_thread = unsafe { pthread_main_np() != 0 };
+    eprintln!(
+        "native_qa macos_checkpoint={name} elapsed_ms={elapsed_ms} main_thread={is_main_thread}"
+    );
+}
+
+#[cfg(all(target_os = "macos", feature = "native-qa"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MacTrayDiagnosticCase {
+    M0,
+    M1,
+    M2,
+    M3,
+}
+
+#[cfg(all(target_os = "macos", feature = "native-qa"))]
+impl MacTrayDiagnosticCase {
+    fn parse(value: &str) -> Result<Self, ()> {
+        match value {
+            "m0" => Ok(Self::M0),
+            "m1" => Ok(Self::M1),
+            "m2" => Ok(Self::M2),
+            "m3" => Ok(Self::M3),
+            _ => Err(()),
+        }
+    }
+
+    fn from_environment() -> Result<(Self, &'static str), &'static str> {
+        let Some(value) = std::env::var_os("ZC_NATIVE_QA_MAC_TRAY_CASE") else {
+            return Ok((Self::M0, "default"));
+        };
+        let value = value.to_str().ok_or("invalid_non_unicode_selector")?;
+        Self::parse(value)
+            .map(|case| (case, "environment"))
+            .map_err(|()| "invalid_selector")
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::M0 => "m0",
+            Self::M1 => "m1",
+            Self::M2 => "m2",
+            Self::M3 => "m3",
+        }
+    }
+}
+
 fn main() {
     qualification_startup_checkpoint("process_main_entered");
+    #[cfg(all(target_os = "macos", feature = "native-qa"))]
+    let mac_tray_case = match MacTrayDiagnosticCase::from_environment() {
+        Ok((case, source)) => {
+            eprintln!(
+                "native_qa mac_tray_selector case={} source={source}",
+                case.label()
+            );
+            case
+        }
+        Err(reason) => {
+            eprintln!(
+                "native_qa mac_tray_selector_error reason={reason} allowed=m0,m1,m2,m3"
+            );
+            std::process::exit(64);
+        }
+    };
     let launch_args = std::env::args().collect::<Vec<_>>();
     #[cfg(windows)]
     if launch_args
@@ -183,8 +260,39 @@ fn main() {
             app.manage(zen_canvas_tauri::app_control::MainWindowLifecycleState::default());
             app.manage(zen_canvas_tauri::app_control::MainWindowSessionState::default());
             qualification_startup_checkpoint("core_runtime_owners_ready");
-            zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
-            qualification_startup_checkpoint("tray_ready");
+            #[cfg(all(target_os = "macos", feature = "native-qa"))]
+            match mac_tray_case {
+                MacTrayDiagnosticCase::M0 => {
+                    zen_canvas_tauri::app_control::setup_tray(app)
+                        .map_err(io::Error::other)?;
+                    qualification_startup_checkpoint("tray_ready");
+                }
+                MacTrayDiagnosticCase::M1 => {
+                    eprintln!("native_qa tray_skipped_for_control");
+                    qualification_startup_checkpoint("tray_skipped_for_control");
+                }
+                MacTrayDiagnosticCase::M2 => {
+                    zen_canvas_tauri::app_control::setup_tray_for_native_qa(
+                        app,
+                        zen_canvas_tauri::app_control::MacNativeQaTrayIcon::Omitted,
+                    )
+                    .map_err(io::Error::other)?;
+                    qualification_startup_checkpoint("tray_ready");
+                }
+                MacTrayDiagnosticCase::M3 => {
+                    zen_canvas_tauri::app_control::setup_tray_for_native_qa(
+                        app,
+                        zen_canvas_tauri::app_control::MacNativeQaTrayIcon::KnownGoodRgba,
+                    )
+                    .map_err(io::Error::other)?;
+                    qualification_startup_checkpoint("tray_ready");
+                }
+            }
+            #[cfg(not(all(target_os = "macos", feature = "native-qa")))]
+            {
+                zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
+                qualification_startup_checkpoint("tray_ready");
+            }
             let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
             let launch_at_login = app.autolaunch();
             let app_settings = match settings::sync_launch_at_login_from_system(

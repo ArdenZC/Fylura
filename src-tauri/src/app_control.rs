@@ -1925,7 +1925,31 @@ fn require_search_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), St
     }
 }
 
-#[cfg(feature = "desktop-runtime")]
+#[cfg(all(
+    target_os = "macos",
+    feature = "native-qa",
+    feature = "desktop-runtime"
+))]
+#[derive(Clone, Copy)]
+enum TrayIconSource {
+    ProductPng,
+    Omitted,
+    KnownGoodRgba,
+}
+
+#[cfg(all(
+    target_os = "macos",
+    feature = "native-qa",
+    feature = "desktop-runtime"
+))]
+pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
+    setup_tray_with_icon_source(app, TrayIconSource::ProductPng)
+}
+
+#[cfg(all(
+    feature = "desktop-runtime",
+    not(all(target_os = "macos", feature = "native-qa"))
+))]
 pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
     let show_item = MenuItem::with_id(
         app,
@@ -1965,6 +1989,120 @@ pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    Ok(())
+}
+
+#[cfg(all(
+    target_os = "macos",
+    feature = "native-qa",
+    feature = "desktop-runtime"
+))]
+#[derive(Clone, Copy)]
+pub enum MacNativeQaTrayIcon {
+    Omitted,
+    KnownGoodRgba,
+}
+
+#[cfg(all(
+    target_os = "macos",
+    feature = "native-qa",
+    feature = "desktop-runtime"
+))]
+pub fn setup_tray_for_native_qa(
+    app: &mut App,
+    icon: MacNativeQaTrayIcon,
+) -> tauri::Result<()> {
+    let source = match icon {
+        MacNativeQaTrayIcon::Omitted => TrayIconSource::Omitted,
+        MacNativeQaTrayIcon::KnownGoodRgba => TrayIconSource::KnownGoodRgba,
+    };
+    setup_tray_with_icon_source(app, source)
+}
+
+#[cfg(all(
+    target_os = "macos",
+    feature = "native-qa",
+    feature = "desktop-runtime"
+))]
+fn setup_tray_with_icon_source(app: &mut App, source: TrayIconSource) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(
+        app,
+        TRAY_SHOW_MAIN_WINDOW_ID,
+        "显示主窗口",
+        true,
+        None::<&str>,
+    )?;
+    let quit_item = MenuItem::with_id(app, TRAY_QUIT_APP_ID, "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+    #[cfg(all(target_os = "macos", feature = "native-qa"))]
+    eprintln!("native_qa mac_tray_stage=menu_construction_complete");
+
+    let icon = match source {
+        TrayIconSource::ProductPng => {
+            let icon = Image::from_bytes(TRAY_ICON_BYTES)?;
+            eprintln!("native_qa mac_tray_stage=icon_decode_complete variant=product_png");
+            Some(icon)
+        }
+        TrayIconSource::Omitted => {
+            eprintln!("native_qa mac_tray_stage=icon_omitted variant=m2");
+            None
+        }
+        TrayIconSource::KnownGoodRgba => {
+            const WIDTH: usize = 20;
+            const HEIGHT: usize = 20;
+            const RGBA_LENGTH: usize = WIDTH * HEIGHT * 4;
+            let mut rgba = vec![0; RGBA_LENGTH];
+            for y in 0..HEIGHT {
+                for x in 0..WIDTH {
+                    if x.abs_diff(9) + y.abs_diff(9) <= 8 {
+                        let offset = (y * WIDTH + x) * 4;
+                        rgba[offset..offset + 4].copy_from_slice(&[0x10, 0x60, 0xc0, 0xff]);
+                    }
+                }
+            }
+            assert_eq!(rgba.len(), 1600, "M3 icon must contain 1600 RGBA8 bytes");
+            eprintln!(
+                "native_qa mac_tray_stage=icon_rgba_validated variant=m3 width=20 height=20 length={}",
+                rgba.len()
+            );
+            let icon = Image::new_owned(rgba, WIDTH as u32, HEIGHT as u32);
+            eprintln!("native_qa mac_tray_stage=icon_construction_complete variant=m3");
+            Some(icon)
+        }
+    };
+
+    let builder = TrayIconBuilder::new();
+    let builder = match icon {
+        Some(icon) => builder.icon(icon),
+        None => builder,
+    };
+    builder
+        .tooltip("Zen Canvas")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            TRAY_SHOW_MAIN_WINDOW_ID => {
+                if let Err(error) = show_main_window(app) {
+                    eprintln!("Show main window from tray failed: {error}");
+                }
+            }
+            TRAY_QUIT_APP_ID => exit_app(app),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if let Err(error) = show_main_window(tray.app_handle()) {
+                    eprintln!("Show main window from tray click failed: {error}");
+                }
+            }
+        })
+        .build(app)?;
+    eprintln!("native_qa mac_tray_stage=tray_builder_complete");
     Ok(())
 }
 

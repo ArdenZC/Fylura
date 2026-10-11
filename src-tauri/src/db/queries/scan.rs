@@ -4285,10 +4285,14 @@ mod tests {
 
     #[test]
     fn watcher_membership_uses_enabled_default_folders_only() {
-        let fixture = std::env::temp_dir().join(format!(
-            "zen-canvas-watcher-membership-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let fixture = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!(
+                "zen-canvas-watcher-membership-{}",
+                uuid::Uuid::new_v4()
+            ));
         let enabled_path = fixture.join("enabled-default");
         let disabled_path = fixture.join("disabled-default");
         let custom_search_path = fixture.join("custom-search");

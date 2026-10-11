@@ -453,10 +453,14 @@
             .expect("clock")
             .as_nanos();
         let counter = TEST_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "zen-canvas-db-file-test-{}-{nonce}-{counter}",
-            std::process::id()
-        ));
+        let dir = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!(
+                "zen-canvas-db-file-test-{}-{nonce}-{counter}",
+                std::process::id()
+            ));
         fs::create_dir_all(&dir).expect("test dir");
         dir
     }

@@ -2731,7 +2731,7 @@ mod tests {
     /// context-proven dependency, IDE and generated-output exclusions.
     #[cfg(feature = "performance-test-tauri")]
     #[test]
-    fn issue375_issue381_managed_scan_uses_root_and_context_for_path_eligibility() {
+    fn issue375_issue381_managed_scan_uses_root_and_context_and_stales_observed_lookalikes() {
         let fixture = Issue381Fixture::new();
         let main_root = fixture.0.join("library");
         let selected_build_root = fixture.0.join("chosen").join("build");
@@ -2763,8 +2763,8 @@ mod tests {
         let current_file = fixture.write(&main_root, "Project/src/current.rs", b"current");
         let selected_root_file = fixture.write(&selected_build_root, "README.md", b"selected root");
 
-        let db = Database::open(fixture.0.join("managed-scan.sqlite3"))
-            .expect("open isolated managed-scan database");
+        let database_path = fixture.0.join("managed-scan.sqlite3");
+        let db = Database::open(&database_path).expect("open isolated managed-scan database");
         let deleted_ignored = main_root.join("Project/node_modules/removed/index.js");
         let mut seeded_paths = excluded_paths
             .iter()
@@ -2935,66 +2935,117 @@ mod tests {
         );
         drop(conn);
 
+        assert!(
+            !scan_seen_path(&db, &main_run.dto.id, &deleted_ignored),
+            "the legacy historical control has no successful scan observation proof"
+        );
+
+        // The scan_seen observation is durable proof of inclusion under the
+        // current policy. Reopening the database models an app restart before
+        // a later complete scan reconciles a missed filesystem delete.
+        drop(db);
+        let db = Database::open(&database_path).expect("reopen managed-scan database");
+
         // `last_seen_at` is stored in seconds. Make the ordinary row older than
         // the next scan's cutoff so this assertion does not depend on whether
         // both scans happen to start during the same second.
+        let deleted_lookalikes = [
+            main_root.join("Projects/Windows/README.md"),
+            main_root.join("Design/build/logo.ai"),
+            main_root.join("Configs/AppData/important.json"),
+            selected_root_file.clone(),
+        ];
         let conn = db.conn().expect("open timestamp setup connection");
-        let aged_rows = conn
-            .execute(
-                "UPDATE files SET last_seen_at = 1 WHERE id = ?1",
-                [&normalize_path(&current_file)],
-            )
-            .expect("age the observed ordinary file before the next scan");
-        assert_eq!(aged_rows, 1, "first scan inserted the ordinary file row");
+        for path in std::iter::once(&current_file).chain(deleted_lookalikes.iter()) {
+            let aged_rows = conn
+                .execute(
+                    "UPDATE files SET last_seen_at = 1 WHERE id = ?1",
+                    [&normalize_path(path)],
+                )
+                .expect("age observed file before the next scan");
+            assert_eq!(aged_rows, 1, "first scan inserted {}", path.display());
+        }
         drop(conn);
 
-        fs::remove_file(&current_file).expect("remove ordinary file before incremental scan");
+        for path in std::iter::once(&current_file).chain(deleted_lookalikes.iter()) {
+            fs::remove_file(path).expect("remove observed file without a Watcher delete event");
+        }
         let new_appdata_file = fixture.write(
             &main_root,
             "Configs/AppData/new-important.json",
             b"created between scans",
         );
-        let second = start_performance_managed_scan(
+        let second = start_performance_managed_scan_roots(
             app.handle().clone(),
             db.clone(),
             jobs,
             dedupe_jobs,
-            main_root.clone(),
+            vec![main_root.clone(), selected_build_root.clone()],
             new_job_id("issue381-second"),
             "background",
         )
-        .expect("start incremental managed scan");
-        second.worker.join().expect("incremental scan worker joins");
-        let second_run = db
-            .get_scan_run_record(&second.run_id)
-            .expect("read incremental scan run");
-        assert_eq!(second_run.dto.status, "completed");
+        .expect("start second complete managed scan over both roots");
+        second.worker.join().expect("second full-scan worker joins");
+        let second_records = second
+            .run_ids
+            .iter()
+            .map(|run_id| {
+                db.get_scan_run_record(run_id)
+                    .expect("read second scan run")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(second_records.len(), 2);
+        assert!(second_records.iter().all(|record| {
+            record.dto.status == "completed"
+                && record.dto.errors_count == 0
+                && record.dto.coverage_error_count == 0
+                && record.dto.stale_reconciliation_allowed
+                && record.current_watcher_revision == record.dto.watcher_revision_at_start
+        }));
+        let second_main_run = second_records
+            .iter()
+            .find(|record| record.dto.root_path == normalize_path(&main_root))
+            .expect("second main-root scan run");
+        let second_build_run = second_records
+            .iter()
+            .find(|record| record.dto.root_path == normalize_path(&selected_build_root))
+            .expect("second selected-build scan run");
         assert!(
-            second_run.dto.generation > main_run.dto.generation,
+            second_main_run.dto.generation > main_run.dto.generation,
             "the next successful scan advances its generation"
         );
-        assert!(!scan_seen_path(&db, &second.run_id, &current_file));
+        assert!(!scan_seen_path(&db, &second_main_run.dto.id, &current_file));
         assert!(
-            scan_seen_path(&db, &second.run_id, &new_appdata_file),
+            scan_seen_path(&db, &second_main_run.dto.id, &new_appdata_file),
             "a new AppData lookalike file is discovered during the next scan"
         );
-        assert_eq!(
-            db.get_scan_root_health(Some(&second_run.dto.scan_root_id), None)
-                .expect("read incremental root health")
-                .health_status,
-            "healthy"
-        );
+        assert_eq!(second_build_run.dto.status, "completed");
+        for record in [&second_main_run, &second_build_run] {
+            let health = db
+                .get_scan_root_health(Some(&record.dto.scan_root_id), None)
+                .expect("read second scan-root health");
+            assert_eq!(health.health_status, "healthy");
+            assert_eq!(health.watcher_revision, health.watcher_applied_revision);
+        }
 
         let conn = db
             .conn()
             .expect("open incremental reconciliation connection");
-        let current_stale: i64 = conn
-            .query_row(
-                "SELECT is_stale FROM files WHERE id = ?1",
-                [&normalize_path(&current_file)],
-                |row| row.get(0),
-            )
-            .expect("read deleted ordinary file stale state");
+        for path in std::iter::once(&current_file).chain(deleted_lookalikes.iter()) {
+            let stale: i64 = conn
+                .query_row(
+                    "SELECT is_stale FROM files WHERE id = ?1",
+                    [&normalize_path(path)],
+                    |row| row.get(0),
+                )
+                .expect("read deleted file stale state");
+            assert_eq!(
+                stale,
+                1,
+                "deleted observed file becomes stale: {}",
+                path.display()
+            );
+        }
         let ignored_stale: i64 = conn
             .query_row(
                 "SELECT is_stale FROM files WHERE id = ?1",
@@ -3002,11 +3053,22 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("read deleted ignored file stale state");
-        assert_eq!(current_stale, 1, "deleted ordinary file becomes stale");
         assert_eq!(
             ignored_stale, 0,
-            "deleted ignored file remains non-stale by policy"
+            "unobserved historical row remains non-stale without inclusion proof"
         );
+        let (purpose, lifecycle, context, tag_count, stale): (String, String, String, i64, i64) =
+            conn.query_row(
+                "SELECT purpose, lifecycle, context, (SELECT COUNT(*) FROM file_user_tags WHERE file_id = files.id), is_stale FROM files WHERE id = ?1",
+                [&preserved_file],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .expect("read user metadata after stale reconciliation");
+        assert_eq!(purpose, "Work");
+        assert_eq!(lifecycle, "Active");
+        assert_eq!(context, "Owner supplied context");
+        assert_eq!(tag_count, 1);
+        assert_eq!(stale, 1);
         drop(conn);
 
         let second_query = db
@@ -3019,8 +3081,15 @@ mod tests {
             .collect::<HashSet<_>>();
         assert!(
             !second_visible.contains(normalize_path(&current_file).as_str()),
-            "the incrementally deleted file is no longer visible in File Library"
+            "the deleted ordinary file is no longer visible in File Library"
         );
+        for path in &deleted_lookalikes {
+            assert!(
+                !second_visible.contains(normalize_path(path).as_str()),
+                "the newly covered deleted lookalike is omitted from File Library: {}",
+                path.display()
+            );
+        }
         assert!(second_visible.contains(deleted_ignored_id.as_str()));
         assert!(second_visible.contains(normalize_path(&new_appdata_file).as_str()));
     }

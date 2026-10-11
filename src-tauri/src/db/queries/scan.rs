@@ -4861,6 +4861,75 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn stale_reconciliation_rejects_a_symlinked_ancestor_after_enumeration() {
+        let db = test_db("stale-boundary-symlink");
+        let root = PathBuf::from(test_scan_root("stale-boundary-symlink"));
+        let parent = root.join("Project/src");
+        let outside = root.with_file_name(format!("{}-outside", new_job_id("source")));
+        fs::create_dir_all(&parent).expect("create intact candidate parent");
+        fs::create_dir_all(&outside).expect("create outside symlink target");
+        let candidate = parent.join("deleted.rs");
+        fs::write(&candidate, b"previously indexed file").expect("write candidate file");
+        let path = candidate.to_string_lossy().replace('\\', "/");
+        db.insert_file(InsertFileRequest {
+            id: path.clone(),
+            path: path.clone(),
+            name: "deleted.rs".into(),
+            extension: "rs".into(),
+            size: 23,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed missing candidate row");
+        db.conn()
+            .expect("open timestamp connection")
+            .execute("UPDATE files SET last_seen_at = 1 WHERE id = ?1", [&path])
+            .expect("age candidate row");
+        fs::remove_file(&candidate).expect("remove candidate after enumeration");
+
+        let admission = db
+            .admit_managed_scan(&request(&root.to_string_lossy(), "stale-boundary-symlink"))
+            .expect("admit scan after traversal enumeration");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan run");
+        let root_context = root_context_for(&db, &run);
+        fs::remove_dir(&parent).expect("remove candidate parent directory");
+        std::os::unix::fs::symlink(&outside, &parent).expect("replace parent with symlink");
+
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .expect("boundary uncertainty is recorded without staling the row");
+        assert_eq!(reconciled.dto.coverage_error_count, 1);
+        assert!(!reconciled.dto.coverage_complete);
+        assert!(!reconciled.dto.stale_reconciliation_allowed);
+        let conn = db.conn().expect("inspect boundary result");
+        let stale: i64 = conn
+            .query_row("SELECT is_stale FROM files WHERE id = ?1", [&path], |row| {
+                row.get(0)
+            })
+            .expect("read candidate stale state");
+        assert_eq!(stale, 0, "a changed symlink boundary preserves the row");
+        let coverage_errors: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1 AND affects_coverage = 1",
+                [&run.dto.id],
+                |row| row.get(0),
+            )
+            .expect("read boundary coverage errors");
+        assert_eq!(coverage_errors, 1);
+    }
+
     #[test]
     fn scanner_publication_clock_ignores_same_filesystem_state_and_counts_size_mtime() {
         let db = test_db("automation-publication-clock");

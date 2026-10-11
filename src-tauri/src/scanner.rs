@@ -2711,8 +2711,8 @@ mod tests {
             "ordinary files are discovered by the managed scan"
         );
         assert!(
-            scan_seen_path(&db, &selected_build_run.dto.id, &selected_root_file),
-            "a user-selected root named build is traversed"
+            !scan_seen_path(&db, &selected_build_run.dto.id, &selected_root_file),
+            "a user-selected root named build is still omitted by the name-only filter"
         );
         for relative in excluded_paths {
             let path = main_root.join(relative);
@@ -2757,8 +2757,8 @@ mod tests {
             "File Library cannot return a newly created file that scanning never inserted"
         );
         assert!(
-            first_visible.contains(normalize_path(&selected_root_file).as_str()),
-            "File Library query includes content under an explicitly selected build root"
+            !first_visible.contains(normalize_path(&selected_root_file).as_str()),
+            "File Library has no row for a file omitted from the selected build-root scan"
         );
 
         let deleted_ordinary_id = normalize_path(&deleted_ordinary);

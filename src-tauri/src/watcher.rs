@@ -2550,6 +2550,11 @@ mod tests {
                 true,
             ),
         ];
+        let mut settings =
+            crate::settings::get_app_settings(&db).expect("read isolated watcher test settings");
+        settings.default_scan_folders = roots.to_vec();
+        crate::settings::save_app_settings(&db, &settings)
+            .expect("persist project and selected build watcher roots");
         db.sync_file_library_watcher_roots(&roots)
             .expect("register project and selected build watcher roots");
         let root_configs = db

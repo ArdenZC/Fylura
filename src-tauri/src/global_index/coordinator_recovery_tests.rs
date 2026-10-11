@@ -132,6 +132,16 @@ struct BoundedDiagnosticEvidence {
     events: std::collections::VecDeque<serde_json::Value>,
 }
 
+struct DiagnosticEvent<'a> {
+    source_id: &'a str,
+    operation_id: &'a str,
+    request_id: &'a str,
+    service_status: Option<&'a str>,
+    request_result: &'a str,
+    error_category: &'a str,
+    persisted_source_status: &'a str,
+}
+
 impl BoundedDiagnosticEvidence {
     fn new() -> Self {
         Self {
@@ -139,38 +149,29 @@ impl BoundedDiagnosticEvidence {
         }
     }
 
-    fn push(
-        &mut self,
-        source_id: &str,
-        operation_id: &str,
-        request_id: &str,
-        service_status: Option<&str>,
-        request_result: &str,
-        error_category: &str,
-        persisted_source_status: &str,
-    ) {
+    fn push(&mut self, event: DiagnosticEvent<'_>) {
         for (field, value) in [
-            ("source_id", source_id),
-            ("operation_id", operation_id),
-            ("request_id", request_id),
+            ("source_id", event.source_id),
+            ("operation_id", event.operation_id),
+            ("request_id", event.request_id),
         ] {
             assert!(
                 value.len() <= DIAGNOSTIC_ID_MAX_BYTES,
                 "diagnostic {field} exceeds the fixed evidence bound"
             );
         }
-        assert_ne!(operation_id, request_id);
+        assert_ne!(event.operation_id, event.request_id);
         if self.events.len() == DIAGNOSTIC_EVIDENCE_LIMIT {
             self.events.pop_front();
         }
         self.events.push_back(serde_json::json!({
-            "source_id": source_id,
-            "operation_id": operation_id,
-            "request_id": request_id,
-            "service_status": service_status,
-            "request_result": request_result,
-            "error_category": error_category,
-            "persisted_source_status": persisted_source_status,
+            "source_id": event.source_id,
+            "operation_id": event.operation_id,
+            "request_id": event.request_id,
+            "service_status": event.service_status,
+            "request_result": event.request_result,
+            "error_category": event.error_category,
+            "persisted_source_status": event.persisted_source_status,
             "identity_kind": "test_fixture"
         }));
     }
@@ -309,13 +310,6 @@ impl MultiVolumeDiagnosticProvider {
                 Err(GlobalIndexError::Provider("source_access_denied".to_string()))
             }
         }
-    }
-
-    fn operations(&self) -> Vec<(String, &'static str)> {
-        self.operations
-            .lock()
-            .expect("diagnostic operation log")
-            .clone()
     }
 
     fn operation_count(&self, source_id: &str) -> usize {
@@ -467,33 +461,33 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     assert!(!active_aggregate.collection_complete);
 
     let mut evidence = BoundedDiagnosticEvidence::new();
-    evidence.push(
-        "source-a",
-        "fixture-operation-a-active",
-        "fixture-request-a-active",
-        None,
-        "accepted",
-        "none",
-        &active_source.index_status,
-    );
-    evidence.push(
-        "source-b",
-        "fixture-operation-b-prior",
-        "fixture-request-b-prior",
-        None,
-        "prior_rejected",
-        "service_busy",
-        &prior_busy_source.index_status,
-    );
-    evidence.push(
-        "source-c",
-        "fixture-operation-c-prior",
-        "fixture-request-c-prior",
-        None,
-        "prior_failed",
-        "source_permission_error",
-        &prior_permission_source.index_status,
-    );
+    evidence.push(DiagnosticEvent {
+        source_id: "source-a",
+        operation_id: "fixture-operation-a-active",
+        request_id: "fixture-request-a-active",
+        service_status: None,
+        request_result: "accepted",
+        error_category: "none",
+        persisted_source_status: &active_source.index_status,
+    });
+    evidence.push(DiagnosticEvent {
+        source_id: "source-b",
+        operation_id: "fixture-operation-b-prior",
+        request_id: "fixture-request-b-prior",
+        service_status: None,
+        request_result: "prior_rejected",
+        error_category: "service_busy",
+        persisted_source_status: &prior_busy_source.index_status,
+    });
+    evidence.push(DiagnosticEvent {
+        source_id: "source-c",
+        operation_id: "fixture-operation-c-prior",
+        request_id: "fixture-request-c-prior",
+        service_status: None,
+        request_result: "prior_failed",
+        error_category: "source_permission_error",
+        persisted_source_status: &prior_permission_source.index_status,
+    });
 
     release_operation_tx
         .send(())
@@ -529,33 +523,33 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     assert_eq!(aggregate.pending_volumes, 0);
     assert!(!aggregate.collection_complete);
 
-    evidence.push(
-        "source-a",
-        "fixture-operation-a-cycle-1",
-        "fixture-request-a-cycle-1",
-        None,
-        "accepted",
-        "none",
-        &source_a.index_status,
-    );
-    evidence.push(
-        "source-b",
-        "fixture-operation-b-cycle-1",
-        "fixture-request-b-cycle-1",
-        Some("indexing"),
-        "rejected",
-        "service_busy",
-        &source_b.index_status,
-    );
-    evidence.push(
-        "source-c",
-        "fixture-operation-c-cycle-1",
-        "fixture-request-c-cycle-1",
-        None,
-        "failed",
-        "source_permission_error",
-        &source_c.index_status,
-    );
+    evidence.push(DiagnosticEvent {
+        source_id: "source-a",
+        operation_id: "fixture-operation-a-cycle-1",
+        request_id: "fixture-request-a-cycle-1",
+        service_status: None,
+        request_result: "accepted",
+        error_category: "none",
+        persisted_source_status: &source_a.index_status,
+    });
+    evidence.push(DiagnosticEvent {
+        source_id: "source-b",
+        operation_id: "fixture-operation-b-cycle-1",
+        request_id: "fixture-request-b-cycle-1",
+        service_status: Some("indexing"),
+        request_result: "rejected",
+        error_category: "service_busy",
+        persisted_source_status: &source_b.index_status,
+    });
+    evidence.push(DiagnosticEvent {
+        source_id: "source-c",
+        operation_id: "fixture-operation-c-cycle-1",
+        request_id: "fixture-request-c-cycle-1",
+        service_status: None,
+        request_result: "failed",
+        error_category: "source_permission_error",
+        persisted_source_status: &source_c.index_status,
+    });
     evidence.emit();
 
     // The explicit second cycle is the only retry exercised here. The cycle
@@ -567,15 +561,15 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     assert_eq!(retried_source.index_status, INDEX_STATUS_READY);
     assert_eq!(provider.operation_count("source-b"), 2);
     assert_eq!(provider.operation_count("source-c"), 2);
-    evidence.push(
-        "source-b",
-        "fixture-operation-b-retry",
-        "fixture-request-b-retry",
-        None,
-        "explicit_wake_succeeded",
-        "none",
-        &retried_source.index_status,
-    );
+    evidence.push(DiagnosticEvent {
+        source_id: "source-b",
+        operation_id: "fixture-operation-b-retry",
+        request_id: "fixture-request-b-retry",
+        service_status: None,
+        request_result: "explicit_wake_succeeded",
+        error_category: "none",
+        persisted_source_status: &retried_source.index_status,
+    });
     evidence.emit();
 
     drop(db);
@@ -586,15 +580,15 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
 fn diagnostic_evidence_is_bounded_and_excludes_paths_and_content() {
     let mut evidence = BoundedDiagnosticEvidence::new();
     for index in 0..(DIAGNOSTIC_EVIDENCE_LIMIT + 3) {
-        evidence.push(
-            &format!("source-{index}"),
-            &format!("fixture-operation-{index}"),
-            &format!("fixture-request-{index}"),
-            Some("indexing"),
-            "rejected",
-            "service_busy",
-            INDEX_STATUS_ERROR,
-        );
+        evidence.push(DiagnosticEvent {
+            source_id: &format!("source-{index}"),
+            operation_id: &format!("fixture-operation-{index}"),
+            request_id: &format!("fixture-request-{index}"),
+            service_status: Some("indexing"),
+            request_result: "rejected",
+            error_category: "service_busy",
+            persisted_source_status: INDEX_STATUS_ERROR,
+        });
     }
 
     assert_eq!(evidence.events.len(), DIAGNOSTIC_EVIDENCE_LIMIT);
@@ -758,24 +752,24 @@ fn repeated_same_source_lifecycle_requests_are_serialized_and_rebuild_wakes_coal
     );
 
     let mut evidence = BoundedDiagnosticEvidence::new();
-    evidence.push(
-        &source.volume.id,
-        "fixture-operation-lifecycle-1",
-        "fixture-request-start-1",
-        Some("indexing"),
-        "accepted",
-        "none",
-        "indexing",
-    );
-    evidence.push(
-        &source.volume.id,
-        "fixture-operation-lifecycle-2",
-        "fixture-request-rebuild-1",
-        Some("indexing"),
-        "accepted_after_coalesced_wake",
-        "none",
-        INDEX_STATUS_READY,
-    );
+    evidence.push(DiagnosticEvent {
+        source_id: &source.volume.id,
+        operation_id: "fixture-operation-lifecycle-1",
+        request_id: "fixture-request-start-1",
+        service_status: Some("indexing"),
+        request_result: "accepted",
+        error_category: "none",
+        persisted_source_status: "indexing",
+    });
+    evidence.push(DiagnosticEvent {
+        source_id: &source.volume.id,
+        operation_id: "fixture-operation-lifecycle-2",
+        request_id: "fixture-request-rebuild-1",
+        service_status: Some("indexing"),
+        request_result: "accepted_after_coalesced_wake",
+        error_category: "none",
+        persisted_source_status: INDEX_STATUS_READY,
+    });
     evidence.emit();
 
     coordinator.shutdown().expect("shutdown lifecycle coordinator");

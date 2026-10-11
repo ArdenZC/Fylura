@@ -232,6 +232,14 @@ struct MultiVolumeDiagnosticProvider {
     >,
     operations: std::sync::Mutex<Vec<(String, &'static str)>>,
     operation_signal: Option<std::sync::mpsc::SyncSender<(String, &'static str)>>,
+    operation_gate: Option<OperationGate>,
+}
+
+struct OperationGate {
+    source_id: String,
+    started: std::sync::mpsc::SyncSender<()>,
+    release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+    used: AtomicBool,
 }
 
 impl MultiVolumeDiagnosticProvider {
@@ -242,12 +250,14 @@ impl MultiVolumeDiagnosticProvider {
             std::collections::VecDeque<DiagnosticOutcome>,
         >,
         operation_signal: Option<std::sync::mpsc::SyncSender<(String, &'static str)>>,
+        operation_gate: Option<OperationGate>,
     ) -> Self {
         Self {
             sources,
             outcomes: std::sync::Mutex::new(outcomes),
             operations: std::sync::Mutex::new(Vec::new()),
             operation_signal,
+            operation_gate,
         }
     }
 
@@ -264,6 +274,18 @@ impl MultiVolumeDiagnosticProvider {
             .push((source_id.clone(), operation));
         if let Some(signal) = &self.operation_signal {
             let _ = signal.try_send((source_id.clone(), operation));
+        }
+        if let Some(gate) = &self.operation_gate {
+            if gate.source_id == source_id && !gate.used.swap(true, Ordering::AcqRel) {
+                gate.started
+                    .send(())
+                    .expect("multi-volume test observes the active source");
+                gate.release
+                    .lock()
+                    .expect("multi-volume operation gate")
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .expect("multi-volume test releases the active source");
+            }
         }
         let outcome = self
             .outcomes
@@ -355,11 +377,16 @@ impl GlobalIndexProvider for MultiVolumeDiagnosticProvider {
 fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     let path = TestDatabasePath::new();
     let db = Database::open(&path.0).expect("open isolated multi-volume database");
-    let sources = vec![
-        diagnostic_source("source-a", INDEX_STATUS_READY, Some(1)),
-        diagnostic_source("source-b", INDEX_STATUS_READY, Some(1)),
-        diagnostic_source("source-c", INDEX_STATUS_READY, Some(1)),
-    ];
+    let source_a = diagnostic_source("source-a", INDEX_STATUS_READY, Some(1));
+    let mut source_b = diagnostic_source("source-b", INDEX_STATUS_ERROR, Some(1));
+    source_b.volume.last_error = Some("previous_service_busy".to_string());
+    let mut source_c = diagnostic_source(
+        "source-c",
+        INDEX_STATUS_PERMISSION_REQUIRED,
+        Some(1),
+    );
+    source_c.volume.last_error = Some("source_access_denied".to_string());
+    let sources = vec![source_a, source_b, source_c];
     for source in &sources {
         db.upsert_global_volume(&source.volume)
             .expect("seed fixture source");
@@ -382,11 +409,69 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
             std::collections::VecDeque::from([DiagnosticOutcome::PermissionDenied]),
         ),
     ]);
-    let provider = MultiVolumeDiagnosticProvider::new(sources, outcomes, None);
+    let (operation_started_tx, operation_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_operation_tx, release_operation_rx) = std::sync::mpsc::sync_channel(1);
+    let provider = Arc::new(MultiVolumeDiagnosticProvider::new(
+        sources,
+        outcomes,
+        None,
+        Some(OperationGate {
+            source_id: "source-a".to_string(),
+            started: operation_started_tx,
+            release: std::sync::Mutex::new(release_operation_rx),
+            used: AtomicBool::new(false),
+        }),
+    ));
     let cancel = Arc::new(AtomicBool::new(false));
     let wake = GlobalIndexWakeSlot::default();
 
-    run_index_cycle(&provider, &db, &cancel, &wake)
+    let cycle_db = db.clone();
+    let cycle_cancel = cancel.clone();
+    let cycle_wake = wake.clone();
+    let cycle_provider = provider.clone();
+    let cycle = thread::spawn(move || {
+        run_index_cycle(
+            cycle_provider.as_ref(),
+            &cycle_db,
+            &cycle_cancel,
+            &cycle_wake,
+        )
+    });
+    operation_started_rx
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .expect("first volume enters the active indexing operation");
+
+    let active_source = db.get_global_volume("source-a").unwrap().unwrap();
+    let prior_busy_source = db.get_global_volume("source-b").unwrap().unwrap();
+    let prior_permission_source = db.get_global_volume("source-c").unwrap().unwrap();
+    assert_eq!(active_source.index_status, INDEX_STATUS_SYNCING);
+    assert_eq!(prior_busy_source.index_status, INDEX_STATUS_ERROR);
+    assert_eq!(
+        prior_busy_source.last_error.as_deref(),
+        Some("previous_service_busy")
+    );
+    assert_eq!(
+        prior_permission_source.index_status,
+        INDEX_STATUS_PERMISSION_REQUIRED
+    );
+    assert_eq!(
+        prior_permission_source.last_error.as_deref(),
+        Some("source_access_denied")
+    );
+    let active_aggregate = db.global_index_status().expect("active aggregate status");
+    assert_eq!(active_aggregate.status, INDEX_STATUS_ERROR);
+    assert_eq!(active_aggregate.indexed_volumes, 3);
+    assert_eq!(active_aggregate.ready_volumes, 0);
+    assert_eq!(active_aggregate.pending_volumes, 1);
+    assert_eq!(active_aggregate.total_entries, 0);
+    assert!(!active_aggregate.collection_complete);
+
+    release_operation_tx
+        .send(())
+        .expect("release active first volume");
+    cycle
+        .join()
+        .expect("multi-volume cycle thread remains alive")
         .expect("source-level outcomes do not abort the remaining volume cycle");
 
     let source_a = db.get_global_volume("source-a").unwrap().unwrap();
@@ -681,6 +766,7 @@ fn busy_source_waits_for_a_new_wake_before_an_explicit_retry() {
         vec![source.clone()],
         outcomes,
         Some(operation_tx),
+        None,
     ));
     let cancel = Arc::new(AtomicBool::new(false));
     let wake = Arc::new(GlobalIndexWakeSlot::default());

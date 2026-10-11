@@ -705,21 +705,21 @@ mod tests {
         assert_eq!(selected_count, 2, "selected root and its file are indexed");
 
         let conn = db.conn().expect("open watcher-upsert query connection");
-        let is_indexed = |path: &Path| {
-            let normalized = normalize_path_for_db(path);
-            conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM files WHERE id = ?1 AND is_stale = 0)",
-                [&normalized],
-                |row| row.get::<_, bool>(0),
-            )
-            .expect("query watcher-upsert result")
-        };
-        assert!(!is_indexed(&project_build_file));
-        assert!(is_indexed(&project_source_file));
-        assert!(is_indexed(&selected_build_root));
-        assert!(is_indexed(&selected_build_file));
-
-        drop(is_indexed);
+        {
+            let is_indexed = |path: &Path| {
+                let normalized = normalize_path_for_db(path);
+                conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM files WHERE id = ?1 AND is_stale = 0)",
+                    [&normalized],
+                    |row| row.get::<_, bool>(0),
+                )
+                .expect("query watcher-upsert result")
+            };
+            assert!(!is_indexed(&project_build_file));
+            assert!(is_indexed(&project_source_file));
+            assert!(is_indexed(&selected_build_root));
+            assert!(is_indexed(&selected_build_file));
+        }
         drop(conn);
         drop(db);
         fs::remove_dir_all(fixture).expect("remove isolated watcher-upsert fixture");

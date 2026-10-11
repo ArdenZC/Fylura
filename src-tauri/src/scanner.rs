@@ -2762,18 +2762,17 @@ mod tests {
 
         let deleted_ignored_id = normalize_path(&deleted_ignored);
         let conn = db.conn().expect("open first reconciliation connection");
-        let stale_for = |id: &str| {
-            conn.query_row("SELECT is_stale FROM files WHERE id = ?1", [id], |row| {
-                row.get::<_, i64>(0)
-            })
-            .expect("read stale state")
-        };
+        let ignored_stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                [&deleted_ignored_id],
+                |row| row.get(0),
+            )
+            .expect("read ignored file stale state");
         assert_eq!(
-            stale_for(&deleted_ignored_id),
-            0,
+            ignored_stale, 0,
             "ignored-subtree stale protection keeps the pre-existing row non-stale"
         );
-        drop(stale_for);
         drop(conn);
 
         // `last_seen_at` is stored in seconds. Make the ordinary row older than

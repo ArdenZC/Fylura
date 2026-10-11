@@ -567,11 +567,12 @@ function Invoke-InstallerTransition($OldCandidate, $D1ACandidate) {
 
     $app = $null
     try {
-        $app = Start-Process -FilePath $exe -ArgumentList @("--background") -WorkingDirectory $installDir -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $EvidenceRoot "installer-old-app.stdout.log") -RedirectStandardError (Join-Path $EvidenceRoot "installer-old-app.stderr.log")
+        $installedAppProfile = Join-Path $taskRoot "installer-old-app-profile"
+        $app = Start-U1App $exe "installer-old-app" $installedAppProfile (Join-Path $EvidenceRoot "installer-old-app.trace.log")
         Start-Sleep -Seconds 3
         $oldApps = @(Get-AppProcessSnapshots $exe)
         if (-not ($oldApps | Where-Object { $_.processId -eq $app.Id })) { throw "old installed desktop process did not remain alive before upgrade" }
-        $preUpgrade = [ordered]@{ atUtc = [DateTime]::UtcNow.ToString("o"); service = $oldService; desktopProcessId = $app.Id; installedExeSha256 = Get-Hash $exe }
+        $preUpgrade = [ordered]@{ atUtc = [DateTime]::UtcNow.ToString("o"); service = $oldService; desktopProcessId = $app.Id; installedExeSha256 = Get-Hash $exe; isolatedAppProfile = $installedAppProfile }
         $transition = Wait-ForInstaller $D1ACandidate.installer $installDir $newUpgradeLog $D1ACandidate.productionExeSha256 600 $false
         if ($transition.ExitCode -ne 0) { throw "D1-A in-place upgrade returned $($transition.ExitCode); $newUpgradeLog" }
         $firstNewImageSample = -1

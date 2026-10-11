@@ -3682,7 +3682,7 @@ mod tests {
             .join("issue381-fixtures")
             .join(format!("zen-canvas-scan-{label}-{}", new_job_id("root")))
             .to_string_lossy()
-            .into_owned()
+            .replace('\\', "/")
     }
 
     fn root_context_for(db: &Database, run: &ScanRunRecord) -> ManagedScanRootContext {

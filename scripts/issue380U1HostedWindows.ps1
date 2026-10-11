@@ -246,6 +246,21 @@ function Wait-ForWatcherPath([string]$Scenario, [string]$PathFragment, [int]$Tim
     return $false
 }
 
+function Get-U1TraceCount([string]$TracePath, [string]$Event) {
+    if (-not (Test-Path -LiteralPath $TracePath)) { return 0 }
+    $lines = @(Get-Content -LiteralPath $TracePath -ErrorAction SilentlyContinue)
+    return @($lines | Where-Object { $_ -ceq $Event }).Count
+}
+
+function Wait-U1TraceCount([string]$TracePath, [string]$Event, [int]$MinimumCount, [int]$TimeoutSeconds = 60) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if ((Get-U1TraceCount $TracePath $Event) -ge $MinimumCount) { return $true }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $false
+}
+
 function Start-U1ConsoleService([string]$Exe, [string]$Scenario) {
     $stdout = Join-Path $taskRoot "$Scenario-service.stdout.log"
     $stderr = Join-Path $taskRoot "$Scenario-service.stderr.log"
@@ -276,7 +291,7 @@ function Wait-ForFixture([string]$ProbeExe, [string]$ProfileRoot, [string]$Marke
         $snapshot = Invoke-ProfileQuery $ProbeExe $ProfileRoot $MarkerName
         $hit = @($snapshot.results | Where-Object { $_.name -ceq $MarkerName }) | Select-Object -First 1
         if ($hit) { return [pscustomobject]@{ Snapshot = $snapshot; Hit = $hit } }
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 5
     } while ([DateTime]::UtcNow -lt $deadline)
     return [pscustomobject]@{ Snapshot = $snapshot; Hit = $null }
 }
@@ -340,10 +355,14 @@ function Invoke-BackgroundPairScenario([string]$Name, [string]$ClientExe, [strin
         $client = Start-U1App $ClientExe $Name $profile $trace $fixtureRoot
         $result.clientPid = $client.Id
         Wait-U1AppReady $client $Name
+        $coordinatorCyclesBeforeMarker = Get-U1TraceCount $trace "coordinator_cycle"
+        $result.coordinatorCyclesBeforeMarker = $coordinatorCyclesBeforeMarker
         $nextMarkerPath = Join-Path $fixtureRoot $nextMarkerName
         Set-Content -LiteralPath $nextMarkerPath -Value "isolated post-baseline fixture" -NoNewline
         $result.watcherObservedNextMarker = Wait-ForWatcherPath $Name $nextMarkerName 45
         if (-not $result.watcherObservedNextMarker) { throw "watcher trace did not observe the post-baseline marker path" }
+        $result.coordinatorCycleAfterMarker = Wait-U1TraceCount $trace "coordinator_cycle" ($coordinatorCyclesBeforeMarker + 1) 60
+        if (-not $result.coordinatorCycleAfterMarker) { throw "file watcher observed the marker but did not wake an index coordinator cycle" }
         $waited = Wait-ForFixture $ClientProbe $profile $nextMarkerName 240
         $snapshot = $waited.Snapshot
         $hit = $waited.Hit

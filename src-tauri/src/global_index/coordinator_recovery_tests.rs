@@ -423,7 +423,7 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
         }),
     ));
     let cancel = Arc::new(AtomicBool::new(false));
-    let wake = GlobalIndexWakeSlot::default();
+    let wake = Arc::new(GlobalIndexWakeSlot::default());
 
     let cycle_db = db.clone();
     let cycle_cancel = cancel.clone();
@@ -561,7 +561,7 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     // The explicit second cycle is the only retry exercised here. The cycle
     // itself neither retries the busy volume nor signals an automatic retry.
     wake.notify(GlobalIndexWakeReason::ExplicitCommand);
-    run_index_cycle(&provider, &db, &cancel, &wake)
+    run_index_cycle(provider.as_ref(), &db, &cancel, &wake)
         .expect("a later explicit cycle can retry the busy source");
     let retried_source = db.get_global_volume("source-b").unwrap().unwrap();
     assert_eq!(retried_source.index_status, INDEX_STATUS_READY);

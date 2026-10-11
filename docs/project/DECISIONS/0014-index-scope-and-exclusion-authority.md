@@ -1,10 +1,10 @@
 # ADR-0014（提案）— Index Scope、低价值子树排除与覆盖真实性
 
-> **Status：PROPOSED BY OWNER / 未批准生产实施。**  
-> **日期：2026-10-11** · **基线：** `master@df37531f785193a948409e2f8cb36369561c6a6f`（合并后 CI 38111501260 SUCCESS）  
-> **跟踪：** [#371](https://github.com/ArdenZC/Zen-Canvas/issues/371)；成本研究 [#370](https://github.com/ArdenZC/Zen-Canvas/issues/370)  
-> **前置：** ADR-0012 Files Authority；ADR-0013 Managed AI Eligibility / Queue Authority；#330 Owner Gate  
-> **命名核验：** 截至此 SHA `docs/project/DECISIONS/` 已使用 0001–0013；0014 为建议编号，落库前仍需重新核验是否冲突。  
+> **Status：PROPOSED BY OWNER / 未批准生产实施。**
+> **日期：2026-10-11** · **基线：** `master@df37531f785193a948409e2f8cb36369561c6a6f`（合并后 CI 38111501260 SUCCESS）
+> **跟踪：** [#371](https://github.com/ArdenZC/Zen-Canvas/issues/371)；成本研究 [#370](https://github.com/ArdenZC/Zen-Canvas/issues/370)
+> **前置：** ADR-0012 Files Authority；ADR-0013 Managed AI Eligibility / Queue Authority；#330 Owner Gate
+> **命名核验：** 截至此 SHA `docs/project/DECISIONS/` 已使用 0001–0013；0014 为建议编号，落库前仍需重新核验是否冲突。
 > **产品决议状态：** 已提出明确决策草案；**默认过滤策略未获 Owner 最终激活**、性能收益未实测、不得以本草案实施生产变更。
 
 ## 1. Context

@@ -559,6 +559,7 @@ mod tests {
     use notify::event::{EventAttributes, RenameMode};
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Barrier;
     use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -570,23 +571,24 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let id = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
             let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .expect("src-tauri has repository parent")
                 .to_path_buf();
-            let root = repo_root
-                .join(".tmp-tests")
-                .join("ephemeral-change")
-                .join(format!(
-                    "{}-{}-{}",
-                    std::process::id(),
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .expect("clock")
-                        .as_nanos(),
-                    id
-                ));
+            Self::new_under(repo_root.join(".tmp-tests").join("ephemeral-change"))
+        }
+
+        fn new_under(parent: PathBuf) -> Self {
+            let id = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let root = parent.join(format!(
+                "{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("clock")
+                    .as_nanos(),
+                id
+            ));
             fs::create_dir_all(&root).expect("create fixture root");
             Self { root }
         }
@@ -600,12 +602,6 @@ mod tests {
         fn drop(&mut self) {
             if self.root.exists() {
                 fs::remove_dir_all(&self.root).expect("remove fixture root");
-            }
-            if let Some(change_root) = self.root.parent() {
-                let _ = fs::remove_dir(change_root);
-                if let Some(tmp_root) = change_root.parent() {
-                    let _ = fs::remove_dir(tmp_root);
-                }
             }
         }
     }
@@ -637,6 +633,53 @@ mod tests {
         )
         .expect("monitor");
         (fixture, browse, session, monitor)
+    }
+
+    #[test]
+    fn concurrent_fixture_lifecycles_preserve_their_shared_parent() {
+        const WORKER_COUNT: usize = 8;
+        const FIXTURES_PER_WORKER: usize = 4;
+
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("src-tauri has repository parent")
+            .to_path_buf();
+        let temp_root = repo_root.join(".tmp-tests");
+        let lifecycle_parent = temp_root.join(format!(
+            "ephemeral-change-lifecycle-{}-{}",
+            std::process::id(),
+            FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let start = Arc::new(Barrier::new(WORKER_COUNT));
+
+        thread::scope(|scope| {
+            for worker_id in 0..WORKER_COUNT {
+                let start = Arc::clone(&start);
+                let lifecycle_parent = lifecycle_parent.clone();
+                scope.spawn(move || {
+                    start.wait();
+                    for fixture_id in 0..FIXTURES_PER_WORKER {
+                        let fixture = Fixture::new_under(lifecycle_parent.clone());
+                        fs::write(
+                            fixture.root.join(format!("{worker_id}-{fixture_id}.txt")),
+                            b"fixture owned until drop",
+                        )
+                        .expect("write fixture owned by active instance");
+                    }
+                });
+            }
+        });
+
+        assert!(
+            lifecycle_parent.is_dir(),
+            "fixture drops must leave the shared fixture parent in place"
+        );
+        assert!(
+            temp_root.is_dir(),
+            "fixture drops must leave the worktree temp root in place"
+        );
+        fs::remove_dir(&lifecycle_parent)
+            .expect("remove isolated lifecycle parent after all fixture owners exit");
     }
 
     #[test]

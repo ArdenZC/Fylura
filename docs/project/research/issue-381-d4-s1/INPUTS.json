@@ -1,0 +1,60 @@
+{
+  "track": "Zen Canvas #381 Managed Scan D4-S1",
+  "scope": "architecture, source audit, logical data model, and future validation contract only",
+  "owner_reviews": {
+    "issue_381_d4_s0_final": "https://github.com/ArdenZC/Zen-Canvas/issues/381#issuecomment-6122808587",
+    "issue_380_s0_final": "https://github.com/ArdenZC/Zen-Canvas/issues/380#issuecomment-6122891634"
+  },
+  "frozen_master": {
+    "head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "schema_version": 37,
+    "schema_rs_sha256": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7"
+  },
+  "d4_s0_research": {
+    "branch": "research/issue-381-d4-s0",
+    "head": "b86fa298441729f7cb0027e076aa3d34a3d3ac04",
+    "tree": "972a4c96927f898ac8f21612c9af6f678922a339",
+    "report_sha256": "f2b92fcca609f6ad6dd9a3fbe59355e612d5a3eab5bb54d06c1169ed91c79046",
+    "consumer_matrix_sha256": "82e7e60fa3a9e2dd0be175cf92ff149a29f59aafdf369c586ce4b1f6fa802331",
+    "inputs_sha256": "a185c4f5b44e00b12c390eea3b8c9aeeacc8c0902cfa17cb4d42e27b536ab382",
+    "raw_results_sha256": "aac3bf62f7ed9c4c4c2a25f996c1ae2a974830c42c03f0490f27202ff202d930",
+    "manifest_sha256": "ef0afc4174b780bd399a12d4da507c326367d19ff2a5f5b0f068ce01e844067f"
+  },
+  "issue_381_pr_383": {
+    "state": "OPEN",
+    "draft": true,
+    "head": "584621c32054e16ac0a61afc669a04380a976b7f",
+    "tree": "8e72e9db9e4fae09b158d165762bba057e0b543d",
+    "schema_38_status": "uncoordinated PR candidate; no shared schema version allocated"
+  },
+  "issue_380": {
+    "state": "OPEN",
+    "pr_386_state": "OPEN / Draft",
+    "pr_386_head": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "owner_status": "S0 research accepted; one synthetic NSIS-only S1 run authorized; U2 production NO-GO",
+    "schema_38_status": "not allocated"
+  },
+  "source_audit": {
+    "command": "python3 docs/project/research/issue-381-d4-s1/source-audit/build_inventory.py 3275ac7c72df8ae4139a30f16c7f649971324e97 docs/project/research/issue-381-d4-s1/source-audit",
+    "rust_files_scanned": 247,
+    "files_with_is_stale_references": 40,
+    "reference_lines": 262,
+    "production_function_or_schema_groups": 103,
+    "test_groups": 46,
+    "literal_mutation_command": "python3 docs/project/research/issue-381-d4-s1/source-audit/build_write_inventory.py 3275ac7c72df8ae4139a30f16c7f649971324e97 docs/project/research/issue-381-d4-s1/source-audit",
+    "literal_mutation_reference_lines": 433,
+    "literal_mutation_production_schema_groups": 141,
+    "caveat": "Source text grouping is heuristic. Dynamic SQL, Rust call graph, SQL trigger bodies, frontend/IPC use, and indirect semantic dependencies are manually summarized in ADR-001."
+  },
+  "execution_limits": {
+    "production_code_changed": false,
+    "schema_version_allocated": false,
+    "tests_or_ci_run": false,
+    "hosted_windows_or_macos_run": false,
+    "benchmark_run": false,
+    "codex_review_run": false,
+    "pr_or_issue_mutated": false,
+    "merge_or_release": false
+  }
+}

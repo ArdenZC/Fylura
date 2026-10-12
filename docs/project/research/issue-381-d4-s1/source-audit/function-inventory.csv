@@ -1,0 +1,150 @@
+source_rev,domains,path,function,function_line,reference_lines,roles,reference_count
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/ai/classification.rs,collect_selected_ai_classification_targets,538,565,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/ai/classification.rs,select_indexed_file_columns,1896,1907,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/ai/debug.rs,mark_stale,688,690,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/ai/debug.rs,resolve_debug_target_file_id,152,161;173;192,managed file availability read or guard,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/analysis.rs,managed_file_identity_matches,1462,1470,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/analysis.rs,managed_file_identity_snapshot,1410,1419,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/analysis.rs,managed_finding_identity_contains_library_row_fingerprint_and_live_physical_identity,1736,1747,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/content.rs,candidate_filter,3159,3169,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/content.rs,load_candidate_by_id,3296,3304,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/content.rs,revalidate_content_boundary,3424,3488;3503;3506,managed file DTO or row projection;managed file availability read or guard,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/automation/service.rs,admit_automation_analysis,204,229,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/classification/engine.rs,execute_active_rules_for_paths_with_settings,457,490;496,managed file DTO or row projection;managed file availability read or guard,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/classification/engine.rs,execute_active_rules_for_scope_with_settings,260,285,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/classification/engine.rs,execute_rules_on_inbox_with_settings,353,373;379,managed file DTO or row projection;managed file availability read or guard,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/learning.rs,indexed_file_by_id,368,380,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/analysis/mod.rs,<module-or-type-field>,0,285,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/queries/analysis/mod.rs,authoritative_duplicate_exact_subjects_tx,2122,2172;2190;2194,managed file DTO or row projection;managed file availability read or guard,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/analysis/mod.rs,get_managed_file_for_analysis,1303,1309,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/analysis/mod.rs,list_managed_files_for_analysis,1277,1288,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/analysis/projection.rs,managed_analysis_file_from_row,194,215,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/dedupe/mod.rs,collect_dedupe_candidates,1028,1036,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-writer,src-tauri/src/db/queries/dedupe/mod.rs,copy_cached_fingerprint_for_rename,881,901,managed files stale-state mutation,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader;managed-file-writer,src-tauri/src/db/queries/dedupe/mod.rs,invalidate_stale_files_in_transaction,1749,1752;1757;1761;1765,managed file availability read or guard;managed files stale-state mutation,4
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/dedupe/mod.rs,path_only_fallback_and_cross_volume_cache_rules_are_fail_closed,1804,1887,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader;managed-file-writer,src-tauri/src/db/queries/dedupe/mod.rs,save_full_hash,967,1001;1018,managed file availability read or guard;managed files stale-state mutation,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/dedupe/mod.rs,save_prehash,909,947,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/queries/files.rs,finalize_successful_operation_restore,320,421;449,managed file DTO or row projection;managed file availability read or guard,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/queries/files.rs,finalize_successful_replace_restore,513,614;642,managed file DTO or row projection;managed file availability read or guard,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/files.rs,get_indexed_file_naming,55,61,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/queries/files.rs,get_indexed_file_rows_by_ids,1382,1400;1403,managed file DTO or row projection;managed file availability read or guard,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/files.rs,get_operation_previews_for_scope,1265,1294,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/files.rs,get_operation_previews_for_selection,1416,1446,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/files.rs,get_paged_files_in_scope_with_filter,988,1085;1165,managed file DTO or row projection,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader;managed-file-reference,src-tauri/src/db/queries/files.rs,insert_files,72,85;111;119;148;157,managed file DTO or row projection;managed file availability read or guard;managed file reference in insert_files,5
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/files.rs,insert_restore_index_row_in_transaction,2370,2378,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-writer,src-tauri/src/db/queries/files.rs,mark_missing_files_stale_after_scan,224,242;243,managed files stale-state mutation,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reference,src-tauri/src/db/queries/files.rs,permanent_delete_preview_from_indexed,1900,1901,managed file reference in permanent_delete_preview_from_indexed,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-writer,src-tauri/src/db/queries/files.rs,remove_files_by_paths,174,186;187,managed files stale-state mutation,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/files.rs,search_files_in_scope,893,941,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/files.rs,update_file_record_after_path_change,793,862,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/files.rs,verify_indexed_file_identity,27,30,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/library/mod.rs,active_library_rows_exceed_deferred_threshold,2007,2011,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/library/mod.rs,build_query_parts,1406,1441,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/library/mod.rs,default,205,288;325,managed file DTO or row projection,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/library/mod.rs,detail_from_row,2067,2094,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reference,src-tauri/src/db/queries/library/mod.rs,files_matching_authoritative_query_scope,1349,1377,managed file reference in files_matching_authoritative_query_scope,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/library/mod.rs,get_file_library_detail,949,956,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/library/mod.rs,query_file_library_v2,727,802,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/library/mod.rs,resolve_file_library_path,1026,1030,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/library/mod.rs,selection_stale_count,2198,2208,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/library/mod.rs,selection_where,2233,2264;2301,managed file availability read or guard,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/library/mod.rs,summary_from_row,1770,1789,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/mod.rs,file_record_from_indexed,545,592,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/mod.rs,indexed_file_from_row,510,536,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/mod.rs,issue375_path_upsert_prunes_build_descendants_but_accepts_selected_build_root,668,712,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/mod.rs,scoped_files_sql_with_extra_where,83,100,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/organization/materialize.rs,materialize_organization_plan,5,24,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/organization/mod.rs,effective_readiness_revalidates_live_facts_without_mutating_validity,4961,5057;5075,test or diagnostic fixture,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/queries/organization/mod.rs,load_indexed_file_by_id,2409,2420;2422,managed file DTO or row projection;managed file availability read or guard,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/organization/mod.rs,performance_task06_plan_100_1k_10k_repository,6197,6488,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/organization/mod.rs,print_plan,6112,6144;6173,test or diagnostic fixture,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/organization/mod.rs,seed_current_managed_semantics_for_file,2893,3002,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/organization/mod.rs,seed_performance_current_managed_semantics,5809,5907,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/queries/organization/projection.rs,load_indexed_files_for_projection,158,175;177,managed file DTO or row projection;managed file availability read or guard,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reference,src-tauri/src/db/queries/organization/semantic.rs,resolve_current_assessment,108,117;133;183,managed file DTO or row projection;managed file reference in resolve_current_assessment,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/queries/organization/semantic.rs,unavailable_proposal,419,451,managed file DTO or row projection,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/organization/validation.rs,validate_edited_filename,37,65,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reader,src-tauri/src/db/queries/rule_proposals/mod.rs,build_rule_proposal_impact,900,965;980;1036,managed file DTO or row projection;managed file availability read or guard,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/rule_proposals/mod.rs,performance_task07_rule_proposal_repository_and_impact,2671,2848;2927;3054,test or diagnostic fixture,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-reader,src-tauri/src/db/queries/rule_proposals/mod.rs,validate_exact_impact_binding,1230,1248,managed file availability read or guard,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-writer,src-tauri/src/db/queries/scan.rs,apply_watcher_exact_mutations,1283,1350,managed files stale-state mutation,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/scan.rs,cancelled_finalization_never_stales_unseen_files,5037,5082,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/scan.rs,complete_reconciliation_stales_only_unseen_rows_and_advances_success_generation,4935,5020,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/scan.rs,metadata_errors_write_error_ledger_without_seen_or_stale_reconciliation,4621,4706,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/scan.rs,moved_directory_old_descendants_are_removed_only_by_full_reconciliation,5712,5832,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/scan.rs,performance_100k_scan_seen_missing_reconcile_and_wal_reader,5472,5546,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-writer,src-tauri/src/db/queries/scan.rs,reconcile_missing,1609,1666;1667,managed files stale-state mutation,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/queries/scan.rs,stale_reconciliation_uses_the_authoritative_ignore_contract_at_any_depth,4726,4775,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection;managed-file-reference,src-tauri/src/db/queries/scan.rs,upsert_file_rows_tx,2861,2873;2899;2908;2983;2995,managed file DTO or row projection;managed file reference in upsert_file_rows_tx,5
+3275ac7c72df8ae4139a30f16c7f649971324e97,schema/derived-object,src-tauri/src/db/schema.rs,ensure_content_schema,2199,2351,trigger or view definition,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-schema,src-tauri/src/db/schema.rs,ensure_file_library_schema,1886,1890;1892;1894;1896;1898,"managed files column, index, or migration",5
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index-schema;schema/derived-object,src-tauri/src/db/schema.rs,ensure_global_index_hardening,1802,1823;1831;1838;1839;1842;1846;1865;1868;1875,independent global_entries schema;trigger or view definition,9
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index-schema,src-tauri/src/db/schema.rs,ensure_global_index_schema,1619,1672;1677,independent global_entries schema,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,schema/migration,src-tauri/src/db/schema.rs,migrate,36,163;169;276;279;282;285;288;291,legacy schema migration and compatibility,8
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/tests/helpers.rs,file_classification,184,187,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/tests/helpers.rs,stale_state,173,176,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/tests/part2.rs,upsert_files_by_paths_inserts_new_file,1092,1106,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/db/tests/part3.rs,ordinary_restore_finalization_upserts_missing_index_row_and_fts,206,243,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,managed-file-projection,src-tauri/src/db/types.rs,<module-or-type-field>,0,46;116,managed file DTO or row projection,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/file_workspace/location.rs,missing_or_permission_health_is_stale_without_deletion_semantics,497,497,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/commands.rs,revalidated_global_entry,286,293,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/legacy_queue.rs,enqueue_legacy_targets_for_managed_ai,15,44,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/managed_scope.rs,add_managed_scope,25,43,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/managed_scope.rs,backfill_managed_scope,245,269,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/managed_worker_hardened.rs,claim_next_managed_ai_job,159,244,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/managed_worker_hardened.rs,complete_managed_ai_job,427,470,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/managed_worker_hardened.rs,has_eligible_managed_ai_work,61,79,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/managed_worker_hardened.rs,organization_plan_consumes_only_a_live_managed_v1_assessment,1461,1517,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/managed_worker_hardened.rs,reset_running_managed_ai_jobs,92,112;131;147,independent global_entries visibility,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/managed_worker_hardened.rs,validate_managed_ai_job,321,335;384;408,independent global_entries visibility,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/models.rs,<module-or-type-field>,0,86,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,<module-or-type-field>,0,43,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index;managed-file/global-index-bridge,src-tauri/src/global_index/repository.rs,enqueue_managed_ai_for_library_files,833,842;856,independent global_entries visibility;managed File Library bridge,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,get_global_entry,395,402,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,global_entry_by_identity,497,510,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,global_entry_for_path,461,469;472,independent global_entries visibility,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,global_index_status_from_connection,546,570,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,global_path_by_platform_identity,482,489,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,map_global_entry,1106,1124,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,mark_global_entries_stale_for_volume,341,344,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,mark_global_entry_stale,370,373,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,sql,61,69;79;82;95,independent global_entries visibility,4
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/repository.rs,upsert_global_entries_batch,262,282;301,independent global_entries visibility,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,diagnostic_search_fts_sql,482,485,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,diagnostic_search_tier_sql,301,305;312;319;326;334,independent global_entries visibility,5
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,key_only_extension_prefix_sql,266,269,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,key_only_fts_sql,278,281,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,key_only_name_prefix_sql,242,245,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,key_only_punctuation_prefix_sql,254,257,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,search_exact_extension,396,403,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,search_exact_name,351,358,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,search_extension_prefix,412,429,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,search_fts,441,460,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,search_name_prefix,367,384,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,global-index,src-tauri/src/global_index/search.rs,search_punctuation_prefix,512,529,independent global_entries visibility,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_benchmark.rs,<module-or-type-field>,0,41,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_benchmark.rs,actual_match_count,337,348;351;357;360,test or diagnostic fixture,4
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_benchmark.rs,capture_query_plans,732,735;742;749;756;763;770,test or diagnostic fixture,6
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_fts_diagnostic.rs,<module-or-type-field>,0,38;83;113,test or diagnostic fixture,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_fts_diagnostic.rs,add_adversarial_rows,291,319,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_fts_diagnostic.rs,assert_adversarial_fixture,643,654,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_fts_diagnostic.rs,insert_entry,248,268,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_fts_diagnostic.rs,no_result_tier_sql,529,539;549;563;573,test or diagnostic fixture,4
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_fts_diagnostic.rs,stage_sql,363,378;382,test or diagnostic fixture,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,<module-or-type-field>,0,109;151;171;209;222;232,test or diagnostic fixture,6
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,add_adversarial_rows,2036,2079;2276;2284;2347,test or diagnostic fixture,4
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,apply_source_health_topology,1143,1165;1173,test or diagnostic fixture,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,global_search_query_cost_diagnostic,2620,2828;2912;2917;2922;3036;3081;3104,test or diagnostic fixture,7
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,populate_scale_overlay,1921,1988;2014,test or diagnostic fixture,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,prefix_stage_sql,400,420;431;442;460;481;500,test or diagnostic fixture,6
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,profile_key_only_hit_count_scale,3733,3785;3810,test or diagnostic fixture,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,restore_source_health_topology_base,1184,1195,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs,source_health_topology_facts,1217,1248;1249,test or diagnostic fixture,2
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/tests/global_search_source_health.rs,global_search_source_health_candidates_preserve_null_max_semantics,245,257,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/global_index/windows/usn.rs,change_to_entry_preserves_existing_size_without_reading_contents,388,428,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/scanner.rs,issue375_managed_scan_characterizes_directory_name_exclusions,2634,2767;2833;2840,test or diagnostic fixture,3
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/scanner.rs,kill_switch_path_completes_normally_without_fabricating_a_reconciliation_signal,3055,3179,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/watcher.rs,issue375_watcher_filters_ignored_components_before_root_routing,2513,2642,test or diagnostic fixture,1
+3275ac7c72df8ae4139a30f16c7f649971324e97,test/fixture,src-tauri/src/watcher.rs,wait_for_publication,2316,2336,test or diagnostic fixture,1

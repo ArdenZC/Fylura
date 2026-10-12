@@ -1,0 +1,11 @@
+c53423642ff92d7de43d23d413a4cd94c713fc4b52b8e0f6912cf66b7ae52585  docs/project/research/issue-381-d4-s1/ADR-001-unified-visibility-authority.md
+ae4aa707b390902e6f25b8c566ec4eb6ed30fd78f59e355bf61cd431b016a59d  docs/project/research/issue-381-d4-s1/INPUTS.json
+3acef6193bb126681f37a175603269acfed504e963e20ec09e60ec1045358c97  docs/project/research/issue-381-d4-s1/README.md
+d6a630c7e33977ec9fc142e2ea0ed0b0f17369394dd83c48627a153c79fa464d  docs/project/research/issue-381-d4-s1/VALIDATION-CONTRACT.md
+b185cfb38b44623b136a9e498c6a9117dd9a1f1de933aba6bfb548577798d9ad  docs/project/research/issue-381-d4-s1/source-audit/build_inventory.py
+9628152843506e60ab8ab0ee7feb1959cbc585ff7845d1bdcc10788a88586c01  docs/project/research/issue-381-d4-s1/source-audit/build_write_inventory.py
+90765417b195ec35fe31bdff54a72240f5b7005a82ad09a0d1f2320fdd720187  docs/project/research/issue-381-d4-s1/source-audit/frontend-consumers.csv
+1d93f122f5ff293ca06c4f7ce2a6cd57a7ddd4262550490643d3b4ceae6725ad  docs/project/research/issue-381-d4-s1/source-audit/function-inventory.csv
+35a0bf57b2373330bfc4ed0b5431fcc81c2433913a01d2bffb78f838f9d649a4  docs/project/research/issue-381-d4-s1/source-audit/mutation-function-inventory.csv
+757d149686fdd39dc98f2443812af05e3785ddc6b4a43a13e582a50ff5ada40a  docs/project/research/issue-381-d4-s1/source-audit/mutation-reference-inventory.csv
+f82cb7c5f8400478c410bcf2d64c57415600fd9ee2b1ae216f58b98f82973e85  docs/project/research/issue-381-d4-s1/source-audit/stale-reference-inventory.csv

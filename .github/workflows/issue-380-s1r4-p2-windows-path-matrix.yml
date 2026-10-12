@@ -1,0 +1,379 @@
+name: Issue 380 S1R4-P2 Windows path guard matrix
+
+on:
+  push:
+    branches:
+      - research/issue-380-s1r4-p2-windows-path-matrix
+    paths:
+      - .github/workflows/issue-380-s1r4-p2-windows-path-matrix.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-380-s1r4-p2-windows-path-matrix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-path-matrix:
+    name: Frozen P1 PowerShell path matrix
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Prepare run evidence directory
+        id: evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence'
+          if (Test-Path -LiteralPath $evidenceRoot) {
+            throw "Refusing to reuse an existing evidence directory: $evidenceRoot"
+          }
+          New-Item -ItemType Directory -Path $evidenceRoot -ErrorAction Stop | Out-Null
+          $run = [ordered]@{
+            repository = $env:GITHUB_REPOSITORY
+            workflow = $env:GITHUB_WORKFLOW
+            workflow_ref = $env:GITHUB_WORKFLOW_REF
+            triggering_ref = $env:GITHUB_REF
+            triggering_head = $env:GITHUB_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+            host_powershell_version = $PSVersionTable.PSVersion.ToString()
+            host_powershell_path = (Join-Path $PSHOME 'pwsh.exe')
+            environment_version = [System.Environment]::OSVersion.VersionString
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path $evidenceRoot 'workflow-run.json'),
+            ((ConvertTo-Json -InputObject $run -Depth 8) + "`n"),
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+      - name: Checkout P2 activation commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify P2 trigger and create exact P1 source worktree
+        id: preflight
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence'
+          $sourceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-frozen-p1-source'
+          $ownerPath = Join-Path $evidenceRoot 'source-worktree-owner.txt'
+          $expectedHead = '7a6fa69e5521d9759702c1923a9ade60a75819c3'
+          $expectedTree = 'c5465ef93eae268e2c683876d959db90fac5da08'
+          $p2Branch = 'research/issue-380-s1r4-p2-windows-path-matrix'
+          $record = [ordered]@{
+            status = 'FAIL'
+            repository = $env:GITHUB_REPOSITORY
+            expected_p2_branch = $p2Branch
+            triggering_ref = $env:GITHUB_REF
+            triggering_head = $env:GITHUB_SHA
+            checked_out_head = $null
+            frozen_p1_head = $expectedHead
+            frozen_p1_expected_tree = $expectedTree
+            frozen_p1_actual_tree = $null
+            tested_source_head = $null
+            tested_source_tree = $null
+            path_guard_sha256 = $null
+            test_script_sha256 = $null
+            source_worktree = $sourceRoot
+            source_worktree_created = $false
+            failure = $null
+          }
+          try {
+            if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas') { throw "Unexpected repository: $env:GITHUB_REPOSITORY" }
+            if ($env:GITHUB_REF -ne "refs/heads/$p2Branch") { throw "Unexpected ref: $env:GITHUB_REF" }
+            if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw "One-shot workflow refuses attempt $env:GITHUB_RUN_ATTEMPT" }
+            if ($env:RUNNER_OS -ne 'Windows') { throw "Unexpected runner OS: $env:RUNNER_OS" }
+            if ($PSVersionTable.PSVersion.Major -ne 7) { throw "PowerShell 7 is required: $($PSVersionTable.PSVersion)" }
+
+            $head = (& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0 -or $head -ne $env:GITHUB_SHA) { throw "P2 checkout identity mismatch: head=$head event=$env:GITHUB_SHA" }
+            $record.checked_out_head = $head
+            $p1Tree = (& git -C $env:GITHUB_WORKSPACE rev-parse "${expectedHead}^{tree}").Trim()
+            if ($LASTEXITCODE -ne 0 -or $p1Tree -ne $expectedTree) { throw "Frozen P1 Tree mismatch: actual=$p1Tree expected=$expectedTree" }
+            $record.frozen_p1_actual_tree = $p1Tree
+            & git -C $env:GITHUB_WORKSPACE merge-base --is-ancestor $expectedHead HEAD
+            if ($LASTEXITCODE -ne 0) { throw 'Frozen P1 HEAD is not an ancestor of the P2 activation commit.' }
+            if (Test-Path -LiteralPath $sourceRoot) { throw "Refusing to reuse source path: $sourceRoot" }
+
+            & git -C $env:GITHUB_WORKSPACE worktree add --detach $sourceRoot $expectedHead
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the detached frozen P1 source worktree.' }
+            $record.source_worktree_created = $true
+            $ownershipRecord = "$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|$expectedHead|$sourceRoot"
+            [System.IO.File]::WriteAllText($ownerPath, $ownershipRecord, [System.Text.UTF8Encoding]::new($false))
+            $record.tested_source_head = (& git -C $sourceRoot rev-parse HEAD).Trim()
+            $record.tested_source_tree = (& git -C $sourceRoot rev-parse 'HEAD^{tree}').Trim()
+            if ($LASTEXITCODE -ne 0 -or $record.tested_source_head -ne $expectedHead -or $record.tested_source_tree -ne $expectedTree) {
+              throw "Frozen test-source worktree mismatch: head=$($record.tested_source_head) tree=$($record.tested_source_tree)"
+            }
+
+            $guardPath = Join-Path $sourceRoot 'scripts/issue380S1R4PathGuard.ps1'
+            $testPath = Join-Path $sourceRoot 'scripts/testIssue380S1R4PathGuard.ps1'
+            if (-not (Test-Path -LiteralPath $guardPath -PathType Leaf) -or -not (Test-Path -LiteralPath $testPath -PathType Leaf)) {
+              throw 'Frozen P1 path guard or test script is missing.'
+            }
+            $record.path_guard_sha256 = (Get-FileHash -LiteralPath $guardPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $record.test_script_sha256 = (Get-FileHash -LiteralPath $testPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $record.status = 'PASS'
+          } catch {
+            $record.failure = $_.Exception.ToString()
+          } finally {
+            [System.IO.File]::WriteAllText(
+              (Join-Path $evidenceRoot 'preflight.json'),
+              ((ConvertTo-Json -InputObject $record -Depth 10) + "`n"),
+              [System.Text.UTF8Encoding]::new($false)
+            )
+          }
+          if ($record.status -ne 'PASS') { throw "P2/P1 identity preflight failed: $($record.failure)" }
+
+      - name: Run only the frozen P1 PowerShell path matrix
+        id: path_matrix
+        if: ${{ always() && steps.preflight.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence'
+          $sourceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-frozen-p1-source'
+          $testPath = Join-Path $sourceRoot 'scripts/testIssue380S1R4PathGuard.ps1'
+          $preflight = Get-Content -LiteralPath (Join-Path $evidenceRoot 'preflight.json') -Raw | ConvertFrom-Json
+          $stdoutPath = Join-Path $evidenceRoot 'path-matrix.stdout.raw.txt'
+          $stderrPath = Join-Path $evidenceRoot 'path-matrix.stderr.raw.txt'
+          $processInfoPath = Join-Path $evidenceRoot 'path-matrix-process.json'
+          $stdoutText = ''
+          $stderrText = ''
+          $exitCode = $null
+          $timedOut = $false
+          $processId = $null
+          $failure = $null
+          $process = $null
+          $stdoutTask = $null
+          $stderrTask = $null
+          $startedAt = [DateTime]::UtcNow
+          try {
+            if ($PSVersionTable.PSVersion.Major -ne 7) { throw "PowerShell 7 is required: $($PSVersionTable.PSVersion)" }
+            if (-not (Test-Path -LiteralPath $testPath -PathType Leaf)) { throw "Frozen path test is missing: $testPath" }
+            $actualTestHash = (Get-FileHash -LiteralPath $testPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $actualGuardHash = (Get-FileHash -LiteralPath (Join-Path $sourceRoot 'scripts/issue380S1R4PathGuard.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualTestHash -ne $preflight.test_script_sha256 -or $actualGuardHash -ne $preflight.path_guard_sha256) {
+              throw 'Frozen source SHA-256 changed after preflight.'
+            }
+
+            $pwshPath = Join-Path $PSHOME 'pwsh.exe'
+            if (-not (Test-Path -LiteralPath $pwshPath -PathType Leaf)) { throw "PowerShell 7 host not found: $pwshPath" }
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $pwshPath
+            $startInfo.WorkingDirectory = $sourceRoot
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+            $startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+            foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $testPath)) {
+              [void]$startInfo.ArgumentList.Add($argument)
+            }
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $startInfo
+            if (-not $process.Start()) { throw 'PowerShell 7 test process did not start.' }
+            $processId = $process.Id
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(180000)) {
+              $timedOut = $true
+              try { $process.Kill($true) } catch { }
+              $process.WaitForExit()
+            }
+            if ($process.HasExited) { $exitCode = [int]$process.ExitCode }
+            if (-not $stdoutTask.Wait(5000)) { throw 'Timed out collecting the path-test stdout stream.' }
+            if (-not $stderrTask.Wait(5000)) { throw 'Timed out collecting the path-test stderr stream.' }
+            $stdoutText = $stdoutTask.Result
+            $stderrText = $stderrTask.Result
+          } catch {
+            $failure = $_.Exception.ToString()
+            if ($null -ne $stdoutTask -and $stdoutTask.IsCompleted) { $stdoutText = $stdoutTask.Result }
+            if ($null -ne $stderrTask -and $stderrTask.IsCompleted) { $stderrText = $stderrTask.Result }
+          } finally {
+            [System.IO.File]::WriteAllText($stdoutPath, $stdoutText, [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText($stderrPath, $stderrText, [System.Text.UTF8Encoding]::new($false))
+            $processRecord = [ordered]@{
+              executable = if ($null -ne $process) { $process.StartInfo.FileName } else { Join-Path $PSHOME 'pwsh.exe' }
+              process_id = $processId
+              arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $testPath)
+              test_script = $testPath
+              test_script_sha256 = $preflight.test_script_sha256
+              path_guard_sha256 = $preflight.path_guard_sha256
+              powershell_version = $PSVersionTable.PSVersion.ToString()
+              started_utc = $startedAt.ToString('o')
+              finished_utc = [DateTime]::UtcNow.ToString('o')
+              exit_code = $exitCode
+              timed_out = $timedOut
+              failure = $failure
+            }
+            [System.IO.File]::WriteAllText($processInfoPath, ((ConvertTo-Json -InputObject $processRecord -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))
+          }
+          if ($null -ne $failure) { throw "Path matrix invocation failed: $failure" }
+          if ($timedOut) { throw 'Frozen P1 path matrix exceeded its 180-second process deadline.' }
+          if ($exitCode -ne 0) { throw "Frozen P1 path test returned exit code $exitCode." }
+
+      - name: Finalize raw evidence and assess all 40 cases
+        id: finalize
+        if: always()
+        shell: pwsh
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PATH_MATRIX_OUTCOME: ${{ steps.path_matrix.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence'
+          if (-not (Test-Path -LiteralPath $evidenceRoot -PathType Container)) {
+            New-Item -ItemType Directory -Path $evidenceRoot -ErrorAction Stop | Out-Null
+          }
+          $sourceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-frozen-p1-source'
+          $ownerPath = Join-Path $evidenceRoot 'source-worktree-owner.txt'
+          $sourceRemoved = $false
+          $sourceCleanup = 'NOT_CREATED_OR_UNOWNED'
+          $expectedOwner = "$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|7a6fa69e5521d9759702c1923a9ade60a75819c3|$sourceRoot"
+          try {
+            if (Test-Path -LiteralPath $ownerPath -PathType Leaf) {
+              $owner = [System.IO.File]::ReadAllText($ownerPath)
+              if ($owner -ne $expectedOwner) { throw 'Frozen source worktree ownership record mismatch; refusing cleanup.' }
+              if (Test-Path -LiteralPath $sourceRoot) {
+                & git -C $env:GITHUB_WORKSPACE worktree remove --force $sourceRoot
+                if ($LASTEXITCODE -ne 0) { throw 'git worktree remove failed for the owned frozen source.' }
+              }
+              $sourceRemoved = -not (Test-Path -LiteralPath $sourceRoot)
+              if (-not $sourceRemoved) { throw 'Owned frozen source worktree remains after cleanup.' }
+              $sourceCleanup = 'OWNED_WORKTREE_REMOVED'
+            } elseif (Test-Path -LiteralPath $sourceRoot) {
+              $sourceCleanup = 'UNOWNED_PATH_PRESERVED'
+            }
+          } catch {
+            $sourceCleanup = "CLEANUP_FAILED: $($_.Exception.Message)"
+          }
+
+          $preflight = $null
+          $testResult = $null
+          $parseFailure = $null
+          $caseCount = 0
+          $uniqueCaseCount = 0
+          $allCasesMatch = $false
+          $testCleanupPass = $false
+          $processRecord = $null
+          if (Test-Path -LiteralPath (Join-Path $evidenceRoot 'preflight.json') -PathType Leaf) {
+            try { $preflight = Get-Content -LiteralPath (Join-Path $evidenceRoot 'preflight.json') -Raw | ConvertFrom-Json } catch { $parseFailure = "preflight JSON: $($_.Exception.Message)" }
+          }
+          if (Test-Path -LiteralPath (Join-Path $evidenceRoot 'path-matrix-process.json') -PathType Leaf) {
+            try { $processRecord = Get-Content -LiteralPath (Join-Path $evidenceRoot 'path-matrix-process.json') -Raw | ConvertFrom-Json } catch { $parseFailure = "process JSON: $($_.Exception.Message)" }
+          }
+          $stdoutPath = Join-Path $evidenceRoot 'path-matrix.stdout.raw.txt'
+          if ((Test-Path -LiteralPath $stdoutPath -PathType Leaf) -and (Get-Item -LiteralPath $stdoutPath).Length -gt 0) {
+            try {
+              $stdoutText = [System.IO.File]::ReadAllText($stdoutPath)
+              $testResult = $stdoutText | ConvertFrom-Json
+              $cases = @($testResult.cases)
+              $caseCount = $cases.Count
+              $uniqueCaseCount = @($cases | ForEach-Object { $_.name } | Sort-Object -Unique).Count
+              $allCasesMatch = ($caseCount -eq 40) -and ($uniqueCaseCount -eq 40) -and
+                (@($cases | Where-Object { -not $_.passed -or $_.expected -ne $_.actual }).Count -eq 0) -and
+                (@($cases | Where-Object { $_.expected -notin @('ALLOW', 'REJECT') -or $_.actual -notin @('ALLOW', 'REJECT') }).Count -eq 0)
+              $testCleanupPass = ($testResult.cleanup.owned_scope_root_removed -eq $true) -and
+                ($testResult.cleanup.owned_external_fixture_removed -eq $true) -and
+                ($testResult.cleanup.owned_links_removed -eq $true)
+              [System.IO.File]::WriteAllText(
+                (Join-Path $evidenceRoot 'path-matrix.result.json'),
+                ((ConvertTo-Json -InputObject $testResult -Depth 12) + "`n"),
+                [System.Text.UTF8Encoding]::new($false)
+              )
+            } catch {
+              $parseFailure = "path-test stdout JSON: $($_.Exception.ToString())"
+            }
+          } elseif ($null -eq $parseFailure) {
+            $parseFailure = 'No nonempty path-test stdout JSON was produced.'
+          }
+
+          $exitPass = ($null -ne $processRecord) -and ($processRecord.exit_code -eq 0) -and (-not $processRecord.timed_out)
+          $pathMatrixPass = ($env:PREFLIGHT_OUTCOME -eq 'success') -and ($env:PATH_MATRIX_OUTCOME -eq 'success') -and
+            ($null -ne $preflight) -and ($preflight.status -eq 'PASS') -and
+            ($null -ne $testResult) -and ($testResult.status -eq 'WINDOWS_RUNTIME_PASS') -and
+            ($testResult.is_windows -eq $true) -and ($testResult.process_launch_count -eq 0) -and
+            ($testResult.nsis_launched -eq $false) -and ($testResult.unrelated_executable_launched -eq $false) -and
+            $allCasesMatch -and $testCleanupPass -and $exitPass -and $sourceRemoved -and
+            ($sourceCleanup -eq 'OWNED_WORKTREE_REMOVED') -and ($null -eq $parseFailure)
+          $assessment = [ordered]@{
+            status = if ($pathMatrixPass) { 'PATH_MATRIX_PASS' } else { 'PATH_MATRIX_FAIL_CLOSED' }
+            path_matrix_pass = [bool]$pathMatrixPass
+            triggering_head = $env:GITHUB_SHA
+            frozen_test_source_head = if ($null -ne $preflight) { $preflight.tested_source_head } else { $null }
+            frozen_test_source_tree = if ($null -ne $preflight) { $preflight.tested_source_tree } else { $null }
+            path_guard_sha256 = if ($null -ne $preflight) { $preflight.path_guard_sha256 } else { $null }
+            test_script_sha256 = if ($null -ne $preflight) { $preflight.test_script_sha256 } else { $null }
+            powershell_version = if ($null -ne $testResult) { $testResult.powershell_version } else { $null }
+            windows_version = if ($null -ne $testResult) { $testResult.operating_system } else { $null }
+            expected_case_count = 40
+            actual_case_count = $caseCount
+            unique_case_count = $uniqueCaseCount
+            all_expected_actual_and_passed = $allCasesMatch
+            test_fixture_cleanup_pass = $testCleanupPass
+            test_process_exit_code = if ($null -ne $processRecord) { $processRecord.exit_code } else { $null }
+            test_process_timed_out = if ($null -ne $processRecord) { $processRecord.timed_out } else { $null }
+            test_process_id = if ($null -ne $processRecord) { $processRecord.process_id } else { $null }
+            preflight_step_outcome = $env:PREFLIGHT_OUTCOME
+            path_matrix_step_outcome = $env:PATH_MATRIX_OUTCOME
+            owned_source_worktree_cleanup = $sourceCleanup
+            parse_failure = $parseFailure
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path $evidenceRoot 'assessment.json'),
+            ((ConvertTo-Json -InputObject $assessment -Depth 12) + "`n"),
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          $manifestPath = Join-Path $evidenceRoot 'SHA256SUMS'
+          $manifestLines = @(
+            Get-ChildItem -LiteralPath $evidenceRoot -File -Recurse |
+              Where-Object { $_.FullName -ne $manifestPath -and $_.Name -ne 'SHA256SUMS.sha256' } |
+              Sort-Object FullName |
+              ForEach-Object {
+                $relative = $_.FullName.Substring($evidenceRoot.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+                $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                "$digest  $relative"
+              }
+          )
+          [System.IO.File]::WriteAllLines($manifestPath, [string[]]$manifestLines, [System.Text.UTF8Encoding]::new($false))
+          $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $evidenceRoot 'SHA256SUMS.sha256'), "$manifestHash  SHA256SUMS`n", [System.Text.UTF8Encoding]::new($false))
+          "path_matrix_pass=$([bool]$pathMatrixPass)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "P2 assessment: $($assessment.status); cases=$caseCount/40; fixture_cleanup=$testCleanupPass; source_cleanup=$sourceCleanup"
+
+      - name: Upload complete raw run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue380-s1r4-p2-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/issue380-s1r4-p2-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce fail-closed matrix result
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assessmentPath = Join-Path (Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence') 'assessment.json'
+          if (-not (Test-Path -LiteralPath $assessmentPath -PathType Leaf)) { throw 'P2 assessment is missing; refusing PASS.' }
+          $assessment = Get-Content -LiteralPath $assessmentPath -Raw | ConvertFrom-Json
+          if ($assessment.path_matrix_pass -ne $true -or $assessment.status -ne 'PATH_MATRIX_PASS') {
+            throw "P2 path matrix failed closed: status=$($assessment.status), cases=$($assessment.actual_case_count)/40, fixture_cleanup=$($assessment.test_fixture_cleanup_pass)."
+          }
+          Write-Host 'PATH_MATRIX_PASS: all 40 expected results, process exit, and fixture cleanup verified.'

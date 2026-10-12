@@ -1,0 +1,10 @@
+7cef43e7063b73fec98b88c1fd0c59438e5f5bbd966dc73e66af522b6f1435dd  docs/project/research/issue-381-d4-s4/ADR-003-transitive-evidence-seal.md
+cb2318de3f67bd5977c94650d2f0a1d159f768da3f40b01e9f9e84ec8fec2118  docs/project/research/issue-381-d4-s4/FIELD-DEPENDENCY-MATRIX.md
+73a947bcb6098556f369e3c1ef88e2c4157b784d4402e17d5c2573e06728843a  docs/project/research/issue-381-d4-s4/INPUTS.json
+8ce0a47ef85e28193e0bb0fe77be06435fd8a851a0512a273992fe578bacf7c2  docs/project/research/issue-381-d4-s4/PUBLICATION-TRANSACTION-CONTRACT.md
+92354ee72d2773ec6888494d354a7cb940914d409d10cffd5e9f1c207f37126b  docs/project/research/issue-381-d4-s4/README.md
+e4ebb76899f3cc48aa52cfb965fe49f3aabad49a7f5807201c76992e76a58117  docs/project/research/issue-381-d4-s4/VALIDATION-CONTRACT.md
+74f341c67abdef0e5047ee5ba01b4fcc40cae6980c6b016ac4948daa65310da8  docs/project/research/issue-381-d4-s4/evidence/transitive-evidence-results.json
+674d6a82e1b123e3f5976e1c922df347cd897a0d01d4005f2622550ab79a2782  docs/project/research/issue-381-d4-s4/evidence/transitive-evidence-run.log
+f9959547f9d8062d69526c6c47d3cde4d8c25616fe16ae98494ae066bea17f6e  docs/project/research/issue-381-d4-s4/harness/run.py
+3c8db1eddfec4ce0456d6bab7103c3e83133c307b77fd90f0bc85361d9825360  docs/project/research/issue-381-d4-s4/harness/transitive-evidence-protection.sql

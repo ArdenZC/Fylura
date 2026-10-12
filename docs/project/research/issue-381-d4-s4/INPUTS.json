@@ -1,0 +1,35 @@
+{
+  "track": "#381 Managed Scan",
+  "phase": "D4-S4",
+  "status": "#381-D4-S4 READY_FOR_OWNER_TRANSITIVE_AUTHORITY_REVIEW",
+  "production_gate": "NO-GO",
+  "owner_review": "https://github.com/ArdenZC/Zen-Canvas/issues/381#issuecomment-6124440656",
+  "frozen_parent": {
+    "head": "ad85df097d7a8425df01e1a95829c38fd17dd4d6",
+    "tree": "58b0e5854237189275d54224d5ed80237d34c526",
+    "branch": "research/issue-381-d4-s4"
+  },
+  "guardrails": {
+    "formal_schema_version_allocated": false,
+    "production_code_changed": false,
+    "master_changed": false,
+    "pr_383_changed": false,
+    "pr_386_changed": false,
+    "full_ci_run": false,
+    "hosted_windows_or_macos_run": false,
+    "codex_review_run": false
+  },
+  "inputs": {
+    "schema37_ddl": "docs/project/research/issue-381-d4-s0/evidence/schema37-sqlite-schema.sql",
+    "d4s2_physical_candidate": "docs/project/research/issue-381-d4-s2/harness/physical-candidate.sql",
+    "d4s2_runner": "docs/project/research/issue-381-d4-s2/harness/run.py",
+    "d4s3_runner": "docs/project/research/issue-381-d4-s3/harness/run.py",
+    "d4s3_sql_oracle": "docs/project/research/issue-381-d4-s3/harness/manifest-authority-oracle.sql",
+    "d4s3_sql_protection": "docs/project/research/issue-381-d4-s3/harness/manifest-authority-protection.sql",
+    "d4s3_raw_run_log_sha256": "8f61c7c87fc73a0fa1a38440d9987d954eb070fe1f29df9b6329e6c4abfee266"
+  },
+  "runtime": {
+    "python_sqlite_version": "3.53.1",
+    "product_sqlite_3_51_3_validated": false
+  }
+}

@@ -1,0 +1,519 @@
+{
+  "digest_bypass_protection": {
+    "bad_digest_cases": [
+      {
+        "case": "member_digest",
+        "generation_after_rollback": "complete",
+        "manifest_after_rollback": "ready",
+        "pointer_after_rollback": null,
+        "raw_sql_transition_rejected": {
+          "operation": "direct_status_publish_with_wrong_member_digest",
+          "rejected": "d4s4: Manifest publication requires trusted publisher"
+        },
+        "trusted_oracle_error": "D4-S3 Oracle rejected root/member/path/identity digest relation",
+        "trusted_oracle_rejected": true
+      },
+      {
+        "case": "root_map_digest",
+        "generation_after_rollback": "complete",
+        "manifest_after_rollback": "ready",
+        "pointer_after_rollback": null,
+        "raw_sql_transition_rejected": {
+          "operation": "direct_status_publish_with_wrong_root_map_digest",
+          "rejected": "d4s4: Manifest publication requires trusted publisher"
+        },
+        "trusted_oracle_error": "D4-S3 Oracle rejected root/member/path/identity digest relation",
+        "trusted_oracle_rejected": true
+      }
+    ],
+    "sqlite_sha256_udf_used": false,
+    "unwrapped_sqlite_connection": {
+      "manifest_remained_ready": true,
+      "pointer_absent": true,
+      "publication_rejected": true,
+      "sqlite_error": "no such function: d4s4_publish_authorized"
+    }
+  },
+  "inputs": {
+    "d4s2_candidate_sql_sha256": "df3fc906526823c47c5b1236ead105d2529163766c873e8acd693760ad65002f",
+    "d4s2_runner_sha256": "03cb943d2b4c872ab7e99164c5f7c0462fe6c44c09ed1c65985a94d00ab12213",
+    "d4s3_evidence_results_sha256": "b1e64f01815855956e664f553eb12466affd05e378a32ee4165d028ad5290232",
+    "d4s3_oracle_sql_sha256": "1342405473a3d0b09eb45a1973121207c3f168c49afb8b53860f4ba2c27845ba",
+    "d4s3_original_log_sha256": "8f61c7c87fc73a0fa1a38440d9987d954eb070fe1f29df9b6329e6c4abfee266",
+    "d4s3_protection_sql_sha256": "193c0859f6a156d7fcbb36965c88d002aef68de5d8aa8519c29ab73053ae6074",
+    "d4s3_runner_sha256": "ce422284c99ed0abc6476d3489b537ab5572b8eb6efbb682fdcd7b057face107",
+    "d4s4_runner_sha256": "f9959547f9d8062d69526c6c47d3cde4d8c25616fe16ae98494ae066bea17f6e",
+    "d4s4_sql_sha256": "3c8db1eddfec4ce0456d6bab7103c3e83133c307b77fd90f0bc85361d9825360",
+    "schema37_ddl_sha256": "b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5"
+  },
+  "integrity": {
+    "foreign_key_check": "ok",
+    "fts5_external_content_integrity_check": "ok",
+    "sqlite_integrity_check": "ok"
+  },
+  "limits": [
+    "Schema 37 filesystem identities are synthetic. The harness seals bytes from candidate evidence rows but cannot prove the OS identity claim is true.",
+    "The POSIX root boundary helper is only a synthetic path test; Windows reparse points, junctions, volume identity, case folding, and native file IDs remain untested.",
+    "SQLite has no native SHA-256 function here. Exact digests are recomputed by Python inside BEGIN IMMEDIATE; SQL triggers enforce DML relations and the connection-local capability only.",
+    "A process with raw write access that can register a forged capability UDF, drop triggers, or replace the DB remains outside this service trust boundary; #380 must establish compatible single-writer/database-generation isolation.",
+    "All transitive invalidation increments one global authority clock, so one root/source evidence change temporarily hides every root until a successor Manifest publishes. A per-root epoch could reduce that scope but is not proven here.",
+    "No production query was changed. Existing production consumers still read files.is_stale directly; every relevant reader would need to consume the future authoritative visibility relation before production GO.",
+    "No SQLite 3.51.3 product FTS/BM25, Windows/macOS native identity, GC, WAL/performance, or full migration validation was run."
+  ],
+  "old_model_digest_bypasses": [
+    {
+      "actual_digest": "a05d3ab561ad77adc4a08c88192b4861094ddcc479066de39bc6cd2ef1175645",
+      "application_oracle_valid": false,
+      "case": "member_digest",
+      "d3_trigger_error": null,
+      "raw_sql_published_and_advanced_pointer": true,
+      "stored_digest": "wrong-member-sha256"
+    },
+    {
+      "actual_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+      "application_oracle_valid": false,
+      "case": "root_map_digest",
+      "d3_trigger_error": null,
+      "raw_sql_published_and_advanced_pointer": true,
+      "stored_digest": "wrong-root-map-sha256"
+    }
+  ],
+  "old_model_transitive_counterexamples": [
+    {
+      "case": "run-coverage",
+      "old_sql_mutation_succeeded": true,
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_effective_source_visible_after": [
+        "source-a"
+      ],
+      "s3_generation_errors_after": [
+        "generation gen-a scan is incomplete"
+      ],
+      "s3_invalid_identity_count_after": 0,
+      "s3_oracle_checks_physical_epoch_evidence_digest": false,
+      "s3_oracle_ready_predicate_after": false,
+      "s3_transitive_evidence_checks_after": {
+        "generation_member_digest_and_count_match": true,
+        "invalid_source_identity_rows": 0,
+        "member_set_differences": [
+          0,
+          0
+        ],
+        "member_still_within_current_root": true,
+        "physical_evidence_digest_unchanged": true,
+        "root_map_digest_matches": true,
+        "run_generation_errors": [
+          "generation gen-a scan is incomplete"
+        ]
+      }
+    },
+    {
+      "case": "run-status",
+      "old_sql_mutation_succeeded": true,
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_effective_source_visible_after": [
+        "source-a"
+      ],
+      "s3_generation_errors_after": [
+        "generation gen-a scan is incomplete"
+      ],
+      "s3_invalid_identity_count_after": 0,
+      "s3_oracle_checks_physical_epoch_evidence_digest": false,
+      "s3_oracle_ready_predicate_after": false,
+      "s3_transitive_evidence_checks_after": {
+        "generation_member_digest_and_count_match": true,
+        "invalid_source_identity_rows": 0,
+        "member_set_differences": [
+          0,
+          0
+        ],
+        "member_still_within_current_root": true,
+        "physical_evidence_digest_unchanged": true,
+        "root_map_digest_matches": true,
+        "run_generation_errors": [
+          "generation gen-a scan is incomplete"
+        ]
+      }
+    },
+    {
+      "case": "source-status",
+      "old_sql_mutation_succeeded": true,
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_effective_source_visible_after": [
+        "source-a"
+      ],
+      "s3_generation_errors_after": [],
+      "s3_invalid_identity_count_after": 1,
+      "s3_oracle_checks_physical_epoch_evidence_digest": false,
+      "s3_oracle_ready_predicate_after": false,
+      "s3_transitive_evidence_checks_after": {
+        "generation_member_digest_and_count_match": true,
+        "invalid_source_identity_rows": 1,
+        "member_set_differences": [
+          0,
+          0
+        ],
+        "member_still_within_current_root": true,
+        "physical_evidence_digest_unchanged": true,
+        "root_map_digest_matches": true,
+        "run_generation_errors": []
+      }
+    },
+    {
+      "case": "source-confidence",
+      "old_sql_mutation_succeeded": true,
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_effective_source_visible_after": [
+        "source-a"
+      ],
+      "s3_generation_errors_after": [],
+      "s3_invalid_identity_count_after": 1,
+      "s3_oracle_checks_physical_epoch_evidence_digest": false,
+      "s3_oracle_ready_predicate_after": false,
+      "s3_transitive_evidence_checks_after": {
+        "generation_member_digest_and_count_match": true,
+        "invalid_source_identity_rows": 1,
+        "member_set_differences": [
+          0,
+          0
+        ],
+        "member_still_within_current_root": true,
+        "physical_evidence_digest_unchanged": true,
+        "root_map_digest_matches": true,
+        "run_generation_errors": []
+      }
+    },
+    {
+      "case": "physical-digest",
+      "old_sql_mutation_succeeded": true,
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_effective_source_visible_after": [
+        "source-a"
+      ],
+      "s3_generation_errors_after": [],
+      "s3_invalid_identity_count_after": 0,
+      "s3_oracle_checks_physical_epoch_evidence_digest": false,
+      "s3_oracle_ready_predicate_after": false,
+      "s3_transitive_evidence_checks_after": {
+        "generation_member_digest_and_count_match": true,
+        "invalid_source_identity_rows": 0,
+        "member_set_differences": [
+          0,
+          0
+        ],
+        "member_still_within_current_root": true,
+        "physical_evidence_digest_unchanged": false,
+        "root_map_digest_matches": true,
+        "run_generation_errors": []
+      }
+    },
+    {
+      "case": "claim-delete",
+      "old_sql_mutation_succeeded": true,
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_effective_source_visible_after": [
+        "source-a"
+      ],
+      "s3_generation_errors_after": [],
+      "s3_invalid_identity_count_after": 1,
+      "s3_oracle_checks_physical_epoch_evidence_digest": false,
+      "s3_oracle_ready_predicate_after": false,
+      "s3_transitive_evidence_checks_after": {
+        "generation_member_digest_and_count_match": true,
+        "invalid_source_identity_rows": 1,
+        "member_set_differences": [
+          0,
+          0
+        ],
+        "member_still_within_current_root": true,
+        "physical_evidence_digest_unchanged": true,
+        "root_map_digest_matches": true,
+        "run_generation_errors": []
+      }
+    },
+    {
+      "case": "root-path",
+      "old_sql_mutation_succeeded": true,
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_effective_source_visible_after": [
+        "source-a"
+      ],
+      "s3_generation_errors_after": [],
+      "s3_invalid_identity_count_after": 0,
+      "s3_oracle_checks_physical_epoch_evidence_digest": false,
+      "s3_oracle_ready_predicate_after": false,
+      "s3_transitive_evidence_checks_after": {
+        "generation_member_digest_and_count_match": true,
+        "invalid_source_identity_rows": 0,
+        "member_set_differences": [
+          0,
+          0
+        ],
+        "member_still_within_current_root": false,
+        "physical_evidence_digest_unchanged": true,
+        "root_map_digest_matches": true,
+        "run_generation_errors": []
+      }
+    }
+  ],
+  "preflight_revision_race": {
+    "authority_revision_before_event_after": [
+      1,
+      2
+    ],
+    "current_view_after_event": [],
+    "event_clock_increments": 1,
+    "new_generation_status": "complete",
+    "new_manifest_status": "ready",
+    "no_half_published_successor": true,
+    "old_manifest_retained": true,
+    "old_manifest_status": "published",
+    "old_pointer_before_after": [
+      [
+        "manifest-a",
+        1
+      ],
+      [
+        "manifest-a",
+        1
+      ]
+    ],
+    "old_view_before_event": [
+      "source-a"
+    ],
+    "pointer_revision_unchanged": true,
+    "preflight_error": "root revision CAS mismatch root-a: generation=0 current=1; watcher revision/coverage mismatch root-a"
+  },
+  "preserved_d4s3": {
+    "d4s2_assertion_groups": 15,
+    "d4s3_blocked_dml_mutations": 16,
+    "d4s3_failure_counterexamples": 7,
+    "d4s3_invalid_publication_cases": 4,
+    "nested_roots_rename_cursor_fts_rollback_contracts": "all rerun unchanged by the committed D4-S3 runner"
+  },
+  "research_scope": "D4-S4 isolated Schema 37 SQL/Python harness only; no production code or version changed",
+  "runtime": {
+    "publication_capability": "connection-local application UDF, set only by trusted publisher wrapper",
+    "sha256_sql_function": false,
+    "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "sqlite_version": "3.53.1"
+  },
+  "transitive_protection": {
+    "blocked_count": 11,
+    "blocked_direct_transitive_dml": [
+      {
+        "operation": "scan_runs.coverage_complete",
+        "rejected": "d4s4: published scan coverage evidence is immutable"
+      },
+      {
+        "operation": "scan_runs.status",
+        "rejected": "d4s4: published scan coverage evidence is immutable"
+      },
+      {
+        "operation": "file_sources.status_without_revision",
+        "rejected": "d4s4: semantic source change must advance source_revision by one"
+      },
+      {
+        "operation": "file_sources.identity_confidence_without_revision",
+        "rejected": "d4s4: semantic source change must advance source_revision by one"
+      },
+      {
+        "operation": "file_sources.status_with_revision_without_capability",
+        "rejected": "d4s4: source evidence change requires authority invalidation"
+      },
+      {
+        "operation": "file_sources.confidence_with_revision_without_capability",
+        "rejected": "d4s4: source evidence change requires authority invalidation"
+      },
+      {
+        "operation": "physical_identity.evidence_digest",
+        "rejected": "d4s4: referenced physical identity evidence is immutable"
+      },
+      {
+        "operation": "scan_roots.normalized_path",
+        "rejected": "d4s4: root evidence change requires authority invalidation"
+      },
+      {
+        "operation": "scan_roots.watcher_revision",
+        "rejected": "d4s4: root evidence change requires authority invalidation"
+      },
+      {
+        "operation": "files.current_path_without_publisher",
+        "rejected": "d4s4: current file identity edits require trusted publication"
+      }
+    ],
+    "claim_revocation": {
+      "authority_revision_before_after": [
+        1,
+        3
+      ],
+      "claim_row_retained": true,
+      "clock_increments": 2,
+      "current_view_after_revocation": [],
+      "direct_delete": {
+        "operation": "source_identity_claims.delete_published",
+        "rejected": "d4s4: identity claims are retained; append a revocation"
+      },
+      "pointer_unchanged": true,
+      "revocation_event_count": 1,
+      "source_revision_after_revocation": 4
+    },
+    "display_name_change_does_not_invalidate": true,
+    "independent_user_metadata_and_tag_writes_remain_allowed": true,
+    "legacy_raw_view_before": [
+      "source-a"
+    ],
+    "root_reconfiguration_invalidation": {
+      "authority_revision_before_after": [
+        1,
+        2
+      ],
+      "clock_increments": 1,
+      "current_root": "/renamed-root",
+      "current_view_sources": [],
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_view_sources": [
+        "source-a"
+      ],
+      "sealed_old_root_evidence": [
+        "/root",
+        0,
+        0
+      ]
+    },
+    "source_version_invalidation": {
+      "authority_revision_before_after": [
+        1,
+        2
+      ],
+      "clock_increments": 1,
+      "cursor_from_before_rejected": true,
+      "d4s4_current_sources": [],
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_view_sources": [
+        "source-a"
+      ],
+      "retained_source_seal_count": 1,
+      "source_revision": 3
+    },
+    "watcher_revision_invalidation": {
+      "authority_revision_before_after": [
+        1,
+        2
+      ],
+      "clock_increments": 1,
+      "current_view_sources": [],
+      "cursor_bound_to_old_authority_revision_rejected": true,
+      "pointer_before_after": [
+        [
+          "manifest-a",
+          1
+        ],
+        [
+          "manifest-a",
+          1
+        ]
+      ],
+      "raw_s3_view_sources": [
+        "source-a"
+      ]
+    }
+  },
+  "valid_trusted_publication": {
+    "all_three_digest_domains_recorded": true,
+    "current_sources": [
+      "source-valid"
+    ],
+    "explicit_claim_bound": true,
+    "published": {
+      "authority_revision": 1,
+      "member_count": 1,
+      "member_digest": "4640296a1cc0e0edf8ae51a7b122ebf939d2cd2283b07b18685358b94c32e268",
+      "root_count": 1,
+      "root_map_digest": "9e547ac0530ae5500afef787cf0dec6b35a30efe60dd90d7fbc5b39de6034910",
+      "source_evidence_count": 1,
+      "source_evidence_digest": "377cc6e28f67d2a003b47cf0f8e1706aba0f325f7217c4a9505ec7ef75e696cc"
+    }
+  }
+}

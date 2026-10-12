@@ -1,0 +1,78 @@
+{
+  "branch": "remediation/s1r4-p3-runtime-harness-consolidated",
+  "status": "SAFE_TO_PUSH_NO_PUSH_WORKFLOW_MATCH",
+  "workflow_changes": "",
+  "no_pr_created": true,
+  "audit": [
+    {
+      "workflow": ".github/workflows/ci.yml",
+      "push_branches": [
+        "master"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1-synthetic-nsis-probe.yml",
+      "push_branches": [
+        "research/issue-380-s1-synthetic-nsis-runtime-trace"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r-synthetic-nsis-zip-probe.yml",
+      "push_branches": [
+        "research/issue-380-s1r-nsis-zip-trace-persistence"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r2-synthetic-nsis-launcher-probe.yml",
+      "push_branches": [
+        "research/issue-380-s1r2-nsis-launcher-verification"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r3-synthetic-nsis-uninstaller-trace.yml",
+      "push_branches": [
+        "research/issue-380-s1r3-nsis-uninstaller-trace-verification"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r4-p2-windows-path-matrix.yml",
+      "push_branches": [
+        "research/issue-380-s1r4-p2-windows-path-matrix"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r4-p3-synthetic-nsis.yml",
+      "push_branches": [
+        "research/issue-380-s1r4-p3-p0-nsis-hosted-plan"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-u1-hosted-windows.yml",
+      "push_branches": [
+        "research/issue-380-u1-windows-upgrade-gate"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-u1r-hosted-windows.yml",
+      "push_branches": [
+        "research/issue-380-u1r-install-generation-gate"
+      ],
+      "matches_remediation_branch": false
+    },
+    {
+      "workflow": ".github/workflows/resident-interactive-qualification.yml",
+      "push_branches": [
+        "perf/resident-interactive-qualification"
+      ],
+      "matches_remediation_branch": false
+    }
+  ]
+}

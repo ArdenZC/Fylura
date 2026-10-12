@@ -94,51 +94,89 @@ function Get-FunctionFragment([string]$Name, [string]$SourceText) {
     }
 }
 
+# Accept dictionaries and PSCustomObject only; never coerce strings/numbers to booleans.
+function ConvertTo-TestCaseResult([object]$Value) {
+    $fields = @{}
+    if ($Value -is [System.Collections.IDictionary]) {
+        foreach ($key in $Value.Keys) { $fields[$key] = $Value[$key] }
+    } elseif ($Value -is [pscustomobject]) {
+        foreach ($property in $Value.PSObject.Properties) { $fields[$property.Name] = $property.Value }
+    } else { throw 'Case result must be one dictionary or PSCustomObject.' }
+    foreach ($name in @('expected', 'actual')) {
+        if (-not $fields.ContainsKey($name) -or $null -eq $fields[$name]) {
+            throw "Case result requires non-null $name."
+        }
+    }
+    foreach ($name in @('passed', 'unproven')) {
+        if ($fields.ContainsKey($name) -and $fields[$name] -isnot [bool]) {
+            throw "Case result $name must be Boolean."
+        }
+    }
+    $passed = $fields.ContainsKey('passed') -and $fields['passed']
+    $unproven = $fields.ContainsKey('unproven') -and $fields['unproven']
+    if ($passed -and $unproven) { throw 'Case result cannot be both passed and unproven.' }
+    if (-not $fields.ContainsKey('passed') -and -not $unproven) { throw 'Case result has no valid state.' }
+    $status = if ($unproven) { 'UNPROVEN' } elseif ($passed) { 'PASS' } else { 'FAIL' }
+    if ($fields.ContainsKey('status') -and ($fields['status'] -isnot [string] -or $fields['status'] -cne $status)) {
+        throw 'Case result status contradicts its Boolean state.'
+    }
+    return [pscustomobject]@{ status = $status; expected = $fields['expected']; actual = $fields['actual'] }
+}
+
+function Get-RuntimeMatrixStatus {
+    if ($null -ne $script:Failure -or @($script:CaseRecords | Where-Object { $_.status -eq 'FAIL' }).Count -gt 0) { return 'FAIL' }
+    if ($script:UnprovenCases.Count -gt 0) { return 'PARTIAL_BLOCKED_FAULT_INJECTION_UNPROVEN' }
+    if ($script:CaseRecords.Count -ne 14) { return 'FAIL' }
+    return 'RUNTIME_MATRIX_PASS'
+}
+
 function Invoke-TestCase([string]$Name, [scriptblock]$Body) {
     $startIndex = $script:GitInvocations.Count
     $startedUtc = [DateTime]::UtcNow
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
     $caseStatus = 'FAIL'
-    $details = $null
+    $normalized = $null
     $exceptionText = $null
+    $errorRecord = $null
     try {
         $details = & $Body
-        if ($null -eq $details) {
-            throw "Case body did not return passed=true: $Name"
-        }
-        if ([bool]$details.unproven) {
-            $caseStatus = 'UNPROVEN'
-            $script:UnprovenCases.Add($Name)
-        } elseif ([bool]$details.passed) {
-            $caseStatus = 'PASS'
-        } else {
-            throw "Case body did not return passed=true: $Name"
-        }
+        $normalized = ConvertTo-TestCaseResult $details
+        $caseStatus = $normalized.status
+        if ($caseStatus -eq 'UNPROVEN') { $script:UnprovenCases.Add($Name) }
+        if ($caseStatus -eq 'FAIL' -and $null -eq $script:Failure) { $script:Failure = "${Name}: Case reported passed=false." }
     } catch {
         $exceptionText = $_.Exception.ToString()
+        $errorRecord = [ordered]@{
+            fully_qualified_error_id = $_.FullyQualifiedErrorId
+            category = $_.CategoryInfo.ToString()
+            message = $_.ToString()
+            script_stack_trace = $_.ScriptStackTrace
+            position_message = $_.InvocationInfo.PositionMessage
+        }
         if ($null -eq $script:Failure) { $script:Failure = "${Name}: $exceptionText" }
-    } finally {
-        $timer.Stop()
-    }
+    } finally { $timer.Stop() }
 
     $calls = [System.Collections.Generic.List[object]]::new()
-    for ($index = $startIndex; $index -lt $script:GitInvocations.Count; $index++) {
-        $calls.Add($script:GitInvocations[$index])
-    }
+    for ($index = $startIndex; $index -lt $script:GitInvocations.Count; $index++) { $calls.Add($script:GitInvocations[$index]) }
     $record = [ordered]@{
         name = $Name
         status = $caseStatus
-        expected = if ($null -ne $details) { $details.expected } else { $null }
-        actual = if ($null -ne $details) { $details.actual } else { $null }
+        expected = 'Valid Case result contract and successful assertions'
+        actual = [ordered]@{ result_contract_valid = $false; error = $exceptionText }
         started_utc = $startedUtc.ToString('o')
         ended_utc = [DateTime]::UtcNow.ToString('o')
         elapsed_ms = [Math]::Round($timer.Elapsed.TotalMilliseconds, 3)
         exception = $exceptionText
+        error_record = $errorRecord
         git_invocations = @($calls.ToArray())
+    }
+    if ($null -ne $normalized) {
+        # Direct assignment preserves empty/single-element arrays without pipeline expansion.
+        $record.expected = $normalized.expected
+        $record.actual = $normalized.actual
     }
     $script:CaseRecords.Add($record)
     Write-JsonFile -Path (Join-Path $script:EvidenceRoot ("case-{0:D2}-{1}.json" -f $script:CaseRecords.Count, $Name)) -Value $record
-    if ($caseStatus -eq 'FAIL') { throw "Runtime qualification stopped at failed case $Name." }
 }
 
 function Invoke-GitForTest([string[]]$Arguments, [string]$WorkingDirectory, [int]$TimeoutSeconds = 20) {
@@ -204,7 +242,18 @@ function New-GitAliasArguments([string]$Mode, [string]$RecordPath, [int]$DelayMi
 
 function Read-TestChildRecord([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
-    return Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+    $record = Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+    if ($record -isnot [System.Collections.IDictionary] -or
+        -not $record.ContainsKey('mode') -or -not $record.ContainsKey('nonce') -or
+        $record['nonce'] -cne $script:Nonce -or
+        $record['mode'] -notin @('DelayedOutput', 'HoldPipe', 'BlockForTimeout', 'HoldPipeChild')) {
+        throw "Invalid or foreign child record: $Path"
+    }
+    $pidField = if ($record['mode'] -in @('HoldPipe', 'BlockForTimeout')) { 'child_pid' } else { 'pid' }
+    if (-not $record.ContainsKey($pidField) -or $record[$pidField] -isnot [long] -and $record[$pidField] -isnot [int] -or $record[$pidField] -le 0) {
+        throw "Child record has no valid $pidField`: $Path"
+    }
+    return $record
 }
 
 function Get-OwnedChildProcess([int]$ProcessId) {
@@ -266,8 +315,8 @@ function Stop-RecordedChildren([string[]]$ParentRecordPaths, [string]$Reason) {
         $record = Read-TestChildRecord $recordPath
         if ($null -eq $record) { continue }
         $childPid = 0
-        if ($null -ne $record.child_pid) { $childPid = [int]$record.child_pid }
-        elseif ($null -ne $record.pid -and $record.mode -eq 'HoldPipeChild') { $childPid = [int]$record.pid }
+        if ($record.ContainsKey('child_pid')) { $childPid = [int]$record['child_pid'] }
+        elseif ($record['mode'] -eq 'HoldPipeChild') { $childPid = [int]$record['pid'] }
         if ($childPid -gt 0) { [void](Stop-OwnedChild -ProcessId $childPid -Reason $Reason) }
     }
 }
@@ -304,7 +353,7 @@ function Test-TaskRootBoundary {
     Assert-Equal ([System.IO.Path]::GetFullPath((Join-Path $runRoot 'task'))) $script:TaskRoot 'TaskRoot path'
     $preexisting = @(Get-ChildItem -LiteralPath $script:TaskRoot -Force -ErrorAction Stop)
     if ($preexisting.Count -ne 1 -or $preexisting[0].Name -cne 'runtime-task-owner.json') {
-        throw "Refusing to run in an unexpected task directory state: $($preexisting.Name -join ', ')"
+        throw "Refusing to run in an unexpected task directory state: $(@($preexisting | ForEach-Object { $_.Name }) -join ', ')"
     }
 }
 
@@ -683,10 +732,11 @@ try {
     }
 
     Assert-NoOwnedProcessRemains
-    if ($script:UnprovenCases.Count -gt 0) {
+    $script:Result.status = Get-RuntimeMatrixStatus
+    if ($script:Result.status -eq 'PARTIAL_BLOCKED_FAULT_INJECTION_UNPROVEN') {
         $script:Result.status = 'PARTIAL_BLOCKED_FAULT_INJECTION_UNPROVEN'
         $script:Failure = 'At least one required cleanup-failure behavior had no deterministic, safe injection seam.'
-    } else {
+    } elseif ($script:Result.status -eq 'RUNTIME_MATRIX_PASS') {
         $script:Result.status = 'RUNTIME_MATRIX_PASS'
     }
 } catch {
@@ -699,12 +749,12 @@ try {
             (Join-Path $script:TaskRoot 'timeout-child.json')
         ) -Reason 'final safety cleanup'
         Assert-NoOwnedProcessRemains
-        $script:Result.cleanup = @($script:CleanupRecords.ToArray())
     } catch {
         if ($null -eq $script:Failure) { $script:Failure = "Final cleanup failed: $($_.Exception.ToString())" }
         else { $script:Failure += "`nFinal cleanup failed: $($_.Exception.ToString())" }
         $script:Result.status = 'FAIL_CLEANUP_UNCONFIRMED'
     }
+    $script:Result.cleanup = @($script:CleanupRecords.ToArray())
     $script:Result.cases = @($script:CaseRecords.ToArray())
     $script:Result.git_invocations = @($script:GitInvocations.ToArray())
     $script:Result.failure = $script:Failure
@@ -722,11 +772,16 @@ try {
         }
     } catch {
         $script:Result.status = 'FAIL_EVIDENCE_ROUNDTRIP'
-        $script:Result.failure = "Evidence round-trip failed: $($_.Exception.ToString())"
+        $script:Result.failure = "$($script:Result.failure)`nEvidence round-trip failed: $($_.Exception.ToString())"
         try { Write-JsonFile -Path $runRecordPath -Value $script:Result } catch { [Console]::Error.WriteLine("Could not rewrite failed runtime evidence: $($_.Exception)") }
         [Console]::Error.WriteLine("Could not validate final runtime evidence: $($_.Exception)")
     }
-    try { Write-JsonFile -Path $summaryPath -Value ([ordered]@{ status = $script:Result.status; failure = $script:Result.failure; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT; ended_utc = $script:Result.ended_utc; cleanup = $script:Result.cleanup }) } catch { [Console]::Error.WriteLine("Could not persist summary evidence: $($_.Exception)") }
+    try { Write-JsonFile -Path $summaryPath -Value ([ordered]@{ status = $script:Result.status; failure = $script:Result.failure; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT; ended_utc = $script:Result.ended_utc; cleanup = $script:Result.cleanup }) } catch {
+        $script:Result.status = 'FAIL_EVIDENCE_WRITE'
+        $script:Result.failure = "$($script:Result.failure)`nCould not persist summary evidence: $($_.Exception)"
+        try { Write-JsonFile -Path $runRecordPath -Value $script:Result } catch { [Console]::Error.WriteLine($_.Exception.ToString()) }
+        [Console]::Error.WriteLine($script:Result.failure)
+    }
 }
 
 if ($script:Result.status -ne 'RUNTIME_MATRIX_PASS') { exit 1 }

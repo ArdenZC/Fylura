@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "kind": "OFFLINE_UPLOAD_FILESET_SIMULATION_NOT_GITHUB_UPLOAD",
+  "archive_sha256": "b38fcf235b9754ba01070b3c8b274bb6d8372183821d24234488a9a417ce176d",
+  "uploaded_files": [
+    "SHA256SUMS",
+    "evidence/case-01.json",
+    "evidence/cleanup.json",
+    "evidence/controller.json",
+    "evidence/error.json",
+    "evidence/runtime-owner.json",
+    "task/pipe-holder.json.child",
+    "task/runtime-task-owner.json"
+  ],
+  "payload_files": 7,
+  "self_hash_exception": "SHA256SUMS",
+  "every_payload_sha256_verified": true,
+  "missing": [],
+  "extra": [],
+  "duplicates": []
+}

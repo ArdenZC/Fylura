@@ -1,0 +1,17 @@
+{
+  "name": "08_termination_failure_injection_limit",
+  "status": "UNPROVEN",
+  "expected": "runtime evidence or Owner-approved testability disposition",
+  "actual": {
+    "attempted": false,
+    "result": "NOT_DETERMINISTICALLY_INJECTABLE_WITH_FROZEN_FUNCTION",
+    "reason": "Invoke-GitCapture constructs System.Diagnostics.Process directly and exposes no kill/cleanup fault seam. A permission-denied or orphan fixture would exceed this harness safety contract.",
+    "observation": "Timeout case 07 still asserts fail-closed status and records kill_error/cleanup_error, if naturally observed."
+  },
+  "started_utc": "2026-10-12T19:47:57.4069343Z",
+  "ended_utc": "2026-10-12T19:47:57.4167807Z",
+  "elapsed_ms": 8.41,
+  "exception": null,
+  "error_record": null,
+  "git_invocations": []
+}

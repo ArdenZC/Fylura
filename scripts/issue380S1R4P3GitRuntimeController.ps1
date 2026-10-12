@@ -325,7 +325,11 @@ try {
         $record.cleanup_completed = $false
     }
     try { Write-ControllerJson -Path $recordPath -Value $record }
-    catch { [Console]::Error.WriteLine("Could not persist controller record: $($_.Exception.ToString())") }
+    catch {
+        $record.status = 'CONTROLLER_EVIDENCE_WRITE_FAILED'
+        $record.cleanup_completed = $false
+        [Console]::Error.WriteLine("Could not persist controller record: $($_.Exception.ToString())")
+    }
 }
 
 if ($record.status -ne 'WORKER_EXIT_ZERO' -or -not $record.cleanup_completed) { exit 1 }

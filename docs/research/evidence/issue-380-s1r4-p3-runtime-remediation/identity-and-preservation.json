@@ -1,0 +1,43 @@
+{
+  "base": "18b8e5d4826b246c3741bf37d772e47d98340d16",
+  "base_tree": "ded9ff8906fb33347977183ccff43059226d1619",
+  "historical_hosted_head": "ccb682a64f88edaf8271a0f34273b3cc43107513",
+  "historical_hosted_tree": "c585035081dafef5c066f733563d752426c321e8",
+  "historical_run": "38297813809",
+  "historical_job": "114973061712",
+  "attempt": 1,
+  "historical_actions_operations": "NONE; no rerun, overwrite or modification",
+  "runner_blob": "c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa",
+  "historical_runner_blob": "c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa",
+  "runner_sha256": "92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece",
+  "harness_blob": "c7010851eff2149c49ec7596379af54e093f6b2e",
+  "harness_sha256": "0a3d31beab77fa7bcfba66261c44cf9883d6a133cde47d7381bf759708683388",
+  "protected_worktree_diff": "",
+  "old_evidence_policy": "unchanged; old manifests checked against base bytes, new evidence has separate manifest",
+  "source_files": {
+    "scripts/issue380S1R4P3GitRuntimeQualification.ps1": {
+      "blob": "c7010851eff2149c49ec7596379af54e093f6b2e",
+      "sha256": "0a3d31beab77fa7bcfba66261c44cf9883d6a133cde47d7381bf759708683388"
+    },
+    "scripts/issue380S1R4P3GitRuntimeController.ps1": {
+      "blob": "b52d1304aeb1e273cd6a264a2a2d80e6e2f0fa94",
+      "sha256": "7bd66ecac889bcf0e552a83b905a2a1973ba0b6face7bed482b42e4517970068"
+    },
+    "scripts/issue380S1R4P3GitRuntimeArtifact.ps1": {
+      "blob": "fc9f946f28ea6f1fd9b8fe0ecece8a6642e5f014",
+      "sha256": "9738659b1829592ffbe62f17952c30dd5cefdd12559eff4fdbca7e9e2000b81f"
+    },
+    "scripts/testIssue380S1R4P3GitRuntimeRemediation.ps1": {
+      "blob": "1663e7709e2a36a9ceb50af8a7db76ab9ebefd02",
+      "sha256": "f0a180e713da0f3fc00d30e3649d5969cb54e912ffe33e6a55a1818e31865907"
+    },
+    "scripts/validateIssue380S1R4P3GitRuntimePlan.py": {
+      "blob": "0060fef8fed5c3a0d6eca11b686068a344260c4a",
+      "sha256": "16ea6ada5ac173df7dbd4805be326a68168e66753452b8aeb305a455ecea49b9"
+    },
+    "docs/research/ISSUE-380-S1R4-P3-POWERSHELL-RUNTIME-WORKFLOW.md": {
+      "blob": "22c9a11b5a023734726ead03f66d3c28c31640e9",
+      "sha256": "7bae84d74635e79c8a4a46de50d0ee0f90073d5425d6e27e11bd1075f624ba94"
+    }
+  }
+}

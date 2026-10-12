@@ -7,6 +7,7 @@ Hosted workflow. It verifies frozen identities and review-plan boundaries only.
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import re
@@ -45,7 +46,8 @@ SHA_SUMS = f"{EVIDENCE}/SHA256SUMS"
 CASE03_OBSERVATION = f"{EVIDENCE}/case03-real-git-observation.json"
 WORKFLOW_PATH = ".github/workflows/issue-380-s1r4-p3-git-runtime.yml"
 FUTURE_BRANCH = "research/issue-380-s1r4-p3-git-runtime-once"
-PREPARATION_BRANCH = "research/issue-380-s1r4-p3-git-runtime-case03-amendment"
+PREPARATION_BRANCH = "remediation/s1r4-p3-runtime-harness-consolidated"
+REMEDIATION_BASE = "18b8e5d4826b246c3741bf37d772e47d98340d16"
 
 ALLOWED_ADDITIONS = {
     REPORT,
@@ -59,6 +61,9 @@ ALLOWED_ADDITIONS = {
     STATIC_RESULT,
     SHA_SUMS,
     CASE03_OBSERVATION,
+    "scripts/issue380S1R4P3GitRuntimeArtifact.ps1",
+    "scripts/testIssue380S1R4P3GitRuntimeRemediation.ps1",
+    "docs/research/ISSUE-380-S1R4-P3-RUNTIME-HARNESS-REMEDIATION.md",
 }
 
 
@@ -112,34 +117,14 @@ class RuntimePlanContracts(unittest.TestCase):
         current = str(git("rev-parse", "HEAD"))
         self.assertNotEqual(current, "c474517ff2ae9fe91932c61468fbdf6e2baf28a2", "Do not prepare on the historical activated branch.")
         self.assertEqual(str(git("rev-parse", f"{BASE_HEAD}^{{tree}}")), BASE_TREE)
-        if current != BASE_HEAD:
-            self.assertEqual(str(git("show", "-s", "--format=%P", current)), BASE_HEAD)
+        self.assertEqual(subprocess.run(["git", "merge-base", "--is-ancestor", REMEDIATION_BASE, current], cwd=ROOT).returncode, 0)
 
     def test_02_allowed_paths_and_no_active_workflow(self) -> None:
-        current = str(git("rev-parse", "HEAD"))
-        if current == BASE_HEAD:
-            changed = set()
-            status = subprocess.run(
-                ["git", "status", "--porcelain=v1", "--untracked-files=all"],
-                cwd=ROOT,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            ).stdout
-            for line in status.splitlines():
-                if not line:
-                    continue
-                if len(line) < 4:
-                    self.fail(f"Malformed porcelain status record: {line!r}")
-                path = line[3:]
-                changed.add(path)
-        else:
-            ancestor = subprocess.run(
-                ["git", "merge-base", "--is-ancestor", BASE_HEAD, current], cwd=ROOT
-            )
-            self.assertEqual(ancestor.returncode, 0)
-            changed = set(str(git("diff", "--name-only", BASE_HEAD, current)).splitlines())
+        changed = set(str(git("diff", "--name-only", REMEDIATION_BASE)).splitlines())
+        status = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE).stdout
+        changed.update(status.splitlines())
+        evidence_prefix = "docs/research/evidence/issue-380-s1r4-p3-runtime-remediation/"
+        changed = {path for path in changed if not path.startswith(evidence_prefix)}
         self.assertLessEqual(changed, ALLOWED_ADDITIONS)
         self.assertNotIn(WORKFLOW_PATH, changed)
         self.assertTrue(all(path.startswith("docs/") or path.startswith("scripts/") for path in changed))
@@ -275,20 +260,15 @@ class RuntimePlanContracts(unittest.TestCase):
             if not line.strip():
                 continue
             expected, relpath = line.split("  ", 1)
-            actual = sha((ROOT / relpath).read_bytes())
+            actual = sha(git("show", f"{REMEDIATION_BASE}:{relpath}", text=False))
             self.assertEqual(expected, actual, relpath)
 
     def test_14_workflow_raw_hash_and_git_blob_pins_match_test_tools(self) -> None:
-        expected = {
-            HARNESS: ("ebbdefb0bdb79e3ce26678dffae776e3ba5ef7fb", "fe1e5dd7af4cd5a5c2a236f249065a39442a1ce9594211b4a555d91d44c14aeb"),
-            CHILD: ("b2f9895172335160315cfd5cd4d1715406704bcb", "fb453ed1d79a2079dc3eae0c82d4433090511654a5e366d4620ff2fa07e3575e"),
-            CONTROLLER: ("4b126cf6958eb079736d8f05999d90438ea6fd9a", "9d2f377250422c5ddf788b3589c79b25d2019bb447e3995f4cc24e6d87b23f76"),
-        }
-        for path, (expected_blob, expected_sha) in expected.items():
-            self.assertIn(expected_blob, self.workflow)
-            self.assertIn(expected_sha, self.workflow)
-            self.assertEqual(str(git("hash-object", path)), expected_blob, path)
-            self.assertEqual(sha((ROOT / path).read_bytes()), expected_sha, path)
+        for path, label in ((HARNESS, "harness"), (CHILD, "child"), (CONTROLLER, "controller"), ("scripts/issue380S1R4P3GitRuntimeArtifact.ps1", "artifact")):
+            expected_blob = str(git("hash-object", path))
+            expected_sha = sha((ROOT / path).read_bytes())
+            self.assertIn(f"${label}Blob = '{expected_blob}'", self.workflow)
+            self.assertIn(f"${label}Sha = '{expected_sha}'", self.workflow)
         validator_blob = re.search(r"(?m)^\s*\$validatorBlob = '([0-9a-f]{40})'", self.workflow)
         validator_sha = re.search(r"(?m)^\s*\$validatorSha = '([0-9a-f]{64})'", self.workflow)
         self.assertIsNotNone(validator_blob)
@@ -346,6 +326,31 @@ class RuntimePlanContracts(unittest.TestCase):
         self.assertIn("$script:Result.status = 'RUNTIME_MATRIX_PASS'", self.harness)
         self.assertIn("if ($script:Result.status -ne 'RUNTIME_MATRIX_PASS') { exit 1 }", self.harness)
         self.assertIn("UNPROVEN_WITH_FROZEN_DIRECT_PROCESS_IMPLEMENTATION", (ROOT / IDENTITY).read_text(encoding="utf-8"))
+
+    def test_18_remediation_branch_cannot_trigger_push_workflows(self) -> None:
+        for path in (ROOT / ".github/workflows").glob("*.yml"):
+            workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+            triggers = workflow.get("on", {})
+            if not isinstance(triggers, dict) or "push" not in triggers:
+                continue
+            push = triggers["push"]
+            self.assertIsInstance(push, dict, path.name)
+            branches = push.get("branches", [])
+            self.assertTrue(branches, f"Unrestricted push workflow: {path.name}")
+            self.assertFalse(any(fnmatch.fnmatchcase(PREPARATION_BRANCH, pattern) for pattern in branches), path.name)
+        self.assertEqual(str(git("diff", "--name-only", REMEDIATION_BASE, "--", ".github/workflows")), "")
+
+    def test_19_result_and_archive_remediation_contracts(self) -> None:
+        self.assertIn("ConvertTo-TestCaseResult", self.harness)
+        self.assertNotIn("$details.unproven", self.harness)
+        self.assertIn("$record.ContainsKey('child_pid')", self.harness)
+        self.assertIn("error_record = $errorRecord", self.harness)
+        artifact = (ROOT / "scripts/issue380S1R4P3GitRuntimeArtifact.ps1").read_text()
+        for guard in ("Duplicate manifest file", "Unlisted archive file", "SHA-256 mismatch", "Source file limit", "Source size limit", "Reparse point", "Evidence owner mismatch", "Hidden selected evidence"):
+            self.assertIn(guard, artifact)
+        self.assertIn("include-hidden-files: false", self.workflow)
+        self.assertIn("git-runtime-archive-${{ github.run_id }}/**", self.workflow)
+        self.assertEqual(str(git("diff", "--name-only", REMEDIATION_BASE, "--", EVIDENCE)), "")
 
 
 if __name__ == "__main__":

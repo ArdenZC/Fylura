@@ -119,17 +119,20 @@ jobs:
           $oldWorkflowBlob = '05bcc48e531f662d7aa52e4887f329d2b9710739'
           $oldWorkflowSha = '19bdbce52a890fd340fb9d0d84d45666298080fc2934a0ff1d551d553eaab022'
           $harnessPath = 'scripts/issue380S1R4P3GitRuntimeQualification.ps1'
-          $harnessBlob = 'ebbdefb0bdb79e3ce26678dffae776e3ba5ef7fb'
-          $harnessSha = 'fe1e5dd7af4cd5a5c2a236f249065a39442a1ce9594211b4a555d91d44c14aeb'
+          $harnessBlob = 'c7010851eff2149c49ec7596379af54e093f6b2e'
+          $harnessSha = '0a3d31beab77fa7bcfba66261c44cf9883d6a133cde47d7381bf759708683388'
           $childPath = 'scripts/issue380S1R4P3GitRuntimeChild.ps1'
           $childBlob = 'b2f9895172335160315cfd5cd4d1715406704bcb'
           $childSha = 'fb453ed1d79a2079dc3eae0c82d4433090511654a5e366d4620ff2fa07e3575e'
           $controllerPath = 'scripts/issue380S1R4P3GitRuntimeController.ps1'
-          $controllerBlob = '4b126cf6958eb079736d8f05999d90438ea6fd9a'
-          $controllerSha = '9d2f377250422c5ddf788b3589c79b25d2019bb447e3995f4cc24e6d87b23f76'
+          $controllerBlob = 'b52d1304aeb1e273cd6a264a2a2d80e6e2f0fa94'
+          $controllerSha = '7bd66ecac889bcf0e552a83b905a2a1973ba0b6face7bed482b42e4517970068'
+          $artifactPath = 'scripts/issue380S1R4P3GitRuntimeArtifact.ps1'
+          $artifactBlob = 'fc9f946f28ea6f1fd9b8fe0ecece8a6642e5f014'
+          $artifactSha = '9738659b1829592ffbe62f17952c30dd5cefdd12559eff4fdbca7e9e2000b81f'
           $validatorPath = 'scripts/validateIssue380S1R4P3GitRuntimePlan.py'
-          $validatorBlob = '7a0f2d86f5ffa4fd37326f971ea011ff928e7fa4'
-          $validatorSha = 'f75aa3d16410feb50861104d7df4ed10449f08cb1fdbd551c6804c433a1a71a0'
+          $validatorBlob = '0060fef8fed5c3a0d6eca11b686068a344260c4a'
+          $validatorSha = '16ea6ada5ac173df7dbd4805be326a68168e66753452b8aeb305a455ecea49b9'
           $activationWorkflow = '.github/workflows/issue-380-s1r4-p3-git-runtime.yml'
           $approvedPlanParent = 'OWNER_REVIEWED_PLAN_HEAD_REQUIRED'
           if ($approvedPlanParent -eq 'OWNER_REVIEWED_PLAN_HEAD_REQUIRED') { throw 'Owner-reviewed plan parent has not been bound; refusing activation.' }
@@ -187,7 +190,8 @@ jobs:
             @{ path = $harnessPath; blob = $harnessBlob; sha = $harnessSha },
             @{ path = $childPath; blob = $childBlob; sha = $childSha },
             @{ path = $controllerPath; blob = $controllerBlob; sha = $controllerSha },
-            @{ path = $validatorPath; blob = $validatorBlob; sha = $validatorSha }
+            @{ path = $validatorPath; blob = $validatorBlob; sha = $validatorSha },
+            @{ path = $artifactPath; blob = $artifactBlob; sha = $artifactSha }
           )) {
             if ((Get-GitScalar @('rev-parse', "HEAD`:$($file.path)")) -cne $file.blob) { throw "Committed test-tool Blob mismatch: $($file.path)" }
             if ((Get-GitScalar @('hash-object', '--', $file.path)) -cne $file.blob) { throw "Working test-tool Blob mismatch: $($file.path)" }
@@ -197,7 +201,7 @@ jobs:
           $autocrlf = Get-GitScalar @('config', '--get', 'core.autocrlf')
           $eol = Get-GitScalar @('config', '--get', 'core.eol')
           if ($autocrlf -cne 'false' -or $eol -cne 'lf') { throw "Unexpected checkout byte policy: autocrlf=$autocrlf eol=$eol" }
-          $attributeOutput = Get-GitText @('check-attr', 'text', 'eol', 'filter', 'working-tree-encoding', '--', $runnerPath, $p1Guard, $p1Test, $s0Probe, $harnessPath, $childPath, $controllerPath, $validatorPath)
+          $attributeOutput = Get-GitText @('check-attr', 'text', 'eol', 'filter', 'working-tree-encoding', '--', $runnerPath, $p1Guard, $p1Test, $s0Probe, $harnessPath, $childPath, $controllerPath, $validatorPath, $artifactPath)
           if ($attributeOutput -match '(?m): filter: (?!unspecified$)' -or
               $attributeOutput -match '(?m): working-tree-encoding: (?!unspecified$)' -or
               $attributeOutput -match '(?m): eol: crlf$') { throw "Git attributes can transform a frozen source file:`n$attributeOutput" }
@@ -280,8 +284,9 @@ jobs:
             } else {
               $cleanup.reason = 'A failed, partial, or missing runtime result is retained for forensic review.'
             }
-          } catch { $cleanup.status = 'CLEANUP_CHECK_FAILED'; $cleanup.reason = $_.Exception.ToString(); throw }
+          } catch { $cleanup.status = 'CLEANUP_CHECK_FAILED'; $cleanup.reason = $_.Exception.ToString() }
           [System.IO.File]::WriteAllText((Join-Path $evidenceRoot 'cleanup.json'), ((ConvertTo-Json -InputObject $cleanup -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))
+          if ($cleanup.status -eq 'CLEANUP_CHECK_FAILED') { throw $cleanup.reason }
 
       - name: Independently qualify the run-owned evidence directory
         id: upload_qualification
@@ -318,20 +323,16 @@ jobs:
           }
           $manifest = [ordered]@{ status = 'SAFE_TO_UPLOAD'; run_root = $runFull; file_count = $files.Count; bytes = $bytes; reparse_points = 0; owner_run_id = $owner.run_id; owner_attempt = $owner.run_attempt; owner_sha = $owner.triggering_sha; recorded_utc = [DateTime]::UtcNow.ToString('o') }
           [System.IO.File]::WriteAllText((Join-Path $evidenceRoot 'upload-qualification.json'), ((ConvertTo-Json -InputObject $manifest -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))
-          $hashLines = [System.Collections.Generic.List[string]]::new()
-          foreach ($file in (Get-ChildItem -LiteralPath $runRoot -Force -Recurse -File | Sort-Object FullName)) {
-            $relative = [System.IO.Path]::GetRelativePath($runRoot, $file.FullName).Replace('\', '/')
-            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $hashLines.Add("$hash  $relative")
-          }
-          [System.IO.File]::WriteAllText((Join-Path $evidenceRoot 'SHA256SUMS'), (($hashLines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
+          & (Join-Path $env:GITHUB_WORKSPACE 'scripts/issue380S1R4P3GitRuntimeArtifact.ps1') `
+            -RunRoot $runRoot `
+            -ArchiveRoot (Join-Path $env:RUNNER_TEMP ("issue380-s1r4-p3-git-runtime-archive-{0}" -f $env:GITHUB_RUN_ID))
 
       - name: Upload run-owned runtime evidence
         if: always() && steps.upload_qualification.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: issue-380-s1r4-p3-git-runtime-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/issue380-s1r4-p3-git-runtime-${{ github.run_id }}/**
+          path: ${{ runner.temp }}/issue380-s1r4-p3-git-runtime-archive-${{ github.run_id }}/**
           if-no-files-found: error
           include-hidden-files: false
           compression-level: 0
@@ -355,3 +356,5 @@ jobs:
 - The plan pins the Runner plus harness, child, controller, P1, S0, and historical Workflow identities. Windows Git checkout policy is set through Git environment configuration before `actions/checkout`; attributes, Git Blob IDs, and raw hashes are checked after checkout.
 - Harness status `PARTIAL_BLOCKED_FAULT_INJECTION_UNPROVEN` is a failure, not a pass. No evidence from this workflow could close the deterministic kill/cleanup-error injection gap without a separate Owner decision.
 - `WaitForExit`, `Task.WaitAll`, synchronous `Kill`, `Close`, and `Dispose` observations are recorded individually. This draft does not claim a strict total execution-time bound from configured waits.
+
+Remediation archive rule: upload only the separately staged archive tree. SHA256SUMS covers every payload file; SHA256SUMS itself is the sole self-hash exception. Source and staged archive limits remain 250 files / 20 MB, with ownership and Reparse Point checks. Hidden paths and temporary Git databases are excluded. The helper verifies copies and exact manifest membership before upload. This remains an inactive draft; the Owner parent sentinel is unchanged.

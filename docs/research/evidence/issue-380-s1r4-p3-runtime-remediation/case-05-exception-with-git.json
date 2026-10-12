@@ -1,0 +1,63 @@
+{
+  "name": "exception-with-git",
+  "status": "FAIL",
+  "expected": "Valid Case result contract and successful assertions",
+  "actual": {
+    "result_contract_valid": false,
+    "error": "System.Management.Automation.RuntimeException: ORIGINAL_SENTINEL_ERROR"
+  },
+  "started_utc": "2026-10-12T19:47:57.5755151Z",
+  "ended_utc": "2026-10-12T19:47:57.6744882Z",
+  "elapsed_ms": 98.899,
+  "exception": "System.Management.Automation.RuntimeException: ORIGINAL_SENTINEL_ERROR",
+  "error_record": {
+    "fully_qualified_error_id": "ORIGINAL_SENTINEL_ERROR",
+    "category": "OperationStopped: (ORIGINAL_SENTINEL_ERROR:String) [], RuntimeException",
+    "message": "ORIGINAL_SENTINEL_ERROR",
+    "script_stack_trace": "at <ScriptBlock>, /workspace/Zen-Canvas/scripts/testIssue380S1R4P3GitRuntimeRemediation.ps1: line 72\nat Invoke-TestCase, <No file>: line 10\nat <ScriptBlock>, /workspace/Zen-Canvas/scripts/testIssue380S1R4P3GitRuntimeRemediation.ps1: line 72",
+    "position_message": "At /workspace/Zen-Canvas/scripts/testIssue380S1R4P3GitRuntimeRemediation.ps1:72 char:88\n+ … e-GitForTest @('--version') $repo); throw 'ORIGINAL_SENTINEL_ERROR' }\n+                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  },
+  "git_invocations": [
+    {
+      "executable": "/workspace/scratch/git-runtime-bin/git.exe",
+      "arguments": [
+        "--version"
+      ],
+      "working_directory": "/workspace/Zen-Canvas",
+      "process_id": 2459,
+      "exit_code": 0,
+      "timed_out": false,
+      "output_timed_out": false,
+      "status": "EXITED_ZERO",
+      "launch_error": null,
+      "process_error": null,
+      "capture_error": null,
+      "kill_error": null,
+      "cleanup_error": null,
+      "kill_attempted": false,
+      "kill_succeeded": false,
+      "process_exit_confirmed": true,
+      "stdout_task_status": "RanToCompletion",
+      "stderr_task_status": "RanToCompletion",
+      "stdout_complete": true,
+      "stderr_complete": true,
+      "process_timeout_ms": 20000,
+      "termination_timeout_ms": 5000,
+      "output_wait_timeout_ms": 5000,
+      "post_close_wait_timeout_ms": 1000,
+      "stream_close_attempted": false,
+      "stream_close_error": null,
+      "cleanup_completed": true,
+      "stdout": "git version 2.47.3\n",
+      "stderr": "",
+      "stdout_char_count": 19,
+      "stderr_char_count": 0,
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "harness_started_utc": "2026-10-12T19:47:57.5788518Z",
+      "harness_ended_utc": "2026-10-12T19:47:57.6236807Z",
+      "harness_elapsed_ms": 44.821,
+      "configured_explicit_wait_budget_ms": 31000
+    }
+  ]
+}

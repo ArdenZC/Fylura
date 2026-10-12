@@ -1,0 +1,21 @@
+{
+  "name": "malformed-result",
+  "status": "FAIL",
+  "expected": "Valid Case result contract and successful assertions",
+  "actual": {
+    "result_contract_valid": false,
+    "error": "System.Management.Automation.RuntimeException: Case result requires non-null expected."
+  },
+  "started_utc": "2026-10-12T19:47:57.7601409Z",
+  "ended_utc": "2026-10-12T19:47:57.7696865Z",
+  "elapsed_ms": 9.505,
+  "exception": "System.Management.Automation.RuntimeException: Case result requires non-null expected.",
+  "error_record": {
+    "fully_qualified_error_id": "Case result requires non-null expected.",
+    "category": "OperationStopped: (Case result requires non-null expected.:String) [], RuntimeException",
+    "message": "Case result requires non-null expected.",
+    "script_stack_trace": "at ConvertTo-TestCaseResult, <No file>: line 10\nat Invoke-TestCase, <No file>: line 11\nat <ScriptBlock>, /workspace/Zen-Canvas/scripts/testIssue380S1R4P3GitRuntimeRemediation.ps1: line 75",
+    "position_message": "At line:10 char:13\n+             throw \"Case result requires non-null $name.\"\n+             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  },
+  "git_invocations": []
+}

@@ -1,0 +1,20 @@
+{
+  "phase": "#380-S1R3 Synthetic NSIS Uninstaller Trace Persistence",
+  "run_id": 38250509824,
+  "run_url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38250509824",
+  "job_id": 114815262954,
+  "job_url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38250509824/job/114815262954",
+  "run_attempt": 1,
+  "head_sha": "81bf1e7de4352e5971095167b8a4b18395c09338",
+  "tree_sha": "b165d4c0fe0bcf454d790c962e4f7cef99a38b19",
+  "run_conclusion": "failure",
+  "artifact_id": 11746953497,
+  "artifact_name": "issue-380-s1r3-uninstaller-trace-38250509824-1",
+  "artifact_size_bytes": 2526925,
+  "artifact_sha256": "2dc1e6c8a5595f8fefd968bffdf66ddcb7f62b0c19126e92c4b01e64c28ff89e",
+  "artifact_url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38250509824/artifacts/11746953497",
+  "windows_image": "windows-2022 / win22 20261004.326.1",
+  "hosted_powershell": "7.6.6",
+  "cleanup": "synthetic HKCU key absent; task temp removed; no task-owned processes remained",
+  "test_disposition": "BLOCKED before makensis -VERSION invocation; no NSIS installer/uninstaller Probe execution occurred"
+}

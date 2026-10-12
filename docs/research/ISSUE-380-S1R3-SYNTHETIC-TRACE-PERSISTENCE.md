@@ -46,4 +46,25 @@ The final tested HEAD/Tree, exact diff, run/job/artifact identities, raw evidenc
 
 ## Final result
 
-`PENDING — offline preflight has passed; the single S1R3 Hosted job has not yet run.`
+### One authorized Hosted run
+
+- Run [38250509824](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38250509824), attempt `1`, completed with `failure`. Job `114815262954` is [available here](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38250509824/job/114815262954). This was the only S1R3 Hosted run.
+- Tested HEAD: `81bf1e7de4352e5971095167b8a4b18395c09338`; Tree: `b165d4c0fe0bcf454d790c962e4f7cef99a38b19`.
+- The Hosted source identity and Windows PowerShell `Parser::ParseFile` preflight passed. The synthetic HKCU key was initially absent. Both pinned compiler archive members passed pre-extract and extracted-file SHA/length verification; the downloaded ZIP SHA matched the approved value.
+- The Runner then stopped before invoking `makensis -VERSION`. Its task-private path guard rejected the working directory when it was exactly the task root (`D:\a\_temp\issue380-s1r3-task`) because the guard accepted descendants only. `results.json` records `processes: []`; no NSIS compiler process, Probe compilation, installer, or uninstaller ran.
+- The three executed Runner assertions passed: the synthetic key began absent, both pinned archive members were valid, and both extracted members stayed under the task root. The compiler version/architecture checks, four compile outputs, two generated uninstallers, installer exit `37`, uninstaller exit `42`, and FileWrite persistence checks were not reached. No direct trace or `/LOG` comparison exists for this run.
+- Cleanup evidence reports the synthetic HKCU key absent, no task-owned process remaining, and the owned task temp directory removed. Workflow cleanup and artifact upload succeeded; the overall job failed because the Probe step failed.
+
+### Raw evidence and integrity
+
+The GitHub Artifact is `11746953497`, `issue-380-s1r3-uninstaller-trace-38250509824-1`, 2,526,925 bytes, SHA-256 `2dc1e6c8a5595f8fefd968bffdf66ddcb7f62b0c19126e92c4b01e64c28ff89e`. Its internal 10-entry `SHA256SUMS` verified without mismatch. The full workflow log SHA-256 is `9526d2b0365846a2ffb6dfe29ba005a779fcf31018e1bc73a7047963b52b26d4`.
+
+Committed evidence is under `docs/research/evidence/issue-380-s1r3/run-38250509824/`: the original artifact ZIP, LF-normalized JSON/text sidecars, complete [workflow log](evidence/issue-380-s1r3/run-38250509824/workflow-run.txt), and [run metadata](evidence/issue-380-s1r3/run-38250509824/run-metadata.json). The [evidence README](evidence/issue-380-s1r3/run-38250509824/README.md) explains raw-versus-normalized copies. Review [`results.json`](evidence/issue-380-s1r3/run-38250509824/results.json), [`cleanup.json`](evidence/issue-380-s1r3/run-38250509824/cleanup.json), [`failure.txt`](evidence/issue-380-s1r3/run-38250509824/failure.txt), and the [raw Artifact ZIP](evidence/issue-380-s1r3/run-38250509824/artifact.zip).
+
+### Disposition and remaining risk
+
+The run identifies a Harness path-guard defect, not an NSIS runtime result. It does not resolve whether `_?=` causes the uninstaller's actual process to return `42`, and it does not prove direct FileWrite persistence after either Abort. The proposed runner correction is to allow the exact task root as a working directory while continuing to require every launched executable and child temporary path to stay within that root. That correction remains untested.
+
+No production files, S0 Probe, S1R2, master, or PR #386 changed. No second Hosted run was started. U2 remains NO-GO.
+
+`#380-S1R3 OBSERVABILITY_BLOCKED`

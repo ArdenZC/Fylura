@@ -1,0 +1,1 @@
+System.Management.Automation.RuntimeException: Refusing to use a working directory outside the task-private temp root: D:\a\_temp\issue380-s1r3-task

@@ -10,15 +10,15 @@ name: Issue 380 S1R4-P3 bounded Git capture PowerShell 7 runtime
 on:
   push:
     branches:
-      - research/issue-380-s1r4-p3-git-runtime-once
+      - qualification/s1r4-p3-windows-runtime-r1
     paths:
-      - .github/workflows/issue-380-s1r4-p3-git-runtime.yml
+      - .github/workflows/issue-380-s1r4-p3-git-runtime-r1.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: issue-380-s1r4-p3-git-runtime-once
+  group: issue-380-s1r4-p3-git-runtime-r1
   cancel-in-progress: false
 
 jobs:
@@ -26,7 +26,7 @@ jobs:
     name: Frozen Git capture functions only
     if: >-
       github.repository == 'ArdenZC/Zen-Canvas' &&
-      github.ref == 'refs/heads/research/issue-380-s1r4-p3-git-runtime-once' &&
+      github.ref == 'refs/heads/qualification/s1r4-p3-windows-runtime-r1' &&
       github.run_attempt == 1
     runs-on: windows-2022
     timeout-minutes: 10
@@ -44,7 +44,7 @@ jobs:
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
           if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas') { throw "Unexpected repository: $env:GITHUB_REPOSITORY" }
-          if ($env:GITHUB_REF -ne 'refs/heads/research/issue-380-s1r4-p3-git-runtime-once') { throw "Unexpected ref: $env:GITHUB_REF" }
+          if ($env:GITHUB_REF -ne 'refs/heads/qualification/s1r4-p3-windows-runtime-r1') { throw "Unexpected ref: $env:GITHUB_REF" }
           if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw "One-shot contract refuses attempt $env:GITHUB_RUN_ATTEMPT" }
           $runRoot = Join-Path $env:RUNNER_TEMP ("issue380-s1r4-p3-git-runtime-{0}" -f $env:GITHUB_RUN_ID)
           if (Test-Path -LiteralPath $runRoot) { throw "Refusing to reuse run root: $runRoot" }
@@ -119,8 +119,8 @@ jobs:
           $oldWorkflowBlob = '05bcc48e531f662d7aa52e4887f329d2b9710739'
           $oldWorkflowSha = '19bdbce52a890fd340fb9d0d84d45666298080fc2934a0ff1d551d553eaab022'
           $harnessPath = 'scripts/issue380S1R4P3GitRuntimeQualification.ps1'
-          $harnessBlob = 'c7010851eff2149c49ec7596379af54e093f6b2e'
-          $harnessSha = '0a3d31beab77fa7bcfba66261c44cf9883d6a133cde47d7381bf759708683388'
+          $harnessBlob = 'e20787ff1d2a2bce753af7dd7fd440953a6617e9'
+          $harnessSha = '62f18f04d98d4c923f20cd7a4b9d2b7e23836080588aa962080b018f5612de91'
           $childPath = 'scripts/issue380S1R4P3GitRuntimeChild.ps1'
           $childBlob = 'b2f9895172335160315cfd5cd4d1715406704bcb'
           $childSha = 'fb453ed1d79a2079dc3eae0c82d4433090511654a5e366d4620ff2fa07e3575e'
@@ -131,12 +131,12 @@ jobs:
           $artifactBlob = 'fc9f946f28ea6f1fd9b8fe0ecece8a6642e5f014'
           $artifactSha = '9738659b1829592ffbe62f17952c30dd5cefdd12559eff4fdbca7e9e2000b81f'
           $validatorPath = 'scripts/validateIssue380S1R4P3GitRuntimePlan.py'
-          $validatorBlob = '0060fef8fed5c3a0d6eca11b686068a344260c4a'
-          $validatorSha = '16ea6ada5ac173df7dbd4805be326a68168e66753452b8aeb305a455ecea49b9'
-          $activationWorkflow = '.github/workflows/issue-380-s1r4-p3-git-runtime.yml'
+          $validatorBlob = '58ceeb87781f8f0234eb6a9be177f53835b10128'
+          $validatorSha = 'f075cda36daf8c4e8223d6fb02a94c54c3a31220c0b363c72d455a1c13e0fc32'
+          $activationWorkflow = '.github/workflows/issue-380-s1r4-p3-git-runtime-r1.yml'
           $approvedPlanParent = 'OWNER_REVIEWED_PLAN_HEAD_REQUIRED'
           if ($approvedPlanParent -eq 'OWNER_REVIEWED_PLAN_HEAD_REQUIRED') { throw 'Owner-reviewed plan parent has not been bound; refusing activation.' }
-          if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas' -or $env:GITHUB_REF -ne 'refs/heads/research/issue-380-s1r4-p3-git-runtime-once') { throw 'Repository or branch does not match the one-shot contract.' }
+          if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas' -or $env:GITHUB_REF -ne 'refs/heads/qualification/s1r4-p3-windows-runtime-r1') { throw 'Repository or branch does not match the one-shot contract.' }
           if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw "One-shot contract refuses attempt $env:GITHUB_RUN_ATTEMPT" }
 
           function Get-GitText([string[]]$Arguments) {
@@ -351,7 +351,7 @@ jobs:
 
 ## Activation and interpretation limits
 
-- The only trigger is a push to `research/issue-380-s1r4-p3-git-runtime-once` that changes this exact Workflow path. There is no `workflow_dispatch`, matrix, retry, or broad CI invocation.
+- The only trigger is a push to `qualification/s1r4-p3-windows-runtime-r1` that changes this exact Workflow path. There is no `workflow_dispatch`, matrix, retry, or broad CI invocation.
 - The activation commit is a direct child of the reviewed plan HEAD and adds only this Workflow. Its parent SHA must replace the sentinel above before activation; otherwise preflight fails before starting the harness.
 - The plan pins the Runner plus harness, child, controller, P1, S0, and historical Workflow identities. Windows Git checkout policy is set through Git environment configuration before `actions/checkout`; attributes, Git Blob IDs, and raw hashes are checked after checkout.
 - Harness status `PARTIAL_BLOCKED_FAULT_INJECTION_UNPROVEN` is a failure, not a pass. No evidence from this workflow could close the deterministic kill/cleanup-error injection gap without a separate Owner decision.

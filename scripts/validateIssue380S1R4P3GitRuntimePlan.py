@@ -44,9 +44,9 @@ IDENTITY = f"{EVIDENCE}/plan-identity.json"
 STATIC_RESULT = f"{EVIDENCE}/static-validation.txt"
 SHA_SUMS = f"{EVIDENCE}/SHA256SUMS"
 CASE03_OBSERVATION = f"{EVIDENCE}/case03-real-git-observation.json"
-WORKFLOW_PATH = ".github/workflows/issue-380-s1r4-p3-git-runtime.yml"
-FUTURE_BRANCH = "research/issue-380-s1r4-p3-git-runtime-once"
-PREPARATION_BRANCH = "remediation/s1r4-p3-runtime-harness-consolidated"
+WORKFLOW_PATH = ".github/workflows/issue-380-s1r4-p3-git-runtime-r1.yml"
+FUTURE_BRANCH = "qualification/s1r4-p3-windows-runtime-r1"
+PREPARATION_BRANCH = "qualification/s1r4-p3-windows-runtime-r1"
 REMEDIATION_BASE = "18b8e5d4826b246c3741bf37d772e47d98340d16"
 
 ALLOWED_ADDITIONS = {
@@ -125,8 +125,13 @@ class RuntimePlanContracts(unittest.TestCase):
         changed.update(status.splitlines())
         evidence_prefix = "docs/research/evidence/issue-380-s1r4-p3-runtime-remediation/"
         changed = {path for path in changed if not path.startswith(evidence_prefix)}
+        if (ROOT / WORKFLOW_PATH).exists():
+            self.assertEqual(str(git("diff-tree", "--no-commit-id", "--name-status", "-r", "HEAD^", "HEAD")), "A\t" + WORKFLOW_PATH)
+            active = (ROOT / WORKFLOW_PATH).read_text()
+            self.assertIn("$approvedPlanParent = '" + str(git("rev-parse", "HEAD^")) + "'", active)
+            self.assertIn("$script:TestBranch = '" + FUTURE_BRANCH + "'", self.harness)
+            changed.discard(WORKFLOW_PATH)
         self.assertLessEqual(changed, ALLOWED_ADDITIONS)
-        self.assertNotIn(WORKFLOW_PATH, changed)
         self.assertTrue(all(path.startswith("docs/") or path.startswith("scripts/") for path in changed))
 
     def test_03_frozen_sources_and_historical_workflow_are_unchanged(self) -> None:
@@ -240,10 +245,11 @@ class RuntimePlanContracts(unittest.TestCase):
 
     def test_11_current_workflow_triggers_do_not_match_future_branch(self) -> None:
         workflow_dir = ROOT / ".github/workflows"
-        self.assertFalse((ROOT / WORKFLOW_PATH).exists())
+        # Only the newly authorized exact activation Workflow may match this branch.
         for path in workflow_dir.glob("*.yml"):
             text = path.read_text(encoding="utf-8")
-            self.assertNotIn(FUTURE_BRANCH, text, path.name)
+            if path != ROOT / WORKFLOW_PATH:
+                self.assertNotIn(FUTURE_BRANCH, text, path.name)
         self.assertIn("- master", (workflow_dir / "ci.yml").read_text(encoding="utf-8"))
 
     def test_12_history_and_not_run_boundaries_are_explicit(self) -> None:
@@ -337,8 +343,15 @@ class RuntimePlanContracts(unittest.TestCase):
             self.assertIsInstance(push, dict, path.name)
             branches = push.get("branches", [])
             self.assertTrue(branches, f"Unrestricted push workflow: {path.name}")
-            self.assertFalse(any(fnmatch.fnmatchcase(PREPARATION_BRANCH, pattern) for pattern in branches), path.name)
-        self.assertEqual(str(git("diff", "--name-only", REMEDIATION_BASE, "--", ".github/workflows")), "")
+            if path == ROOT / WORKFLOW_PATH:
+                self.assertEqual(branches, [FUTURE_BRANCH])
+                self.assertEqual(push.get("paths"), [WORKFLOW_PATH])
+                self.assertEqual(list(triggers), ["push"])
+                self.assertEqual(workflow["jobs"]["powershell-runtime"]["runs-on"], "windows-2022")
+            else:
+                self.assertFalse(any(fnmatch.fnmatchcase(PREPARATION_BRANCH, pattern) for pattern in branches), path.name)
+        workflow_changes = str(git("diff", "--name-only", REMEDIATION_BASE, "--", ".github/workflows"))
+        self.assertEqual(workflow_changes, WORKFLOW_PATH if (ROOT / WORKFLOW_PATH).exists() else "")
 
     def test_19_result_and_archive_remediation_contracts(self) -> None:
         self.assertIn("ConvertTo-TestCaseResult", self.harness)

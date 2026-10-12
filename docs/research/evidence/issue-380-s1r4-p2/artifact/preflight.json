@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "repository": "ArdenZC/Zen-Canvas",
+  "expected_p2_branch": "research/issue-380-s1r4-p2-windows-path-matrix",
+  "triggering_ref": "refs/heads/research/issue-380-s1r4-p2-windows-path-matrix",
+  "triggering_head": "86c21c14dd65bd2bbdb3056513489e0d4139bb47",
+  "checked_out_head": "86c21c14dd65bd2bbdb3056513489e0d4139bb47",
+  "frozen_p1_head": "7a6fa69e5521d9759702c1923a9ade60a75819c3",
+  "frozen_p1_expected_tree": "c5465ef93eae268e2c683876d959db90fac5da08",
+  "frozen_p1_actual_tree": "c5465ef93eae268e2c683876d959db90fac5da08",
+  "tested_source_head": "7a6fa69e5521d9759702c1923a9ade60a75819c3",
+  "tested_source_tree": "c5465ef93eae268e2c683876d959db90fac5da08",
+  "path_guard_sha256": "39aaa4db01d082b7e6596a6f47108ee0220f9c6f32fb4086d67a14905404d512",
+  "test_script_sha256": "47f5c6b3f6fabe1608fdb0e00b8c48c08cd2c969021ee9bb07a090b9536e6e69",
+  "source_worktree": "D:\\a\\_temp\\issue380-s1r4-p2-frozen-p1-source",
+  "source_worktree_created": true,
+  "failure": null
+}

@@ -1,0 +1,16 @@
+{
+  "repository": "ArdenZC/Zen-Canvas",
+  "workflow": "Issue 380 S1R4-P2 Windows path guard matrix",
+  "workflow_ref": "ArdenZC/Zen-Canvas/.github/workflows/issue-380-s1r4-p2-windows-path-matrix.yml@refs/heads/research/issue-380-s1r4-p2-windows-path-matrix",
+  "triggering_ref": "refs/heads/research/issue-380-s1r4-p2-windows-path-matrix",
+  "triggering_head": "86c21c14dd65bd2bbdb3056513489e0d4139bb47",
+  "run_id": "38258879642",
+  "run_attempt": "1",
+  "runner_os": "Windows",
+  "runner_arch": "X64",
+  "image_os": "win22",
+  "image_version": "20261004.326.1",
+  "host_powershell_version": "7.6.6",
+  "host_powershell_path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+  "environment_version": "Microsoft Windows NT 10.0.20348.0"
+}

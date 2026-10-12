@@ -1,0 +1,378 @@
+{
+  "status": "WINDOWS_RUNTIME_PASS",
+  "is_windows": true,
+  "operating_system": "Microsoft Windows NT 10.0.20348.0",
+  "powershell_version": "7.6.6",
+  "path_guard_module": "scripts/issue380S1R4PathGuard.ps1",
+  "process_launch_count": 0,
+  "nsis_launched": false,
+  "unrelated_executable_launched": false,
+  "cases": [
+    {
+      "name": "taskroot_working_directory",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task",
+      "error": null
+    },
+    {
+      "name": "direct_child_working_directory",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\direct",
+      "error": null
+    },
+    {
+      "name": "nested_child_working_directory",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\direct\\nested",
+      "error": null
+    },
+    {
+      "name": "shared_prefix_sibling_working_directory",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Working directory is outside TaskRoot: root=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task candidate=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task-sibling"
+    },
+    {
+      "name": "taskroot_parent_working_directory",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Working directory is outside TaskRoot: root=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task candidate=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507"
+    },
+    {
+      "name": "other_runner_temp_working_directory",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Working directory is outside TaskRoot: root=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task candidate=D:\\a\\_temp\\issue380-s1r4-external-d732a6b3e33e44cd91ba6656783cd507"
+    },
+    {
+      "name": "taskroot_outside_runner_temp_rejected",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "TaskRoot is outside RUNNER_TEMP: runner_temp=D:\\a\\_temp task_root=D:\\"
+    },
+    {
+      "name": "traversal_that_resolves_back_inside",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "WorkingDirectory path contains a parent-directory traversal segment: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\direct\\..\\direct"
+    },
+    {
+      "name": "traversal_to_parent",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "WorkingDirectory path contains a parent-directory traversal segment: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\..\\external"
+    },
+    {
+      "name": "uppercase_path_variant",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\A\\_TEMP\\ISSUE380-S1R4-PATH-TESTS-D732A6B3E33E44CD91BA6656783CD507\\TASK\\DIRECT\\NESTED",
+      "error": null
+    },
+    {
+      "name": "forward_slash_path_variant",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\direct\\nested",
+      "error": null
+    },
+    {
+      "name": "uppercase_forward_slash_path_variant",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\A\\_TEMP\\ISSUE380-S1R4-PATH-TESTS-D732A6B3E33E44CD91BA6656783CD507\\TASK\\DIRECT\\NESTED",
+      "error": null
+    },
+    {
+      "name": "uppercase_taskroot_variant",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\direct\\nested",
+      "error": null
+    },
+    {
+      "name": "forward_slash_taskroot_variant",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\direct\\nested",
+      "error": null
+    },
+    {
+      "name": "trailing_separator_taskroot_variant",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task",
+      "error": null
+    },
+    {
+      "name": "existing_in_root_executable",
+      "kind": "Executable",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\synthetic-compiler.exe",
+      "error": null
+    },
+    {
+      "name": "uppercase_executable_path_variant",
+      "kind": "Executable",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\A\\_TEMP\\ISSUE380-S1R4-PATH-TESTS-D732A6B3E33E44CD91BA6656783CD507\\TASK\\SYNTHETIC-COMPILER.EXE",
+      "error": null
+    },
+    {
+      "name": "forward_slash_executable_path_variant",
+      "kind": "Executable",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\synthetic-compiler.exe",
+      "error": null
+    },
+    {
+      "name": "taskroot_is_not_an_executable",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable must be a strict descendant of TaskRoot: root=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task candidate=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task"
+    },
+    {
+      "name": "missing_executable",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path component does not exist or cannot be inspected: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\missing.exe; Exception calling \"GetAttributes\" with \"1\" argument(s): \"Could not find file 'D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\missing.exe'.\""
+    },
+    {
+      "name": "directory_cannot_be_executable",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable is not an ordinary file: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\direct\\nested"
+    },
+    {
+      "name": "outside_taskroot_executable",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable must be a strict descendant of TaskRoot: root=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task candidate=D:\\a\\_temp\\issue380-s1r4-external-d732a6b3e33e44cd91ba6656783cd507\\outside.exe"
+    },
+    {
+      "name": "another_runner_temp_directory_is_not_executable",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable must be a strict descendant of TaskRoot: root=D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task candidate=D:\\a\\_temp\\issue380-s1r4-external-d732a6b3e33e44cd91ba6656783cd507"
+    },
+    {
+      "name": "unc_path_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path uses UNC syntax; only local drive paths are allowed: \\\\example.invalid\\share\\tool.exe"
+    },
+    {
+      "name": "unc_taskroot_rejected",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "TaskRoot path uses UNC syntax; only local drive paths are allowed: \\\\example.invalid\\share"
+    },
+    {
+      "name": "extended_device_path_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path uses a Windows device namespace, which is not allowed: \\\\?\\C:\\Windows\\System32\\tool.exe"
+    },
+    {
+      "name": "device_namespace_taskroot_rejected",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "TaskRoot path uses a Windows device namespace, which is not allowed: \\\\?\\C:\\isolated\\task"
+    },
+    {
+      "name": "win32_device_path_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path uses a Windows device namespace, which is not allowed: \\\\.\\C:\\Windows\\System32\\tool.exe"
+    },
+    {
+      "name": "nt_device_path_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path uses a Windows device namespace, which is not allowed: \\??\\C:\\Windows\\System32\\tool.exe"
+    },
+    {
+      "name": "relative_candidate_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path must be fully qualified: relative\\tool.exe"
+    },
+    {
+      "name": "drive_relative_candidate_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path must be fully qualified: C:relative\\tool.exe"
+    },
+    {
+      "name": "alternate_data_stream_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path contains an alternate data stream or embedded colon: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\synthetic-compiler.exe:stream"
+    },
+    {
+      "name": "junction_working_directory_rejected",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "WorkingDirectory path traverses a reparse point: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\junction-to-external"
+    },
+    {
+      "name": "junction_descendant_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path traverses a reparse point: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\junction-to-external"
+    },
+    {
+      "name": "directory_symlink_working_directory_rejected",
+      "kind": "WorkingDirectory",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "WorkingDirectory path traverses a reparse point: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\symlink-to-external"
+    },
+    {
+      "name": "file_symlink_executable_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "Executable path traverses a reparse point: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task\\linked.exe"
+    },
+    {
+      "name": "taskroot_symlink_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "TaskRoot path traverses a reparse point: D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\taskroot-symlink"
+    },
+    {
+      "name": "taskroot_reparse_ancestor_rejected",
+      "kind": "Executable",
+      "expected": "REJECT",
+      "actual": "REJECT",
+      "passed": true,
+      "resolved_path": null,
+      "error": "TaskRoot path traverses a reparse point: D:\\a\\_temp\\issue380-s1r4-parent-link-d732a6b3e33e44cd91ba6656783cd507"
+    },
+    {
+      "name": "compiler_version_working_directory_is_taskroot",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task",
+      "error": null
+    },
+    {
+      "name": "compiler_hdrinfo_working_directory_is_taskroot",
+      "kind": "WorkingDirectory",
+      "expected": "ALLOW",
+      "actual": "ALLOW",
+      "passed": true,
+      "resolved_path": "D:\\a\\_temp\\issue380-s1r4-path-tests-d732a6b3e33e44cd91ba6656783cd507\\task",
+      "error": null
+    }
+  ],
+  "failures": [],
+  "cleanup": {
+    "owned_scope_root_removed": true,
+    "owned_external_fixture_removed": true,
+    "owned_links_removed": true
+  }
+}

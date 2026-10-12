@@ -1,0 +1,20 @@
+{
+  "executable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+  "process_id": 6020,
+  "arguments": [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-File",
+    "D:\\a\\_temp\\issue380-s1r4-p2-frozen-p1-source\\scripts\\testIssue380S1R4PathGuard.ps1"
+  ],
+  "test_script": "D:\\a\\_temp\\issue380-s1r4-p2-frozen-p1-source\\scripts\\testIssue380S1R4PathGuard.ps1",
+  "test_script_sha256": "47f5c6b3f6fabe1608fdb0e00b8c48c08cd2c969021ee9bb07a090b9536e6e69",
+  "path_guard_sha256": "39aaa4db01d082b7e6596a6f47108ee0220f9c6f32fb4086d67a14905404d512",
+  "powershell_version": "7.6.6",
+  "started_utc": "2026-10-12T13:53:36.9782277Z",
+  "finished_utc": "2026-10-12T13:53:37.7163552Z",
+  "exit_code": 0,
+  "timed_out": false,
+  "failure": null
+}

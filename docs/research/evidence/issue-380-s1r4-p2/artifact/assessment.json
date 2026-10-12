@@ -1,0 +1,23 @@
+{
+  "status": "PATH_MATRIX_PASS",
+  "path_matrix_pass": true,
+  "triggering_head": "86c21c14dd65bd2bbdb3056513489e0d4139bb47",
+  "frozen_test_source_head": "7a6fa69e5521d9759702c1923a9ade60a75819c3",
+  "frozen_test_source_tree": "c5465ef93eae268e2c683876d959db90fac5da08",
+  "path_guard_sha256": "39aaa4db01d082b7e6596a6f47108ee0220f9c6f32fb4086d67a14905404d512",
+  "test_script_sha256": "47f5c6b3f6fabe1608fdb0e00b8c48c08cd2c969021ee9bb07a090b9536e6e69",
+  "powershell_version": "7.6.6",
+  "windows_version": "Microsoft Windows NT 10.0.20348.0",
+  "expected_case_count": 40,
+  "actual_case_count": 40,
+  "unique_case_count": 40,
+  "all_expected_actual_and_passed": true,
+  "test_fixture_cleanup_pass": true,
+  "test_process_exit_code": 0,
+  "test_process_timed_out": false,
+  "test_process_id": 6020,
+  "preflight_step_outcome": "success",
+  "path_matrix_step_outcome": "success",
+  "owned_source_worktree_cleanup": "OWNED_WORKTREE_REMOVED",
+  "parse_failure": null
+}

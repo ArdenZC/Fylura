@@ -149,6 +149,12 @@ function Invoke-GitCapture(
         stderr_complete = $false
         output_wait_timeout_ms = [Math]::Max(1, $OutputDrainTimeoutSeconds * 1000)
         post_close_wait_timeout_ms = [Math]::Max(1, $PostCloseDrainTimeoutMilliseconds)
+        process_timeout_ms = [Math]::Max(1, $TimeoutSeconds * 1000)
+        termination_timeout_ms = [Math]::Max(1, $ProcessTerminationTimeoutSeconds * 1000)
+        process_wait_attempts = 0
+        kill_attempts = 0
+        output_wait_attempts = 0
+        post_close_wait_attempts = 0
         stream_close_attempted = $false
         stream_close_error = $null
         cleanup_completed = $false
@@ -203,7 +209,8 @@ function Invoke-GitCapture(
         $stderrTask = $process.StandardError.ReadToEndAsync()
 
         try {
-            $capture.process_exit_confirmed = $process.WaitForExit($TimeoutSeconds * 1000)
+            $capture.process_wait_attempts += 1
+            $capture.process_exit_confirmed = $process.WaitForExit($capture.process_timeout_ms)
         } catch {
             $capture.process_error = $_.Exception.ToString()
         }
@@ -211,6 +218,7 @@ function Invoke-GitCapture(
         if (-not $capture.process_exit_confirmed) {
             if ($null -eq $capture.process_error) { $capture.timed_out = $true }
             $capture.kill_attempted = $true
+            $capture.kill_attempts += 1
             try {
                 $process.Kill($true)
                 $capture.kill_succeeded = $true
@@ -218,7 +226,8 @@ function Invoke-GitCapture(
                 $capture.kill_error = $_.Exception.ToString()
             }
             try {
-                $capture.process_exit_confirmed = $process.WaitForExit($ProcessTerminationTimeoutSeconds * 1000)
+                $capture.process_wait_attempts += 1
+                $capture.process_exit_confirmed = $process.WaitForExit($capture.termination_timeout_ms)
                 if (-not $capture.process_exit_confirmed) {
                     $capture.process_error = 'Git process tree did not exit within the bounded termination wait.'
                 }
@@ -231,6 +240,7 @@ function Invoke-GitCapture(
         # deadline. GetAwaiter().GetResult() is used only for tasks already
         # confirmed complete; it can therefore never wait for a pending read.
         $outputWaitAttempted = $true
+        $capture.output_wait_attempts += 1
         try {
             [void][System.Threading.Tasks.Task]::WaitAll(
                 [System.Threading.Tasks.Task[]]@($stdoutTask, $stderrTask),
@@ -267,6 +277,7 @@ function Invoke-GitCapture(
             }
 
             try {
+                $capture.post_close_wait_attempts += 1
                 [void][System.Threading.Tasks.Task]::WaitAll(
                     [System.Threading.Tasks.Task[]]@($stdoutTask, $stderrTask),
                     $capture.post_close_wait_timeout_ms
@@ -295,9 +306,11 @@ function Invoke-GitCapture(
             try {
                 if (-not $process.HasExited) {
                     if (-not $capture.kill_attempted) { $capture.kill_attempted = $true }
+                    $capture.kill_attempts += 1
                     $process.Kill($true)
                     $capture.kill_succeeded = $true
-                    $capture.process_exit_confirmed = $process.WaitForExit($ProcessTerminationTimeoutSeconds * 1000)
+                    $capture.process_wait_attempts += 1
+                    $capture.process_exit_confirmed = $process.WaitForExit($capture.termination_timeout_ms)
                     if (-not $capture.process_exit_confirmed) {
                         throw 'Git process tree remained alive after the bounded final termination wait.'
                     }
@@ -306,6 +319,18 @@ function Invoke-GitCapture(
                 $cleanupMessage = $_.Exception.ToString()
                 if ($null -eq $capture.cleanup_error) { $capture.cleanup_error = $cleanupMessage }
                 else { $capture.cleanup_error += "`n$cleanupMessage" }
+            }
+        }
+        if ($processStarted -and $null -ne $process) {
+            try {
+                if ($process.HasExited) {
+                    $capture.process_exit_confirmed = $true
+                    if ($null -eq $capture.exit_code) { $capture.exit_code = [int]$process.ExitCode }
+                }
+            } catch {
+                $exitReadError = "Could not record Git exit state after cleanup: $($_.Exception.ToString())"
+                if ($null -eq $capture.process_error) { $capture.process_error = $exitReadError }
+                else { $capture.process_error += "`n$exitReadError" }
             }
         }
 
@@ -317,6 +342,7 @@ function Invoke-GitCapture(
         if ($null -ne $stderrTask) { $activeReadTasks.Add($stderrTask) }
         if ($activeReadTasks.Count -gt 0 -and -not $outputWaitAttempted) {
             $outputWaitAttempted = $true
+            $capture.output_wait_attempts += 1
             try {
                 [void][System.Threading.Tasks.Task]::WaitAll(
                     $activeReadTasks.ToArray(),
@@ -347,6 +373,7 @@ function Invoke-GitCapture(
         }
         if ($capture.stream_close_attempted -and $activeReadTasks.Count -gt 0) {
             try {
+                $capture.post_close_wait_attempts += 1
                 [void][System.Threading.Tasks.Task]::WaitAll(
                     $activeReadTasks.ToArray(),
                     $capture.post_close_wait_timeout_ms
@@ -451,6 +478,12 @@ function Invoke-GitCapture(
         stderr_complete = $capture.stderr_complete
         output_wait_timeout_ms = $capture.output_wait_timeout_ms
         post_close_wait_timeout_ms = $capture.post_close_wait_timeout_ms
+        process_timeout_ms = $capture.process_timeout_ms
+        termination_timeout_ms = $capture.termination_timeout_ms
+        process_wait_attempts = $capture.process_wait_attempts
+        kill_attempts = $capture.kill_attempts
+        output_wait_attempts = $capture.output_wait_attempts
+        post_close_wait_attempts = $capture.post_close_wait_attempts
         stream_close_attempted = $capture.stream_close_attempted
         stream_close_error = $capture.stream_close_error
         cleanup_completed = $capture.cleanup_completed

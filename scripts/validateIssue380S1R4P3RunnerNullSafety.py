@@ -325,10 +325,9 @@ class BoundedGitCaptureContracts(unittest.TestCase):
         )
         self.assertEqual(result["status"], "EXITED_ZERO")
         self.assertTrue(result["accepted"])
-        self.assertLess(self.capture_source.index("$stdoutTask = $process.StandardOutput.ReadToEndAsync()"),
-                        self.capture_source.index("$process.WaitForExit($TimeoutSeconds * 1000)"))
-        self.assertLess(self.capture_source.index("$stderrTask = $process.StandardError.ReadToEndAsync()"),
-                        self.capture_source.index("$process.WaitForExit($TimeoutSeconds * 1000)"))
+        process_wait = self.capture_source.index("$process.WaitForExit($capture.process_timeout_ms)")
+        self.assertLess(self.capture_source.index("$stdoutTask = $process.StandardOutput.ReadToEndAsync()"), process_wait)
+        self.assertLess(self.capture_source.index("$stderrTask = $process.StandardError.ReadToEndAsync()"), process_wait)
 
     def test_14_empty_stdout_with_zero_exit_is_accepted(self) -> None:
         result = classify_bounded_capture(BoundedCaptureModel(exit_code=0, stdout="", stderr=""))
@@ -403,13 +402,18 @@ class BoundedGitCaptureContracts(unittest.TestCase):
         self.assertTrue(second["accepted"])
         self.assertIn("$script:GitInvocations.Add([ordered]@{", self.capture_source)
         self.assertIn("exit_code = $capture.exit_code", self.capture_source)
+        self.assertIn("kill_attempts = $capture.kill_attempts", self.capture_source)
+        self.assertIn("process_wait_attempts = $capture.process_wait_attempts", self.capture_source)
         self.assertNotIn("$LASTEXITCODE", self.runner)
 
     def test_20_output_waits_are_bounded_and_result_reads_are_completion_guarded(self) -> None:
         self.assertIn("Task]::WaitAll(", self.capture_source)
         self.assertIn("$capture.output_wait_timeout_ms", self.capture_source)
         self.assertIn("$capture.post_close_wait_timeout_ms", self.capture_source)
+        self.assertIn("$capture.output_wait_attempts += 1", self.capture_source)
+        self.assertIn("$capture.post_close_wait_attempts += 1", self.capture_source)
         self.assertIn("$stream.Task.GetAwaiter().GetResult()", self.capture_source)
+        self.assertNotRegex(self.capture_source, r"\.WaitForExit\(\s*\)")
         read_guard = self.capture_source.index("if ($null -eq $stream.Task -or -not $stream.Task.IsCompleted) { continue }")
         result_read = self.capture_source.index("$stream.Task.GetAwaiter().GetResult()")
         self.assertLess(read_guard, result_read)

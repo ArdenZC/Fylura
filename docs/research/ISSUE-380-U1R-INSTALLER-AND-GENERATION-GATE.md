@@ -1,6 +1,6 @@
 # #380-U1R-FIX Gate 0 / Gate 1 增补
 
-当前状态：**Gate 0 PASS；Gate 1 等待唯一一次 Hosted Windows 运行**。本节是 U1R-FIX 的当前权威记录；下方 U1R 报告保留历史事实，包括 Run 38201379732 失败，不覆盖、不删除原始历史证据。
+当前状态：**Gate 0 PASS；Gate 1 已完成唯一一次 Hosted Windows 运行，但结论 BLOCKED**：NSIS 首个失败谓词仍为 `UNKNOWN`；同路径跨代 Rebuild 请求返回 fail-closed 错误且逻辑数据库状态保持不变，但没有捕获原始 IPC 帧。最终建议 `U2 production NO-GO`。本节是 U1R-FIX 的当前权威记录；下方 U1R 报告保留历史事实，包括 Run 38201379732 失败，不覆盖、不删除原始历史证据。
 
 本阶段只修正研究 Harness，未改正式安装器、IPC、Coordinator、Schema、数据库迁移或 PR #386。U1R-FIX 的实现仍不是 #380 生产缺陷修复。
 
@@ -27,13 +27,68 @@ Gate 0 使用 Docker 镜像 `issue380-u1r-gate0-test`（image ID `sha256:7adc66e
 - **Harness 数据前置条件：PASS。** JSON `-AsHashtable` 保留空注册表值名；NSIS 与同路径场景要求 canonical 安装目录已不存在并 fail-closed，不再删除未知目录；旧客户端运行中不读取它可能锁住的 SQLite 文件，测试先做 pre-snapshot，在进程退出后做 post-snapshot。
 - Gate 0 没运行 Cargo/Rust、UI、安装包构建或完整 CI。实际 D1-A `buildWindowsPackage.mjs` 的注入代码通过 Node `--check` 与 converter contract smoke，Node 版本和输出源 hash 在 evidence JSON 中。
 
-Gate 0 没有执行 Hosted Windows 安装或同路径跨代请求，不能据此判断 NSIS exit 2 根因，也不能声称旧进程已被隔离。Gate 1 只允许由本分支触发一次；运行后在本增补中记录 exact run/job/artifact/hash、根因谓词和状态变化。若这次 run 因 Harness 无法完成，则不再重跑，提交 `#380-U1R HARNESS_BLOCKED`。
+Gate 0 没有执行 Hosted Windows 安装或同路径跨代请求。Gate 1 现已按限制执行一次；不重跑。完整原始工件与逐文件 SHA-256 见 [`gate1/run-38211883187`](evidence/issue-380-u1r-fix/gate1/run-38211883187/)。
+
+## Gate 1：唯一 Hosted Windows 运行
+
+| 项目 | 结果 |
+|---|---|
+| Run / attempt | [38211883187](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38211883187) / 1 |
+| exact run commit / Tree | `34c5f39ef726520c2533ac2450d1f3e5175e0e18` / `887f7239844eb5fbcd2ca19553af402bb87aae75` |
+| Job | `114687666486`，`U1R unresolved NSIS predicate and same-path generation proof`；结论 `success`，结束时间 `2026-10-12T06:52:31Z` |
+| Artifact | `issue-380-u1r-hosted-windows-38211883187-1`，ID `11732155258`，123325 bytes，SHA-256 `d7274ffc4795d3053a4f655080f91e51e04b0d9986c1beb4cc7570db214e143c` |
+| Runner | Windows Server 2025 Datacenter `10.0.26100`，64-bit，PowerShell `7.6.6` |
+| 基线校验 | 开始时 origin branch=`dcd1b0ea5e7a2d055bba2a041f022587bcd37316`、origin/master=`3275ac7c72df8ae4139a30f16c7f649971324e97`；运行时 branch=`34c5f39ef726520c2533ac2450d1f3e5175e0e18`、master 仍为冻结 SHA。old `3275ac7c72df8ae4139a30f16c7f649971324e97` / Tree `009576241cd4e8e2ba12cc644a368314f599faa6`；D1-A `d260131f9d6ec354f2361e6c7460c79e62e38391` / Tree `4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69`；两者均报告 `PASS_EXACT_CLEAN` |
+
+| 候选 | 版本 / identifier | 测试安装器 SHA-256 | NSIS payload EXE SHA-256 | QA EXE SHA-256 | 无插桩 release build SHA-256 |
+|---|---|---|---|---|---|
+| old | `0.1.40` / `com.startlan.zencanvas` | `2d1d3d33095347984cb18f2889a4fe3bb12f16697027499fff16afdf36f72554` | `380dd4f04133f5d0dbf3be3daf1bfed8ea972ea267d2834c553df54e67a33050` | `b19e2836f4fab2393808277308e6df8508ffa2e2807343f7aae35425db9039ae` | `0a37b819097040e0b2ef54a7ff49964a4250c5924bf04516550ea0059c27daf6` |
+| D1-A | `0.1.40` / `com.startlan.zencanvas` | `9bc3fa75681baec8e0cf0ba87b3d4235545ad2f8b738aa5ca580dd8a6bbd8d41` | `7236b2edf0b6f13f0a3507a386dcea47fe64ace5ab3d936ebbb1164b39ec76ea` | `0db79caea03750896f9e9609fa9f4fc37ea17ddefb3e1c68f20759556b2ded06` | `d65feb050b97da8bf855ce1bff7b4a1691ddfa246bb0ea316dfbfcecbc7c65a7` |
+
+两个候选的 Cargo/Tauri/package/File/Product 版本都为 `0.1.40`，版本字段本身不能标识代际。工作流报告 NSIS payload SHA 与其无插桩 release build SHA 不相等；同路径身份探针使用的是在冻结源码上增加测试 gate/trace 的编译 QA EXE。上表严格区分这些产物，不把诊断 QA/NSIS payload 称为正式发布二进制。
+
+原始记录：[完整 artifact ZIP](evidence/issue-380-u1r-fix/gate1/run-38211883187/issue-380-u1r-hosted-windows-38211883187-1.zip)、[LF-normalized JSON view](evidence/issue-380-u1r-fix/gate1/run-38211883187/u1-evidence.normalized.json)、[SHA256SUMS](evidence/issue-380-u1r-fix/gate1/run-38211883187/SHA256SUMS)。ZIP 内保留上传的原始 JSON；normalized view 只转换行尾，ZIP SHA-256 与 Actions 上传日志的 digest 相同。
+
+Job 成功表示 Harness 完成并上传工件，不代表 Gate 通过。其 JSON `u1rDisposition.status` 为 `BLOCKED`，失败列表为空；没有运行额外 CI 或第二次 Hosted 验证。
+
+### A. NSIS exit code 2：首个失败谓词 `UNKNOWN`
+
+测试先将 old 冻结候选安装到 canonical 路径，再对已安装的旧版运行 D1-A 安装器 `/S /LOG=<path>`。old fresh install 返回 0；D1-A 原位 no-update 尝试返回 **2**。D1-A 测试安装器 SHA-256 为 `9bc3fa75681baec8e0cf0ba87b3d4235545ad2f8b738aa5ca580dd8a6bbd8d41`。Harness 找不到指定 `/LOG` 文件、诊断 trace 或 old uninstaller log；三个路径均不存在，stdout/stderr 为空，也没有捕获内部校验 trace、Abort 文本或 uninstaller 进程样本。因此唯一可接受结论是 `UNKNOWN: diagnostic trace did not identify the first failing NSIS condition`。不能从 exit code 或注册表快照把根因归为 `EstimatedSize`。
+
+失败前后快照记录 ARP `EstimatedSize` 为 `REG_DWORD 35150`，`InstallLocation`、`DisplayIcon` 与 `UninstallString` 指向 `C:\Program Files\Zen Canvas` 下的旧安装；manufacturer 产品键默认空值名存在。Preview CLSID、`InprocServer32` 与 PreviewHandlers 注册均存在。Service 注册 `ImagePath` 是 `"C:\Program Files\Zen Canvas\zen-canvas.exe" --index-service`。这些快照没有指出哪个 predicate 首先返回 false；各路径和值、实际/期望比较和 `GetSize`/`${ESTIMATEDSIZE}` 的逐步结果仍未被日志证明。
+
+安装失败后旧 EXE SHA-256 仍为 `380dd4f04133f5d0dbf3be3daf1bfed8ea972ea267d2834c553df54e67a33050`；old Service PID `7336` 仍在运行，old 桌面进程 PID `6932` 仍在运行，Service 没有在尝试过程中停止，未观察到卸载器进程。安装器进程 PID `7456` 已退出并返回 2。old Service 二进制、旧 registry 和 canonical 安装文件在前后快照中保持旧身份。独立 profile 的 pre/post process-shutdown 数据快照相同：Global active entries=4、stale=0、FTS marker hits=1、`entry_count=4`；Managed scope/entry 各 1 且 entry enabled=1；AI Analysis 1 行保持 `completed/user_corrected=1`，AI Job 与 item 各 1 行保持 `pending`；source health、checkpoint、更新时间均保持原值。此处证明失败安装没有在观察窗口内改动该合成 profile；不证明哪个 NSIS 条件拒绝了安装。
+
+### B. 同一 canonical 路径：旧映射客户端请求被拒绝
+
+此独立场景没有运行 NSIS，也没有改变其安全谓词；Harness 在一次性 Hosted 主机中使用原子文件替换构造进程竞态，不将其当作真实安装器成功升级。旧 QA 客户端 PID `4864` 于 `2026-10-12T06:41:04.19905Z` 启动，测试代际标记为 `old-master-3275ac7-test-instrumented`，起始映像 SHA-256 `b19e2836f4fab2393808277308e6df8508ffa2e2807343f7aae35425db9039ae`。旧 Service PID `3356` 使用同一 SHA，先被停止并注销。之后旧客户端仍以相同 PID、创建时间和 canonical image path 存活；`File.Replace` 将磁盘路径上的 old SHA 移入 `.u1r-old-mapped-backup.exe`，并把 D1-A QA 映像 SHA `0db79caea03750896f9e9609fa9f4fc37ea17ddefb3e1c68f20759556b2ded06` 放到 `C:\Program Files\Zen Canvas\zen-canvas.exe`。新 D1-A Service PID `6964` 在同路径启动，磁盘映像哈希与该 D1-A QA 候选一致。
+
+解除旧客户端启动 gate 后，Harness 的 Coordinator Rebuild 调用记录为 `Err(Provider("index_service_client_executable_mismatch"))`。在冻结的 old 与 D1-A Service 源码中，这个唯一错误字符串来自 named-pipe client process-image-path 校验失败；D1-A 的“身份通过”“Rebuild accepted”“operation claimed”“source validated”标记均未出现，请求 ID 字段均为空。由此有证据支持**同路径旧映射进程的 Rebuild 被 Service 的进程映像路径检查 fail-closed 拒绝**，并且没有进入 admission/operation 阶段。
+
+限制：原始 artifact 没有 Service rejection trace，也没有保存 pipe 上的原始 Request/Response frame bytes、request ID 或结构化响应帧。因此帧内容与协议层完整响应仍标记 `UNVERIFIED`；以上拒绝归属来自旧客户端实际错误结果与生产源码中该错误字符串的唯一来源，不应扩大成“已验证所有同路径代际组合”或“安装器已隔离所有旧进程”。
+
+同路径 profile 在调用前/后主数据库 SHA-256 均为 `2559bbf9b91533c01cf2263ba33a261499bafbc099913f5477508b23e4934aca`，完整逻辑快照比较 `preserved=true`：Global active entries=4、stale=0、FTS marker hits=1、source `entry_count=4`、`index_status=rebuild_required`、`journal_id=134362608560698121`、`journal_cursor=664`、`last_full_index_at=last_incremental_sync_at=1791787256`、`updated_at=1791787257` 均未变；Managed entry 仍 enabled；AI Analysis 仍 completed/user-corrected，AI Job 与 item 仍 pending。没有观察到 Direct 扫描 trace 或这些表的状态变化。
+
+### C. Direct fallback 与清理
+
+本次 Focus run 没有重复触发 Direct fallback；它沿用已保存的 Run `38193683826` 实测结果，证据 JSON SHA-256 `47e11a0b8de92f73fbf70633ccfe8c48ce1475e752081a0fa54e6fe1a9d15772`，旧 QA 候选 SHA-256 `97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1`、客户端 PID `10176`。Service 停止且 v3 pipe absent 后，legacy client 观察到 transport error 并运行 Direct MFT。合成 source 的 `index_status` 从 `rebuild_required` 变成 `ready`；`last_full_index_at` 与 `last_incremental_sync_at` 从 `1791771362` 推进到 `1791772218`，`updated_at` 从 `1791771363` 推进到 `1791772218`。`journal_id=134362449615844939`、`journal_cursor=664`、`entry_count=4` 与 `enabled=1` 不变；Global active entries=4、stale=0、marker entry 存在、FTS hit=1。对应 Managed Entry 从 `enabled=1` 变为 `0`；AI Analysis 从 `completed` 变为 `stale`，`last_error=global_entry_stale`；AI Job 和 Job Item 从 `pending` 变为 `stale`，错误同为 `global_entry_stale`。计数保持 1。主 `.sqlite3` SHA 前后均为 `fae4fd43f5b718951f8860d8127d0eceb2d721a129463b72fb82bf6cf7605da6`，但逻辑查询状态已改变；本次原始 WAL/profile files 保存在 [Run 38193683826 evidence](evidence/issue-380-u1r/run-38193683826/u1-evidence.json)。这是此前原始证据，不是本次 Gate 1 重跑结果。
+
+Hosted artifact 的 `failures=[]`、cleanup failure 为空；隔离 VHD 已 detach 并删除，Harness 清理检查仅针对任务命名的 Service 与进程路径。运行后 Runner 为一次性环境。Gate0 与 Gate1 都没有改生产代码、NSIS 安装器、IPC、Coordinator、Schema 或 PR #386。
+
+## 最终判定与 U2 建议
+
+- Gate 0 通过：旧重复标签失败已确定性复现，新 DetailPrint 插桩编译通过，正式 Registry、Preview Handler、Service ownership/ImagePath 检查在去除测试行后逐字节保持。
+- Gate 1 同路径请求：进程身份与 Service 代际更替被真实构造，旧 Rebuild 调用得到 fail-closed 错误且数据库逻辑状态未变；原始 IPC frame 不可用，保留为证据限制。
+- Gate 1 NSIS 根因：`UNKNOWN`。没有首个内部 Registry/EstimatedSize/Preview/Service predicate，因此本 gate 未达到“根因已定位”。
+- **U2 production 建议：NO-GO。** 不以 exit code 推测或放宽 NSIS 检查，也不据单一同路径拒绝结果宣称代际安全已全面证明。先补足能定位内部 NSIS predicate 的可观察证据，并在后续获批的隔离验证中保存真实 pipe request/response 或可审计拒绝记录；再由 Owner 决定 U2 升级门禁设计。
+
+最终状态：`#380-U1R HARNESS_BLOCKED`。
 
 ---
 
-# #380-U1R 安装器根因与代际隔离研究报告
+# #380-U1R 安装器根因与代际隔离研究报告（U1R 原阶段历史记录）
 
-状态：**BLOCKED — NSIS 首个生产失败条件与旧进程代际隔离均未证明**。最终窄范围 Hosted run 的 Harness 在 NSIS 编译阶段失败，目标场景没有运行。
+历史状态（截至 Run 38201379732）：**BLOCKED — NSIS 首个生产失败条件与旧进程代际隔离均未证明**。该次窄范围 Hosted run 的 Harness 在 NSIS 编译阶段失败，目标场景没有运行。后续 U1R-FIX Gate 0 / Gate 1 结果见本文件顶部增补。
 
 本报告是隔离研究与测试 Harness 证据，不代表 #380 生产缺陷已修复。没有修改 #386 已验收生产实现、正式 Schema、IPC、NSIS 或产品版本。
 
@@ -236,4 +291,4 @@ Schema v38 所属设计需要与 #381 协调。本阶段不新增或保留 v38 �
 
 最终结论：旧版 Direct fallback 已由真实旧客户端证明会更改 source health/索引时间、Managed Entry 和 AI 关联状态；Windows 也已由真实进程测试证明允许同路径替换 EXE 时旧 PID 仍存活。NSIS exit 2 的内部首个失败条件与旧客户端对新 Service 的同路径身份结果未能验证。U2 应按本报告 A+B+C 组合方案推进设计审议，但生产实施仍需 Owner 单独授权，且必须先修复并验证 Hosted 测试 Harness、定位 NSIS 首个 predicate、证明旧进程写入隔离。
 
-最终状态：`#380-U1R INSTALLER AND GENERATION GATE READY_FOR_OWNER_REVIEW` — **Gate: BLOCKED**。
+原始 U1R 报告交付状态（历史记录；当前状态以本文档顶部 U1R-FIX 增补为准）：`#380-U1R INSTALLER AND GENERATION GATE READY_FOR_OWNER_REVIEW` — **Gate: BLOCKED**。

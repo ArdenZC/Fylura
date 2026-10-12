@@ -1952,7 +1952,11 @@ try {
         if ($Mode -eq "U1R_FOCUS") {
             $priorDirectEvidencePath = Join-Path $PSScriptRoot "../docs/research/evidence/issue-380-u1r/run-38193683826/u1-evidence.json"
             if (-not (Test-Path -LiteralPath $priorDirectEvidencePath)) { throw "U1R focus mode requires the archived rich Direct fallback evidence from run 38193683826" }
-            $priorDirectEvidence = Get-Content -LiteralPath $priorDirectEvidencePath -Raw | ConvertFrom-Json
+            # The archived registry snapshots include the unnamed default
+            # registry value (JSON property name ""). PowerShell 7.6 requires
+            # -AsHashtable to preserve that shape instead of terminating before
+            # either focused U1R scenario starts.
+            $priorDirectEvidence = Get-Content -LiteralPath $priorDirectEvidencePath -Raw | ConvertFrom-Json -AsHashtable
             if ($priorDirectEvidence.u1rDirectFallback.status -ne "OBSERVED_LEGACY_DIRECT_FALLBACK_WITH_RICH_BASELINE") { throw "U1R focus mode found no accepted rich Direct fallback evidence in run 38193683826" }
             $global:U1Evidence.u1rDirectFallback = [ordered]@{
                 status = $priorDirectEvidence.u1rDirectFallback.status

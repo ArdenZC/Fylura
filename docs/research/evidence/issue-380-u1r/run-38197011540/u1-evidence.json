@@ -1,0 +1,62 @@
+{
+  "contract": "U1R focused installer diagnostics and same-path generation test; test-only; not a production fix",
+  "mode": "U1R",
+  "u1Head": "75e0490bccaaa0e05b8c727b941baf889aa44e02",
+  "u1Tree": "30e527fbe6eaa85b24d1229330f255d251d0a6a7",
+  "old": {
+    "commit": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38197011540-1\\old-master"
+  },
+  "d1a": {
+    "commit": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "sourceStatus": "UNBUILT"
+  },
+  "runner": {
+    "caption": "Microsoft Windows Server 2025 Datacenter",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "64-bit",
+    "runId": "38197011540",
+    "runAttempt": "1",
+    "powershell": "7.6.6",
+    "currentDirectory": "D:\\a\\Zen-Canvas\\Zen-Canvas"
+  },
+  "candidates": {},
+  "matchingPairs": {},
+  "mixedPairs": {},
+  "directFallback": {},
+  "installer": {
+    "status": "UNVERIFIED",
+    "samples": [],
+    "transitions": [],
+    "interruption": {
+      "status": "UNVERIFIED"
+    },
+    "repair": {
+      "status": "UNVERIFIED"
+    }
+  },
+  "u1rDisposition": {
+    "status": "BLOCKED",
+    "blockers": [
+      "U1R evidence not yet completed"
+    ],
+    "productionFixImplemented": false
+  },
+  "cleanup": {
+    "details": [
+      "cleanup inspected only the task service name and task-owned process paths"
+    ],
+    "failures": []
+  },
+  "failures": [
+    {
+      "scenario": "harness-fatal",
+      "message": "System.Management.Automation.RuntimeException: old-qa-build failed with exit code 101. Log: D:\\a\\_temp\\issue-380-u1r-evidence-38197011540-1\\old-qa-build.log\nUpdating crates.io index\r\n   Compiling zen-canvas-tauri v0.1.40 (D:\\a\\_temp\\issue-380-u1-worktrees-38197011540-1\\old-master\\src-tauri)\r\n   Compiling zen-canvas-preview-representation v0.1.0 (D:\\a\\_temp\\issue-380-u1-worktrees-38197011540-1\\old-master\\src-tauri\\native\\preview-representation)\r\n   Compiling zen-canvas-native-host v0.1.0 (D:\\a\\_temp\\issue-380-u1-worktrees-38197011540-1\\old-master\\src-tauri\\native\\host-provided)\r\nerror[E0433]: cannot find `global_index` in `crate`\r\n   --> src\\main.rs:189:28\r\n    |\r\n189 |                     crate::global_index::qa_trace::record(\"u1r_forced_rebuild_begin\");\r\n    |                            ^^^^^^^^^^^^ could not find `global_index` in the crate root\r\n\r\nerror[E0433]: cannot find `global_index` in `crate`\r\n   --> src\\main.rs:191:28\r\n    |\r\n191 |                     crate::global_index::qa_trace::record(&format!(\"u1r_forced_rebuild_end result={result:?}\"));\r\n    |                            ^^^^^^^^^^^^ could not find `global_index` in the crate root\r\n\r\nFor more information about this error, try `rustc --explain E0433`.\r\nerror: could not compile `zen-canvas-tauri` (bin \"zen-canvas\") due to 2 previous errors\r\nwarning: build failed, waiting for other jobs to finish..."
+    }
+  ]
+}

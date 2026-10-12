@@ -1,0 +1,148 @@
+{
+  "contract": "U1R focused installer diagnostics and same-path generation test; test-only; not a production fix",
+  "mode": "U1R_FOCUS",
+  "u1Head": "5998dc7a9c88333e3518f3a1845ca49b948acd4c",
+  "u1Tree": "0d57101c918c46e099fcd210b256b9ce54f9fc9c",
+  "old": {
+    "commit": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38198147350-1\\old-master",
+    "packageGeneratedManifestDiff": "",
+    "packageManifestRestoredToFrozenSource": true
+  },
+  "d1a": {
+    "commit": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38198147350-1\\d1a",
+    "packageGeneratedManifestDiff": "",
+    "packageManifestRestoredToFrozenSource": true
+  },
+  "runner": {
+    "caption": "Microsoft Windows Server 2025 Datacenter",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "64-bit",
+    "runId": "38198147350",
+    "runAttempt": "1",
+    "powershell": "7.6.6",
+    "currentDirectory": "D:\\a\\Zen-Canvas\\Zen-Canvas"
+  },
+  "candidates": {
+    "old": {
+      "sha": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38198147350-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "3e79d5113772b8e3969ca6361401eb6063fb3d0b13fefbdd8c2979b23e724c78",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38198147350-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "2586c5f815f8599232a61c35d29251c4630bdc16ee61fc4a09099213246e79ec",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "ce55baf1b2ebd6e2cb9beb9a74b9e7a51ef0efa24b2de7907503a527f7996ca7",
+      "packageExeSha256": "3f87fee6dfcdc9916f67f32502c5992fe47c6edb974f45704e7700468663d817",
+      "packageExeEvidence": {
+        "status": "PASS_EXTRACTED",
+        "extractionTool": "C:\\ProgramData\\Chocolatey\\bin\\7z.exe",
+        "exitCode": 0,
+        "log": "D:\\a\\_temp\\issue-380-u1r-evidence-38198147350-1\\old-nsis-payload-extract.log",
+        "payloadFiles": [
+          {
+            "path": "D:\\a\\_temp\\issue-380-u1-runtime-38198147350-1\\old-nsis-payload\\zen-canvas.exe",
+            "sha256": "3f87fee6dfcdc9916f67f32502c5992fe47c6edb974f45704e7700468663d817",
+            "bytes": 33956352
+          }
+        ],
+        "selectedPayload": "D:\\a\\_temp\\issue-380-u1-runtime-38198147350-1\\old-nsis-payload\\zen-canvas.exe",
+        "selectedSha256": "3f87fee6dfcdc9916f67f32502c5992fe47c6edb974f45704e7700468663d817",
+        "selectedMatchesReleaseExe": false
+      },
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38198147350-1\\old-master\\src-tauri\\target\\release\\u1-qa\\old-setup.exe",
+      "installerSha256": "2afccf98dfc782c9eef009779e6910ab6a1ea89bc9b18d54f5a6d98f4280df5c",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    },
+    "d1a": {
+      "sha": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38198147350-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "9df26b6c021df6368964e6620b1969045dd70674925a91e19d51796492d7d120",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38198147350-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "5f377a15ce04f80139abe956781dc8f3ed3268ef4d6738215a903750bf84ccdf",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "1f845797d8e78088c1441123ea4a71f7cf2c32748118a86085685df7995eca98",
+      "packageExeSha256": "4befedf6864559f7833111a092996a3a15947a26c2597cba51fe4f49a0f54ed4",
+      "packageExeEvidence": {
+        "status": "PASS_EXTRACTED",
+        "extractionTool": "C:\\ProgramData\\Chocolatey\\bin\\7z.exe",
+        "exitCode": 0,
+        "log": "D:\\a\\_temp\\issue-380-u1r-evidence-38198147350-1\\d1a-nsis-payload-extract.log",
+        "payloadFiles": [
+          {
+            "path": "D:\\a\\_temp\\issue-380-u1-runtime-38198147350-1\\d1a-nsis-payload\\zen-canvas.exe",
+            "sha256": "4befedf6864559f7833111a092996a3a15947a26c2597cba51fe4f49a0f54ed4",
+            "bytes": 33971712
+          }
+        ],
+        "selectedPayload": "D:\\a\\_temp\\issue-380-u1-runtime-38198147350-1\\d1a-nsis-payload\\zen-canvas.exe",
+        "selectedSha256": "4befedf6864559f7833111a092996a3a15947a26c2597cba51fe4f49a0f54ed4",
+        "selectedMatchesReleaseExe": false
+      },
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38198147350-1\\d1a\\src-tauri\\target\\release\\u1-qa\\d1a-setup.exe",
+      "installerSha256": "d432404c54023dc0d5d90f92b8f9f8c46e67677c888b401c3519b757f63aef7e",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    }
+  },
+  "matchingPairs": {},
+  "mixedPairs": {},
+  "directFallback": {},
+  "installer": {
+    "status": "UNVERIFIED",
+    "samples": [],
+    "transitions": [],
+    "interruption": {
+      "status": "UNVERIFIED"
+    },
+    "repair": {
+      "status": "UNVERIFIED"
+    }
+  },
+  "u1rDisposition": {
+    "status": "BLOCKED",
+    "blockers": [
+      "U1R evidence not yet completed"
+    ],
+    "productionFixImplemented": false
+  },
+  "cleanup": {
+    "details": [
+      "cleanup inspected only the task service name and task-owned process paths"
+    ],
+    "failures": []
+  },
+  "failures": [
+    {
+      "scenario": "harness-fatal",
+      "message": "System.InvalidOperationException: The provided JSON includes a property whose name is an empty string, this is only supported using the -AsHashTable switch.\r\n   at System.Management.Automation.MshCommandRuntime.ThrowTerminatingError(ErrorRecord errorRecord)"
+    }
+  ],
+  "u1rInstaller": {
+    "status": "UNVERIFIED_NOT_STARTED"
+  },
+  "u1rSamePath": {
+    "status": "UNVERIFIED_NOT_STARTED"
+  },
+  "u1rDirectFallback": {
+    "status": "UNVERIFIED_NOT_STARTED"
+  }
+}

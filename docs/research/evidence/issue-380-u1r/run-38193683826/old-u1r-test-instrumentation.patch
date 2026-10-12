@@ -1,0 +1,807 @@
+diff --git a/src-tauri/src/global_index/windows/mod.rs b/src-tauri/src/global_index/windows/mod.rs
+index 1611f13..5be376b 100644
+--- a/src-tauri/src/global_index/windows/mod.rs
++++ b/src-tauri/src/global_index/windows/mod.rs
+@@ -66,8 +66,11 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
+         let _qos = crate::resource_governor::scope_thread_qos(
+             crate::file_workspace::WorkClass::Background,
+         );
++        super::qa_trace::record("u1r_direct_mft_started");
+         let result = mft::enumerate_volume(source, sink, cancel);
+-        finish_initial_mft_result(&source.volume.id, sink, result)
++        let result = finish_initial_mft_result(&source.volume.id, sink, result);
++        super::qa_trace::record("u1r_direct_mft_returned");
++        result
+     }
+ 
+     fn resume_incremental_sync(
+@@ -439,6 +442,7 @@ impl WindowsGlobalIndexProvider {
+             Ok(Ok(())) => Ok(()),
+             Ok(Err(error)) => Err(error),
+             Err(error) => {
++                super::qa_trace::record("u1r_service_transport_error");
+                 self.service_failed();
+                 let _ = sink.set_source_state(
+                     request
+@@ -449,6 +453,7 @@ impl WindowsGlobalIndexProvider {
+                     crate::global_index::models::INDEX_STATUS_UNAVAILABLE,
+                     Some(&error),
+                 );
++                super::qa_trace::record("u1r_direct_fallback_started");
+                 direct(&self.direct, sink)
+             }
+         }
+diff --git a/src-tauri/src/main.rs b/src-tauri/src/main.rs
+index d816f30..790250b 100644
+--- a/src-tauri/src/main.rs
++++ b/src-tauri/src/main.rs
+@@ -27,6 +27,25 @@ fn qualification_startup_checkpoint(name: &str) {
+     let _ = name;
+ }
+ 
++#[cfg(all(target_os = "windows", feature = "native-qa"))]
++fn u1r_startup_gate() {
++    use std::{fs, path::PathBuf, thread, time::Duration};
++    let Ok(root) = std::env::var("ZC_U1R_STARTUP_GATE") else { return; };
++    let root = PathBuf::from(root);
++    if fs::create_dir_all(&root).is_err() { return; }
++    let _ = fs::write(root.join("generation"), "old-master-3275ac7-test-instrumented");
++    let _ = fs::write(root.join("ready"), std::process::id().to_string());
++    eprintln!("u1r_process_generation=old-master-3275ac7-test-instrumented pid={}", std::process::id());
++    for _ in 0..720 {
++        if root.join("continue").exists() {
++            eprintln!("u1r_startup_gate_released pid={}", std::process::id());
++            return;
++        }
++        thread::sleep(Duration::from_millis(250));
++    }
++    eprintln!("u1r_startup_gate_timeout pid={}", std::process::id());
++}
++
+ fn main() {
+     qualification_startup_checkpoint("process_main_entered");
+     let launch_args = std::env::args().collect::<Vec<_>>();
+@@ -155,6 +174,8 @@ fn main() {
+                 workspace_native_preview_root,
+             );
+             app.manage(workspace_runtime);
++            #[cfg(all(target_os = "windows", feature = "native-qa"))]
++            u1r_startup_gate();
+             let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
+             app.manage(global_index_coordinator.clone());
+             if let Err(error) = global_index_coordinator.start() {
+diff --git a/src-tauri/windows/installer-hooks.nsh b/src-tauri/windows/installer-hooks.nsh
+index 2308ff2..e1033d8 100644
+--- a/src-tauri/windows/installer-hooks.nsh
++++ b/src-tauri/windows/installer-hooks.nsh
+@@ -119,6 +119,7 @@ Var ZC_UNINSTALL_PREVIEW_RECOVERED
+ !macro ZC_RECORD_REG_VALUE PATH NAME EXPECTED
+   StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 0
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     !insertmacro ZC_PUSH_REG_TRANSACTION "${PATH}" "${NAME}" 1 "${EXPECTED}" "${EXPECTED}"
+     StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 1
+@@ -128,6 +129,7 @@ Var ZC_UNINSTALL_PREVIEW_RECOVERED
+ !macro ZC_RECORD_REG_CREATE PATH NAME EXPECTED
+   StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 0
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_ABSENT}
+     !insertmacro ZC_PUSH_REG_TRANSACTION "${PATH}" "${NAME}" 0 "" "${EXPECTED}"
+     StrCpy $ZC_PREVIEW_TXN_CAPTURE_OK 1
+@@ -139,6 +141,7 @@ Var ZC_UNINSTALL_PREVIEW_RECOVERED
+ 
+ !macro ZC_WITHDRAW_REG_VALUE PATH NAME EXPECTED ROLLBACK_FUNCTION NOTIFY_FUNCTION
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+       !insertmacro ZC_RECORD_REG_VALUE "${PATH}" "${NAME}" "${EXPECTED}"
+       ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
+@@ -150,6 +153,7 @@ Var ZC_UNINSTALL_PREVIEW_RECOVERED
+       ClearErrors
+       DeleteRegValue HKLM "${PATH}" "${NAME}"
+       !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+       ${If} ${Errors}
+       ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+         Call ${ROLLBACK_FUNCTION}
+@@ -182,6 +186,7 @@ FunctionEnd
+   StrCpy $ZC_PREVIEW_DLL_PROBE_PATH ""
+ 
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=CLSID state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
+     StrCpy $ZC_PREVIEW_CLSID_PRESENT 1
+@@ -191,6 +196,7 @@ FunctionEnd
+   ${EndIf}
+ 
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "AppID" "${ZC_PREVIEW_PREVHOST_APP_ID}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=AppID state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
+     StrCpy $ZC_PREVIEW_APPID_PRESENT 1
+@@ -200,6 +206,7 @@ FunctionEnd
+   ${EndIf}
+ 
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "ThreadingModel" "${ZC_PREVIEW_THREADING_MODEL}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=ThreadingModel state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
+     StrCpy $ZC_PREVIEW_THREADING_PRESENT 1
+@@ -209,6 +216,7 @@ FunctionEnd
+   ${EndIf}
+ 
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=PreviewHandlers state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
+     StrCpy $ZC_PREVIEW_HANDLER_PRESENT 1
+@@ -224,6 +232,7 @@ FunctionEnd
+   ; Compatibility contract: the former `$0 != "${ZC_PREVIEW_INSTALLED_DLL}"`
+   ; text comparison is now the typed exact-value state below.
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "" "${ZC_PREVIEW_INSTALLED_DLL}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=InprocServer32 state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
+     StrCpy $ZC_PREVIEW_INPROC_PATH_PRESENT 1
+@@ -250,7 +259,51 @@ FunctionEnd
+ !macroend
+ 
+ Function ValidateZenCanvasPreviewCore
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_0_had_error u1r_file_trace_0_no_error
++  u1r_file_trace_0_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_0_saved
++  u1r_file_trace_0_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_0_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R] preview_validation_begin$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_0_restore_error
++  Pop $R8
++  Goto u1r_file_trace_0_done
++  u1r_file_trace_0_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_0_done:
++  DetailPrint "[U1R] preview_validation_begin"
+   !insertmacro ZC_VALIDATE_PREVIEW_CORE
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_1_had_error u1r_file_trace_1_no_error
++  u1r_file_trace_1_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_1_saved
++  u1r_file_trace_1_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_1_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R] preview_validation_result core=$ZC_PREVIEW_CORE_PRESENT clsid=$ZC_PREVIEW_CLSID_PRESENT appid=$ZC_PREVIEW_APPID_PRESENT threading=$ZC_PREVIEW_THREADING_PRESENT handler=$ZC_PREVIEW_HANDLER_PRESENT inproc=$ZC_PREVIEW_INPROC_PATH_PRESENT$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_1_restore_error
++  Pop $R8
++  Goto u1r_file_trace_1_done
++  u1r_file_trace_1_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_1_done:
++  DetailPrint "[U1R] preview_validation_result core=$ZC_PREVIEW_CORE_PRESENT clsid=$ZC_PREVIEW_CLSID_PRESENT appid=$ZC_PREVIEW_APPID_PRESENT threading=$ZC_PREVIEW_THREADING_PRESENT handler=$ZC_PREVIEW_HANDLER_PRESENT inproc=$ZC_PREVIEW_INPROC_PATH_PRESENT"
+ FunctionEnd
+ 
+ Function un.ValidateZenCanvasPreviewCore
+@@ -377,6 +430,7 @@ FunctionEnd
+ ; repair cannot be mistaken for a fresh install.
+ !macro ZC_REQUIRE_PRODUCT_STRING PATH NAME EXPECTED
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+   ${EndIf}
+@@ -387,6 +441,7 @@ FunctionEnd
+ ; the current package expects. Foreign or unreadable state fails closed.
+ !macro ZC_REQUIRE_OPTIONAL_PRODUCT_STRING PATH NAME EXPECTED
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_FOREIGN}
+   ${OrIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+     StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+@@ -395,6 +450,7 @@ FunctionEnd
+ 
+ !macro ZC_REQUIRE_PRODUCT_DWORD PATH NAME EXPECTED
+   !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
++  DetailPrint "product_dword name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+   ${EndIf}
+@@ -417,11 +473,13 @@ Function DetectZenCanvasPreexistingProduct
+   ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
+   IntOp $0 $0 + ${ESTIMATEDSIZE}
+   StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
++  DetailPrint "estimated_size_expected=$ZC_EXPECTED_ESTIMATED_SIZE"
+ 
+   ; Exact-key open is the presence authority. An absent optional manufacturer
+   ; parent is therefore a normal fresh absence, while access/API failure is
+   ; still UNKNOWN and fails closed.
+   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
++  DetailPrint "registry_key_state key=uninstaller state=$ZC_REG_KEY_STATE"
+   ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
+     StrCpy $ZC_UNINSTALLER_KEY_PRESENT 1
+   ${ElseIf} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}
+@@ -429,6 +487,7 @@ Function DetectZenCanvasPreexistingProduct
+   ${EndIf}
+ 
+   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
++  DetailPrint "registry_key_state key=manufacturer_product state=$ZC_REG_KEY_STATE"
+   ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
+     StrCpy $ZC_MANUFACTURER_KEY_PRESENT 1
+   ${ElseIf} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}
+@@ -442,6 +501,28 @@ Function DetectZenCanvasPreexistingProduct
+   IfFileExists "$INSTDIR\uninstall.exe" 0 detect_product_uninstaller_absent
+   StrCpy $ZC_PREEXISTING_UNINSTALLER_PRESENT 1
+ detect_product_uninstaller_absent:
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_2_had_error u1r_file_trace_2_no_error
++  u1r_file_trace_2_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_2_saved
++  u1r_file_trace_2_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_2_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R] preexisting_uninstaller_file_present=$ZC_PREEXISTING_UNINSTALLER_PRESENT$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_2_restore_error
++  Pop $R8
++  Goto u1r_file_trace_2_done
++  u1r_file_trace_2_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_2_done:
++  DetailPrint "[U1R] preexisting_uninstaller_file_present=$ZC_PREEXISTING_UNINSTALLER_PRESENT"
+ 
+   ${If} $ZC_UNINSTALLER_KEY_PRESENT == 1
+   ${OrIf} $ZC_MANUFACTURER_KEY_PRESENT == 1
+@@ -478,7 +559,51 @@ detect_product_uninstaller_absent:
+ FunctionEnd
+ 
+ Function ValidateZenCanvasPreexistingProduct
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_3_had_error u1r_file_trace_3_no_error
++  u1r_file_trace_3_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_3_saved
++  u1r_file_trace_3_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_3_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R] product_validation_begin$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_3_restore_error
++  Pop $R8
++  Goto u1r_file_trace_3_done
++  u1r_file_trace_3_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_3_done:
++  DetailPrint "[U1R] product_validation_begin"
+   Call DetectZenCanvasPreexistingProduct
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_4_had_error u1r_file_trace_4_no_error
++  u1r_file_trace_4_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_4_saved
++  u1r_file_trace_4_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_4_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R] product_validation_result product=$ZC_PREEXISTING_PRODUCT valid=$ZC_PREEXISTING_PRODUCT_VALID uninstaller=$ZC_PREEXISTING_UNINSTALLER_PRESENT$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_4_restore_error
++  Pop $R8
++  Goto u1r_file_trace_4_done
++  u1r_file_trace_4_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_4_done:
++  DetailPrint "[U1R] product_validation_result product=$ZC_PREEXISTING_PRODUCT valid=$ZC_PREEXISTING_PRODUCT_VALID uninstaller=$ZC_PREEXISTING_UNINSTALLER_PRESENT"
+   ${If} $ZC_PREEXISTING_PRODUCT == 2
+     MessageBox MB_ICONSTOP|MB_OK "Existing Zen Canvas product metadata is incomplete or inconsistent. Installation was not changed." /SD IDOK
+     Abort
+@@ -495,6 +620,7 @@ FunctionEnd
+   ; and `EnumRegKey $2 HKLM "${ZC_INDEX_SERVICE_PARENT_KEY}"` are replaced by
+   ; an exact service-key open plus raw typed value authority.
+   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
++  DetailPrint "service_key_state=$ZC_REG_KEY_STATE"
+   ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+     Return
+   ${EndIf}
+@@ -505,6 +631,28 @@ FunctionEnd
+   ; SCM writes ImagePath as REG_EXPAND_SZ. A plain REG_SZ, empty value,
+   ; expanded-equivalent spelling, or API failure is not exact ownership.
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}" "ImagePath" "$ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH" ${ZC_REG_STRING_EXPAND_SZ_ONLY}
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_5_had_error u1r_file_trace_5_no_error
++  u1r_file_trace_5_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_5_saved
++  u1r_file_trace_5_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_5_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R] service_image_path_state=$ZC_REG_VALUE_STATE expected=$ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_5_restore_error
++  Pop $R8
++  Goto u1r_file_trace_5_done
++  u1r_file_trace_5_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_5_done:
++  DetailPrint "[U1R] service_image_path_state=$ZC_REG_VALUE_STATE expected=$ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     StrCpy $ZC_INDEX_SERVICE_OWNERSHIP 1
+   ${Else}
+@@ -806,6 +954,7 @@ postinstall_service_cleanup_incomplete:
+ 
+ postinstall_service_cleanup_success:
+   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
++  DetailPrint "service_key_state=$ZC_REG_KEY_STATE"
+   ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+     StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 1
+   ${Else}
+@@ -817,6 +966,7 @@ Function ReadZenCanvasFreshUninstallKeyPresence
+   SetRegView 64
+   StrCpy $ZC_FRESH_UNINSTALL_KEY_PRESENT 0
+   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
++  DetailPrint "registry_key_state key=uninstaller state=$ZC_REG_KEY_STATE"
+   ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
+     StrCpy $ZC_FRESH_UNINSTALL_KEY_PRESENT 1
+   ${ElseIf} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}
+@@ -829,6 +979,7 @@ Function ReadZenCanvasFreshManufacturerKeyPresence
+   SetRegView 64
+   StrCpy $ZC_FRESH_MANUFACTURER_KEY_PRESENT 0
+   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
++  DetailPrint "registry_key_state key=manufacturer_product state=$ZC_REG_KEY_STATE"
+   ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
+     StrCpy $ZC_FRESH_MANUFACTURER_KEY_PRESENT 1
+   ${ElseIf} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_UNKNOWN}
+@@ -839,6 +990,7 @@ FunctionEnd
+ 
+ !macro ZC_AUDIT_OPTIONAL_FRESH_STRING PATH NAME EXPECTED OWNER
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_FOREIGN}
+   ${OrIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+     StrCpy ${OWNER} 2
+@@ -847,6 +999,7 @@ FunctionEnd
+ 
+ !macro ZC_AUDIT_OPTIONAL_FRESH_DWORD PATH NAME EXPECTED OWNER
+   !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
++  DetailPrint "product_dword name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_FOREIGN}
+   ${OrIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
+     StrCpy ${OWNER} 2
+@@ -855,10 +1008,12 @@ FunctionEnd
+ 
+ !macro ZC_DELETE_EXACT_FRESH_STRING PATH NAME EXPECTED OWNER
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     ClearErrors
+     DeleteRegValue HKLM "${PATH}" "${NAME}"
+     !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+     ${If} ${Errors}
+     ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+       StrCpy ${OWNER} 2
+@@ -874,10 +1029,12 @@ FunctionEnd
+ 
+ !macro ZC_DELETE_EXACT_FRESH_DWORD PATH NAME EXPECTED OWNER
+   !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
++  DetailPrint "product_dword name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+     ClearErrors
+     DeleteRegValue HKLM "${PATH}" "${NAME}"
+     !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
++  DetailPrint "product_dword name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+     ${If} ${Errors}
+     ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+       StrCpy ${OWNER} 2
+@@ -996,6 +1153,7 @@ Function CompensateZenCanvasFreshProductMetadata
+   ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
+   IntOp $0 $0 + ${ESTIMATEDSIZE}
+   StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
++  DetailPrint "estimated_size_expected=$ZC_EXPECTED_ESTIMATED_SIZE"
+ 
+   ; Audit twice: once to establish the whole surface and once immediately
+   ; before any mutation. Mutations below still re-query each value.
+@@ -1435,6 +1593,7 @@ FunctionEnd
+ ; the reversible transaction currently withdrawn by PREUNINSTALL.
+ !macro ZC_UNINSTALL_EVIDENCE_STRING PATH NAME EXPECTED
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     Goto un_predelete_evidence_failed
+   ${EndIf}
+@@ -1445,6 +1604,7 @@ FunctionEnd
+ ; value expected by the package. Foreign or unreadable state fails closed.
+ !macro ZC_UNINSTALL_EVIDENCE_OPTIONAL_STRING PATH NAME EXPECTED
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+   ${AndIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     Goto un_predelete_evidence_failed
+@@ -1453,6 +1613,7 @@ FunctionEnd
+ 
+ !macro ZC_UNINSTALL_EVIDENCE_DWORD PATH NAME EXPECTED
+   !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}
++  DetailPrint "product_dword name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     Goto un_predelete_evidence_failed
+   ${EndIf}
+@@ -1500,22 +1661,27 @@ FunctionEnd
+ Function un.VerifyZenCanvasPreviewRecovery
+   StrCpy $ZC_UNINSTALL_PREVIEW_RECOVERED 0
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=CLSID state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     Return
+   ${EndIf}
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "AppID" "${ZC_PREVIEW_PREVHOST_APP_ID}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=AppID state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     Return
+   ${EndIf}
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "" "${ZC_PREVIEW_INSTALLED_DLL}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=InprocServer32 state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     Return
+   ${EndIf}
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "ThreadingModel" "${ZC_PREVIEW_THREADING_MODEL}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=ThreadingModel state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     Return
+   ${EndIf}
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
++  DetailPrint "preview_value=PreviewHandlers state=$ZC_REG_VALUE_STATE"
+   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+     Return
+   ${EndIf}
+@@ -1754,6 +1920,7 @@ Function un.RemoveZenCanvasManufacturerProductMarker
+     ; A prior exact cleanup is already sufficient only when the product key is
+     ; also absent. A present key is preserved and reported as incomplete.
+     !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
++  DetailPrint "registry_key_state key=manufacturer_product state=$ZC_REG_KEY_STATE"
+     ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+       StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 1
+     ${Else}
+@@ -1769,6 +1936,7 @@ Function un.RemoveZenCanvasManufacturerProductMarker
+   ; manufacturer parent is intentionally not touched.
+   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
+   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
++  DetailPrint "registry_key_state key=manufacturer_product state=$ZC_REG_KEY_STATE"
+   ${If} ${Errors}
+   ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+   ${OrIf} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_ABSENT}
+@@ -1978,6 +2146,7 @@ un_delete_wait_loop:
+ 
+ un_delete_registry_absence_verify:
+   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
++  DetailPrint "service_key_state=$ZC_REG_KEY_STATE"
+   ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+     StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+     Return
+@@ -2235,6 +2404,7 @@ FunctionEnd
+   ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
+   IntOp $0 $0 + ${ESTIMATEDSIZE}
+   StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
++  DetailPrint "estimated_size_expected=$ZC_EXPECTED_ESTIMATED_SIZE"
+   StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 0
+   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
+@@ -2253,19 +2423,283 @@ FunctionEnd
+   ; mutation. The generated uninstall section still repeats this exact gate
+   ; immediately after PREUNINSTALL; the recovery owner below covers that
+   ; later abort/failure window as well.
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_6_had_error u1r_file_trace_6_no_error
++  u1r_file_trace_6_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_6_saved
++  u1r_file_trace_6_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_6_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] desktop_gate_begin$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_6_restore_error
++  Pop $R8
++  Goto u1r_file_trace_6_done
++  u1r_file_trace_6_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_6_done:
++  DetailPrint "[U1R-OLD-UN] desktop_gate_begin"
+   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_7_had_error u1r_file_trace_7_no_error
++  u1r_file_trace_7_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_7_saved
++  u1r_file_trace_7_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_7_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] desktop_gate_returned$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_7_restore_error
++  Pop $R8
++  Goto u1r_file_trace_7_done
++  u1r_file_trace_7_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_7_done:
++  DetailPrint "[U1R-OLD-UN] desktop_gate_returned"
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_8_had_error u1r_file_trace_8_no_error
++  u1r_file_trace_8_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_8_saved
++  u1r_file_trace_8_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_8_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] preview_validation_begin$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_8_restore_error
++  Pop $R8
++  Goto u1r_file_trace_8_done
++  u1r_file_trace_8_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_8_done:
++  DetailPrint "[U1R-OLD-UN] preview_validation_begin"
+   Call un.ValidateZenCanvasPreviewCore
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_9_had_error u1r_file_trace_9_no_error
++  u1r_file_trace_9_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_9_saved
++  u1r_file_trace_9_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_9_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] preview_validation_returned$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_9_restore_error
++  Pop $R8
++  Goto u1r_file_trace_9_done
++  u1r_file_trace_9_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_9_done:
++  DetailPrint "[U1R-OLD-UN] preview_validation_returned"
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_10_had_error u1r_file_trace_10_no_error
++  u1r_file_trace_10_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_10_saved
++  u1r_file_trace_10_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_10_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] service_ownership_validation_begin$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_10_restore_error
++  Pop $R8
++  Goto u1r_file_trace_10_done
++  u1r_file_trace_10_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_10_done:
++  DetailPrint "[U1R-OLD-UN] service_ownership_validation_begin"
+   Call un.ValidateZenCanvasIndexServiceOwnership
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_11_had_error u1r_file_trace_11_no_error
++  u1r_file_trace_11_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_11_saved
++  u1r_file_trace_11_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_11_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] service_ownership_validation_returned$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_11_restore_error
++  Pop $R8
++  Goto u1r_file_trace_11_done
++  u1r_file_trace_11_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_11_done:
++  DetailPrint "[U1R-OLD-UN] service_ownership_validation_returned"
+   Call un.CaptureZenCanvasOriginalServiceState
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_12_had_error u1r_file_trace_12_no_error
++  u1r_file_trace_12_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_12_saved
++  u1r_file_trace_12_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_12_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] predelete_product_evidence_begin$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_12_restore_error
++  Pop $R8
++  Goto u1r_file_trace_12_done
++  u1r_file_trace_12_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_12_done:
++  DetailPrint "[U1R-OLD-UN] predelete_product_evidence_begin"
+   Call un.CheckZenCanvasPreDeleteProductEvidence
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_13_had_error u1r_file_trace_13_no_error
++  u1r_file_trace_13_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_13_saved
++  u1r_file_trace_13_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_13_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] predelete_product_evidence_result coherent=$ZC_UNINSTALL_PREDELETE_COHERENT$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_13_restore_error
++  Pop $R8
++  Goto u1r_file_trace_13_done
++  u1r_file_trace_13_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_13_done:
++  DetailPrint "[U1R-OLD-UN] predelete_product_evidence_result coherent=$ZC_UNINSTALL_PREDELETE_COHERENT"
+   ${If} $ZC_UNINSTALL_PREDELETE_COHERENT != 1
+     MessageBox MB_ICONSTOP|MB_OK "The installed Zen Canvas product could not be verified as a coherent pre-delete installation. Uninstall was not changed." /SD IDOK
+     Abort
+   ${EndIf}
+   StrCpy $ZC_UNINSTALL_PREDELETE_EVIDENCE_CAPTURED 1
+   StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE 1
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_14_had_error u1r_file_trace_14_no_error
++  u1r_file_trace_14_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_14_saved
++  u1r_file_trace_14_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_14_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] preview_quiesce_begin$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_14_restore_error
++  Pop $R8
++  Goto u1r_file_trace_14_done
++  u1r_file_trace_14_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_14_done:
++  DetailPrint "[U1R-OLD-UN] preview_quiesce_begin"
+   Call un.QuiesceZenCanvasPreviewBeforeUninstall
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_15_had_error u1r_file_trace_15_no_error
++  u1r_file_trace_15_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_15_saved
++  u1r_file_trace_15_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_15_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] preview_quiesce_returned$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_15_restore_error
++  Pop $R8
++  Goto u1r_file_trace_15_done
++  u1r_file_trace_15_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_15_done:
++  DetailPrint "[U1R-OLD-UN] preview_quiesce_returned"
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_16_had_error u1r_file_trace_16_no_error
++  u1r_file_trace_16_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_16_saved
++  u1r_file_trace_16_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_16_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] service_stop_begin$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_16_restore_error
++  Pop $R8
++  Goto u1r_file_trace_16_done
++  u1r_file_trace_16_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_16_done:
++  DetailPrint "[U1R-OLD-UN] service_stop_begin"
+   Call un.StopZenCanvasIndexService
++  Push $R8
++  Push $9
++  IfErrors u1r_file_trace_17_had_error u1r_file_trace_17_no_error
++  u1r_file_trace_17_had_error:
++  StrCpy $R8 1
++  Goto u1r_file_trace_17_saved
++  u1r_file_trace_17_no_error:
++  StrCpy $R8 0
++  u1r_file_trace_17_saved:
++  FileOpen $9 "$TEMP\issue-380-u1r-old-uninstaller.log" a
++  FileWrite $9 "[U1R-OLD-UN] service_stop_returned$\r$\n"
++  FileClose $9
++  Pop $9
++  ClearErrors
++  StrCmp $R8 1 u1r_file_trace_17_restore_error
++  Pop $R8
++  Goto u1r_file_trace_17_done
++  u1r_file_trace_17_restore_error:
++  SetErrors
++  Pop $R8
++  u1r_file_trace_17_done:
++  DetailPrint "[U1R-OLD-UN] service_stop_returned"
+ !macroend
+ 
+ !macro NSIS_HOOK_POSTUNINSTALL
+

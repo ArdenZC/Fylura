@@ -1,0 +1,254 @@
+name: Issue 380 S1R2 Synthetic NSIS Launcher Probe
+
+on:
+  push:
+    branches:
+      - research/issue-380-s1r2-nsis-launcher-verification
+    paths:
+      - .github/workflows/issue-380-s1r2-synthetic-nsis-launcher-probe.yml
+      - scripts/issue380S1R2SyntheticNsisRunner.ps1
+      - scripts/validateIssue380S1R2Harness.py
+      - scripts/issue380S0NsisObservabilityProbe.nsi
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-380-s1r2-synthetic-nsis-one-shot
+  cancel-in-progress: false
+
+jobs:
+  synthetic-nsis-runtime-probe:
+    name: S1R2 synthetic NSIS launcher and trace persistence
+    if: github.repository == 'ArdenZC/Zen-Canvas' && github.ref == 'refs/heads/research/issue-380-s1r2-nsis-launcher-verification'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact S1R2 candidate and frozen Probe history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Static identity and tool pin preflight
+        id: preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $s1r = '45a2dfe0e51cee5708dfaa5335affbad947c30c2'
+          $s1rTree = '9bcc5a2a03a8335d2cb2e81c3d497efb275b8724'
+          $launcherPath = 'nsis-3.11/makensis.exe'
+          $launcherSha256 = 'f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431'
+          $compilerPath = 'nsis-3.11/Bin/makensis.exe'
+          $compilerSha256 = '42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5'
+          $s0 = '1f4951f3c93b2eb549d159fed2dd288992c625c8'
+          $expectedRef = 'refs/heads/research/issue-380-s1r2-nsis-launcher-verification'
+          $zipUrl = 'https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/nsis-3.11.zip/download'
+          $zipSha256 = 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1'
+          if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas') { throw "Unexpected repository: $env:GITHUB_REPOSITORY" }
+          if ($env:GITHUB_REF -ne $expectedRef) { throw "Unexpected ref: $env:GITHUB_REF" }
+          if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw "One-shot gate refuses attempt $env:GITHUB_RUN_ATTEMPT" }
+          $head = (& git rev-parse HEAD).Trim()
+          $tree = (& git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -ne $env:GITHUB_SHA) { throw "Checkout identity mismatch: head=$head workflow=$env:GITHUB_SHA" }
+          $actualS1RTree = (& git rev-parse "${s1r}^{tree}").Trim()
+          if ($LASTEXITCODE -ne 0 -or $actualS1RTree -ne $s1rTree) { throw "Frozen S1R tree mismatch: expected=$s1rTree actual=$actualS1RTree" }
+          & git merge-base --is-ancestor $s1r HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen S1R final HEAD is not an ancestor of this S1R2 candidate.' }
+          $probe = 'scripts/issue380S0NsisObservabilityProbe.nsi'
+          $expectedBlob = (& git rev-parse "${s0}:$probe").Trim()
+          $actualBlob = (& git hash-object $probe).Trim()
+          if ($LASTEXITCODE -ne 0 -or $expectedBlob -ne $actualBlob) { throw 'Frozen S0 Probe blob changed.' }
+          $runner = [System.IO.File]::ReadAllText('scripts/issue380S1R2SyntheticNsisRunner.ps1')
+          if (-not $runner.Contains($zipUrl) -or -not $runner.Contains($zipSha256)) { throw 'Runner ZIP URL or SHA256 pin differs from the approved constants.' }
+          foreach ($identity in @($launcherPath, $launcherSha256, '$script:LauncherLength = 2560L', $compilerPath, $compilerSha256, '$script:CompilerLength = 468992L')) {
+            if (-not $runner.Contains($identity)) { throw "Runner lacks an approved executable identity: $identity" }
+          }
+          if ($runner -match 'Get-ChildItem\s+.*makensis\.exe.*-Recurse') { throw 'Runner must select the approved fixed launcher path, not enumerate candidates.' }
+          if ($runner -match '(?i)choco|Get-Command\s+makensis|Program Files\\NSIS') { throw 'Runner contains a package-manager or ambient-compiler fallback.' }
+          $evidence = Join-Path $env:RUNNER_TEMP 'issue380-s1r2-evidence'
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          $report = [ordered]@{
+            repository = $env:GITHUB_REPOSITORY
+            ref = $env:GITHUB_REF
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            head = $head
+            tree = $tree
+            frozen_s1r_head = $s1r
+            frozen_s1r_tree = $s1rTree
+            frozen_s0_head = $s0
+            probe_blob = $actualBlob
+            approved_zip_url = $zipUrl
+            expected_zip_sha256 = $zipSha256
+            launcher_path = $launcherPath
+            launcher_length = 2560
+            launcher_sha256 = $launcherSha256
+            compiler_path = $compilerPath
+            compiler_length = 468992
+            compiler_sha256 = $compilerSha256
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+            result = 'PASS'
+          }
+          [System.IO.File]::WriteAllText((Join-Path $evidence 'preflight.json'), (ConvertTo-Json $report -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
+
+      - name: Run one-shot synthetic NSIS probe
+        id: probe
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 13
+        shell: pwsh
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r2-evidence'
+          & ./scripts/issue380S1R2SyntheticNsisRunner.ps1 -OutputRoot $outputRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Clean synthetic Registry and task temp; retain cleanup evidence
+        id: cleanup
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'issue380-s1r2-evidence'
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          $keyPath = 'Software\ZenCanvasS0Harness'
+          $ownerMarker = Join-Path $evidence 'synthetic-key-owned.txt'
+          $registryStatus = 'ABSENT'
+          $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
+          try {
+            $key = $base.OpenSubKey($keyPath, $false)
+            $present = ($null -ne $key)
+            if ($null -ne $key) { $key.Dispose() }
+            if ($present -and (Test-Path -LiteralPath $ownerMarker -PathType Leaf)) {
+              $base.DeleteSubKeyTree($keyPath, $false)
+              $key = $base.OpenSubKey($keyPath, $false)
+              $present = ($null -ne $key)
+              if ($null -ne $key) { $key.Dispose() }
+              if ($present) { throw 'Owned synthetic HKCU key remains after workflow cleanup.' }
+              $registryStatus = 'OWNED_KEY_REMOVED_AND_VERIFIED_ABSENT'
+            } elseif ($present) {
+              $registryStatus = 'UNOWNED_PREEXISTING_KEY_PRESERVED'
+            }
+          } finally { $base.Dispose() }
+          $taskRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r2-task'
+          $taskMarker = Join-Path $taskRoot 's1r2-task-owned.txt'
+          $taskStatus = 'ABSENT'
+          if (Test-Path -LiteralPath $taskRoot) {
+            $tempFull = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+            $rootFull = [System.IO.Path]::GetFullPath($taskRoot)
+            if (-not $rootFull.StartsWith($tempFull, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Task temp path escaped RUNNER_TEMP: $rootFull" }
+            if (Test-Path -LiteralPath $taskMarker -PathType Leaf) {
+              Remove-Item -LiteralPath $taskRoot -Recurse -Force
+              $taskStatus = if (Test-Path -LiteralPath $taskRoot) { 'OWNED_TEMP_REMAINS' } else { 'OWNED_TEMP_REMOVED' }
+            } else {
+              $taskStatus = 'UNOWNED_TEMP_PRESERVED'
+            }
+          }
+          $cleanupPassed = ($registryStatus -ne 'UNOWNED_PREEXISTING_KEY_PRESERVED') -and ($taskStatus -ne 'OWNED_TEMP_REMAINS') -and ($taskStatus -ne 'UNOWNED_TEMP_PRESERVED')
+          $record = [ordered]@{
+            synthetic_registry_key = $keyPath
+            registry_view = 'HKCU 64-bit'
+            registry_status = $registryStatus
+            task_temp_path = $taskRoot
+            task_temp_status = $taskStatus
+            result = if ($cleanupPassed) { 'PASS' } else { 'FAIL' }
+          }
+          [System.IO.File]::WriteAllText((Join-Path $evidence 'cleanup.json'), (ConvertTo-Json $record -Depth 5) + "`n", [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "passed=$($cleanupPassed.ToString().ToLowerInvariant())`n", [System.Text.UTF8Encoding]::new($false))
+          if (-not $cleanupPassed) { throw "Cleanup verification failed: $registryStatus / $taskStatus" }
+
+      - name: Finalize source, outcome, and artifact hashes
+        id: finalize
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'issue380-s1r2-evidence'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $metadata = [ordered]@{
+            repository = $env:GITHUB_REPOSITORY
+            ref = $env:GITHUB_REF
+            sha = $env:GITHUB_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            job_name = 'Synthetic NSIS ZIP trace persistence'
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+            preflight_outcome = $env:PREFLIGHT_OUTCOME
+            probe_outcome = $env:PROBE_OUTCOME
+            cleanup_outcome = $env:CLEANUP_OUTCOME
+            scope = 'Synthetic HKCU probe only; no Zen Canvas installer, product Registry, Service, IPC, database, or application process.'
+          }
+          [System.IO.File]::WriteAllText((Join-Path $root 'workflow-run.json'), (ConvertTo-Json $metadata -Depth 6) + "`n", [System.Text.UTF8Encoding]::new($false))
+          $sumLines = [System.Collections.Generic.List[string]]::new()
+          foreach ($file in (Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName)) {
+            if ($file.Name -eq 'SHA256SUMS') { continue }
+            $relative = $file.FullName.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sumLines.Add("$hash  $relative")
+          }
+          [System.IO.File]::WriteAllText((Join-Path $root 'SHA256SUMS'), ($sumLines -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+
+      - name: Upload raw synthetic probe evidence
+        id: artifact
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-380-s1r2-nsis-launcher-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/issue380-s1r2-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove evidence temp directory after upload
+        id: temp-cleanup
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tempRoot = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+          $evidence = Join-Path $env:RUNNER_TEMP 'issue380-s1r2-evidence'
+          $full = [System.IO.Path]::GetFullPath($evidence)
+          if (-not $full.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Evidence directory escaped RUNNER_TEMP: $full" }
+          if (Test-Path -LiteralPath $full) { Remove-Item -LiteralPath $full -Recurse -Force }
+          if (Test-Path -LiteralPath $full) { throw 'Evidence temporary directory remains after artifact upload.' }
+
+      - name: Enforce single-run result
+        if: always()
+        shell: pwsh
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+          CLEANUP_PASSED: ${{ steps.cleanup.outputs.passed }}
+          FINALIZE_OUTCOME: ${{ steps.finalize.outcome }}
+          ARTIFACT_OUTCOME: ${{ steps.artifact.outcome }}
+          TEMP_CLEANUP_OUTCOME: ${{ steps.temp-cleanup.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outcomes = @{
+            preflight = $env:PREFLIGHT_OUTCOME
+            probe = $env:PROBE_OUTCOME
+            cleanup = $env:CLEANUP_OUTCOME
+            cleanup_passed = $env:CLEANUP_PASSED
+            finalize = $env:FINALIZE_OUTCOME
+            artifact = $env:ARTIFACT_OUTCOME
+            temp_cleanup = $env:TEMP_CLEANUP_OUTCOME
+          }
+          $failed = @($outcomes.GetEnumerator() | Where-Object { $_.Value -ne 'success' -and $_.Key -ne 'cleanup_passed' })
+          if ($env:CLEANUP_PASSED -ne 'true') { $failed += 'cleanup verification did not pass' }
+          if ($failed.Count -gt 0) { Write-Error "S1R2 one-shot run failed: $(ConvertTo-Json $outcomes -Compress)"; exit 1 }

@@ -1,0 +1,23 @@
+{
+  "frozen_parent": {
+    "head": "ecbf19d5fb68b7b59777056e63e26cc95922b439",
+    "tree": "f31ed1f2b8e959e690f427f273aa7a3fa0b0ed28"
+  },
+  "historical_log": {
+    "original_path": "docs/project/research/issue-381-d4-s4/evidence/transitive-evidence-run.log",
+    "frozen_parent_git_tree_contains_path": false,
+    "retained_local_raw_file_bytes": 1060,
+    "recorded_and_reverified_sha256": "674d6a82e1b123e3f5976e1c922df347cd897a0d01d4005f2622550ab79a2782",
+    "archive_path": "docs/project/research/issue-381-d4-s5/evidence/archive/d4-s4-transitive-evidence-run.log",
+    "reconstructed": false
+  },
+  "research_inputs": {
+    "schema": "D4-S2 Schema 37-derived migration fixture; PRAGMA user_version=37 in disposable DB",
+    "accepted_baselines": [
+      "D4-S2: 15 assertion groups",
+      "D4-S3: 7 failure counterexamples, 4 invalid publication cases, 16 DML guards",
+      "D4-S4: 11 transitive mutation guards and digest/cursor/publication checks"
+    ],
+    "sqlite_3_51_3_product_fts_bm25_run": false
+  }
+}

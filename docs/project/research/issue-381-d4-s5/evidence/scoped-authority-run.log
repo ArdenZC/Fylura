@@ -1,0 +1,17 @@
+#381-D4-S5 root-scoped authority research Harness
+sqlite_version=3.53.1
+sqlite_source_id=2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9
+preserved_D4S2=15; D4S3_counterexamples=7; invalid_publications=4; DML_guards=16; D4S4_transitive_guards=11
+old_autocommit_revoke_failure=reproduced: source revision persisted, claim revocation absent, current view invalidated
+global_clock_root_a_watcher=reproduced: unrelated root B was hidden by the legacy global seal
+scoped_root_revision=root A hidden; independent root B remains visible and searchable; old cursor rejected
+independent_source_identity_invalidation=source A hidden; independent source B remains visible and searchable
+overlapping_shared_source_identity_invalidation=shared source removed from A and B; independent B companion remains visible
+overlapping_roots=shared source remains visible through B only while B root/source/path/physical evidence remains trusted
+last_valid_membership_removed=source hidden by complete successor generations; history, user context, and tag retained
+same_path_reuse=old and new file/source IDs isolated; old tags/context retained; new source inherits none
+atomic_revoke_failure_points=5; all rolled back
+atomic_revoke=BEGIN IMMEDIATE; source revision + source authority revision advanced once; revoke appended in same commit
+reader_snapshot=precommit and same-transaction reads stay consistent; new transaction and reconnect observe committed revoke
+foreign_key_check=ok; integrity_check=ok
+production_schema_version=unassigned; product changes=none

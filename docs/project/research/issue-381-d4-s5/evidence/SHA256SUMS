@@ -1,0 +1,10 @@
+919d91f1a865e26627d60f1aecec365a69c6359a1d2ec95c146cb043868cd8b3  docs/project/research/issue-381-d4-s5/ADR-004-root-scoped-authority.md
+086a4fce8f65cce8b579b8ba898889b10de31b2b992f4ce278ba4bb1d4acd9d4  docs/project/research/issue-381-d4-s5/ROOT-SCOPED-VISIBILITY-CONTRACT.md
+bdbcd002dbe5dfb18bb2fe909bca41bc1404ada24c27f7bfdfbfd3db051150b6  docs/project/research/issue-381-d4-s5/README.md
+c6f476d04ac7a02fff795d5e9ddf58205ca7851a3585467a5ae4ed2404fa54c8  docs/project/research/issue-381-d4-s5/evidence/INPUTS.json
+57ba4691c57b815ec7fb2431cbcf2bbf61e5b398c532a2849c526570a2653f1d  docs/project/research/issue-381-d4-s5/evidence/PROVENANCE.md
+674d6a82e1b123e3f5976e1c922df347cd897a0d01d4005f2622550ab79a2782  docs/project/research/issue-381-d4-s5/evidence/archive/d4-s4-transitive-evidence-run.log
+18364b76880fb7ca104379a4c32c948d5af71c4000c41dd109331121a087c11b  docs/project/research/issue-381-d4-s5/evidence/scoped-authority-results.json
+dc45b4a4cb6c61769fbbd242fd6931ac533fa1e5bc4371a355c8bf75573194d1  docs/project/research/issue-381-d4-s5/evidence/scoped-authority-run.log
+c4e1f05fefac8e9df5c2576322494ed3152345d52bf6d84010057b7152bd34a8  docs/project/research/issue-381-d4-s5/harness/run.py
+46e640d12d5a472355d5dc43d303461fc0fcad4d7ba96f07fa7ac5d4cb529ac1  docs/project/research/issue-381-d4-s5/harness/scoped-authority-prototype.sql

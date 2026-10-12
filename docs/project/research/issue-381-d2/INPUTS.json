@@ -1,0 +1,23 @@
+{
+  "repository": "ArdenZC/Zen-Canvas",
+  "branch": "codex/issue-381",
+  "head": "b79b97a2afc6c40ec57719325f86c486666d0bee",
+  "tree": "8761bf387723d8e8da8afac313fae600da968cff",
+  "pull_request": 383,
+  "pull_request_state": "OPEN",
+  "pull_request_draft": true,
+  "owner_d2_decision": "https://github.com/ArdenZC/Zen-Canvas/pull/383#issuecomment-6115104109",
+  "previous_exact_head_ci": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38165968538",
+  "previous_ci_result": "FAILURE; 100k writer lock 30.352210 seconds; competing 5000ms writer timed out",
+  "copied_schema_sources": {
+    "src-tauri/src/db/schema.rs": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7",
+    "src-tauri/src/db/schema_automation.rs": "9b9aa8b284ad3054adf70dff77afda09a4147abd1ac20653449f7a430b8cb7f3",
+    "src-tauri/src/db/schema_automation_triggers.rs": "ef75b080127eece3dba5b97f134c18e3d26502dc0a0ea88ebd8237d0cc395140"
+  },
+  "runtime_schema_version": 37,
+  "runtime_sqlite_version": "3.51.3",
+  "busy_timeout_ms": 5000,
+  "source_worktree_modified": false,
+  "starting_master_head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+  "starting_master_tree": "009576241cd4e8e2ba12cc644a368314f599faa6"
+}

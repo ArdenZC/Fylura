@@ -465,12 +465,12 @@
     }
 
     #[test]
-    fn database_rejects_schema_37_as_a_future_version() {
+    fn database_rejects_schema_39_as_a_future_version() {
         let path = test_db_path();
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 38;")
+        conn.execute_batch("PRAGMA user_version = 39;")
             .expect("set future version");
         drop(conn);
 
@@ -523,7 +523,7 @@
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("schema version");
-        assert_eq!(version, 37);
+        assert_eq!(version, 38);
         for table in [
             "user_tags",
             "file_user_tags",
@@ -1017,7 +1017,7 @@
             )
             .expect("dedupe backfill count");
 
-        assert_eq!(version, 37);
+        assert_eq!(version, 38);
         assert_eq!(ledger_tables, 4);
         assert_eq!(watcher_defaults, (0, 0));
         assert_eq!(rule_recovery_required, 0);

@@ -8,7 +8,7 @@ fn schema_30_creates_analysis_ledger_without_fabricated_history() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version");
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
     for table in [
         "dedupe_authority_state",
         "analysis_runs",

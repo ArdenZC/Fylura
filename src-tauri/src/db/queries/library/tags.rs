@@ -116,7 +116,9 @@ impl Database {
         let mut tag_ids = request.tag_ids;
         normalize_id_vec(&mut tag_ids, "tag")?;
         let mut conn = self.conn()?;
-        let tx = conn.transaction()?;
+        // Reserve the writer before the selection reads so a competing WAL
+        // commit cannot turn this read snapshot into SQLITE_BUSY_SNAPSHOT.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         for tag_id in &tag_ids {
             if !tag_exists(&tx, tag_id)? {
                 return Err(DbError::Validation("library_tag_not_found".to_string()));

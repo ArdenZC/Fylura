@@ -1,6 +1,9 @@
 use super::super::*;
 use super::analysis::{bump_dedupe_authority_tx, invalidate_analysis_findings_for_root_tx};
-use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
+use super::dedupe::{
+    invalidate_file_in_transaction, invalidate_published_stale_candidates_in_transaction,
+    invalidate_stale_files_in_transaction,
+};
 use super::*;
 use crate::ids::new_job_id;
 use crate::path_filter::is_protected_system_path;
@@ -11,10 +14,7 @@ use crate::path_filter::{
     EligibilityPurpose, ManagedScanRootContext, StaleCandidateObservation,
     VerifiedStaleDirectoryChain,
 };
-use rusqlite::{
-    params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
-    Transaction, TransactionBehavior,
-};
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -122,7 +122,7 @@ fn issue366_thread_cpu_time_ns() -> Option<u128> {
     }
 }
 
-#[cfg(all(test, feature = "performance-test-tauri"))]
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ManagedScanWriteTestPoint {
     BeforeTransaction,
@@ -134,9 +134,12 @@ pub(crate) enum ManagedScanWriteTestPoint {
 #[derive(Default)]
 struct ReconcileMissingTestMetrics {
     candidate_count: usize,
+    preflight_root_boundary_validation: std::time::Duration,
     root_boundary_validation: std::time::Duration,
     candidate_query: std::time::Duration,
+    candidate_set_revalidation: std::time::Duration,
     legacy_proof_sql: std::time::Duration,
+    legacy_proof_revalidation: std::time::Duration,
     candidate_leaf_observation: std::time::Duration,
     directory_chain_initial: std::time::Duration,
     candidate_policy: std::time::Duration,
@@ -146,16 +149,38 @@ struct ReconcileMissingTestMetrics {
     final_revision_sql: std::time::Duration,
 }
 
-#[cfg(all(test, feature = "performance-test-tauri"))]
+struct PreparedStaleCandidate {
+    id: String,
+    path: String,
+    stale_eligible: bool,
+    legacy_excluded: bool,
+    legacy_proven: bool,
+}
+
+const RECONCILE_CANDIDATE_TEMP_TABLE: &str = "issue381_reconcile_candidates";
+
+#[cfg(test)]
 pub(crate) type ManagedScanWriteTestHook =
     std::sync::Arc<dyn Fn(&str, ManagedScanWriteTestPoint) + Send + Sync + 'static>;
 
-#[cfg(all(test, feature = "performance-test-tauri"))]
+#[cfg(test)]
 static MANAGED_SCAN_WRITE_TEST_HOOK: std::sync::OnceLock<
     std::sync::Mutex<Option<ManagedScanWriteTestHook>>,
 > = std::sync::OnceLock::new();
 
-#[cfg(all(test, feature = "performance-test-tauri"))]
+#[cfg(test)]
+static MANAGED_SCAN_RECONCILE_TEST_SERIALIZER: std::sync::OnceLock<std::sync::Mutex<()>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn lock_managed_scan_reconcile_test() -> std::sync::MutexGuard<'static, ()> {
+    MANAGED_SCAN_RECONCILE_TEST_SERIALIZER
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
 pub(crate) fn set_managed_scan_write_test_hook(hook: Option<ManagedScanWriteTestHook>) {
     *MANAGED_SCAN_WRITE_TEST_HOOK
         .get_or_init(|| std::sync::Mutex::new(None))
@@ -163,7 +188,7 @@ pub(crate) fn set_managed_scan_write_test_hook(hook: Option<ManagedScanWriteTest
         .unwrap_or_else(std::sync::PoisonError::into_inner) = hook;
 }
 
-#[cfg(all(test, feature = "performance-test-tauri"))]
+#[cfg(test)]
 fn invoke_managed_scan_write_test_hook(run_id: &str, point: ManagedScanWriteTestPoint) {
     // The dedicated D4 observation uses this prefix. Workspace Foundation's
     // latency measurements never take the hook lock or execute a callback.
@@ -1540,7 +1565,7 @@ impl Database {
         batch: &ScanBatchInput<'_>,
     ) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
-        #[cfg(all(test, feature = "performance-test-tauri"))]
+        #[cfg(test)]
         invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::BeforeTransaction);
         let tx =
             begin_managed_scan_write_transaction!(&mut conn, "persist_scan_batch", Some(run_id))?;
@@ -1657,7 +1682,7 @@ impl Database {
         }
         let updated = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
-        #[cfg(all(test, feature = "performance-test-tauri"))]
+        #[cfg(test)]
         invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::AfterCommit);
         if filesystem_changed {
             self.wake_automation_triggers();
@@ -1674,84 +1699,88 @@ impl Database {
         root_context: &ManagedScanRootContext,
     ) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
+        drop_stale_reconcile_candidate_table(&conn);
         #[cfg(all(test, feature = "performance-test-tauri"))]
-        let transaction_begin_call_started = std::time::Instant::now();
-        let tx =
-            begin_managed_scan_write_transaction!(&mut conn, "reconcile_missing", Some(run_id))?;
-        #[cfg(all(test, feature = "performance-test-tauri"))]
-        let transaction_lock_acquired = std::time::Instant::now();
-        #[cfg(all(test, feature = "performance-test-tauri"))]
-        let transaction_begin_wait =
-            transaction_lock_acquired.duration_since(transaction_begin_call_started);
+        let call_started = std::time::Instant::now();
         #[cfg(all(test, feature = "performance-test-tauri"))]
         let mut test_metrics = ReconcileMissingTestMetrics::default();
-        #[cfg(all(test, feature = "performance-test-tauri"))]
-        invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::TransactionAcquired);
-        let record = load_scan_run_record(&tx, run_id)?;
+
+        // Prepare the candidate snapshot and its first filesystem observations
+        // without holding SQLite's main-database writer lock. The prepared set
+        // is advisory until the final transaction rechecks it and every
+        // publishable filesystem boundary.
+        let preflight_record = load_scan_run_record(&conn, run_id)?;
         validate_worker_ownership(
-            &record,
+            &preflight_record,
             run_id,
             expected_run_revision,
             expected_root_revision,
             expected_session_revision,
             true,
         )?;
-        if record.dto.coverage_error_count > 0 {
+        if preflight_record.dto.coverage_error_count > 0 {
             return Err(DbError::Validation(
                 "Scan coverage is incomplete; stale reconciliation is forbidden.".to_string(),
             ));
         }
-        let (root_enabled, root_source_kind, normalized_root): (i64, String, String) = tx
-            .query_row(
-                "SELECT enabled, source_kind, normalized_path FROM scan_roots WHERE id = ?1",
-                params![record.dto.scan_root_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )?;
-        if root_context.id != record.dto.scan_root_id
-            || root_enabled != bool_to_i64(root_context.enabled)
-            || root_source_kind != root_context.source_kind
-            || crate::path_filter::normalize_policy_path(&normalized_root)
+        let (preflight_root_enabled, preflight_root_source, preflight_normalized_root): (
+            i64,
+            String,
+            String,
+        ) = conn.query_row(
+            "SELECT enabled, source_kind, normalized_path FROM scan_roots WHERE id = ?1",
+            params![preflight_record.dto.scan_root_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        if root_context.id != preflight_record.dto.scan_root_id
+            || preflight_root_enabled != bool_to_i64(root_context.enabled)
+            || preflight_root_source != root_context.source_kind
+            || crate::path_filter::normalize_policy_path(&preflight_normalized_root)
                 != crate::path_filter::normalize_policy_path(&root_context.path)
         {
             return Err(DbError::Validation(
                 "Stale reconciliation lost its selected-root authority.".to_string(),
             ));
         }
-        let root_path = Path::new(&record.dto.root_path);
+        let preflight_root_path = Path::new(&preflight_record.dto.root_path);
         #[cfg(all(test, feature = "performance-test-tauri"))]
-        let root_boundary_started = std::time::Instant::now();
-        let root_boundary_decision = evaluate_managed_path(
-            root_path,
+        let preflight_root_started = std::time::Instant::now();
+        let preflight_root_decision = evaluate_managed_path(
+            preflight_root_path,
             root_context,
             EligibilityPurpose::StaleReconciliation,
-            fs::symlink_metadata(root_path)
+            fs::symlink_metadata(preflight_root_path)
                 .ok()
                 .map(|metadata| metadata.is_dir()),
             false,
         );
         #[cfg(all(test, feature = "performance-test-tauri"))]
         {
-            test_metrics.root_boundary_validation = root_boundary_started.elapsed();
+            test_metrics.preflight_root_boundary_validation = preflight_root_started.elapsed();
         }
-        if root_boundary_decision != EligibilityDecision::Include {
+        if preflight_root_decision != EligibilityDecision::Include {
             return Err(DbError::Validation(
                 "Stale reconciliation source identity or access boundary changed.".to_string(),
             ));
         }
-        let started_at = record
+        let started_at = preflight_record
             .dto
             .started_at
             .ok_or_else(|| DbError::Validation("Scan run has no start timestamp.".to_string()))?;
-        let watcher_stable =
-            record.current_watcher_revision == record.dto.watcher_revision_at_start;
-        let changed = if watcher_stable {
-            let root = &record.dto.root_path;
-            let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
-                root_patterns(root);
+        let preflight_watcher_stable = preflight_record.current_watcher_revision
+            == preflight_record.dto.watcher_revision_at_start;
+        let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
+            root_patterns(&preflight_record.dto.root_path);
+        let mut prepared_candidates = Vec::<PreparedStaleCandidate>::new();
+        let mut stale_candidates = Vec::<(String, String, StaleCandidateObservation)>::new();
+        let mut verified_directories = HashMap::<PathBuf, VerifiedStaleDirectoryChain>::new();
+        let mut boundary_error = None;
+
+        if preflight_watcher_stable {
             #[cfg(all(test, feature = "performance-test-tauri"))]
             let candidate_query_started = std::time::Instant::now();
             let candidates = {
-                let mut statement = tx.prepare(
+                let mut statement = conn.prepare(
                     r#"
                     SELECT f.id, f.path
                     FROM files AS f
@@ -1768,63 +1797,61 @@ impl Database {
                       )
                     "#,
                 )?;
-                let candidates = statement
-                    .query_map(
-                        params![
-                            started_at,
-                            root_slash,
-                            root_slash_descendant,
-                            root_backslash,
-                            root_backslash_descendant,
-                            run_id,
-                        ],
-                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-                    )?
-                    .collect::<Result<Vec<_>, _>>()?;
-                candidates
+                let mapped = statement.query_map(
+                    params![
+                        started_at,
+                        root_slash,
+                        root_slash_descendant,
+                        root_backslash,
+                        root_backslash_descendant,
+                        run_id,
+                    ],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                mapped.collect::<Result<Vec<_>, _>>()?
             };
             #[cfg(all(test, feature = "performance-test-tauri"))]
             {
                 test_metrics.candidate_query = candidate_query_started.elapsed();
                 test_metrics.candidate_count = candidates.len();
             }
-            let mut stale_candidates: Vec<(String, String, StaleCandidateObservation)> = Vec::new();
-            let mut verified_directories: HashMap<PathBuf, VerifiedStaleDirectoryChain> =
-                HashMap::new();
-            let mut boundary_error = None;
+            prepared_candidates.reserve(candidates.len());
             for (id, path) in candidates {
-                let candidate_path = Path::new(&path);
+                prepared_candidates.push(PreparedStaleCandidate {
+                    id,
+                    path,
+                    stale_eligible: false,
+                    legacy_excluded: false,
+                    legacy_proven: false,
+                });
+            }
+
+            for candidate in &mut prepared_candidates {
+                let candidate_path = Path::new(&candidate.path);
                 if has_legacy_exclusion_component(&root_context.path, candidate_path) {
+                    candidate.legacy_excluded = true;
                     #[cfg(all(test, feature = "performance-test-tauri"))]
                     let history_sql_started = std::time::Instant::now();
-                    let has_prior_observation = has_prior_successful_scan_observation(
-                        &tx,
-                        &record.dto.scan_root_id,
-                        record.dto.generation,
-                        &id,
-                        &path,
+                    candidate.legacy_proven = has_prior_successful_scan_observation(
+                        &conn,
+                        &preflight_record.dto.scan_root_id,
+                        preflight_record.dto.generation,
+                        &candidate.id,
+                        &candidate.path,
                     )?;
                     #[cfg(all(test, feature = "performance-test-tauri"))]
                     {
                         test_metrics.legacy_proof_sql += history_sql_started.elapsed();
                     }
-                    if !has_prior_observation {
-                        // An old basename-only exclusion may have left this
-                        // row indexed without ever observing it under today's
-                        // policy. Keep it unless a prior complete generation
-                        // proves this exact root and path were successfully
-                        // covered.
+                    if !candidate.legacy_proven {
+                        // Old basename-only exclusions can have left history
+                        // without reliable exact-root/path coverage evidence.
                         continue;
                     }
                 }
 
-                // Match the inexpensive policy checks that precede boundary
-                // validation in evaluate_managed_path. The root context was
-                // already validated above, and the SQL candidate query is
-                // root-scoped, but keep these checks explicit at the trust
-                // boundary rather than creating a proof for another path.
-                if !path_is_within_root(&root_context.path, &path)
-                    || is_protected_system_path(&path)
+                if !path_is_within_root(&root_context.path, &candidate.path)
+                    || is_protected_system_path(&candidate.path)
                 {
                     continue;
                 }
@@ -1834,7 +1861,7 @@ impl Database {
                 let observation = match observe_stale_candidate(candidate_path) {
                     Ok(observation) => observation,
                     Err(reason) => {
-                        boundary_error = Some((path, reason));
+                        boundary_error = Some((candidate.path.clone(), reason));
                         break;
                     }
                 };
@@ -1842,6 +1869,14 @@ impl Database {
                 {
                     test_metrics.candidate_leaf_observation += leaf_observation_started.elapsed();
                 }
+                if !observation.leaf_is_missing() {
+                    boundary_error = Some((
+                        candidate.path.clone(),
+                        crate::path_filter::EligibilityReason::AccessBoundary,
+                    ));
+                    break;
+                }
+
                 let directory_key = observation.directory_path().to_path_buf();
                 if !verified_directories.contains_key(&directory_key) {
                     #[cfg(all(test, feature = "performance-test-tauri"))]
@@ -1849,7 +1884,7 @@ impl Database {
                     let proof = match verify_stale_candidate_directory(&observation, root_context) {
                         Ok(proof) => proof,
                         Err(reason) => {
-                            boundary_error = Some((path, reason));
+                            boundary_error = Some((candidate.path.clone(), reason));
                             break;
                         }
                     };
@@ -1870,10 +1905,17 @@ impl Database {
                     &observation,
                     proof,
                 ) {
-                    EligibilityDecision::Include => stale_candidates.push((id, path, observation)),
+                    EligibilityDecision::Include => {
+                        candidate.stale_eligible = true;
+                        stale_candidates.push((
+                            candidate.id.clone(),
+                            candidate.path.clone(),
+                            observation,
+                        ));
+                    }
                     EligibilityDecision::Exclude(_) => {}
                     EligibilityDecision::Incomplete(reason) => {
-                        boundary_error = Some((path, reason));
+                        boundary_error = Some((candidate.path.clone(), reason));
                         break;
                     }
                 }
@@ -1884,15 +1926,215 @@ impl Database {
             }
 
             if boundary_error.is_none() {
-                // Recheck cached proofs and every candidate leaf while still
-                // in the write transaction. This fences path/link/source
-                // changes since the first grouped lookup before any stale
-                // row is changed; the proof is never carried across runs.
+                if let Err(error) = stage_stale_reconcile_candidates(&conn, &prepared_candidates) {
+                    drop_stale_reconcile_candidate_table(&conn);
+                    return Err(error);
+                }
+            }
+        }
+
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let preflight_elapsed = call_started.elapsed();
+        #[cfg(test)]
+        invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::BeforeTransaction);
+
+        let publication_result = (|| -> Result<ScanRunRecord, DbError> {
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            let transaction_begin_call_started = std::time::Instant::now();
+            let tx = begin_managed_scan_write_transaction!(
+                &mut conn,
+                "reconcile_missing",
+                Some(run_id)
+            )?;
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            let transaction_lock_acquired = std::time::Instant::now();
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            let transaction_begin_wait =
+                transaction_lock_acquired.duration_since(transaction_begin_call_started);
+            #[cfg(test)]
+            invoke_managed_scan_write_test_hook(
+                run_id,
+                ManagedScanWriteTestPoint::TransactionAcquired,
+            );
+
+            let record = load_scan_run_record(&tx, run_id)?;
+            validate_worker_ownership(
+                &record,
+                run_id,
+                expected_run_revision,
+                expected_root_revision,
+                expected_session_revision,
+                true,
+            )?;
+            if record.dto.coverage_error_count > 0 {
+                return Err(DbError::Validation(
+                    "Scan coverage is incomplete; stale reconciliation is forbidden.".to_string(),
+                ));
+            }
+            let (root_enabled, root_source_kind, normalized_root): (i64, String, String) = tx
+                .query_row(
+                    "SELECT enabled, source_kind, normalized_path FROM scan_roots WHERE id = ?1",
+                    params![record.dto.scan_root_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+            if root_context.id != record.dto.scan_root_id
+                || root_enabled != bool_to_i64(root_context.enabled)
+                || root_source_kind != root_context.source_kind
+                || crate::path_filter::normalize_policy_path(&normalized_root)
+                    != crate::path_filter::normalize_policy_path(&root_context.path)
+            {
+                return Err(DbError::Validation(
+                    "Stale reconciliation lost its selected-root authority.".to_string(),
+                ));
+            }
+            let root_path = Path::new(&record.dto.root_path);
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            let root_boundary_started = std::time::Instant::now();
+            let root_boundary_decision = evaluate_managed_path(
+                root_path,
+                root_context,
+                EligibilityPurpose::StaleReconciliation,
+                fs::symlink_metadata(root_path)
+                    .ok()
+                    .map(|metadata| metadata.is_dir()),
+                false,
+            );
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            {
+                test_metrics.root_boundary_validation = root_boundary_started.elapsed();
+            }
+            if root_boundary_decision != EligibilityDecision::Include {
+                return Err(DbError::Validation(
+                    "Stale reconciliation source identity or access boundary changed.".to_string(),
+                ));
+            }
+
+            let watcher_stable =
+                record.current_watcher_revision == record.dto.watcher_revision_at_start;
+            if !watcher_stable {
+                // A durable watcher revision change already invalidates the
+                // scan's coverage evidence. Let the existing root-recovery
+                // path record that condition rather than publishing stale
+                // state or reporting an unrelated preflight boundary error.
+                boundary_error = None;
+            }
+            if watcher_stable && boundary_error.is_none() {
+                let (
+                    current_root_slash,
+                    current_root_slash_descendant,
+                    current_root_backslash,
+                    current_root_backslash_descendant,
+                ) = root_patterns(&record.dto.root_path);
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                let candidate_set_started = std::time::Instant::now();
+                let candidate_set_changed: bool = tx.query_row(
+                    &format!(
+                        r#"
+                        WITH current_candidates AS (
+                            SELECT f.id, f.path
+                            FROM files AS f
+                            WHERE f.is_stale = 0
+                              AND f.last_seen_at < ?1
+                              AND (
+                                  f.path = ?2 OR f.path LIKE ?3 ESCAPE '~'
+                                  OR f.path = ?4 OR f.path LIKE ?5 ESCAPE '~'
+                              )
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM scan_seen AS seen
+                                  WHERE seen.run_id = ?6
+                                    AND (seen.file_id = f.id OR seen.observed_path = f.path)
+                              )
+                        )
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM current_candidates AS current
+                            LEFT JOIN temp.{RECONCILE_CANDIDATE_TEMP_TABLE} AS prepared
+                              ON prepared.candidate_id = current.id
+                             AND prepared.candidate_path = current.path
+                            WHERE prepared.candidate_id IS NULL
+                            UNION ALL
+                            SELECT 1
+                            FROM temp.{RECONCILE_CANDIDATE_TEMP_TABLE} AS prepared
+                            LEFT JOIN current_candidates AS current
+                              ON current.id = prepared.candidate_id
+                             AND current.path = prepared.candidate_path
+                            WHERE current.id IS NULL
+                        )
+                        "#
+                    ),
+                    params![
+                        started_at,
+                        current_root_slash,
+                        current_root_slash_descendant,
+                        current_root_backslash,
+                        current_root_backslash_descendant,
+                        run_id,
+                    ],
+                    |row| row.get::<_, i64>(0).map(|changed| changed != 0),
+                )?;
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                {
+                    test_metrics.candidate_set_revalidation = candidate_set_started.elapsed();
+                }
+                if candidate_set_changed {
+                    boundary_error = Some((
+                        record.dto.root_path.clone(),
+                        crate::path_filter::EligibilityReason::AccessBoundary,
+                    ));
+                }
+            }
+
+            if watcher_stable && boundary_error.is_none() {
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                let legacy_revalidation_started = std::time::Instant::now();
+                let lost_legacy_proof: Option<String> = tx
+                    .query_row(
+                        r#"
+                        SELECT prepared.candidate_path
+                        FROM temp.issue381_reconcile_candidates AS prepared
+                        WHERE prepared.stale_eligible = 1
+                          AND prepared.legacy_excluded = 1
+                          AND prepared.legacy_proven = 1
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM scan_runs AS prior INDEXED BY idx_scan_runs_root_created
+                              WHERE prior.scan_root_id = ?1
+                                AND prior.generation < ?2
+                                AND prior.status IN ('completed', 'completed_with_warnings')
+                                AND prior.coverage_complete = 1
+                                AND prior.stale_reconciliation_allowed = 1
+                                AND EXISTS (
+                                    SELECT 1 FROM scan_seen AS seen
+                                    WHERE seen.run_id = prior.id
+                                      AND seen.file_id = prepared.candidate_id
+                                      AND seen.observed_path = prepared.candidate_path
+                                )
+                          )
+                        LIMIT 1
+                        "#,
+                        params![record.dto.scan_root_id, record.dto.generation],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                #[cfg(all(test, feature = "performance-test-tauri"))]
+                {
+                    test_metrics.legacy_proof_revalidation = legacy_revalidation_started.elapsed();
+                }
+                if let Some(path) = lost_legacy_proof {
+                    boundary_error =
+                        Some((path, crate::path_filter::EligibilityReason::AccessBoundary));
+                }
+            }
+
+            if watcher_stable && boundary_error.is_none() {
                 #[cfg(all(test, feature = "performance-test-tauri"))]
                 let leaf_revalidation_started = std::time::Instant::now();
                 for (_, path, observation) in &stale_candidates {
                     match observe_stale_candidate(Path::new(path)) {
-                        Ok(current) if observation.has_same_boundary(&current) => {}
+                        Ok(current)
+                            if current.leaf_is_missing()
+                                && observation.leaf_is_missing()
+                                && observation.has_same_boundary(&current) => {}
                         Ok(_) => {
                             boundary_error = Some((
                                 path.clone(),
@@ -1911,7 +2153,7 @@ impl Database {
                     test_metrics.candidate_leaf_revalidation = leaf_revalidation_started.elapsed();
                 }
             }
-            if boundary_error.is_none() {
+            if watcher_stable && boundary_error.is_none() {
                 #[cfg(all(test, feature = "performance-test-tauri"))]
                 let directory_revalidation_started = std::time::Instant::now();
                 for (directory_path, proof) in &verified_directories {
@@ -1928,19 +2170,19 @@ impl Database {
                 }
             }
 
-            if let Some((path, reason)) = boundary_error {
+            if let Some((path, reason)) = boundary_error.as_ref() {
                 let now = current_unix_seconds();
                 let error = ScanErrorInput {
-                    path: Some(path),
+                    path: Some(path.clone()),
                     error_code: "stale_boundary_unverified".to_string(),
                     error_message: format!(
-                        "A managed path boundary could not be verified during missing reconciliation: {reason:?}."
+                        "A managed path boundary or candidate snapshot could not be verified during missing reconciliation: {reason:?}."
                     ),
                     affects_coverage: true,
                     metadata_error: false,
                 };
                 insert_scan_errors_tx(&tx, run_id, std::slice::from_ref(&error), now)?;
-                let changed = tx.execute(
+                let run_changed = tx.execute(
                     r#"
                     UPDATE scan_runs
                     SET phase = 'reconciling_missing', coverage_complete = 0,
@@ -1954,7 +2196,7 @@ impl Database {
                     "#,
                     params![now, run_id, expected_run_revision, record.lease_token],
                 )?;
-                if changed != 1 {
+                if run_changed != 1 {
                     return Err(DbError::Validation(
                         "Boundary verification lost scan-run ownership; stale update was skipped."
                             .to_string(),
@@ -1987,132 +2229,150 @@ impl Database {
 
             #[cfg(all(test, feature = "performance-test-tauri"))]
             let stale_row_update_started = std::time::Instant::now();
-            let stale_ids = stale_candidates
-                .into_iter()
-                .map(|(id, _, _)| id)
-                .collect::<Vec<_>>();
-            let mut marked = 0;
-            for chunk in stale_ids.chunks(400) {
-                let placeholders = (1..=chunk.len())
-                    .map(|index| format!("?{index}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let values = chunk
-                    .iter()
-                    .cloned()
-                    .map(SqlValue::Text)
-                    .collect::<Vec<_>>();
-                marked += tx.execute(
+            let marked = if watcher_stable {
+                tx.execute(
                     &format!(
-                        "UPDATE files SET is_stale = 1 WHERE is_stale = 0 AND id IN ({placeholders})"
+                        r#"
+                        UPDATE files
+                        SET is_stale = 1
+                        WHERE is_stale = 0
+                          AND id IN (
+                              SELECT candidate_id
+                              FROM temp.{RECONCILE_CANDIDATE_TEMP_TABLE}
+                              WHERE stale_eligible = 1
+                          )
+                          AND EXISTS (
+                              SELECT 1
+                              FROM temp.{RECONCILE_CANDIDATE_TEMP_TABLE} AS prepared
+                              WHERE prepared.candidate_id = files.id
+                                AND prepared.candidate_path = files.path
+                          )
+                        "#
                     ),
-                    params_from_iter(values),
-                )?;
-            }
+                    [],
+                )?
+            } else {
+                0
+            };
             #[cfg(all(test, feature = "performance-test-tauri"))]
             {
                 test_metrics.stale_row_update_sql = stale_row_update_started.elapsed();
             }
-            marked
-        } else {
-            0
-        };
-        #[cfg(all(test, feature = "performance-test-tauri"))]
-        let final_revision_started = std::time::Instant::now();
-        let now = current_unix_seconds();
-        if changed > 0 {
-            bump_root_change_revision(&tx, &record.dto.scan_root_id)?;
-            invalidate_stale_files_in_transaction(&tx)?;
-            super::library::bump_library_query_revision_in_transaction(&tx)?;
-        }
-        let run_changed = tx.execute(
-            r#"
-            UPDATE scan_runs
-            SET phase = 'reconciling_missing', coverage_complete = 1,
-                stale_reconciliation_allowed = ?2, last_checkpoint_at = ?1,
-                revision = revision + 1, updated_at = ?1
-            WHERE id = ?3 AND status = 'running' AND cancel_requested = 0
-              AND coverage_error_count = 0 AND revision = ?4
-              AND lease_token = ?5
-            "#,
-            params![
-                now,
-                bool_to_i64(watcher_stable),
-                run_id,
-                expected_run_revision,
-                record.lease_token
-            ],
-        )?;
-        if run_changed != 1 {
-            return Err(DbError::Validation(
-                "Stale reconciliation run CAS failed; stale update rolled back.".to_string(),
-            ));
-        }
-        if !watcher_stable {
-            tx.execute(
+            if watcher_stable {
+                let expected_marked: i64 = tx.query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM temp.{RECONCILE_CANDIDATE_TEMP_TABLE} WHERE stale_eligible = 1"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )?;
+                if marked as i64 != expected_marked {
+                    return Err(DbError::Validation(
+                        "Stale candidate publication count changed; the atomic update was rolled back."
+                            .to_string(),
+                    ));
+                }
+            }
+
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            let final_revision_started = std::time::Instant::now();
+            let now = current_unix_seconds();
+            if marked > 0 {
+                bump_root_change_revision(&tx, &record.dto.scan_root_id)?;
+                invalidate_published_stale_candidates_in_transaction(&tx)?;
+                super::library::bump_library_query_revision_in_transaction(&tx)?;
+            }
+            let run_changed = tx.execute(
                 r#"
-                UPDATE scan_roots
-                SET needs_reconciliation = 1,
-                    health_status = CASE
-                        WHEN health_status IN ('missing', 'permission_required') THEN health_status
-                        ELSE 'reconciliation_required'
-                    END,
-                    last_error_code = 'watcher_changed_during_scan',
-                    last_error_message = 'Filesystem changes arrived while the scan was running; missing reconciliation was skipped.',
-                    revision = revision + 1,
-                    updated_at = ?1
-                WHERE id = ?2 AND active_run_id = ?3 AND active_generation = ?4
+                UPDATE scan_runs
+                SET phase = 'reconciling_missing', coverage_complete = 1,
+                    stale_reconciliation_allowed = ?2, last_checkpoint_at = ?1,
+                    revision = revision + 1, updated_at = ?1
+                WHERE id = ?3 AND status = 'running' AND cancel_requested = 0
+                  AND coverage_error_count = 0 AND revision = ?4
+                  AND lease_token = ?5
                 "#,
-                params![now, record.dto.scan_root_id, run_id, record.dto.generation],
+                params![
+                    now,
+                    bool_to_i64(watcher_stable),
+                    run_id,
+                    expected_run_revision,
+                    record.lease_token
+                ],
             )?;
-        }
-        let updated = load_scan_run_record(&tx, run_id)?;
-        #[cfg(all(test, feature = "performance-test-tauri"))]
-        {
-            test_metrics.final_revision_sql = final_revision_started.elapsed();
-        }
-        let _ = changed;
-        #[cfg(all(test, feature = "performance-test-tauri"))]
-        let commit_started = std::time::Instant::now();
-        tx.commit()?;
-        #[cfg(all(test, feature = "performance-test-tauri"))]
-        if run_id.contains("issue381-reconcile-lock") {
-            let commit_elapsed = commit_started.elapsed();
-            let lock_residency = transaction_lock_acquired.elapsed();
-            let measured = test_metrics.root_boundary_validation
-                + test_metrics.candidate_query
-                + test_metrics.legacy_proof_sql
-                + test_metrics.candidate_leaf_observation
-                + test_metrics.directory_chain_initial
-                + test_metrics.candidate_policy
-                + test_metrics.candidate_leaf_revalidation
-                + test_metrics.directory_chain_revalidation
-                + test_metrics.stale_row_update_sql
-                + test_metrics.final_revision_sql
-                + commit_elapsed;
-            let unclassified = lock_residency.saturating_sub(measured);
-            eprintln!(
-                "issue381 reconcile_lock candidates={} begin_call_to_commit_us={} begin_wait_us={} lock_residency_us={} root_boundary_fs_us={} candidate_query_sql_us={} legacy_proof_sql_us={} leaf_observation_fs_us={} directory_chain_initial_fs_us={} candidate_policy_us={} leaf_revalidation_fs_us={} directory_chain_revalidation_fs_us={} stale_row_update_sql_us={} final_revision_sql_us={} commit_us={} unclassified_us={}",
-                test_metrics.candidate_count,
-                transaction_begin_call_started.elapsed().as_micros(),
-                transaction_begin_wait.as_micros(),
-                lock_residency.as_micros(),
-                test_metrics.root_boundary_validation.as_micros(),
-                test_metrics.candidate_query.as_micros(),
-                test_metrics.legacy_proof_sql.as_micros(),
-                test_metrics.candidate_leaf_observation.as_micros(),
-                test_metrics.directory_chain_initial.as_micros(),
-                test_metrics.candidate_policy.as_micros(),
-                test_metrics.candidate_leaf_revalidation.as_micros(),
-                test_metrics.directory_chain_revalidation.as_micros(),
-                test_metrics.stale_row_update_sql.as_micros(),
-                test_metrics.final_revision_sql.as_micros(),
-                commit_elapsed.as_micros(),
-                unclassified.as_micros(),
-            );
-        }
-        self.wake_automation_triggers();
-        Ok(updated)
+            if run_changed != 1 {
+                return Err(DbError::Validation(
+                    "Stale reconciliation run CAS failed; stale update rolled back.".to_string(),
+                ));
+            }
+            if !watcher_stable {
+                tx.execute(
+                    r#"
+                    UPDATE scan_roots
+                    SET needs_reconciliation = 1,
+                        health_status = CASE
+                            WHEN health_status IN ('missing', 'permission_required') THEN health_status
+                            ELSE 'reconciliation_required'
+                        END,
+                        last_error_code = 'watcher_changed_during_scan',
+                        last_error_message = 'Filesystem changes arrived while the scan was running; missing reconciliation was skipped.',
+                        revision = revision + 1,
+                        updated_at = ?1
+                    WHERE id = ?2 AND active_run_id = ?3 AND active_generation = ?4
+                    "#,
+                    params![now, record.dto.scan_root_id, run_id, record.dto.generation],
+                )?;
+            }
+            let updated = load_scan_run_record(&tx, run_id)?;
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            {
+                test_metrics.final_revision_sql = final_revision_started.elapsed();
+            }
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            let commit_started = std::time::Instant::now();
+            tx.commit()?;
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            if run_id.contains("issue381-reconcile-lock") {
+                let commit_elapsed = commit_started.elapsed();
+                let lock_residency = transaction_lock_acquired.elapsed();
+                let classified = test_metrics.root_boundary_validation
+                    + test_metrics.candidate_set_revalidation
+                    + test_metrics.legacy_proof_revalidation
+                    + test_metrics.candidate_leaf_revalidation
+                    + test_metrics.directory_chain_revalidation
+                    + test_metrics.stale_row_update_sql
+                    + test_metrics.final_revision_sql
+                    + commit_elapsed;
+                let unclassified = lock_residency.saturating_sub(classified);
+                eprintln!(
+                    "issue381 reconcile_lock candidates={} preflight_us={} begin_call_to_commit_us={} begin_wait_us={} lock_residency_us={} preflight_root_fs_us={} preflight_candidate_sql_us={} preflight_legacy_sql_us={} preflight_leaf_fs_us={} preflight_directory_fs_us={} preflight_policy_us={} root_boundary_recheck_fs_us={} candidate_set_recheck_sql_us={} legacy_proof_recheck_sql_us={} leaf_recheck_fs_us={} directory_chain_recheck_fs_us={} stale_update_sql_us={} final_cas_invalidation_sql_us={} commit_us={} unclassified_lock_us={}",
+                    test_metrics.candidate_count,
+                    preflight_elapsed.as_micros(),
+                    transaction_begin_call_started.elapsed().as_micros(),
+                    transaction_begin_wait.as_micros(),
+                    lock_residency.as_micros(),
+                    test_metrics.preflight_root_boundary_validation.as_micros(),
+                    test_metrics.candidate_query.as_micros(),
+                    test_metrics.legacy_proof_sql.as_micros(),
+                    test_metrics.candidate_leaf_observation.as_micros(),
+                    test_metrics.directory_chain_initial.as_micros(),
+                    test_metrics.candidate_policy.as_micros(),
+                    test_metrics.root_boundary_validation.as_micros(),
+                    test_metrics.candidate_set_revalidation.as_micros(),
+                    test_metrics.legacy_proof_revalidation.as_micros(),
+                    test_metrics.candidate_leaf_revalidation.as_micros(),
+                    test_metrics.directory_chain_revalidation.as_micros(),
+                    test_metrics.stale_row_update_sql.as_micros(),
+                    test_metrics.final_revision_sql.as_micros(),
+                    commit_elapsed.as_micros(),
+                    unclassified.as_micros(),
+                );
+            }
+            self.wake_automation_triggers();
+            Ok(updated)
+        })();
+        drop_stale_reconcile_candidate_table(&conn);
+        publication_result
     }
 
     pub(crate) fn transition_scan_run_phase(
@@ -3443,7 +3703,7 @@ fn insert_scan_errors_tx(
 }
 
 fn has_prior_successful_scan_observation(
-    tx: &Transaction<'_>,
+    tx: &Connection,
     scan_root_id: &str,
     generation: i64,
     file_id: &str,
@@ -3473,6 +3733,59 @@ fn has_prior_successful_scan_observation(
     )
     .map(|observed| observed != 0)
     .map_err(DbError::from)
+}
+
+fn stage_stale_reconcile_candidates(
+    conn: &Connection,
+    candidates: &[PreparedStaleCandidate],
+) -> Result<(), DbError> {
+    conn.execute_batch(&format!(
+        "DROP TABLE IF EXISTS temp.{RECONCILE_CANDIDATE_TEMP_TABLE};
+         CREATE TEMP TABLE {RECONCILE_CANDIDATE_TEMP_TABLE} (
+             candidate_id TEXT PRIMARY KEY,
+             candidate_path TEXT NOT NULL,
+             stale_eligible INTEGER NOT NULL,
+             legacy_excluded INTEGER NOT NULL,
+             legacy_proven INTEGER NOT NULL
+         ) WITHOUT ROWID;"
+    ))?;
+    conn.execute_batch("BEGIN DEFERRED")?;
+    let staging_result = (|| -> Result<(), DbError> {
+        let mut insert = conn.prepare(&format!(
+            "INSERT INTO temp.{RECONCILE_CANDIDATE_TEMP_TABLE} \
+             (candidate_id, candidate_path, stale_eligible, legacy_excluded, legacy_proven) \
+             VALUES (?1, ?2, ?3, ?4, ?5)"
+        ))?;
+        for candidate in candidates {
+            insert.execute(params![
+                candidate.id,
+                candidate.path,
+                bool_to_i64(candidate.stale_eligible),
+                bool_to_i64(candidate.legacy_excluded),
+                bool_to_i64(candidate.legacy_proven),
+            ])?;
+        }
+        Ok(())
+    })();
+    match staging_result {
+        Ok(()) => match conn.execute_batch("COMMIT") {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(DbError::from(error))
+            }
+        },
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+fn drop_stale_reconcile_candidate_table(conn: &Connection) {
+    let _ = conn.execute_batch(&format!(
+        "DROP TABLE IF EXISTS temp.{RECONCILE_CANDIDATE_TEMP_TABLE};"
+    ));
 }
 
 fn root_patterns(root: &str) -> (String, String, String, String) {
@@ -4092,10 +4405,10 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "performance-test-tauri")]
+    #[cfg(test)]
     struct ManagedScanWriteTestHookReset;
 
-    #[cfg(feature = "performance-test-tauri")]
+    #[cfg(test)]
     impl Drop for ManagedScanWriteTestHookReset {
         fn drop(&mut self) {
             set_managed_scan_write_test_hook(None);
@@ -5680,13 +5993,24 @@ mod tests {
             state_code: 0,
         })
         .expect("insert old file");
-        db.conn()
-            .expect("db connection")
-            .execute(
-                "UPDATE files SET last_seen_at = 0 WHERE id = ?1",
+        {
+            let conn = db.conn().expect("db connection");
+            conn.execute(
+                "UPDATE files SET last_seen_at = 0, context = 'owner-note-381', content_hash = 'owner-hash-381' WHERE id = ?1",
                 params![old_path],
             )
-            .expect("age old file");
+            .expect("age old file and set user metadata");
+            conn.execute(
+                "INSERT INTO user_tags (id, display_name, normalized_name, color_token, created_at, updated_at) VALUES ('issue381-stale-tag', 'Stale Tag', 'issue381 stale tag', 'green', 1, 1)",
+                [],
+            )
+            .expect("create stale-file user tag");
+            conn.execute(
+                "INSERT INTO file_user_tags (file_id, tag_id, created_at) VALUES (?1, 'issue381-stale-tag', 1)",
+                params![old_path],
+            )
+            .expect("tag old file before stale publication");
+        }
 
         let admission = db
             .admit_managed_scan(&request(&root, "stale-success-1"))
@@ -5749,13 +6073,27 @@ mod tests {
             .expect("finalize");
         assert_eq!(finalization.session.status, "completed");
         let conn = db.conn().expect("db connection");
-        let stale: i64 = conn
+        let (stale, context, content_hash): (i64, String, String) = conn
             .query_row(
-                "SELECT is_stale FROM files WHERE id = ?1",
+                "SELECT is_stale, context, content_hash FROM files WHERE id = ?1",
+                params![old_path],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("stale state");
+        let retained_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = 'issue381-stale-tag'",
                 params![old_path],
                 |row| row.get(0),
             )
-            .expect("stale state");
+            .expect("retained stale-file tag");
+        let fts_result_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'old'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("stale-only update retains indexed FTS content");
         let successful_generation: i64 = conn
             .query_row(
                 "SELECT last_successful_generation FROM scan_roots WHERE id = ?1",
@@ -5764,7 +6102,33 @@ mod tests {
             )
             .expect("successful generation");
         assert_eq!(stale, 1);
+        assert_eq!(context, "owner-note-381");
+        assert_eq!(content_hash, "", "stale invalidation clears content hashes");
+        assert_eq!(retained_tag_count, 1);
+        assert_eq!(fts_result_count, 1);
         assert_eq!(successful_generation, 1);
+        drop(conn);
+
+        let library_page = db
+            .query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
+                version: 2,
+                request_id: "issue381-stale-library-query".to_string(),
+                query: crate::db::queries::library::FileQuerySpecV2 {
+                    scope: crate::db::queries::library::FileLibraryScopeV2::Roots {
+                        scan_root_ids: vec![finalization.run.dto.scan_root_id.clone()],
+                    },
+                    text: None,
+                    filters: Default::default(),
+                    sort: Default::default(),
+                },
+                page_size: 20,
+                cursor: None,
+            })
+            .expect("File Library query after stale publication");
+        assert!(
+            library_page.files.iter().all(|file| file.id != old_path),
+            "stale rows stay out of active File Library results"
+        );
     }
 
     #[test]
@@ -6202,8 +6566,415 @@ mod tests {
     }
 
     #[test]
+    fn stale_reconciliation_fails_closed_when_a_candidate_reappears_after_preflight() {
+        let _serial = lock_managed_scan_reconcile_test();
+        let db = test_db("issue381-preflight-reappearance");
+        let root = PathBuf::from(test_scan_root("issue381-preflight-reappearance"));
+        let parent = root.join("Project/src");
+        fs::create_dir_all(&parent).expect("create candidate parent");
+
+        let mut candidate_paths = Vec::new();
+        {
+            let mut conn = db.conn().expect("db connection");
+            let tx = conn.transaction().expect("seed candidate rows transaction");
+            let mut insert = tx
+                .prepare(
+                    "INSERT INTO files (id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, suggested_name, classification_status, is_stale, last_seen_at) VALUES (?1, ?1, ?2, 'txt', 1, 1, 1, 0, 0, 'Other', ?2, 'unclassified', 0, 0)",
+                )
+                .expect("prepare candidate insert");
+            for index in 0..2 {
+                let path = parent.join(format!("missing-{index}.txt"));
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                fs::write(&path, b"indexed source").expect("write candidate source");
+                let path_text = path.to_string_lossy().replace('\\', "/");
+                insert
+                    .execute(params![path_text, name])
+                    .expect("insert candidate row");
+                candidate_paths.push(path);
+            }
+            drop(insert);
+            tx.commit().expect("commit candidate seed");
+        }
+        for path in &candidate_paths {
+            fs::remove_file(path).expect("delete candidate before scan");
+        }
+
+        let mut options = request(&root.to_string_lossy(), "issue381-preflight-reappearance");
+        options.run_id_override = Some("issue345-d4-issue381-preflight-reappearance".to_string());
+        let admission = db.admit_managed_scan(&options).expect("admit scan");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan");
+        let root_context = root_context_for(&db, &run);
+        let expected_run_id = run.dto.id.clone();
+        let reappeared_path = candidate_paths[0].clone();
+        let hook_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_called_in_callback = hook_called.clone();
+        set_managed_scan_write_test_hook(Some(std::sync::Arc::new(move |run_id, point| {
+            if run_id == expected_run_id && point == ManagedScanWriteTestPoint::BeforeTransaction {
+                fs::write(&reappeared_path, b"reappeared after candidate preflight")
+                    .expect("recreate one candidate between preflight and publication");
+                hook_called_in_callback.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        })));
+        let _hook_reset = ManagedScanWriteTestHookReset;
+
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .expect("candidate reappearance is recorded as incomplete coverage");
+
+        assert!(
+            hook_called.load(std::sync::atomic::Ordering::SeqCst),
+            "the race must happen after out-of-lock candidate preparation"
+        );
+        assert_eq!(reconciled.dto.coverage_error_count, 1);
+        assert!(!reconciled.dto.coverage_complete);
+        assert!(!reconciled.dto.stale_reconciliation_allowed);
+        let conn = db.conn().expect("inspect stale state");
+        let stale_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id IN (?1, ?2) AND is_stale = 1",
+                params![
+                    candidate_paths[0].to_string_lossy().replace('\\', "/"),
+                    candidate_paths[1].to_string_lossy().replace('\\', "/")
+                ],
+                |row| row.get(0),
+            )
+            .expect("count stale candidates");
+        assert_eq!(
+            stale_count, 0,
+            "one reappeared candidate blocks the whole publish"
+        );
+    }
+
+    #[test]
+    fn stale_reconciliation_rechecks_watcher_revision_after_candidate_preflight() {
+        let _serial = lock_managed_scan_reconcile_test();
+        let db = test_db("issue381-preflight-watcher");
+        let root = PathBuf::from(test_scan_root("issue381-preflight-watcher"));
+        let parent = root.join("Project/src");
+        fs::create_dir_all(&parent).expect("create candidate parent");
+        let candidate = parent.join("missing.txt");
+        fs::write(&candidate, b"indexed source").expect("write candidate source");
+        let path = candidate.to_string_lossy().replace('\\', "/");
+        db.conn()
+            .expect("db connection")
+            .execute(
+                "INSERT INTO files (id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, suggested_name, classification_status, is_stale, last_seen_at) VALUES (?1, ?1, 'missing.txt', 'txt', 1, 1, 1, 0, 0, 'Other', 'missing.txt', 'unclassified', 0, 0)",
+                [&path],
+            )
+            .expect("insert missing candidate");
+        fs::remove_file(&candidate).expect("delete candidate before scan");
+
+        let mut options = request(&root.to_string_lossy(), "issue381-preflight-watcher");
+        options.run_id_override = Some("issue345-d4-issue381-preflight-watcher".to_string());
+        let admission = db.admit_managed_scan(&options).expect("admit scan");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan");
+        let root_id = run.dto.scan_root_id.clone();
+        let root_context = root_context_for(&db, &run);
+        let expected_run_id = run.dto.id.clone();
+        let db_for_hook = db.clone();
+        let hook_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_called_in_callback = hook_called.clone();
+        set_managed_scan_write_test_hook(Some(std::sync::Arc::new(move |run_id, point| {
+            if run_id == expected_run_id && point == ManagedScanWriteTestPoint::BeforeTransaction {
+                db_for_hook
+                    .begin_watcher_revision(&root_id)
+                    .expect("advance watcher revision after preflight")
+                    .expect("watcher revision exists");
+                hook_called_in_callback.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        })));
+        let _hook_reset = ManagedScanWriteTestHookReset;
+
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .expect("watcher change suppresses stale publication");
+
+        assert!(hook_called.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!reconciled.dto.stale_reconciliation_allowed);
+        let conn = db.conn().expect("inspect watcher-gated file");
+        let stale: i64 = conn
+            .query_row("SELECT is_stale FROM files WHERE id = ?1", [&path], |row| {
+                row.get(0)
+            })
+            .expect("read stale state");
+        assert_eq!(stale, 0);
+        drop(conn);
+        let root_health = db
+            .get_scan_root_health(Some(&run.dto.scan_root_id), None)
+            .expect("read root health");
+        assert!(root_health.needs_reconciliation);
+    }
+
+    #[test]
+    fn stale_reconciliation_loses_ownership_if_cancelled_after_preflight() {
+        let _serial = lock_managed_scan_reconcile_test();
+        let db = test_db("issue381-preflight-cancel");
+        let root = PathBuf::from(test_scan_root("issue381-preflight-cancel"));
+        fs::create_dir_all(&root).expect("create scan root");
+        let candidate = root.join("missing.txt");
+        let path = candidate.to_string_lossy().replace('\\', "/");
+        db.insert_file(InsertFileRequest {
+            id: path.clone(),
+            path: path.clone(),
+            name: "missing.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert missing candidate");
+        db.conn()
+            .expect("db connection")
+            .execute("UPDATE files SET last_seen_at = 0 WHERE id = ?1", [&path])
+            .expect("age missing candidate");
+
+        let mut options = request(&root.to_string_lossy(), "issue381-preflight-cancel");
+        options.run_id_override = Some("issue345-d4-issue381-preflight-cancel".to_string());
+        let admission = db.admit_managed_scan(&options).expect("admit scan");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan");
+        let root_context = root_context_for(&db, &run);
+        let expected_run_id = run.dto.id.clone();
+        let hook_db = db.clone();
+        let hook_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_called_in_callback = hook_called.clone();
+        set_managed_scan_write_test_hook(Some(std::sync::Arc::new(move |run_id, point| {
+            if run_id == expected_run_id && point == ManagedScanWriteTestPoint::BeforeTransaction {
+                hook_db
+                    .request_scan_cancellation(run_id)
+                    .expect("cancel scan after candidate preflight");
+                hook_called_in_callback.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        })));
+        let _hook_reset = ManagedScanWriteTestHookReset;
+
+        assert!(db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .is_err());
+        assert!(hook_called.load(std::sync::atomic::Ordering::SeqCst));
+        let conn = db.conn().expect("inspect cancelled candidate");
+        let (stale, cancelled): (i64, i64) = conn
+            .query_row(
+                "SELECT files.is_stale, scan_runs.cancel_requested FROM files JOIN scan_runs ON scan_runs.id = ?2 WHERE files.id = ?1",
+                params![path, run.dto.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read cancelled candidate state");
+        assert_eq!(stale, 0);
+        assert_eq!(cancelled, 1);
+    }
+
+    #[test]
+    fn stale_reconciliation_cannot_publish_for_an_old_generation_after_preflight() {
+        let _serial = lock_managed_scan_reconcile_test();
+        let db = test_db("issue381-preflight-generation");
+        let root = PathBuf::from(test_scan_root("issue381-preflight-generation"));
+        fs::create_dir_all(&root).expect("create scan root");
+        let candidate = root.join("missing.txt");
+        let path = candidate.to_string_lossy().replace('\\', "/");
+        db.insert_file(InsertFileRequest {
+            id: path.clone(),
+            path: path.clone(),
+            name: "missing.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert missing candidate");
+        db.conn()
+            .expect("db connection")
+            .execute("UPDATE files SET last_seen_at = 0 WHERE id = ?1", [&path])
+            .expect("age missing candidate");
+
+        let mut options = request(&root.to_string_lossy(), "issue381-preflight-generation");
+        options.run_id_override = Some("issue345-d4-issue381-preflight-generation".to_string());
+        let admission = db
+            .admit_managed_scan(&options)
+            .expect("admit first generation");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim first generation");
+        let root_context = root_context_for(&db, &run);
+        let expected_run_id = run.dto.id.clone();
+        let expected_generation = run.dto.generation;
+        let root_id = run.dto.scan_root_id.clone();
+        let root_text = root.to_string_lossy().into_owned();
+        let hook_db = db.clone();
+        let hook_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_called_in_callback = hook_called.clone();
+        let newer_generation = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0));
+        let newer_generation_in_callback = newer_generation.clone();
+        set_managed_scan_write_test_hook(Some(std::sync::Arc::new(move |run_id, point| {
+            if run_id != expected_run_id || point != ManagedScanWriteTestPoint::BeforeTransaction {
+                return;
+            }
+            let cancelling = hook_db
+                .request_scan_cancellation(run_id)
+                .expect("cancel first generation after candidate preflight");
+            let finalized = hook_db
+                .finalize_scan_run(
+                    &cancelling.dto.id,
+                    cancelling.dto.revision,
+                    cancelling.root_revision,
+                    cancelling.session_revision,
+                    &ScanFinalizeInput {
+                        terminal_status: "cancelled".to_string(),
+                        error_code: Some("cancelled".to_string()),
+                        error_message: Some("superseded in preflight race test".to_string()),
+                        allow_stale_reconciliation: false,
+                        rule_recovery_succeeded: false,
+                    },
+                )
+                .expect("finish cancelled generation");
+            let next = hook_db
+                .admit_managed_scan(&request(&root_text, "issue381-preflight-generation-next"))
+                .expect("admit next generation");
+            let next_run = hook_db
+                .claim_queued_scan_run(&next.runs[0].id)
+                .expect("claim next generation");
+            assert_eq!(finalized.run.dto.generation, expected_generation);
+            assert_eq!(next_run.dto.scan_root_id, root_id);
+            newer_generation_in_callback
+                .store(next_run.dto.generation, std::sync::atomic::Ordering::SeqCst);
+            hook_called_in_callback.store(true, std::sync::atomic::Ordering::SeqCst);
+        })));
+        let _hook_reset = ManagedScanWriteTestHookReset;
+
+        assert!(db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .is_err());
+        assert!(hook_called.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(
+            newer_generation.load(std::sync::atomic::Ordering::SeqCst) > expected_generation,
+            "a newer root generation must own the reconciliation lease"
+        );
+        let conn = db.conn().expect("inspect old-generation candidate");
+        let stale: i64 = conn
+            .query_row("SELECT is_stale FROM files WHERE id = ?1", [&path], |row| {
+                row.get(0)
+            })
+            .expect("read candidate stale state");
+        assert_eq!(stale, 0);
+    }
+
+    #[test]
+    fn stale_set_based_publication_rolls_back_completely_on_sql_failure() {
+        let db = test_db("issue381-publication-rollback");
+        let root = PathBuf::from(test_scan_root("issue381-publication-rollback"));
+        fs::create_dir_all(&root).expect("create scan root");
+        let first_path = root.join("missing-first.txt");
+        let second_path = root.join("missing-second.txt");
+        let first = first_path.to_string_lossy().replace('\\', "/");
+        let second = second_path.to_string_lossy().replace('\\', "/");
+        for (path, name) in [
+            (&first, "missing-first.txt"),
+            (&second, "missing-second.txt"),
+        ] {
+            db.insert_file(InsertFileRequest {
+                id: path.clone(),
+                path: path.clone(),
+                name: name.to_string(),
+                extension: "txt".to_string(),
+                size: 1,
+                mtime: 1,
+                ctime: 1,
+                is_dir: false,
+                state_code: 0,
+            })
+            .expect("insert rollback candidate");
+        }
+        let mut options = request(&root.to_string_lossy(), "issue381-publication-rollback");
+        options.run_id_override = Some("issue381-publication-rollback-run".to_string());
+        let admission = db.admit_managed_scan(&options).expect("admit scan");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan");
+        let root_context = root_context_for(&db, &run);
+        let conn = db.conn().expect("install stale publication failure");
+        conn.execute(
+            "UPDATE files SET last_seen_at = 0 WHERE id IN (?1, ?2)",
+            params![first, second],
+        )
+        .expect("age rollback candidates");
+        conn.execute_batch(
+            r#"
+            CREATE TRIGGER issue381_inject_stale_abort
+            BEFORE UPDATE OF is_stale ON files
+            WHEN NEW.id LIKE '%missing-second.txt' AND NEW.is_stale = 1
+            BEGIN
+                SELECT RAISE(ABORT, 'injected stale publication failure');
+            END;
+            "#,
+        )
+        .expect("install injected stale failure");
+        drop(conn);
+
+        assert!(db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &root_context,
+            )
+            .is_err());
+        let conn = db.conn().expect("inspect rolled-back publication");
+        let stale_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id IN (?1, ?2) AND is_stale = 1",
+                params![first, second],
+                |row| row.get(0),
+            )
+            .expect("count rolled-back stale rows");
+        let run_revision: i64 = conn
+            .query_row(
+                "SELECT revision FROM scan_runs WHERE id = ?1",
+                [&run.dto.id],
+                |row| row.get(0),
+            )
+            .expect("read unchanged run revision");
+        assert_eq!(stale_count, 0);
+        assert_eq!(run_revision, run.dto.revision);
+    }
+
+    #[test]
     #[ignore = "bounded performance fixture; invoked by npm run test:performance"]
     fn performance_100k_scan_seen_missing_reconcile_and_wal_reader() {
+        let _serial = lock_managed_scan_reconcile_test();
         const FILE_COUNT: usize = 100_000;
         let db = test_db("performance-100k");
         let seen_root = test_scan_root("performance-seen");
@@ -6300,6 +7071,13 @@ mod tests {
                     [&writer_control_path],
                 )
                 .expect("insert ordinary metadata writer control row");
+            db.conn()
+                .expect("seed user-tag writer tag")
+                .execute(
+                    "INSERT INTO user_tags (id, display_name, normalized_name, color_token, created_at, updated_at) VALUES ('issue381-writer-tag', 'Concurrency Tag', 'issue381 concurrency tag', 'blue', 1, 1)",
+                    [],
+                )
+                .expect("insert user-tag writer tag");
         }
         #[cfg(feature = "performance-test-tauri")]
         let missing_request = {
@@ -6318,36 +7096,86 @@ mod tests {
         let missing_root_context = root_context_for(&db, &missing_run);
 
         #[cfg(feature = "performance-test-tauri")]
-        let (_writer_hook_reset, writer_thread, writer_result_rx) = {
+        let wal_path = PathBuf::from(format!("{}-wal", db.path().display()));
+        #[cfg(feature = "performance-test-tauri")]
+        let wal_bytes_before = {
+            let connection = db.conn().expect("checkpoint before WAL gate");
+            let (busy, _, _): (i64, i64, i64) = connection
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .expect("truncate WAL before gate");
+            assert_eq!(busy, 0, "the isolated gate database has no WAL readers");
+            drop(connection);
+            fs::metadata(&wal_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0)
+        };
+        #[cfg(feature = "performance-test-tauri")]
+        let wal_reader = {
+            let reader = Connection::open(db.path()).expect("open pinned WAL reader");
+            reader
+                .execute_batch("PRAGMA journal_mode = WAL; BEGIN DEFERRED;")
+                .expect("begin WAL reader snapshot");
+            let stale_before: i64 = reader
+                .query_row(
+                    "SELECT COUNT(*) FROM files WHERE is_stale = 1 AND path LIKE ?1",
+                    [format!("{missing_root}/missing-%")],
+                    |row| row.get(0),
+                )
+                .expect("read complete old state before publication");
+            assert_eq!(stale_before, 0);
+            reader
+        };
+
+        #[cfg(feature = "performance-test-tauri")]
+        let (
+            _writer_hook_reset,
+            metadata_writer_thread,
+            metadata_result_rx,
+            tag_writer_thread,
+            tag_result_rx,
+        ) = {
             let expected_run_id = missing_run.dto.id.clone();
-            let writer_db = db.clone();
-            let writer_control_path = writer_control_path.clone();
-            let (writer_start_tx, writer_start_rx) = mpsc::sync_channel(1);
-            let (writer_attempted_tx, writer_attempted_rx) = mpsc::sync_channel(1);
+            let metadata_db = db.clone();
+            let tag_db = db.clone();
+            let metadata_control_path = writer_control_path.clone();
+            let tag_control_path = writer_control_path.clone();
+            let (metadata_start_tx, metadata_start_rx) = mpsc::sync_channel(1);
+            let (tag_start_tx, tag_start_rx) = mpsc::sync_channel(1);
+            let (writer_attempted_tx, writer_attempted_rx) = mpsc::channel();
+            let metadata_attempted_tx = writer_attempted_tx.clone();
             let writer_attempted_rx =
                 std::sync::Arc::new(std::sync::Mutex::new(writer_attempted_rx));
-            let (writer_result_tx, writer_result_rx) = mpsc::sync_channel(1);
+            let (metadata_result_tx, metadata_result_rx) = mpsc::sync_channel(1);
+            let (tag_result_tx, tag_result_rx) = mpsc::sync_channel(1);
             set_managed_scan_write_test_hook(Some(std::sync::Arc::new(move |run_id, point| {
                 if run_id == expected_run_id
                     && point == ManagedScanWriteTestPoint::TransactionAcquired
                 {
-                    writer_start_tx
+                    metadata_start_tx
                         .send(())
-                        .expect("start the unrelated writer after reconcile locks SQLite");
-                    writer_attempted_rx
+                        .expect("start the ordinary metadata writer after reconcile locks SQLite");
+                    tag_start_tx
+                        .send(())
+                        .expect("start the user-tag writer after reconcile locks SQLite");
+                    let attempted = writer_attempted_rx
                         .lock()
-                        .expect("writer-attempt receiver mutex")
-                        .recv_timeout(Duration::from_secs(5))
-                        .expect("unrelated writer reaches BEGIN IMMEDIATE");
+                        .expect("writer-attempt receiver mutex");
+                    for _ in 0..2 {
+                        attempted
+                            .recv_timeout(Duration::from_secs(5))
+                            .expect("both independent writers reach the busy transaction");
+                    }
                 }
             })));
             let writer_hook_reset = ManagedScanWriteTestHookReset;
-            let writer_thread = std::thread::spawn(move || {
+            let metadata_writer_thread = std::thread::spawn(move || {
                 let result = (|| -> Result<Duration, String> {
-                    writer_start_rx
+                    metadata_start_rx
                         .recv_timeout(Duration::from_secs(5))
-                        .map_err(|error| format!("writer start signal: {error}"))?;
-                    let connection = writer_db.conn().map_err(|error| error.to_string())?;
+                        .map_err(|error| format!("metadata writer start signal: {error}"))?;
+                    let connection = metadata_db.conn().map_err(|error| error.to_string())?;
                     let configured_timeout_ms = connection
                         .query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))
                         .map_err(|error| error.to_string())?;
@@ -6357,16 +7185,16 @@ mod tests {
                         ));
                     }
                     let started = Instant::now();
-                    writer_attempted_tx
+                    metadata_attempted_tx
                         .send(())
-                        .map_err(|error| format!("writer attempt signal: {error}"))?;
+                        .map_err(|error| format!("metadata writer attempt signal: {error}"))?;
                     connection
                         .execute_batch("BEGIN IMMEDIATE")
-                        .map_err(|error| format!("ordinary writer BEGIN IMMEDIATE: {error}"))?;
+                        .map_err(|error| format!("metadata writer BEGIN IMMEDIATE: {error}"))?;
                     let changed = connection
                         .execute(
                             "UPDATE files SET name = 'metadata-write-complete' WHERE id = ?1",
-                            [&writer_control_path],
+                            [&metadata_control_path],
                         )
                         .map_err(|error| format!("ordinary metadata update: {error}"))?;
                     if changed != 1 {
@@ -6375,12 +7203,61 @@ mod tests {
                     }
                     connection
                         .execute_batch("COMMIT")
-                        .map_err(|error| format!("ordinary writer COMMIT: {error}"))?;
+                        .map_err(|error| format!("metadata writer COMMIT: {error}"))?;
                     Ok(started.elapsed())
                 })();
-                let _ = writer_result_tx.send(result);
+                let _ = metadata_result_tx.send(result);
             });
-            (writer_hook_reset, writer_thread, writer_result_rx)
+            let tag_writer_thread = std::thread::spawn(move || {
+                let result = (|| -> Result<Duration, String> {
+                    tag_start_rx
+                        .recv_timeout(Duration::from_secs(5))
+                        .map_err(|error| format!("user-tag writer start signal: {error}"))?;
+                    let connection = tag_db.conn().map_err(|error| error.to_string())?;
+                    let configured_timeout_ms = connection
+                        .query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))
+                        .map_err(|error| error.to_string())?;
+                    drop(connection);
+                    if configured_timeout_ms != 5_000 {
+                        return Err(format!(
+                            "user-tag writer busy_timeout was {configured_timeout_ms}ms, expected production default 5000ms"
+                        ));
+                    }
+                    let started = Instant::now();
+                    writer_attempted_tx
+                        .send(())
+                        .map_err(|error| format!("user-tag writer attempt signal: {error}"))?;
+                    let result = tag_db
+                        .mutate_file_user_tags(
+                            crate::db::queries::library::MutateFileUserTagsRequest {
+                                selection:
+                                    crate::db::queries::library::LibrarySelectionV1::Explicit {
+                                        file_ids: vec![tag_control_path],
+                                    },
+                                tag_ids: vec!["issue381-writer-tag".to_string()],
+                                operation:
+                                    crate::db::queries::library::UserTagMutationOperation::Add,
+                                expected_count: Some(1),
+                            },
+                        )
+                        .map_err(|error| format!("user-tag mutation: {error}"))?;
+                    if result.applied_count != 1 {
+                        return Err(format!(
+                            "user-tag mutation applied {} rows, expected one",
+                            result.applied_count
+                        ));
+                    }
+                    Ok(started.elapsed())
+                })();
+                let _ = tag_result_tx.send(result);
+            });
+            (
+                writer_hook_reset,
+                metadata_writer_thread,
+                metadata_result_rx,
+                tag_writer_thread,
+                tag_result_rx,
+            )
         };
 
         let reconcile_started = Instant::now();
@@ -6397,16 +7274,27 @@ mod tests {
         #[cfg(feature = "performance-test-tauri")]
         {
             set_managed_scan_write_test_hook(None);
-            let writer_elapsed = writer_result_rx
+            let metadata_writer_elapsed = metadata_result_rx
                 .recv_timeout(Duration::from_secs(10))
                 .expect("ordinary metadata writer completes after reconciliation")
                 .expect("ordinary metadata writer remains live under the 5 s timeout");
-            writer_thread
+            let tag_writer_elapsed = tag_result_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("user-tag writer completes after reconciliation")
+                .expect("user-tag writer remains live under the 5 s timeout");
+            metadata_writer_thread
                 .join()
                 .expect("ordinary metadata writer thread does not panic");
+            tag_writer_thread
+                .join()
+                .expect("user-tag writer thread does not panic");
             assert!(
-                writer_elapsed < Duration::from_secs(5),
-                "ordinary metadata writer took {writer_elapsed:?}, exceeding SQLite's 5 s busy timeout"
+                metadata_writer_elapsed < Duration::from_secs(5),
+                "ordinary metadata writer took {metadata_writer_elapsed:?}, exceeding SQLite's 5 s busy timeout"
+            );
+            assert!(
+                tag_writer_elapsed < Duration::from_secs(5),
+                "user-tag writer took {tag_writer_elapsed:?}, exceeding SQLite's 5 s busy timeout"
             );
             let metadata_name: String = db
                 .conn()
@@ -6418,10 +7306,41 @@ mod tests {
                 )
                 .expect("read ordinary writer control row");
             assert_eq!(metadata_name, "metadata-write-complete");
+            let tag_count: i64 = db
+                .conn()
+                .expect("verify user-tag writer connection")
+                .query_row(
+                    "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = 'issue381-writer-tag'",
+                    [&writer_control_path],
+                    |row| row.get(0),
+                )
+                .expect("read user-tag writer relation");
+            assert_eq!(tag_count, 1);
             eprintln!(
-                "issue381 writer_contention rows={FILE_COUNT} timeout_ms=5000 writer_elapsed_us={} result=success",
-                writer_elapsed.as_micros()
+                "issue381 writer_contention rows={FILE_COUNT} timeout_ms=5000 metadata_writer_elapsed_us={} tag_writer_elapsed_us={} result=success",
+                metadata_writer_elapsed.as_micros(),
+                tag_writer_elapsed.as_micros()
             );
+            let pinned_reader_stale_count: i64 = wal_reader
+                .query_row(
+                    "SELECT COUNT(*) FROM files WHERE is_stale = 1 AND path LIKE ?1",
+                    [format!("{missing_root}/missing-%")],
+                    |row| row.get(0),
+                )
+                .expect("pinned snapshot continues to expose the complete old state");
+            assert_eq!(pinned_reader_stale_count, 0);
+            eprintln!(
+                "issue381 wal_gate rows={FILE_COUNT} bytes_before={} bytes_after_reconcile_and_both_writers={} net_bytes={} reader_visible_stale_rows={} result=complete_old_snapshot",
+                wal_bytes_before,
+                fs::metadata(&wal_path).map(|metadata| metadata.len()).unwrap_or(0),
+                fs::metadata(&wal_path)
+                    .map(|metadata| metadata.len().saturating_sub(wal_bytes_before))
+                    .unwrap_or(0),
+                pinned_reader_stale_count
+            );
+            wal_reader
+                .execute_batch("ROLLBACK")
+                .expect("release pinned WAL reader after atomicity check");
             drop(_writer_hook_reset);
         }
         assert!(reconciled.dto.stale_reconciliation_allowed);
@@ -6435,6 +7354,24 @@ mod tests {
             )
             .expect("count stale missing rows");
         assert_eq!(stale_missing_count, FILE_COUNT as i64);
+        #[cfg(feature = "performance-test-tauri")]
+        let fts_stale_term_count = {
+            let fts_stale_term_count: i64 = db
+                .conn()
+                .expect("verify stale FTS term")
+                .query_row(
+                    "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'missing-000000'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("read retained stale FTS term");
+            assert_eq!(fts_stale_term_count, 1);
+            assert!(db
+                .search_files("missing-000000", Some(10))
+                .expect("active compatibility search")
+                .is_empty());
+            fts_stale_term_count
+        };
         let missing_final = db
             .finalize_scan_run(
                 &reconciled.dto.id,
@@ -6468,6 +7405,30 @@ mod tests {
         let prune_elapsed = prune_started.elapsed();
         assert!(seen_final.session.status == "completed");
         assert_eq!(missing_final.session.status, "completed");
+        #[cfg(feature = "performance-test-tauri")]
+        {
+            let library_page = db
+                .query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
+                    version: 2,
+                    request_id: "issue381-100k-stale-library-query".to_string(),
+                    query: crate::db::queries::library::FileQuerySpecV2 {
+                        scope: crate::db::queries::library::FileLibraryScopeV2::Roots {
+                            scan_root_ids: vec![missing_final.run.dto.scan_root_id.clone()],
+                        },
+                        text: Some("missing-000000".to_string()),
+                        filters: Default::default(),
+                        sort: Default::default(),
+                    },
+                    page_size: 20,
+                    cursor: None,
+                })
+                .expect("query File Library after 100k stale publication");
+            assert!(library_page.files.is_empty());
+            eprintln!(
+                "issue381 visibility rows={FILE_COUNT} stale_count={stale_missing_count} fts_stale_term_count={fts_stale_term_count} search_results=0 file_library_results={} result=pass",
+                library_page.files.len()
+            );
+        }
         assert!(insert_elapsed < Duration::from_secs(120));
         assert!(reconcile_elapsed < Duration::from_secs(120));
         assert!(reader_elapsed < Duration::from_secs(10));
@@ -7007,7 +7968,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 37);
+        assert_eq!(version, 38);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));

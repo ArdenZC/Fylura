@@ -5,7 +5,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
-use zen_canvas_tauri::db::Database;
+use zen_canvas_tauri::db::{Database, InsertFileRequest};
 
 static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -402,7 +402,7 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema 35 version");
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
     assert!(column_names(&conn, "cleanup_trash_items")
         .contains(&"source_platform_volume_id".to_string()));
 
@@ -616,7 +616,7 @@ fn schema_34_cleanup_identity_migration_rolls_back_column_and_rows_together() {
 }
 
 #[test]
-fn schema_37_reopen_is_idempotent_and_future_schema_38_is_rejected() {
+fn schema_38_reopen_is_idempotent_and_future_schema_39_is_rejected() {
     let path = test_db_path("td014-idempotent");
     downgrade_current_fixture_to_schema_34(&path);
     let db = Database::open(&path).expect("migrate schema 34 fixture to schema 35");
@@ -629,7 +629,7 @@ fn schema_37_reopen_is_idempotent_and_future_schema_38_is_rejected() {
     let second = Connection::open(&path).expect("reopen migrated schema 35 fixture");
     assert_eq!(cleanup_identity_snapshot(&second), before);
     second
-        .execute_batch("PRAGMA user_version = 38;")
+        .execute_batch("PRAGMA user_version = 39;")
         .expect("set future schema version");
     drop(second);
     let error = match Database::open(&path) {
@@ -637,6 +637,180 @@ fn schema_37_reopen_is_idempotent_and_future_schema_38_is_rejected() {
         Err(error) => error,
     };
     assert!(error.to_string().contains("newer than this app supports"));
+}
+
+#[test]
+fn schema_37_migrates_the_unconditional_fts_trigger_once_and_preserves_indexed_data() {
+    let path = test_db_path("schema37-fts-trigger");
+    let db = Database::open(&path).expect("create full project schema fixture");
+    let file_path = path.with_file_name("issue381-migration-oldmarker.txt");
+    let file_path_text = file_path.to_string_lossy().into_owned();
+    db.insert_file(InsertFileRequest {
+        id: "issue381-migration-file".to_string(),
+        path: file_path_text.clone(),
+        name: "issue381-migration-oldmarker.txt".to_string(),
+        extension: "txt".to_string(),
+        size: 17,
+        mtime: 1,
+        ctime: 1,
+        is_dir: false,
+        state_code: 0,
+    })
+    .expect("insert indexed row before simulating schema 37");
+    drop(db);
+
+    let conn = Connection::open(&path).expect("open schema-37 fixture");
+    conn.execute_batch(
+        r#"
+        INSERT INTO user_tags (id, display_name, normalized_name, color_token, created_at, updated_at)
+        VALUES ('issue381-tag', 'Owner Tag', 'owner tag', 'blue', 1, 1);
+        INSERT INTO file_user_tags (file_id, tag_id, created_at)
+        VALUES ('issue381-migration-file', 'issue381-tag', 1);
+        DROP TRIGGER files_au;
+        CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
+            INSERT INTO files_fts(files_fts, rowid, name, path)
+            VALUES('delete', old.rowid, old.name, old.path);
+            INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+        END;
+        PRAGMA user_version = 37;
+        "#,
+    )
+    .expect("restore old unconditional schema-37 trigger");
+    drop(conn);
+
+    let migrated =
+        Database::open(&path).expect("migrate schema 37 to the provisional v38 candidate");
+    assert_eq!(
+        migrated
+            .search_files("oldmarker", Some(10))
+            .expect("search before stale-only update")
+            .len(),
+        1
+    );
+    drop(migrated);
+
+    let conn = Connection::open(&path).expect("inspect migrated trigger");
+    let trigger_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = 'files_au'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read migrated files_au SQL");
+    assert!(trigger_sql.contains("old.name IS NOT new.name"));
+    assert!(trigger_sql.contains("old.path IS NOT new.path"));
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("read migrated schema version");
+    assert_eq!(version, 38);
+
+    let before_stale_only_update = conn.total_changes();
+    conn.execute(
+        "UPDATE files SET is_stale = 1 WHERE id = 'issue381-migration-file'",
+        [],
+    )
+    .expect("publish stale-only state");
+    let stale_update_changes = conn.total_changes() - before_stale_only_update;
+    assert_eq!(
+        stale_update_changes, 1,
+        "a stale-only update must not write FTS rows"
+    );
+    let retained_tag_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM file_user_tags WHERE file_id = 'issue381-migration-file' AND tag_id = 'issue381-tag'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read retained user tag");
+    assert_eq!(retained_tag_count, 1);
+    drop(conn);
+
+    let reopened = Database::open(&path).expect("reopen migrated schema");
+    assert_eq!(
+        reopened
+            .search_files("oldmarker", Some(10))
+            .expect("old FTS term remains searchable")
+            .len(),
+        1
+    );
+    drop(reopened);
+
+    let conn = Connection::open(&path).expect("open to test rename and rowid changes");
+    conn.execute(
+        "UPDATE files SET name = 'issue381-migration-newmarker.txt', path = ?1 WHERE id = 'issue381-migration-file'",
+        [format!("{file_path_text}.renamed")],
+    )
+    .expect("rename indexed path and name");
+    let old_term_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'oldmarker'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("search removed old term");
+    let new_term_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'newmarker'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("search renamed term");
+    assert_eq!(old_term_count, 0);
+    assert_eq!(new_term_count, 1);
+    conn.execute(
+        "UPDATE files SET rowid = rowid + 100000 WHERE id = 'issue381-migration-file'",
+        [],
+    )
+    .expect("change content-rowid key");
+    let indexed_rowid: i64 = conn
+        .query_row(
+            "SELECT rowid FROM files_fts WHERE files_fts MATCH 'newmarker'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read FTS rowid after content-rowid change");
+    let file_rowid: i64 = conn
+        .query_row(
+            "SELECT rowid FROM files WHERE id = 'issue381-migration-file'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read current files rowid");
+    assert_eq!(indexed_rowid, file_rowid);
+    let schema_cookie_before_reopen: i64 = conn
+        .query_row("PRAGMA schema_version", [], |row| row.get(0))
+        .expect("read schema cookie");
+    drop(conn);
+
+    Database::open(&path).expect("schema-38 reopen must not rebuild the trigger");
+    let conn = Connection::open(&path).expect("inspect idempotent reopen");
+    let schema_cookie_after_reopen: i64 = conn
+        .query_row("PRAGMA schema_version", [], |row| row.get(0))
+        .expect("read schema cookie after reopen");
+    assert_eq!(schema_cookie_after_reopen, schema_cookie_before_reopen);
+    conn.execute(
+        "INSERT INTO files (id, path, name, extension) VALUES ('issue381-insert-trigger', '/tmp/issue381-insert-trigger.txt', 'issue381insertmarker.txt', 'txt')",
+        [],
+    )
+    .expect("insert trigger keeps FTS synchronized");
+    let inserted_term_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'insertmarker'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("search inserted term");
+    assert_eq!(inserted_term_count, 1);
+    conn.execute("DELETE FROM files WHERE id = 'issue381-insert-trigger'", [])
+        .expect("delete trigger keeps FTS synchronized");
+    let deleted_term_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'insertmarker'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("search deleted term");
+    assert_eq!(deleted_term_count, 0);
 }
 
 #[test]
@@ -672,7 +846,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 37);
+    assert_eq!(version, 38);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -740,7 +914,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 37);
+        assert_eq!(migrated_version, 38);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(

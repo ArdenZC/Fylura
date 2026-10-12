@@ -111,6 +111,7 @@ pub(crate) struct StaleCandidateObservation {
     directory_path: PathBuf,
     directory_path_key: String,
     is_directory: bool,
+    leaf_present: bool,
 }
 
 impl StaleCandidateObservation {
@@ -127,6 +128,11 @@ impl StaleCandidateObservation {
         self.candidate_path_key == other.candidate_path_key
             && self.directory_path_key == other.directory_path_key
             && self.is_directory == other.is_directory
+            && self.leaf_present == other.leaf_present
+    }
+
+    pub(crate) fn leaf_is_missing(&self) -> bool {
+        !self.leaf_present
     }
 }
 
@@ -146,12 +152,12 @@ pub(crate) struct VerifiedStaleDirectoryChain {
 pub(crate) fn observe_stale_candidate(
     path: &Path,
 ) -> Result<StaleCandidateObservation, EligibilityReason> {
-    let is_directory = match fs::symlink_metadata(path) {
+    let (is_directory, leaf_present) = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata_is_link_or_reparse(&metadata) => {
             return Err(EligibilityReason::LinkOrReparseBoundary);
         }
-        Ok(metadata) => metadata.is_dir(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Ok(metadata) => (metadata.is_dir(), true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (false, false),
         Err(_) => return Err(EligibilityReason::AccessBoundary),
     };
     let directory_path = if is_directory {
@@ -167,6 +173,7 @@ pub(crate) fn observe_stale_candidate(
         directory_path,
         directory_path_key,
         is_directory,
+        leaf_present,
     })
 }
 

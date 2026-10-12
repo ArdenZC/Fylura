@@ -2233,20 +2233,13 @@ impl Database {
                 tx.execute(
                     &format!(
                         r#"
-                        UPDATE files
+                        UPDATE files AS file
                         SET is_stale = 1
-                        WHERE is_stale = 0
-                          AND id IN (
-                              SELECT candidate_id
-                              FROM temp.{RECONCILE_CANDIDATE_TEMP_TABLE}
-                              WHERE stale_eligible = 1
-                          )
-                          AND EXISTS (
-                              SELECT 1
-                              FROM temp.{RECONCILE_CANDIDATE_TEMP_TABLE} AS prepared
-                              WHERE prepared.candidate_id = files.id
-                                AND prepared.candidate_path = files.path
-                          )
+                        FROM temp.{RECONCILE_CANDIDATE_TEMP_TABLE} AS prepared
+                        WHERE file.id = prepared.candidate_id
+                          AND file.path = prepared.candidate_path
+                          AND prepared.stale_eligible = 1
+                          AND file.is_stale = 0
                         "#
                     ),
                     [],
@@ -7039,21 +7032,41 @@ mod tests {
         fs::create_dir_all(&missing_root).expect("create missing root fixture");
         {
             let mut conn = db.conn().expect("db connection");
+            conn.execute(
+                "INSERT INTO user_tags (id, display_name, normalized_name, color_token, created_at, updated_at) VALUES ('issue381-100k-preserved-tag', 'Preserved stale tag', 'issue381 100k preserved stale tag', 'green', 1, 1)",
+                [],
+            )
+            .expect("seed stale-file user tag");
             let tx = conn
                 .transaction()
                 .expect("seed missing fixture transaction");
             let mut statement = tx
                 .prepare(
-                    "INSERT INTO files (id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, suggested_name, classification_status, is_stale, last_seen_at) VALUES (?1, ?1, ?2, 'txt', 1, 1, 1, 0, 0, 'Other', ?2, 'unclassified', 0, 0)",
+                    "INSERT INTO files (id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, purpose, lifecycle, context, risk_level, classification_reason, matched_rules, confidence, suggested_name, classification_status, is_stale, last_seen_at, content_hash) VALUES (?1, ?1, ?2, 'txt', 1, 1, 1, 0, 0, 'Document', 'Work', 'Active', ?3, 'Normal', 'issue381 user metadata', '[]', 0.91, ?2, 'classified', 0, 0, ?4)",
                 )
                 .expect("prepare missing fixture");
+            let mut tag_statement = tx
+                .prepare(
+                    "INSERT INTO file_user_tags (file_id, tag_id, created_at) VALUES (?1, 'issue381-100k-preserved-tag', 1)",
+                )
+                .expect("prepare stale-file user tag");
             for index in 0..FILE_COUNT {
                 let name = format!("missing-{index:06}.txt");
                 let path = format!("{missing_root}/{name}");
+                let context = format!("owner-context-{index:06}");
+                let content_hash = if index < 100 {
+                    format!("issue381-content-hash-{index:06}")
+                } else {
+                    String::new()
+                };
                 statement
-                    .execute(params![path, name])
+                    .execute(params![path.clone(), name, context, content_hash])
                     .expect("seed missing file");
+                tag_statement
+                    .execute([path])
+                    .expect("seed missing-file tag");
             }
+            drop(tag_statement);
             drop(statement);
             tx.commit().expect("commit missing fixture");
         }
@@ -7094,6 +7107,62 @@ mod tests {
             .claim_queued_scan_run(&missing_admission.runs[0].id)
             .expect("claim missing fixture");
         let missing_root_context = root_context_for(&db, &missing_run);
+        {
+            let conn = db.conn().expect("seed stale-related durable state");
+            let now = current_unix_seconds();
+            let first_id = format!("{missing_root}/missing-000000.txt");
+            conn.execute(
+                "INSERT INTO classification_history (id, file_id, file_name, file_path, extension, source, file_type, purpose, lifecycle, context, risk_level, suggested_action, suggested_target_path, suggested_name, confidence, reason, keywords_json, user_confirmed, created_at) VALUES ('issue381-100k-history', ?1, 'missing-000000.txt', ?1, 'txt', 'user', 'Document', 'Work', 'Active', 'historical user context', 'Normal', 'Keep', '', 'historic-suggestion.txt', 0.9, 'user supplied history', '[]', 1, ?2)",
+                params![first_id, now],
+            )
+            .expect("seed stale-file classification history");
+            {
+                let mut statement = conn
+                    .prepare(
+                        "INSERT INTO file_fingerprints (file_id, path_snapshot, identity_status, size, fingerprint_status, captured_at, last_verified_at, prehash, full_hash) VALUES (?1, ?1, 'verified', 1, 'complete', ?2, ?2, 'issue381-prehash', 'issue381-fullhash')",
+                    )
+                    .expect("prepare stale fingerprint seed");
+                for index in (0..100).step_by(10) {
+                    let file_id = format!("{missing_root}/missing-{index:06}.txt");
+                    statement
+                        .execute(params![file_id, now])
+                        .expect("seed stale-file fingerprint");
+                }
+            }
+            conn.execute(
+                "INSERT INTO content_artifacts (id, file_id, scan_root_id, source_size, source_mtime, source_is_dir, extractor_family, extractor_version, policy_revision, content_fingerprint, status, summary, created_at, updated_at) VALUES ('issue381-100k-content-artifact', ?1, ?2, 1, 1, 0, 'txt', 'issue381', 1, 'issue381-content-fingerprint', 'current', 'preserve then invalidate stale content', ?3, ?3)",
+                params![first_id, missing_run.dto.scan_root_id, now],
+            )
+            .expect("seed stale-file content artifact");
+            conn.execute(
+                "INSERT INTO dedupe_runs (id, request_key, scope_json, scope_hash, status, phase, created_at, updated_at) VALUES ('issue381-100k-dedupe-run', 'issue381-100k-dedupe-request', '{}', 'issue381-100k-dedupe-scope', 'completed', 'completed', ?1, ?1)",
+                [now],
+            )
+            .expect("seed dedupe run for stale group");
+            conn.execute(
+                "INSERT INTO analysis_runs (id, request_key, scope_json, scope_hash, source_snapshot_json, source_snapshot_hash, detector_set_json, detector_set_hash, status, phase, created_at, updated_at) VALUES ('issue381-100k-analysis-run', 'issue381-100k-analysis-request', '{}', 'issue381-100k-analysis-scope', '{}', 'issue381-100k-snapshot', '[]', 'issue381-100k-detectors', 'completed', 'completed', ?1, ?1)",
+                [now],
+            )
+            .expect("seed analysis run for stale finding");
+            conn.execute(
+                "INSERT INTO duplicate_groups (id, size_each, full_hash, member_count, physical_copy_count, potential_reclaimable_bytes, reclaimable_confidence, status, last_built_run_id, created_at, updated_at, last_verified_at) VALUES ('issue381-100k-duplicate-group', 1, 'issue381-100k-duplicate-hash', 2, 2, 1, 'estimated', 'active', 'issue381-100k-dedupe-run', ?1, ?1, ?1)",
+                [now],
+            )
+            .expect("seed duplicate group for stale rows");
+            for index in 0..2 {
+                let file_id = format!("{missing_root}/missing-{index:06}.txt");
+                conn.execute(
+                    "INSERT INTO duplicate_group_members (group_id, file_id, path_snapshot, identity_status, size, verified_at) VALUES ('issue381-100k-duplicate-group', ?1, ?1, 'verified', 1, ?2)",
+                    params![file_id, now],
+                )
+                .expect("seed stale duplicate group member");
+            }
+            conn.execute(
+                "INSERT INTO analysis_findings (id, finding_key, run_id, detector_id, detector_version, scope_hash, status, tier, category, action_kind, title, reason, confidence, primary_subject_kind, primary_subject_id, path_snapshot, created_at, updated_at, published_at) VALUES ('issue381-100k-analysis-finding', 'issue381-100k-analysis-finding-key', 'issue381-100k-analysis-run', 'duplicate_detector', 1, 'issue381-100k-analysis-scope', 'active', 'review', 'duplicate', 'review_duplicate_group', 'Stale duplicate group', 'seeded stale publication check', 'estimated', 'duplicate_group', 'issue381-100k-duplicate-group', ?1, ?2, ?2, ?2)",
+                params![missing_root, now],
+            )
+            .expect("seed analysis finding for stale duplicate group");
+        }
 
         #[cfg(feature = "performance-test-tauri")]
         let wal_path = PathBuf::from(format!("{}-wal", db.path().display()));
@@ -7195,20 +7264,33 @@ mod tests {
                         .map_err(|error| format!("metadata writer attempt signal: {error}"))?;
                     connection
                         .execute_batch("BEGIN IMMEDIATE")
-                        .map_err(|error| format!("metadata writer BEGIN IMMEDIATE: {error}"))?;
+                        .map_err(|error| {
+                            format!(
+                                "metadata writer BEGIN IMMEDIATE after {:?}: {error}",
+                                started.elapsed()
+                            )
+                        })?;
                     let changed = connection
                         .execute(
                             "UPDATE files SET name = 'metadata-write-complete' WHERE id = ?1",
                             [&metadata_control_path],
                         )
-                        .map_err(|error| format!("ordinary metadata update: {error}"))?;
+                        .map_err(|error| {
+                            format!(
+                                "ordinary metadata update after {:?}: {error}",
+                                started.elapsed()
+                            )
+                        })?;
                     if changed != 1 {
                         let _ = connection.execute_batch("ROLLBACK");
                         return Err(format!("ordinary metadata update changed {changed} rows"));
                     }
-                    connection
-                        .execute_batch("COMMIT")
-                        .map_err(|error| format!("metadata writer COMMIT: {error}"))?;
+                    connection.execute_batch("COMMIT").map_err(|error| {
+                        format!(
+                            "metadata writer COMMIT after {:?}: {error}",
+                            started.elapsed()
+                        )
+                    })?;
                     Ok(started.elapsed())
                 })();
                 let _ = metadata_result_tx.send(result);
@@ -7232,20 +7314,19 @@ mod tests {
                     writer_attempted_tx
                         .send(())
                         .map_err(|error| format!("user-tag writer attempt signal: {error}"))?;
-                    let result = tag_db
-                        .mutate_file_user_tags(
-                            crate::db::queries::library::MutateFileUserTagsRequest {
-                                selection:
-                                    crate::db::queries::library::LibrarySelectionV1::Explicit {
-                                        file_ids: vec![tag_control_path],
-                                    },
-                                tag_ids: vec!["issue381-writer-tag".to_string()],
-                                operation:
-                                    crate::db::queries::library::UserTagMutationOperation::Add,
-                                expected_count: Some(1),
+                    let result = tag_db.mutate_file_user_tags(
+                        crate::db::queries::library::MutateFileUserTagsRequest {
+                            selection: crate::db::queries::library::LibrarySelectionV1::Explicit {
+                                file_ids: vec![tag_control_path],
                             },
-                        )
-                        .map_err(|error| format!("user-tag mutation: {error}"))?;
+                            tag_ids: vec!["issue381-writer-tag".to_string()],
+                            operation: crate::db::queries::library::UserTagMutationOperation::Add,
+                            expected_count: Some(1),
+                        },
+                    );
+                    let result = result.map_err(|error| {
+                        format!("user-tag mutation after {:?}: {error}", started.elapsed())
+                    })?;
                     if result.applied_count != 1 {
                         return Err(format!(
                             "user-tag mutation applied {} rows, expected one",
@@ -7265,6 +7346,13 @@ mod tests {
             )
         };
 
+        #[cfg(feature = "performance-test-tauri")]
+        let mut writer_gate_observations: Option<(
+            Result<Duration, String>,
+            Result<Duration, String>,
+            String,
+            i64,
+        )> = None;
         let reconcile_started = Instant::now();
         let reconciled = db
             .reconcile_missing(
@@ -7279,28 +7367,18 @@ mod tests {
         #[cfg(feature = "performance-test-tauri")]
         {
             set_managed_scan_write_test_hook(None);
-            let metadata_writer_elapsed = metadata_result_rx
+            let metadata_writer_result = metadata_result_rx
                 .recv_timeout(Duration::from_secs(10))
-                .expect("ordinary metadata writer completes after reconciliation")
-                .expect("ordinary metadata writer remains live under the 5 s timeout");
-            let tag_writer_elapsed = tag_result_rx
+                .expect("ordinary metadata writer returns after reconciliation");
+            let tag_writer_result = tag_result_rx
                 .recv_timeout(Duration::from_secs(10))
-                .expect("user-tag writer completes after reconciliation")
-                .expect("user-tag writer remains live under the 5 s timeout");
+                .expect("user-tag writer returns after reconciliation");
             metadata_writer_thread
                 .join()
                 .expect("ordinary metadata writer thread does not panic");
             tag_writer_thread
                 .join()
                 .expect("user-tag writer thread does not panic");
-            assert!(
-                metadata_writer_elapsed < Duration::from_secs(5),
-                "ordinary metadata writer took {metadata_writer_elapsed:?}, exceeding SQLite's 5 s busy timeout"
-            );
-            assert!(
-                tag_writer_elapsed < Duration::from_secs(5),
-                "user-tag writer took {tag_writer_elapsed:?}, exceeding SQLite's 5 s busy timeout"
-            );
             let metadata_name: String = db
                 .conn()
                 .expect("verify ordinary writer connection")
@@ -7320,12 +7398,15 @@ mod tests {
                     |row| row.get(0),
                 )
                 .expect("read user-tag writer relation");
-            assert_eq!(tag_count, 1);
             eprintln!(
-                "issue381 writer_contention rows={FILE_COUNT} timeout_ms=5000 metadata_writer_elapsed_us={} tag_writer_elapsed_us={} result=success",
-                metadata_writer_elapsed.as_micros(),
-                tag_writer_elapsed.as_micros()
+                "issue381 writer_contention rows={FILE_COUNT} timeout_ms=5000 metadata_writer_result={metadata_writer_result:?} tag_writer_result={tag_writer_result:?} metadata_name={metadata_name:?} tag_rows={tag_count} result=captured"
             );
+            writer_gate_observations = Some((
+                metadata_writer_result,
+                tag_writer_result,
+                metadata_name,
+                tag_count,
+            ));
             let pinned_reader_stale_count: i64 = wal_reader
                 .query_row(
                     "SELECT COUNT(*) FROM files WHERE is_stale = 1 AND path LIKE ?1",
@@ -7360,19 +7441,99 @@ mod tests {
             .expect("count stale missing rows");
         assert_eq!(stale_missing_count, FILE_COUNT as i64);
         #[cfg(feature = "performance-test-tauri")]
+        {
+            let conn = db.conn().expect("verify stale-related durable state");
+            let missing_pattern = format!("{missing_root}/missing-%");
+            let preserved_tag_rows: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM file_user_tags WHERE tag_id = 'issue381-100k-preserved-tag' AND file_id IN (SELECT id FROM files WHERE path LIKE ?1)",
+                    [&missing_pattern],
+                    |row| row.get(0),
+                )
+                .expect("count preserved stale-file tags");
+            let preserved_context_rows: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM files WHERE path LIKE ?1 AND context LIKE 'owner-context-%'",
+                    [&missing_pattern],
+                    |row| row.get(0),
+                )
+                .expect("count preserved stale-file user metadata");
+            let cleared_content_hashes: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM files WHERE path LIKE ?1 AND content_hash = ''",
+                    [format!("{missing_root}/missing-0000%")],
+                    |row| row.get(0),
+                )
+                .expect("count invalidated stale content hashes");
+            let retained_history_rows: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM classification_history WHERE id = 'issue381-100k-history' AND file_id = ?1",
+                    [format!("{missing_root}/missing-000000.txt")],
+                    |row| row.get(0),
+                )
+                .expect("count retained classification history");
+            let invalidated_fingerprints: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM file_fingerprints WHERE file_id LIKE ?1 AND fingerprint_status = 'missing' AND identity_status = 'missing'",
+                    [format!("{missing_root}/missing-%")],
+                    |row| row.get(0),
+                )
+                .expect("count invalidated stale fingerprints");
+            let content_artifact_status: String = conn
+                .query_row(
+                    "SELECT status FROM content_artifacts WHERE id = 'issue381-100k-content-artifact'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("read invalidated stale content artifact");
+            let duplicate_group_status: String = conn
+                .query_row(
+                    "SELECT status FROM duplicate_groups WHERE id = 'issue381-100k-duplicate-group'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("read stale duplicate group status");
+            let analysis_finding_status: String = conn
+                .query_row(
+                    "SELECT status FROM analysis_findings WHERE id = 'issue381-100k-analysis-finding'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("read stale analysis finding status");
+            let dedupe_authority_status: String = conn
+                .query_row(
+                    "SELECT status FROM dedupe_authority_state WHERE id = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("read stale dedupe authority state");
+            assert_eq!(preserved_tag_rows, FILE_COUNT as i64);
+            assert_eq!(preserved_context_rows, FILE_COUNT as i64);
+            assert_eq!(cleared_content_hashes, 100);
+            assert_eq!(retained_history_rows, 1);
+            assert_eq!(invalidated_fingerprints, 10);
+            assert_eq!(content_artifact_status, "stale");
+            assert_eq!(duplicate_group_status, "stale");
+            assert_eq!(analysis_finding_status, "stale");
+            assert_eq!(dedupe_authority_status, "rebuild_required");
+            eprintln!(
+                "issue381 related_state rows={FILE_COUNT} preserved_tags={preserved_tag_rows} preserved_user_metadata={preserved_context_rows} cleared_content_hashes={cleared_content_hashes} classification_history={retained_history_rows} fingerprints_missing={invalidated_fingerprints} content_artifact={content_artifact_status} duplicate_group={duplicate_group_status} analysis_finding={analysis_finding_status} dedupe_authority={dedupe_authority_status} result=pass"
+            );
+        }
+        #[cfg(feature = "performance-test-tauri")]
         let fts_stale_term_count = {
             let fts_stale_term_count: i64 = db
                 .conn()
                 .expect("verify stale FTS term")
                 .query_row(
-                    "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'missing-000000'",
+                    "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'missing'",
                     [],
                     |row| row.get(0),
                 )
                 .expect("read retained stale FTS term");
-            assert_eq!(fts_stale_term_count, 1);
+            assert_eq!(fts_stale_term_count, FILE_COUNT as i64);
             assert!(db
-                .search_files("missing-000000", Some(10))
+                .search_files("missing", Some(10))
                 .expect("active compatibility search")
                 .is_empty());
             fts_stale_term_count
@@ -7420,7 +7581,7 @@ mod tests {
                         scope: crate::db::queries::library::FileLibraryScopeV2::Roots {
                             scan_root_ids: vec![missing_final.run.dto.scan_root_id.clone()],
                         },
-                        text: Some("missing-000000".to_string()),
+                        text: Some("missing".to_string()),
                         filters: Default::default(),
                         sort: Default::default(),
                     },
@@ -7433,6 +7594,33 @@ mod tests {
                 "issue381 visibility rows={FILE_COUNT} stale_count={stale_missing_count} fts_stale_term_count={fts_stale_term_count} search_results=0 file_library_results={} result=pass",
                 library_page.files.len()
             );
+        }
+        #[cfg(feature = "performance-test-tauri")]
+        {
+            let (metadata_result, tag_result, metadata_name, tag_rows) = writer_gate_observations
+                .take()
+                .expect("both concurrent writer outcomes were captured");
+            let metadata_elapsed = metadata_result
+                .expect("ordinary metadata writer completes within SQLite's 5 s busy timeout");
+            let tag_elapsed =
+                tag_result.expect("user-tag writer completes within SQLite's 5 s busy timeout");
+            eprintln!(
+                "issue381 writer_wait_summary timeout_ms=5000 metadata_writer_us={} tag_writer_us={} metadata_within_4s={} tag_within_4s={}",
+                metadata_elapsed.as_micros(),
+                tag_elapsed.as_micros(),
+                metadata_elapsed <= Duration::from_secs(4),
+                tag_elapsed <= Duration::from_secs(4)
+            );
+            assert!(
+                metadata_elapsed < Duration::from_secs(5),
+                "ordinary metadata writer took {metadata_elapsed:?}, exceeding SQLite's 5 s busy timeout"
+            );
+            assert!(
+                tag_elapsed < Duration::from_secs(5),
+                "user-tag writer took {tag_elapsed:?}, exceeding SQLite's 5 s busy timeout"
+            );
+            assert_eq!(metadata_name, "metadata-write-complete");
+            assert_eq!(tag_rows, 1);
         }
         assert!(insert_elapsed < Duration::from_secs(120));
         assert!(reconcile_elapsed < Duration::from_secs(120));

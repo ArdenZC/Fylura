@@ -1,0 +1,23 @@
+{
+  "s8_head": "4005073337f198a245773e30a76178749bfd2920",
+  "s8_tree": "71e18895e9740f9a233c5cf56df3c723f626c727",
+  "production_master": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+  "input_files": {
+    "ledgers/DOMAIN-TO-ENTRY-MAP.csv": "07dce41a7acffff239173e3c201109879bddd71eff0ef077a75cdd09d6ac0ea2",
+    "ledgers/STALE-GROUP-LEDGER.csv": "88a2101ac086ce48b419783fc08a11f59d98202186907cd831ec84200cf2dae4",
+    "ledgers/WRITE-FUNCTION-LEDGER.csv": "44c0a2ebe6ef6d4d6537fe28ab73003732ff901e5252ba66c8f942153e4a679a",
+    "ledgers/FILES-READ-GROUP-LEDGER.csv": "03c860e13a158ba0d37bf2720d96846a25961cd1b28229ba456be510fd7895c2",
+    "ledgers/TAURI-COMMAND-REGISTRY.csv": "a3892c1fb0ec09c77962841dcad20b68cc1cb67291a4515c7b2f5e8ccc88d5cb",
+    "ledgers/FRONTEND-CONSUMER-LEDGER.csv": "e1916167ef7fe0a1ac6657f4c7e0e398bdb304eca1dfbc0d8f53517134b99cff",
+    "evidence/SHA256SUMS": "cb6e0330fee8f7d43c18e796f425385fe43142e53ad434055581b2a124bdca44"
+  },
+  "frozen_counts": {
+    "domains": 17,
+    "production_stale_groups": 103,
+    "production_write_groups": 121,
+    "production_files_read_groups": 54,
+    "registered_commands": 209,
+    "frontend_consumers": 11
+  },
+  "scope_note": "Generated from committed S8 CSV ledgers only. The independent ID-set proof compares exact source-scope sets to the S8R maps; this is not a fresh source scan."
+}

@@ -1,0 +1,36 @@
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	﻿2026-10-12T11:07:47.0298947Z ##[group]Run $ErrorActionPreference = 'Stop'
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:47.0299456Z [36;1m$ErrorActionPreference = 'Stop'[0m
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:47.0299982Z [36;1m$arguments = @('install', 'nsis', '--version=3.11.0', '--yes', '--no-progress', '--limit-output')[0m
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:47.0300550Z [36;1m& choco @arguments[0m
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:47.0300898Z [36;1mif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }[0m
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:47.0334793Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:47.0335253Z ##[endgroup]
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:50.6698954Z Installing the following packages:
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:50.6704347Z nsis
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:50.6707466Z By installing, you accept licenses for the packages.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8230650Z Unable to connect to source 'https://community.chocolatey.org/api/v2/':
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8232368Z  Failed to fetch results from V2 feed at 'https://community.chocolatey.org/api/v2/Packages(Id='nsis',Version='3.11.0')' with following message : Response status code does not indicate success: 504 (Gateway Timeout).
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8237872Z nsis not installed. The package was not found with the source(s) listed.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8238752Z  Source(s): 'https://community.chocolatey.org/api/v2/'
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8239260Z  NOTE: When you specify explicit sources, it overrides default sources.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8239818Z If the package version is a prerelease and you didn't specify `--pre`,
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8240257Z  the package may not be found.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8240652Z Version was specified as '3.11.0'. It is possible that version
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8241081Z  does not exist for 'nsis' at the source specified.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8241528Z Please see https://docs.chocolatey.org/en-us/troubleshooting for more
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8241972Z  assistance.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8321316Z
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8321909Z Chocolatey installed 0/1 packages. 1 packages failed.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8322885Z  See the log for details (C:\ProgramData\chocolatey\logs\chocolatey.log).
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8324533Z
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8326957Z Failures
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8331448Z  - nsis - nsis not installed. The package was not found with the source(s) listed.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8332354Z  Source(s): 'https://community.chocolatey.org/api/v2/'
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8332841Z  NOTE: When you specify explicit sources, it overrides default sources.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8333406Z If the package version is a prerelease and you didn't specify `--pre`,
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8333817Z  the package may not be found.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8334164Z Version was specified as '3.11.0'. It is possible that version
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8334597Z  does not exist for 'nsis' at the source specified.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8335041Z Please see https://docs.chocolatey.org/en-us/troubleshooting for more
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.8335462Z  assistance.
+Synthetic NSIS runtime trace persistence	Install pinned NSIS compiler package	2026-10-12T11:07:53.9026260Z ##[error]Process completed with exit code 1.

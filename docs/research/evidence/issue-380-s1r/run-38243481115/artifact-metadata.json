@@ -1,0 +1,11 @@
+{
+  "artifact_id": 11743917718,
+  "name": "issue-380-s1r-nsis-zip-38243481115-1",
+  "size_in_bytes": 2317564,
+  "sha256": "bdc3b8ff4e91782a8665c7c3193e6461761fd7e40823bfc2a7f057cd89818cef",
+  "expires_at": "2026-11-11T11:34:21Z",
+  "url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38243481115/artifacts/11743917718",
+  "uploaded_files": 9,
+  "downloaded_to_workspace": false,
+  "download_note": "GitHub artifact API listed this digest and artifact. Both gh run download and gh api artifact ZIP retrieval returned HTTP 403 from the backing Azure artifact blob in this execution environment; the artifact remains hosted at the GitHub URL."
+}

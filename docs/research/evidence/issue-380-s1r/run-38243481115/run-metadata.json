@@ -1,0 +1,28 @@
+{
+  "run_id": 38243481115,
+  "job_id": 114791539023,
+  "attempt": 1,
+  "workflow": "Issue 380 S1R Synthetic NSIS ZIP Probe",
+  "job": "Synthetic NSIS ZIP trace persistence",
+  "url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38243481115",
+  "job_url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38243481115/job/114791539023",
+  "event": "push",
+  "branch": "research/issue-380-s1r-nsis-zip-trace-persistence",
+  "head": "aa3f0b02ae7f86b455af94c311288627c895a838",
+  "tree": "8b3342d2f29cf53f09a8499415c5a3f5a50ec86b",
+  "conclusion": "failure",
+  "preflight": "success",
+  "runner_outcome": "failure (continue-on-error step conclusion success)",
+  "runner_failure": "Expected exactly one makensis.exe in the verified archive; found 2.",
+  "cleanup": "success",
+  "artifact_upload": "success",
+  "temp_cleanup": "success",
+  "final_gate": "failure because probe step outcome was failure",
+  "environment": {
+    "os": "Windows Server 2022",
+    "os_version": "10.0.20348",
+    "image": "windows-2022",
+    "image_version": "20261004.326.1",
+    "runner_arch": "X64"
+  }
+}

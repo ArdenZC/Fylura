@@ -1007,9 +1007,9 @@ function Add-U1RTestInstrumentation([string]$Label, [string]$Path) {
                 let coordinator = global_index_coordinator.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(200));
-                    crate::global_index::qa_trace::record("u1r_forced_rebuild_begin");
+                    eprintln!("u1r_forced_rebuild_begin");
                     let result = coordinator.rebuild(Some(source_id));
-                    crate::global_index::qa_trace::record(&format!("u1r_forced_rebuild_end result={result:?}"));
+                    eprintln!("u1r_forced_rebuild_end result={result:?}");
                 });
             }
 '@

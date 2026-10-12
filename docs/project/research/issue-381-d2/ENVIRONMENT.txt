@@ -1,0 +1,17 @@
+# D2 host
+Linux f0dbf58b8ab0 6.18.44 #1 SMP Sat Sep 26 20:02:31 UTC 2026 x86_64 GNU/Linux
+CPU: AMD EPYC 9V45 (virtualized/KVM), 3 visible vCPUs
+Filesystem: overlay at /workspace; 32G total, 28G available at run
+Rust: rustc 1.97.1 (8bab26f4f 2026-07-14)
+Cargo: cargo 1.97.1 (c980f4866 2026-06-30)
+Harness linked runtime SQLite: 3.51.3
+Harness rusqlite: 0.39.0; bundled SQLite; PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
+No CI, Codex Review, production DB, remote comment, push, merge, or release was run.
+
+## Application-link attempt
+Linking the full Tauri crate in this host stopped at glib-sys because the host
+has no glib-2.0 >= 2.70 development package / pkg-config metadata. The isolated
+harness therefore compiles and executes copied production Schema 37 migration
+source directly, with a no-root app-settings stub, then seeds its own root/run
+records. The catalog dump and source checksums are retained.

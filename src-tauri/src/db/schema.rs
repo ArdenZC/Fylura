@@ -3,8 +3,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use std::sync::OnceLock;
 
-/// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 37;
+/// Draft candidate for the #381 FTS trigger migration. This allocation stays
+/// provisional until the #380 cross-track schema review agrees on the next
+/// released version; it must not be treated as a frozen shared allocation.
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 38;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -731,6 +733,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         if version < 37 {
             super::schema_automation_triggers::migrate_automation_triggers(conn)?;
             set_schema_version(conn, 37)?;
+        }
+        if version < 38 {
+            replace_files_au_trigger(conn)?;
+            set_schema_version(conn, 38)?;
         }
         Ok(())
     })();
@@ -2808,7 +2814,29 @@ fn ensure_fts_triggers(conn: &Connection) -> Result<(), DbError> {
             INSERT INTO files_fts(files_fts, rowid, name, path)
             VALUES('delete', old.rowid, old.name, old.path);
         END;
-        CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
+        CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files
+        WHEN old.rowid IS NOT new.rowid
+          OR old.name IS NOT new.name
+          OR old.path IS NOT new.path
+        BEGIN
+            INSERT INTO files_fts(files_fts, rowid, name, path)
+            VALUES('delete', old.rowid, old.name, old.path);
+            INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+        END;
+        "#,
+    )?;
+    Ok(())
+}
+
+fn replace_files_au_trigger(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS files_au;
+        CREATE TRIGGER files_au AFTER UPDATE ON files
+        WHEN old.rowid IS NOT new.rowid
+          OR old.name IS NOT new.name
+          OR old.path IS NOT new.path
+        BEGIN
             INSERT INTO files_fts(files_fts, rowid, name, path)
             VALUES('delete', old.rowid, old.name, old.path);
             INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
@@ -2821,4 +2849,95 @@ fn ensure_fts_triggers(conn: &Connection) -> Result<(), DbError> {
 fn is_trigram_fts_definition(sql: &str) -> bool {
     let normalized = sql.to_ascii_lowercase().replace(char::is_whitespace, "");
     normalized.contains("tokenize='trigram'") || normalized.contains("tokenize=\"trigram\"")
+}
+
+#[cfg(test)]
+mod issue381_fts_migration_tests {
+    use super::*;
+
+    #[test]
+    fn conditional_files_au_migration_rolls_back_with_schema_transaction() {
+        let conn = Connection::open_in_memory().expect("open in-memory migration fixture");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE files (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL,
+                is_stale INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE VIRTUAL TABLE files_fts USING fts5(
+                name, path, content='files', content_rowid='rowid', tokenize='trigram'
+            );
+            CREATE TRIGGER files_ai AFTER INSERT ON files BEGIN
+                INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+            END;
+            CREATE TRIGGER files_ad AFTER DELETE ON files BEGIN
+                INSERT INTO files_fts(files_fts, rowid, name, path)
+                VALUES('delete', old.rowid, old.name, old.path);
+            END;
+            CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
+                INSERT INTO files_fts(files_fts, rowid, name, path)
+                VALUES('delete', old.rowid, old.name, old.path);
+                INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+            END;
+            INSERT INTO files (id, name, path) VALUES ('rollback-file', 'rollback-marker.txt', '/tmp/rollback-marker.txt');
+            PRAGMA user_version = 37;
+            "#,
+        )
+        .expect("create schema-37 FTS fixture");
+
+        let original_trigger: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = 'files_au'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read original schema-37 trigger");
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .expect("begin schema migration transaction");
+        replace_files_au_trigger(&conn).expect("replace trigger inside migration transaction");
+        set_schema_version(&conn, 38).expect("advance candidate schema version");
+        conn.execute_batch("ROLLBACK")
+            .expect("rollback the candidate schema migration");
+
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("read schema version after rollback");
+        assert_eq!(version, 37);
+        let trigger_after_rollback: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = 'files_au'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read trigger after rollback");
+        assert_eq!(trigger_after_rollback, original_trigger);
+        let retained_insert_trigger: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'trigger' AND name = 'files_ai'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read preserved insert trigger");
+        let retained_delete_trigger: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'trigger' AND name = 'files_ad'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read preserved delete trigger");
+        assert_eq!((retained_insert_trigger, retained_delete_trigger), (1, 1));
+
+        let before_stale_update = conn.total_changes();
+        conn.execute(
+            "UPDATE files SET is_stale = 1 WHERE id = 'rollback-file'",
+            [],
+        )
+        .expect("original trigger still operates after migration rollback");
+        assert!(
+            conn.total_changes() - before_stale_update > 1,
+            "the rolled-back schema-37 trigger remains the active unconditional trigger"
+        );
+    }
 }

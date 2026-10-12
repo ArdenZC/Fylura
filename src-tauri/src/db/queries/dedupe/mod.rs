@@ -1772,6 +1772,45 @@ pub(crate) fn invalidate_stale_files_in_transaction(tx: &Transaction<'_>) -> Res
     Ok(())
 }
 
+/// Apply the same stale content, fingerprint, duplicate-group and analysis
+/// invalidations to the exact candidate set staged by managed reconciliation.
+/// Keeping this set scoped avoids rescanning unrelated historical stale rows.
+pub(crate) fn invalidate_published_stale_candidates_in_transaction(
+    tx: &Transaction<'_>,
+) -> Result<(), DbError> {
+    let candidate_ids =
+        "SELECT candidate_id FROM temp.issue381_reconcile_candidates WHERE stale_eligible = 1";
+    let group_ids = tx
+        .prepare(&format!(
+            "SELECT DISTINCT group_id FROM duplicate_group_members WHERE file_id IN ({candidate_ids})"
+        ))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    tx.execute(
+        &format!(
+            "UPDATE files SET content_hash = '' WHERE id IN ({candidate_ids}) AND content_hash <> ''"
+        ),
+        [],
+    )?;
+    tx.execute(
+        &format!(
+            "UPDATE file_fingerprints SET fingerprint_status = 'missing', identity_status = 'missing', revision = revision + 1, error_code = 'missing' WHERE file_id IN ({candidate_ids}) AND (fingerprint_status <> 'missing' OR identity_status <> 'missing')"
+        ),
+        [],
+    )?;
+    tx.execute(
+        &format!(
+            "UPDATE duplicate_groups SET status = 'stale', revision = revision + 1, updated_at = ?1 WHERE status = 'active' AND id IN (SELECT group_id FROM duplicate_group_members WHERE file_id IN ({candidate_ids}))"
+        ),
+        params![current_unix_seconds()],
+    )?;
+    for group_id in group_ids {
+        crate::db::invalidate_analysis_findings_for_group_tx(tx, &group_id)?;
+    }
+    crate::db::bump_dedupe_authority_tx(tx, "rebuild_required")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

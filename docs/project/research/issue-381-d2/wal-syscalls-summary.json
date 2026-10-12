@@ -1,0 +1,41 @@
+{
+  "record_type": "instrumented_wal_syscall_summary",
+  "target_wal_basename": "single-case-100000-C_fenced_preflight_set_update.sqlite-wal",
+  "method": "strace -f -yy -T; selected write/sync syscall durations summed by syscall path annotation",
+  "syscalls": {
+    "pwrite64": {
+      "count": 89391,
+      "summed_seconds": 1.517804,
+      "successful_returned_bytes": 201530880
+    },
+    "pwritev": {
+      "count": 0,
+      "summed_seconds": 0.0,
+      "successful_returned_bytes": 0
+    },
+    "write": {
+      "count": 0,
+      "summed_seconds": 0.0,
+      "successful_returned_bytes": 0
+    },
+    "writev": {
+      "count": 0,
+      "summed_seconds": 0.0,
+      "successful_returned_bytes": 0
+    },
+    "fsync": {
+      "count": 4,
+      "summed_seconds": 0.024982,
+      "successful_returned_bytes": 0
+    },
+    "fdatasync": {
+      "count": 0,
+      "summed_seconds": 0.0,
+      "successful_returned_bytes": 0
+    }
+  },
+  "summed_selected_wal_syscall_seconds": 1.542786,
+  "observer_effect": "Diagnostic-only. Full transaction 11640.885 ms; in-lock final filesystem checks 3093.539 ms; COMMIT 3123.270 ms; ordinary metadata and user-tag writers timed out at 5031.668 ms and 5043.651 ms. Excluded from the untraced 20-case performance gate.",
+  "trace_sha256_before_compression": "8744b9cfdb69d6611b4c32dcbfab2b32146f1c33447c94d706d3163ab73723d0",
+  "single_case_record": "single-case.jsonl"
+}

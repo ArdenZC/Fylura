@@ -1,5 +1,8 @@
 use super::*;
-use crate::path_filter::is_ignored_dir_name;
+use crate::path_filter::{
+    evaluate_managed_path, metadata_is_link_or_reparse, most_specific_root, EligibilityDecision,
+    EligibilityPurpose, ManagedScanRootContext,
+};
 use rusqlite::{params, types::Value as SqlValue, Connection, OptionalExtension, Row};
 use serde::Serialize;
 use std::{
@@ -229,10 +232,18 @@ fn normalize_path_for_db(path: &Path) -> String {
 
 pub(crate) fn normalize_path_text(path: &str) -> String {
     let normalized = path.replace('\\', "/");
-    if let Some(stripped) = normalized.strip_prefix("//?/UNC/") {
+    if normalized
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/UNC/"))
+    {
+        let stripped = &normalized[8..];
         return format!("//{stripped}");
     }
-    if let Some(stripped) = normalized.strip_prefix("//?/") {
+    if normalized
+        .get(..4)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/"))
+    {
+        let stripped = &normalized[4..];
         return stripped.to_string();
     }
     normalized
@@ -301,6 +312,11 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
     let mut files = Vec::new();
     let mut seen = Vec::new();
     let mut warnings = Vec::new();
+    let roots = db
+        .list_watcher_root_configs()?
+        .into_iter()
+        .map(|root| ManagedScanRootContext::new(root.id, root.path, true, "file_library"))
+        .collect::<Vec<_>>();
 
     for raw_path in paths
         .iter()
@@ -312,8 +328,13 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
             continue;
         }
 
+        let path_buf = PathBuf::from(path);
+        if most_specific_root(&roots, &path_buf.to_string_lossy()).is_none() {
+            continue;
+        }
         collect_upsert_requests_for_path(
-            PathBuf::from(path),
+            path_buf,
+            &roots,
             &mut files,
             &mut seen,
             &mut warnings,
@@ -330,14 +351,15 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
 
 fn collect_upsert_requests_for_path(
     path: PathBuf,
+    roots: &[ManagedScanRootContext],
     files: &mut Vec<InsertFileRequest>,
     seen: &mut Vec<String>,
     warnings: &mut Vec<WatcherUpsertWarning>,
     limit: usize,
 ) -> Result<(), DbError> {
-    let mut stack = vec![path];
+    let mut stack = vec![(path, None::<String>)];
 
-    while let Some(path_buf) = stack.pop() {
+    while let Some((path_buf, parent_root_id)) = stack.pop() {
         if files.len() >= limit {
             let path = normalize_path_for_db(&path_buf);
             let message = format!(
@@ -357,11 +379,26 @@ fn collect_upsert_requests_for_path(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(DbError::Io(error)),
         };
-        if metadata.file_type().is_symlink() {
+        if metadata_is_link_or_reparse(&metadata) {
             continue;
         }
 
         let normalized_path = normalize_path_for_db(&path_buf);
+        let Some(root) = most_specific_root(roots, &normalized_path) else {
+            continue;
+        };
+        let parent_verified = parent_root_id.as_deref() == Some(root.id.as_str());
+        match evaluate_managed_path(
+            &path_buf,
+            root,
+            EligibilityPurpose::Upsert,
+            Some(metadata.is_dir()),
+            parent_verified,
+        ) {
+            EligibilityDecision::Include => {}
+            EligibilityDecision::Exclude(_) | EligibilityDecision::Incomplete(_) => continue,
+        }
+
         if seen.iter().any(|value| value == &normalized_path) {
             continue;
         }
@@ -389,10 +426,7 @@ fn collect_upsert_requests_for_path(
             if file_type.is_symlink() {
                 continue;
             }
-            if file_type.is_dir() && is_ignored_dir_name(&entry.file_name()) {
-                continue;
-            }
-            stack.push(entry.path());
+            stack.push((entry.path(), Some(root.id.clone())));
         }
     }
 
@@ -649,8 +683,21 @@ mod tests {
         let mut seen = Vec::new();
         let mut warnings = Vec::new();
 
-        collect_upsert_requests_for_path(root.clone(), &mut files, &mut seen, &mut warnings, 2)
-            .expect("collect upsert requests");
+        let roots = vec![ManagedScanRootContext::new(
+            "large-upsert-root",
+            root.to_string_lossy().into_owned(),
+            true,
+            "file_library",
+        )];
+        collect_upsert_requests_for_path(
+            root.clone(),
+            &roots,
+            &mut files,
+            &mut seen,
+            &mut warnings,
+            2,
+        )
+        .expect("collect upsert requests");
 
         assert_eq!(files.len(), 2);
         assert_eq!(warnings.len(), 1);
@@ -665,11 +712,13 @@ mod tests {
     }
 
     #[test]
-    fn issue375_path_upsert_prunes_build_descendants_but_accepts_selected_build_root() {
-        let fixture = test_dir("issue375-upsert");
+    fn issue381_path_upsert_admits_lookalikes_and_selected_build_root() {
+        let fixture = test_dir("issue381-upsert");
         let project_root = fixture.join("Project");
         let project_build_file = project_root.join("build/logo.ai");
         let project_source_file = project_root.join("src/main.rs");
+        let windows_lookalike_file = project_root.join("Projects/Windows/README.md");
+        let appdata_lookalike_file = project_root.join("Configs/AppData/important.json");
         let selected_build_root = fixture.join("chosen/build");
         let selected_build_file = selected_build_root.join("README.md");
         fs::create_dir_all(
@@ -685,18 +734,45 @@ mod tests {
         )
         .expect("create project source directory");
         fs::create_dir_all(&selected_build_root).expect("create selected build root");
+        for path in [&windows_lookalike_file, &appdata_lookalike_file] {
+            fs::create_dir_all(path.parent().expect("lookalike parent"))
+                .expect("create lookalike parent");
+        }
         fs::write(&project_build_file, b"project asset").expect("write project build asset");
         fs::write(&project_source_file, b"project source").expect("write project source");
+        fs::write(&windows_lookalike_file, b"windows lookalike").expect("write Windows README");
+        fs::write(&appdata_lookalike_file, b"appdata lookalike").expect("write AppData file");
         fs::write(&selected_build_file, b"selected build root").expect("write selected-root file");
 
         let db = Database::open(fixture.join("watcher-upsert.sqlite3"))
             .expect("open isolated watcher-upsert database");
+        let roots = vec![
+            crate::settings::ScanRootSetting {
+                id: "issue381-project-upsert".to_string(),
+                path: project_root.to_string_lossy().into_owned(),
+                label: "project".to_string(),
+                enabled: true,
+                created_at: "2026-10-11T00:00:00.000Z".to_string(),
+            },
+            crate::settings::ScanRootSetting {
+                id: "issue381-build-upsert".to_string(),
+                path: selected_build_root.to_string_lossy().into_owned(),
+                label: "selected build".to_string(),
+                enabled: true,
+                created_at: "2026-10-11T00:00:00.000Z".to_string(),
+            },
+        ];
+        let mut settings = crate::settings::get_app_settings(&db).expect("read test settings");
+        settings.default_scan_folders = roots.clone();
+        crate::settings::save_app_settings(&db, &settings).expect("save managed roots");
+        db.sync_file_library_watcher_roots(&roots)
+            .expect("sync managed roots");
         let project_root_text = project_root.to_string_lossy().into_owned();
         let project_count = upsert_files_by_paths_for_db(&db, &[project_root_text])
             .expect("bulk-upsert ordinary project path");
         assert_eq!(
-            project_count, 3,
-            "root, src directory and source file are indexed"
+            project_count, 11,
+            "root, ordinary build, source, Windows and AppData lookalikes are indexed"
         );
 
         let selected_root_text = selected_build_root.to_string_lossy().into_owned();
@@ -715,8 +791,10 @@ mod tests {
                 )
                 .expect("query watcher-upsert result")
             };
-            assert!(!is_indexed(&project_build_file));
+            assert!(is_indexed(&project_build_file));
             assert!(is_indexed(&project_source_file));
+            assert!(is_indexed(&windows_lookalike_file));
+            assert!(is_indexed(&appdata_lookalike_file));
             assert!(is_indexed(&selected_build_root));
             assert!(is_indexed(&selected_build_file));
         }
@@ -730,7 +808,11 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("zen-canvas-{prefix}-{nonce}"));
+        let dir = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!("zen-canvas-{prefix}-{nonce}"));
         fs::create_dir_all(&dir).expect("create test dir");
         dir
     }

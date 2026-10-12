@@ -10,7 +10,11 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub(super) fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("pm02a-{}", uuid::Uuid::new_v4()));
+        let root = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!("pm02a-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let db = Database::open(root.join("test.sqlite3")).unwrap();
         db.conn().unwrap().execute("INSERT INTO scan_roots(id,normalized_path,display_name,source_kind,enabled,health_status,current_generation,needs_reconciliation,created_at,updated_at) VALUES ('root','/tmp','Test','file_library',1,'healthy',1,0,1,1)",[]).unwrap();
@@ -352,7 +356,7 @@ fn schema36_migration_preserves_populated35_and_constraints() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        37
+        38
     );
     assert_eq!(
         conn.query_row(
@@ -497,7 +501,7 @@ fn fresh_schema_and_exact_indexes_are_idempotent() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        37
+        38
     );
 }
 
@@ -602,7 +606,7 @@ fn empty_schema35_upgrades_without_history_or_extra_automation_tables() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        37
+        38
     );
     assert_eq!(
         conn.query_row(

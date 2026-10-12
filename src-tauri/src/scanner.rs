@@ -9,7 +9,10 @@ use crate::db::{
 use crate::dedupe::{spawn_duplicate_detection, DedupeJobManager};
 use crate::file_workspace::WorkClass;
 use crate::ids::new_job_id;
-use crate::path_filter::is_ignored_dir_name;
+use crate::path_filter::{
+    evaluate_managed_path, EligibilityDecision, EligibilityPurpose, EligibilityReason,
+    ManagedScanRootContext,
+};
 use crate::scheduler::{
     adapters::ManagedScanResourceLeaseAdapter, AcquireError, CancellationToken, ResourceLease,
 };
@@ -44,18 +47,6 @@ const SCAN_CANCELED_EVENT: &str = "scan-canceled";
 const SCAN_ERROR_EVENT: &str = "scan-error";
 pub const MANAGED_SCAN_EVENT: &str = "scan-run-updated";
 
-fn should_prune_directory(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        crate::platform::macos::package::is_package(path)
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
-}
 const RULE_RECOVERY_MAX_ATTEMPTS: usize = 3;
 const RULE_RECOVERY_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
@@ -72,6 +63,8 @@ enum ScanError {
         #[source]
         source: jwalk::Error,
     },
+    #[error("unsupported link or reparse boundary at {path}")]
+    LinkBoundary { path: String },
     #[error("database scan operation failed: {0}")]
     Database(#[from] DbError),
     #[error("scan task failed: {0}")]
@@ -1185,9 +1178,14 @@ fn run_scan_run<R: Runtime>(
     let skipped_for_filter = Arc::clone(&skipped);
     let mut batch = ScanBatchBuffer::new(started_at);
     let root = PathBuf::from(&root_label);
-    let rule_recovery_required = db
-        .get_scan_root_health(Some(&claimed.dto.scan_root_id), None)?
-        .watcher_rule_recovery_required;
+    let root_health = db.get_scan_root_health(Some(&claimed.dto.scan_root_id), None)?;
+    let root_context = Arc::new(ManagedScanRootContext::new(
+        claimed.dto.scan_root_id.clone(),
+        root_label.clone(),
+        root_health.enabled,
+        root_health.source_kind.clone(),
+    ));
+    let rule_recovery_required = root_health.watcher_rule_recovery_required;
 
     if let Err(error) = validate_root(&root) {
         // An unopenable root means the scan never ran, which is a failed job (axis 1) —
@@ -1230,22 +1228,102 @@ fn run_scan_run<R: Runtime>(
         return Ok(());
     }
 
+    let root_eligibility = evaluate_managed_path(
+        &root,
+        &root_context,
+        EligibilityPurpose::Discovery,
+        Some(root.is_dir()),
+        false,
+    );
+    if root_eligibility != EligibilityDecision::Include {
+        let (error_code, message) = match root_eligibility {
+            EligibilityDecision::Exclude(EligibilityReason::ProtectedSystemLocation) => (
+                "protected_root",
+                "Managed Scan cannot traverse a protected system location.",
+            ),
+            EligibilityDecision::Exclude(_) => (
+                "root_not_authorized",
+                "Managed Scan root is not an enabled File Library root.",
+            ),
+            EligibilityDecision::Incomplete(_) => (
+                "root_boundary_unverified",
+                "Managed Scan could not verify root access and source identity.",
+            ),
+            EligibilityDecision::Include => unreachable!(),
+        };
+        batch.push_error(ScanErrorInput {
+            path: Some(root_label.clone()),
+            error_code: error_code.to_string(),
+            error_message: message.to_string(),
+            affects_coverage: true,
+            metadata_error: false,
+        });
+        if let Err(error) = flush_scan_batch(
+            app,
+            db,
+            run_id,
+            &mut cursor,
+            &mut batch,
+            &skipped,
+            started_at,
+            legacy,
+        ) {
+            return abort_scan_run(app, db, run_id, error);
+        }
+        let finalization = finish_scan_run(
+            db,
+            run_id,
+            "failed",
+            Some(error_code),
+            Some(message),
+            false,
+            false,
+        )?;
+        emit_terminal_events(
+            app,
+            db,
+            &finalization,
+            skipped.load(Ordering::Acquire),
+            started_at,
+            legacy,
+        );
+        return Ok(());
+    }
+
+    let boundary_incomplete = Arc::new(AtomicBool::new(false));
+    let boundary_for_walk = Arc::clone(&boundary_incomplete);
+    let root_context_for_walk = Arc::clone(&root_context);
     let walker = WalkDir::new(&root)
         .parallelism(scan_walk_parallelism(&resource_lease))
         .skip_hidden(true)
         .follow_links(false)
-        .process_read_dir(move |_depth, path, _state, children| {
-            if should_prune_directory(path) {
-                skipped_for_filter.fetch_add(children.len() as u64, Ordering::Relaxed);
-                children.clear();
-                return;
-            }
+        .process_read_dir(move |_depth, _path, _state, children| {
             children.retain(|entry_result| match entry_result {
-                Ok(entry)
-                    if entry.file_type().is_dir() && is_ignored_dir_name(entry.file_name()) =>
-                {
+                Ok(entry) if entry.file_type().is_symlink() => {
+                    boundary_for_walk.store(true, Ordering::Release);
                     skipped_for_filter.fetch_add(1, Ordering::Relaxed);
                     false
+                }
+                Ok(entry) if entry.file_type().is_dir() => {
+                    let decision = evaluate_managed_path(
+                        &entry.path(),
+                        &root_context_for_walk,
+                        EligibilityPurpose::Discovery,
+                        Some(true),
+                        true,
+                    );
+                    match decision {
+                        EligibilityDecision::Include => true,
+                        EligibilityDecision::Exclude(_) => {
+                            skipped_for_filter.fetch_add(1, Ordering::Relaxed);
+                            false
+                        }
+                        EligibilityDecision::Incomplete(_) => {
+                            boundary_for_walk.store(true, Ordering::Release);
+                            skipped_for_filter.fetch_add(1, Ordering::Relaxed);
+                            false
+                        }
+                    }
                 }
                 _ => true,
             });
@@ -1293,6 +1371,18 @@ fn run_scan_run<R: Runtime>(
                 return abort_scan_run(app, db, run_id, error);
             }
         }
+    }
+
+    if boundary_incomplete.load(Ordering::Acquire) && !is_scan_cancelled(&cancel_flag) {
+        batch.push_error(ScanErrorInput {
+            path: Some(root_label.clone()),
+            error_code: "source_boundary_incomplete".to_string(),
+            error_message:
+                "The scan reached a link, reparse point, permission or source-volume boundary; coverage is incomplete."
+                    .to_string(),
+            affects_coverage: true,
+            metadata_error: false,
+        });
     }
 
     let durable_before_flush = db.get_scan_run_record(run_id)?;
@@ -1367,8 +1457,29 @@ fn run_scan_run<R: Runtime>(
             cursor.run_revision,
             cursor.root_revision,
             cursor.session_revision,
+            &root_context,
         )?;
         cursor.update(&reconciled);
+        if reconciled.dto.coverage_error_count > 0 {
+            let finalization = finish_scan_run(
+                db,
+                run_id,
+                "requires_reconciliation",
+                Some("coverage_incomplete"),
+                Some("The scan could not verify a managed path boundary; stale reconciliation was skipped."),
+                false,
+                false,
+            )?;
+            emit_terminal_events(
+                app,
+                db,
+                &finalization,
+                skipped.load(Ordering::Acquire),
+                started_at,
+                legacy,
+            );
+            return Ok(());
+        }
     } else {
         // The kill switch is engaged.  That is an operator decision, not evidence that
         // the index drifted, so the run stays on the normal success path: the terminal
@@ -1944,7 +2055,9 @@ fn entry_to_payload<C: ClientState>(
 ) -> Result<Option<ScannedEntry>, ScanError> {
     let path = entry.path();
     if entry.file_type().is_symlink() {
-        return Ok(None);
+        return Err(ScanError::LinkBoundary {
+            path: normalize_path(&path),
+        });
     }
 
     let is_dir = entry.file_type().is_dir();
@@ -1952,6 +2065,11 @@ fn entry_to_payload<C: ClientState>(
         path: normalize_path(&path),
         source,
     })?;
+    if crate::path_filter::metadata_is_link_or_reparse(&metadata) {
+        return Err(ScanError::LinkBoundary {
+            path: normalize_path(&path),
+        });
+    }
     let mtime = modified_unix_seconds(&metadata);
 
     Ok(Some(ScannedEntry {
@@ -1998,6 +2116,13 @@ fn scan_error_input_for_error(error: &ScanError) -> ScanErrorInput {
             error_message: source.to_string(),
             affects_coverage: true,
             metadata_error: true,
+        },
+        ScanError::LinkBoundary { path } => ScanErrorInput {
+            path: Some(path.clone()),
+            error_code: "link_or_reparse_boundary".to_string(),
+            error_message: error.to_string(),
+            affects_coverage: true,
+            metadata_error: false,
         },
         other => ScanErrorInput {
             path: None,
@@ -2104,12 +2229,16 @@ fn emit_scan_complete_then_schedule_dedupe(
 mod tests {
     use super::*;
     #[cfg(feature = "performance-test-tauri")]
-    use crate::db::{FileLibraryScopeV2, FileQueryFiltersV2, FileQueryRequestV2, FileQuerySpecV2};
+    use crate::db::{
+        CreateUserTagRequest, FileLibraryScopeV2, FileQueryFiltersV2, FileQueryRequestV2,
+        FileQuerySpecV2, LibrarySelectionV1, MutateFileUserTagsRequest, UserTagMutationOperation,
+    };
     #[cfg(feature = "performance-test-tauri")]
     use crate::dedupe::DedupeJobManager;
+    #[cfg(feature = "performance-test-tauri")]
+    use std::ffi::OsStr;
     use std::{
         cell::RefCell,
-        ffi::OsStr,
         fs,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
@@ -2161,8 +2290,11 @@ mod tests {
         let filler_count = available_scan_capacity.saturating_sub(2);
 
         let db = test_db("issue345-d4-concurrent-writers");
-        let fixture_root =
-            std::env::temp_dir().join(format!("zen-canvas-issue345-d4-{}", new_job_id("fixture")));
+        let fixture_root = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!("zen-canvas-issue345-d4-{}", new_job_id("fixture")));
         let owner_root = fixture_root.join("owner");
         let contender_root = fixture_root.join("contender");
         let replacement_root = fixture_root.join("replacement");
@@ -2614,25 +2746,13 @@ mod tests {
         assert!(create_scan_job_id("forged".to_string()).is_err());
     }
 
-    #[test]
-    fn should_skip_dir_matches_case_insensitive_generated_variants() {
-        assert!(is_ignored_dir_name(OsStr::new("Node_Modules")));
-        assert!(is_ignored_dir_name(OsStr::new("node_modules.cache")));
-        assert!(is_ignored_dir_name(OsStr::new(".git-worktree")));
-        assert!(is_ignored_dir_name(OsStr::new(".zen-canvas-trash")));
-        assert!(is_ignored_dir_name(OsStr::new("System Volume Information")));
-        assert!(!is_ignored_dir_name(OsStr::new("Library")));
-        assert!(!is_ignored_dir_name(OsStr::new("client-documents")));
-    }
-
-    /// Issue #375 characterization: run the real managed-scan worker over a
-    /// disposable filesystem tree and retain the current name-only omissions
-    /// as passing evidence. This test intentionally does not change the
-    /// production path filter.
+    /// Issue #381 regression: run the real Managed Scan worker and assert
+    /// root-aware inclusion for ordinary lookalike folders while retaining
+    /// context-proven dependency, IDE and generated-output exclusions.
     #[cfg(feature = "performance-test-tauri")]
     #[test]
-    fn issue375_managed_scan_characterizes_directory_name_exclusions() {
-        let fixture = Issue375Fixture::new();
+    fn issue375_issue381_managed_scan_uses_root_and_context_and_stales_observed_lookalikes() {
+        let fixture = Issue381Fixture::new();
         let main_root = fixture.0.join("library");
         let selected_build_root = fixture.0.join("chosen").join("build");
         fs::create_dir_all(&main_root).expect("create managed root");
@@ -2648,6 +2768,13 @@ mod tests {
         for relative in excluded_paths {
             fixture.write(&main_root, relative, b"previously indexed fixture");
         }
+        fixture.write(&main_root, "Project/package.json", br#"{"name":"fixture"}"#);
+        fixture.write(&main_root, "Project/build/CMakeCache.txt", b"generated");
+        fixture.write(
+            &main_root,
+            "Project/.cache/CACHEDIR.TAG",
+            b"Signature: 8a477f597d28d172789f06886806bc55",
+        );
         let newly_created_build_file = fixture.write(
             &main_root,
             "Design/build/new-logo.ai",
@@ -2656,8 +2783,8 @@ mod tests {
         let current_file = fixture.write(&main_root, "Project/src/current.rs", b"current");
         let selected_root_file = fixture.write(&selected_build_root, "README.md", b"selected root");
 
-        let db = Database::open(fixture.0.join("managed-scan.sqlite3"))
-            .expect("open isolated managed-scan database");
+        let database_path = fixture.0.join("managed-scan.sqlite3");
+        let db = Database::open(&database_path).expect("open isolated managed-scan database");
         let deleted_ignored = main_root.join("Project/node_modules/removed/index.js");
         let mut seeded_paths = excluded_paths
             .iter()
@@ -2665,8 +2792,31 @@ mod tests {
             .collect::<Vec<_>>();
         seeded_paths.push(deleted_ignored.clone());
         for path in &seeded_paths {
-            seed_issue375_file_row(&db, path);
+            seed_issue381_file_row(&db, path);
         }
+        let preserved_file = normalize_path(&main_root.join("Projects/Windows/README.md"));
+        let preserved_tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "Owner tag".to_string(),
+                color_token: "neutral".to_string(),
+            })
+            .expect("create existing user tag");
+        db.mutate_file_user_tags(MutateFileUserTagsRequest {
+            selection: LibrarySelectionV1::Explicit {
+                file_ids: vec![preserved_file.clone()],
+            },
+            tag_ids: vec![preserved_tag.id.clone()],
+            operation: UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("attach user tag to previously indexed lookalike");
+        db.conn()
+            .expect("open preservation fixture connection")
+            .execute(
+                "UPDATE files SET purpose = 'Work', lifecycle = 'Active', context = 'Owner supplied context' WHERE id = ?1",
+                [&preserved_file],
+            )
+            .expect("seed owner-supplied file metadata");
 
         let jobs = ScanJobManager::default();
         let dedupe_jobs = DedupeJobManager::default();
@@ -2677,7 +2827,7 @@ mod tests {
             jobs.clone(),
             dedupe_jobs.clone(),
             vec![main_root.clone(), selected_build_root.clone()],
-            new_job_id("issue375-first"),
+            new_job_id("issue381-first"),
             "background",
         )
         .expect("start real managed scan over both selected roots");
@@ -2695,6 +2845,11 @@ mod tests {
             assert_eq!(record.dto.status, "completed", "run {}", record.dto.id);
             assert_eq!(record.dto.errors_count, 0, "run {}", record.dto.id);
             assert_eq!(record.dto.coverage_error_count, 0, "run {}", record.dto.id);
+            assert!(record.dto.stale_reconciliation_allowed);
+            assert_eq!(
+                record.current_watcher_revision,
+                record.dto.watcher_revision_at_start
+            );
         }
 
         let main_run = first_records
@@ -2710,20 +2865,35 @@ mod tests {
             "ordinary files are discovered by the managed scan"
         );
         assert!(
-            !scan_seen_path(&db, &selected_build_run.dto.id, &selected_root_file),
-            "a user-selected root named build is still omitted by the name-only filter"
+            scan_seen_path(&db, &selected_build_run.dto.id, &selected_root_file),
+            "a user-selected root named build includes its README"
         );
-        for relative in excluded_paths {
-            let path = main_root.join(relative);
+        for relative in [
+            "Projects/Windows/README.md",
+            "Design/build/logo.ai",
+            "Configs/AppData/important.json",
+        ] {
             assert!(
-                !scan_seen_path(&db, &main_run.dto.id, &path),
-                "name-filtered subtree should remain unseen: {relative}"
+                scan_seen_path(&db, &main_run.dto.id, &main_root.join(relative)),
+                "ordinary user data under a lookalike component is discovered: {relative}"
             );
         }
         assert!(
-            !scan_seen_path(&db, &main_run.dto.id, &newly_created_build_file),
-            "a new file below a build descendant is not discovered"
+            scan_seen_path(&db, &main_run.dto.id, &newly_created_build_file),
+            "a new file below an ordinary build directory is discovered"
         );
+        for relative in [
+            "Project/.vscode/settings.json",
+            "Project/node_modules/pkg/index.js",
+            "Project/.venv/pyvenv.cfg",
+            "Project/build/CMakeCache.txt",
+            "Project/.cache/CACHEDIR.TAG",
+        ] {
+            assert!(
+                !scan_seen_path(&db, &main_run.dto.id, &main_root.join(relative)),
+                "recognized IDE, dependency or generated/cache context stays excluded: {relative}"
+            );
+        }
 
         let main_health = db
             .get_scan_root_health(Some(&main_run.dto.scan_root_id), None)
@@ -2735,8 +2905,23 @@ mod tests {
         assert!(!main_health.needs_reconciliation);
         assert_eq!(selected_build_health.health_status, "healthy");
 
+        let preservation = db.conn().expect("inspect preserved user state");
+        let (purpose, lifecycle, context, tag_count): (String, String, String, i64) =
+            preservation
+                .query_row(
+                    "SELECT purpose, lifecycle, context, (SELECT COUNT(*) FROM file_user_tags WHERE file_id = files.id) FROM files WHERE id = ?1",
+                    [&preserved_file],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .expect("read preserved user state");
+        assert_eq!(purpose, "Work");
+        assert_eq!(lifecycle, "Active");
+        assert_eq!(context, "Owner supplied context");
+        assert_eq!(tag_count, 1);
+        drop(preservation);
+
         let first_query = db
-            .query_file_library_v2(issue375_library_query("issue375-first-query"))
+            .query_file_library_v2(issue381_library_query("issue381-first-query"))
             .expect("query File Library after first scan");
         let first_visible = first_query
             .files
@@ -2752,12 +2937,12 @@ mod tests {
             );
         }
         assert!(
-            !first_visible.contains(normalize_path(&newly_created_build_file).as_str()),
-            "File Library cannot return a newly created file that scanning never inserted"
+            first_visible.contains(normalize_path(&newly_created_build_file).as_str()),
+            "File Library Query V2 returns the newly discovered build asset"
         );
         assert!(
-            !first_visible.contains(normalize_path(&selected_root_file).as_str()),
-            "File Library has no row for a file omitted from the selected build-root scan"
+            first_visible.contains(normalize_path(&selected_root_file).as_str()),
+            "File Library Query V2 returns the selected build-root README"
         );
 
         let deleted_ignored_id = normalize_path(&deleted_ignored);
@@ -2775,66 +2960,117 @@ mod tests {
         );
         drop(conn);
 
+        assert!(
+            !scan_seen_path(&db, &main_run.dto.id, &deleted_ignored),
+            "the legacy historical control has no successful scan observation proof"
+        );
+
+        // The scan_seen observation is durable proof of inclusion under the
+        // current policy. Reopening the database models an app restart before
+        // a later complete scan reconciles a missed filesystem delete.
+        drop(db);
+        let db = Database::open(&database_path).expect("reopen managed-scan database");
+
         // `last_seen_at` is stored in seconds. Make the ordinary row older than
         // the next scan's cutoff so this assertion does not depend on whether
         // both scans happen to start during the same second.
+        let deleted_lookalikes = [
+            main_root.join("Projects/Windows/README.md"),
+            main_root.join("Design/build/logo.ai"),
+            main_root.join("Configs/AppData/important.json"),
+            selected_root_file.clone(),
+        ];
         let conn = db.conn().expect("open timestamp setup connection");
-        let aged_rows = conn
-            .execute(
-                "UPDATE files SET last_seen_at = 1 WHERE id = ?1",
-                [&normalize_path(&current_file)],
-            )
-            .expect("age the observed ordinary file before the next scan");
-        assert_eq!(aged_rows, 1, "first scan inserted the ordinary file row");
+        for path in std::iter::once(&current_file).chain(deleted_lookalikes.iter()) {
+            let aged_rows = conn
+                .execute(
+                    "UPDATE files SET last_seen_at = 1 WHERE id = ?1",
+                    [&normalize_path(path)],
+                )
+                .expect("age observed file before the next scan");
+            assert_eq!(aged_rows, 1, "first scan inserted {}", path.display());
+        }
         drop(conn);
 
-        fs::remove_file(&current_file).expect("remove ordinary file before incremental scan");
+        for path in std::iter::once(&current_file).chain(deleted_lookalikes.iter()) {
+            fs::remove_file(path).expect("remove observed file without a Watcher delete event");
+        }
         let new_appdata_file = fixture.write(
             &main_root,
             "Configs/AppData/new-important.json",
             b"created between scans",
         );
-        let second = start_performance_managed_scan(
+        let second = start_performance_managed_scan_roots(
             app.handle().clone(),
             db.clone(),
             jobs,
             dedupe_jobs,
-            main_root.clone(),
-            new_job_id("issue375-second"),
+            vec![main_root.clone(), selected_build_root.clone()],
+            new_job_id("issue381-second"),
             "background",
         )
-        .expect("start incremental managed scan");
-        second.worker.join().expect("incremental scan worker joins");
-        let second_run = db
-            .get_scan_run_record(&second.run_id)
-            .expect("read incremental scan run");
-        assert_eq!(second_run.dto.status, "completed");
+        .expect("start second complete managed scan over both roots");
+        second.worker.join().expect("second full-scan worker joins");
+        let second_records = second
+            .run_ids
+            .iter()
+            .map(|run_id| {
+                db.get_scan_run_record(run_id)
+                    .expect("read second scan run")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(second_records.len(), 2);
+        assert!(second_records.iter().all(|record| {
+            record.dto.status == "completed"
+                && record.dto.errors_count == 0
+                && record.dto.coverage_error_count == 0
+                && record.dto.stale_reconciliation_allowed
+                && record.current_watcher_revision == record.dto.watcher_revision_at_start
+        }));
+        let second_main_run = second_records
+            .iter()
+            .find(|record| record.dto.root_path == normalize_path(&main_root))
+            .expect("second main-root scan run");
+        let second_build_run = second_records
+            .iter()
+            .find(|record| record.dto.root_path == normalize_path(&selected_build_root))
+            .expect("second selected-build scan run");
         assert!(
-            second_run.dto.generation > main_run.dto.generation,
-            "the next scan advances the generation despite the filtered subtree"
+            second_main_run.dto.generation > main_run.dto.generation,
+            "the next successful scan advances its generation"
         );
-        assert!(!scan_seen_path(&db, &second.run_id, &current_file));
+        assert!(!scan_seen_path(&db, &second_main_run.dto.id, &current_file));
         assert!(
-            !scan_seen_path(&db, &second.run_id, &new_appdata_file),
-            "a new AppData descendant remains undiscovered during the next scan"
+            scan_seen_path(&db, &second_main_run.dto.id, &new_appdata_file),
+            "a new AppData lookalike file is discovered during the next scan"
         );
-        assert_eq!(
-            db.get_scan_root_health(Some(&second_run.dto.scan_root_id), None)
-                .expect("read incremental root health")
-                .health_status,
-            "healthy"
-        );
+        assert_eq!(second_build_run.dto.status, "completed");
+        for record in [&second_main_run, &second_build_run] {
+            let health = db
+                .get_scan_root_health(Some(&record.dto.scan_root_id), None)
+                .expect("read second scan-root health");
+            assert_eq!(health.health_status, "healthy");
+            assert_eq!(health.watcher_revision, health.watcher_applied_revision);
+        }
 
         let conn = db
             .conn()
             .expect("open incremental reconciliation connection");
-        let current_stale: i64 = conn
-            .query_row(
-                "SELECT is_stale FROM files WHERE id = ?1",
-                [&normalize_path(&current_file)],
-                |row| row.get(0),
-            )
-            .expect("read deleted ordinary file stale state");
+        for path in std::iter::once(&current_file).chain(deleted_lookalikes.iter()) {
+            let stale: i64 = conn
+                .query_row(
+                    "SELECT is_stale FROM files WHERE id = ?1",
+                    [&normalize_path(path)],
+                    |row| row.get(0),
+                )
+                .expect("read deleted file stale state");
+            assert_eq!(
+                stale,
+                1,
+                "deleted observed file becomes stale: {}",
+                path.display()
+            );
+        }
         let ignored_stale: i64 = conn
             .query_row(
                 "SELECT is_stale FROM files WHERE id = ?1",
@@ -2842,15 +3078,26 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("read deleted ignored file stale state");
-        assert_eq!(current_stale, 1, "deleted ordinary file becomes stale");
         assert_eq!(
             ignored_stale, 0,
-            "deleted ignored file remains non-stale by policy"
+            "unobserved historical row remains non-stale without inclusion proof"
         );
+        let (purpose, lifecycle, context, tag_count, stale): (String, String, String, i64, i64) =
+            conn.query_row(
+                "SELECT purpose, lifecycle, context, (SELECT COUNT(*) FROM file_user_tags WHERE file_id = files.id), is_stale FROM files WHERE id = ?1",
+                [&preserved_file],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .expect("read user metadata after stale reconciliation");
+        assert_eq!(purpose, "Work");
+        assert_eq!(lifecycle, "Active");
+        assert_eq!(context, "Owner supplied context");
+        assert_eq!(tag_count, 1);
+        assert_eq!(stale, 1);
         drop(conn);
 
         let second_query = db
-            .query_file_library_v2(issue375_library_query("issue375-second-query"))
+            .query_file_library_v2(issue381_library_query("issue381-second-query"))
             .expect("query File Library after incremental scan");
         let second_visible = second_query
             .files
@@ -2859,28 +3106,38 @@ mod tests {
             .collect::<HashSet<_>>();
         assert!(
             !second_visible.contains(normalize_path(&current_file).as_str()),
-            "the incrementally deleted file is no longer visible in File Library"
+            "the deleted ordinary file is no longer visible in File Library"
         );
+        for path in &deleted_lookalikes {
+            assert!(
+                !second_visible.contains(normalize_path(path).as_str()),
+                "the newly covered deleted lookalike is omitted from File Library: {}",
+                path.display()
+            );
+        }
         assert!(second_visible.contains(deleted_ignored_id.as_str()));
-        assert!(!second_visible.contains(normalize_path(&new_appdata_file).as_str()));
+        assert!(second_visible.contains(normalize_path(&new_appdata_file).as_str()));
     }
 
     #[cfg(feature = "performance-test-tauri")]
-    struct Issue375Fixture(PathBuf);
+    struct Issue381Fixture(PathBuf);
 
     #[cfg(feature = "performance-test-tauri")]
-    impl Issue375Fixture {
+    impl Issue381Fixture {
         fn new() -> Self {
-            let root =
-                std::env::temp_dir().join(format!("zen-canvas-issue375-{}", new_job_id("fixture")));
-            fs::create_dir_all(&root).expect("create isolated Issue #375 fixture");
+            let root = std::env::current_dir()
+                .expect("workspace directory")
+                .join("target")
+                .join("issue381-fixtures")
+                .join(format!("zen-canvas-issue381-{}", new_job_id("fixture")));
+            fs::create_dir_all(&root).expect("create isolated Issue #381 fixture");
             Self(root)
         }
 
         fn write(&self, root: &Path, relative: &str, contents: &[u8]) -> PathBuf {
             assert!(
                 root.starts_with(&self.0),
-                "Issue #375 fixture writes must remain inside the disposable fixture root"
+                "Issue #381 fixture writes must remain inside the disposable fixture root"
             );
             let path = root.join(relative);
             fs::create_dir_all(path.parent().expect("fixture parent"))
@@ -2891,14 +3148,14 @@ mod tests {
     }
 
     #[cfg(feature = "performance-test-tauri")]
-    impl Drop for Issue375Fixture {
+    impl Drop for Issue381Fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
 
     #[cfg(feature = "performance-test-tauri")]
-    fn seed_issue375_file_row(db: &Database, path: &Path) {
+    fn seed_issue381_file_row(db: &Database, path: &Path) {
         let path_text = normalize_path(path);
         let name = path
             .file_name()
@@ -2944,7 +3201,7 @@ mod tests {
     }
 
     #[cfg(feature = "performance-test-tauri")]
-    fn issue375_library_query(request_id: &str) -> FileQueryRequestV2 {
+    fn issue381_library_query(request_id: &str) -> FileQueryRequestV2 {
         FileQueryRequestV2 {
             version: 2,
             request_id: request_id.to_string(),
@@ -3054,10 +3311,14 @@ mod tests {
     #[test]
     fn kill_switch_path_completes_normally_without_fabricating_a_reconciliation_signal() {
         let db = test_db("default-stale-gate");
-        let root_path = std::env::temp_dir().join(format!(
-            "zen-canvas-default-stale-gate-{}",
-            new_job_id("root")
-        ));
+        let root_path = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!(
+                "zen-canvas-default-stale-gate-{}",
+                new_job_id("root")
+            ));
         fs::create_dir_all(&root_path).expect("create scan root");
         let root = root_path.to_string_lossy().replace('\\', "/");
         let old_path = root_path.join("old.txt");

@@ -453,12 +453,37 @@
             .expect("clock")
             .as_nanos();
         let counter = TEST_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "zen-canvas-db-file-test-{}-{nonce}-{counter}",
-            std::process::id()
-        ));
+        let dir = std::env::current_dir()
+            .expect("workspace directory")
+            .join("target")
+            .join("issue381-fixtures")
+            .join(format!(
+                "zen-canvas-db-file-test-{}-{nonce}-{counter}",
+                std::process::id()
+            ));
         fs::create_dir_all(&dir).expect("test dir");
         dir
+    }
+
+    fn register_test_file_library_roots(db: &Database, paths: &[&Path]) {
+        let mut settings = crate::settings::get_app_settings(db).expect("read test settings");
+        settings.default_scan_folders = paths
+            .iter()
+            .map(|path| crate::settings::ScanRootSetting {
+                id: format!("test-root-{}", uuid::Uuid::new_v4()),
+                path: path.to_string_lossy().into_owned(),
+                label: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                enabled: true,
+                created_at: "2026-10-11T00:00:00.000Z".to_string(),
+            })
+            .collect();
+        save_app_settings(db, &settings).expect("save test roots");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("sync test roots");
     }
 
     #[test]

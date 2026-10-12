@@ -379,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            37
+            38
         );
         assert_eq!(
             conn.query_row(
@@ -616,7 +616,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("schema version"),
-            37
+            38
         );
         for table in ["organization_plans", "organization_plan_items"] {
             assert_eq!(
@@ -756,7 +756,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("schema version"),
-            37
+            38
         );
         assert_eq!(
             conn.query_row(

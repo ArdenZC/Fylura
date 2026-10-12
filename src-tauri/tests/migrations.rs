@@ -1154,7 +1154,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        37
+        38
     );
     assert_schema_23_journal_columns(&conn);
 

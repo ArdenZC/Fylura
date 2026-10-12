@@ -110,7 +110,7 @@ fn schema_33_to_34_creates_content_ledger_without_rewriting_core_tables() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("schema version"),
-        37
+        38
     );
     for table in [
         "content_scope_policies",

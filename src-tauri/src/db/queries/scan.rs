@@ -7172,8 +7172,13 @@ mod tests {
             let writer_hook_reset = ManagedScanWriteTestHookReset;
             let metadata_writer_thread = std::thread::spawn(move || {
                 let result = (|| -> Result<Duration, String> {
+                    // The 100k filesystem preflight can take longer than the
+                    // SQLite writer timeout. This channel is only a start
+                    // barrier; the timed interval begins after BEGIN IMMEDIATE
+                    // owns the writer, and the production busy timeout remains
+                    // independently asserted below.
                     metadata_start_rx
-                        .recv_timeout(Duration::from_secs(5))
+                        .recv()
                         .map_err(|error| format!("metadata writer start signal: {error}"))?;
                     let connection = metadata_db.conn().map_err(|error| error.to_string())?;
                     let configured_timeout_ms = connection
@@ -7211,7 +7216,7 @@ mod tests {
             let tag_writer_thread = std::thread::spawn(move || {
                 let result = (|| -> Result<Duration, String> {
                     tag_start_rx
-                        .recv_timeout(Duration::from_secs(5))
+                        .recv()
                         .map_err(|error| format!("user-tag writer start signal: {error}"))?;
                     let connection = tag_db.conn().map_err(|error| error.to_string())?;
                     let configured_timeout_ms = connection

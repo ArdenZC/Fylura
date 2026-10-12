@@ -964,7 +964,7 @@ function Convert-U1RDetailPrintsToFileTrace([string]$Path, [string]$TraceFileNam
             ($indent + 'FileClose $9'),
             ($indent + 'Pop $9'),
             ($indent + 'ClearErrors'),
-            ($indent + "StrCmp $R8 1 ${id}_restore_error"),
+            ($indent + ('StrCmp $R8 1 ' + $id + '_restore_error')),
             ($indent + 'Pop $R8'),
             ($indent + "Goto ${id}_done"),
             ($indent + "${id}_restore_error:"),

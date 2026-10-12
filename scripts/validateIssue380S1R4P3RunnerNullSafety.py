@@ -19,6 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE_HEAD = "740d99379c584589c92bd855f101e06858e8ee38"
+NULL_SAFETY_FREEZE_HEAD = "bfabd486bce84b7e5298276453dd01957049c91d"
 OLD_ACTIVATION_HEAD = "c474517ff2ae9fe91932c61468fbdf6e2baf28a2"
 OLD_RUNNER_HEAD = "0aa8be6d58fc0994b3be6aec2af8dc02318fcefb"
 OLD_RUNNER_BLOB = "1d11c3add3c0d1f45e7d7ac082d09c616cca51a1"
@@ -239,10 +240,223 @@ class RunnerNullSafetyContracts(unittest.TestCase):
         self.assertIn("if ($statusResult.OutputCount -ne 0)", draft)
         self.assertIn("if ($capture.stdout_char_count -ne 0)", self.runner)
         self.assertIn("if (-not [string]::IsNullOrEmpty($capture.stderr))", self.runner)
-        self.assertIn("if ($capture.timed_out -or $capture.exit_code -ne 0", self.runner)
+        self.assertIn("$capture.timed_out -or $capture.output_timed_out -or $capture.exit_code -ne 0", self.runner)
+
+
+@dataclass(frozen=True)
+class BoundedCaptureModel:
+    """Specification model only; it does not execute the PowerShell Runner."""
+
+    exit_code: int | None
+    process_exited_before_deadline: bool = True
+    kill_succeeded: bool = True
+    process_exit_confirmed_after_kill: bool = True
+    stdout: str = ""
+    stderr: str = ""
+    stdout_delay_ms: int = 0
+    stderr_delay_ms: int = 0
+    output_deadline_ms: int = 5000
+    stdout_fault: bool = False
+    stderr_fault: bool = False
+    cleanup_succeeded: bool = True
+
+
+def classify_bounded_capture(model: BoundedCaptureModel) -> dict[str, object]:
+    """Pure Python contract model used to exercise expected fail-closed states."""
+
+    timed_out = not model.process_exited_before_deadline
+    process_exit_confirmed = model.process_exited_before_deadline
+    if timed_out:
+        process_exit_confirmed = model.kill_succeeded and model.process_exit_confirmed_after_kill
+
+    stdout_complete = model.stdout_delay_ms <= model.output_deadline_ms and not model.stdout_fault
+    stderr_complete = model.stderr_delay_ms <= model.output_deadline_ms and not model.stderr_fault
+    output_timed_out = (
+        (not stdout_complete and not model.stdout_fault)
+        or (not stderr_complete and not model.stderr_fault)
+    )
+
+    if not model.cleanup_succeeded or (timed_out and not process_exit_confirmed):
+        status = "PROCESS_CLEANUP_FAILED"
+    elif timed_out:
+        status = "PROCESS_TIMEOUT"
+    elif output_timed_out:
+        status = "OUTPUT_CAPTURE_TIMEOUT"
+    elif model.stdout_fault or model.stderr_fault or not stdout_complete or not stderr_complete:
+        status = "OUTPUT_CAPTURE_FAILED"
+    elif not process_exit_confirmed:
+        status = "PROCESS_WAIT_FAILED"
+    elif model.exit_code == 0:
+        status = "EXITED_ZERO"
+    else:
+        status = "EXITED_NONZERO"
+
+    accepted = (
+        status == "EXITED_ZERO"
+        and stdout_complete
+        and stderr_complete
+        and process_exit_confirmed
+        and model.cleanup_succeeded
+    )
+    return {
+        "status": status,
+        "accepted": accepted,
+        "timed_out": timed_out,
+        "process_exit_confirmed": process_exit_confirmed,
+        "stdout_complete": stdout_complete and not output_timed_out,
+        "stderr_complete": stderr_complete and not output_timed_out,
+        "output_timed_out": output_timed_out,
+        "kill_succeeded": model.kill_succeeded if timed_out else False,
+    }
+
+
+class BoundedGitCaptureContracts(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.runner = (ROOT / RUNNER_PATH).read_text(encoding="utf-8")
+        cls.freeze_runner = git_show(NULL_SAFETY_FREEZE_HEAD, RUNNER_PATH).decode("utf-8")
+        start = cls.runner.index("function Invoke-GitCapture(")
+        end = cls.runner.index("\nfunction Get-RequiredGitScalar(", start)
+        cls.capture_source = cls.runner[start:end]
+
+    def test_13_normal_exit_drains_stdout_and_stderr_concurrently(self) -> None:
+        result = classify_bounded_capture(
+            BoundedCaptureModel(exit_code=0, stdout="head\n", stderr="")
+        )
+        self.assertEqual(result["status"], "EXITED_ZERO")
+        self.assertTrue(result["accepted"])
+        self.assertLess(self.capture_source.index("$stdoutTask = $process.StandardOutput.ReadToEndAsync()"),
+                        self.capture_source.index("$process.WaitForExit($TimeoutSeconds * 1000)"))
+        self.assertLess(self.capture_source.index("$stderrTask = $process.StandardError.ReadToEndAsync()"),
+                        self.capture_source.index("$process.WaitForExit($TimeoutSeconds * 1000)"))
+
+    def test_14_empty_stdout_with_zero_exit_is_accepted(self) -> None:
+        result = classify_bounded_capture(BoundedCaptureModel(exit_code=0, stdout="", stderr=""))
+        self.assertEqual(result["status"], "EXITED_ZERO")
+        self.assertTrue(result["accepted"])
+
+    def test_15_delayed_streams_complete_when_they_finish_inside_the_bound(self) -> None:
+        for model in (
+            BoundedCaptureModel(exit_code=0, stdout_delay_ms=1800),
+            BoundedCaptureModel(exit_code=0, stderr_delay_ms=2300),
+            BoundedCaptureModel(exit_code=0, stdout_delay_ms=1800, stderr_delay_ms=2300),
+        ):
+            with self.subTest(stdout_delay_ms=model.stdout_delay_ms, stderr_delay_ms=model.stderr_delay_ms):
+                result = classify_bounded_capture(model)
+                self.assertEqual(result["status"], "EXITED_ZERO")
+                self.assertTrue(result["stdout_complete"])
+                self.assertTrue(result["stderr_complete"])
+                self.assertTrue(result["accepted"])
+
+    def test_16_process_timeout_and_successful_tree_termination_still_fail_closed(self) -> None:
+        result = classify_bounded_capture(
+            BoundedCaptureModel(
+                exit_code=137,
+                process_exited_before_deadline=False,
+                kill_succeeded=True,
+                process_exit_confirmed_after_kill=True,
+            )
+        )
+        self.assertEqual(result["status"], "PROCESS_TIMEOUT")
+        self.assertTrue(result["process_exit_confirmed"])
+        self.assertTrue(result["kill_succeeded"])
+        self.assertFalse(result["accepted"])
+
+    def test_17_exited_process_with_output_stream_past_deadline_fails_closed(self) -> None:
+        for model in (
+            BoundedCaptureModel(exit_code=0, stdout_delay_ms=5001),
+            BoundedCaptureModel(exit_code=0, stderr_delay_ms=5001),
+        ):
+            with self.subTest(stdout_delay_ms=model.stdout_delay_ms, stderr_delay_ms=model.stderr_delay_ms):
+                result = classify_bounded_capture(model)
+                self.assertEqual(result["status"], "OUTPUT_CAPTURE_TIMEOUT")
+                self.assertTrue(result["output_timed_out"])
+                self.assertFalse(result["stdout_complete"] or result["stderr_complete"])
+                self.assertFalse(result["accepted"])
+        self.assertIn("$capture.post_close_wait_timeout_ms", self.capture_source)
+        self.assertIn("$capture.stream_close_attempted = $true", self.capture_source)
+
+    def test_18_kill_and_resource_cleanup_failures_are_not_accepted(self) -> None:
+        kill_failure = classify_bounded_capture(
+            BoundedCaptureModel(
+                exit_code=None,
+                process_exited_before_deadline=False,
+                kill_succeeded=False,
+                process_exit_confirmed_after_kill=False,
+            )
+        )
+        cleanup_failure = classify_bounded_capture(
+            BoundedCaptureModel(exit_code=0, cleanup_succeeded=False)
+        )
+        self.assertEqual(kill_failure["status"], "PROCESS_CLEANUP_FAILED")
+        self.assertFalse(kill_failure["accepted"])
+        self.assertEqual(cleanup_failure["status"], "PROCESS_CLEANUP_FAILED")
+        self.assertFalse(cleanup_failure["accepted"])
+        self.assertIn("$capture.kill_error", self.capture_source)
+        self.assertIn("$capture.cleanup_error", self.capture_source)
+
+    def test_19_sequential_captures_keep_exit_and_error_records_independent(self) -> None:
+        first = classify_bounded_capture(BoundedCaptureModel(exit_code=128, stderr="fatal"))
+        second = classify_bounded_capture(BoundedCaptureModel(exit_code=0, stdout="tree\n"))
+        self.assertEqual(first["status"], "EXITED_NONZERO")
+        self.assertEqual(second["status"], "EXITED_ZERO")
+        self.assertTrue(second["accepted"])
+        self.assertIn("$script:GitInvocations.Add([ordered]@{", self.capture_source)
+        self.assertIn("exit_code = $capture.exit_code", self.capture_source)
+        self.assertNotIn("$LASTEXITCODE", self.runner)
+
+    def test_20_output_waits_are_bounded_and_result_reads_are_completion_guarded(self) -> None:
+        self.assertIn("Task]::WaitAll(", self.capture_source)
+        self.assertIn("$capture.output_wait_timeout_ms", self.capture_source)
+        self.assertIn("$capture.post_close_wait_timeout_ms", self.capture_source)
+        self.assertIn("$stream.Task.GetAwaiter().GetResult()", self.capture_source)
+        read_guard = self.capture_source.index("if ($null -eq $stream.Task -or -not $stream.Task.IsCompleted) { continue }")
+        result_read = self.capture_source.index("$stream.Task.GetAwaiter().GetResult()")
+        self.assertLess(read_guard, result_read)
+        for gate in (
+            "Get-RequiredGitScalar",
+            "Assert-GitNoOutputSuccess",
+            "Assert-GitWorktreeClean",
+        ):
+            block_start = self.runner.index(f"function {gate}(")
+            next_function = self.runner.find("\nfunction ", block_start + 1)
+            block = self.runner[block_start:next_function if next_function >= 0 else len(self.runner)]
+            self.assertIn("-not $capture.stdout_complete", block)
+            self.assertIn("-not $capture.stderr_complete", block)
+            self.assertIn("$capture.output_timed_out", block)
+
+    def test_21_non_git_process_and_nsis_sections_are_unchanged(self) -> None:
+        def function_segment(source: str, start_marker: str, end_marker: str) -> str:
+            start = source.index(start_marker)
+            end = source.index(end_marker, start)
+            return source[start:end]
+
+        git_section_start = self.runner.index("function Invoke-GitCapture(")
+        git_section_end = self.runner.index("function Add-Assertion(", git_section_start)
+        freeze_section_start = self.freeze_runner.index("function Invoke-GitCapture(")
+        freeze_section_end = self.freeze_runner.index("function Add-Assertion(", freeze_section_start)
+        reconstructed = (
+            self.runner[:git_section_start]
+            + self.freeze_runner[freeze_section_start:freeze_section_end]
+            + self.runner[git_section_end:]
+        )
+        self.assertEqual(reconstructed, self.freeze_runner)
+        self.assertEqual(
+            function_segment(self.runner, "function Invoke-CapturedProcess(", "\nfunction Get-SyntheticRegistrySnapshot"),
+            function_segment(self.freeze_runner, "function Invoke-CapturedProcess(", "\nfunction Get-SyntheticRegistrySnapshot"),
+        )
+        self.assertEqual(
+            function_segment(self.runner, "function Download-And-VerifyPinnedZip", "\nfunction Get-ZipEntrySha256"),
+            function_segment(self.freeze_runner, "function Download-And-VerifyPinnedZip", "\nfunction Get-ZipEntrySha256"),
+        )
 
 
 if __name__ == "__main__":
-    suite = unittest.defaultTestLoader.loadTestsFromTestCase(RunnerNullSafetyContracts)
+    suite = unittest.TestSuite(
+        (
+            unittest.defaultTestLoader.loadTestsFromTestCase(RunnerNullSafetyContracts),
+            unittest.defaultTestLoader.loadTestsFromTestCase(BoundedGitCaptureContracts),
+        )
+    )
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     raise SystemExit(0 if result.wasSuccessful() else 1)

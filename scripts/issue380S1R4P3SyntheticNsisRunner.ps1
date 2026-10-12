@@ -119,35 +119,40 @@ function Write-Utf8Json([string]$Path, [object]$Value) {
     Write-Utf8Text -Path $Path -Text ((ConvertTo-Json -InputObject $Value -Depth 30) + "`n")
 }
 
-function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int]$TimeoutSeconds = 20) {
-    if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) { throw 'Git working directory is required.' }
-    $gitCommand = Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1
-    if ($null -eq $gitCommand -or [string]::IsNullOrWhiteSpace([string]$gitCommand.Path)) {
-        throw 'Could not resolve a Git executable from PATH.'
-    }
-
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = [string]$gitCommand.Path
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
-    $startInfo.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
-    foreach ($argument in $Arguments) { [void]$startInfo.ArgumentList.Add([string]$argument) }
-
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
+function Invoke-GitCapture(
+    [string[]]$Arguments,
+    [string]$WorkingDirectory,
+    [int]$TimeoutSeconds = 20,
+    [int]$OutputDrainTimeoutSeconds = 5,
+    [int]$ProcessTerminationTimeoutSeconds = 5,
+    [int]$PostCloseDrainTimeoutMilliseconds = 1000
+) {
     $capture = [ordered]@{
-        executable = [string]$gitCommand.Path
+        executable = $null
         arguments = @($Arguments)
         working_directory = $WorkingDirectory
         process_id = $null
         exit_code = $null
         timed_out = $false
+        output_timed_out = $false
         launch_error = $null
+        process_error = $null
+        capture_error = $null
+        kill_error = $null
         cleanup_error = $null
+        kill_attempted = $false
+        kill_succeeded = $false
+        process_exit_confirmed = $false
+        stdout_task_status = 'NOT_STARTED'
+        stderr_task_status = 'NOT_STARTED'
+        stdout_complete = $false
+        stderr_complete = $false
+        output_wait_timeout_ms = [Math]::Max(1, $OutputDrainTimeoutSeconds * 1000)
+        post_close_wait_timeout_ms = [Math]::Max(1, $PostCloseDrainTimeoutMilliseconds)
+        stream_close_attempted = $false
+        stream_close_error = $null
+        cleanup_completed = $false
+        status = 'INITIALIZING'
         stdout = [string]::Empty
         stderr = [string]::Empty
         stdout_char_count = 0
@@ -155,46 +160,272 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
         stdout_truncated = $false
         stderr_truncated = $false
     }
+    $process = $null
     $processStarted = $false
+    $stdoutTask = $null
+    $stderrTask = $null
+    $stdoutText = $null
+    $stderrText = $null
+    $outputWaitAttempted = $false
+
     try {
+        if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) { throw 'Git working directory is required.' }
+        if ($TimeoutSeconds -lt 1 -or $OutputDrainTimeoutSeconds -lt 1 -or
+            $ProcessTerminationTimeoutSeconds -lt 1 -or $PostCloseDrainTimeoutMilliseconds -lt 1) {
+            throw 'Git process and output capture timeouts must be positive.'
+        }
+        $gitCommand = Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1
+        if ($null -eq $gitCommand -or [string]::IsNullOrWhiteSpace([string]$gitCommand.Path)) {
+            throw 'Could not resolve a Git executable from PATH.'
+        }
+        $capture.executable = [string]$gitCommand.Path
+
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $capture.executable
+        $startInfo.WorkingDirectory = $WorkingDirectory
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        $startInfo.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
+        foreach ($argument in $Arguments) { [void]$startInfo.ArgumentList.Add([string]$argument) }
+
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
         if (-not $process.Start()) { throw 'Process.Start returned false.' }
         $processStarted = $true
         $capture.process_id = $process.Id
+
+        # Begin both drains before waiting on the process so neither redirected
+        # pipe can fill and block Git.
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
-        $completed = $process.WaitForExit($TimeoutSeconds * 1000)
-        if (-not $completed) {
-            $capture.timed_out = $true
-            $process.Kill($true)
-            if (-not $process.WaitForExit(5000)) { throw 'Git process did not exit within 5 seconds after timeout termination.' }
+
+        try {
+            $capture.process_exit_confirmed = $process.WaitForExit($TimeoutSeconds * 1000)
+        } catch {
+            $capture.process_error = $_.Exception.ToString()
         }
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
-        $capture.exit_code = if ($process.HasExited) { [int]$process.ExitCode } else { $null }
-        $capture.stdout_char_count = $stdout.Length
-        $capture.stderr_char_count = $stderr.Length
-        $capture.stdout_truncated = ($stdout.Length -gt 8192)
-        $capture.stderr_truncated = ($stderr.Length -gt 8192)
-        $capture.stdout = if ($capture.stdout_truncated) { $stdout.Substring(0, 8192) } else { $stdout }
-        $capture.stderr = if ($capture.stderr_truncated) { $stderr.Substring(0, 8192) } else { $stderr }
-        $capture.status = if ($capture.timed_out) { 'TIMED_OUT' } elseif ($capture.exit_code -eq 0) { 'EXITED_ZERO' } else { 'EXITED_NONZERO' }
-    } catch {
-        $capture.launch_error = $_.Exception.ToString()
-        $capture.status = 'LAUNCH_OR_CAPTURE_FAILED'
-    } finally {
-        if ($processStarted) {
+
+        if (-not $capture.process_exit_confirmed) {
+            if ($null -eq $capture.process_error) { $capture.timed_out = $true }
+            $capture.kill_attempted = $true
             try {
-                if (-not $process.HasExited) {
-                    $process.Kill($true)
-                    if (-not $process.WaitForExit(5000)) { throw 'Git process did not exit within 5 seconds after tree termination.' }
+                $process.Kill($true)
+                $capture.kill_succeeded = $true
+            } catch {
+                $capture.kill_error = $_.Exception.ToString()
+            }
+            try {
+                $capture.process_exit_confirmed = $process.WaitForExit($ProcessTerminationTimeoutSeconds * 1000)
+                if (-not $capture.process_exit_confirmed) {
+                    $capture.process_error = 'Git process tree did not exit within the bounded termination wait.'
                 }
             } catch {
-                $capture.cleanup_error = $_.Exception.ToString()
-                if ($null -eq $capture.launch_error) { $capture.launch_error = "Git process cleanup failed: $($capture.cleanup_error)" }
-                $capture.status = 'PROCESS_CLEANUP_FAILED'
+                $capture.process_error = $_.Exception.ToString()
             }
         }
-        $process.Dispose()
+
+        # WaitAll observes both independently-running readers under one finite
+        # deadline. GetAwaiter().GetResult() is used only for tasks already
+        # confirmed complete; it can therefore never wait for a pending read.
+        $outputWaitAttempted = $true
+        try {
+            [void][System.Threading.Tasks.Task]::WaitAll(
+                [System.Threading.Tasks.Task[]]@($stdoutTask, $stderrTask),
+                $capture.output_wait_timeout_ms
+            )
+        } catch [System.AggregateException] {
+            $capture.capture_error = $_.Exception.ToString()
+        } catch {
+            $capture.capture_error = $_.Exception.ToString()
+        }
+
+        $capture.stdout_task_status = $stdoutTask.Status.ToString()
+        $capture.stderr_task_status = $stderrTask.Status.ToString()
+        $capture.stdout_complete = $stdoutTask.IsCompletedSuccessfully
+        $capture.stderr_complete = $stderrTask.IsCompletedSuccessfully
+
+        if (-not $capture.stdout_complete -or -not $capture.stderr_complete) {
+            $capture.output_timed_out = -not $stdoutTask.IsCompleted -or -not $stderrTask.IsCompleted
+            if ($capture.output_timed_out -and $null -eq $capture.capture_error) {
+                $capture.capture_error = 'One or both redirected output reads did not complete within the bounded output wait.'
+            }
+
+            # Closing only the process-owned redirected readers is a bounded
+            # cleanup action. A stream closed to unblock a pending read is
+            # never accepted as complete evidence, even if its task settles.
+            $capture.stream_close_attempted = $true
+            try { $process.StandardOutput.Close() } catch {
+                $capture.stream_close_error = "stdout: $($_.Exception.ToString())"
+            }
+            try { $process.StandardError.Close() } catch {
+                $closeMessage = "stderr: $($_.Exception.ToString())"
+                if ($null -eq $capture.stream_close_error) { $capture.stream_close_error = $closeMessage }
+                else { $capture.stream_close_error += "`n$closeMessage" }
+            }
+
+            try {
+                [void][System.Threading.Tasks.Task]::WaitAll(
+                    [System.Threading.Tasks.Task[]]@($stdoutTask, $stderrTask),
+                    $capture.post_close_wait_timeout_ms
+                )
+            } catch {
+                $postCloseWaitError = $_.Exception.ToString()
+                if ($null -eq $capture.capture_error) { $capture.capture_error = $postCloseWaitError }
+                else { $capture.capture_error += "`nPost-close output wait: $postCloseWaitError" }
+            }
+            $capture.stdout_task_status = $stdoutTask.Status.ToString()
+            $capture.stderr_task_status = $stderrTask.Status.ToString()
+            $capture.stdout_complete = $false
+            $capture.stderr_complete = $false
+        }
+
+        if ($process.HasExited) {
+            $capture.process_exit_confirmed = $true
+            $capture.exit_code = [int]$process.ExitCode
+        }
+    } catch {
+        if (-not $processStarted) { $capture.launch_error = $_.Exception.ToString() }
+        elseif ($null -eq $capture.capture_error) { $capture.capture_error = $_.Exception.ToString() }
+        else { $capture.capture_error += "`n$($_.Exception.ToString())" }
+    } finally {
+        if ($processStarted -and $null -ne $process) {
+            try {
+                if (-not $process.HasExited) {
+                    if (-not $capture.kill_attempted) { $capture.kill_attempted = $true }
+                    $process.Kill($true)
+                    $capture.kill_succeeded = $true
+                    $capture.process_exit_confirmed = $process.WaitForExit($ProcessTerminationTimeoutSeconds * 1000)
+                    if (-not $capture.process_exit_confirmed) {
+                        throw 'Git process tree remained alive after the bounded final termination wait.'
+                    }
+                }
+            } catch {
+                $cleanupMessage = $_.Exception.ToString()
+                if ($null -eq $capture.cleanup_error) { $capture.cleanup_error = $cleanupMessage }
+                else { $capture.cleanup_error += "`n$cleanupMessage" }
+            }
+        }
+
+        # Cover exceptions between starting the asynchronous readers and the
+        # normal bounded drain. This cleanup path also has finite waits and
+        # never treats a forced stream close as complete output.
+        $activeReadTasks = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+        if ($null -ne $stdoutTask) { $activeReadTasks.Add($stdoutTask) }
+        if ($null -ne $stderrTask) { $activeReadTasks.Add($stderrTask) }
+        if ($activeReadTasks.Count -gt 0 -and -not $outputWaitAttempted) {
+            $outputWaitAttempted = $true
+            try {
+                [void][System.Threading.Tasks.Task]::WaitAll(
+                    $activeReadTasks.ToArray(),
+                    $capture.output_wait_timeout_ms
+                )
+            } catch {
+                if ($null -eq $capture.capture_error) { $capture.capture_error = $_.Exception.ToString() }
+                else { $capture.capture_error += "`nFallback output wait: $($_.Exception.ToString())" }
+            }
+        }
+
+        $readTasksRemain = ($null -ne $stdoutTask -and -not $stdoutTask.IsCompleted) -or
+            ($null -ne $stderrTask -and -not $stderrTask.IsCompleted)
+        if ($readTasksRemain -and -not $capture.stream_close_attempted) {
+            $capture.output_timed_out = $true
+            if ($null -eq $capture.capture_error) {
+                $capture.capture_error = 'One or more output reads remained pending during exception cleanup.'
+            }
+            $capture.stream_close_attempted = $true
+            try { $process.StandardOutput.Close() } catch {
+                $capture.stream_close_error = "stdout: $($_.Exception.ToString())"
+            }
+            try { $process.StandardError.Close() } catch {
+                $closeMessage = "stderr: $($_.Exception.ToString())"
+                if ($null -eq $capture.stream_close_error) { $capture.stream_close_error = $closeMessage }
+                else { $capture.stream_close_error += "`n$closeMessage" }
+            }
+        }
+        if ($capture.stream_close_attempted -and $activeReadTasks.Count -gt 0) {
+            try {
+                [void][System.Threading.Tasks.Task]::WaitAll(
+                    $activeReadTasks.ToArray(),
+                    $capture.post_close_wait_timeout_ms
+                )
+            } catch {
+                if ($null -eq $capture.capture_error) { $capture.capture_error = $_.Exception.ToString() }
+                else { $capture.capture_error += "`nPost-close cleanup wait: $($_.Exception.ToString())" }
+            }
+            $capture.stdout_complete = $false
+            $capture.stderr_complete = $false
+        } elseif (-not $capture.stream_close_attempted) {
+            $capture.stdout_complete = ($null -ne $stdoutTask -and $stdoutTask.IsCompletedSuccessfully)
+            $capture.stderr_complete = ($null -ne $stderrTask -and $stderrTask.IsCompletedSuccessfully)
+        }
+        if ($null -ne $stdoutTask) { $capture.stdout_task_status = $stdoutTask.Status.ToString() }
+        if ($null -ne $stderrTask) { $capture.stderr_task_status = $stderrTask.Status.ToString() }
+
+        foreach ($stream in @(
+            [pscustomobject]@{ Name = 'stdout'; Task = $stdoutTask },
+            [pscustomobject]@{ Name = 'stderr'; Task = $stderrTask }
+        )) {
+            if ($null -eq $stream.Task -or -not $stream.Task.IsCompleted) { continue }
+            try {
+                $streamText = [string]$stream.Task.GetAwaiter().GetResult()
+                if ($stream.Name -eq 'stdout' -and $null -eq $stdoutText) { $stdoutText = $streamText }
+                elseif ($stream.Name -eq 'stderr' -and $null -eq $stderrText) { $stderrText = $streamText }
+            } catch {
+                $readError = "$($stream.Name) read failed: $($_.Exception.ToString())"
+                if ($null -eq $capture.capture_error) { $capture.capture_error = $readError }
+                else { $capture.capture_error += "`n$readError" }
+            }
+        }
+
+        if ($null -ne $process) {
+            try { $process.Dispose() } catch {
+                $disposeMessage = "Process.Dispose failed: $($_.Exception.ToString())"
+                if ($null -eq $capture.cleanup_error) { $capture.cleanup_error = $disposeMessage }
+                else { $capture.cleanup_error += "`n$disposeMessage" }
+            }
+        }
+        $processResourceClosed = (-not $processStarted) -or $capture.process_exit_confirmed
+        $stdoutReadStopped = ($null -eq $stdoutTask) -or $stdoutTask.IsCompleted
+        $stderrReadStopped = ($null -eq $stderrTask) -or $stderrTask.IsCompleted
+        $capture.cleanup_completed = (
+            $null -eq $capture.cleanup_error -and
+            $null -eq $capture.stream_close_error -and
+            $processResourceClosed -and
+            $stdoutReadStopped -and
+            $stderrReadStopped
+        )
+    }
+
+    if ($null -ne $stdoutText) {
+        $capture.stdout_char_count = $stdoutText.Length
+        $capture.stdout_truncated = ($stdoutText.Length -gt 8192)
+        $capture.stdout = if ($capture.stdout_truncated) { $stdoutText.Substring(0, 8192) } else { $stdoutText }
+    }
+    if ($null -ne $stderrText) {
+        $capture.stderr_char_count = $stderrText.Length
+        $capture.stderr_truncated = ($stderrText.Length -gt 8192)
+        $capture.stderr = if ($capture.stderr_truncated) { $stderrText.Substring(0, 8192) } else { $stderrText }
+    }
+
+    if (-not $capture.cleanup_completed -or $null -ne $capture.cleanup_error -or $null -ne $capture.stream_close_error) {
+        $capture.status = 'PROCESS_CLEANUP_FAILED'
+    } elseif ($null -ne $capture.launch_error) {
+        $capture.status = 'LAUNCH_FAILED'
+    } elseif ($capture.timed_out) {
+        $capture.status = 'PROCESS_TIMEOUT'
+    } elseif ($capture.output_timed_out) {
+        $capture.status = 'OUTPUT_CAPTURE_TIMEOUT'
+    } elseif ($null -ne $capture.process_error -or -not $capture.process_exit_confirmed) {
+        $capture.status = 'PROCESS_WAIT_FAILED'
+    } elseif ($null -ne $capture.capture_error -or -not $capture.stdout_complete -or -not $capture.stderr_complete) {
+        $capture.status = 'OUTPUT_CAPTURE_FAILED'
+    } elseif ($capture.exit_code -eq 0) {
+        $capture.status = 'EXITED_ZERO'
+    } else {
+        $capture.status = 'EXITED_NONZERO'
     }
 
     $script:GitInvocations.Add([ordered]@{
@@ -204,9 +435,25 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
         process_id = $capture.process_id
         exit_code = $capture.exit_code
         timed_out = $capture.timed_out
+        output_timed_out = $capture.output_timed_out
         status = $capture.status
         launch_error = $capture.launch_error
+        process_error = $capture.process_error
+        capture_error = $capture.capture_error
+        kill_error = $capture.kill_error
         cleanup_error = $capture.cleanup_error
+        kill_attempted = $capture.kill_attempted
+        kill_succeeded = $capture.kill_succeeded
+        process_exit_confirmed = $capture.process_exit_confirmed
+        stdout_task_status = $capture.stdout_task_status
+        stderr_task_status = $capture.stderr_task_status
+        stdout_complete = $capture.stdout_complete
+        stderr_complete = $capture.stderr_complete
+        output_wait_timeout_ms = $capture.output_wait_timeout_ms
+        post_close_wait_timeout_ms = $capture.post_close_wait_timeout_ms
+        stream_close_attempted = $capture.stream_close_attempted
+        stream_close_error = $capture.stream_close_error
+        cleanup_completed = $capture.cleanup_completed
         stdout = $capture.stdout
         stderr = $capture.stderr
         stdout_char_count = $capture.stdout_char_count
@@ -219,8 +466,11 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
 
 function Get-RequiredGitScalar([string[]]$Arguments, [string]$WorkingDirectory, [string]$Label) {
     $capture = Invoke-GitCapture -Arguments $Arguments -WorkingDirectory $WorkingDirectory
-    if ($capture.timed_out -or $capture.exit_code -ne 0 -or $null -ne $capture.launch_error) {
-        throw "$Label failed: exit=$($capture.exit_code) timed_out=$($capture.timed_out) launch_error=$($capture.launch_error) stderr=$($capture.stderr)"
+    if ($capture.status -notin @('EXITED_ZERO', 'EXITED_NONZERO') -or -not $capture.stdout_complete -or -not $capture.stderr_complete -or
+        $capture.timed_out -or $capture.output_timed_out -or $capture.exit_code -ne 0 -or
+        $null -ne $capture.launch_error -or $null -ne $capture.process_error -or
+        $null -ne $capture.capture_error -or $null -ne $capture.cleanup_error -or -not $capture.cleanup_completed) {
+        throw "$Label failed: status=$($capture.status) exit=$($capture.exit_code) timed_out=$($capture.timed_out) output_timed_out=$($capture.output_timed_out) launch_error=$($capture.launch_error) process_error=$($capture.process_error) capture_error=$($capture.capture_error) cleanup_error=$($capture.cleanup_error) stderr=$($capture.stderr)"
     }
     if (-not [string]::IsNullOrEmpty($capture.stderr)) {
         throw "$Label wrote unexpected stderr despite exit 0: $($capture.stderr)"
@@ -237,8 +487,11 @@ function Get-RequiredGitScalar([string[]]$Arguments, [string]$WorkingDirectory, 
 
 function Assert-GitNoOutputSuccess([string[]]$Arguments, [string]$WorkingDirectory, [string]$Label) {
     $capture = Invoke-GitCapture -Arguments $Arguments -WorkingDirectory $WorkingDirectory
-    if ($capture.timed_out -or $capture.exit_code -ne 0 -or $null -ne $capture.launch_error) {
-        throw "$Label failed: exit=$($capture.exit_code) timed_out=$($capture.timed_out) launch_error=$($capture.launch_error) stderr=$($capture.stderr)"
+    if ($capture.status -notin @('EXITED_ZERO', 'EXITED_NONZERO') -or -not $capture.stdout_complete -or -not $capture.stderr_complete -or
+        $capture.timed_out -or $capture.output_timed_out -or $capture.exit_code -ne 0 -or
+        $null -ne $capture.launch_error -or $null -ne $capture.process_error -or
+        $null -ne $capture.capture_error -or $null -ne $capture.cleanup_error -or -not $capture.cleanup_completed) {
+        throw "$Label failed: status=$($capture.status) exit=$($capture.exit_code) timed_out=$($capture.timed_out) output_timed_out=$($capture.output_timed_out) launch_error=$($capture.launch_error) process_error=$($capture.process_error) capture_error=$($capture.capture_error) cleanup_error=$($capture.cleanup_error) stderr=$($capture.stderr)"
     }
     if (-not [string]::IsNullOrEmpty($capture.stderr)) {
         throw "$Label wrote unexpected stderr despite exit 0: $($capture.stderr)"
@@ -250,8 +503,11 @@ function Assert-GitNoOutputSuccess([string[]]$Arguments, [string]$WorkingDirecto
 
 function Assert-GitWorktreeClean([string]$WorkingDirectory) {
     $capture = Invoke-GitCapture -Arguments @('status', '--porcelain', '--untracked-files', 'all') -WorkingDirectory $WorkingDirectory
-    if ($capture.timed_out -or $capture.exit_code -ne 0 -or $null -ne $capture.launch_error) {
-        throw "Git worktree status failed: exit=$($capture.exit_code) timed_out=$($capture.timed_out) launch_error=$($capture.launch_error) stderr=$($capture.stderr)"
+    if ($capture.status -notin @('EXITED_ZERO', 'EXITED_NONZERO') -or -not $capture.stdout_complete -or -not $capture.stderr_complete -or
+        $capture.timed_out -or $capture.output_timed_out -or $capture.exit_code -ne 0 -or
+        $null -ne $capture.launch_error -or $null -ne $capture.process_error -or
+        $null -ne $capture.capture_error -or $null -ne $capture.cleanup_error -or -not $capture.cleanup_completed) {
+        throw "Git worktree status failed: status=$($capture.status) exit=$($capture.exit_code) timed_out=$($capture.timed_out) output_timed_out=$($capture.output_timed_out) launch_error=$($capture.launch_error) process_error=$($capture.process_error) capture_error=$($capture.capture_error) cleanup_error=$($capture.cleanup_error) stderr=$($capture.stderr)"
     }
     if (-not [string]::IsNullOrEmpty($capture.stderr)) {
         throw "Git worktree status wrote unexpected stderr despite exit 0: $($capture.stderr)"

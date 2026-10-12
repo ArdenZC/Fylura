@@ -494,12 +494,42 @@ try {
     }
 
     Invoke-TestCase -Name '03_real_git_nonzero_with_stderr' -Body {
-        $capture = Invoke-GitForTest -Arguments @('cat-file', '-e', '0000000000000000000000000000000000000000') -WorkingDirectory $script:RepoPath
-        Assert-True ($capture.exit_code -ne 0) 'Missing object unexpectedly returned exit zero.'
-        Assert-Equal 'EXITED_NONZERO' $capture.status 'Missing object Git status'
-        Assert-True (-not [string]::IsNullOrWhiteSpace($capture.stderr)) 'Missing object did not report stderr.'
+        $capture = Invoke-GitForTest -Arguments @('cat-file', '-p', '0000000000000000000000000000000000000000') -WorkingDirectory $script:RepoPath
+        Assert-True ($capture.exit_code -ne 0) 'cat-file -p for the absent object unexpectedly returned exit zero.'
+        Assert-Equal 'EXITED_NONZERO' $capture.status 'Missing object cat-file -p Git status'
+        Assert-True (-not [string]::IsNullOrWhiteSpace($capture.stderr)) 'cat-file -p did not report stderr for the absent object.'
+        Assert-Equal 0 $capture.stdout_char_count 'Missing object cat-file -p stdout length'
         Assert-True ($capture.stderr_complete -and $capture.stdout_complete) 'Nonzero Git streams were not both complete.'
-        return @{ passed = $true; expected = 'nonzero exit and non-empty stderr'; actual = $capture }
+        Assert-True $capture.cleanup_completed 'Nonzero Git process cleanup was incomplete.'
+        return @{ passed = $true; expected = 'cat-file -p absent object: nonzero exit, empty stdout, complete non-empty stderr; no error text is pinned'; actual = $capture }
+    }
+
+    Invoke-TestCase -Name '03b_real_git_nonzero_empty_stderr_is_not_success' -Body {
+        $arguments = @('cat-file', '-e', '0000000000000000000000000000000000000000')
+        $capture = Invoke-GitForTest -Arguments $arguments -WorkingDirectory $script:RepoPath
+        Assert-True ($capture.exit_code -ne 0) 'cat-file -e for the absent object unexpectedly returned exit zero.'
+        Assert-Equal 'EXITED_NONZERO' $capture.status 'Empty-stderr failure Git status'
+        Assert-Equal 0 $capture.stdout_char_count 'Empty-stderr failure stdout length'
+        Assert-Equal 0 $capture.stderr_char_count 'Empty-stderr failure stderr length'
+        Assert-Equal '' $capture.stdout 'Empty-stderr failure stdout'
+        Assert-Equal '' $capture.stderr 'Empty-stderr failure stderr'
+        Assert-True ($capture.stdout_complete -and $capture.stderr_complete -and $capture.cleanup_completed) 'Empty-stderr failure capture or cleanup was incomplete.'
+
+        $wrapperError = $null
+        try {
+            Assert-GitNoOutputSuccess -Arguments $arguments -WorkingDirectory $script:RepoPath -Label 'absent-object empty-stderr probe'
+        } catch {
+            $wrapperError = $_.Exception.Message
+        }
+        Assert-True (-not [string]::IsNullOrWhiteSpace($wrapperError)) 'Assert-GitNoOutputSuccess accepted a nonzero Git result with empty stderr.'
+        $wrapperCapture = $script:GitInvocations[$script:GitInvocations.Count - 1]
+        Assert-Equal 'EXITED_NONZERO' $wrapperCapture.status 'Wrapper rejection status'
+        Assert-Equal $capture.exit_code $wrapperCapture.exit_code 'Wrapper rejection exit code'
+        Assert-Equal 0 $wrapperCapture.stdout_char_count 'Wrapper rejection stdout length'
+        Assert-Equal 0 $wrapperCapture.stderr_char_count 'Wrapper rejection stderr length'
+        Assert-True ($wrapperCapture.stdout_complete -and $wrapperCapture.stderr_complete -and $wrapperCapture.cleanup_completed) 'Wrapper rejection capture or cleanup was incomplete.'
+        Assert-True ($wrapperError.Contains("exit=$($wrapperCapture.exit_code)")) 'Wrapper rejection did not report the nonzero exit code.'
+        return @{ passed = $true; expected = 'real nonzero/empty-stderr result remains EXITED_NONZERO; no-output success wrapper rejects it using exit code'; actual = @{ capture = $capture; wrapper_capture = $wrapperCapture; wrapper_error = $wrapperError } }
     }
 
     Invoke-TestCase -Name '04_real_git_normal_exit_and_stream_close' -Body {

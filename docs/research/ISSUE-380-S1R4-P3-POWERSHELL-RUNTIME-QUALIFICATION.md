@@ -33,6 +33,8 @@ The proposed workflow exists only inside this document. No file is added under `
 
 The starting research HEAD and Tree were rechecked before editing; the origin branch `research/issue-380-s1r4-p3-bounded-git-capture` still pointed at the frozen research HEAD. The Runner's local Git Blob and raw SHA matched the values above. The current container has no `pwsh` executable, so no PowerShell parsing or runtime execution was performed here.
 
+This Case 03 amendment is based on the separately reviewed runtime-plan commit `8b441df124ba1c64a806037b9461370f27ab1ef0` (Tree `a2ba19477ca9ed6817b86c1da8b73db41838f274`) and is maintained on `research/issue-380-s1r4-p3-git-runtime-case03-amendment`. It changes only the runtime test input/assertion and related research identity, validation, and evidence material. The frozen Runner listed above is unchanged.
+
 ## Proving the test uses the frozen implementation
 
 The future workflow must verify all of these before starting the test harness:
@@ -55,7 +57,8 @@ Each completed test writes a JSON record with its expected outcome, actual captu
 | --- | --- | --- |
 | 1 | Real Git, exit `0`, empty stdout/stderr | In a clean temporary repository, `Assert-GitWorktreeClean` and `Assert-GitNoOutputSuccess` must accept `git diff --quiet --exit-code`; both streams must be complete and empty. |
 | 2 | Real Git, non-empty stdout | `Get-RequiredGitScalar` must accept one non-empty `git rev-parse HEAD` line. A synthetic untracked file must make `Assert-GitWorktreeClean` reject; raw porcelain output must be non-empty. |
-| 3 | Real Git, nonzero exit and stderr | A `git cat-file -e` lookup for a known absent object must retain its nonzero process exit code and complete stderr independently. |
+| 3 | Real Git, nonzero exit and stderr | `git cat-file -p <known-absent-object>` must retain a nonzero exit code, empty stdout, and complete non-empty stderr. Assertions check only the stream being non-empty, never a version-specific English message. |
+| 3b | Real Git, nonzero exit and empty stderr | `git cat-file -e <known-absent-object>` may return nonzero with both streams empty. `Invoke-GitCapture` must record `EXITED_NONZERO`; `Assert-GitNoOutputSuccess` must reject the invocation because of its exit code, without requiring stderr. |
 | 4 | Normal exit and stream close | `git --version` must exit normally with both read tasks `RanToCompletion`, both stream-complete flags true, confirmed process exit, and completed cleanup. |
 | 5 | Delayed stdout and stderr | A temporary Git alias launches the tracked child fixture. It emits both synthetic markers after 1.2 seconds. Both streams must finish under 5 seconds, with the measured full call time recorded. |
 | 6 | Git exits while a child holds inherited output handles | A Git alias starts a task-owned PowerShell child that inherits stdout/stderr and then exits. The capture must record the output deadline or a stream/task failure and may never be classified as an ordinary completed exit. The harness verifies and reaps the child by PID, image path, unique nonce, and command line. |
@@ -67,7 +70,9 @@ Each completed test writes a JSON record with its expected outcome, actual captu
 | 12 | Empty scalar and launch exception | `Get-RequiredGitScalar` must reject a real zero-exit empty `git rev-list --max-count=0 HEAD` result. A nonexistent working directory must be retained as `LAUNCH_FAILED` and rejected by the wrapper. No controlled child may remain. |
 | 13 | Final evidence JSON | Re-read the complete case records after all cases and recheck every timestamp, actual/expected result, stream status, cleanup status, and error/status relationship before writing the final summary. |
 
-Cases 1–4 and 10–12 use the actual Git executable discovered by the frozen function. Cases 5–7 use actual Git as the parent executable plus Git for Windows' shell alias mechanism to launch the tracked, test-only PowerShell child. The alias child does not replace or mock `Invoke-GitCapture`. The workflow records the Git executable, shell path, PowerShell path/version, Windows image, and all child PIDs, image paths, arguments, exit observations, and cleanup results.
+Cases 1–4 and 10–12 use the actual Git executable discovered by the frozen function. Case 3b adds a second real `cat-file -e` call through the frozen no-output success wrapper; it requires the wrapper to throw on nonzero exit even when stderr is empty. Cases 5–7 use actual Git as the parent executable plus Git for Windows' shell alias mechanism to launch the tracked, test-only PowerShell child. The alias child does not replace or mock `Invoke-GitCapture`. The workflow records the Git executable, shell path, PowerShell path/version, Windows image, and all child PIDs, image paths, arguments, exit observations, and cleanup results.
+
+The amendment was independently checked with Git 2.52.0 in a temporary, empty SHA-1 repository. The original `git cat-file -e 0000000000000000000000000000000000000000` returned exit `1`, empty stdout, and empty stderr. The selected `git cat-file -p 0000000000000000000000000000000000000000` returned exit `128`, empty stdout, and 72 stderr bytes in that environment. The raw commands and output are retained in [the Case 03 observation](evidence/issue-380-s1r4-p3-pwsh-runtime/case03-real-git-observation.json), and `scripts/verifyIssue380S1R4P3Case03GitCommands.py` reproduces them by invoking real Git in a temporary repository. The Harness asserts only nonzero exit and non-empty stderr, never those numeric values or the English message. This local experiment validates actual Git CLI behavior for that Git build only; PowerShell 7 and the frozen wrapper were not executed here. The frozen `Assert-GitNoOutputSuccess` source checks `$capture.exit_code -ne 0` in its fail condition before stream-content checks, which is static source evidence that the empty-stderr failure cannot be accepted. Case 03b remains necessary for real Windows PowerShell runtime evidence.
 
 Case 8 is the known qualification gap. It cannot be reported as passed by static checks, a Python model, or the `Kill` success case. The prepared harness records it as `UNPROVEN` and exits nonzero after collecting the other cases. Owner review must decide whether to authorize a narrowly scoped test seam or accept this precise limit before any future Hosted execution can be called a complete qualification.
 
@@ -114,17 +119,17 @@ The existing workflows use different branch names and path filters. This researc
 
 ## Preparation validation and current result
 
-The accompanying Validator checks the freeze identities, unchanged Runner/P1/S0 sources and historical workflow, expected research parent, allowed added paths, absence of an active workflow, the 13-case contract, and the explicit kill-failure injection gap. The SHA manifest binds this report, the inert draft, harness, child fixture, Validator, and freeze identity record.
+The accompanying Validator retains the original 14 static contract tests and adds three Case 03/Case 08 checks. Together they check the freeze identities, unchanged Runner/P1/S0 sources and historical workflow, expected amendment parent, allowed paths, absence of an active workflow, the runtime matrix including Case 03b, the real-Git observation contract, the frozen wrapper's exit-code rejection guard, and the explicit kill-failure injection gap. The SHA manifest binds this report, the inert draft, harness, child fixture, actual-Git reproduction script and output, Validator, and freeze identity record.
 
-Actual PowerShell 7 parsing, execution of the extracted functions, Windows process/pipe behavior, and the proposed GitHub workflow are **NOT RUN** in this stage. No Hosted job, NSIS process, full Runner, product process, CI matrix, or database was run.
+Actual PowerShell 7 parsing, execution of the extracted functions (including Case 03b's wrapper rejection), Windows process/pipe behavior, and the proposed GitHub workflow are **NOT RUN** in this stage. The Case 03 command comparison used the real local Git executable via a standalone subprocess script; it is not a PowerShell or Runner runtime result. No Hosted job, NSIS process, full Runner, product process, CI matrix, or database was run.
 
 Plan status:
 
 ```text
-S1R4-P3 POWERSHELL_RUNTIME_QUALIFICATION_PLAN_READY_FOR_OWNER_REVIEW
+S1R4-P3 RUNTIME_PLAN_CASE03_AMENDED_READY_FOR_OWNER_ACTIVATION_REVIEW
 ```
 
-This status means the isolated plan is ready for Owner review. It does not accept PowerShell behavior, close the fault-injection gap, authorize a Hosted run, or change `HOSTED_NSIS_NO_GO` / `U2_PRODUCTION_NO_GO`.
+This amendment status replaces the earlier plan status for the Case 03 test contract. It does not accept PowerShell behavior, close the Case 08 fault-injection gap, authorize a Hosted run, or change `HOSTED_POWERSHELL_NO_GO`, `HOSTED_NSIS_NO_GO`, or `U2_PRODUCTION_NO_GO`.
 
 ## Remaining plan risks
 

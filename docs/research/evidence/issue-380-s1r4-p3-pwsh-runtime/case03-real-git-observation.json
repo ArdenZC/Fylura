@@ -1,0 +1,109 @@
+{
+  "schema": "issue380-s1r4-p3-case03-real-git-observation-v1",
+  "scope": "actual Git CLI in an isolated temporary repository; no PowerShell execution",
+  "recorded_utc": "2026-10-12T18:42:04.581Z",
+  "git_executable": "/usr/local/bin/git",
+  "git_executable_sha256": "37d928337f8e6c6b4c875d79fd33ee2f440594a589f584c89146bbf0aeafd63e",
+  "powershell_runtime": "NOT RUN",
+  "repository": {
+    "temporary": true,
+    "object_format": "sha1",
+    "contains_commit": false,
+    "missing_object": "0000000000000000000000000000000000000000",
+    "initialization": {
+      "arguments": [
+        "/usr/local/bin/git",
+        "init",
+        "--quiet",
+        "--object-format=sha1"
+      ],
+      "started_utc": "2026-10-12T18:42:04.623Z",
+      "ended_utc": "2026-10-12T18:42:04.641Z",
+      "exit_code": 0,
+      "stdout_utf8_replace": "",
+      "stdout_hex": "",
+      "stdout_bytes": 0,
+      "stderr_utf8_replace": "",
+      "stderr_hex": "",
+      "stderr_bytes": 0
+    }
+  },
+  "commands": {
+    "original_cat_file_e_missing_object": {
+      "arguments": [
+        "/usr/local/bin/git",
+        "cat-file",
+        "-e",
+        "0000000000000000000000000000000000000000"
+      ],
+      "started_utc": "2026-10-12T18:42:04.641Z",
+      "ended_utc": "2026-10-12T18:42:04.649Z",
+      "exit_code": 1,
+      "stdout_utf8_replace": "",
+      "stdout_hex": "",
+      "stdout_bytes": 0,
+      "stderr_utf8_replace": "",
+      "stderr_hex": "",
+      "stderr_bytes": 0
+    },
+    "candidate_cat_file_p_missing_object": {
+      "arguments": [
+        "/usr/local/bin/git",
+        "cat-file",
+        "-p",
+        "0000000000000000000000000000000000000000"
+      ],
+      "started_utc": "2026-10-12T18:42:04.649Z",
+      "ended_utc": "2026-10-12T18:42:04.655Z",
+      "exit_code": 128,
+      "stdout_utf8_replace": "",
+      "stdout_hex": "",
+      "stdout_bytes": 0,
+      "stderr_utf8_replace": "fatal: Not a valid object name 0000000000000000000000000000000000000000\n",
+      "stderr_hex": "666174616c3a204e6f7420612076616c6964206f626a656374206e616d6520303030303030303030303030303030303030303030303030303030303030303030303030303030300a",
+      "stderr_bytes": 72
+    }
+  },
+  "assertions": [
+    {
+      "name": "original_nonzero_empty_stderr_is_observed",
+      "passed": true,
+      "expected": "nonzero exit; empty stdout; empty stderr",
+      "actual": {
+        "exit_code": 1,
+        "stdout_bytes": 0,
+        "stderr_bytes": 0
+      }
+    },
+    {
+      "name": "candidate_nonzero_stderr_is_observed_without_pinning_text",
+      "passed": true,
+      "expected": "nonzero exit; empty stdout; non-empty stderr; no English text comparison",
+      "actual": {
+        "exit_code": 128,
+        "stdout_bytes": 0,
+        "stderr_bytes": 72
+      }
+    }
+  ],
+  "cleanup": {
+    "temporary_repository_removed": true
+  },
+  "git_version": "git version 2.52.0",
+  "git_version_command": {
+    "arguments": [
+      "/usr/local/bin/git",
+      "--version"
+    ],
+    "started_utc": "2026-10-12T18:42:04.612Z",
+    "ended_utc": "2026-10-12T18:42:04.623Z",
+    "exit_code": 0,
+    "stdout_utf8_replace": "git version 2.52.0\n",
+    "stdout_hex": "6769742076657273696f6e20322e35322e300a",
+    "stdout_bytes": 19,
+    "stderr_utf8_replace": "",
+    "stderr_hex": "",
+    "stderr_bytes": 0
+  },
+  "status": "PASS"
+}

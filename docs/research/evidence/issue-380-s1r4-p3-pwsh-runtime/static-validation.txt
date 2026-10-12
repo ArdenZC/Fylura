@@ -1,3 +1,18 @@
+# Case 03 amendment offline verification
+
+Environment: Git 2.52.0; Python 3.12.14; PowerShell 7 is NOT RUN (pwsh is not installed).
+
+Actual-Git CLI reproduction: PASS in a temporary SHA-1 repository; cleanup verified.
+- Original `git cat-file -e <absent SHA-1>`: exit 1, stdout 0 bytes, stderr 0 bytes.
+- Candidate `git cat-file -p <absent SHA-1>`: exit 128, stdout 0 bytes, stderr 72 bytes on this Git build. No exact message or exit value is asserted by the Harness.
+- Frozen `Assert-GitNoOutputSuccess` exit-code guard is statically present before stderr checks. PowerShell runtime behavior remains NOT RUN.
+
+Case status contract: Case 03 exercises a nonzero result with non-empty stderr. Case 03b retains a real nonzero result with empty stderr and requires the frozen wrapper to throw based on exit code. The actual wrapper test is NOT RUN here. Case 08 remains UNPROVEN; a future run with executable cases passing must report PARTIAL_BLOCKED_FAULT_INJECTION_UNPROVEN, never RUNTIME_MATRIX_PASS.
+
+Static Validator command: `PYTHONDONTWRITEBYTECODE=1 python3 scripts/validateIssue380S1R4P3GitRuntimePlan.py`
+PowerShell syntax/runtime, Hosted PowerShell, Hosted NSIS, full Runner, product data, and full CI: NOT RUN.
+
+Captured Validator output:
 test_01_freeze_and_research_parent_identities (__main__.RuntimePlanContracts.test_01_freeze_and_research_parent_identities) ... ok
 test_02_allowed_paths_and_no_active_workflow (__main__.RuntimePlanContracts.test_02_allowed_paths_and_no_active_workflow) ... ok
 test_03_frozen_sources_and_historical_workflow_are_unchanged (__main__.RuntimePlanContracts.test_03_frozen_sources_and_historical_workflow_are_unchanged) ... ok
@@ -12,8 +27,11 @@ test_11_current_workflow_triggers_do_not_match_future_branch (__main__.RuntimePl
 test_12_history_and_not_run_boundaries_are_explicit (__main__.RuntimePlanContracts.test_12_history_and_not_run_boundaries_are_explicit) ... ok
 test_13_sha_manifest_matches_all_review_payload_files (__main__.RuntimePlanContracts.test_13_sha_manifest_matches_all_review_payload_files) ... ok
 test_14_workflow_raw_hash_and_git_blob_pins_match_test_tools (__main__.RuntimePlanContracts.test_14_workflow_raw_hash_and_git_blob_pins_match_test_tools) ... ok
+test_15_case03_harness_has_both_git_failure_contracts (__main__.RuntimePlanContracts.test_15_case03_harness_has_both_git_failure_contracts) ... ok
+test_16_case03_real_git_evidence_has_positive_and_negative_assertions (__main__.RuntimePlanContracts.test_16_case03_real_git_evidence_has_positive_and_negative_assertions) ... ok
+test_17_empty_stderr_is_rejected_by_frozen_wrapper_and_case08_stays_partial (__main__.RuntimePlanContracts.test_17_empty_stderr_is_rejected_by_frozen_wrapper_and_case08_stays_partial) ... ok
 
 ----------------------------------------------------------------------
-Ran 14 tests in 4.039s
+Ran 17 tests in 2.383s
 
 OK

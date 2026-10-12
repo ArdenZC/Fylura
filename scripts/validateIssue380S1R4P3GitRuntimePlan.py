@@ -8,6 +8,7 @@ Hosted workflow. It verifies frozen identities and review-plan boundaries only.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
 import unittest
@@ -17,8 +18,8 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE_HEAD = "719c6c236b09980873eb8c214b09aaa16b505532"
-BASE_TREE = "2e5e3795c56131a9a6d76917592c70e2be2650a4"
+BASE_HEAD = "8b441df124ba1c64a806037b9461370f27ab1ef0"
+BASE_TREE = "a2ba19477ca9ed6817b86c1da8b73db41838f274"
 CODE_HEAD = "af305adb8fba017dd9284a829b5101a209a9b4e2"
 CODE_TREE = "9d7716add5fde99c6e797065f336e0d0cf86a510"
 RUNNER_PATH = "scripts/issue380S1R4P3SyntheticNsisRunner.ps1"
@@ -33,6 +34,7 @@ OLD_WORKFLOW = ".github/workflows/issue-380-s1r4-p3-synthetic-nsis.yml"
 REPORT = "docs/research/ISSUE-380-S1R4-P3-POWERSHELL-RUNTIME-QUALIFICATION.md"
 DRAFT = "docs/research/ISSUE-380-S1R4-P3-POWERSHELL-RUNTIME-WORKFLOW.md"
 HARNESS = "scripts/issue380S1R4P3GitRuntimeQualification.ps1"
+CASE03_REPRODUCER = "scripts/verifyIssue380S1R4P3Case03GitCommands.py"
 CHILD = "scripts/issue380S1R4P3GitRuntimeChild.ps1"
 CONTROLLER = "scripts/issue380S1R4P3GitRuntimeController.ps1"
 VALIDATOR = "scripts/validateIssue380S1R4P3GitRuntimePlan.py"
@@ -40,20 +42,23 @@ EVIDENCE = "docs/research/evidence/issue-380-s1r4-p3-pwsh-runtime"
 IDENTITY = f"{EVIDENCE}/plan-identity.json"
 STATIC_RESULT = f"{EVIDENCE}/static-validation.txt"
 SHA_SUMS = f"{EVIDENCE}/SHA256SUMS"
+CASE03_OBSERVATION = f"{EVIDENCE}/case03-real-git-observation.json"
 WORKFLOW_PATH = ".github/workflows/issue-380-s1r4-p3-git-runtime.yml"
 FUTURE_BRANCH = "research/issue-380-s1r4-p3-git-runtime-once"
-PREPARATION_BRANCH = "research/issue-380-s1r4-p3-git-runtime-plan"
+PREPARATION_BRANCH = "research/issue-380-s1r4-p3-git-runtime-case03-amendment"
 
 ALLOWED_ADDITIONS = {
     REPORT,
     DRAFT,
     HARNESS,
+    CASE03_REPRODUCER,
     CHILD,
     CONTROLLER,
     VALIDATOR,
     IDENTITY,
     STATIC_RESULT,
     SHA_SUMS,
+    CASE03_OBSERVATION,
 }
 
 
@@ -91,6 +96,9 @@ class RuntimePlanContracts(unittest.TestCase):
         cls.report = (ROOT / REPORT).read_text(encoding="utf-8")
         cls.draft = (ROOT / DRAFT).read_text(encoding="utf-8")
         cls.harness = (ROOT / HARNESS).read_text(encoding="utf-8")
+        cls.case03_reproducer = (ROOT / CASE03_REPRODUCER).read_text(encoding="utf-8")
+        cls.case03_observation = json.loads((ROOT / CASE03_OBSERVATION).read_text(encoding="utf-8"))
+        cls.runner = (ROOT / RUNNER_PATH).read_text(encoding="utf-8")
         cls.child = (ROOT / CHILD).read_text(encoding="utf-8")
         cls.controller = (ROOT / CONTROLLER).read_text(encoding="utf-8")
         cls.workflow = workflow_yaml()
@@ -111,7 +119,19 @@ class RuntimePlanContracts(unittest.TestCase):
         current = str(git("rev-parse", "HEAD"))
         if current == BASE_HEAD:
             changed = set()
-            for line in str(git("status", "--porcelain=v1", "--untracked-files=all")).splitlines():
+            status = subprocess.run(
+                ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+                cwd=ROOT,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout
+            for line in status.splitlines():
+                if not line:
+                    continue
+                if len(line) < 4:
+                    self.fail(f"Malformed porcelain status record: {line!r}")
                 path = line[3:]
                 changed.add(path)
         else:
@@ -260,7 +280,7 @@ class RuntimePlanContracts(unittest.TestCase):
 
     def test_14_workflow_raw_hash_and_git_blob_pins_match_test_tools(self) -> None:
         expected = {
-            HARNESS: ("0cf52dd0a70e00d243d45205c3631959cd472f11", "2a2b7d381ce650eb54fcbc9e26e3b836a9635e214f71978447c316dfd52fc5bd"),
+            HARNESS: ("ebbdefb0bdb79e3ce26678dffae776e3ba5ef7fb", "fe1e5dd7af4cd5a5c2a236f249065a39442a1ce9594211b4a555d91d44c14aeb"),
             CHILD: ("b2f9895172335160315cfd5cd4d1715406704bcb", "fb453ed1d79a2079dc3eae0c82d4433090511654a5e366d4620ff2fa07e3575e"),
             CONTROLLER: ("4b126cf6958eb079736d8f05999d90438ea6fd9a", "9d2f377250422c5ddf788b3589c79b25d2019bb447e3995f4cc24e6d87b23f76"),
         }
@@ -275,6 +295,57 @@ class RuntimePlanContracts(unittest.TestCase):
         self.assertIsNotNone(validator_sha)
         self.assertEqual(str(git("hash-object", VALIDATOR)), validator_blob.group(1))
         self.assertEqual(sha((ROOT / VALIDATOR).read_bytes()), validator_sha.group(1))
+
+    def test_15_case03_harness_has_both_git_failure_contracts(self) -> None:
+        self.assertIn("Invoke-TestCase -Name '03_real_git_nonzero_with_stderr'", self.harness)
+        self.assertIn("@('cat-file', '-p', '0000000000000000000000000000000000000000')", self.harness)
+        self.assertIn("Invoke-TestCase -Name '03b_real_git_nonzero_empty_stderr_is_not_success'", self.harness)
+        self.assertIn("@('cat-file', '-e', '0000000000000000000000000000000000000000')", self.harness)
+        self.assertIn("Assert-GitNoOutputSuccess -Arguments $arguments", self.harness)
+        self.assertIn("$wrapperError.Contains(\"exit=$($wrapperCapture.exit_code)\")", self.harness)
+        self.assertNotRegex(self.harness, r"(?i)Not a valid object name|fatal:|usage: git")
+
+    def test_16_case03_real_git_evidence_has_positive_and_negative_assertions(self) -> None:
+        observation = self.case03_observation
+        identity = json.loads((ROOT / IDENTITY).read_text(encoding="utf-8"))
+        self.assertEqual("PASS", observation["status"])
+        self.assertEqual("NOT RUN", observation["powershell_runtime"])
+        assertions = {item["name"]: item for item in observation["assertions"]}
+        self.assertTrue(assertions["original_nonzero_empty_stderr_is_observed"]["passed"])
+        self.assertTrue(assertions["candidate_nonzero_stderr_is_observed_without_pinning_text"]["passed"])
+        original = observation["commands"]["original_cat_file_e_missing_object"]
+        candidate = observation["commands"]["candidate_cat_file_p_missing_object"]
+        self.assertNotEqual(0, original["exit_code"])
+        self.assertEqual(0, original["stdout_bytes"])
+        self.assertEqual(0, original["stderr_bytes"])
+        self.assertNotEqual(0, candidate["exit_code"])
+        self.assertEqual(0, candidate["stdout_bytes"])
+        self.assertGreater(candidate["stderr_bytes"], 0)
+        self.assertTrue(observation["cleanup"]["temporary_repository_removed"])
+        self.assertIn("subprocess.run", self.case03_reproducer)
+        self.assertIn("cat-file", self.case03_reproducer)
+        self.assertNotRegex(self.case03_reproducer, r"(?i)Not a valid object name|fatal:|usage: git")
+        self.assertEqual(str(git("hash-object", CASE03_REPRODUCER)), identity["case03_reproducer_git_blob"])
+        self.assertEqual(sha((ROOT / CASE03_REPRODUCER).read_bytes()), identity["case03_reproducer_sha256"])
+        self.assertEqual(sha((ROOT / CASE03_OBSERVATION).read_bytes()), identity["case03_real_git_observation_sha256"])
+
+    def test_17_empty_stderr_is_rejected_by_frozen_wrapper_and_case08_stays_partial(self) -> None:
+        match = re.search(
+            r"(?ms)^function Assert-GitNoOutputSuccess\b.*?(?=^function |\Z)",
+            self.runner,
+        )
+        self.assertIsNotNone(match)
+        wrapper = match.group(0)
+        exit_guard = wrapper.index("$capture.exit_code -ne 0")
+        stderr_guard = wrapper.index("if (-not [string]::IsNullOrEmpty($capture.stderr))")
+        self.assertLess(exit_guard, stderr_guard)
+        self.assertIn("03b_real_git_nonzero_empty_stderr_is_not_success", self.harness)
+        self.assertIn("08_termination_failure_injection_limit", self.harness)
+        self.assertIn("UNPROVEN", self.harness)
+        self.assertIn("$script:Result.status = 'PARTIAL_BLOCKED_FAULT_INJECTION_UNPROVEN'", self.harness)
+        self.assertIn("$script:Result.status = 'RUNTIME_MATRIX_PASS'", self.harness)
+        self.assertIn("if ($script:Result.status -ne 'RUNTIME_MATRIX_PASS') { exit 1 }", self.harness)
+        self.assertIn("UNPROVEN_WITH_FROZEN_DIRECT_PROCESS_IMPLEMENTATION", (ROOT / IDENTITY).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

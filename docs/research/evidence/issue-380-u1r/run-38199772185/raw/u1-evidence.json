@@ -1,0 +1,816 @@
+{
+  "contract": "U1R focused installer diagnostics and same-path generation test; test-only; not a production fix",
+  "mode": "U1R_FOCUS",
+  "u1Head": "ebce7130e7e0eedc3bc17106a1ba8462889613ad",
+  "u1Tree": "da1c6ebceea2dcc192dc36ecd293f553c274c069",
+  "old": {
+    "commit": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38199772185-1\\old-master",
+    "packageGeneratedManifestDiff": "",
+    "packageManifestRestoredToFrozenSource": true
+  },
+  "d1a": {
+    "commit": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38199772185-1\\d1a",
+    "packageGeneratedManifestDiff": "",
+    "packageManifestRestoredToFrozenSource": true
+  },
+  "runner": {
+    "caption": "Microsoft Windows Server 2025 Datacenter",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "64-bit",
+    "runId": "38199772185",
+    "runAttempt": "1",
+    "powershell": "7.6.6",
+    "currentDirectory": "D:\\a\\Zen-Canvas\\Zen-Canvas"
+  },
+  "candidates": {
+    "old": {
+      "sha": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38199772185-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "1fa7b28d1e4971c323b96f507842f87e5903dbe27991e98719754dfd2d99472a",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38199772185-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "87739d3dcd00e8078085399f4f6e9b0e9544558cc303aba113ab2a86ff239716",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "8eeb3b640072f230d5a411fb601593ce6025e913536c8f1ca6616f55c1eb7bec",
+      "packageExeSha256": "9500c83d88eb0719646f255e36bffdf4a55eea0577df9a8127c82c33ab2334b7",
+      "packageExeEvidence": {
+        "status": "PASS_EXTRACTED",
+        "extractionTool": "C:\\ProgramData\\Chocolatey\\bin\\7z.exe",
+        "exitCode": 0,
+        "log": "D:\\a\\_temp\\issue-380-u1r-evidence-38199772185-1\\old-nsis-payload-extract.log",
+        "payloadFiles": [
+          {
+            "path": "D:\\a\\_temp\\issue-380-u1-runtime-38199772185-1\\old-nsis-payload\\zen-canvas.exe",
+            "sha256": "9500c83d88eb0719646f255e36bffdf4a55eea0577df9a8127c82c33ab2334b7",
+            "bytes": 33956352
+          }
+        ],
+        "selectedPayload": "D:\\a\\_temp\\issue-380-u1-runtime-38199772185-1\\old-nsis-payload\\zen-canvas.exe",
+        "selectedSha256": "9500c83d88eb0719646f255e36bffdf4a55eea0577df9a8127c82c33ab2334b7",
+        "selectedMatchesReleaseExe": false
+      },
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38199772185-1\\old-master\\src-tauri\\target\\release\\u1-qa\\old-setup.exe",
+      "installerSha256": "79d1ae9582894ba897f2ecff6922d5b4afa9e099cc960291e3610c53ec375f4d",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    },
+    "d1a": {
+      "sha": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38199772185-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "f2a2ae0712cb81a3d1d255bf62702139c145d4716ee09f07d2bba13a0edbe710",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38199772185-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "be82db0545df2d5f7a43ab1c33af0758e5fdc25a11fe3514de238b602a367272",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "5b127faeb85ca5263f22da4ca54d8b0546483a9645d9a1d393f98e97c23c7cc4",
+      "packageExeSha256": "54e5b0b353db2dc937a9d26f47fe98d958de619426960990f8a53a601e40b0bf",
+      "packageExeEvidence": {
+        "status": "PASS_EXTRACTED",
+        "extractionTool": "C:\\ProgramData\\Chocolatey\\bin\\7z.exe",
+        "exitCode": 0,
+        "log": "D:\\a\\_temp\\issue-380-u1r-evidence-38199772185-1\\d1a-nsis-payload-extract.log",
+        "payloadFiles": [
+          {
+            "path": "D:\\a\\_temp\\issue-380-u1-runtime-38199772185-1\\d1a-nsis-payload\\zen-canvas.exe",
+            "sha256": "54e5b0b353db2dc937a9d26f47fe98d958de619426960990f8a53a601e40b0bf",
+            "bytes": 33971712
+          }
+        ],
+        "selectedPayload": "D:\\a\\_temp\\issue-380-u1-runtime-38199772185-1\\d1a-nsis-payload\\zen-canvas.exe",
+        "selectedSha256": "54e5b0b353db2dc937a9d26f47fe98d958de619426960990f8a53a601e40b0bf",
+        "selectedMatchesReleaseExe": false
+      },
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38199772185-1\\d1a\\src-tauri\\target\\release\\u1-qa\\d1a-setup.exe",
+      "installerSha256": "40a7fa5c27097577cbcd877829906ee071b1fe40a1e3bd6368b9edb63c25c410",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    }
+  },
+  "matchingPairs": {},
+  "mixedPairs": {},
+  "directFallback": {},
+  "installer": {
+    "status": "UNVERIFIED",
+    "samples": [],
+    "transitions": [],
+    "interruption": {
+      "status": "UNVERIFIED"
+    },
+    "repair": {
+      "status": "UNVERIFIED"
+    }
+  },
+  "u1rDisposition": {
+    "status": "BLOCKED",
+    "blockers": [
+      "NSIS first failing condition remains unresolved",
+      "old process isolation is not proven by a same-path generation identity gate",
+      "legacy Direct fallback changed one or more old index, checkpoint, or user association fields"
+    ],
+    "nsisRootCauseLocated": false,
+    "oldSamePathClientIsolation": "UNVERIFIED_SAME_PATH_TEST_HARNESS_FAILURE",
+    "oldClientDirectFallback": "OBSERVED_LEGACY_DIRECT_FALLBACK_WITH_RICH_BASELINE",
+    "productionFixImplemented": false
+  },
+  "cleanup": {
+    "details": [
+      "created task-owned isolated volume u1r-rich-generation-fixture at Z:\\",
+      "cleanup inspected only the task service name and task-owned process paths",
+      "detached and removed task-owned isolated volume u1r-rich-generation-fixture"
+    ],
+    "failures": []
+  },
+  "failures": [
+    {
+      "scenario": "U1R-NSIS-first-failure-diagnostic",
+      "message": "System.Management.Automation.RuntimeException: U1R NSIS diagnostic found a preexisting canonical install directory"
+    }
+  ],
+  "u1rInstaller": {
+    "status": "UNVERIFIED_NOT_STARTED",
+    "failure": "System.Management.Automation.RuntimeException: U1R NSIS diagnostic found a preexisting canonical install directory"
+  },
+  "u1rSamePath": {
+    "status": "UNVERIFIED_SAME_PATH_TEST_HARNESS_FAILURE",
+    "installPath": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+    "oldBinarySha256": "1fa7b28d1e4971c323b96f507842f87e5903dbe27991e98719754dfd2d99472a",
+    "d1aBinarySha256": "f2a2ae0712cb81a3d1d255bf62702139c145d4716ee09f07d2bba13a0edbe710",
+    "sourceId": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+    "marker": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+    "preSnapshot": {
+      "activeEntries": 4,
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": null,
+          "model": "fixture",
+          "provider": "local",
+          "status": "completed",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "status": "pending"
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": null,
+          "created_at": 1791776462,
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "pending"
+        }
+      ],
+      "counts": {
+        "aiAnalysisState": 1,
+        "aiJobItems": 1,
+        "aiJobs": 1,
+        "managedEntries": 1,
+        "managedScopes": 1
+      },
+      "entry": {
+        "id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+        "is_stale": 0,
+        "name": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+        "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "managedEntries": [
+        {
+          "enabled": 1,
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "managedScopes": [
+        {
+          "allow_cloud_ai": 0,
+          "allow_local_ai": 1,
+          "enabled": 1,
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "id": "u1r-synthetic-managed-scope",
+          "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt\\..u1r-managed-root"
+        }
+      ],
+      "marker": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+      "markerFtsHits": 1,
+      "mode": "snapshot",
+      "schemaVersion": 37,
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+        "index_status": "rebuild_required",
+        "journal_cursor": "664",
+        "journal_id": "134362500611528070",
+        "last_error": null,
+        "last_full_index_at": 1791776461,
+        "last_incremental_sync_at": 1791776461,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791776462
+      },
+      "sourceId": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+      "staleEntries": 0
+    },
+    "databasePath": "D:\\a\\_temp\\issue-380-u1-runtime-38199772185-1\\u1r-same-path-profile\\zen-canvas.sqlite3",
+    "databaseSha256BeforeRequest": "bac6e934799972b4e0f79c77bd377b461f35bbc0ff0bb458f2a59eb6ec5b7a7a",
+    "failure": "System.Management.Automation.RuntimeException: old QA client did not reach its pre-coordinator gate within 90 seconds",
+    "postSnapshot": {
+      "activeEntries": 4,
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": "global_entry_stale",
+          "model": "fixture",
+          "provider": "local",
+          "status": "stale",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": "global_entry_stale",
+          "status": "stale"
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": 1791776474,
+          "created_at": 1791776462,
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": "global_entry_stale",
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "stale"
+        }
+      ],
+      "counts": {
+        "aiAnalysisState": 1,
+        "aiJobItems": 1,
+        "aiJobs": 1,
+        "managedEntries": 1,
+        "managedScopes": 1
+      },
+      "entry": {
+        "id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+        "is_stale": 0,
+        "name": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+        "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "managedEntries": [
+        {
+          "enabled": 0,
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "managedScopes": [
+        {
+          "allow_cloud_ai": 0,
+          "allow_local_ai": 1,
+          "enabled": 1,
+          "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "id": "u1r-synthetic-managed-scope",
+          "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt\\..u1r-managed-root"
+        }
+      ],
+      "marker": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+      "markerFtsHits": 1,
+      "mode": "snapshot",
+      "schemaVersion": 37,
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+        "index_status": "ready",
+        "journal_cursor": "664",
+        "journal_id": "134362500611528070",
+        "last_error": null,
+        "last_full_index_at": 1791776474,
+        "last_incremental_sync_at": 1791776474,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791776474
+      },
+      "sourceId": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+      "staleEntries": 0
+    },
+    "databaseSha256AfterRequest": "bac6e934799972b4e0f79c77bd377b461f35bbc0ff0bb458f2a59eb6ec5b7a7a",
+    "statePreservation": {
+      "preserved": false,
+      "sourceFields": {
+        "enabled": true,
+        "provider": true,
+        "index_status": false,
+        "last_error": true,
+        "journal_id": true,
+        "journal_cursor": true,
+        "last_full_index_at": false,
+        "last_incremental_sync_at": false,
+        "entry_count": true,
+        "updated_at": false
+      },
+      "associations": {
+        "managedScopes": true,
+        "managedEntries": false,
+        "aiAnalysisState": false,
+        "aiJobs": false,
+        "aiJobItems": false,
+        "counts": true
+      },
+      "markerEntry": true,
+      "activeEntries": true,
+      "staleEntries": true,
+      "markerFtsHits": true
+    },
+    "profileFiles": [
+      {
+        "name": "zen-canvas.sqlite3",
+        "sha256": "bac6e934799972b4e0f79c77bd377b461f35bbc0ff0bb458f2a59eb6ec5b7a7a",
+        "bytes": 1073152
+      },
+      {
+        "name": "zen-canvas.sqlite3-wal",
+        "sha256": "d0d9d918a5995929ea89ecda7eab6ffc39a863f591f6c4cee1895079d00b936b",
+        "bytes": 552112
+      },
+      {
+        "name": "zen-canvas.sqlite3-shm",
+        "sha256": "8f99be5241586d7cb624bfc0f289393fe458d0383870f9c308f367512b4825ac",
+        "bytes": 32768
+      }
+    ]
+  },
+  "u1rDirectFallback": {
+    "status": "OBSERVED_LEGACY_DIRECT_FALLBACK_WITH_RICH_BASELINE",
+    "evidenceRun": 38193683826,
+    "evidenceJsonSha256": "47e11a0b8de92f73fbf70633ccfe8c48ce1475e752081a0fa54e6fe1a9d15772",
+    "statePreservation": {
+      "preserved": false,
+      "sourceFields": {
+        "enabled": true,
+        "provider": true,
+        "index_status": false,
+        "last_error": true,
+        "journal_id": true,
+        "journal_cursor": true,
+        "last_full_index_at": false,
+        "last_incremental_sync_at": false,
+        "entry_count": true,
+        "updated_at": false
+      },
+      "associations": {
+        "managedScopes": true,
+        "managedEntries": false,
+        "aiAnalysisState": false,
+        "aiJobs": false,
+        "aiJobItems": false,
+        "counts": true
+      },
+      "markerEntry": true,
+      "activeEntries": true,
+      "staleEntries": true,
+      "markerFtsHits": true
+    },
+    "stateDelta": {
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "index_status": "ready",
+        "journal_cursor": "664",
+        "journal_id": "134362449615844939",
+        "last_error": null,
+        "last_full_index_at": 1791772218,
+        "last_incremental_sync_at": 1791772218,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791772218
+      },
+      "entry": {
+        "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+        "is_stale": 0,
+        "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "markerFtsHits": 1,
+      "managedEntries": [
+        {
+          "enabled": 0,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": "global_entry_stale",
+          "model": "fixture",
+          "provider": "local",
+          "status": "stale",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": 1791772218,
+          "created_at": 1791771363,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": "global_entry_stale",
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "stale"
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": "global_entry_stale",
+          "status": "stale"
+        }
+      ]
+    },
+    "rerun": false
+  },
+  "u1rFixture": {
+    "sourceId": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+    "volume": {
+      "name": "u1r-rich-generation-fixture",
+      "vhd": "D:\\a\\_temp\\issue-380-u1-runtime-38199772185-1\\u1r-rich-generation-fixture.vhdx",
+      "drive": "Z",
+      "root": "Z:\\",
+      "filesystem": "NTFS",
+      "usnJournal": "Usn Journal ID   : 0x01dd59fb80155586\r\nFirst Usn        : 0x0000000000000000\r\nNext Usn         : 0x0000000000000000\r\nLowest Valid Usn : 0x0000000000000000\r\nMax Usn          : 0x00000fffffff0000\r\nMaximum Size     : 0x0000000000100000 (  1.0 MB)\r\nAllocation Delta : 0x0000000000040000 (256.0 KB)\r\nMinimum record version supported : 2\r\nMaximum record version supported : 4\r\nWrite range tracking: Disabled"
+    },
+    "fixtureRoot": "Z:\\fixture",
+    "markerName": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+    "baselineProfile": "D:\\a\\_temp\\issue-380-u1-runtime-38199772185-1\\u1r-baseline-profile",
+    "installerProfile": "D:\\a\\_temp\\issue-380-u1-runtime-38199772185-1\\u1r-installer-profile",
+    "richFixture": {
+      "after": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791776462,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "is_stale": 0,
+          "name": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+          "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt\\..u1r-managed-root"
+          }
+        ],
+        "markerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+          "index_status": "rebuild_required",
+          "journal_cursor": "664",
+          "journal_id": "134362500611528070",
+          "last_error": null,
+          "last_full_index_at": 1791776461,
+          "last_incremental_sync_at": 1791776461,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791776462
+        },
+        "staleEntries": 0
+      },
+      "before": {
+        "activeEntries": 4,
+        "aiAnalysisState": [],
+        "aiJobItems": [],
+        "aiJobs": [],
+        "counts": {
+          "aiAnalysisState": 0,
+          "aiJobItems": 0,
+          "aiJobs": 0,
+          "managedEntries": 0,
+          "managedScopes": 0
+        },
+        "entry": {
+          "id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "is_stale": 0,
+          "name": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+          "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [],
+        "managedScopes": [],
+        "markerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+          "index_status": "ready",
+          "journal_cursor": "664",
+          "journal_id": "134362500611528070",
+          "last_error": null,
+          "last_full_index_at": 1791776461,
+          "last_incremental_sync_at": 1791776461,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791776461
+        },
+        "staleEntries": 0
+      },
+      "checkpointProvenance": {
+        "journal_cursor": "observed_from_old_master_index",
+        "journal_id": "observed_from_old_master_index",
+        "last_full_index_at": "observed_from_old_master_index",
+        "last_incremental_sync_at": "observed_from_old_master_index"
+      },
+      "effectiveCheckpoint": {
+        "journal_cursor": "664",
+        "journal_id": "134362500611528070",
+        "last_full_index_at": 1791776461,
+        "last_incremental_sync_at": 1791776461
+      },
+      "marker": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+      "mode": "seed-rich",
+      "schemaVersion": 37,
+      "sourceId": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4"
+    },
+    "installerProfileReady": {
+      "after": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791776462,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "is_stale": 0,
+          "name": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+          "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt\\..u1r-managed-root"
+          }
+        ],
+        "markerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+          "index_status": "ready",
+          "journal_cursor": "664",
+          "journal_id": "134362500611528070",
+          "last_error": null,
+          "last_full_index_at": 1791776461,
+          "last_incremental_sync_at": 1791776461,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791776463
+        },
+        "staleEntries": 0
+      },
+      "before": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791776462,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+          "is_stale": 0,
+          "name": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+          "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_9d6751d7f30bc7475bb01cd1317011890981df2083f3dd4783651a9a738eace5",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-484936f89c524289be476437ea74e6d2.txt\\..u1r-managed-root"
+          }
+        ],
+        "markerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4",
+          "index_status": "rebuild_required",
+          "journal_cursor": "664",
+          "journal_id": "134362500611528070",
+          "last_error": null,
+          "last_full_index_at": 1791776461,
+          "last_incremental_sync_at": 1791776461,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791776462
+        },
+        "staleEntries": 0
+      },
+      "marker": "u1r-generation-484936f89c524289be476437ea74e6d2.txt",
+      "mode": "set-ready",
+      "schemaVersion": 37,
+      "sourceId": "gv_ca29cbadfc274b95153455eaa91329b3859c707d8bc046b4d19e67eb27a937a4"
+    },
+    "baselineServiceSha256": "1fa7b28d1e4971c323b96f507842f87e5903dbe27991e98719754dfd2d99472a",
+    "baselineClientSha256": "1fa7b28d1e4971c323b96f507842f87e5903dbe27991e98719754dfd2d99472a"
+  }
+}

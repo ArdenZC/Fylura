@@ -667,7 +667,7 @@ function Build-Candidate([string]$Label, [string]$Sha, [string]$Tree, [string]$P
     Invoke-LoggedCommand "$Label-npm-ci" "npm.cmd" @("ci") $Path | Out-Null
     Invoke-LoggedCommand "$Label-frontend" "npm.cmd" @("run", "build:frontend") $Path | Out-Null
     $u1rInstrumentationFiles = @()
-    if ($Mode -eq "U1R") {
+    if ($Mode -in @("U1R", "U1R_FOCUS")) {
         Add-U1RTestInstrumentation $Label $Path
         Add-U1RNsisDiagnostics $Label $Path
         $u1rInstrumentationFiles = if ($Label -eq "old") {
@@ -688,7 +688,7 @@ function Build-Candidate([string]$Label, [string]$Sha, [string]$Tree, [string]$P
 
     $priorNsisDiagnostics = $env:ZC_U1R_NSIS_DIAGNOSTICS
     try {
-        if ($Mode -eq "U1R" -and $Label -eq "d1a") { $env:ZC_U1R_NSIS_DIAGNOSTICS = "1" }
+        if ($Mode -in @("U1R", "U1R_FOCUS") -and $Label -eq "d1a") { $env:ZC_U1R_NSIS_DIAGNOSTICS = "1" }
         else { Remove-Item Env:ZC_U1R_NSIS_DIAGNOSTICS -ErrorAction SilentlyContinue }
         Invoke-LoggedCommand "$Label-nsis-package" "npm.cmd" @("run", "build") $Path | Out-Null
     } finally {
@@ -733,7 +733,7 @@ function Build-Candidate([string]$Label, [string]$Sha, [string]$Tree, [string]$P
     $global:U1Evidence.candidates[$Label] = $candidate
     Save-Evidence
 
-    if ($Mode -eq "U1R") {
+    if ($Mode -in @("U1R", "U1R_FOCUS")) {
         $manifestPath = Join-Path $Path "src-tauri/Cargo.toml"
         if (Test-Path -LiteralPath $manifestPath) {
             & git -C $Path checkout -- src-tauri/Cargo.toml
@@ -1829,7 +1829,12 @@ function Invoke-U1RSamePathAndDirectTests($OldCandidate, $D1ACandidate, [string]
         Save-Evidence
     }
 
-    if (-not $IncludeDirectFallback) { return }
+    if (-not $IncludeDirectFallback) {
+        Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $installDir) { throw "U1R focused same-path test could not clean the canonical install directory before NSIS diagnostics" }
+        $global:U1OwnedInstallDirectory = $null
+        return
+    }
 
     $directTrace = Join-Path $taskRoot "u1r-direct-client.trace.log"
     $directApp = $null
@@ -1975,11 +1980,17 @@ try {
             $global:U1Evidence.u1rSamePath = [ordered]@{ status = "UNVERIFIED_TEST_HARNESS_FAILURE"; failure = $_.Exception.ToString() }
             Add-Failure "U1R-same-path-and-direct-fallback" $_.Exception.ToString()
         }
-        try {
-            Invoke-U1RInstallerDiagnostics $oldCandidate $d1aCandidate $fixture.installerProfile $fixture.volume.drive $fixture.sourceId $fixture.markerName
-        } catch {
-            $global:U1Evidence.u1rInstaller.failure = $_.Exception.ToString()
-            Add-Failure "U1R-NSIS-first-failure-diagnostic" $_.Exception.ToString()
+        if (Test-Path -LiteralPath (Join-Path $env:ProgramFiles "Zen Canvas")) {
+            $cleanupFailure = "canonical install directory remained after the same-path probe; NSIS diagnostic was not started against contaminated state"
+            $global:U1Evidence.u1rInstaller.failure = $cleanupFailure
+            Add-Failure "U1R-NSIS-clean-canonical-install-precondition" $cleanupFailure
+        } else {
+            try {
+                Invoke-U1RInstallerDiagnostics $oldCandidate $d1aCandidate $fixture.installerProfile $fixture.volume.drive $fixture.sourceId $fixture.markerName
+            } catch {
+                $global:U1Evidence.u1rInstaller.failure = $_.Exception.ToString()
+                Add-Failure "U1R-NSIS-first-failure-diagnostic" $_.Exception.ToString()
+            }
         }
         $installerAttempt = if ($global:U1Evidence.u1rInstaller["noUpdateAttempt"]) { $global:U1Evidence.u1rInstaller["noUpdateAttempt"] } else { $null }
         $samePathAttempt = $global:U1Evidence.u1rSamePath

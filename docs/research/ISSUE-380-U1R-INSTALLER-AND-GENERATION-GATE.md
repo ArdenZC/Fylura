@@ -21,7 +21,8 @@
 | U1R trace/request Harness 修正提交 | `75e0490bccaaa0e05b8c727b941baf889aa44e02` | `30e527fbe6eaa85b24d1229330f255d251d0a6a7` | Run 38197011540；旧 QA 候选编译失败，场景未运行 |
 | U1R 复测提交 | `86526e675eaf471ca072a88e19f6b201ac267ba2` | `680a25b3c980ad2c81ef6fd5b8f6ab6550e2c51d` | Run 38197506250；在旧 QA 构建期间取消，未运行场景 |
 | U1R 定向 Harness 提交 | `5998dc7a9c88333e3518f3a1845ca49b948acd4c` | `0d57101c918c46e099fcd210b256b9ce54f9fc9c` | Run 38198147350；旧/D1-A QA candidates 与安装包构建成功，但 Harness 在加载 Direct fallback JSON 时 fatal；两个目标场景均未启动 |
-| U1R JSON Harness 修正提交 | 待填 | 待填 | 只把历史 Direct fallback JSON 按 PowerShell `-AsHashtable` 解析；同一路径定向重跑两个未决场景 |
+| U1R JSON Harness 修正提交 | `ebce7130e7e0eedc3bc17106a1ba8462889613ad` | `da1c6ebceea2dcc192dc36ecd293f553c274c069` | Run 38199772185；JSON 解析已修正，但 Focus 模式漏掉候选插桩并在 NSIS 前留有 canonical 目录；无跨代结论 |
+| U1R Focus 插桩/清理修正提交 | 待填 | 待填 | 让 U1R_FOCUS 使用与 U1R 相同的旧客户端/Service/NSIS 测试插桩，并在 NSIS 前证明 canonical install path 已清理 |
 | 最终报告提交 | 待填 | 待填 | 研究文档与原始证据，不包含产品改动 |
 
 U1R 分支从 U1 研究分支延续，不包含 D1-A 生产代码；D1-A 只作为测试时建立的独立 frozen candidate worktree。候选构建从各冻结 SHA 建立干净 detached worktree，并逐一检查 SHA/Tree。测试专用插桩仅位于候选 worktree：NSIS `DetailPrint`/日志参数、QA 进程代际标记和可控启动闸门。正式检查逻辑保持启用，候选 worktree 在采集 instrumentation patch 后恢复并验证干净。安装器在一次性 Hosted Windows Runner 上使用 canonical Program Files 路径；SQLite profiles、卷和 managed/AI 行均在任务临时目录中创建，不访问真实用户数据。U1 旧证据保留在 `docs/research/evidence/issue-380-u1/`，本轮原始工件放在 `docs/research/evidence/issue-380-u1r/`。
@@ -29,17 +30,18 @@ U1R 分支从 U1 研究分支延续，不包含 D1-A 生产代码；D1-A 只作�
 ## 2. Hosted Windows 运行与候选身份
 
 - 首次可执行工作流：Run [38193683826](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38193683826)，exact test commit `3e66debd56952572c6289efcb989329bc4b744b1`，Windows step 按场景失败退出并上传完整 artifact。复核发现其 `EXIT_2_ROOT_CAUSE_LOCATED` 是 Harness 误标：trace 只有 Detect 函数的总结果；同路径测试成功替换 EXE，但在旧客户端发出请求前试图读取被进程打开的 SQLite 文件，导致 Harness 中止。
-- Run [38197011540](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38197011540) 使用 Harness 修正提交 `75e0490bccaaa0e05b8c727b941baf889aa44e02`、Tree `30e527fbe6eaa85b24d1229330f255d251d0a6a7`，但旧 QA 候选编译失败：测试插桩在 binary crate 错把 library 模块路径写成 `crate::global_index`。没有构建 D1-A，也没有运行 Windows 场景；artifact 保留。Run [38197506250](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38197506250) 随后在旧 QA 候选构建期间取消，避免其进入旧版 Direct fallback；未运行任何场景。Run [38198147350](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38198147350) 使用提交 `5998dc7a9c88333e3518f3a1845ca49b948acd4c`、Tree `0d57101c918c46e099fcd210b256b9ce54f9fc9c` 成功构建并提取两代候选安装包，但 Harness 在 `ConvertFrom-Json` 读取含空属性名的已归档注册表快照时 fatal；NSIS 与同路径探针均未开始。artifact 中错误为 PowerShell 要求 `-AsHashtable`。本报告保留这次 Harness 失败，不将其当作产品测试结果；只修正测试专用 JSON 解析后重跑同两项，仍复用 Direct fallback 证据，不重跑该场景。
+- Run [38197011540](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38197011540) 使用 Harness 修正提交 `75e0490bccaaa0e05b8c727b941baf889aa44e02`、Tree `30e527fbe6eaa85b24d1229330f255d251d0a6a7`，但旧 QA 候选编译失败：测试插桩在 binary crate 错把 library 模块路径写成 `crate::global_index`。没有构建 D1-A，也没有运行 Windows 场景；artifact 保留。Run [38197506250](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38197506250) 随后在旧 QA 候选构建期间取消，避免其进入旧版 Direct fallback；未运行任何场景。Run [38198147350](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38198147350) 使用提交 `5998dc7a9c88333e3518f3a1845ca49b948acd4c`、Tree `0d57101c918c46e099fcd210b256b9ce54f9fc9c` 成功构建并提取两代候选安装包，但 Harness 在 `ConvertFrom-Json` 读取含空属性名的已归档注册表快照时 fatal；NSIS 与同路径探针均未开始。artifact 中错误为 PowerShell 要求 `-AsHashtable`。Run 38199772185 使用修正提交 `ebce7130e7e0eedc3bc17106a1ba8462889613ad`、Tree `da1c6ebceea2dcc192dc36ecd293f553c274c069` 可解析 baseline JSON，但因 `Build-Candidate` 没有对 `U1R_FOCUS` 注入 U1R instrumentation，旧 QA 客户端没有停在 pre-coordinator gate；它和旧 Service 在 file replacement 前运行了同代自动恢复。该恢复改了合成 DB 的 source/Managed/AI 状态，但无新 Service/替换身份绑定，因此不是跨代或 Direct fallback 证据。早退路径也没有删除 canonical install 目录，NSIS case 在安全 precondition 处拒绝运行。Run 381997 artifact 保留上述 Harness 缺口；下一次只修正 Focus 插桩和 early-return cleanup 后再运行两个未决场景。
 - 前置 Harness 尝试保留：Run [38191176125](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38191176125) 在 D1-A NSIS 编译时遇到测试注入的 `LogSet on` 与当前 makensis `NSIS_CONFIG_LOG` 不兼容；Run [38193395291](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38193395291) 在旧候选构建前，PowerShell 将 trace 生成器里的 `$R8` 错当变量。两次均未执行安装或同路径/Direct 场景，不能当作产品行为证据，原始 artifacts 保留。
 - Hosted Windows 版本、架构、PowerShell：当前 Run 环境为 Windows Server 2025 Datacenter `10.0.26100`、64-bit、PowerShell `7.6.6`；来自 Run 38193395291 的 runner 元数据；当前 Run 完成后核对。
 - Run 38193683826 旧候选：源码 `3275ac7c72df8ae4139a30f16c7f649971324e97` / Tree `009576241cd4e8e2ba12cc644a368314f599faa6`；release EXE SHA-256 `c1c74cfc24c320d68165029f76a616abe1a9600db98f2fe978af04c24fd07bbe`；提取后 NSIS payload/实际旧安装 EXE SHA-256 `a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef`；QA EXE SHA-256 `97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1`；旧 NSIS installer SHA-256 `3be76b6c8df60855e46e5de3130d09812a939a5267bf17eee8ec6c309ee924ca`。
 - Run 38193683826 D1-A 候选：源码 `d260131f9d6ec354f2361e6c7460c79e62e38391` / Tree `4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69`；release EXE SHA-256 `5c8c263e78146fed9d539e4523012de366d523bcbe72271344873b36ae378eb3`；提取后 NSIS payload SHA-256 `6c8929fc197ae76d953f054cc52efb8f6f705ac4215782e3578b6fa02c75a11a`；QA EXE SHA-256 `b233c181b38fa129f8f6f4ac9a76ff1673989e6c942f76a26ea5886714dbe580`；D1-A diagnostic installer SHA-256 `22c78122959cecb97da8997197f6edefd5949c54e1f3f1e4307e731bfc4edfb6`。NSIS 提取 payload SHA 与 release EXE SHA 不同，报告将它们按产物阶段分别记录。
+- Run 38198147350 虽没有启动场景，但两代候选构建与 NSIS payload extraction 成功，额外固定了这次 Harness-fatal 前的 binary 身份：旧 QA `zen-canvas-qa.exe` SHA-256 `3e79d5113772b8e3969ca6361401eb6063fb3d0b13fefbdd8c2979b23e724c78`、旧 QA probe `2586c5f815f8599232a61c35d29251c4630bdc16ee61fc4a09099213246e79ec`、旧 production build `ce55baf1b2ebd6e2cb9beb9a74b9e7a51ef0efa24b2de7907503a527f7996ca7`、旧 NSIS 提取 payload `3f87fee6dfcdc9916f67f32502c5992fe47c6edb974f45704e7700468663d817`、旧测试安装器 `2afccf98dfc782c9eef009779e6910ab6a1ea89bc9b18d54f5a6d98f4280df5c`；D1-A QA `zen-canvas-qa.exe` `9df26b6c021df6368964e6620b1969045dd70674925a91e19d51796492d7d120`、D1-A QA probe `5f377a15ce04f80139abe956781dc8f3ed3268ef4d6738215a903750bf84ccdf`、D1-A production build `1f845797d8e78088c1441123ea4a71f7cf2c32748118a86085685df7995eca98`、D1-A NSIS 提取 payload `4befedf6864559f7833111a092996a3a15947a26c2597cba51fe4f49a0f54ed4`、D1-A 测试安装器 `d432404c54023dc0d5d90f92b8f9f8c46e67677c888b401c3519b757f63aef7e`。这些是候选构建证据而非成功兼容测试；两代文件与 Cargo/Tauri/package 均报告 `0.1.40`、identifier `com.startlan.zencanvas`。Run 38199772185 的实测 binary SHA 之后单独记录。
 - 两候选包/Cargo/Tauri 版本均为 `0.1.40`，应用标识均为 `com.startlan.zencanvas`；版本字符串不能区分二进制代际。
-- 针对性步骤：`.github/workflows/issue-380-u1r-hosted-windows.yml::Run focused U1R Hosted Windows probes only`，调用 `scripts/issue380U1HostedWindows.ps1 -Mode U1R_FOCUS`；目标测试为 `Invoke-U1RSamePathAndDirectTests -IncludeDirectFallback:$false` 与 `Invoke-U1RInstallerDiagnostics`。Direct fallback 仅载入 Run 38193683826 的原始证据和 JSON 哈希。Run 38198147350 CI 为 failure，但只因 Harness JSON 解析 fatal；没有目标场景结果。修复后的定向 run 结果待补。
+- 针对性步骤：`.github/workflows/issue-380-u1r-hosted-windows.yml::Run focused U1R Hosted Windows probes only`，调用 `scripts/issue380U1HostedWindows.ps1 -Mode U1R_FOCUS`；目标测试为 `Invoke-U1RSamePathAndDirectTests -IncludeDirectFallback:$false` 与 `Invoke-U1RInstallerDiagnostics`。Direct fallback 仅载入 Run 38193683826 的原始证据和 JSON 哈希。Run 38198147350 CI 因 JSON 解析 fatal 而失败；Run 38199772185 CI 因 Focus 插桩遗漏及安装目录清理前置条件失败，均未完成两个目标证明。Focus 修正后的下一次定向 run 结果待补。
 
 U1R 没有重跑 U1 的同代或不同安装路径矩阵，也没有启动 100k/500k Benchmark 或完整 CI。
 
-本阶段已有 Hosted Windows 原始 ZIP 均保留在 evidence tree，下载后 SHA-256 如下；当前定向 Run 38198147350 的 ZIP 在完成后补入：
+本阶段已有 Hosted Windows 原始 ZIP 均保留在 evidence tree，下载后 SHA-256 如下；Run 38199772185 完成后补入其 ZIP 与 digest：
 
 | Run | Artifact ZIP | SHA-256 | 结果 |
 |---|---|---|---|
@@ -49,6 +51,8 @@ U1R 没有重跑 U1 的同代或不同安装路径矩阵，也没有启动 100k/
 | 38197011540 | `issue-380-u1r-hosted-windows-38197011540-1.zip` | `dbf15b7ea357c7e40960551c25c84d10c73bccefee70da3d03aa973655fc3c2b` | old QA candidate compile failure; no scenarios |
 | 38197506250 | `issue-380-u1r-hosted-windows-38197506250-1.zip` | `50fad30f1a04c8cad0ab0e46d8c0231291ea4b73cd868f242a67cb652f4949d1` | Canceled at candidate build; no scenarios |
 | 38198147350 | `issue-380-u1r-hosted-windows-38198147350-1.zip` | `60cd7770ee353c2e17e13136ab1481b9d974e3b95b4a0ab11326f04dc703c27d` | Candidate builds succeeded; `ConvertFrom-Json` empty-property error occurred before scenarios |
+| 38199772185 | `issue-380-u1r-hosted-windows-38199772185-1.zip` | `39b52041c66505694a643b7857798e63a46dbd78949839845db77f04e52922f2` | JSON 修正生效；Focus 漏掉插桩且 NSIS precondition 拒绝运行，非产品证据 |
+| 下一次定向 run | 待补 | 待补 | Focus 插桩与 cleanup 修正后的 NSIS、同路径探针 |
 
 已接受的 U1 运行 [`38178838324`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38178838324) 的矩阵作为历史上下文：旧+旧、D1-A+D1-A 为 PASS；旧客户端+新 Service（不同路径）因 path check 被拒绝；新客户端+旧 Service（不同路径）fail-closed；同路径混合代际当时是 `UNVERIFIED`，由本轮专门补测。旧客户端在 Service absent 时的 Direct fallback 已观察到 Global Entries/`entry_count` 从 4 增至 5、FTS 新标记由 0 变 1、journal cursor 从 712 推进至 1288 并更新同步时间。原始记录保存在旧 U1 证据目录；本轮只对它增加 Managed/AI 关联数据与非空 checkpoint 覆盖。
 
@@ -56,7 +60,7 @@ U1R 没有重跑 U1 的同代或不同安装路径矩阵，也没有启动 100k/
 |---|---|---|
 | 旧客户端 + 旧 Service | 同路径 PASS | 不重跑；仅作为 rich fixture 的数据准备基线，不再做兼容性资格测试 |
 | D1-A 客户端 + D1-A Service | 同路径 PASS | 未重跑 |
-| 旧客户端 + D1-A Service | 不同路径拒绝；同路径专测 | Run 38193683826 证明文件替换可在旧进程存活时完成，但请求未触发；Run 38197011540 编译失败；Run 38197506250 取消于场景前；Run 38198147350 在场景前 Harness fatal；修正后重测待完成 |
+| 旧客户端 + D1-A Service | 不同路径拒绝；同路径专测 | Run 38193683826 证明文件替换可在旧进程存活时完成，但请求未触发；Run 38197011540 编译失败；Run 38197506250 取消于场景前；Run 38198147350 在场景前 Harness fatal；Run 38199772185 的旧客户端+旧 Service 在替换前自动恢复、无跨代证明；修正后再测 |
 | D1-A 客户端 + 旧 Service | 不同路径 fail-closed；同路径未覆盖 | UNVERIFIED（不重复 U1 矩阵） |
 | 旧客户端 + Service 暂不可达 | 旧版 Direct fallback 已观察到活动索引与 checkpoint 改变 | U1R rich fixture 再次证明 source health/timestamps 与 Managed/AI 关联行会改变；entry/checkpoint 保持 |
 
@@ -81,9 +85,9 @@ U1R 没有重跑 U1 的同代或不同安装路径矩阵，也没有启动 100k/
 - 普通 `/S` 运行没有 old-uninstaller log，transition samples 中没有 nested uninstaller PID，且 old EXE/Service/注册表未变化；证据符合“在 `NSIS_HOOK_PREINSTALL` 产品检查拒绝”的路径。不能把外层 exit 2 描述成旧卸载器 failure。
 - 安装前 64-bit HKLM 快照在触发条件上没有表面异常：ARP 的 `DisplayName=Zen Canvas`、`MainBinaryName=zen-canvas.exe`、`DisplayIcon`/`InstallLocation`/`UninstallString` 均指向规范路径，`DisplayVersion=0.1.40`、`Publisher=startlan`、`NoModify=1`、`NoRepair=1`、`EstimatedSize` 为 DWORD `35150`；`SOFTWARE\startlan\Zen Canvas` 默认字符串值为 `C:\Program Files\Zen Canvas`；Preview CLSID、AppID、Inproc DLL、`ThreadingModel=Apartment` 和 PreviewHandlers 项存在且匹配；Service `ImagePath` 为 `REG_EXPAND_SZ`，值为 `"C:\Program Files\Zen Canvas\zen-canvas.exe" --index-service`。但当前 trace 没记录内部类型/内容比较结果及 `GetSize + ${ESTIMATEDSIZE}` 的期望值，故不能由快照反推出首个失败项。
 - `/S /UPDATE` 也 exit 2，trace 同样只到 `product=2 valid=0 uninstaller=1`。该路径绕过 `PageLeaveReinstall` 的旧卸载分支，仍被 preinstall product gate 拒绝；它不构成修复或安全绕行方案。
-- 旧用户隔离 Schema 37 DB 的 `databaseBeforeInstaller` 与 `databaseAfterNoUpdateAttempt` 原始 JSON **逐字段完全相同**。数据包括 source health/checkpoint/timestamps/entry_count、4 个活动且 0 个 stale Global Entries、FTS hit 1、一个 Managed Scope/Entry、AI Analysis、AI Job/Job Item。进程退出后的快照也与安装前一致。原 Harness 的 `databaseStatePreserved.preserved=false` 与所有逐项比较布尔值 `true` 矛盾；Python 独立对比两个原始 JSON 得到完全相同。Run 38197506250 会验证已修正的布尔汇总。因此本次失败安装实测是 fail-closed 且未改库。
+- 旧用户隔离 Schema 37 DB 的 `databaseBeforeInstaller` 与 `databaseAfterNoUpdateAttempt` 原始 JSON **逐字段完全相同**。数据包括 source health/checkpoint/timestamps/entry_count、4 个活动且 0 个 stale Global Entries、FTS hit 1、一个 Managed Scope/Entry、AI Analysis、AI Job/Job Item。进程退出后的快照也与安装前一致。原 Harness 的 `databaseStatePreserved.preserved=false` 与所有逐项比较布尔值 `true` 矛盾；Python 独立对比两个原始 JSON 得到完全相同。Run 38199772185 会验证已修正的布尔汇总。因此本次失败安装实测是 fail-closed 且未改库。
 
-Run 38197506250 在旧 QA 构建期间取消，因此没有生成 ARP predicate trace。Run 38198147350 在任何 NSIS 场景前因 Harness JSON 解析失败退出，没有 trace。修正后的定向 run 会记录按校验顺序排列的每个 ARP key/value 状态、expected EstimatedSize 及 uninstaller 文件存在性。如该 run 仍无首个不匹配 trace，报告维持 BLOCKED，不能从外层 exit code 2 推断根因。
+Run 38197506250 在旧 QA 构建期间取消，因此没有生成 ARP predicate trace。Run 38198147350 在任何 NSIS 场景前因 Harness JSON 解析失败退出；Run 38199772185 则被残留的 canonical install directory precondition 拒绝，二者都没有运行 NSIS 或生成 trace。修正后的 Focus run 才会记录按校验顺序排列的 ARP key/value 状态、expected EstimatedSize 及 uninstaller 文件存在性。如仍无首个不匹配 trace，报告维持 BLOCKED，不能从外层 exit code 2 推断根因。
 
 ## 4. 同路径进程代际与 Direct fallback
 
@@ -95,7 +99,7 @@ Run 38193683826 原始证据：旧 QA 客户端 PID 9024，启动时间 `2026-10
 
 但该 run 没有触发旧客户端请求：Service identity accept、Rebuild request、claim、source validation、request-ID correlation 和 route-complete 均为 false；旧客户端 trace 只有 `coordinator_cycle`，Service 没有可归档请求事件。Harness 在旧客户端仍持有 SQLite 连接时试图 `Get-FileHash` 主 DB，抛 `IOException: The process cannot access the file ... because it is being used by another process`。进程退出后用隔离 profile snapshot 读取，DB 仍为 `rebuild_required`、cursor `664`、活动条目 4、stale 0、FTS 1，Managed/AI 行与启动前一致。这不是身份校验通过或拒绝的证明，只证明 Windows 允许替换同一路径的 EXE，同时旧进程仍运行并持有 SQLite 连接。
 
-Run 38197506250 在旧 QA 构建期间取消，未执行请求。Run 38198147350 在读取此前直接 fallback evidence 时停止，未启动旧客户端或新 Service。JSON parser 修正后的定向 run 会在 gate 释放后由旧 QA 进程显式调用 Rebuild，再等旧客户端和 Service 路由/拒绝结果；关闭二者后才采集 SQLite 快照和哈希。结果仍待现场证明。
+Run 38197506250 在旧 QA 构建期间取消，未执行请求。Run 38198147350 在读取此前直接 fallback evidence 时停止，未启动旧客户端或新 Service。Run 38199772185 的 Focus binary 没有插入 gate/forced-Rebuild instrumentation，所以只观察到 file replacement 前同代旧客户端到旧 Service 的 automatic recovery。逻辑快照显示 source `rebuild_required → ready`，索引时间 `1791776461 → 1791776474`，Managed Entry `enabled=1 → 0`，AI Analysis `completed → stale`、Job/Item `pending → stale`；entries=4、active=4、stale=0、entry_count=4、FTS hit=1、journal ID/cursor=`134362500611528070`/`664` 不变。主 DB SHA-256 前后均为 `bac6e934…5b7a7a`，WAL/SHM 快照在关闭客户端后归档。由于没有 `fileReplace`/新 Service/PID/request identity 证据，这次同代自动恢复数据变化不能当作新 Service 接受旧客户端或旧版 Direct fallback 的证明。下一次 Focus 会启用插桩并绑定进程、Service、替换时序与数据库快照。
 
 D1-A Service 的 `PipeSink` 将 Provider 结果经 named pipe 送回调用端，Client `windows/mod.rs::apply_validated_index_event` 再调用本地 `GlobalIndexSink`/Repository 写数据库。因此这组证据必须用旧 Client PID/启动时间与其隔离 DB 快照建立关联；新 Service PID 自身不是该用户 SQLite 写者。
 
@@ -186,7 +190,7 @@ Schema v38 所属设计需要与 #381 协调。本阶段不新增或保留 v38 �
 
 ## 8. 尚未证实的风险与 Owner 决策
 
-- Run 38198147350 没有运行 U1R 目标场景；修正后的同路径与 NSIS 定向 run 完成前，旧进程隔离和首个 NSIS 内部 predicate 仍为 `UNVERIFIED`。
+- Run 38198147350 没有运行 U1R 目标场景；Run 38199772185 仅运行了未插桩的同代旧进程并被 NSIS clean-path precondition 阻断。Focus 插桩修正后的 Windows 探针完成前，旧进程隔离和首个 NSIS 内部 predicate 仍为 `UNVERIFIED`。
 - U1 的 interruption/repair 状态为 `UNVERIFIED`：普通原位安装先以 exit 2 失败，未能建立“替换后强制中断”场景。本阶段不重复整套 interruption 矩阵；U2 必须用新维护/repair-forward 状态机的真实安装包补测。
 - U1R 的同路径场景会单独 Stop/Delete/Start SCM Service，不等同于 Windows 冷重启或跨重启维护标记恢复；U2 必须用正式安装包验证重启后 startup gate、Service ImagePath 与数据库 generation 一致。
 - 多交互用户 Session、快速用户切换、Service 更新时并发登录和 per-user AppData 库迁移是否有安全方案，需在 U2 Host 上覆盖。

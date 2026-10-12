@@ -1,0 +1,3 @@
+makensis_version=v3.11
+NSIS_CONFIG_LOG=absent
+LogSet_negative_compile=PASS(exit=1,error=NSIS_CONFIG_LOG_not_defined)

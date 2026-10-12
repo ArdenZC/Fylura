@@ -1,0 +1,3 @@
+Error: reading stub "/opt/nsis/share/nsis/Stubs/zlib-amd64-unicode"
+Error: Unable to set target architecture (adequate stub not found?)
+Error in script "/src/scripts/issue380S0NsisObservabilityProbe.nsi" on line 12 -- aborting creation process

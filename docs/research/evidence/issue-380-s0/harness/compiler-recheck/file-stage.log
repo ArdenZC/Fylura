@@ -1,0 +1,6 @@
+warning 6010: install function "AppendInstallerTrace" not referenced - zeroing code (0-8) out
+
+
+1 warning:
+  6010: install function "AppendInstallerTrace" not referenced - zeroing code (0-8) out
+

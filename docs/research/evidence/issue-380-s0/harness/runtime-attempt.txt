@@ -1,0 +1,14 @@
+S0 NSIS runtime attempt (isolated Linux container; no Hosted Windows run)
+
+Container image: issue380-s0-nsis-wine32:latest
+Container image ID: sha256:905404c2ffc3a0f862812de0e871e4fc540688e00de086acd9be9d258d410876
+NSIS compiler: v3.11; x86 Unicode fixture binaries compiled successfully (see compiler-recheck/).
+
+Runtime command result:
+  uname -m -> x86_64
+  /usr/bin/wine --version -> exit 126
+  /usr/bin/wine: 40: exec: /usr/lib/wine/wine: Exec format error
+
+The NSIS fixture installer and generated uninstaller were not executed. No conclusion
+is claimed about /LOG, DetailPrint persistence, direct FileWrite/FileClose durability,
+Abort/exit behavior, or UAC. No Hosted Windows run was started.

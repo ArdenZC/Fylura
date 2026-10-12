@@ -1,0 +1,2 @@
+Error: LogSet specified, NSIS_CONFIG_LOG not defined.
+Error in script "/tmp/issue380-s0-compile/logset-negative.nsi" on line 5 -- aborting creation process

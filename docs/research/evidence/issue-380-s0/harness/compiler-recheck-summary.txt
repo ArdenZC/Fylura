@@ -1,0 +1,21 @@
+S0 NSIS compiler-only recheck
+
+Compiler image: issue380-s0-nsis-wine32:latest
+Compiler image ID: sha256:905404c2ffc3a0f862812de0e871e4fc540688e00de086acd9be9d258d410876
+Compiler: NSIS v3.11
+Target: x86 Unicode (the Linux NSIS package does not include its x64 Windows stub)
+NSIS_CONFIG_LOG in -HDRINFO: absent
+
+Compiled variants (all exit 0):
+detail stage fixture: 075ca8e1911f8907eafb627cce45aec307c550326e2dacd990bebef85ea75015
+detail abort fixture: b15f0d563873096d282c4958d51e3a25f629be4aeb80a7e9326cc76dea35b243
+file stage fixture:   2613475cc85e30563e6d1d8f982dfca594850393b8aacce4e732b2e3f66d7dfe
+file abort fixture:   44aa355e66dcddbeeea0bc52926fd5f7e4ca9252e86c92b25259af3be801cb53
+The file-stage fixture emitted NSIS warning 6010 because its installer trace
+function is unused by the non-failing stage mode; it still compiled with exit 0.
+
+Negative compile:
+LogSet on: exit 1
+Error: LogSet specified, NSIS_CONFIG_LOG not defined.
+
+Runtime execution was not completed; see runtime-attempt.txt.

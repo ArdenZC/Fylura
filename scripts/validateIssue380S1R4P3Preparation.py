@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import fnmatch
 import pathlib
 import re
 import subprocess
@@ -72,8 +73,16 @@ def require(condition: bool, message: str) -> None:
 
 def changed_paths() -> set[str]:
     committed = set(git("diff", "--name-only", f"{P2}...HEAD").splitlines())
-    status = git("status", "--porcelain", "--untracked-files=all")
-    working = {line[3:] for line in status.splitlines() if len(line) >= 4}
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files", "all"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if status_result.returncode:
+        raise RuntimeError(f"git status failed: {status_result.stderr}")
+    working = {line[3:] for line in status_result.stdout.splitlines() if len(line) >= 4}
     return committed | working
 
 
@@ -134,6 +143,9 @@ def parse_workflow_draft(report: str) -> dict:
     require(isinstance(steps, list), "Draft job has no steps")
     ids = {step.get("id") for step in steps if isinstance(step, dict)}
     require({"bootstrap", "preflight", "synthetic_nsis"}.issubset(ids), "Draft preflight/runner step contract is incomplete")
+    runner_steps = [step for step in steps if step.get("id") == "synthetic_nsis"]
+    require(len(runner_steps) == 1 and runner_steps[0].get("timeout-minutes") == "12",
+            "Draft Runner step must be separately bounded to 12 minutes")
     all_step_text = "\n".join(str(step) for step in steps)
     for needle in (
         "GITHUB_RUN_ATTEMPT",
@@ -143,16 +155,50 @@ def parse_workflow_draft(report: str) -> dict:
         "issue380S1R4P3SyntheticNsisRunner.ps1",
         "runner.stdout.raw.txt",
         "runner.stderr.raw.txt",
+        "runner-process.json",
+        "WaitForExit(540000)",
         "if-no-files-found",
         "actions/upload-artifact@v4",
+        "workflow-run.json",
+        "P3HarnessOwner",
+        "task_owned_processes",
+        "issue380-s1r4-p3-task",
     ):
         require(needle in all_step_text, f"Draft Workflow is missing {needle}")
+    require(any("$identity.status = 'RUNNING'" in str(step.get("run", "")) for step in steps),
+            "Draft Workflow does not publish a RUNNING identity before the P3 Runner continues")
+    upload_steps = [step for step in steps if step.get("uses") == "actions/upload-artifact@v4"]
+    require(len(upload_steps) == 1 and "steps.finalize.outcome == 'success'" in upload_steps[0].get("if", ""),
+            "Artifact upload must require the current owned evidence root to finalize successfully")
     for index, step in enumerate(steps):
         if isinstance(step, dict) and step.get("shell") == "pwsh":
             assert_powershell_syntax_text(str(step.get("run", "")).encode(), f"embedded workflow step {index}")
     require("cargo" not in all_step_text.lower() and "npm" not in all_step_text.lower(),
             "Draft unexpectedly launches unrelated build systems")
     return workflow
+
+
+def audit_existing_push_triggers() -> int:
+    workflows = sorted((ROOT / ".github/workflows").glob("*.yml")) + sorted(
+        (ROOT / ".github/workflows").glob("*.yaml")
+    )
+    push_count = 0
+    for path in workflows:
+        payload = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        triggers = payload.get("on", {}) if isinstance(payload, dict) else {}
+        push = triggers.get("push") if isinstance(triggers, dict) else None
+        if push is None:
+            continue
+        push_count += 1
+        if isinstance(push, dict):
+            patterns = push.get("branches")
+            if not isinstance(patterns, list) or not patterns:
+                raise RuntimeError(f"Existing push Workflow is not branch-scoped: {path.relative_to(ROOT)}")
+            if any(fnmatch.fnmatchcase(BRANCH, pattern) for pattern in patterns):
+                raise RuntimeError(f"Existing push Workflow would match the P3 branch: {path.relative_to(ROOT)}")
+        else:
+            raise RuntimeError(f"Existing push Workflow does not have a branch filter: {path.relative_to(ROOT)}")
+    return push_count
 
 
 def main() -> int:
@@ -206,11 +252,19 @@ def main() -> int:
         "Resolve-Issue380S1R4Path",
         "ProcessStartInfo]::new()",
         "$startInfo.ArgumentList.Add($argument)",
+        "function WaitForP3RunnerProcessRecord",
+        "ParentProcessId",
+        "expectedArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File'",
+        "P3 process argument count differs from the fixed Runner invocation",
+        "'runner.stdout.raw.txt', 'runner.stderr.raw.txt', 'runner-process.json'",
+        "launcher_process = WaitForP3RunnerProcessRecord",
         '$uninstallerArguments.Add("_?=$absoluteInstallDirectory")',
         '$uninstallerArguments[$uninstallerArguments.Count - 1].Equals("_?=$absoluteInstallDirectory"',
         "$script:RegistrySubKey = 'Software\\ZenCanvasS0Harness'",
         "$script:RegistryOwnerValueName = 'P3HarnessOwner'",
         "function Get-SyntheticRegistryOwnerToken",
+        "owner_kind = $ownerKind",
+        "expected_owner_kind=String",
         "PRESERVED_BECAUSE_REGISTRY_STATE_CHANGED",
         "s1r4-p3-task-owned.txt",
         "REMOVED_AND_VERIFIED_ABSENT",
@@ -244,6 +298,7 @@ def main() -> int:
             "P3 does not retain the accepted path-guard reparse checks")
 
     workflow = parse_workflow_draft(report)
+    existing_push_workflows = audit_existing_push_triggers()
     require("No P3 Hosted Workflow or NSIS job was started." in report,
             "Report must explicitly label the future runtime as not run")
     verify_manifest(ALLOWED - {MANIFEST})
@@ -266,6 +321,7 @@ def main() -> int:
     print(f"frozen_s0_probe_blob={S0_PROBE_BLOB} raw_sha256={S0_PROBE_SHA256}")
     print(f"changed_paths={','.join(sorted(paths))}")
     print(f"workflow_draft_jobs={len(workflow['jobs'])}; executable_workflow=NONE")
+    print(f"existing_push_workflows={existing_push_workflows}; p3_branch_trigger_matches=NONE")
     print("hosted_jobs=NOT_STARTED; NSIS=NOT_RUN; HKCU=NOT_TOUCHED")
     return 0
 

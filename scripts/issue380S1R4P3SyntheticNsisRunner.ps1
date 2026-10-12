@@ -97,7 +97,7 @@ if (Test-Path -LiteralPath $outputFullPath) {
     $outputFullPath = Resolve-Issue380S1R4Path -TaskRoot $runnerTempFullPath `
         -CandidatePath $outputFullPath -Kind ExistingDirectory
     $existing = @(Get-ChildItem -LiteralPath $outputFullPath -Force -ErrorAction Stop)
-    $unexpectedExisting = @($existing | Where-Object { $_.Name -notin @('preflight.json', 'workflow-run.json') })
+    $unexpectedExisting = @($existing | Where-Object { $_.Name -notin @('preflight.json', 'workflow-run.json', 'runner.stdout.raw.txt', 'runner.stderr.raw.txt', 'runner-process.json') })
     if ($unexpectedExisting.Count -ne 0) { throw "Evidence directory contains unexpected files: $($unexpectedExisting.Name -join ', ')" }
 } else {
     New-Item -ItemType Directory -Path $outputFullPath -ErrorAction Stop | Out-Null
@@ -240,7 +240,7 @@ function Get-SyntheticRegistrySnapshot {
     try {
         $key = $base.OpenSubKey($script:RegistrySubKey, $false)
         if ($null -eq $key) {
-            return [ordered]@{ exists = $false; value_name = $script:RegistryValueName; kind = $null; value = $null; owner_value = $null; value_names = @(); subkey_names = @() }
+            return [ordered]@{ exists = $false; value_name = $script:RegistryValueName; kind = $null; value = $null; owner_value = $null; owner_kind = $null; value_names = @(); subkey_names = @() }
         }
         try {
             $valueNames = @($key.GetValueNames())
@@ -248,8 +248,11 @@ function Get-SyntheticRegistrySnapshot {
             $ownerValue = if ($valueNames -contains $script:RegistryOwnerValueName) {
                 [string]$key.GetValue($script:RegistryOwnerValueName, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
             } else { $null }
+            $ownerKind = if ($valueNames -contains $script:RegistryOwnerValueName) {
+                $key.GetValueKind($script:RegistryOwnerValueName).ToString()
+            } else { $null }
             if ($valueNames -notcontains $script:RegistryValueName) {
-                return [ordered]@{ exists = $true; value_name = $script:RegistryValueName; kind = 'MISSING'; value = $null; owner_value = $ownerValue; value_names = $valueNames; subkey_names = $subkeyNames }
+                return [ordered]@{ exists = $true; value_name = $script:RegistryValueName; kind = 'MISSING'; value = $null; owner_value = $ownerValue; owner_kind = $ownerKind; value_names = $valueNames; subkey_names = $subkeyNames }
             }
             return [ordered]@{
                 exists = $true
@@ -257,6 +260,7 @@ function Get-SyntheticRegistrySnapshot {
                 kind = $key.GetValueKind($script:RegistryValueName).ToString()
                 value = $key.GetValue($script:RegistryValueName, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
                 owner_value = $ownerValue
+                owner_kind = $ownerKind
                 value_names = $valueNames
                 subkey_names = $subkeyNames
             }
@@ -316,6 +320,44 @@ function Get-FileSha256([string]$Path) {
 
 function Get-SyntheticRegistryOwnerToken {
     return "$env:GITHUB_REPOSITORY|$env:GITHUB_REF|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|$env:GITHUB_SHA"
+}
+
+function WaitForP3RunnerProcessRecord([string]$Path) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $record = $null
+        try { $record = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json } catch { }
+        if ($null -ne $record -and $record.status -eq 'RUNNING' -and $record.process_id -gt 0) {
+            if ($record.repository -ne $env:GITHUB_REPOSITORY -or $record.triggering_ref -ne $env:GITHUB_REF -or
+                $record.workflow_sha -ne $env:GITHUB_SHA -or $record.run_id -ne $env:GITHUB_RUN_ID -or
+                $record.run_attempt -ne $env:GITHUB_RUN_ATTEMPT) {
+                throw 'Runner process record belongs to a different GitHub run.'
+            }
+            $currentProcess = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $PID" -Property @('ProcessId', 'ParentProcessId', 'ExecutablePath') -ErrorAction Stop
+            if ($null -eq $currentProcess -or [int]$currentProcess.ParentProcessId -ne [int]$record.process_id) {
+                throw "Runner process record does not identify this P3 process parent: current_pid=$PID recorded_parent=$($record.process_id)"
+            }
+            $actualImage = [System.IO.Path]::GetFullPath([string]$currentProcess.ExecutablePath)
+            $recordImage = [System.IO.Path]::GetFullPath([string]$record.image)
+            if (-not $actualImage.Equals($recordImage, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "P3 process image path does not match the captured launcher: current=$actualImage recorded=$recordImage"
+            }
+            if ((Get-FileSha256 $actualImage) -ne $record.image_sha256) {
+                throw 'P3 process image SHA-256 does not match the captured launcher record.'
+            }
+            $expectedArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', (Join-Path $PSScriptRoot 'issue380S1R4P3SyntheticNsisRunner.ps1'), '-OutputRoot', $outputFullPath)
+            $actualArguments = @($record.arguments)
+            if ($actualArguments.Count -ne $expectedArguments.Count) { throw 'P3 process argument count differs from the fixed Runner invocation.' }
+            for ($index = 0; $index -lt $expectedArguments.Count; $index++) {
+                if (-not ([string]$actualArguments[$index]).Equals($expectedArguments[$index], [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw "P3 process argument $index differs from the fixed Runner invocation."
+                }
+            }
+            return $record
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'The Workflow wrapper did not publish a matching running process record within five seconds.'
 }
 
 function Download-And-VerifyPinnedZip {
@@ -569,6 +611,7 @@ $result = [ordered]@{
     processes = @()
     registry_snapshots = @()
     log_comparison = @()
+    launcher_process = $null
     assertions = @()
     cleanup = [ordered]@{ registry_key = 'NOT_CHECKED'; task_temp = 'NOT_CREATED'; task_owned_processes = 'NOT_CHECKED' }
     failure = $null
@@ -586,8 +629,13 @@ try {
     if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) { throw 'RUNNER_TEMP is required.' }
     $preflightPath = Join-Path $outputFullPath 'preflight.json'
     $workflowRunPath = Join-Path $outputFullPath 'workflow-run.json'
-    if (-not (Test-Path -LiteralPath $preflightPath -PathType Leaf)) { throw "P3 static preflight record is missing: $preflightPath" }
-    if (-not (Test-Path -LiteralPath $workflowRunPath -PathType Leaf)) { throw "P3 workflow identity record is missing: $workflowRunPath" }
+    $runnerStdoutPath = Join-Path $outputFullPath 'runner.stdout.raw.txt'
+    $runnerStderrPath = Join-Path $outputFullPath 'runner.stderr.raw.txt'
+    $runnerProcessPath = Join-Path $outputFullPath 'runner-process.json'
+    foreach ($path in @($preflightPath, $workflowRunPath, $runnerStdoutPath, $runnerStderrPath, $runnerProcessPath)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "P3 run input/evidence file is missing: $path" }
+        $null = Resolve-Issue380S1R4Path -TaskRoot $runnerTempFullPath -CandidatePath $path -Kind ExistingFile
+    }
     $preflightRecord = Get-Content -LiteralPath $preflightPath -Raw | ConvertFrom-Json
     $workflowRunRecord = Get-Content -LiteralPath $workflowRunPath -Raw | ConvertFrom-Json
     if ($preflightRecord.status -ne 'PASS' -or $preflightRecord.expected_p2_head -ne $script:P2Head -or
@@ -600,6 +648,7 @@ try {
         $workflowRunRecord.run_attempt -ne $env:GITHUB_RUN_ATTEMPT) {
         throw 'P3 workflow identity JSON does not match the current GitHub run.'
     }
+    $result.launcher_process = WaitForP3RunnerProcessRecord -Path $runnerProcessPath
 
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
     if ([string]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE)) { throw 'GITHUB_WORKSPACE is required.' }
@@ -679,8 +728,8 @@ try {
     $afterOwnerCreate = Get-SyntheticRegistrySnapshot
     $script:RegistrySnapshots.Add([ordered]@{ stage = 'owner_created_before_probe'; snapshot = $afterOwnerCreate })
     Add-Assertion -Name 'synthetic_hkcu_owner_token_is_current_run' `
-        -Passed ($afterOwnerCreate.exists -and $afterOwnerCreate.owner_value -ceq $ownerToken) `
-        -Details "expected_owner_token=$ownerToken actual_owner_token=$($afterOwnerCreate.owner_value)"
+        -Passed ($afterOwnerCreate.exists -and $afterOwnerCreate.owner_kind -eq 'String' -and $afterOwnerCreate.owner_value -ceq $ownerToken) `
+        -Details "expected_owner_kind=String expected_owner_token=$ownerToken actual_owner_kind=$($afterOwnerCreate.owner_kind) actual_owner_token=$($afterOwnerCreate.owner_value)"
 
     Download-And-VerifyPinnedZip
     Expand-VerifiedZipSafely
@@ -770,8 +819,8 @@ try {
         $afterStage = Get-SyntheticRegistrySnapshot
         $script:RegistrySnapshots.Add([ordered]@{ stage = "${traceMode}_after_stage"; snapshot = $afterStage })
         Add-Assertion -Name "${traceMode}_stage_wrote_synthetic_dword" `
-            -Passed (($afterStage.exists) -and ($afterStage.kind -eq 'DWord') -and ([int]$afterStage.value -eq $script:ActualValue) -and ($afterStage.owner_value -ceq $ownerToken)) `
-            -Details "expected_kind=DWord expected_value=$($script:ActualValue) expected_owner=$ownerToken actual_kind=$($afterStage.kind) actual_value=$($afterStage.value) actual_owner=$($afterStage.owner_value)"
+            -Passed (($afterStage.exists) -and ($afterStage.kind -eq 'DWord') -and ([int]$afterStage.value -eq $script:ActualValue) -and ($afterStage.owner_kind -eq 'String') -and ($afterStage.owner_value -ceq $ownerToken)) `
+            -Details "expected_kind=DWord expected_value=$($script:ActualValue) expected_owner_kind=String expected_owner=$ownerToken actual_kind=$($afterStage.kind) actual_value=$($afterStage.value) actual_owner_kind=$($afterStage.owner_kind) actual_owner=$($afterStage.owner_value)"
 
         $installerLog = Join-Path $modeEvidenceRoot 'installer-runtime.log'
         $installerArguments = @('/S')
@@ -805,8 +854,8 @@ try {
         $afterAborts = Get-SyntheticRegistrySnapshot
         $script:RegistrySnapshots.Add([ordered]@{ stage = "${traceMode}_after_aborts"; snapshot = $afterAborts })
         Add-Assertion -Name "${traceMode}_abort_paths_preserved_synthetic_dword" `
-            -Passed (($afterAborts.exists) -and ($afterAborts.kind -eq 'DWord') -and ([int]$afterAborts.value -eq $script:ActualValue) -and ($afterAborts.owner_value -ceq $ownerToken)) `
-            -Details "expected_kind=DWord expected_value=$($script:ActualValue) expected_owner=$ownerToken actual_kind=$($afterAborts.kind) actual_value=$($afterAborts.value) actual_owner=$($afterAborts.owner_value)"
+            -Passed (($afterAborts.exists) -and ($afterAborts.kind -eq 'DWord') -and ([int]$afterAborts.value -eq $script:ActualValue) -and ($afterAborts.owner_kind -eq 'String') -and ($afterAborts.owner_value -ceq $ownerToken)) `
+            -Details "expected_kind=DWord expected_value=$($script:ActualValue) expected_owner_kind=String expected_owner=$ownerToken actual_kind=$($afterAborts.kind) actual_value=$($afterAborts.value) actual_owner_kind=$($afterAborts.owner_kind) actual_owner=$($afterAborts.owner_value)"
 
         $detailTracePath = Join-Path $modeTaskRoot 'direct-evidence.log'
         $evidenceTracePath = Join-Path $modeEvidenceRoot 'direct-evidence.log'
@@ -931,6 +980,7 @@ try {
                 $allowedValueNames = @($script:RegistryOwnerValueName, $script:RegistryValueName)
                 $unexpectedValues = @($currentRegistry.value_names | Where-Object { $_ -notin $allowedValueNames })
                 $valueStateIsExpected = ($currentRegistry.value_names -contains $script:RegistryOwnerValueName) -and
+                    ($currentRegistry.owner_kind -eq 'String') -and
                     ($currentRegistry.owner_value -ceq $ownerToken) -and
                     ($currentRegistry.subkey_names.Count -eq 0) -and
                     ($unexpectedValues.Count -eq 0) -and

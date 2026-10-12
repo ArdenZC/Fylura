@@ -18,6 +18,8 @@ The Probe file's raw-content SHA-256 is `518b729388e36bbcb99dd8a3d82c60cad48a926
 
 The P3 branch is `research/issue-380-s1r4-p3-p0-nsis-hosted-plan`, created directly from accepted P2. The P1 path guard and Windows matrix scripts are byte-for-byte unchanged from P1 and P2. The P2 Workflow, accepted 40/40 run evidence, P2 Runner, S0 Probe, and all production files are unchanged.
 
+A static push-trigger audit of the tracked Workflows found no existing push trigger that matches the P3 branch: `ci.yml` is master-only; the earlier S0/S1/S1R/S1R2/S1R3/P2/U1/U1R and resident qualification jobs are each pinned to other branch names. PR-only CI and benchmark Workflows are not triggered by this branch push. No P3 Workflow is installed or active.
+
 ## Research files
 
 | File | Purpose |
@@ -36,12 +38,12 @@ The existing P1 Runner hard-codes `research/issue-380-s1r4-p1-windows-path-guard
 - `RUNNER_OS=Windows`, PowerShell 7, nonempty local-drive `RUNNER_TEMP`, and `PREFLIGHT_OUTCOME=success`.
 - A clean checkout where `HEAD == GITHUB_SHA`, the accepted P2 HEAD and Tree match exactly and are ancestors, and the P1 HEAD and Tree match exactly and are ancestors.
 - The current path guard and path test blobs equal the frozen P1 files; the S0 Probe Git blob equals the frozen S0 blob.
-- An existing OutputRoot exactly at `%RUNNER_TEMP%\issue380-s1r4-p3-evidence`, containing only the current run's `workflow-run.json` and `preflight.json` on entry. Both records must match the current event identity and P2 base.
+- An existing OutputRoot exactly at `%RUNNER_TEMP%\issue380-s1r4-p3-evidence`, containing only the current run's `workflow-run.json`, `preflight.json`, empty-or-captured raw Runner stdout/stderr, and `runner-process.json` on entry. These files must be ordinary in-root files; the P3 process waits for the wrapper's running record and proves the recorded launcher PID is its actual parent before continuing. The JSON records must match the current event identity and P2 base.
 - An absent `%RUNNER_TEMP%\issue380-s1r4-p3-task` and an absent `HKCU\Software\ZenCanvasS0Harness` key. Existing task data or Registry state is never adopted, overwritten, or deleted.
 
 The shared, accepted P1 path resolver remains the only filesystem path policy. OutputRoot is a separate, exact RUNNER_TEMP child. The private TaskRoot is created only after the pinned ZIP is downloaded and verified by the Runner's fixed URL, SHA-256, archive structure, compiler paths, file lengths, and compiler hashes. The TaskRoot marker binds repository, ref, run ID, attempt, workflow SHA, and canonical path. The Runner refuses recursive cleanup if the marker differs, a process still has an image under TaskRoot, or any reparse point exists below TaskRoot.
 
-The runner captures each child image path, PID, argument list, working directory, exit code, timeout state, standard output/error, and image SHA-256. It uses `ProcessStartInfo.ArgumentList`; `_?=<absolute controlled install directory>` remains the last uninstaller argument. NSIS Abort exit assertions remain exactly 37 and 42. After the initial absence check, the runner adds a run-bound owner value and sidecar marker under this synthetic key. Cleanup requires the exact current-run owner token, no unexpected Registry values or subkeys, an expected Probe value if present, and all TaskRoot processes exited. It then deletes only that synthetic key and verifies absence. It removes TaskRoot only after verifying exact ownership and no task process or reparse point, then verifies absence. If any ownership or process fact is unclear, cleanup fails closed and preserves the original failure evidence.
+The runner first waits for `runner-process.json` to identify the exact PowerShell parent process by PID, image path/SHA-256, event identity, and fixed `-File <P3 Runner> -OutputRoot <owned root>` argument list. It captures each NSIS child image path, PID, argument list, working directory, exit code, timeout state, standard output/error, and image SHA-256. It uses `ProcessStartInfo.ArgumentList`; `_?=<absolute controlled install directory>` remains the last uninstaller argument. NSIS Abort exit assertions remain exactly 37 and 42. After the initial absence check, the runner adds a run-bound owner value and sidecar marker under this synthetic key. Cleanup requires the exact current-run owner token, no unexpected Registry values or subkeys, an expected Probe value if present, and all TaskRoot processes exited. It then deletes only that synthetic key and verifies absence. It removes TaskRoot only after verifying exact ownership and no task process or reparse point, then verifies absence. If any ownership or process fact is unclear, cleanup fails closed and preserves the original failure evidence.
 
 ### Fail-fast order
 
@@ -59,7 +61,7 @@ The runner captures each child image path, PID, argument list, working directory
 
 ## Future one-shot Hosted Workflow draft (not activated)
 
-This YAML is embedded only in this report. It must not be copied into `.github/workflows` without a later Owner decision. Its only trigger is the exact P3 branch plus the activating Workflow path. It has one `windows-2022` job, read-only repository permission, a 15-minute job deadline, and runner-side attempt-1 enforcement. It does not invoke product builds, CI matrices, the P2 test, or production software.
+This YAML is embedded only in this report. It must not be copied into `.github/workflows` without a later Owner decision. Its only trigger is the exact P3 branch plus the activating Workflow path. It has one `windows-2022` job, read-only repository permission, a 15-minute job deadline, a 12-minute Runner-step deadline with a 9-minute child-process deadline, and runner-side attempt-1 enforcement. It does not invoke product builds, CI matrices, the P2 test, or production software.
 
 ```yaml
 name: Issue 380 S1R4-P3 synthetic NSIS trace probe
@@ -209,7 +211,7 @@ jobs:
         id: synthetic_nsis
         if: ${{ always() && steps.preflight.outcome == 'success' }}
         continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: 12
         shell: pwsh
         env:
           PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
@@ -221,6 +223,32 @@ jobs:
           $stdoutPath = Join-Path $evidenceRoot 'runner.stdout.raw.txt'
           $stderrPath = Join-Path $evidenceRoot 'runner.stderr.raw.txt'
           $processPath = Join-Path $evidenceRoot 'runner-process.json'
+          $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $runner, '-OutputRoot', $evidenceRoot)
+          $identity = [ordered]@{
+            status = 'NOT_STARTED'
+            repository = $env:GITHUB_REPOSITORY
+            triggering_ref = $env:GITHUB_REF
+            workflow_sha = $env:GITHUB_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            image = $pwsh
+            image_sha256 = $null
+            process_id = $null
+            arguments = $arguments
+            working_directory = $env:GITHUB_WORKSPACE
+            started_utc = $null
+            finished_utc = $null
+            timed_out = $null
+            process_exited = $false
+            exit_code = $null
+            stdout_complete = $false
+            stderr_complete = $false
+          }
+          [System.IO.File]::WriteAllText($stdoutPath, '', [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText($stderrPath, '', [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText($processPath, ((ConvertTo-Json -InputObject $identity -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))
+          if (Test-Path -LiteralPath $pwsh -PathType Leaf) { $identity.image_sha256 = (Get-FileHash -LiteralPath $pwsh -Algorithm SHA256).Hash.ToLowerInvariant() }
+          [System.IO.File]::WriteAllText($processPath, ((ConvertTo-Json -InputObject $identity -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))
           $start = [System.Diagnostics.ProcessStartInfo]::new()
           $start.FileName = $pwsh
           $start.WorkingDirectory = $env:GITHUB_WORKSPACE
@@ -229,14 +257,18 @@ jobs:
           $start.RedirectStandardOutput = $true
           $start.RedirectStandardError = $true
           $start.Environment['PREFLIGHT_OUTCOME'] = $env:PREFLIGHT_OUTCOME
-          foreach ($arg in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $runner, '-OutputRoot', $evidenceRoot)) { [void]$start.ArgumentList.Add($arg) }
+          foreach ($arg in $arguments) { [void]$start.ArgumentList.Add($arg) }
           $process = [System.Diagnostics.Process]::new()
           $process.StartInfo = $start
           $startedAt = [DateTime]::UtcNow
           if (-not $process.Start()) { throw 'Could not start the P3 Runner process.' }
+          $identity.status = 'RUNNING'
+          $identity.process_id = $process.Id
+          $identity.started_utc = $startedAt.ToString('o')
+          [System.IO.File]::WriteAllText($processPath, ((ConvertTo-Json -InputObject $identity -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))
           $stdoutTask = $process.StandardOutput.ReadToEndAsync()
           $stderrTask = $process.StandardError.ReadToEndAsync()
-          $completed = $process.WaitForExit(600000)
+          $completed = $process.WaitForExit(540000)
           if (-not $completed) { try { $process.Kill($true) } catch { }; $process.WaitForExit() }
           $stdoutComplete = $stdoutTask.Wait(5000)
           $stderrComplete = $stderrTask.Wait(5000)
@@ -245,20 +277,13 @@ jobs:
           [System.IO.File]::WriteAllText($stdoutPath, $stdout, [System.Text.UTF8Encoding]::new($false))
           [System.IO.File]::WriteAllText($stderrPath, $stderr, [System.Text.UTF8Encoding]::new($false))
           $exitCode = if ($process.HasExited) { [int]$process.ExitCode } else { $null }
-          $identity = [ordered]@{
-            image = $pwsh
-            image_sha256 = (Get-FileHash -LiteralPath $pwsh -Algorithm SHA256).Hash.ToLowerInvariant()
-            process_id = $process.Id
-            arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $runner, '-OutputRoot', $evidenceRoot)
-            working_directory = $env:GITHUB_WORKSPACE
-            started_utc = $startedAt.ToString('o')
-            finished_utc = [DateTime]::UtcNow.ToString('o')
-            timed_out = (-not $completed)
-            process_exited = $process.HasExited
-            exit_code = $exitCode
-            stdout_complete = $stdoutComplete
-            stderr_complete = $stderrComplete
-          }
+          $identity.status = if ($completed) { 'COMPLETED' } else { 'TIMED_OUT_TREE_KILLED' }
+          $identity.finished_utc = [DateTime]::UtcNow.ToString('o')
+          $identity.timed_out = (-not $completed)
+          $identity.process_exited = $process.HasExited
+          $identity.exit_code = $exitCode
+          $identity.stdout_complete = $stdoutComplete
+          $identity.stderr_complete = $stderrComplete
           [System.IO.File]::WriteAllText($processPath, ((ConvertTo-Json -InputObject $identity -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))
           $process.Dispose()
           if (-not $completed -or $exitCode -ne 0 -or -not $stdoutComplete -or -not $stderrComplete) { throw "P3 Runner failed or timed out: exit=$exitCode timeout=$(-not $completed)" }
@@ -275,7 +300,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p3-evidence'
           if (-not (Test-Path -LiteralPath $evidenceRoot -PathType Container)) { throw 'Owned evidence root is missing; Actions log is the only available failure record.' }
+          . (Join-Path $env:GITHUB_WORKSPACE 'scripts/issue380S1R4PathGuard.ps1')
+          $null = Resolve-Issue380S1R4Path -TaskRoot $env:RUNNER_TEMP -CandidatePath $evidenceRoot -Kind ExistingDirectory
           $workflowRunPath = Join-Path $evidenceRoot 'workflow-run.json'
+          $null = Resolve-Issue380S1R4Path -TaskRoot $env:RUNNER_TEMP -CandidatePath $workflowRunPath -Kind ExistingFile
           if (-not (Test-Path -LiteralPath $workflowRunPath -PathType Leaf)) { throw 'Evidence root has no bootstrap ownership record; refusing to modify it.' }
           $workflowRun = Get-Content -LiteralPath $workflowRunPath -Raw | ConvertFrom-Json
           if ($workflowRun.repository -ne $env:GITHUB_REPOSITORY -or $workflowRun.triggering_ref -ne $env:GITHUB_REF -or $workflowRun.triggering_head -ne $env:GITHUB_SHA -or $workflowRun.run_id -ne $env:GITHUB_RUN_ID -or $workflowRun.run_attempt -ne $env:GITHUB_RUN_ATTEMPT) { throw 'Evidence root belongs to a different run; preserving it.' }
@@ -352,10 +380,11 @@ jobs:
                   $expectedOwnerMarker = "key=HKCU\Software\ZenCanvasS0Harness`nowner_token=$ownerToken`n"
                   $valueNames = @($key.GetValueNames())
                   $subkeyNames = @($key.GetSubKeyNames())
-                  $ownerValue = if ($valueNames -contains 'P3HarnessOwner') { [string]$key.GetValue('P3HarnessOwner', $null) } else { $null }
+                  $ownerKindOkay = ($valueNames -contains 'P3HarnessOwner') -and $key.GetValueKind('P3HarnessOwner') -eq [Microsoft.Win32.RegistryValueKind]::String
+                  $ownerValue = if ($ownerKindOkay) { [string]$key.GetValue('P3HarnessOwner', $null) } else { $null }
                   $unexpectedValues = @($valueNames | Where-Object { $_ -notin @('P3HarnessOwner', 'EstimatedSize') })
                   $estimatedStateOkay = if ($valueNames -contains 'EstimatedSize') { $key.GetValueKind('EstimatedSize') -eq [Microsoft.Win32.RegistryValueKind]::DWord -and [int]$key.GetValue('EstimatedSize', $null) -eq 35149 } else { $true }
-                  if (-not $mayClean -or -not (Test-Path -LiteralPath $ownerMarker -PathType Leaf) -or [System.IO.File]::ReadAllText($ownerMarker) -cne $expectedOwnerMarker -or $ownerValue -cne $ownerToken -or $unexpectedValues.Count -ne 0 -or $subkeyNames.Count -ne 0 -or -not $estimatedStateOkay) {
+                  if (-not $mayClean -or -not (Test-Path -LiteralPath $ownerMarker -PathType Leaf) -or [System.IO.File]::ReadAllText($ownerMarker) -cne $expectedOwnerMarker -or -not $ownerKindOkay -or $ownerValue -cne $ownerToken -or $unexpectedValues.Count -ne 0 -or $subkeyNames.Count -ne 0 -or -not $estimatedStateOkay) {
                     throw 'HKCU key remains but exact P3 ownership and expected synthetic state are not proven; preserving it.'
                   }
                 } finally { $key.Dispose() }
@@ -407,13 +436,14 @@ jobs:
 | `GITHUB_RUN_ATTEMPT` | Draft and Runner both require `1`; retry does not reach NSIS. | VERIFIED_IN_SOURCE |
 | `PREFLIGHT_OUTCOME` | Runner requires `success`; draft passes the step outcome and requires a matching PASS JSON. | VERIFIED_IN_SOURCE |
 | Git HEAD / Tree / ancestry | P2 HEAD/Tree and P1 HEAD/Tree fixed; P1 path guard/test blobs and S0 Probe blob compared exactly. | VERIFIED_IN_SOURCE |
-| `RUNNER_TEMP` / TaskRoot / OutputRoot | Fixed P3 child paths; P1 helper validates local path containment and reparse points; pre-existing TaskRoot is rejected. | VERIFIED_IN_SOURCE |
+| `RUNNER_TEMP` / TaskRoot / OutputRoot | Fixed P3 child paths; P1 helper validates local path containment and reparse points; pre-existing TaskRoot is rejected; the five wrapper inputs at OutputRoot are explicitly allowlisted and path-validated. | VERIFIED_IN_SOURCE |
 | ownership markers / pre-existing directory | OutputRoot begins with only current `workflow-run.json` and `preflight.json`; TaskRoot must be absent and marker binds current run identity. | VERIFIED_IN_SOURCE |
 | HKCU synthetic key | Preflight and Runner both require absence before mutation; cleanup requires ownership and exited processes. | VERIFIED_IN_SOURCE |
 | process launch / cleanup | `ArgumentList`, finite waits, kill-tree timeout, image/PID/args/output capture, task path snapshots, fail-closed cleanup. | VERIFIED_IN_SOURCE |
 | primary FileWrite before Detail | File trace completeness is asserted before the Runner advances to `detail`; assertion failure throws. | VERIFIED_IN_SOURCE |
 | failure evidence | Runner preserves partial compiler/log outputs; future Workflow captures raw Runner stdout/stderr and process identity, then uploads with `always()`. | VERIFIED_IN_SOURCE |
 | no activation | YAML exists only inside this Markdown file; `.github/workflows` has no P3 file. | VERIFIED_IN_SOURCE |
+| existing push trigger audit | All tracked Workflow push filters are branch-scoped; none matches the P3 branch. | VERIFIED_IN_SOURCE |
 
 The static contract checker parses the embedded YAML with PyYAML and parses both the P3 Runner/P1 path scripts and every embedded PowerShell Workflow step with the Tree-sitter PowerShell grammar. The local static run used Python 3.12.14, PyYAML 6.0.3, Tree-sitter 0.25.2, and Tree-sitter PowerShell 0.26.4; the YAML parsed as one job, and the checked PowerShell source blocks had zero syntax error/missing nodes. It also verifies frozen Git objects/blob identities, enforces the changed-file allowlist, verifies source order for primary FileWrite assertions, and checks fail-closed cleanup markers. This does not execute PowerShell, download the ZIP, run makensis, touch HKCU, launch any process, or validate GitHub's hosted runtime behavior.
 

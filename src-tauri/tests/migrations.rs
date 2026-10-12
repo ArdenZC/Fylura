@@ -726,12 +726,23 @@ fn schema_37_migrates_the_unconditional_fts_trigger_once_and_preserves_indexed_d
     drop(conn);
 
     let reopened = Database::open(&path).expect("reopen migrated schema");
+    let raw_fts_conn = Connection::open(&path).expect("inspect retained stale FTS row");
+    let indexed_old_term_count: i64 = raw_fts_conn
+        .query_row(
+            "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'oldmarker'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stale file keeps its FTS index terms");
+    assert_eq!(indexed_old_term_count, 1);
+    drop(raw_fts_conn);
     assert_eq!(
         reopened
             .search_files("oldmarker", Some(10))
-            .expect("old FTS term remains searchable")
+            .expect("search stale FTS term")
             .len(),
-        1
+        0,
+        "File Library search must hide stale rows while their FTS terms remain indexed"
     );
     drop(reopened);
 

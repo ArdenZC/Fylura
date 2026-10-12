@@ -1,0 +1,62 @@
+{
+  "contract": "U1R focused installer diagnostics and same-path generation test; test-only; not a production fix",
+  "mode": "U1R_FOCUS",
+  "u1Head": "8387a96e624e6b4b3de16848b6089929d19d0a50",
+  "u1Tree": "5c74d097c673a09a9f299062d2405360f6cac989",
+  "old": {
+    "commit": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38201379732-1\\old-master"
+  },
+  "d1a": {
+    "commit": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "sourceStatus": "UNBUILT"
+  },
+  "runner": {
+    "caption": "Microsoft Windows Server 2025 Datacenter",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "64-bit",
+    "runId": "38201379732",
+    "runAttempt": "1",
+    "powershell": "7.6.6",
+    "currentDirectory": "D:\\a\\Zen-Canvas\\Zen-Canvas"
+  },
+  "candidates": {},
+  "matchingPairs": {},
+  "mixedPairs": {},
+  "directFallback": {},
+  "installer": {
+    "status": "UNVERIFIED",
+    "samples": [],
+    "transitions": [],
+    "interruption": {
+      "status": "UNVERIFIED"
+    },
+    "repair": {
+      "status": "UNVERIFIED"
+    }
+  },
+  "u1rDisposition": {
+    "status": "BLOCKED",
+    "blockers": [
+      "U1R evidence not yet completed"
+    ],
+    "productionFixImplemented": false
+  },
+  "cleanup": {
+    "details": [
+      "cleanup inspected only the task service name and task-owned process paths"
+    ],
+    "failures": []
+  },
+  "failures": [
+    {
+      "scenario": "harness-fatal",
+      "message": "System.Management.Automation.RuntimeException: old-nsis-package failed with exit code 1. Log: D:\\a\\_temp\\issue-380-u1r-evidence-38201379732-1\\old-nsis-package.log\ndist/assets/check-BNuNus1O.js                              0.12 kB │ gzip:   0.13 kB\r\ndist/assets/chevron-down-Brk7Tzyb.js                       0.12 kB │ gzip:   0.13 kB\r\ndist/assets/play-CRpCmLDd.js                               0.13 kB │ gzip:   0.14 kB\r\ndist/assets/square-D7ifq2K3.js                             0.14 kB │ gzip:   0.15 kB\r\ndist/assets/plus-Bm_WM7VC.js                               0.14 kB │ gzip:   0.14 kB\r\ndist/assets/arrow-left-Dw0ohflN.js                         0.16 kB │ gzip:   0.16 kB\r\ndist/assets/dist-js-v-e-X_9c.js                            0.16 kB │ gzip:   0.16 kB\r\ndist/assets/circle-minus-BQ-HjZ2P.js                       0.16 kB │ gzip:   0.16 kB\r\ndist/assets/clock-3-DwcWIkf4.js                            0.18 kB │ gzip:   0.17 kB\r\ndist/assets/history-Dcbjm9sY.js                            0.23 kB │ gzip:   0.19 kB\r\ndist/assets/eye-0ghBdWyH.js                                0.25 kB │ gzip:   0.20 kB\r\ndist/assets/triangle-alert-Dfv97neo.js                     0.26 kB │ gzip:   0.21 kB\r\ndist/assets/pencil-CEYBq4lL.js                             0.27 kB │ gzip:   0.22 kB\r\ndist/assets/settingsNavigation-MnoORZVm.js                 0.27 kB │ gzip:   0.19 kB\r\ndist/assets/folder-open-BwoCrnFP.js                        0.28 kB │ gzip:   0.21 kB\r\ndist/assets/folder-search-B_5AFcx5.js                      0.31 kB │ gzip:   0.24 kB\r\ndist/assets/shield-check-BjbPE_3c.js                       0.31 kB │ gzip:   0.24 kB\r\ndist/assets/refresh-cw-qE3AfcoQ.js                         0.31 kB │ gzip:   0.22 kB\r\ndist/assets/file-search-DaZJXQzP.js                        0.32 kB │ gzip:   0.24 kB\r\ndist/assets/registerListenerGroup-CfkAKKmB.js              0.37 kB │ gzip:   0.24 kB\r\ndist/assets/rotate-ccw-BqNYnmc4.js                         0.39 kB │ gzip:   0.27 kB\r\ndist/assets/reclaimableBytes-Bq5uqvB-.js                   0.45 kB │ gzip:   0.28 kB\r\ndist/assets/minus-DaSG8tjB.js                              0.45 kB │ gzip:   0.26 kB\r\ndist/assets/hard-drive-BBfnXwsQ.js                         0.49 kB │ gzip:   0.31 kB\r\ndist/assets/sparkles-DV3PAbKq.js                           0.50 kB │ gzip:   0.29 kB\r\ndist/assets/sliders-horizontal-jou6lrEc.js                 0.58 kB │ gzip:   0.26 kB\r\ndist/assets/format-CbB0L8HH.js                             0.58 kB │ gzip:   0.38 kB\r\ndist/assets/useRulesStore-C7yyoGJX.js                      0.58 kB │ gzip:   0.27 kB\r\ndist/assets/react-DzYcCrke.js                              0.64 kB │ gzip:   0.39 kB\r\ndist/assets/useMediaQuery-DHCWyDHc.js                      0.65 kB │ gzip:   0.35 kB\r\ndist/assets/fileLibraryPresentation-YqsqlesR.js            0.72 kB │ gzip:   0.40 kB\r\ndist/assets/useAppStore-6QSqBP-e.js                        1.14 kB │ gzip:   0.51 kB\r\ndist/assets/pdf-Bd6xvxTq.js                                1.28 kB │ gzip:   0.66 kB\r\ndist/assets/SearchApp-CD_ozopS.js                          1.56 kB │ gzip:   0.76 kB\r\ndist/assets/useAIProcessingModeStore-CMoYZyLm.js           1.61 kB │ gzip:   0.71 kB\r\ndist/assets/organizeModel-Aw4P5GKl.js                      2.73 kB │ gzip:   1.19 kB\r\ndist/assets/AIReadinessNotice-B52s_pJe.js                  4.75 kB │ gzip:   1.46 kB\r\ndist/assets/useBackgroundIndexerStore-DJ5dmL4P.js          5.77 kB │ gzip:   2.10 kB\r\ndist/assets/libraryNavigationSurface-Dh4zG5HX.js           6.15 kB │ gzip:   2.14 kB\r\ndist/assets/useFileLibraryStore-DUYajCIL.js                8.36 kB │ gzip:   3.04 kB\r\ndist/assets/useFileLibraryV2Store-BOVf0CzD.js              9.97 kB │ gzip:   2.89 kB\r\ndist/assets/browseSourceOwner-BbYj3RZX.js                 11.81 kB │ gzip:   4.05 kB\r\ndist/assets/useOrganizationPlanStore-BHZQ0JR7.js          13.00 kB │ gzip:   3.09 kB\r\ndist/assets/ui-Bpck8MBS.js                                13.69 kB │ gzip:   4.20 kB\r\ndist/assets/useScanManagerStore-BE4Xzzdo.js               15.40 kB │ gzip:   5.04 kB\r\ndist/assets/BrowseMode-CalVpZ2y.js                        16.53 kB │ gzip:   4.53 kB\r\ndist/assets/AutomationWorkspace-B6_6ukfm.js               17.82 kB │ gzip:   5.10 kB\r\ndist/assets/fileLibraryCommandBarSurface-8jZdNNTN.js      19.14 kB │ gzip:   5.36 kB\r\ndist/assets/ModalPortal--t5mROCW.js                       20.15 kB │ gzip:   5.52 kB\r\ndist/assets/tauriApi-CNCgaDQ2.js                          20.69 kB │ gzip:   5.36 kB\r\ndist/assets/TimelineView-BnVr4rlC.js                      22.52 kB │ gzip:   6.65 kB\r\ndist/assets/esm-j9seUxzq.js                               22.93 kB │ gzip:   6.97 kB\r\ndist/assets/ScannerView-CjT1ka7E.js                       34.01 kB │ gzip:   9.09 kB\r\ndist/assets/useOperationQueueStore-C2ZkVCfj.js            35.03 kB │ gzip:   9.41 kB\r\ndist/assets/LibraryMode-2QOq1Cp6.js                       40.44 kB │ gzip:  11.30 kB\r\ndist/assets/OrganizeSuggestionsView-DWv7wbx5.js           42.77 kB │ gzip:  10.14 kB\r\ndist/assets/StorageCleanupView-DrkFNSoB.js                44.32 kB │ gzip:  12.51 kB\r\ndist/assets/RestoreView-DRRq2rsz.js                       46.49 kB │ gzip:  11.20 kB\r\ndist/assets/FileLibraryExperienceProvider-79oRibFc.js     49.24 kB │ gzip:  10.95 kB\r\ndist/assets/RulesView-CFr6ymsU.js                         59.42 kB │ gzip:  15.13 kB\r\ndist/assets/LibraryContextMenu-DUbxrALk.js                73.98 kB │ gzip:  18.55 kB\r\ndist/assets/App-DIsWPTJu.js                               77.66 kB │ gzip:  21.92 kB\r\ndist/assets/SettingsView-DnPpHLOo.js                     107.61 kB │ gzip:  26.14 kB\r\ndist/assets/index-daMHroPq.js                            194.19 kB │ gzip:  61.72 kB\r\ndist/assets/FileLibraryWorkspace-BkaPhhP9.js             404.62 kB │ gzip: 115.26 kB\r\ndist/assets/CommandModal-BHV2byEL.js                     484.21 kB │ gzip: 145.33 kB\r\n\r\n[INEFFECTIVE_DYNAMIC_IMPORT] node_modules/pdfjs-dist/build/pdf.mjs is dynamically imported by src/views/fileLibrary/preview/renderers/PdfPreviewRenderer.tsx but also statically imported by src/views/fileLibrary/preview/renderers/PdfPreviewRenderer.tsx, dynamic import will not move module into another chunk.\r\n\r\n\u001b[32m✓ built in 1.87s\u001b[39m\r\n> zen-canvas@0.1.40 build:native-preview-handler\r\n> node scripts/buildWindowsPreviewHandler.mjs\r\n\r\nwarning: linker stdout: D:\\a\\_temp\\issue-380-u1-worktrees-38201379732-1\\old-master\\src-tauri\\native\\target\\release\\deps\\rustcN9p9wA\\lib.def : warning LNK4104: export of symbol 'DllCanUnloadNow' should be PRIVATE␍\r\n         D:\\a\\_temp\\issue-380-u1-worktrees-38201379732-1\\old-master\\src-tauri\\native\\target\\release\\deps\\rustcN9p9wA\\lib.def : warning LNK4104: export of symbol 'DllGetClassObject' should be PRIVATE\r\n  |\r\n  = note: `#[warn(linker_messages)]` on by default\r\n\r\nwarning: `zen-canvas-windows-preview-handler` (lib) generated 1 warning\r\n    Finished `release` profile [optimized] target(s) in 0.23s\r\n[preview-handler] packaged production DLL: D:\\a\\_temp\\issue-380-u1-worktrees-38201379732-1\\old-master\\src-tauri\\native\\packaged\\zen_canvas_windows_preview_handler.dll\r\n   Compiling zen-canvas-tauri v0.1.40 (D:\\a\\_temp\\issue-380-u1-worktrees-38201379732-1\\old-master\\src-tauri)\r\n    Finished `release` profile [optimized] target(s) in 4m 13s\r\n       Built application at: D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe\r\n        Info Patching D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe with bundle type information: nsis\r\n        Info Verifying NSIS package\r\n Downloading https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip\r\n        Info validating hash\r\n        Info extracting NSIS\r\n Downloading https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll\r\n        Info validating hash\r\n        Info Target: x64\r\n     Running makensis to produce D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\bundle\\nsis\\Zen Canvas_0.1.40_x64-setup.exe\r\nError: label \"u1r_file_trace_6_had_error:\" already declared in function\r\nError in macro ZC_REQUIRE_PRODUCT_STRING on macroline 5\r\n!include: error in script: \"D:\\a\\_temp\\issue-380-u1-worktrees-38201379732-1\\old-master\\src-tauri\\windows\\installer-hooks.nsh\" on line 747\r\n!include: error in script: \"D:\\a\\_temp\\issue-380-u1-worktrees-38201379732-1\\old-master\\src-tauri\\windows\\installer-lifecycle-wrapper.nsh\" on line 17\r\nError in script \"D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\nsis\\x64\\installer.nsi\" on line 97 -- aborting creation process\r\nfailed to bundle project `The system cannot find the file specified. (os error 2)`\r\n       Error failed to bundle project `The system cannot find the file specified. (os error 2)`"
+    }
+  ]
+}

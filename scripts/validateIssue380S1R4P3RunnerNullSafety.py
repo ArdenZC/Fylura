@@ -20,10 +20,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BASE_HEAD = "740d99379c584589c92bd855f101e06858e8ee38"
 NULL_SAFETY_FREEZE_HEAD = "bfabd486bce84b7e5298276453dd01957049c91d"
-BOUNDED_GIT_FREEZE_HEAD = "ea8a6af7eff5ab44b33bf72d6b4fd8c884fde78b"
-BOUNDED_GIT_FREEZE_TREE = "a96fca4924d00a24c26c4916d6944ea44538d500"
-BOUNDED_GIT_RUNNER_BLOB = "0bd6ac658133f8308871534fa5e963b5d23f71b5"
-BOUNDED_GIT_RUNNER_SHA256 = "35f2a30a5fa9c096e87e67961d881f261805c4e2d3b3732dcea655e6a32e4b17"
+BOUNDED_GIT_FREEZE_HEAD = "6e0c108aa5beeadceea531e7632d3667f18f3890"
+BOUNDED_GIT_FREEZE_TREE = "1a566533f6cf6f3e1132d13cc4205ffa9a50cbe2"
+BOUNDED_GIT_RUNNER_BLOB = "c413395bb029956b264cbd91189a9ac093e64a85"
+BOUNDED_GIT_RUNNER_SHA256 = "fe9b62c1de6550a88fe74c1e2f09f72d178d652086f51f44b5b35c506e45d302"
 OLD_ACTIVATION_HEAD = "c474517ff2ae9fe91932c61468fbdf6e2baf28a2"
 OLD_RUNNER_HEAD = "0aa8be6d58fc0994b3be6aec2af8dc02318fcefb"
 OLD_RUNNER_BLOB = "1d11c3add3c0d1f45e7d7ac082d09c616cca51a1"
@@ -421,6 +421,8 @@ class BoundedGitCaptureContracts(unittest.TestCase):
         self.assertIn("$script:GitInvocations.Add([ordered]@{", self.capture_source)
         self.assertIn("exit_code = $capture.exit_code", self.capture_source)
         self.assertIn("kill_attempted = $capture.kill_attempted", self.capture_source)
+        self.assertIn("process_timeout_ms = $capture.process_timeout_ms", self.capture_source)
+        self.assertIn("termination_timeout_ms = $capture.termination_timeout_ms", self.capture_source)
         self.assertNotIn("$LASTEXITCODE", self.runner)
 
     def test_20_output_waits_are_bounded_and_result_reads_are_completion_guarded(self) -> None:

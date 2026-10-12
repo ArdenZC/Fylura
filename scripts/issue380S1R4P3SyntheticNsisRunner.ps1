@@ -126,7 +126,9 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
         launch_error = $null; process_error = $null; capture_error = $null; kill_error = $null; cleanup_error = $null
         kill_attempted = $false; kill_succeeded = $false; process_exit_confirmed = $false
         stdout_task_status = 'NOT_STARTED'; stderr_task_status = 'NOT_STARTED'
-        stdout_complete = $false; stderr_complete = $false; output_wait_timeout_ms = 5000
+        stdout_complete = $false; stderr_complete = $false
+        process_timeout_ms = [Math]::Max(1, $TimeoutSeconds * 1000); termination_timeout_ms = 5000
+        output_wait_timeout_ms = 5000
         post_close_wait_timeout_ms = 1000; stream_close_attempted = $false; stream_close_error = $null
         cleanup_completed = $false; status = 'INITIALIZING'
         stdout = [string]::Empty; stderr = [string]::Empty
@@ -178,8 +180,8 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
             $capture.kill_attempted = $true
             try { $process.Kill($true); $capture.kill_succeeded = $true } catch { $capture.kill_error = $_.Exception.ToString() }
             try {
-                $capture.process_exit_confirmed = $process.WaitForExit(5000)
-                if (-not $capture.process_exit_confirmed) { $capture.process_error = 'Git process tree did not exit within 5 seconds after termination.' }
+                $capture.process_exit_confirmed = $process.WaitForExit($capture.termination_timeout_ms)
+                if (-not $capture.process_exit_confirmed) { $capture.process_error = 'Git process tree did not exit within its bounded termination wait.' }
             } catch { $capture.process_error = $_.Exception.ToString() }
         }
     } catch {
@@ -200,7 +202,7 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
                     else { $capture.kill_error += "`n$killMessage" }
                 }
                 try {
-                    $capture.process_exit_confirmed = $process.WaitForExit(5000)
+                    $capture.process_exit_confirmed = $process.WaitForExit($capture.termination_timeout_ms)
                     if (-not $capture.process_exit_confirmed) {
                         $cleanupMessage = 'Git process tree remained alive after final bounded termination wait.'
                         if ($null -eq $capture.cleanup_error) { $capture.cleanup_error = $cleanupMessage }
@@ -320,7 +322,8 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
         kill_attempted = $capture.kill_attempted; kill_succeeded = $capture.kill_succeeded
         process_exit_confirmed = $capture.process_exit_confirmed; stdout_task_status = $capture.stdout_task_status
         stderr_task_status = $capture.stderr_task_status; stdout_complete = $capture.stdout_complete
-        stderr_complete = $capture.stderr_complete; output_wait_timeout_ms = $capture.output_wait_timeout_ms
+        stderr_complete = $capture.stderr_complete; process_timeout_ms = $capture.process_timeout_ms
+        termination_timeout_ms = $capture.termination_timeout_ms; output_wait_timeout_ms = $capture.output_wait_timeout_ms
         post_close_wait_timeout_ms = $capture.post_close_wait_timeout_ms; stream_close_attempted = $capture.stream_close_attempted
         stream_close_error = $capture.stream_close_error; cleanup_completed = $capture.cleanup_completed
         stdout = $capture.stdout; stderr = $capture.stderr

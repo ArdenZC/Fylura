@@ -1,4 +1,4 @@
-name: Issue 380 U1R NSIS and generation isolation gate
+name: Issue 380 U1R unresolved NSIS and same-path probes
 
 on:
   push:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   hosted-windows-u1r:
-    name: U1R exact NSIS first failure and same-path generation proof
+    name: U1R unresolved NSIS predicate and same-path generation proof
     runs-on: windows-latest
     timeout-minutes: 180
     steps:
@@ -50,7 +50,7 @@ jobs:
           U1_OLD_TREE: 009576241cd4e8e2ba12cc644a368314f599faa6
           U1_D1A_SHA: d260131f9d6ec354f2361e6c7460c79e62e38391
           U1_D1A_TREE: 4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69
-        run: ./scripts/issue380U1HostedWindows.ps1 -Mode U1R -EvidenceRoot "${{ runner.temp }}/issue-380-u1r-evidence-${{ github.run_id }}-${{ github.run_attempt }}"
+        run: ./scripts/issue380U1HostedWindows.ps1 -Mode U1R_FOCUS -EvidenceRoot "${{ runner.temp }}/issue-380-u1r-evidence-${{ github.run_id }}-${{ github.run_attempt }}"
 
       - name: Upload raw U1R evidence
         if: ${{ always() }}

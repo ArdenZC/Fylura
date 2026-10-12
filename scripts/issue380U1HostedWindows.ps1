@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$EvidenceRoot,
-    [ValidateSet("U1", "U1R")][string]$Mode = "U1"
+    [ValidateSet("U1", "U1R", "U1R_FOCUS")][string]$Mode = "U1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +20,7 @@ $taskRoot = Join-Path $env:RUNNER_TEMP "issue-380-u1-runtime-$env:GITHUB_RUN_ID-
 $global:U1OwnedInstallDirectory = $null
 $global:U1RVolumes = [Collections.Generic.List[object]]::new()
 $global:U1Evidence = [ordered]@{
-    contract = if ($Mode -eq "U1R") { "U1R focused installer diagnostics and same-path generation test; test-only; not a production fix" } else { "U1 frozen-candidate compatibility; test-only; not a production fix" }
+    contract = if ($Mode -like "U1R*") { "U1R focused installer diagnostics and same-path generation test; test-only; not a production fix" } else { "U1 frozen-candidate compatibility; test-only; not a production fix" }
     mode = $Mode
     u1Head = $u1Head
     u1Tree = $u1Tree
@@ -1691,7 +1691,7 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
     }
 }
 
-function Invoke-U1RSamePathAndDirectTests($OldCandidate, $D1ACandidate, [string]$PreparedRoot, [string]$SourceId, [string]$MarkerName, [string]$FixtureRoot) {
+function Invoke-U1RSamePathAndDirectTests($OldCandidate, $D1ACandidate, [string]$PreparedRoot, [string]$SourceId, [string]$MarkerName, [string]$FixtureRoot, [bool]$IncludeDirectFallback = $true) {
     $installDir = Join-Path $env:ProgramFiles "Zen Canvas"
     $exe = Join-Path $installDir "zen-canvas.exe"
     if (Get-CimInstance Win32_Service -Filter "Name='ZenCanvasGlobalIndex'" -ErrorAction SilentlyContinue) { throw "U1R same-path gate found an existing Service" }
@@ -1829,6 +1829,8 @@ function Invoke-U1RSamePathAndDirectTests($OldCandidate, $D1ACandidate, [string]
         Save-Evidence
     }
 
+    if (-not $IncludeDirectFallback) { return }
+
     $directTrace = Join-Path $taskRoot "u1r-direct-client.trace.log"
     $directApp = $null
     $direct = [ordered]@{ status = "UNVERIFIED_DIRECT_FALLBACK"; databasePath = Join-Path $directProfile "zen-canvas.sqlite3" }
@@ -1943,13 +1945,28 @@ try {
     $oldCandidate = Build-Candidate "old" $oldSha $oldTree $oldPath
     $d1aCandidate = Build-Candidate "d1a" $d1aSha $d1aTree $d1aPath
     Save-Evidence
-    if ($Mode -eq "U1R") {
+    if ($Mode -in @("U1R", "U1R_FOCUS")) {
         $global:U1Evidence.u1rInstaller = [ordered]@{ status = "UNVERIFIED_NOT_STARTED" }
         $global:U1Evidence.u1rSamePath = [ordered]@{ status = "UNVERIFIED_NOT_STARTED" }
         $global:U1Evidence.u1rDirectFallback = [ordered]@{ status = "UNVERIFIED_NOT_STARTED" }
+        if ($Mode -eq "U1R_FOCUS") {
+            $priorDirectEvidencePath = Join-Path $PSScriptRoot "../docs/research/evidence/issue-380-u1r/run-38193683826/u1-evidence.json"
+            if (-not (Test-Path -LiteralPath $priorDirectEvidencePath)) { throw "U1R focus mode requires the archived rich Direct fallback evidence from run 38193683826" }
+            $priorDirectEvidence = Get-Content -LiteralPath $priorDirectEvidencePath -Raw | ConvertFrom-Json
+            if ($priorDirectEvidence.u1rDirectFallback.status -ne "OBSERVED_LEGACY_DIRECT_FALLBACK_WITH_RICH_BASELINE") { throw "U1R focus mode found no accepted rich Direct fallback evidence in run 38193683826" }
+            $global:U1Evidence.u1rDirectFallback = [ordered]@{
+                status = $priorDirectEvidence.u1rDirectFallback.status
+                evidenceRun = 38193683826
+                evidenceJsonSha256 = (Get-FileHash -LiteralPath $priorDirectEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
+                statePreservation = $priorDirectEvidence.u1rDirectFallback.statePreservation
+                stateDelta = $priorDirectEvidence.u1rDirectFallback.stateDelta
+                rerun = $false
+            }
+        }
         $fixture = New-U1RRichFixture $oldCandidate
         try {
-            Invoke-U1RSamePathAndDirectTests $oldCandidate $d1aCandidate $fixture.baselineProfile $fixture.sourceId $fixture.markerName $fixture.fixtureRoot
+            $includeDirectFallback = $Mode -eq "U1R"
+            Invoke-U1RSamePathAndDirectTests $oldCandidate $d1aCandidate $fixture.baselineProfile $fixture.sourceId $fixture.markerName $fixture.fixtureRoot $includeDirectFallback
         } catch {
             $global:U1Evidence.u1rSamePath = [ordered]@{ status = "UNVERIFIED_TEST_HARNESS_FAILURE"; failure = $_.Exception.ToString() }
             Add-Failure "U1R-same-path-and-direct-fallback" $_.Exception.ToString()

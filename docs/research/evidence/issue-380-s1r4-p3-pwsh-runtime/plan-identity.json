@@ -1,0 +1,29 @@
+{
+  "task": "#380 S1R4-P3 PowerShell 7 bounded Git capture runtime plan",
+  "status": "S1R4-P3 POWERSHELL_RUNTIME_QUALIFICATION_PLAN_READY_FOR_OWNER_REVIEW",
+  "preparation_branch": "research/issue-380-s1r4-p3-git-runtime-plan",
+  "preparation_parent_head": "719c6c236b09980873eb8c214b09aaa16b505532",
+  "preparation_parent_tree": "2e5e3795c56131a9a6d76917592c70e2be2650a4",
+  "code_freeze_head": "af305adb8fba017dd9284a829b5101a209a9b4e2",
+  "code_freeze_tree": "9d7716add5fde99c6e797065f336e0d0cf86a510",
+  "runner_path": "scripts/issue380S1R4P3SyntheticNsisRunner.ps1",
+  "runner_blob": "c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa",
+  "runner_sha256": "92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece",
+  "historical_hosted_run": {
+    "run_id": "38276002263",
+    "attempt": 1,
+    "status": "FAILURE",
+    "mutable": false,
+    "rerun": false
+  },
+  "future_runtime_branch": "research/issue-380-s1r4-p3-git-runtime-once",
+  "future_activation_workflow": ".github/workflows/issue-380-s1r4-p3-git-runtime.yml",
+  "future_workflow_in_active_workflows_directory": false,
+  "hosted_runtime_executed": false,
+  "powershell_runtime_executed": false,
+  "full_runner_executed": false,
+  "nsis_downloaded_or_executed": false,
+  "registry_or_product_database_accessed": false,
+  "kill_cleanup_failure_injection": "UNPROVEN_WITH_FROZEN_DIRECT_PROCESS_IMPLEMENTATION",
+  "u2_production_gate": "NO_GO"
+}

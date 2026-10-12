@@ -1,0 +1,19 @@
+test_01_freeze_and_research_parent_identities (__main__.RuntimePlanContracts.test_01_freeze_and_research_parent_identities) ... ok
+test_02_allowed_paths_and_no_active_workflow (__main__.RuntimePlanContracts.test_02_allowed_paths_and_no_active_workflow) ... ok
+test_03_frozen_sources_and_historical_workflow_are_unchanged (__main__.RuntimePlanContracts.test_03_frozen_sources_and_historical_workflow_are_unchanged) ... ok
+test_04_extraction_uses_the_four_frozen_functions_without_rewrite (__main__.RuntimePlanContracts.test_04_extraction_uses_the_four_frozen_functions_without_rewrite) ... ok
+test_05_real_git_and_wrapper_matrix_is_explicit (__main__.RuntimePlanContracts.test_05_real_git_and_wrapper_matrix_is_explicit) ... ok
+test_06_error_paths_cannot_return_a_runtime_pass (__main__.RuntimePlanContracts.test_06_error_paths_cannot_return_a_runtime_pass) ... ok
+test_07_process_ownership_and_cleanup_are_scoped (__main__.RuntimePlanContracts.test_07_process_ownership_and_cleanup_are_scoped) ... ok
+test_08_wait_budgets_are_not_called_a_total_upper_bound (__main__.RuntimePlanContracts.test_08_wait_budgets_are_not_called_a_total_upper_bound) ... ok
+test_09_inactive_workflow_has_one_narrow_hosted_job (__main__.RuntimePlanContracts.test_09_inactive_workflow_has_one_narrow_hosted_job) ... ok
+test_10_workflow_byte_policy_and_failure_evidence_contract (__main__.RuntimePlanContracts.test_10_workflow_byte_policy_and_failure_evidence_contract) ... ok
+test_11_current_workflow_triggers_do_not_match_future_branch (__main__.RuntimePlanContracts.test_11_current_workflow_triggers_do_not_match_future_branch) ... ok
+test_12_history_and_not_run_boundaries_are_explicit (__main__.RuntimePlanContracts.test_12_history_and_not_run_boundaries_are_explicit) ... ok
+test_13_sha_manifest_matches_all_review_payload_files (__main__.RuntimePlanContracts.test_13_sha_manifest_matches_all_review_payload_files) ... ok
+test_14_workflow_raw_hash_and_git_blob_pins_match_test_tools (__main__.RuntimePlanContracts.test_14_workflow_raw_hash_and_git_blob_pins_match_test_tools) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 4.039s
+
+OK

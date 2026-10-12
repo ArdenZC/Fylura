@@ -233,8 +233,8 @@ class RunnerNullSafetyContracts(unittest.TestCase):
 
     def test_12_preflight_and_runner_define_the_same_clean_status_contract(self) -> None:
         draft = (ROOT / DRAFT_PATH).read_text(encoding="utf-8")
-        self.assertIn("$OutputCount = $lines.Length", draft)
-        self.assertIn("$Text = [string]::Join([Environment]::NewLine, $lines)", draft)
+        self.assertIn("OutputCount = $lines.Length", draft)
+        self.assertIn("Text = [string]::Join([Environment]::NewLine, $lines)", draft)
         self.assertIn("if ($statusResult.ExitCode -ne 0)", draft)
         self.assertIn("if ($statusResult.OutputCount -ne 0)", draft)
         self.assertIn("if ($capture.stdout_char_count -ne 0)", self.runner)

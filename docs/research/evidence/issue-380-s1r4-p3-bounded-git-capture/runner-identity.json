@@ -1,0 +1,62 @@
+{
+  "phase": "S1R4-P3 bounded Git output capture research candidate",
+  "status": "BOUNDED_GIT_CAPTURE_READY_FOR_OWNER_REVIEW",
+  "accepted_research_base": {
+    "head": "bfabd486bce84b7e5298276453dd01957049c91d",
+    "tree": "3c00d21a3f4206256e2c542b5ebe16ce4039496d",
+    "branch": "research/issue-380-s1r4-p3-runner-null-safety-candidate"
+  },
+  "candidate_freeze_head": "af305adb8fba017dd9284a829b5101a209a9b4e2",
+  "candidate_freeze_tree": "9d7716add5fde99c6e797065f336e0d0cf86a510",
+  "candidate_freeze_parent": "6e0c108aa5beeadceea531e7632d3667f18f3890",
+  "runner_path": "scripts/issue380S1R4P3SyntheticNsisRunner.ps1",
+  "runner_git_blob": "c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa",
+  "runner_sha256": "92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece",
+  "runner_previous_candidate": {
+    "source_head": "21383e774c692da59a9f6877cebed2acd9faee38",
+    "runner_git_blob": "2a80ac621f3cd0e9dd3386bb3488a362df67fdcf",
+    "runner_sha256": "5aaeff4dc7a78362b1caea21927c3a07180d62548180d09c37cab2559616f176"
+  },
+  "git_capture_deadlines_ms": {
+    "process": 20000,
+    "process_tree_termination": 5000,
+    "stdout_and_stderr_drain_concurrent": 5000,
+    "post_stream_close_drain": 1000
+  },
+  "planned_activation": {
+    "branch": "research/issue-380-s1r4-p3-runner-null-safety-activation",
+    "workflow_path": ".github/workflows/issue-380-s1r4-p3-bounded-git-capture.yml",
+    "parent": "candidate_freeze_head",
+    "commit_shape": "one direct child; diff adds only workflow_path",
+    "trigger": "push to branch AND workflow_path only",
+    "attempt": 1,
+    "permissions": {
+      "contents": "read"
+    },
+    "not_authorized_yet": true
+  },
+  "historical_immutable_evidence": {
+    "activation_head": "c474517ff2ae9fe91932c61468fbdf6e2baf28a2",
+    "run_id": "38276002263",
+    "attempt": 1,
+    "artifact_id": "11758978213",
+    "artifact_sha256": "5e30fdfe11113444ef8663bbb78127ab4d1e1ca221bc2b0eda84aa206ff31d2d"
+  },
+  "frozen_original_runner": {
+    "source_commit": "0aa8be6d58fc0994b3be6aec2af8dc02318fcefb",
+    "git_blob": "1d11c3add3c0d1f45e7d7ac082d09c616cca51a1",
+    "sha256": "c47686d36f19a0732c8aafc2ad502f96e20e6ce16e9d443e67428f76568292cd",
+    "modified": false
+  },
+  "validation": {
+    "model_and_static_contracts": 24,
+    "powershell_parser": "Tree-sitter static parse; no syntax nodes reported as ERROR or missing",
+    "powershell_7_runtime": "NOT RUN; pwsh unavailable in the Cloud environment",
+    "hosted_windows": "NOT RUN / NO-GO",
+    "nsis_and_product_execution": "NOT RUN / NO-GO"
+  },
+  "authorization": {
+    "hosted_nsis": "NO-GO",
+    "u2_production": "NO-GO"
+  }
+}

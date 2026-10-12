@@ -1,0 +1,7 @@
+runner_tree_sitter=PASS
+yaml_parse=PASS jobs=1 trigger=['push']
+branch=research/issue-380-s1r4-p3-runner-null-safety-activation path=.github/workflows/issue-380-s1r4-p3-bounded-git-capture.yml permissions={'contents': 'read'}
+windows=windows-2022 timeout_minutes=15 workflow_dispatch=absent
+embedded_powershell_static_parse=PASS blocks=7
+steps=Create private evidence root and record event identity | Set and verify raw Git checkout byte policy | Verify P3, P2, P1, path, and HKCU preconditions | Run P3 isolated synthetic Runner and capture raw process streams | Finalize evidence and verify cleanup (fail closed) | Independently validate safe evidence upload eligibility | Enforce one-shot synthetic result
+tree_sitter=0.25.2 tree_sitter_powershell=0.26.4 pyyaml=6.0.3

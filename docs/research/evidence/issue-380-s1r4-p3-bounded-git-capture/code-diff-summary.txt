@@ -1,0 +1,22 @@
+Accepted research base:
+  HEAD: bfabd486bce84b7e5298276453dd01957049c91d
+  Tree: 3c00d21a3f4206256e2c542b5ebe16ce4039496d
+
+Code-freeze commit:
+  HEAD: af305adb8fba017dd9284a829b5101a209a9b4e2
+  Tree: 9d7716add5fde99c6e797065f336e0d0cf86a510
+  Parent: 6e0c108aa5beeadceea531e7632d3667f18f3890
+  Runner Blob: c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa
+  Runner SHA-256: 92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece
+
+Code candidate diff range: bfabd486bce84b7e5298276453dd01957049c91d..af305adb8fba017dd9284a829b5101a209a9b4e2
+Code candidate files:
+  M scripts/issue380S1R4P3SyntheticNsisRunner.ps1
+  M scripts/validateIssue380S1R4P3RunnerNullSafety.py
+
+The Runner change is restricted to Invoke-GitCapture and its three admission wrappers. The old twelve model/static contracts remain. No .github/workflows file is changed or activated. No production Coordinator, Service, IPC, Schema, migration, product installer, or PR #386 file is changed.
+
+Diff statistics (accepted base..code freeze):
+  scripts/issue380S1R4P3SyntheticNsisRunner.ps1: 203 insertions, 78 deletions
+  scripts/validateIssue380S1R4P3RunnerNullSafety.py: 300 insertions, 2 deletions
+  total: 503 insertions, 80 deletions

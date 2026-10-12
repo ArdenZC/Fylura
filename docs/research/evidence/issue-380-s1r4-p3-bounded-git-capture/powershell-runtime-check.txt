@@ -1,0 +1,6 @@
+PowerShell 7 availability check
+Host shell: bash in the Codex Cloud environment
+`command -v pwsh`: no executable found
+`command -v powershell`: no executable found
+PowerShell runtime validation: NOT RUN
+No Windows/PowerShell environment was installed or configured.

@@ -1,0 +1,10 @@
+b82a968787c5d29300de552d60570e0493788856c2780aa04addd524f83d4295  docs/research/ISSUE-380-S1R4-P3-BOUNDED-GIT-CAPTURE-WORKFLOW.md
+3be4c373261bba20ff6cc7a8c278d297d775fdda123595f5960fd4318c26cad5  docs/research/ISSUE-380-S1R4-P3-BOUNDED-GIT-CAPTURE.md
+0f421340bdd1845960263a275a47684700b8536956480fae5c41de812ff96608  docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/code-diff-summary.txt
+f6022d758cba2e05759433c6dbbd4a941152835d25364a40de227db5df539e4f  docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/powershell-runtime-check.txt
+e072ad7a59205ad949297e5a7b46fabc10254fd2b9bb3ae237b21248da17f6a6  docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/push-trigger-audit.txt
+a4c88fae7ecaba4c059c5862ca200e154a1ef584e14af673bc210e86bf68af14  docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/python-contract-tests.txt
+2ef30655f74d8ccd27a11f365478e54d1fb21e7b891f7436537597bec067da5d  docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/runner-identity.json
+13401b629a49c89a08b161930b3b41119b581a1f643aadbb73e55f2ba4fd8ace  docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/static-parse.txt
+92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece  scripts/issue380S1R4P3SyntheticNsisRunner.ps1
+f145ee90b4f8598250a835d5994cc3d5b45d20c88c5423e6207c8f63eb20699c  scripts/validateIssue380S1R4P3RunnerNullSafety.py

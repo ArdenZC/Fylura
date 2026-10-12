@@ -1,0 +1,10 @@
+current research publication branch:
+  branch=research/issue-380-s1r4-p3-bounded-git-capture
+  changed_paths=['scripts/issue380S1R4P3SyntheticNsisRunner.ps1', 'scripts/validateIssue380S1R4P3RunnerNullSafety.py', 'docs/research/ISSUE-380-S1R4-P3-BOUNDED-GIT-CAPTURE.md', 'docs/research/ISSUE-380-S1R4-P3-BOUNDED-GIT-CAPTURE-WORKFLOW.md', 'docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/runner-identity.json']
+  currently_matching_push_workflows=none
+future one-shot activation:
+  branch=research/issue-380-s1r4-p3-runner-null-safety-activation
+  changed_paths=['.github/workflows/issue-380-s1r4-p3-bounded-git-capture.yml']
+  currently_matching_push_workflows=none
+No workflow was activated or executed by this audit.
+Future activation is only a design proposal; a matching workflow does not currently exist.

@@ -1,0 +1,163 @@
+name: Issue 380 S1 Synthetic NSIS Trace Probe
+
+on:
+  push:
+    branches:
+      - research/issue-380-s1-synthetic-nsis-runtime-trace
+    paths:
+      - .github/workflows/issue-380-s1-synthetic-nsis-probe.yml
+      - scripts/issue380S1SyntheticNsisRunner.ps1
+      - scripts/issue380S0NsisObservabilityProbe.nsi
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-380-s1-synthetic-nsis-one-shot
+  cancel-in-progress: false
+
+jobs:
+  synthetic-nsis-runtime-probe:
+    name: Synthetic NSIS runtime trace persistence
+    if: github.repository == 'ArdenZC/Zen-Canvas' && github.ref == 'refs/heads/research/issue-380-s1-synthetic-nsis-runtime-trace'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact S1 candidate and frozen S0 history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Static identity and scope preflight
+        id: preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $s0 = '1f4951f3c93b2eb549d159fed2dd288992c625c8'
+          $expectedRef = 'refs/heads/research/issue-380-s1-synthetic-nsis-runtime-trace'
+          if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas') { throw "Unexpected repository: $env:GITHUB_REPOSITORY" }
+          if ($env:GITHUB_REF -ne $expectedRef) { throw "Unexpected ref: $env:GITHUB_REF" }
+          if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw "One-shot gate refuses run attempt $env:GITHUB_RUN_ATTEMPT" }
+          $head = (& git rev-parse HEAD).Trim()
+          $tree = (& git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -ne $env:GITHUB_SHA) { throw "Checkout identity mismatch: head=$head workflow=$env:GITHUB_SHA" }
+          & git merge-base --is-ancestor $s0 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen S0 commit is not an ancestor of this candidate.' }
+          $probe = 'scripts/issue380S0NsisObservabilityProbe.nsi'
+          $expectedBlob = (& git rev-parse "${s0}:$probe").Trim()
+          $actualBlob = (& git hash-object $probe).Trim()
+          if ($LASTEXITCODE -ne 0 -or $expectedBlob -ne $actualBlob) { throw 'The S0 Probe blob changed.' }
+          $report = [ordered]@{
+            repository = $env:GITHUB_REPOSITORY
+            ref = $env:GITHUB_REF
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            head = $head
+            tree = $tree
+            frozen_s0_head = $s0
+            probe_blob = $actualBlob
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+            preflight = 'PASS'
+          }
+          $path = Join-Path $env:RUNNER_TEMP 'issue380-s1-preflight.json'
+          [System.IO.File]::WriteAllText($path, (ConvertTo-Json $report -Depth 5) + "`n", [System.Text.UTF8Encoding]::new($false))
+
+      - name: Install pinned NSIS compiler package
+        id: install-nsis
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $arguments = @('install', 'nsis', '--version=3.11.0', '--yes', '--no-progress', '--limit-output')
+          & choco @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run synthetic stage and Abort scenarios
+        id: probe
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1-evidence'
+          & ./scripts/issue380S1SyntheticNsisRunner.ps1 -OutputRoot $outputRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Finalize run metadata and evidence hashes
+        if: always()
+        shell: pwsh
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          NSIS_INSTALL_OUTCOME: ${{ steps.install-nsis.outcome }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'issue380-s1-evidence'
+          if (-not (Test-Path -LiteralPath $root)) { New-Item -ItemType Directory -Path $root | Out-Null }
+          $preflight = Join-Path $env:RUNNER_TEMP 'issue380-s1-preflight.json'
+          if (Test-Path -LiteralPath $preflight) { Copy-Item -LiteralPath $preflight -Destination $root -Force }
+          $metadata = [ordered]@{
+            repository = $env:GITHUB_REPOSITORY
+            ref = $env:GITHUB_REF
+            sha = $env:GITHUB_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            job_name = 'Synthetic NSIS runtime trace persistence'
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+            preflight_outcome = $env:PREFLIGHT_OUTCOME
+            nsis_install_outcome = $env:NSIS_INSTALL_OUTCOME
+            probe_outcome = $env:PROBE_OUTCOME
+            scope = 'Synthetic HKCU probe only; no Zen Canvas installer, Service, product Registry, database, or app process.'
+          }
+          [System.IO.File]::WriteAllText((Join-Path $root 'workflow-run.json'), (ConvertTo-Json $metadata -Depth 5) + "`n", [System.Text.UTF8Encoding]::new($false))
+          $sumLines = [System.Collections.Generic.List[string]]::new()
+          foreach ($file in (Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName)) {
+            if ($file.Name -eq 'SHA256SUMS') { continue }
+            $relative = $file.FullName.Substring($root.Length).TrimStart('\','/').Replace('\','/')
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sumLines.Add("$hash  $relative")
+          }
+          [System.IO.File]::WriteAllText((Join-Path $root 'SHA256SUMS'), ($sumLines -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+
+      - name: Upload raw synthetic probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-380-s1-synthetic-nsis-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/issue380-s1-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Clean synthetic HKCU key and task temporary directories
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $keyPath = 'Software\ZenCanvasS0Harness'
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1-evidence'
+          $ownershipMarker = Join-Path $evidenceRoot 'synthetic-key-cleanup-owned.txt'
+          $canDelete = Test-Path -LiteralPath $ownershipMarker -PathType Leaf
+          if ($canDelete) {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
+            try { $base.DeleteSubKeyTree($keyPath, $false) } finally { $base.Dispose() }
+          }
+          foreach ($path in @($evidenceRoot, (Join-Path $env:RUNNER_TEMP 'issue380-s1-run'), (Join-Path $env:RUNNER_TEMP 'issue380-s1-preflight.json'))) {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+          }
+
+      - name: Enforce single-run result
+        if: always()
+        shell: pwsh
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          NSIS_INSTALL_OUTCOME: ${{ steps.install-nsis.outcome }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+        run: |
+          if ($env:PREFLIGHT_OUTCOME -ne 'success' -or $env:NSIS_INSTALL_OUTCOME -ne 'success' -or $env:PROBE_OUTCOME -ne 'success') {
+            Write-Error "S1 one-shot probe failed: preflight=$env:PREFLIGHT_OUTCOME nsis=$env:NSIS_INSTALL_OUTCOME probe=$env:PROBE_OUTCOME"
+            exit 1
+          }

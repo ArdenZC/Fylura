@@ -1,0 +1,748 @@
+{
+  "baseline_counterexamples": {
+    "direct_s4_without_s5_capability": {
+      "bypass_confirmed": true,
+      "d4s5_publish_capability": false,
+      "effective_sources": [],
+      "executed_publication_sql": [
+        "BEGIN IMMEDIATE",
+        "INSERT INTO d4s4_manifest_authority_seals\n                   (manifest_id,authority_revision,root_count,root_map_digest,member_count,\n                    member_digest,source_count,source_evidence_digest,sealed_at)\n                   VALUES('manifest-a',1,1,'0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78',1,'1e76574179aadcf6bd8a0f3039a73de72ba77a7a0db55586e1d78f5e2a261218',1,'f4af1de4004617b9add770ca0089eeb509697c0c8b4f2d6d4eef1d8522405a89',1800000000)",
+        "INSERT INTO d4s4_manifest_root_evidence\n                       (manifest_id,root_id,generation_id,root_revision,watcher_revision,\n                        normalized_path,source_kind,enabled,health_status,needs_reconciliation)\n                       VALUES('manifest-a','root-a','gen-a',0,0,'/root','file_library',1,'healthy',0)",
+        "INSERT INTO d4s4_manifest_source_evidence\n                       (manifest_id,source_id,path_entry_id,source_revision,source_status,\n                        identity_confidence,physical_identity_id,identity_epoch,\n                        platform_file_identity,physical_evidence_digest,path_evidence_digest,\n                        claim_ids_json,evidence_commitment)\n                       VALUES('manifest-a','source-a','entry-a-1',2,'observed','native_verified','physical-a','observed-epoch-1','os-id-a','e628b55fccfebb9e4dd70be0a3851dab06a5adfee963fc48b7df6b79088607d7','0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd','[]','199dc8d4432ca22aa1e1c33646772056a523fb88330a508c2a3e1bbf30981a19')",
+        "UPDATE source_generations SET status='published' WHERE generation_id='gen-a' AND status='complete'",
+        "UPDATE visibility_manifests SET status='published' WHERE manifest_id='manifest-a' AND status='ready'",
+        "INSERT INTO active_visibility_pointer(singleton_id,manifest_id,revision,updated_at) VALUES(1,'manifest-a',1,1800000000)",
+        "COMMIT"
+      ],
+      "manifest_status": "published",
+      "pointer": [
+        "manifest-a",
+        1
+      ],
+      "preflight_source_count": 1,
+      "projection_rows": 1,
+      "root_seals": 0,
+      "scenario": "direct D4-S4 trusted_publish with D4-S5 publish capability false",
+      "source_seals": 0
+    },
+    "partial_seals_can_still_commit": {
+      "d4s5_publish_capability_after_return": false,
+      "effective_sources": [
+        "source-a"
+      ],
+      "executed_publication_sql": [
+        "BEGIN IMMEDIATE",
+        "INSERT INTO d4s4_manifest_authority_seals\n                   (manifest_id,authority_revision,root_count,root_map_digest,member_count,\n                    member_digest,source_count,source_evidence_digest,sealed_at)\n                   VALUES('manifest-a',1,2,'5f3dfd86222aba6c715ffe251b4113add44782261ad48ec2d4b7915cd08f38d3',2,'75e53695d9b3c9f88466fb4e746acf8469b1bfc2097c52ea67d567962182c3f8',1,'674662d8495a8431f0a2618489cc32fe60e1f49bd6b7f0fb98656795e01fbb2a',1800000000)",
+        "INSERT INTO d4s4_manifest_root_evidence\n                       (manifest_id,root_id,generation_id,root_revision,watcher_revision,\n                        normalized_path,source_kind,enabled,health_status,needs_reconciliation)\n                       VALUES('manifest-a','root-a','gen-a',0,0,'/root-a','file_library',1,'healthy',0)",
+        "INSERT INTO d4s4_manifest_root_evidence\n                       (manifest_id,root_id,generation_id,root_revision,watcher_revision,\n                        normalized_path,source_kind,enabled,health_status,needs_reconciliation)\n                       VALUES('manifest-a','root-b','gen-b',0,0,'/root-b','file_library',1,'healthy',0)",
+        "INSERT INTO d4s4_manifest_source_evidence\n                       (manifest_id,source_id,path_entry_id,source_revision,source_status,\n                        identity_confidence,physical_identity_id,identity_epoch,\n                        platform_file_identity,physical_evidence_digest,path_evidence_digest,\n                        claim_ids_json,evidence_commitment)\n                       VALUES('manifest-a','source-a','entry-a-1',2,'observed','native_verified','physical-a','observed-epoch-1','os-id-a','e628b55fccfebb9e4dd70be0a3851dab06a5adfee963fc48b7df6b79088607d7','0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd','[]','6bfa383032ab704d47bfdedf1c65e26ac13e995709708b44b5a92e445c0a12ca')",
+        "UPDATE source_generations SET status='published' WHERE generation_id='gen-a' AND status='complete'",
+        "UPDATE source_generations SET status='published' WHERE generation_id='gen-b' AND status='complete'",
+        "UPDATE visibility_manifests SET status='published' WHERE manifest_id='manifest-a' AND status='ready'",
+        "INSERT INTO active_visibility_pointer(singleton_id,manifest_id,revision,updated_at) VALUES(1,'manifest-a',1,1800000000)",
+        "COMMIT"
+      ],
+      "expected_member_count": 2,
+      "expected_sources": [
+        "source-a",
+        "source-b"
+      ],
+      "manifest_status": "published",
+      "partial_commit_confirmed": true,
+      "pointer": [
+        "manifest-a",
+        1
+      ],
+      "projection_rows": 2,
+      "returned_source_evidence_count": 1,
+      "root_seals": 2,
+      "scenario": "trusted helper receives one omitted source-evidence row",
+      "source_seals": 1
+    }
+  },
+  "frozen_base": {
+    "head": "59e71da8e37dc7b1f1828b71af06596d178e5611",
+    "tree": "9439b7264c34130f5716e482a35fffc0b225ce01"
+  },
+  "input_sha256": {
+    "d4s2_candidate_sql_sha256": "df3fc906526823c47c5b1236ead105d2529163766c873e8acd693760ad65002f",
+    "d4s3_oracle_sql_sha256": "1342405473a3d0b09eb45a1973121207c3f168c49afb8b53860f4ba2c27845ba",
+    "d4s3_protection_sql_sha256": "193c0859f6a156d7fcbb36965c88d002aef68de5d8aa8519c29ab73053ae6074",
+    "d4s3_runner_sha256": "ce422284c99ed0abc6476d3489b537ab5572b8eb6efbb682fdcd7b057face107",
+    "d4s4_protection_sql_sha256": "3c8db1eddfec4ce0456d6bab7103c3e83133c307b77fd90f0bc85361d9825360",
+    "d4s4_runner_sha256": "f9959547f9d8062d69526c6c47d3cde4d8c25616fe16ae98494ae066bea17f6e",
+    "d4s5_prototype_sql_sha256": "46e640d12d5a472355d5dc43d303461fc0fcad4d7ba96f07fa7ac5d4cb529ac1",
+    "d4s5_runner_sha256": "c4e1f05fefac8e9df5c2576322494ed3152345d52bf6d84010057b7152bd34a8",
+    "d4s6_fence_sql_sha256": "a79f5fc4a4d08e747faf0c28ba2773d897d9ed32cc53c64ea3480e8a40f93d14",
+    "d4s6_runner_sha256": "1d301b7044f3115af63c5615b84707564f32357fa50a76e7fc72fa2db3622f9e",
+    "schema37_ddl_sha256": "b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5"
+  },
+  "phase": "D4-S6 baseline counterexamples and fenced publication/cursor research",
+  "preserved_d4s5_regressions": {
+    "d4s2_assertion_groups": 15,
+    "d4s3_dml_guards": 16,
+    "d4s3_failure_counterexamples": 7,
+    "d4s3_invalid_publication_cases": 4,
+    "d4s4_transitive_mutations_blocked": 11,
+    "d4s5_contracts": "unchanged D4-S5 harness executed and passed",
+    "independent_source_identity": {
+      "global_clock_view": [],
+      "global_revision_delta": 1,
+      "old_cursor_rejected": true,
+      "pointer_unchanged": true,
+      "scoped_sources": [
+        "source-b"
+      ],
+      "search_a": [],
+      "search_b": [
+        [
+          "source-b",
+          "visiblemarker.txt",
+          "/root-b/visible-marker.txt"
+        ]
+      ],
+      "source_authority_revisions": [
+        [
+          "source-a",
+          2
+        ],
+        [
+          "source-b",
+          1
+        ]
+      ]
+    },
+    "overlapping_roots": {
+      "legacy_global_clock_view_after_root_a_change": [],
+      "members_after_root_a_watcher_change": [
+        [
+          "root-b",
+          "source-shared",
+          "entry-shared-1"
+        ]
+      ],
+      "members_after_root_b_watcher_change": [],
+      "members_before": [
+        [
+          "root-a",
+          "source-shared",
+          "entry-shared-1"
+        ],
+        [
+          "root-b",
+          "source-shared",
+          "entry-shared-1"
+        ]
+      ],
+      "old_manifest_retained": true,
+      "root_revision_pairs_after_root_a_change": [
+        [
+          "root-b",
+          1,
+          1
+        ]
+      ],
+      "search_after_a": [
+        [
+          "source-shared",
+          "overlapmarker.txt",
+          "/shared/nested/overlap-marker.txt"
+        ]
+      ],
+      "search_after_b": [],
+      "shared_file_tag_count_retained": 1,
+      "shared_file_user_context_retained": "owner-note-shared",
+      "shared_path_and_physical_evidence_still_match": 1,
+      "shared_source_hidden_after_last_root_generation_drops_it": true,
+      "shared_source_id": "source-shared",
+      "successor_manifest_current_sources": [
+        "source-other-b"
+      ]
+    },
+    "overlapping_shared_identity": {
+      "current_sources": [
+        "source-companion"
+      ],
+      "old_cursor_rejected": true,
+      "root_members_after_shared_source_identity_invalid": [
+        [
+          "root-b",
+          "source-companion",
+          "entry-companion-1"
+        ]
+      ],
+      "root_members_before": [
+        [
+          "root-a",
+          "source-same",
+          "entry-same-1"
+        ],
+        [
+          "root-b",
+          "source-companion",
+          "entry-companion-1"
+        ],
+        [
+          "root-b",
+          "source-same",
+          "entry-same-1"
+        ]
+      ],
+      "search_independent_root_b_file": [
+        [
+          "source-companion",
+          "companionmarker.txt",
+          "/shared/nested/companion-marker.txt"
+        ]
+      ],
+      "search_shared_file": [],
+      "shared_source_before": "source-same",
+      "shared_source_revision": 2,
+      "unqualified_projection_rows": [
+        [
+          "source-same",
+          "entry-same-1"
+        ]
+      ]
+    },
+    "revoke_failure_injection": {
+      "all_state_equal_to_pretransaction": true,
+      "failure_points": [
+        {
+          "error": "after_begin",
+          "injected_at": "after_begin",
+          "rolled_back_completely": true
+        },
+        {
+          "error": "after_source_update",
+          "injected_at": "after_source_update",
+          "rolled_back_completely": true
+        },
+        {
+          "error": "after_revoke_insert",
+          "injected_at": "after_revoke_insert",
+          "rolled_back_completely": true
+        },
+        {
+          "error": "before_commit",
+          "injected_at": "before_commit",
+          "rolled_back_completely": true
+        },
+        {
+          "error": "FOREIGN KEY constraint failed",
+          "injected_at": "commit_failure",
+          "rolled_back_completely": true
+        }
+      ]
+    },
+    "revoke_reader_reconnect": {
+      "durable_event_state": {
+        "authority_revision": 2,
+        "claim_retained": 1,
+        "event_rows": [
+          [
+            "claim-revoke-source-claim",
+            "source",
+            "source-claim",
+            1,
+            2,
+            4
+          ]
+        ],
+        "legacy_global_clock_delta": 2,
+        "manifest_seal_retained": true,
+        "pointer_unchanged": true,
+        "revocation_count": 1,
+        "source_revision": 4,
+        "user_context_retained": "owner-note-claim",
+        "user_tag_retained": 1
+      },
+      "event_after_reopen": [
+        [
+          "claim-revoke-source-claim",
+          1,
+          2,
+          4
+        ]
+      ],
+      "foreign_key_check": [],
+      "independent_reader_before_commit": [
+        "source-claim"
+      ],
+      "independent_reader_during_uncommitted_writer": [
+        "source-claim"
+      ],
+      "integrity_check": "ok",
+      "reader_after_snapshot_restart": [],
+      "reader_before_close_after_restart": [],
+      "reopened_current_sources": [],
+      "same_reader_snapshot_after_writer_commit": [
+        "source-claim"
+      ],
+      "source_authority_revision_advanced_once": true,
+      "source_revision_advanced_once": true
+    },
+    "root_scoped_false_hide": {
+      "fresh_cursor_matches": true,
+      "global_clock_before_after": [
+        1,
+        2
+      ],
+      "legacy_global_clock_view_after_root_a_watcher_change": [],
+      "old_cursor_rejected": true,
+      "old_union_projection_after_root_a_watcher_change": [
+        "source-a",
+        "source-b"
+      ],
+      "pointer_unchanged": true,
+      "projection_rows_without_authority": [
+        [
+          "source-a",
+          "entry-a-1"
+        ]
+      ],
+      "scoped_current_roots": [
+        "root-b"
+      ],
+      "scoped_current_sources": [
+        "source-b"
+      ],
+      "scoped_root_revision_event": [
+        [
+          "watch-root-a-1",
+          "root",
+          "root-a",
+          1,
+          2
+        ]
+      ],
+      "search_invalid_root_a": [],
+      "search_unaffected_root_b": [
+        [
+          "source-b",
+          "visiblemarker.txt",
+          "/root-b/visible-marker.txt"
+        ]
+      ]
+    },
+    "same_path_reuse": {
+      "current_sources": [
+        "source-new"
+      ],
+      "new_context": "",
+      "new_name_fts_results": [
+        [
+          "source-new",
+          "newmarker.txt",
+          "/reuse/item.txt"
+        ]
+      ],
+      "new_source_file": [
+        "source-new",
+        "file-new"
+      ],
+      "new_tag_count": 0,
+      "old_context": "owner-note-old",
+      "old_history_retained": 1,
+      "old_manifest_retained": true,
+      "old_name_fts_results": [],
+      "old_source_file": [
+        "source-old",
+        "file-old"
+      ],
+      "old_tag_count": 1,
+      "same_path": true
+    }
+  },
+  "publication_fence_and_cursor": {
+    "blocked_legacy_s4_entry": {
+      "after": {
+        "d4s4_seal_count": 0,
+        "effective_sources": [],
+        "generation_statuses": [
+          [
+            "gen-a",
+            "complete"
+          ]
+        ],
+        "manifest_status": "ready",
+        "pointer": null,
+        "root_seal_count": 0,
+        "source_seal_count": 0
+      },
+      "before_equals_after": true,
+      "executed_publication_sql_before_abort": [
+        "BEGIN IMMEDIATE",
+        "INSERT INTO d4s4_manifest_authority_seals\n                   (manifest_id,authority_revision,root_count,root_map_digest,member_count,\n                    member_digest,source_count,source_evidence_digest,sealed_at)\n                   VALUES('manifest-a',1,1,'0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78',1,'1e76574179aadcf6bd8a0f3039a73de72ba77a7a0db55586e1d78f5e2a261218',1,'f4af1de4004617b9add770ca0089eeb509697c0c8b4f2d6d4eef1d8522405a89',1800000000)",
+        "INSERT INTO d4s4_manifest_root_evidence\n                       (manifest_id,root_id,generation_id,root_revision,watcher_revision,\n                        normalized_path,source_kind,enabled,health_status,needs_reconciliation)\n                       VALUES('manifest-a','root-a','gen-a',0,0,'/root','file_library',1,'healthy',0)",
+        "INSERT INTO d4s4_manifest_source_evidence\n                       (manifest_id,source_id,path_entry_id,source_revision,source_status,\n                        identity_confidence,physical_identity_id,identity_epoch,\n                        platform_file_identity,physical_evidence_digest,path_evidence_digest,\n                        claim_ids_json,evidence_commitment)\n                       VALUES('manifest-a','source-a','entry-a-1',2,'observed','native_verified','physical-a','observed-epoch-1','os-id-a','e628b55fccfebb9e4dd70be0a3851dab06a5adfee963fc48b7df6b79088607d7','0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd','[]','199dc8d4432ca22aa1e1c33646772056a523fb88330a508c2a3e1bbf30981a19')",
+        "UPDATE source_generations SET status='published' WHERE generation_id='gen-a' AND status='complete'",
+        "UPDATE visibility_manifests SET status='published' WHERE manifest_id='manifest-a' AND status='ready'",
+        "ROLLBACK"
+      ],
+      "rejection": "d4s6: publication requires S4, S5, and fenced publisher capabilities",
+      "s4_capability_managed_by_legacy_entry": false,
+      "s5_publish_capability": false,
+      "s6_publish_capability": false
+    },
+    "blocked_s5_without_s6_entry": {
+      "before_equals_after": true,
+      "manifest_status": "ready",
+      "pointer": null,
+      "rejection": "d4s6: publication requires S4, S5, and fenced publisher capabilities",
+      "s5_publish_capability_after_rollback": false,
+      "s6_publish_capability": false
+    },
+    "cursor_scope": {
+      "cursor_contract": {
+        "global": "binds active Manifest pointer and all effective root/source seals; any effective-root change rejects it",
+        "root_scoped": "binds only the requested root's current root/source seal vector and exact visible FTS ranked result rows; global pointer revision is excluded",
+        "safety_condition": "root filter is applied in the query; BM25 row scores are included so changes in global FTS corpus that affect ranking reject the cursor"
+      },
+      "root_a_only_manifest_publish": {
+        "pointer": [
+          "manifest-overlap-2",
+          2
+        ],
+        "root_b_authority_digest_before_after": [
+          "e986bb3be1912545af9d8d14ecd40f3fc38da44a5abbad92d6e33247d01c5761",
+          "e986bb3be1912545af9d8d14ecd40f3fc38da44a5abbad92d6e33247d01c5761"
+        ],
+        "root_b_cursor_sha256_before_after": [
+          "a9ee6681c5c0667ee1e18d4b0ab38f31dff1a5a994952671a0d49dfa6e0a2c3f",
+          "a9ee6681c5c0667ee1e18d4b0ab38f31dff1a5a994952671a0d49dfa6e0a2c3f"
+        ],
+        "root_b_cursor_still_valid_across_root_a_only_publish": true,
+        "root_b_fts_results_unchanged": true,
+        "root_b_root_seal": [
+          [
+            "root-b",
+            "gen-b",
+            1
+          ]
+        ],
+        "root_b_source_seal": [
+          [
+            "source-shared",
+            "entry-shared-1",
+            1
+          ]
+        ]
+      },
+      "shared_source_change": {
+        "old_root_b_cursor_rejected": true,
+        "root_b_authority_digest_before_after": [
+          "e986bb3be1912545af9d8d14ecd40f3fc38da44a5abbad92d6e33247d01c5761",
+          "e9cbf3cac508fb045dbb0c6886c3e987c9f28c1374eef29c9b8f5e8bb6337f8e"
+        ],
+        "root_b_cursor_sha256_before_after": [
+          "a9ee6681c5c0667ee1e18d4b0ab38f31dff1a5a994952671a0d49dfa6e0a2c3f",
+          "24b0a9b47b5d294ca0077311c3747ea7afbdea1c0388168ad7ed63e0e1bb172a"
+        ],
+        "root_b_search_after_source_change": [],
+        "source_seal_retained_as_history": true,
+        "visible_root_members": [
+          [
+            "root-b",
+            "source-companion",
+            "entry-companion-1"
+          ]
+        ]
+      },
+      "watcher_only_root_a_change": {
+        "global_authority_digest_before_after": [
+          "d75ab137156ad70ebc8547ab5a2889dc1048d8d4686c76ff6acc970d72bc8d97",
+          "d78db65ee000740115a446be4b76fca14a8b34fe8af674d0e7e4e40b7f4e05b2"
+        ],
+        "global_cursor_rejected": true,
+        "global_cursor_sha256_before_after": [
+          "e59428cde8e51b0a0345bc2867ac5057ba51efde560bbf6dde487308fea9d713",
+          "4713bac9e714fbf702aef49d5dff488a2bcda99029a5af423c2136d84bab0a8a"
+        ],
+        "global_fts_results_unchanged": true,
+        "global_fts_rows_before_after": [
+          [
+            "source-shared",
+            "file-shared",
+            "overlapmarker.txt",
+            "/shared/nested/overlap-marker.txt",
+            "-0x1.0acfe2646477cp-1"
+          ],
+          [
+            "source-shared",
+            "file-shared",
+            "overlapmarker.txt",
+            "/shared/nested/overlap-marker.txt",
+            "-0x1.0acfe2646477cp-1"
+          ]
+        ],
+        "pointer_unchanged": true,
+        "root_a_hidden_root_b_shared_source_visible": [
+          [
+            "root-b",
+            "source-companion",
+            "entry-companion-1"
+          ],
+          [
+            "root-b",
+            "source-shared",
+            "entry-shared-1"
+          ]
+        ],
+        "root_b_authority_digest_before_after": [
+          "e986bb3be1912545af9d8d14ecd40f3fc38da44a5abbad92d6e33247d01c5761",
+          "e986bb3be1912545af9d8d14ecd40f3fc38da44a5abbad92d6e33247d01c5761"
+        ],
+        "root_b_cursor_sha256_before_after": [
+          "a9ee6681c5c0667ee1e18d4b0ab38f31dff1a5a994952671a0d49dfa6e0a2c3f",
+          "a9ee6681c5c0667ee1e18d4b0ab38f31dff1a5a994952671a0d49dfa6e0a2c3f"
+        ],
+        "root_b_cursor_still_valid": true,
+        "root_b_fts_results_unchanged": true,
+        "root_b_fts_rows_before_after": [
+          [
+            "source-shared",
+            "entry-shared-1",
+            "file-shared",
+            "overlapmarker.txt",
+            "-0x1.0acfe2646477cp-1"
+          ],
+          [
+            "source-shared",
+            "entry-shared-1",
+            "file-shared",
+            "overlapmarker.txt",
+            "-0x1.0acfe2646477cp-1"
+          ]
+        ]
+      }
+    },
+    "missing_root_seal_rolls_back": {
+      "before_equals_after": true,
+      "manifest_status_after": "ready",
+      "pointer": null,
+      "rejection": "d4s6: initial Manifest has incomplete authority seals",
+      "root_seals_after": 0,
+      "seal_kind": "root",
+      "source_seals_after": 0
+    },
+    "missing_source_seal_rolls_back": {
+      "before_equals_after": true,
+      "manifest_status_after": "ready",
+      "pointer": null,
+      "rejection": "d4s6: initial Manifest has incomplete authority seals",
+      "root_seals_after": 0,
+      "seal_kind": "source",
+      "source_seals_after": 0
+    },
+    "pointer_cas_rowcount_miss_rolls_back": {
+      "before_equals_after": true,
+      "candidate_seals": 0,
+      "candidate_status": "ready",
+      "injected_at": "pointer UPDATE affected zero rows",
+      "pointer_retained": [
+        "manifest-a",
+        1
+      ],
+      "rejection": "Manifest pointer CAS failed"
+    },
+    "sql_failure_rolls_back": {
+      "before_equals_after": true,
+      "injected_at": "source seal insert",
+      "manifest_status_after": "ready",
+      "pointer": null,
+      "rejection": "injected source seal SQL failure",
+      "root_seals_after": 0,
+      "source_seals_after": 0
+    },
+    "stale_parent_cas_rolls_back": {
+      "active_pointer_retained": [
+        "manifest-a",
+        1
+      ],
+      "before_equals_after": true,
+      "candidate_seals": 0,
+      "candidate_status": "ready",
+      "rejection": "D4-S3 Oracle rejected root/member/path/identity digest relation"
+    },
+    "successful_publications": {
+      "empty_generation": {
+        "d4s4_seal_count": 1,
+        "effective_sources": [],
+        "generation_statuses": [
+          [
+            "gen-empty",
+            "published"
+          ]
+        ],
+        "manifest_status": "published",
+        "pointer": [
+          "manifest-empty",
+          1
+        ],
+        "root_seal_count": 1,
+        "source_seal_count": 0
+      },
+      "initial_and_successor": {
+        "all_authority_rows": true,
+        "current_sources": [
+          "source-a",
+          "source-b"
+        ],
+        "initial_publication_sql_order": [
+          "BEGIN IMMEDIATE",
+          "INSERT INTO d4s4_manifest_authority_seals\n                   (manifest_id,authority_revision,root_count,root_map_digest,member_count,\n                    member_digest,source_count,source_evidence_digest,sealed_at)\n                   VALUES('manifest-a',1,1,'0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78',1,'1e76574179aadcf6bd8a0f3039a73de72ba77a7a0db55586e1d78f5e2a261218',1,'f4af1de4004617b9add770ca0089eeb509697c0c8b4f2d6d4eef1d8522405a89',1800000000)",
+          "INSERT INTO d4s4_manifest_root_evidence\n                       (manifest_id,root_id,generation_id,root_revision,watcher_revision,\n                        normalized_path,source_kind,enabled,health_status,needs_reconciliation)\n                       VALUES('manifest-a','root-a','gen-a',0,0,'/root','file_library',1,'healthy',0)",
+          "INSERT INTO d4s4_manifest_source_evidence\n                       (manifest_id,source_id,path_entry_id,source_revision,source_status,\n                        identity_confidence,physical_identity_id,identity_epoch,\n                        platform_file_identity,physical_evidence_digest,path_evidence_digest,\n                        claim_ids_json,evidence_commitment)\n                       VALUES('manifest-a','source-a','entry-a-1',2,'observed','native_verified','physical-a','observed-epoch-1','os-id-a','e628b55fccfebb9e4dd70be0a3851dab06a5adfee963fc48b7df6b79088607d7','0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd','[]','199dc8d4432ca22aa1e1c33646772056a523fb88330a508c2a3e1bbf30981a19')",
+          "UPDATE source_generations SET status='published' WHERE generation_id='gen-a' AND status='complete'",
+          "UPDATE visibility_manifests SET status='published' WHERE manifest_id='manifest-a' AND status='ready'",
+          "INSERT INTO active_visibility_pointer(singleton_id,manifest_id,revision,updated_at) VALUES(1,'manifest-a',1,1800000000)",
+          "COMMIT"
+        ],
+        "manifest_a": {
+          "d4s4_seal_count": 1,
+          "effective_sources": [
+            "source-a",
+            "source-b"
+          ],
+          "generation_statuses": [
+            [
+              "gen-a",
+              "published"
+            ]
+          ],
+          "manifest_status": "published",
+          "pointer": [
+            "manifest-b",
+            2
+          ],
+          "root_seal_count": 1,
+          "source_seal_count": 1
+        },
+        "manifest_a_immutable_and_retained": true,
+        "manifest_b": {
+          "d4s4_seal_count": 1,
+          "effective_sources": [
+            "source-a",
+            "source-b"
+          ],
+          "generation_statuses": [
+            [
+              "gen-b",
+              "published"
+            ]
+          ],
+          "manifest_status": "published",
+          "pointer": [
+            "manifest-b",
+            2
+          ],
+          "root_seal_count": 1,
+          "source_seal_count": 2
+        },
+        "pointer": [
+          "manifest-b",
+          2
+        ],
+        "seal_and_pointer_event_order": [
+          [
+            "root_seal_insert",
+            "root-a"
+          ],
+          [
+            "source_seal_insert",
+            "source-a/entry-a-1"
+          ],
+          [
+            "initial_pointer_cas",
+            "1"
+          ]
+        ],
+        "source_seals_inserted_before_pointer": true,
+        "successor_publication_sql_order": [
+          "BEGIN IMMEDIATE",
+          "INSERT INTO d4s4_manifest_authority_seals\n                   (manifest_id,authority_revision,root_count,root_map_digest,member_count,\n                    member_digest,source_count,source_evidence_digest,sealed_at)\n                   VALUES('manifest-b',1,1,'bbab1c4ab39da4fc372019f13d498895108af9c36fcb033f987658be2ed15f5a',2,'04cbce61cac20278f91adc97f389006679eb74d1ecfa4ad2603991fc4f9470a1',2,'191ac72675ec4236e4d0d228fb1d023858d9cbd86e0c871ce3a4f799eec7cc71',1800000000)",
+          "INSERT INTO d4s4_manifest_root_evidence\n                       (manifest_id,root_id,generation_id,root_revision,watcher_revision,\n                        normalized_path,source_kind,enabled,health_status,needs_reconciliation)\n                       VALUES('manifest-b','root-a','gen-b',0,0,'/root','file_library',1,'healthy',0)",
+          "INSERT INTO d4s4_manifest_source_evidence\n                       (manifest_id,source_id,path_entry_id,source_revision,source_status,\n                        identity_confidence,physical_identity_id,identity_epoch,\n                        platform_file_identity,physical_evidence_digest,path_evidence_digest,\n                        claim_ids_json,evidence_commitment)\n                       VALUES('manifest-b','source-a','entry-a-1',2,'observed','native_verified','physical-a','observed-epoch-1','os-id-a','e628b55fccfebb9e4dd70be0a3851dab06a5adfee963fc48b7df6b79088607d7','0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd','[]','9cf86bda552776063dc56bcf84666f1f18c33e0c765d3115d1bd19ca76375d07')",
+          "INSERT INTO d4s4_manifest_source_evidence\n                       (manifest_id,source_id,path_entry_id,source_revision,source_status,\n                        identity_confidence,physical_identity_id,identity_epoch,\n                        platform_file_identity,physical_evidence_digest,path_evidence_digest,\n                        claim_ids_json,evidence_commitment)\n                       VALUES('manifest-b','source-b','entry-b-1',2,'observed','native_verified','physical-b','observed-epoch-1','os-id-b','6a898691eb9cff9d8fe78b38c2fdf13001a4253cdf9725bd38957bc755565515','f5e3257b617ecd50de674ac9254d7266177af5f51f45012f566f93cdbb7cda2e','[]','4aa6bceaa9b5f9e979dc8f4d869515d71b20366c244509c8111cbc2a662119a8')",
+          "UPDATE source_generations SET status='published' WHERE generation_id='gen-b' AND status='complete'",
+          "UPDATE visibility_manifests SET status='published' WHERE manifest_id='manifest-b' AND status='ready'",
+          "UPDATE active_visibility_pointer SET manifest_id='manifest-b',revision=2,updated_at=1800000000\n               WHERE singleton_id=1 AND manifest_id='manifest-a' AND revision=1",
+          "COMMIT"
+        ],
+        "successor_seal_and_pointer_event_order": [
+          [
+            "root_seal_insert",
+            "root-a"
+          ],
+          [
+            "source_seal_insert",
+            "source-a/entry-a-1"
+          ],
+          [
+            "source_seal_insert",
+            "source-b/entry-b-1"
+          ],
+          [
+            "successor_pointer_cas",
+            "2"
+          ]
+        ],
+        "user_context_retained": "owner-note-retained",
+        "user_tag_count_retained": 1
+      },
+      "overlapping_roots": {
+        "effective_sources": [
+          "source-companion",
+          "source-shared"
+        ],
+        "pointer": [
+          "manifest-overlap",
+          1
+        ],
+        "root_members": [
+          [
+            "root-a",
+            "source-shared",
+            "entry-shared-1"
+          ],
+          [
+            "root-b",
+            "source-companion",
+            "entry-companion-1"
+          ],
+          [
+            "root-b",
+            "source-shared",
+            "entry-shared-1"
+          ]
+        ],
+        "root_seals": [
+          [
+            "root-a",
+            "gen-a"
+          ],
+          [
+            "root-b",
+            "gen-b"
+          ]
+        ],
+        "source_seals": [
+          [
+            "source-companion",
+            "entry-companion-1"
+          ],
+          [
+            "source-shared",
+            "entry-shared-1"
+          ]
+        ]
+      }
+    }
+  },
+  "runtime": {
+    "schema_user_version": 37,
+    "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "sqlite_version": "3.53.1"
+  }
+}

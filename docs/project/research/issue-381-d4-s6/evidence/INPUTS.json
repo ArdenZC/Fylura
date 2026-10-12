@@ -1,0 +1,24 @@
+{
+  "frozen_base": {
+    "head": "59e71da8e37dc7b1f1828b71af06596d178e5611",
+    "tree": "9439b7264c34130f5716e482a35fffc0b225ce01"
+  },
+  "runtime": {
+    "schema_user_version": 37,
+    "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "sqlite_version": "3.53.1"
+  },
+  "sha256": {
+    "d4s2_candidate_sql_sha256": "df3fc906526823c47c5b1236ead105d2529163766c873e8acd693760ad65002f",
+    "d4s3_oracle_sql_sha256": "1342405473a3d0b09eb45a1973121207c3f168c49afb8b53860f4ba2c27845ba",
+    "d4s3_protection_sql_sha256": "193c0859f6a156d7fcbb36965c88d002aef68de5d8aa8519c29ab73053ae6074",
+    "d4s3_runner_sha256": "ce422284c99ed0abc6476d3489b537ab5572b8eb6efbb682fdcd7b057face107",
+    "d4s4_protection_sql_sha256": "3c8db1eddfec4ce0456d6bab7103c3e83133c307b77fd90f0bc85361d9825360",
+    "d4s4_runner_sha256": "f9959547f9d8062d69526c6c47d3cde4d8c25616fe16ae98494ae066bea17f6e",
+    "d4s5_prototype_sql_sha256": "46e640d12d5a472355d5dc43d303461fc0fcad4d7ba96f07fa7ac5d4cb529ac1",
+    "d4s5_runner_sha256": "c4e1f05fefac8e9df5c2576322494ed3152345d52bf6d84010057b7152bd34a8",
+    "d4s6_fence_sql_sha256": "a79f5fc4a4d08e747faf0c28ba2773d897d9ed32cc53c64ea3480e8a40f93d14",
+    "d4s6_runner_sha256": "1d301b7044f3115af63c5615b84707564f32357fa50a76e7fc72fa2db3622f9e",
+    "schema37_ddl_sha256": "b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5"
+  }
+}

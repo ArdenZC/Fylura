@@ -20,6 +20,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BASE_HEAD = "740d99379c584589c92bd855f101e06858e8ee38"
 NULL_SAFETY_FREEZE_HEAD = "bfabd486bce84b7e5298276453dd01957049c91d"
+BOUNDED_GIT_FREEZE_HEAD = "ea8a6af7eff5ab44b33bf72d6b4fd8c884fde78b"
+BOUNDED_GIT_FREEZE_TREE = "a96fca4924d00a24c26c4916d6944ea44538d500"
+BOUNDED_GIT_RUNNER_BLOB = "0bd6ac658133f8308871534fa5e963b5d23f71b5"
+BOUNDED_GIT_RUNNER_SHA256 = "35f2a30a5fa9c096e87e67961d881f261805c4e2d3b3732dcea655e6a32e4b17"
 OLD_ACTIVATION_HEAD = "c474517ff2ae9fe91932c61468fbdf6e2baf28a2"
 OLD_RUNNER_HEAD = "0aa8be6d58fc0994b3be6aec2af8dc02318fcefb"
 OLD_RUNNER_BLOB = "1d11c3add3c0d1f45e7d7ac082d09c616cca51a1"
@@ -34,6 +38,10 @@ PROBE_PATH = "scripts/issue380S0NsisObservabilityProbe.nsi"
 REPORT_PATH = "docs/research/ISSUE-380-S1R4-P3-RUNNER-NULL-SAFETY.md"
 DRAFT_PATH = "docs/research/ISSUE-380-S1R4-P3-RUNNER-NULL-SAFETY-WORKFLOW.md"
 IDENTITY_PATH = "docs/research/evidence/issue-380-s1r4-p3-runner-null-safety/runner-identity.json"
+BOUNDED_REPORT_PATH = "docs/research/ISSUE-380-S1R4-P3-BOUNDED-GIT-CAPTURE.md"
+BOUNDED_DRAFT_PATH = "docs/research/ISSUE-380-S1R4-P3-BOUNDED-GIT-CAPTURE-WORKFLOW.md"
+BOUNDED_IDENTITY_PATH = "docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/runner-identity.json"
+BOUNDED_SUMS_PATH = "docs/research/evidence/issue-380-s1r4-p3-bounded-git-capture/SHA256SUMS"
 
 
 class GitContractError(RuntimeError):
@@ -259,6 +267,7 @@ class BoundedCaptureModel:
     stdout_fault: bool = False
     stderr_fault: bool = False
     cleanup_succeeded: bool = True
+    post_close_tasks_stopped: bool = True
 
 
 def classify_bounded_capture(model: BoundedCaptureModel) -> dict[str, object]:
@@ -276,7 +285,12 @@ def classify_bounded_capture(model: BoundedCaptureModel) -> dict[str, object]:
         or (not stderr_complete and not model.stderr_fault)
     )
 
-    if not model.cleanup_succeeded or (timed_out and not process_exit_confirmed):
+    cleanup_completed = (
+        model.cleanup_succeeded
+        and process_exit_confirmed
+        and (not output_timed_out or model.post_close_tasks_stopped)
+    )
+    if not cleanup_completed:
         status = "PROCESS_CLEANUP_FAILED"
     elif timed_out:
         status = "PROCESS_TIMEOUT"
@@ -296,7 +310,7 @@ def classify_bounded_capture(model: BoundedCaptureModel) -> dict[str, object]:
         and stdout_complete
         and stderr_complete
         and process_exit_confirmed
-        and model.cleanup_succeeded
+        and cleanup_completed
     )
     return {
         "status": status,
@@ -307,6 +321,7 @@ def classify_bounded_capture(model: BoundedCaptureModel) -> dict[str, object]:
         "stderr_complete": stderr_complete and not output_timed_out,
         "output_timed_out": output_timed_out,
         "kill_succeeded": model.kill_succeeded if timed_out else False,
+        "cleanup_completed": cleanup_completed,
     }
 
 
@@ -325,7 +340,7 @@ class BoundedGitCaptureContracts(unittest.TestCase):
         )
         self.assertEqual(result["status"], "EXITED_ZERO")
         self.assertTrue(result["accepted"])
-        process_wait = self.capture_source.index("$process.WaitForExit($capture.process_timeout_ms)")
+        process_wait = self.capture_source.index("$process.WaitForExit($TimeoutSeconds * 1000)")
         self.assertLess(self.capture_source.index("$stdoutTask = $process.StandardOutput.ReadToEndAsync()"), process_wait)
         self.assertLess(self.capture_source.index("$stderrTask = $process.StandardError.ReadToEndAsync()"), process_wait)
 
@@ -362,13 +377,16 @@ class BoundedGitCaptureContracts(unittest.TestCase):
         self.assertFalse(result["accepted"])
 
     def test_17_exited_process_with_output_stream_past_deadline_fails_closed(self) -> None:
-        for model in (
-            BoundedCaptureModel(exit_code=0, stdout_delay_ms=5001),
-            BoundedCaptureModel(exit_code=0, stderr_delay_ms=5001),
+        for model, expected_status in (
+            (BoundedCaptureModel(exit_code=0, stdout_delay_ms=5001), "OUTPUT_CAPTURE_TIMEOUT"),
+            (
+                BoundedCaptureModel(exit_code=0, stderr_delay_ms=5001, post_close_tasks_stopped=False),
+                "PROCESS_CLEANUP_FAILED",
+            ),
         ):
             with self.subTest(stdout_delay_ms=model.stdout_delay_ms, stderr_delay_ms=model.stderr_delay_ms):
                 result = classify_bounded_capture(model)
-                self.assertEqual(result["status"], "OUTPUT_CAPTURE_TIMEOUT")
+                self.assertEqual(result["status"], expected_status)
                 self.assertTrue(result["output_timed_out"])
                 self.assertFalse(result["stdout_complete"] or result["stderr_complete"])
                 self.assertFalse(result["accepted"])
@@ -402,16 +420,15 @@ class BoundedGitCaptureContracts(unittest.TestCase):
         self.assertTrue(second["accepted"])
         self.assertIn("$script:GitInvocations.Add([ordered]@{", self.capture_source)
         self.assertIn("exit_code = $capture.exit_code", self.capture_source)
-        self.assertIn("kill_attempts = $capture.kill_attempts", self.capture_source)
-        self.assertIn("process_wait_attempts = $capture.process_wait_attempts", self.capture_source)
+        self.assertIn("kill_attempted = $capture.kill_attempted", self.capture_source)
         self.assertNotIn("$LASTEXITCODE", self.runner)
 
     def test_20_output_waits_are_bounded_and_result_reads_are_completion_guarded(self) -> None:
         self.assertIn("Task]::WaitAll(", self.capture_source)
         self.assertIn("$capture.output_wait_timeout_ms", self.capture_source)
         self.assertIn("$capture.post_close_wait_timeout_ms", self.capture_source)
-        self.assertIn("$capture.output_wait_attempts += 1", self.capture_source)
-        self.assertIn("$capture.post_close_wait_attempts += 1", self.capture_source)
+        self.assertIn("WaitAll($readTasks.ToArray(), $capture.output_wait_timeout_ms)", self.capture_source)
+        self.assertIn("WaitAll($readTasks.ToArray(), $capture.post_close_wait_timeout_ms)", self.capture_source)
         self.assertIn("$stream.Task.GetAwaiter().GetResult()", self.capture_source)
         self.assertNotRegex(self.capture_source, r"\.WaitForExit\(\s*\)")
         read_guard = self.capture_source.index("if ($null -eq $stream.Task -or -not $stream.Task.IsCompleted) { continue }")
@@ -453,6 +470,67 @@ class BoundedGitCaptureContracts(unittest.TestCase):
             function_segment(self.runner, "function Download-And-VerifyPinnedZip", "\nfunction Get-ZipEntrySha256"),
             function_segment(self.freeze_runner, "function Download-And-VerifyPinnedZip", "\nfunction Get-ZipEntrySha256"),
         )
+
+    def test_22_bounded_capture_freeze_identity_is_exact_in_git_objects(self) -> None:
+        self.assertEqual(
+            subprocess.run(
+                ["git", "rev-parse", f"{BOUNDED_GIT_FREEZE_HEAD}^{{tree}}"],
+                cwd=ROOT,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ).stdout.strip(),
+            BOUNDED_GIT_FREEZE_TREE,
+        )
+        self.assertEqual(git_blob(BOUNDED_GIT_FREEZE_HEAD, RUNNER_PATH), BOUNDED_GIT_RUNNER_BLOB)
+        frozen_bytes = git_show(BOUNDED_GIT_FREEZE_HEAD, RUNNER_PATH)
+        self.assertEqual(hashlib.sha256(frozen_bytes).hexdigest(), BOUNDED_GIT_RUNNER_SHA256)
+        self.assertEqual((ROOT / RUNNER_PATH).read_bytes(), frozen_bytes)
+
+    def test_23_new_report_draft_and_machine_identity_agree(self) -> None:
+        report_path = ROOT / BOUNDED_REPORT_PATH
+        draft_path = ROOT / BOUNDED_DRAFT_PATH
+        identity_path = ROOT / BOUNDED_IDENTITY_PATH
+        self.assertTrue(report_path.is_file(), "bounded capture report is required")
+        self.assertTrue(draft_path.is_file(), "bounded capture workflow draft is required")
+        self.assertTrue(identity_path.is_file(), "bounded capture identity record is required")
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        report = report_path.read_text(encoding="utf-8")
+        draft = draft_path.read_text(encoding="utf-8")
+        for value in (
+            BOUNDED_GIT_FREEZE_HEAD,
+            BOUNDED_GIT_FREEZE_TREE,
+            BOUNDED_GIT_RUNNER_BLOB,
+            BOUNDED_GIT_RUNNER_SHA256,
+        ):
+            self.assertIn(value, report)
+            self.assertIn(value, draft)
+        self.assertEqual(identity["candidate_freeze_head"], BOUNDED_GIT_FREEZE_HEAD)
+        self.assertEqual(identity["candidate_freeze_tree"], BOUNDED_GIT_FREEZE_TREE)
+        self.assertEqual(identity["runner_git_blob"], BOUNDED_GIT_RUNNER_BLOB)
+        self.assertEqual(identity["runner_sha256"], BOUNDED_GIT_RUNNER_SHA256)
+        activation_branch = identity["planned_activation"]["branch"]
+        activation_workflow = identity["planned_activation"]["workflow_path"]
+        self.assertIn(f"$script:ExpectedBranch = '{activation_branch}'", self.runner)
+        self.assertIn(activation_branch, draft)
+        self.assertIn(activation_workflow, draft)
+
+    def test_24_new_evidence_hashes_match_and_old_research_package_is_immutable(self) -> None:
+        sums_path = ROOT / BOUNDED_SUMS_PATH
+        self.assertTrue(sums_path.is_file(), "bounded capture SHA256SUMS is required")
+        entries: dict[str, str] = {}
+        for line in sums_path.read_text(encoding="utf-8").splitlines():
+            digest, relative = line.split("  ", 1)
+            entries[relative] = digest
+        for relative in (BOUNDED_REPORT_PATH, BOUNDED_DRAFT_PATH, BOUNDED_IDENTITY_PATH):
+            self.assertEqual(hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(), entries[relative])
+        for relative, expected_digest in entries.items():
+            artifact = ROOT / relative
+            self.assertTrue(artifact.is_file(), f"SHA256SUMS names a missing file: {relative}")
+            self.assertEqual(hashlib.sha256(artifact.read_bytes()).hexdigest(), expected_digest, relative)
+        for relative in (REPORT_PATH, DRAFT_PATH, IDENTITY_PATH, "docs/research/evidence/issue-380-s1r4-p3-runner-null-safety/SHA256SUMS"):
+            self.assertEqual((ROOT / relative).read_bytes(), git_show(NULL_SAFETY_FREEZE_HEAD, relative))
 
 
 if __name__ == "__main__":

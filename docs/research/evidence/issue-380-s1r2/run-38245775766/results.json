@@ -1,0 +1,340 @@
+{
+  "phase": "#380-S1R2 Synthetic NSIS Runtime Trace Persistence",
+  "status": "FAIL",
+  "repository": "ArdenZC/Zen-Canvas",
+  "ref": "refs/heads/research/issue-380-s1r2-nsis-launcher-verification",
+  "workflow_sha": "f5651e3d26d1ccb2c2ac3922e9863295b6970b27",
+  "run_id": "38245775766",
+  "run_attempt": "1",
+  "job": "synthetic-nsis-runtime-probe",
+  "frozen_s1r_head": "45a2dfe0e51cee5708dfaa5335affbad947c30c2",
+  "frozen_s1r_tree": "9bcc5a2a03a8335d2cb2e81c3d497efb275b8724",
+  "frozen_s1_head": "bd56788aa317d808dadf930260e191e9d1b45adb",
+  "frozen_s0_head": "1f4951f3c93b2eb549d159fed2dd288992c625c8",
+  "tested_head": "f5651e3d26d1ccb2c2ac3922e9863295b6970b27",
+  "tested_tree": "50a9477b6d1b3d1c398ddf96d426de5cd94b4f91",
+  "frozen_probe_blob": "5805f8d04cd37420a63f3e156c3b6fd5b4012f33",
+  "environment": {
+    "runner_os": "Windows",
+    "runner_arch": "X64",
+    "image_os": "win22",
+    "image_version": "20261004.326.1",
+    "powershell": "7.6.6",
+    "windows_version": "Microsoft Windows NT 10.0.20348.0"
+  },
+  "acquisition": {
+    "source_url": "https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/nsis-3.11.zip/download",
+    "expected_sha256": "c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1",
+    "final_url": "https://cfhcable.dl.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip?viasf=1&fid=dce3e9d9c93d57a4&e=1791892542&st=WmX5tLAXCGDzQ-cDfolOKA",
+    "http_status": 200,
+    "content_length_header": 2361546,
+    "downloaded_bytes": 2361546,
+    "downloaded_sha256": "c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1",
+    "content_type": "application/octet-stream",
+    "error_body_path": null,
+    "error_body_truncated": false,
+    "sha256_verified_before_extract": true,
+    "archive_entry_count": 441,
+    "archive_uncompressed_bytes": 7134287,
+    "validated_archive_members": [
+      {
+        "path": "nsis-3.11/makensis.exe",
+        "role": "forwarding_launcher",
+        "length_bytes": 2560,
+        "sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431",
+        "verification": "ZIP_MEMBER_PRE_EXTRACTION"
+      },
+      {
+        "path": "nsis-3.11/Bin/makensis.exe",
+        "role": "underlying_compiler",
+        "length_bytes": 468992,
+        "sha256": "42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5",
+        "verification": "ZIP_MEMBER_PRE_EXTRACTION"
+      }
+    ],
+    "extraction_root": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted",
+    "extracted_members": [
+      {
+        "path": "nsis-3.11/makensis.exe",
+        "absolute_path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+        "role": "forwarding_launcher",
+        "length_bytes": 2560,
+        "sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431",
+        "verification": "EXTRACTED_FILE_PRE_EXECUTION"
+      },
+      {
+        "path": "nsis-3.11/Bin/makensis.exe",
+        "absolute_path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\Bin\\makensis.exe",
+        "role": "underlying_compiler",
+        "length_bytes": 468992,
+        "sha256": "42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5",
+        "verification": "EXTRACTED_FILE_PRE_EXECUTION"
+      }
+    ],
+    "extraction_status": "EXTRACTED_AND_MEMBER_IDENTITIES_VERIFIED",
+    "failure": null
+  },
+  "compiler": {
+    "executed_path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+    "executed_role": "top-level forwarding launcher; the Bin compiler is not invoked directly",
+    "launcher": {
+      "path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+      "relative_path": "nsis-3.11/makensis.exe",
+      "length_bytes": 2560,
+      "sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431"
+    },
+    "underlying_compiler": {
+      "path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\Bin\\makensis.exe",
+      "relative_path": "nsis-3.11/Bin/makensis.exe",
+      "length_bytes": 468992,
+      "sha256": "42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5"
+    },
+    "version_output": "v3.11",
+    "hdrinfo_output": "Size of first header is 28 bytes.\r\nSize of main header is 300 bytes.\r\nSize of each section is 2072 bytes.\r\nSize of each page is 64 bytes.\r\nSize of each instruction is 28 bytes.\r\n\r\nDefined symbols: __GLOBAL__,NSIS_CHAR_SIZE=2,NSIS_COMPRESS_BZIP2_LEVEL=9,NSIS_CONFIG_COMPONENTPAGE,NSIS_CONFIG_COMPRESSION_SUPPORT,NSIS_CONFIG_CRC_SUPPORT,NSIS_CONFIG_ENHANCEDUI_SUPPORT,NSIS_CONFIG_LICENSEPAGE,NSIS_CONFIG_PLUGIN_SUPPORT,NSIS_CONFIG_SILENT_SUPPORT,NSIS_CONFIG_UNINSTALL_SUPPORT,NSIS_CONFIG_VISIBLE_SUPPORT,NSIS_CPU=x86,NSIS_DEFAULT_LANG=1033,NSIS_FIX_COMMENT_HANDLING,NSIS_IX86=400,NSIS_LOCKWINDOW_SUPPORT,NSIS_MAX_INST_TYPES=32,NSIS_MAX_STRLEN=1024,NSIS_PACKEDVERSION=0x03011000,NSIS_PTR_SIZE=4,NSIS_SOURCE_DATE_EPOCH=1741475120,NSIS_SUPPORT_ACTIVEXREG,NSIS_SUPPORT_BGBG,NSIS_SUPPORT_CODECALLBACKS,NSIS_SUPPORT_COPYFILES,NSIS_SUPPORT_CREATESHORTCUT,NSIS_SUPPORT_DELETE,NSIS_SUPPORT_ENVIRONMENT,NSIS_SUPPORT_EXECUTE,NSIS_SUPPORT_FILE,NSIS_SUPPORT_FILEFUNCTIONS,NSIS_SUPPORT_FINDFIRST,NSIS_SUPPORT_FNUTIL,NSIS_SUPPORT_GETDLLVERSION,NSIS_SUPPORT_GETFILETIME,NSIS_SUPPORT_HWNDS,NSIS_SUPPORT_INIFILES,NSIS_SUPPORT_INTOPTS,NSIS_SUPPORT_LANG_IN_STRINGS,NSIS_SUPPORT_MESSAGEBOX,NSIS_SUPPORT_MOVEONREBOOT,NSIS_SUPPORT_NAMED_USERVARS,NSIS_SUPPORT_REBOOT,NSIS_SUPPORT_REGISTRYFUNCTIONS,NSIS_SUPPORT_RENAME,NSIS_SUPPORT_RMDIR,NSIS_SUPPORT_SHELLEXECUTE,NSIS_SUPPORT_STACK,NSIS_SUPPORT_STANDARD_PREDEFINES,NSIS_SUPPORT_STROPTS,NSIS_SUPPORT_VERSION_INFO,NSIS_UNICODE,NSIS_UNICODE_MAKENSIS,NSIS_VARS_SECTION=.ndata,NSIS_VERSION=v3.11,NSIS_WIN32_MAKENSIS,NSISDIR=D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\r\n",
+    "version_exit": 0,
+    "hdrinfo_exit": 0,
+    "x86": true,
+    "unicode": true,
+    "source_zip_sha256": "c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1"
+  },
+  "compile_options": "nsis-3.11/makensis.exe (pinned forwarding launcher) -NOCD -V2 -DTRACE_MODE=<detail|file> -DRUN_MODE=<stage|abort> -DOUTPUT_NAME=<name> <frozen S0 probe>",
+  "executables": [
+    {
+      "role": "pinned_forwarding_launcher",
+      "evidence_path": "compiler/makensis-launcher.exe",
+      "source_path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+      "length_bytes": 2560,
+      "sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431"
+    },
+    {
+      "role": "pinned_underlying_compiler",
+      "evidence_path": "compiler/Bin-makensis.exe",
+      "source_path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\Bin\\makensis.exe",
+      "length_bytes": 468992,
+      "sha256": "42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5"
+    },
+    {
+      "role": "compiler_output_detail_stage",
+      "evidence_path": "detail/stage.exe",
+      "source_path": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail\\stage.exe",
+      "length_bytes": 38822,
+      "sha256": "075ca8e1911f8907eafb627cce45aec307c550326e2dacd990bebef85ea75015"
+    },
+    {
+      "role": "compiler_output_detail_abort",
+      "evidence_path": "detail/installer-abort.exe",
+      "source_path": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail\\installer-abort.exe",
+      "length_bytes": 39020,
+      "sha256": "b15f0d563873096d282c4958d51e3a25f629be4aeb80a7e9326cc76dea35b243"
+    },
+    {
+      "role": "generated_uninstaller_detail",
+      "evidence_path": "detail/generated-uninstaller.exe",
+      "source_path": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail\\generated-uninstaller.exe",
+      "length_bytes": 38022,
+      "sha256": "925aa2b13b845975451506d7fe68d97d6300089823d7159101367ec1a982fc07"
+    }
+  ],
+  "processes": [
+    {
+      "file": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+      "file_sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431",
+      "process_id": 6528,
+      "arguments": [
+        "-VERSION"
+      ],
+      "working_directory": "D:\\a\\_temp\\issue380-s1r2-task",
+      "timed_out": false,
+      "exit_code": 0,
+      "stdout_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\compiler\\makensis-version.stdout.txt",
+      "stderr_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\compiler\\makensis-version.stderr.txt",
+      "stdout_utf8": "v3.11",
+      "stderr_utf8": ""
+    },
+    {
+      "file": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+      "file_sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431",
+      "process_id": 2656,
+      "arguments": [
+        "-HDRINFO"
+      ],
+      "working_directory": "D:\\a\\_temp\\issue380-s1r2-task",
+      "timed_out": false,
+      "exit_code": 0,
+      "stdout_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\compiler\\makensis-hdrinfo.stdout.txt",
+      "stderr_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\compiler\\makensis-hdrinfo.stderr.txt",
+      "stdout_utf8": "Size of first header is 28 bytes.\r\nSize of main header is 300 bytes.\r\nSize of each section is 2072 bytes.\r\nSize of each page is 64 bytes.\r\nSize of each instruction is 28 bytes.\r\n\r\nDefined symbols: __GLOBAL__,NSIS_CHAR_SIZE=2,NSIS_COMPRESS_BZIP2_LEVEL=9,NSIS_CONFIG_COMPONENTPAGE,NSIS_CONFIG_COMPRESSION_SUPPORT,NSIS_CONFIG_CRC_SUPPORT,NSIS_CONFIG_ENHANCEDUI_SUPPORT,NSIS_CONFIG_LICENSEPAGE,NSIS_CONFIG_PLUGIN_SUPPORT,NSIS_CONFIG_SILENT_SUPPORT,NSIS_CONFIG_UNINSTALL_SUPPORT,NSIS_CONFIG_VISIBLE_SUPPORT,NSIS_CPU=x86,NSIS_DEFAULT_LANG=1033,NSIS_FIX_COMMENT_HANDLING,NSIS_IX86=400,NSIS_LOCKWINDOW_SUPPORT,NSIS_MAX_INST_TYPES=32,NSIS_MAX_STRLEN=1024,NSIS_PACKEDVERSION=0x03011000,NSIS_PTR_SIZE=4,NSIS_SOURCE_DATE_EPOCH=1741475120,NSIS_SUPPORT_ACTIVEXREG,NSIS_SUPPORT_BGBG,NSIS_SUPPORT_CODECALLBACKS,NSIS_SUPPORT_COPYFILES,NSIS_SUPPORT_CREATESHORTCUT,NSIS_SUPPORT_DELETE,NSIS_SUPPORT_ENVIRONMENT,NSIS_SUPPORT_EXECUTE,NSIS_SUPPORT_FILE,NSIS_SUPPORT_FILEFUNCTIONS,NSIS_SUPPORT_FINDFIRST,NSIS_SUPPORT_FNUTIL,NSIS_SUPPORT_GETDLLVERSION,NSIS_SUPPORT_GETFILETIME,NSIS_SUPPORT_HWNDS,NSIS_SUPPORT_INIFILES,NSIS_SUPPORT_INTOPTS,NSIS_SUPPORT_LANG_IN_STRINGS,NSIS_SUPPORT_MESSAGEBOX,NSIS_SUPPORT_MOVEONREBOOT,NSIS_SUPPORT_NAMED_USERVARS,NSIS_SUPPORT_REBOOT,NSIS_SUPPORT_REGISTRYFUNCTIONS,NSIS_SUPPORT_RENAME,NSIS_SUPPORT_RMDIR,NSIS_SUPPORT_SHELLEXECUTE,NSIS_SUPPORT_STACK,NSIS_SUPPORT_STANDARD_PREDEFINES,NSIS_SUPPORT_STROPTS,NSIS_SUPPORT_VERSION_INFO,NSIS_UNICODE,NSIS_UNICODE_MAKENSIS,NSIS_VARS_SECTION=.ndata,NSIS_VERSION=v3.11,NSIS_WIN32_MAKENSIS,NSISDIR=D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\r\n",
+      "stderr_utf8": ""
+    },
+    {
+      "file": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+      "file_sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431",
+      "process_id": 4196,
+      "arguments": [
+        "-NOCD",
+        "-V2",
+        "-DTRACE_MODE=detail",
+        "-DRUN_MODE=stage",
+        "-DOUTPUT_NAME=stage.exe",
+        "D:\\a\\Zen-Canvas\\Zen-Canvas\\scripts\\issue380S0NsisObservabilityProbe.nsi"
+      ],
+      "working_directory": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail",
+      "timed_out": false,
+      "exit_code": 0,
+      "stdout_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail-compile-stage.stdout.txt",
+      "stderr_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail-compile-stage.stderr.txt",
+      "stdout_utf8": "",
+      "stderr_utf8": ""
+    },
+    {
+      "file": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+      "file_sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431",
+      "process_id": 7460,
+      "arguments": [
+        "-NOCD",
+        "-V2",
+        "-DTRACE_MODE=detail",
+        "-DRUN_MODE=abort",
+        "-DOUTPUT_NAME=installer-abort.exe",
+        "D:\\a\\Zen-Canvas\\Zen-Canvas\\scripts\\issue380S0NsisObservabilityProbe.nsi"
+      ],
+      "working_directory": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail",
+      "timed_out": false,
+      "exit_code": 0,
+      "stdout_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail-compile-installer-abort.stdout.txt",
+      "stderr_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail-compile-installer-abort.stderr.txt",
+      "stdout_utf8": "",
+      "stderr_utf8": ""
+    },
+    {
+      "file": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail\\stage.exe",
+      "file_sha256": "075ca8e1911f8907eafb627cce45aec307c550326e2dacd990bebef85ea75015",
+      "process_id": 7132,
+      "arguments": [
+        "/S"
+      ],
+      "working_directory": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail",
+      "timed_out": false,
+      "exit_code": 0,
+      "stdout_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\stage.stdout.txt",
+      "stderr_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\stage.stderr.txt",
+      "stdout_utf8": "",
+      "stderr_utf8": ""
+    },
+    {
+      "file": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail\\installer-abort.exe",
+      "file_sha256": "b15f0d563873096d282c4958d51e3a25f629be4aeb80a7e9326cc76dea35b243",
+      "process_id": 2328,
+      "arguments": [
+        "/S",
+        "/LOG=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\installer-runtime.log"
+      ],
+      "working_directory": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail",
+      "timed_out": false,
+      "exit_code": 37,
+      "stdout_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\installer-abort.stdout.txt",
+      "stderr_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\installer-abort.stderr.txt",
+      "stdout_utf8": "",
+      "stderr_utf8": ""
+    },
+    {
+      "file": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail\\generated-uninstaller.exe",
+      "file_sha256": "925aa2b13b845975451506d7fe68d97d6300089823d7159101367ec1a982fc07",
+      "process_id": 1320,
+      "arguments": [
+        "/S",
+        "/LOG=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\uninstaller-runtime.log"
+      ],
+      "working_directory": "D:\\a\\_temp\\issue380-s1r2-task\\compiled\\detail",
+      "timed_out": false,
+      "exit_code": 0,
+      "stdout_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\uninstaller-abort.stdout.txt",
+      "stderr_path": "D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\uninstaller-abort.stderr.txt",
+      "stdout_utf8": "",
+      "stderr_utf8": ""
+    }
+  ],
+  "registry_snapshots": [
+    {
+      "stage": "initial",
+      "snapshot": {
+        "exists": false,
+        "value_name": "EstimatedSize",
+        "kind": null,
+        "value": null
+      }
+    },
+    {
+      "stage": "detail_after_stage",
+      "snapshot": {
+        "exists": true,
+        "value_name": "EstimatedSize",
+        "kind": "DWord",
+        "value": 35149
+      }
+    }
+  ],
+  "log_comparison": [],
+  "assertions": [
+    {
+      "name": "synthetic_hkcu_key_initially_absent",
+      "passed": true,
+      "details": "key=HKCU\\Software\\ZenCanvasS0Harness exists=False; existing state is never overwritten or deleted."
+    },
+    {
+      "name": "two_pinned_archive_members_verified_before_extract",
+      "passed": true,
+      "details": "members=[{\"path\":\"nsis-3.11/makensis.exe\",\"role\":\"forwarding_launcher\",\"length_bytes\":2560,\"sha256\":\"f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431\",\"verification\":\"ZIP_MEMBER_PRE_EXTRACTION\"},{\"path\":\"nsis-3.11/Bin/makensis.exe\",\"role\":\"underlying_compiler\",\"length_bytes\":468992,\"sha256\":\"42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5\",\"verification\":\"ZIP_MEMBER_PRE_EXTRACTION\"}]"
+    },
+    {
+      "name": "two_pinned_extracted_members_verified_under_task_root",
+      "passed": true,
+      "details": "members=[{\"path\":\"nsis-3.11/makensis.exe\",\"absolute_path\":\"D:\\\\a\\\\_temp\\\\issue380-s1r2-task\\\\nsis-3.11-extracted\\\\nsis-3.11\\\\makensis.exe\",\"role\":\"forwarding_launcher\",\"length_bytes\":2560,\"sha256\":\"f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431\",\"verification\":\"EXTRACTED_FILE_PRE_EXECUTION\"},{\"path\":\"nsis-3.11/Bin/makensis.exe\",\"absolute_path\":\"D:\\\\a\\\\_temp\\\\issue380-s1r2-task\\\\nsis-3.11-extracted\\\\nsis-3.11\\\\Bin\\\\makensis.exe\",\"role\":\"underlying_compiler\",\"length_bytes\":468992,\"sha256\":\"42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5\",\"verification\":\"EXTRACTED_FILE_PRE_EXECUTION\"}]"
+    },
+    {
+      "name": "makensis_version_is_exactly_3_11",
+      "passed": true,
+      "details": "path=D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe version=v3.11 sha256=f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431"
+    },
+    {
+      "name": "makensis_is_x86_unicode",
+      "passed": true,
+      "details": "NSIS -HDRINFO must identify NSIS_CPU=x86 and NSIS_UNICODE."
+    },
+    {
+      "name": "compile_detail_stage_exit_zero_and_output_present",
+      "passed": true,
+      "details": "exit=0 timed_out=False output_exists=True output_bytes=38822 stdout=detail-compile-stage.stdout.txt stderr=detail-compile-stage.stderr.txt"
+    },
+    {
+      "name": "compile_detail_abort_exit_zero_and_output_present",
+      "passed": true,
+      "details": "exit=0 timed_out=False output_exists=True output_bytes=39020 stdout=detail-compile-installer-abort.stdout.txt stderr=detail-compile-installer-abort.stderr.txt"
+    },
+    {
+      "name": "detail_stage_exit_zero",
+      "passed": true,
+      "details": "expected=0 actual=0 timed_out=False stdout=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\stage.stdout.txt stderr=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\stage.stderr.txt"
+    },
+    {
+      "name": "detail_stage_wrote_synthetic_dword",
+      "passed": true,
+      "details": "expected_kind=DWord expected_value=35149 actual_kind=DWord actual_value=35149"
+    },
+    {
+      "name": "detail_installer_abort_expected_exit",
+      "passed": true,
+      "details": "expected=37 actual=37 timed_out=False stdout=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\installer-abort.stdout.txt stderr=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\installer-abort.stderr.txt"
+    },
+    {
+      "name": "detail_uninstaller_abort_expected_exit",
+      "passed": false,
+      "details": "expected=42 actual=0 timed_out=False stdout=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\uninstaller-abort.stdout.txt stderr=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\uninstaller-abort.stderr.txt"
+    }
+  ],
+  "cleanup": {
+    "registry_key": "REMOVED_AND_VERIFIED_ABSENT",
+    "task_temp": "WORKFLOW_CLEANUP_PENDING"
+  },
+  "failure": "System.Management.Automation.RuntimeException: Assertion failed: detail_uninstaller_abort_expected_exit — expected=42 actual=0 timed_out=False stdout=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\uninstaller-abort.stdout.txt stderr=D:\\a\\_temp\\issue380-s1r2-evidence\\detail\\uninstaller-abort.stderr.txt"
+}

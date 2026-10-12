@@ -1,0 +1,52 @@
+{
+  "source_url": "https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/nsis-3.11.zip/download",
+  "expected_sha256": "c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1",
+  "final_url": "https://cfhcable.dl.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip?viasf=1&fid=dce3e9d9c93d57a4&e=1791892542&st=WmX5tLAXCGDzQ-cDfolOKA",
+  "http_status": 200,
+  "content_length_header": 2361546,
+  "downloaded_bytes": 2361546,
+  "downloaded_sha256": "c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1",
+  "content_type": "application/octet-stream",
+  "error_body_path": null,
+  "error_body_truncated": false,
+  "sha256_verified_before_extract": true,
+  "archive_entry_count": 441,
+  "archive_uncompressed_bytes": 7134287,
+  "validated_archive_members": [
+    {
+      "path": "nsis-3.11/makensis.exe",
+      "role": "forwarding_launcher",
+      "length_bytes": 2560,
+      "sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431",
+      "verification": "ZIP_MEMBER_PRE_EXTRACTION"
+    },
+    {
+      "path": "nsis-3.11/Bin/makensis.exe",
+      "role": "underlying_compiler",
+      "length_bytes": 468992,
+      "sha256": "42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5",
+      "verification": "ZIP_MEMBER_PRE_EXTRACTION"
+    }
+  ],
+  "extraction_root": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted",
+  "extracted_members": [
+    {
+      "path": "nsis-3.11/makensis.exe",
+      "absolute_path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\makensis.exe",
+      "role": "forwarding_launcher",
+      "length_bytes": 2560,
+      "sha256": "f497e92deb9f179f7b8f7553fcb3bd04f511bb2949e5e4a2aee80a10f7b20431",
+      "verification": "EXTRACTED_FILE_PRE_EXECUTION"
+    },
+    {
+      "path": "nsis-3.11/Bin/makensis.exe",
+      "absolute_path": "D:\\a\\_temp\\issue380-s1r2-task\\nsis-3.11-extracted\\nsis-3.11\\Bin\\makensis.exe",
+      "role": "underlying_compiler",
+      "length_bytes": 468992,
+      "sha256": "42850802704ecb11163f7e0329d35ee54bd288953200d4966e226d572848cfc5",
+      "verification": "EXTRACTED_FILE_PRE_EXECUTION"
+    }
+  ],
+  "extraction_status": "EXTRACTED_AND_MEMBER_IDENTITIES_VERIFIED",
+  "failure": null
+}

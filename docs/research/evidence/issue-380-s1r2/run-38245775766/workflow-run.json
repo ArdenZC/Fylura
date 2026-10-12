@@ -1,0 +1,16 @@
+{
+  "repository": "ArdenZC/Zen-Canvas",
+  "ref": "refs/heads/research/issue-380-s1r2-nsis-launcher-verification",
+  "sha": "f5651e3d26d1ccb2c2ac3922e9863295b6970b27",
+  "run_id": "38245775766",
+  "run_attempt": "1",
+  "job_name": "Synthetic NSIS ZIP trace persistence",
+  "runner_os": "Windows",
+  "runner_arch": "X64",
+  "image_os": "win22",
+  "image_version": "20261004.326.1",
+  "preflight_outcome": "success",
+  "probe_outcome": "failure",
+  "cleanup_outcome": "success",
+  "scope": "Synthetic HKCU probe only; no Zen Canvas installer, product Registry, Service, IPC, database, or application process."
+}

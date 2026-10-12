@@ -1,0 +1,1 @@
+System.Management.Automation.RuntimeException: Assertion failed: detail_uninstaller_abort_expected_exit — expected=42 actual=0 timed_out=False stdout=D:\a\_temp\issue380-s1r2-evidence\detail\uninstaller-abort.stdout.txt stderr=D:\a\_temp\issue380-s1r2-evidence\detail\uninstaller-abort.stderr.txt

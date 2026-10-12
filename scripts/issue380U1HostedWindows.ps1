@@ -933,6 +933,54 @@ function Append-U1RDetailAfterAll([string]$Path, [string]$Anchor, [string]$Detai
     [IO.File]::WriteAllText($Path, $updated, [Text.UTF8Encoding]::new($false))
 }
 
+function Convert-U1RDetailPrintsToFileTrace([string]$Path, [string]$TraceFileName) {
+    $source = [IO.File]::ReadAllText($Path).Replace([string][char]13 + [char]10, [string][char]10)
+    $pattern = '(?m)^(?<indent>[ \t]*)DetailPrint (?<message>"\[U1R(?:-OLD-UN)?\][^"\r\n]*")[ \t]*\r?$'
+    $traceMatches = [regex]::Matches($source, $pattern)
+    if ($traceMatches.Count -eq 0) { throw "U1R test diagnostic had no [U1R] DetailPrint lines to instrument in $Path" }
+    $builder = [Text.StringBuilder]::new()
+    $cursor = 0
+    $sequence = 0
+    foreach ($traceMatch in $traceMatches) {
+        [void]$builder.Append($source.Substring($cursor, $traceMatch.Index - $cursor))
+        $id = "u1r_file_trace_$sequence"
+        $sequence++
+        $indent = $traceMatch.Groups["indent"].Value
+        $message = $traceMatch.Groups["message"].Value
+        $writeMessage = $message.Substring(0, $message.Length - 1) + '$\r$\n"'
+        $tracePath = '$TEMP\' + $TraceFileName
+        $lines = @(
+            ($indent + 'Push $R8'),
+            ($indent + 'Push $9'),
+            ($indent + "IfErrors ${id}_had_error ${id}_no_error"),
+            ($indent + "${id}_had_error:"),
+            ($indent + 'StrCpy $R8 1'),
+            ($indent + "Goto ${id}_saved"),
+            ($indent + "${id}_no_error:"),
+            ($indent + 'StrCpy $R8 0'),
+            ($indent + "${id}_saved:"),
+            ($indent + ('FileOpen $9 "' + $tracePath + '" a')),
+            ($indent + ('FileWrite $9 ' + $writeMessage)),
+            ($indent + 'FileClose $9'),
+            ($indent + 'Pop $9'),
+            ($indent + 'ClearErrors'),
+            ($indent + "StrCmp $R8 1 ${id}_restore_error"),
+            ($indent + 'Pop $R8'),
+            ($indent + "Goto ${id}_done"),
+            ($indent + "${id}_restore_error:"),
+            ($indent + 'SetErrors'),
+            ($indent + 'Pop $R8'),
+            ($indent + "${id}_done:"),
+            ($indent + ('DetailPrint ' + $message))
+        )
+        [void]$builder.Append($lines -join "`n")
+        $cursor = $traceMatch.Index + $traceMatch.Length
+    }
+    [void]$builder.Append($source.Substring($cursor))
+    $updated = $builder.ToString()
+    [IO.File]::WriteAllText($Path, $updated, [Text.UTF8Encoding]::new($false))
+}
+
 function Add-U1RTestInstrumentation([string]$Label, [string]$Path) {
     $mainPath = Join-Path $Path "src-tauri/src/main.rs"
     if ($Label -eq "old") {
@@ -1095,14 +1143,44 @@ function Add-U1RNsisDiagnostics([string]$Label, [string]$Path) {
         }
         diagnostic = diagnostic.replace(before, after);
       };
-      inject("Function .onInit\n", "Function .onInit\n  LogSet on\n  DetailPrint \"[U1R] installer_on_init\"\n", "onInit logger");
+      inject("Function .onInit\n", "Function .onInit\n  DetailPrint \"[U1R] installer_on_init\"\n", "onInit logger");
       inject("Function PageReinstall\n", "Function PageReinstall\n  DetailPrint \"[U1R] PageReinstall passive=$PassiveMode update=$UpdateMode instdir=$INSTDIR\"\n", "maintenance page entry");
       inject("nsis_tauri_utils::SemverCompare \"${VERSION}\" $R0\n  Pop $R0\n", "nsis_tauri_utils::SemverCompare \"${VERSION}\" $R0\n  Pop $R0\n  DetailPrint \"[U1R] PageReinstall semver_compare=$R0\"\n", "maintenance page version result");
       inject("Function PageLeaveReinstall\n", "Function PageLeaveReinstall\n  DetailPrint \"[U1R] PageLeaveReinstall compare=$R0 update=$UpdateMode passive=$PassiveMode wix=$WixMode\"\n", "maintenance page leave");
       inject("  reinst_uninstall:\n    HideWindow\n", "  reinst_uninstall:\n    DetailPrint \"[U1R] maintenance_uninstall_begin compare=$R0 selection=$R1 update=$UpdateMode wix=$WixMode\"\n    HideWindow\n", "maintenance uninstall branch");
       inject("    BringToFront\n\n    ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code\n", "    BringToFront\n    DetailPrint \"[U1R] maintenance_uninstaller_return exit=$0\"\n\n    ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code\n", "maintenance uninstaller return");
-      inject('      StrCpy $R1 "$R1 _?=$4" ; append uninstall directory\n', '      StrCpy $R1 "$R1 /LOG=$TEMP\\issue-380-u1r-old-uninstaller.log"\n      DetailPrint "[U1R] old_uninstaller_log=$TEMP\\issue-380-u1r-old-uninstaller.log"\n      StrCpy $R1 "$R1 _?=$4" ; append uninstall directory\n', "old uninstaller diagnostic log");
+      inject('      StrCpy $R1 "$R1 _?=$4" ; append uninstall directory\n', '      DetailPrint "[U1R] old_uninstaller_trace=$TEMP\\issue-380-u1r-old-uninstaller.log"\n      StrCpy $R1 "$R1 _?=$4" ; append uninstall directory\n', "old uninstaller diagnostic trace");
       inject("  Call ZCPrepareInstallLifecycleFinal", "  DetailPrint \"[U1R] lifecycle_prepare_final_begin\"\n  Call ZCPrepareInstallLifecycleFinal\n  DetailPrint \"[U1R] lifecycle_prepare_final_returned\"", "final lifecycle owner");
+      let traceSequence = 0;
+      diagnostic = diagnostic.replace(/^([ \t]*)DetailPrint ("\[U1R\][^"\r\n]*")[ \t]*\r?$/gm, (_line, indent, message) => {
+        const id = `u1r_d1a_trace_${traceSequence++}`;
+        const writeMessage = `${message.slice(0, -1)}$\\r$\\n\"`;
+        return [
+          `${indent}Push $R8`,
+          `${indent}Push $9`,
+          `${indent}IfErrors ${id}_had_error ${id}_no_error`,
+          `${indent}${id}_had_error:`,
+          `${indent}StrCpy $R8 1`,
+          `${indent}Goto ${id}_saved`,
+          `${indent}${id}_no_error:`,
+          `${indent}StrCpy $R8 0`,
+          `${indent}${id}_saved:`,
+          `${indent}FileOpen $9 "$TEMP\\issue-380-u1r-d1a-installer-trace.log" a`,
+          `${indent}FileWrite $9 ${writeMessage}`,
+          `${indent}FileClose $9`,
+          `${indent}Pop $9`,
+          `${indent}ClearErrors`,
+          `${indent}StrCmp $R8 1 ${id}_restore_error`,
+          `${indent}Pop $R8`,
+          `${indent}Goto ${id}_done`,
+          `${indent}${id}_restore_error:`,
+          `${indent}SetErrors`,
+          `${indent}Pop $R8`,
+          `${indent}${id}_done:`,
+          `${indent}DetailPrint ${message}`,
+        ].join("\n");
+      });
+      if (!diagnostic.includes("u1r_d1a_trace_")) throw new Error("U1R NSIS trace markers were not converted to file writes");
       fs.writeFileSync(generatedTemplatePath, diagnostic, "utf8");
     }
     generatedNsisTemplate = true;
@@ -1209,6 +1287,8 @@ Function ValidateZenCanvasPreviewCore
 '@
         Replace-U1RExactText $hooksPath $previewAndServiceBefore $previewAndServiceAfter "old uninstaller reversible lifecycle trace"
     }
+    $traceFileName = if ($Label -eq "old") { "issue-380-u1r-old-uninstaller.log" } else { "issue-380-u1r-d1a-installer-trace.log" }
+    Convert-U1RDetailPrintsToFileTrace $hooksPath $traceFileName
 }
 
 function Get-U1RRegistryKeySnapshot([string]$SubKey) {
@@ -1445,11 +1525,13 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
         $databaseBefore = Invoke-U1RProfile "snapshot" $isolatedAppData $SourceId $MarkerName
         $log = Join-Path $EvidenceRoot "u1r-d1a-inplace-no-update.log"
         $uninstallerTracePath = Join-Path $env:TEMP "issue-380-u1r-old-uninstaller.log"
+        $diagnosticTracePath = Join-Path $env:TEMP "issue-380-u1r-d1a-installer-trace.log"
         Remove-Item -LiteralPath $uninstallerTracePath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $diagnosticTracePath -Force -ErrorAction SilentlyContinue
         $transition = Wait-ForInstaller $D1ACandidate.installer $installDir $log $D1ACandidate.packageExeSha256 (Get-Hash $exe) 300 $false
         $after = Get-U1RInstallIdentitySnapshot $exe
         $databaseAfter = Invoke-U1RProfile "snapshot" $isolatedAppData $SourceId $MarkerName
-        $diagnosticText = if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Raw } else { "" }
+        $diagnosticText = if (Test-Path -LiteralPath $diagnosticTracePath) { Get-Content -LiteralPath $diagnosticTracePath -Raw } else { "" }
         $taggedLines = @($diagnosticText -split "`r?`n" | Where-Object { $_ -match '\[U1R\]' })
         $uninstallerTraceText = if (Test-Path -LiteralPath $uninstallerTracePath) { Get-Content -LiteralPath $uninstallerTracePath -Raw } else { "" }
         $uninstallerTaggedLines = @($uninstallerTraceText -split "`r?`n" | Where-Object { $_ -match '\[U1R(?:-OLD-UN)?\]' })
@@ -1517,6 +1599,9 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
             log = $log
             logExists = $transition.Log.exists
             logSha256 = $transition.Log.sha256
+            diagnosticTrace = $diagnosticTracePath
+            diagnosticTraceExists = Test-Path -LiteralPath $diagnosticTracePath
+            diagnosticTraceSha256 = if (Test-Path -LiteralPath $diagnosticTracePath) { Get-Hash $diagnosticTracePath } else { $null }
             allDiagnosticLines = $taggedLines
             oldUninstallerLog = $uninstallerTracePath
             oldUninstallerLogExists = Test-Path -LiteralPath $uninstallerTracePath
@@ -1528,6 +1613,8 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
             firstFailingCondition = $rootCause
             firstFailingValidationTrace = $firstMismatch
             firstAbortMessage = @($diagnosticText -split "`r?`n" | Where-Object { $_ -match '(?i)(abort|aborted|failed|error|could not|inconsistent|foreign)' } | Select-Object -First 8)
+            installerStdout = $transition.Stdout
+            installerStderr = $transition.Stderr
             before = $before
             after = $after
             processSamples = $transition.Samples
@@ -1546,18 +1633,23 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
             oldDesktopStillRunning = @($after.desktopProcesses | Where-Object { $_.processId -eq $app.Id }).Count -gt 0
         }
         Save-Evidence
+        Copy-U1RRuntimeFile $diagnosticTracePath "u1r-d1a-installer-nsis-trace.log" | Out-Null
         Copy-U1RRuntimeFile $uninstallerTracePath "u1r-old-uninstaller-nsis.log" | Out-Null
         if ($transition.ExitCode -eq 2 -and $taggedLines.Count -gt 0) {
             # Follow the same-instance diagnosis with Tauri's explicit update
             # path. This is an observation only; any earlier side effect is
             # captured above before the command is issued.
             $updateLog = Join-Path $EvidenceRoot "u1r-d1a-inplace-update-flag.log"
+            Remove-Item -LiteralPath $diagnosticTracePath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $uninstallerTracePath -Force -ErrorAction SilentlyContinue
             $imageHashBeforeUpdateFlag = if (Test-Path -LiteralPath $exe) { Get-Hash $exe } else { "" }
             $update = Wait-ForInstaller $D1ACandidate.installer $installDir $updateLog $D1ACandidate.packageExeSha256 $imageHashBeforeUpdateFlag 300 $false @("/UPDATE")
             $updateSnapshot = Get-U1RInstallIdentitySnapshot $exe
-            $updateText = if (Test-Path -LiteralPath $updateLog) { Get-Content -LiteralPath $updateLog -Raw } else { "" }
-            $global:U1Evidence.u1rInstaller.updateFlagAttempt = [ordered]@{ arguments = @("/S", "/UPDATE", "/LOG=$updateLog"); exitCode = $update.ExitCode; log = $updateLog; logSha256 = $update.Log.sha256; diagnosticLines = @($updateText -split "`r?`n" | Where-Object { $_ -match '\[U1R\]' }); finalSnapshot = $updateSnapshot; samples = $update.Samples }
+            $updateText = if (Test-Path -LiteralPath $diagnosticTracePath) { Get-Content -LiteralPath $diagnosticTracePath -Raw } else { "" }
+            $global:U1Evidence.u1rInstaller.updateFlagAttempt = [ordered]@{ arguments = @("/S", "/UPDATE", "/LOG=$updateLog"); exitCode = $update.ExitCode; log = $updateLog; logSha256 = $update.Log.sha256; diagnosticTrace = $diagnosticTracePath; diagnosticTraceExists = Test-Path -LiteralPath $diagnosticTracePath; diagnosticTraceSha256 = if (Test-Path -LiteralPath $diagnosticTracePath) { Get-Hash $diagnosticTracePath } else { $null }; diagnosticLines = @($updateText -split "`r?`n" | Where-Object { $_ -match '\[U1R\]' }); finalSnapshot = $updateSnapshot; samples = $update.Samples; stdout = $update.Stdout; stderr = $update.Stderr }
             Save-Evidence
+            Copy-U1RRuntimeFile $diagnosticTracePath "u1r-d1a-update-installer-nsis-trace.log" | Out-Null
+            Copy-U1RRuntimeFile $uninstallerTracePath "u1r-old-uninstaller-update-nsis-trace.log" | Out-Null
         }
     } finally {
         if ($app) { Stop-U1Process $app }

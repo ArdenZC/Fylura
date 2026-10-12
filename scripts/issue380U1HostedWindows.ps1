@@ -993,6 +993,27 @@ function Add-U1RTestInstrumentation([string]$Label, [string]$Path) {
             let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
 '@
         Replace-U1RExactText $mainPath $gateCallBefore $gateCallAfter "old client pre-coordinator startup gate"
+        $rebuildTriggerBefore = @'
+            if let Err(error) = global_index_coordinator.start() {
+                eprintln!("Global index startup failed (non-fatal): {error}");
+            }
+'@
+        $rebuildTriggerAfter = @'
+            if let Err(error) = global_index_coordinator.start() {
+                eprintln!("Global index startup failed (non-fatal): {error}");
+            }
+            #[cfg(all(target_os = "windows", feature = "native-qa"))]
+            if let Ok(source_id) = std::env::var("ZC_U1R_FORCE_REBUILD_SOURCE_ID") {
+                let coordinator = global_index_coordinator.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    crate::global_index::qa_trace::record("u1r_forced_rebuild_begin");
+                    let result = coordinator.rebuild(Some(source_id));
+                    crate::global_index::qa_trace::record(&format!("u1r_forced_rebuild_end result={result:?}"));
+                });
+            }
+'@
+        Replace-U1RExactText $mainPath $rebuildTriggerBefore $rebuildTriggerAfter "old client forced post-gate Rebuild request"
         $checkpointEnd = @'
     #[cfg(not(feature = "native-qa"))]
     let _ = name;
@@ -1191,11 +1212,11 @@ function Add-U1RNsisDiagnostics([string]$Label, [string]$Path) {
     }
 
     $hooksPath = Join-Path $Path "src-tauri/windows/installer-hooks.nsh"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}' 'product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}' "ARP string comparison trace"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}' 'product_dword name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}' "ARP DWORD comparison trace"
-    Append-U1RDetailAfterAll $hooksPath '  StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0' 'estimated_size_expected=$ZC_EXPECTED_ESTIMATED_SIZE' "EstimatedSize calculation trace"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"' 'registry_key_state key=uninstaller state=$ZC_REG_KEY_STATE' "uninstaller registry key state trace"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"' 'registry_key_state key=manufacturer_product state=$ZC_REG_KEY_STATE' "manufacturer registry key state trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" "${EXPECTED}" ${ZC_REG_STRING_SZ_ONLY}' '[U1R] product_string name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}' "ARP string comparison trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_DWORD_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "${NAME}" ${EXPECTED}' '[U1R] product_dword name=${NAME} state=$ZC_REG_VALUE_STATE expected=${EXPECTED}' "ARP DWORD comparison trace"
+    Append-U1RDetailAfterAll $hooksPath '  StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0' '[U1R] estimated_size_expected=$ZC_EXPECTED_ESTIMATED_SIZE' "EstimatedSize calculation trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"' '[U1R] registry_key_state key=uninstaller state=$ZC_REG_KEY_STATE' "uninstaller registry key state trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"' '[U1R] registry_key_state key=manufacturer_product state=$ZC_REG_KEY_STATE' "manufacturer registry key state trace"
     $uninstallerFileBefore = @'
   IfFileExists "$INSTDIR\uninstall.exe" 0 detect_product_uninstaller_absent
   StrCpy $ZC_PREEXISTING_UNINSTALLER_PRESENT 1
@@ -1386,14 +1407,15 @@ function Compare-U1RStateSnapshots($Before, $After) {
     }
     $entryBefore = ConvertTo-Json -InputObject $Before.entry -Depth 20 -Compress
     $entryAfter = ConvertTo-Json -InputObject $After.entry -Depth 20 -Compress
-    $checks = @($sourceChecks.Values) + @($associationChecks.Values) + @(
-        $entryBefore -ceq $entryAfter,
-        [long]$Before.activeEntries -eq [long]$After.activeEntries,
-        [long]$Before.staleEntries -eq [long]$After.staleEntries,
-        [long]$Before.markerFtsHits -eq [long]$After.markerFtsHits
-    )
+    $checks = [System.Collections.Generic.List[bool]]::new()
+    foreach ($field in $sourceFields) { $checks.Add([bool]$sourceChecks[$field]) }
+    foreach ($field in $associationFields) { $checks.Add([bool]$associationChecks[$field]) }
+    $checks.Add([bool]($entryBefore -ceq $entryAfter))
+    $checks.Add([bool]([long]$Before.activeEntries -eq [long]$After.activeEntries))
+    $checks.Add([bool]([long]$Before.staleEntries -eq [long]$After.staleEntries))
+    $checks.Add([bool]([long]$Before.markerFtsHits -eq [long]$After.markerFtsHits))
     return [ordered]@{
-        preserved = (@($checks | Where-Object { -not $_ }).Count -eq 0)
+        preserved = -not $checks.Contains($false)
         sourceFields = $sourceChecks
         associations = $associationChecks
         markerEntry = ($entryBefore -ceq $entryAfter)
@@ -1584,7 +1606,7 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
         } elseif ($firstMismatch) {
             $rootCause = "first non-exact pre-file validation condition: $firstMismatch"
         } elseif ($taggedLines -match 'product_validation_result product=2') {
-            $rootCause = "DetectZenCanvasPreexistingProduct returned invalid product state; inspect the ordered ARP comparison trace and typed before-snapshot for the first non-exact value"
+            $rootCause = "UNKNOWN: DetectZenCanvasPreexistingProduct returned invalid product state, but no inner validation predicate was captured"
         } elseif ($taggedLines -match 'preview_validation_begin' -and $taggedLines -notmatch 'preview_validation_result') {
             $rootCause = "ValidateZenCanvasPreviewCore aborted during a typed Preview Handler comparison; use the last preview_value trace and registry snapshot"
         } elseif ($taggedLines -match 'service_image_path_state=' -and $taggedLines -notmatch 'lifecycle_prepare_final_returned') {
@@ -1696,6 +1718,7 @@ function Invoke-U1RSamePathAndDirectTests($OldCandidate, $D1ACandidate, [string]
         $oldService = Start-U1RScmService $exe (Join-Path $taskRoot "u1r-old-same-path-service.trace.log") "u1r-old-same-path-service"
         $environment = Set-ChildProfileEnvironment $samePathProfile $sameTrace $FixtureRoot
         $environment.ZC_U1R_STARTUP_GATE = $gateRoot
+        $environment.ZC_U1R_FORCE_REBUILD_SOURCE_ID = $SourceId
         $previous = @{}
         foreach ($name in $environment.Keys) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
         foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, [string]$environment[$name], "Process") }
@@ -1769,11 +1792,10 @@ function Invoke-U1RSamePathAndDirectTests($OldCandidate, $D1ACandidate, [string]
             $samePath.serviceTrace = $serviceTrace
             $samePath.clientTrace = $sameTrace
             $samePath.oldClientTraceAfterRelease = Get-Content -LiteralPath $oldAppTracePath -Raw -ErrorAction SilentlyContinue
-            $samePath.postSnapshot = Invoke-U1RProfile "snapshot" $samePathProfile $SourceId $MarkerName
-            $samePath.databaseSha256AfterRequest = Get-Hash $samePath.databasePath
-            $samePath.statePreservation = Compare-U1RStateSnapshots $samePath.preSnapshot $samePath.postSnapshot
-            $samePath.status = if ($samePath.oldGenerationTracePresent -and $identityAccepted -and $rebuildAccepted -and $operationClaimed -and $sourceValidated -and $requestIdentityConsistent -and $routeComplete -and $samePath.newServiceBinaryMatchesD1A) { "PROVED_OLD_MAPPED_CLIENT_REBUILD_ACCEPTED_BY_NEW_SAME_PATH_SERVICE" } else { "UNVERIFIED_SAME_PATH_SERVICE_OR_REQUEST" }
-            if ($samePath.status -eq "PROVED_OLD_MAPPED_CLIENT_REBUILD_ACCEPTED_BY_NEW_SAME_PATH_SERVICE") {
+            $samePath.requestedRebuildTracePresent = [bool]($samePath.oldClientTraceAfterRelease -match 'u1r_forced_rebuild_begin')
+            $samePath.requestedRebuildResultTrace = @($samePath.oldClientTraceAfterRelease -split '\r?\n' | Where-Object { $_ -match 'u1r_forced_rebuild_end' })
+            $samePath.status = if ($samePath.oldGenerationTracePresent -and $identityAccepted -and $rebuildAccepted -and $operationClaimed -and $sourceValidated -and $requestIdentityConsistent -and $samePath.newServiceBinaryMatchesD1A) { "PROVED_OLD_GENERATION_REQUEST_ACCEPTED_BY_NEW_SAME_PATH_SERVICE" } else { "UNVERIFIED_SAME_PATH_SERVICE_OR_REQUEST" }
+            if ($samePath.status -eq "PROVED_OLD_GENERATION_REQUEST_ACCEPTED_BY_NEW_SAME_PATH_SERVICE") {
                 $samePath.securityFinding = "D1-A's exact image-path check accepted an old-master client PID created before file replacement; that old client submitted a Rebuild request which the new D1-A Service accepted. No binary-generation identity check was made."
             }
         } else {
@@ -1792,6 +1814,13 @@ function Invoke-U1RSamePathAndDirectTests($OldCandidate, $D1ACandidate, [string]
         if ((Get-ServiceSnapshot) -and (Get-ServiceSnapshot).state -ine "Stopped") { Stop-U1RScmService "u1r-same-path-cleanup" | Out-Null }
         Remove-U1RScmService "u1r-same-path-cleanup"
         foreach ($candidate in @(Get-AppProcessSnapshots $exe)) { Stop-Process -Id $candidate.processId -Force -ErrorAction SilentlyContinue }
+        if ($samePath.preSnapshot -and (Test-Path -LiteralPath $samePath.databasePath)) {
+            try {
+                $samePath.postSnapshot = Invoke-U1RProfile "snapshot" $samePathProfile $SourceId $MarkerName
+                $samePath.databaseSha256AfterRequest = Get-Hash $samePath.databasePath
+                $samePath.statePreservation = Compare-U1RStateSnapshots $samePath.preSnapshot $samePath.postSnapshot
+            } catch { $samePath.postSnapshotFailure = $_.Exception.ToString() }
+        }
         Copy-U1RRuntimeFile $oldAppTracePath "u1r-same-path-old-client.stderr.log" | Out-Null
         Copy-U1RRuntimeFile $serviceTrace "u1r-same-path-d1a-service.trace.log" | Out-Null
         Copy-U1RRuntimeFile $sameTrace "u1r-same-path-old-client.trace.log" | Out-Null
@@ -1936,7 +1965,7 @@ try {
         $directAttempt = $global:U1Evidence.u1rDirectFallback
         $u1rBlockers = [Collections.Generic.List[string]]::new()
         if (-not $installerAttempt -or $installerAttempt.status -eq "ROOT_CAUSE_UNRESOLVED") { $u1rBlockers.Add("NSIS first failing condition remains unresolved") }
-        if (-not $samePathAttempt -or $samePathAttempt.status -ne "PROVED_OLD_MAPPED_CLIENT_REBUILD_ACCEPTED_BY_NEW_SAME_PATH_SERVICE") {
+        if (-not $samePathAttempt -or $samePathAttempt.status -ne "PROVED_OLD_GENERATION_REQUEST_ACCEPTED_BY_NEW_SAME_PATH_SERVICE") {
             $u1rBlockers.Add("old process isolation is not proven by a same-path generation identity gate")
         } else {
             $u1rBlockers.Add("new same-path Service accepted a Rebuild request from an old mapped client")

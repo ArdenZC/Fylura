@@ -1,0 +1,82 @@
+{
+  "track": "Zen Canvas #381 Managed Scan D4-S8",
+  "phase": "read-only consumer coverage reconciliation",
+  "owner_authorization": "https://github.com/ArdenZC/Zen-Canvas/issues/381#issuecomment-6126172721",
+  "research_base": {
+    "stage": "D4-S7",
+    "head": "004fc6a671d11b8833ac734282f14f0732ca153e",
+    "tree": "3df87ad2701635510744c86ce3b185d6bc52a30e"
+  },
+  "production_audit_snapshot": {
+    "branch": "master",
+    "head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "schema_version": 37
+  },
+  "prior_audit_inputs": {
+    "s1_inputs_json_sha256": "ae4aa707b390902e6f25b8c566ec4eb6ed30fd78f59e355bf61cd431b016a59d",
+    "s1_manifest_sha256": "a0791a48388a1b3aeba94bbb3362e2e8ba748e40d7adc64335451ba6187b0ba3",
+    "s1_function_inventory_csv_sha256": "1d93f122f5ff293ca06c4f7ce2a6cd57a7ddd4262550490643d3b4ceae6725ad",
+    "s1_stale_reference_inventory_csv_sha256": "f82cb7c5f8400478c410bcf2d64c57415600fd9ee2b1ae216f58b98f82973e85",
+    "s1_mutation_function_inventory_csv_sha256": "35a0bf57b2373330bfc4ed0b5431fcc81c2433913a01d2bffb78f838f9d649a4",
+    "s1_mutation_reference_inventory_csv_sha256": "757d149686fdd39dc98f2443812af05e3785ddc6b4a43a13e582a50ff5ada40a",
+    "s1_frontend_consumers_csv_sha256": "90765417b195ec35fe31bdff54a72240f5b7005a82ad09a0d1f2320fdd720187",
+    "s7_consumer_matrix_csv_sha256": "df8876287724141db2b42a6a4b271540679f78eb2adf79495ab53f4df86f3529",
+    "s7_integration_readiness_report_sha256": "1de8a56583759e2450b5c666f62cbf94633ee61a77f641805da2b2e64488066e",
+    "s7_migration_dependency_dag_sha256": "ead6583b606e71b19ba127810dfb8ced62632bfc1930776839dda2195a6d34d7",
+    "s7_fts_cursor_contract_sha256": "5d2b821bf2598f8e20fce73086a36da74ae392775422221c7302ff0b5228c109"
+  },
+  "source_scope": {
+    "builder": "docs/project/research/issue-381-d4-s8/tools/build_coverage_ledgers.py",
+    "command": "python3 docs/project/research/issue-381-d4-s8/tools/build_coverage_ledgers.py",
+    "production_source_check": "git diff --quiet 3275ac7c72df8ae4139a30f16c7f649971324e97 -- src-tauri/src",
+    "rust_files_in_frozen_s1_audit": 247,
+    "direct_files_query_rule": "literal FROM files or JOIN files tokens in Rust source",
+    "tauri_registry_rule": "every zen_canvas_tauri symbol inside main.rs generate_handler! registration block"
+  },
+  "reconciled_counts": {
+    "stale_groups_total": 149,
+    "stale_groups_production_schema": 103,
+    "stale_groups_test_fixture": 46,
+    "stale_literal_references_total": 262,
+    "write_function_groups_original_total": 236,
+    "write_function_groups_s1_labeled_production": 141,
+    "write_function_groups_reconciled_production_schema": 121,
+    "write_function_groups_reconciled_test_fixture": 115,
+    "write_function_groups_reclassified_as_test": 20,
+    "write_literal_references_total": 433,
+    "write_literal_references_reconciled_production_schema": 210,
+    "write_literal_references_reconciled_test_fixture": 223,
+    "direct_files_from_join_reference_total": 125,
+    "direct_files_from_join_groups_total": 99,
+    "direct_files_from_join_references_production_schema": 72,
+    "direct_files_from_join_groups_production_schema": 54,
+    "registered_tauri_commands": 209,
+    "unresolved_registered_command_definitions": 0,
+    "frontend_stale_consumers": 11,
+    "s7_domains_mapped": 17
+  },
+  "latest_issue_380_facts_supplied_for_this_phase": {
+    "decision": "#380-S1R4-P2 WINDOWS_PATH_MATRIX_ACCEPTED",
+    "windows_hosted_path_matrix": "40/40 PASS",
+    "runtime_gate": "P3-P0_PREPARATION_ONLY_GO",
+    "blockers": [
+      "NSIS_RUNTIME_NO_GO",
+      "U2_PRODUCTION_NO_GO",
+      "old client / Service / IPC / database-generation isolation incomplete"
+    ],
+    "source_note": "These are the latest Owner facts supplied in the D4-S8 brief. Older #380 status values in D4-S1/S7 inputs are historical and not used as current truth."
+  },
+  "execution_boundary": {
+    "production_code_or_schema_changed": false,
+    "master_or_existing_pr_changed": false,
+    "schema_version_allocated": false,
+    "hosted_windows_or_macos_run": false,
+    "full_ci_run": false,
+    "product_benchmark_or_fts_experiment_run": false,
+    "codex_review_run": false,
+    "issue_or_pr_mutated": false,
+    "merge_or_release": false,
+    "validation_performed": "static inventory generation and source-scope reconciliation only"
+  }
+}

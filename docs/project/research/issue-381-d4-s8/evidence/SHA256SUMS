@@ -1,0 +1,16 @@
+00e0d20a88913d1df90fe4ff2c71c3d00dade39803f75ead6e96c881b90d6e82  docs/project/research/issue-381-d4-s8/CONSUMER-COVERAGE-RECONCILIATION.md
+dce206abc45f40eecbc755337ed76eb5df9486abfc16f02f0017c2dfa9199a21  docs/project/research/issue-381-d4-s8/DEPENDENCY-AND-ROLLBACK-MATRIX.md
+7124e53981b9fe83ad8a971fa8077b130fb430f1d4b7d588f7cc77acf1b731d9  docs/project/research/issue-381-d4-s8/FTS-CURSOR-ADMISSION.md
+3819349a25a33b1d07e9fec7d799575dcf4236fb7ebd356a062e75934b2b1b2e  docs/project/research/issue-381-d4-s8/README.md
+d3b9c47afe2a0ceaaaf8088a69de1262e2e6b75fddabe0666abcdc1fb1edecf1  docs/project/research/issue-381-d4-s8/TEST-CONTRACT-AND-GATES.md
+14977d8688841030227bd81aabe4acb298d0dff2dfd5df9265e667040e1707d5  docs/project/research/issue-381-d4-s8/evidence/INPUTS.json
+07dce41a7acffff239173e3c201109879bddd71eff0ef077a75cdd09d6ac0ea2  docs/project/research/issue-381-d4-s8/ledgers/DOMAIN-TO-ENTRY-MAP.csv
+03c860e13a158ba0d37bf2720d96846a25961cd1b28229ba456be510fd7895c2  docs/project/research/issue-381-d4-s8/ledgers/FILES-READ-GROUP-LEDGER.csv
+b406742f8647567e1e5ffd8290ebeee476ee769e2525ae4e9acc62046deac4e5  docs/project/research/issue-381-d4-s8/ledgers/FILES-READ-REFERENCE-LEDGER.csv
+e1916167ef7fe0a1ac6657f4c7e0e398bdb304eca1dfbc0d8f53517134b99cff  docs/project/research/issue-381-d4-s8/ledgers/FRONTEND-CONSUMER-LEDGER.csv
+88a2101ac086ce48b419783fc08a11f59d98202186907cd831ec84200cf2dae4  docs/project/research/issue-381-d4-s8/ledgers/STALE-GROUP-LEDGER.csv
+fe871aaeb3e971305b4f9170e077daeca6ffb744fb0204a1f01c59ec545aa45c  docs/project/research/issue-381-d4-s8/ledgers/STALE-REFERENCE-LEDGER.csv
+a3892c1fb0ec09c77962841dcad20b68cc1cb67291a4515c7b2f5e8ccc88d5cb  docs/project/research/issue-381-d4-s8/ledgers/TAURI-COMMAND-REGISTRY.csv
+44c0a2ebe6ef6d4d6537fe28ab73003732ff901e5252ba66c8f942153e4a679a  docs/project/research/issue-381-d4-s8/ledgers/WRITE-FUNCTION-LEDGER.csv
+b0708c459c0c50d2dcaa1c36ff8a321d9cfe5d37532ef3e466f9e6b3f06b5673  docs/project/research/issue-381-d4-s8/ledgers/WRITE-REFERENCE-LEDGER.csv
+f1046e7faffa7ce877fd04f79fec8a5f826d8c47e46d3a98f501eec4ed362f96  docs/project/research/issue-381-d4-s8/tools/build_coverage_ledgers.py

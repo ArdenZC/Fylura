@@ -1,0 +1,22 @@
+D4-S0 final Harness run
+Date: 2026-10-12 UTC
+Source worktree: /workspace/worktrees/issue-381-d4-s0
+Branch: research/issue-381-d4-s0
+Base: 3275ac7c72df8ae4139a30f16c7f649971324e97
+
+Commands and outcomes:
+
+1. cargo fmt --manifest-path docs/project/research/issue-381-d4-s0/harness/Cargo.toml
+   Exit: 0
+2. cargo fmt --check --manifest-path docs/project/research/issue-381-d4-s0/harness/Cargo.toml
+   Exit: 0
+3. cargo check --offline --manifest-path docs/project/research/issue-381-d4-s0/harness/Cargo.toml
+   Exit: 0
+4. ZC_ISSUE381_D4_OUTPUT_DIR=target/issue-381-d4-s0-final-exact cargo run --offline --manifest-path docs/project/research/issue-381-d4-s0/harness/Cargo.toml -- --d4-s0
+   Exit: 0
+   Produced: 12 raw scale/model repetitions and one failure-contract record.
+   Failure-contracts passed: true.
+
+The exact-source Harness run used project Schema 37 and bundled SQLite 3.51.3. It ran three repetitions for each of 10k/100k candidate rows and both models. The failure contract verified staging reopen, old/new reader snapshots, revision/cancel/generation fences, reappearing file rejection, Linux symlink-parent rejection, constraint rollback, process kill before pointer COMMIT, integrity, and atomic multi-root pointer visibility.
+
+No project-wide tests, Windows/macOS hosted jobs, general CI, Codex Review, PR mutation, merge, issue closure, or release were run.

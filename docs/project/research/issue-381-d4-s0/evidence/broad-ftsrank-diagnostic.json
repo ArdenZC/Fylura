@@ -1,0 +1,41 @@
+{
+  "record_type": "d4_s0_broad_fts_rank_diagnostic",
+  "source_master_head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+  "schema_version": 37,
+  "sqlite_version": "3.51.3 bundled",
+  "fixture": {
+    "candidate_missing_rows": 10000,
+    "survivor_rows": 10000,
+    "total_files": 20001,
+    "raw_fts_matches_for_needle": 20000,
+    "query": "needle"
+  },
+  "measurements_ms": {
+    "fts_count_all_matches": 5.615,
+    "count_joined_files_without_overlay": 1957.316,
+    "count_joined_files_with_overlay": 1280.745,
+    "page_order_by_name_without_overlay": 1917.888,
+    "actual_select_order_by_bm25_without_overlay": 103808.697,
+    "actual_select_order_by_bm25_with_overlay": 52116.629
+  },
+  "overlay_page_query_plan": [
+    "SEARCH f USING INDEX idx_files_is_stale (is_stale=?)",
+    "CORRELATED SCALAR SUBQUERY 1",
+    "SEARCH current USING INTEGER PRIMARY KEY (rowid=?)",
+    "SEARCH root USING INDEX sqlite_autoindex_d4_s0_manifest_roots_1 (manifest_id=? AND root_id=?)",
+    "SEARCH tombstone USING COVERING INDEX sqlite_autoindex_d4_s0_staged_tombstones_1 (operation_id=? AND file_id=?)",
+    "SCAN files_fts VIRTUAL TABLE INDEX 0:=M2",
+    "USE TEMP B-TREE FOR ORDER BY"
+  ],
+  "host_system_sqlite_probe": {
+    "sqlite_version": "3.53.1",
+    "same_fixture_and_overlay_select": true,
+    "query_shape": "row-returning SELECT with broad MATCH, correlated overlay anti-join, ORDER BY bm25, LIMIT 25",
+    "elapsed_ms_runs": [26.896, 19.292, 19.419],
+    "median_ms": 19.419,
+    "query_plan_includes_temp_btree_for_order_by": true,
+    "used_as_primary_result": false,
+    "reason": "The product harness links bundled SQLite 3.51.3. The large runtime difference between 3.51.3 and host SQLite 3.53.1 was not isolated; version/build differ, so this host probe is not interchangeable with product-linked timings."
+  },
+  "interpretation": "This diagnostic compares the same broad MATCH term on a true row-returning SELECT with ORDER BY bm25 and LIMIT 25. It is a sensitivity test, not an exact File Library query benchmark: the production query builds a quoted FTS phrase and weights bm25 in a CTE. The system-library result is retained as an unexplained version/build contrast; the product-linked bundled 3.51.3 result is the primary measurement."
+}

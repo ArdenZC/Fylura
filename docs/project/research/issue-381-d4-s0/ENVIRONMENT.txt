@@ -1,0 +1,11 @@
+Platform: Linux x86_64 (workspace container)
+Kernel: 6.18.44
+rustc: 1.97.1 (8bab26f4f 2026-07-14)
+cargo: 1.97.1 (c980f4866 2026-06-30)
+rusqlite: 0.39.0 with bundled SQLite
+Harness SQLite: 3.51.3
+Host Python/system SQLite: 3.53.1 (not used for reported harness timings)
+SQLite busy timeout: 5000 ms
+Filesystem: Linux local overlay filesystem, 32 GiB workspace volume
+
+Windows Hosted and macOS Hosted execution environments were not available or used. No general CI, Codex Review, PR mutation, merge, issue closure, or release was run.

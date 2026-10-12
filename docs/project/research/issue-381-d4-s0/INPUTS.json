@@ -1,0 +1,35 @@
+{
+  "repository": "https://github.com/ArdenZC/Zen-Canvas",
+  "pr": {
+    "number": 383,
+    "state": "OPEN / Draft (owner supplied)",
+    "d3r_review": "https://github.com/ArdenZC/Zen-Canvas/pull/383#issuecomment-6121774142",
+    "head": "584621c32054e16ac0a61afc669a04380a976b7f",
+    "tree": "8e72e9db9e4fae09b158d165762bba057e0b543d"
+  },
+  "frozen_master": {
+    "head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "schema_version": 37,
+    "schema_source_sha256": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7"
+  },
+  "research_branch": {
+    "name": "research/issue-381-d4-s0",
+    "base_head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "scope": "test-only harness and research documents"
+  },
+  "harness_schema_sources": {
+    "schema.rs": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7",
+    "schema_automation.rs": "9b9aa8b284ad3054adf70dff77afda09a4147abd1ac20653449f7a430b8cb7f3",
+    "schema_automation_triggers.rs": "ef75b080127eece3dba5b97f134c18e3d26502dc0a0ea88ebd8237d0cc395140"
+  },
+  "experiment": {
+    "scales_candidate_rows": [10000, 100000],
+    "live_survivor_rows_per_scale": [10000, 100000],
+    "extra_live_control_rows": 1,
+    "repetitions_per_model_and_scale": 3,
+    "models": ["staged tombstone overlay", "versioned file projection with generation FTS"],
+    "busy_timeout_ms": 5000,
+    "persistent_schema_migration": false
+  }
+}

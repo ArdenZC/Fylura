@@ -1,0 +1,10 @@
+#381-D4-S2 Schema 37 physical source harness
+sqlite_version=3.53.1
+sqlite_source_id=2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9
+schema37_ddl_sha256=b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5
+candidate_sql_sha256=df3fc906526823c47c5b1236ead105d2529163766c873e8acd693760ad65002f
+runner_script_sha256=03cb943d2b4c872ab7e99164c5f7c0462fe6c44c09ed1c65985a94d00ab12213
+migration=applied; idempotent_retry=already_applied
+assertion_groups=15 passed; rollback, process interruption and startup rerun passed
+foreign_key_check=ok; integrity_check=ok; FTS5 external-content integrity-check=ok
+production_schema_version=unassigned (synthetic PRAGMA user_version remains 37)

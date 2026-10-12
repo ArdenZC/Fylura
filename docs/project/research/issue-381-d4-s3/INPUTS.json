@@ -1,0 +1,44 @@
+{
+  "track": "Zen Canvas #381 Managed Scan D4-S3",
+  "research_base": {
+    "head": "0a29c5b0114744f810de90ad31146394ce7be399",
+    "tree": "7de3c7478868dd17b53884e9481d1d6ce60b7b99",
+    "branch": "research/issue-381-d4-s2"
+  },
+  "schema37": {
+    "source": "docs/project/research/issue-381-d4-s0/evidence/schema37-sqlite-schema.sql",
+    "sha256": "b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5",
+    "synthetic_user_version": 37
+  },
+  "d4s2_harness_inputs": {
+    "candidate_sql": "docs/project/research/issue-381-d4-s2/harness/physical-candidate.sql",
+    "candidate_sql_sha256": "df3fc906526823c47c5b1236ead105d2529163766c873e8acd693760ad65002f",
+    "runner": "docs/project/research/issue-381-d4-s2/harness/run.py",
+    "runner_sha256": "03cb943d2b4c872ab7e99164c5f7c0462fe6c44c09ed1c65985a94d00ab12213"
+  },
+  "d4s2_raw_log_recovery": {
+    "original_worktree_path": "docs/project/research/issue-381-d4-s2/evidence/schema37-physical-harness-run.log",
+    "was_in_d4s2_commit_tree": false,
+    "original_manifest_sha256": "317ccfe4bd885746d8ded808dcdc96c0ef117c57bc12631a7c2808fd84067f06",
+    "archived_as": "docs/project/research/issue-381-d4-s3/evidence/archive/d4-s2-schema37-physical-harness-run.log",
+    "archived_sha256": "317ccfe4bd885746d8ded808dcdc96c0ef117c57bc12631a7c2808fd84067f06",
+    "reconstructed": false
+  },
+  "d4s3_harness": {
+    "runner": "docs/project/research/issue-381-d4-s3/harness/run.py",
+    "oracle_sql": "docs/project/research/issue-381-d4-s3/harness/manifest-authority-oracle.sql",
+    "protection_sql": "docs/project/research/issue-381-d4-s3/harness/manifest-authority-protection.sql",
+    "command": "python3 docs/project/research/issue-381-d4-s3/harness/run.py",
+    "sqlite_version": "3.53.1",
+    "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "product_sqlite_3_51_3_available": false
+  },
+  "scope": {
+    "production_changes": false,
+    "schema_version_allocated": false,
+    "full_ci_or_hosted_platform_tests": false,
+    "large_benchmark": false,
+    "codex_review": false,
+    "merge_close_or_release": false
+  }
+}

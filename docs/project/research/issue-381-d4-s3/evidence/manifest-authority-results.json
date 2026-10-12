@@ -1,0 +1,809 @@
+{
+  "immutability": {
+    "blocked_mutations": 16,
+    "pointer_after_all_attempts": [
+      "manifest-a",
+      1
+    ],
+    "rejections": [
+      {
+        "operation": "source_generations.insert_published",
+        "rejected": "d4s3: direct published generation insert forbidden"
+      },
+      {
+        "operation": "source_generation_members.insert",
+        "rejected": "d4s3: published generation membership is immutable"
+      },
+      {
+        "operation": "source_generation_members.update",
+        "rejected": "d4s3: published generation membership is immutable"
+      },
+      {
+        "operation": "source_generation_members.delete",
+        "rejected": "d4s3: published generation membership is immutable"
+      },
+      {
+        "operation": "source_generations.update",
+        "rejected": "d4s3: published generation is immutable"
+      },
+      {
+        "operation": "source_generations.delete",
+        "rejected": "d4s3: published generation is immutable"
+      },
+      {
+        "operation": "manifest_root_heads.insert",
+        "rejected": "d4s3: published manifest root heads are immutable"
+      },
+      {
+        "operation": "manifest_root_heads.update",
+        "rejected": "d4s3: published manifest root heads are immutable"
+      },
+      {
+        "operation": "manifest_root_heads.delete",
+        "rejected": "d4s3: published manifest root heads are immutable"
+      },
+      {
+        "operation": "manifest_file_paths.insert",
+        "rejected": "d4s3: published manifest paths are immutable"
+      },
+      {
+        "operation": "manifest_file_paths.update",
+        "rejected": "d4s3: published manifest paths are immutable"
+      },
+      {
+        "operation": "manifest_file_paths.delete",
+        "rejected": "d4s3: published manifest paths are immutable"
+      },
+      {
+        "operation": "visibility_manifests.insert_published",
+        "rejected": "d4s3: direct published manifest insert forbidden"
+      },
+      {
+        "operation": "visibility_manifests.update",
+        "rejected": "d4s3: published manifest is immutable"
+      },
+      {
+        "operation": "visibility_manifests.delete",
+        "rejected": "d4s3: published manifest is immutable"
+      },
+      {
+        "operation": "active_visibility_pointer.non_cas_revision",
+        "rejected": "d4s3: pointer update must be a published-child CAS"
+      }
+    ],
+    "visibility_preserved": true
+  },
+  "inputs": {
+    "d4s2_candidate_sql_sha256": "df3fc906526823c47c5b1236ead105d2529163766c873e8acd693760ad65002f",
+    "d4s2_original_log_sha256": "317ccfe4bd885746d8ded808dcdc96c0ef117c57bc12631a7c2808fd84067f06",
+    "d4s2_runner_sha256": "03cb943d2b4c872ab7e99164c5f7c0462fe6c44c09ed1c65985a94d00ab12213",
+    "oracle_sql_sha256": "1342405473a3d0b09eb45a1973121207c3f168c49afb8b53860f4ba2c27845ba",
+    "protection_sql_sha256": "193c0859f6a156d7fcbb36965c88d002aef68de5d8aa8519c29ab73053ae6074",
+    "runner_script_sha256": "ce422284c99ed0abc6476d3489b537ab5572b8eb6efbb682fdcd7b057face107",
+    "schema37_ddl_sha256": "b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5"
+  },
+  "integrity": {
+    "foreign_key_check": "ok",
+    "fts5_external_content_integrity_check": "ok",
+    "sqlite_integrity_check": "ok"
+  },
+  "legacy_counterexamples": [
+    {
+      "case": "omitted-member",
+      "effective_view_sources": [
+        "source-a"
+      ],
+      "old_model_published": true,
+      "oracle": {
+        "actual_count": 1,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "declared_root_map_digest": "9b7e54750bb715fdb16dc20e84b33379214d8ba21acfd0671628404cccdf56d3",
+        "expected_count": 2,
+        "expected_sha256": "5d24dd9194d27942582e07431f06ea74d0a0f904b6559267b7f19c4763fb56f4",
+        "extra": [],
+        "extra_count": 0,
+        "generation_errors": [],
+        "generations": [
+          {
+            "actual_member_count": 2,
+            "actual_member_digest": "3f76b4b277ee8d925c9522e6f5a90fb3e2009a98111fd22eb919e73c36c22c49",
+            "coverage_complete": 1,
+            "declared_member_count": 2,
+            "declared_member_digest": "3f76b4b277ee8d925c9522e6f5a90fb3e2009a98111fd22eb919e73c36c22c49",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [],
+        "invalid_identity_count": 0,
+        "manifest_id": "legacy-omitted-member",
+        "missing": [
+          [
+            "source-b",
+            "entry-b-1",
+            "/root/b-shared.txt",
+            "/root/b-shared.txt"
+          ]
+        ],
+        "missing_count": 1,
+        "parent_matches_current_pointer": false,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": false,
+        "status": "published",
+        "valid": false
+      }
+    },
+    {
+      "case": "wrong-path",
+      "effective_view_sources": [
+        "source-a",
+        "source-b"
+      ],
+      "old_model_published": true,
+      "oracle": {
+        "actual_count": 2,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "3ab1f150ca4aad856fbaca9651f5b5ffbdf1f6e660efe82f7d7e0ee239186f95",
+        "declared_root_map_digest": "9b7e54750bb715fdb16dc20e84b33379214d8ba21acfd0671628404cccdf56d3",
+        "expected_count": 2,
+        "expected_sha256": "5d24dd9194d27942582e07431f06ea74d0a0f904b6559267b7f19c4763fb56f4",
+        "extra": [
+          [
+            "source-a",
+            "entry-a-1",
+            "/root/a-shared.txt",
+            "/attacker/unobserved.txt"
+          ]
+        ],
+        "extra_count": 1,
+        "generation_errors": [],
+        "generations": [
+          {
+            "actual_member_count": 2,
+            "actual_member_digest": "3f76b4b277ee8d925c9522e6f5a90fb3e2009a98111fd22eb919e73c36c22c49",
+            "coverage_complete": 1,
+            "declared_member_count": 2,
+            "declared_member_digest": "3f76b4b277ee8d925c9522e6f5a90fb3e2009a98111fd22eb919e73c36c22c49",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [],
+        "invalid_identity_count": 0,
+        "manifest_id": "legacy-wrong-path",
+        "missing": [
+          [
+            "source-a",
+            "entry-a-1",
+            "/root/a-shared.txt",
+            "/root/a-shared.txt"
+          ]
+        ],
+        "missing_count": 1,
+        "parent_matches_current_pointer": false,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": false,
+        "status": "published",
+        "valid": false
+      }
+    },
+    {
+      "case": "extra-member",
+      "effective_view_sources": [
+        "source-a"
+      ],
+      "old_model_published": true,
+      "oracle": {
+        "actual_count": 2,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "5d24dd9194d27942582e07431f06ea74d0a0f904b6559267b7f19c4763fb56f4",
+        "declared_root_map_digest": "9b7e54750bb715fdb16dc20e84b33379214d8ba21acfd0671628404cccdf56d3",
+        "expected_count": 1,
+        "expected_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "extra": [
+          [
+            "source-b",
+            "entry-b-1",
+            "/root/b-shared.txt",
+            "/root/b-shared.txt"
+          ]
+        ],
+        "extra_count": 1,
+        "generation_errors": [],
+        "generations": [
+          {
+            "actual_member_count": 1,
+            "actual_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "coverage_complete": 1,
+            "declared_member_count": 1,
+            "declared_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [],
+        "invalid_identity_count": 0,
+        "manifest_id": "legacy-extra-member",
+        "missing": [],
+        "missing_count": 0,
+        "parent_matches_current_pointer": false,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": false,
+        "status": "published",
+        "valid": false
+      }
+    },
+    {
+      "case": "unverified-path",
+      "effective_view_sources": [
+        "source-a"
+      ],
+      "old_model_published": true,
+      "oracle": {
+        "actual_count": 1,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "declared_root_map_digest": "9b7e54750bb715fdb16dc20e84b33379214d8ba21acfd0671628404cccdf56d3",
+        "expected_count": 1,
+        "expected_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "extra": [],
+        "extra_count": 0,
+        "generation_errors": [],
+        "generations": [
+          {
+            "actual_member_count": 1,
+            "actual_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "coverage_complete": 1,
+            "declared_member_count": 1,
+            "declared_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [
+          {
+            "evidence_digest": "0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd",
+            "generation_id": "gen-a",
+            "identity_confidence": "native_verified",
+            "identity_digest": "0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd",
+            "identity_epoch": "observed-epoch-1",
+            "identity_status": "path_only",
+            "manifest_id": "legacy-unverified-path",
+            "path_entry_id": "entry-a-1",
+            "physical_identity_id": "physical-a",
+            "platform_file_identity": "os-id-a",
+            "source_id": "source-a",
+            "source_status": "observed"
+          }
+        ],
+        "invalid_identity_count": 1,
+        "manifest_id": "legacy-unverified-path",
+        "missing": [],
+        "missing_count": 0,
+        "parent_matches_current_pointer": false,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": false,
+        "status": "published",
+        "valid": false
+      }
+    },
+    {
+      "case": "post-publication-member-update",
+      "old_model_mutation_succeeded": true,
+      "oracle_after": {
+        "actual_count": 1,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "declared_root_map_digest": "9b7e54750bb715fdb16dc20e84b33379214d8ba21acfd0671628404cccdf56d3",
+        "expected_count": 1,
+        "expected_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "extra": [],
+        "extra_count": 0,
+        "generation_errors": [
+          "generation gen-a count or digest mismatch"
+        ],
+        "generations": [
+          {
+            "actual_member_count": 1,
+            "actual_member_digest": "919f7a48b23a6e4f22a364512aeb444b6d95ab2aa1f50cd784e7266507a3bd1a",
+            "coverage_complete": 1,
+            "declared_member_count": 1,
+            "declared_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [
+          {
+            "evidence_digest": "0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd",
+            "generation_id": "gen-a",
+            "identity_confidence": "native_verified",
+            "identity_digest": "tampered-after-publish",
+            "identity_epoch": "observed-epoch-1",
+            "identity_status": "verified",
+            "manifest_id": "legacy-post-publish",
+            "path_entry_id": "entry-a-1",
+            "physical_identity_id": "physical-a",
+            "platform_file_identity": "os-id-a",
+            "source_id": "source-a",
+            "source_status": "observed"
+          }
+        ],
+        "invalid_identity_count": 1,
+        "manifest_id": "legacy-post-publish",
+        "missing": [],
+        "missing_count": 0,
+        "parent_matches_current_pointer": false,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": false,
+        "status": "published",
+        "valid": false
+      },
+      "pointer_revision_before_after": [
+        1,
+        1
+      ],
+      "visible_sources_after": [
+        "source-a"
+      ]
+    },
+    {
+      "case": "post-publication-member-delete",
+      "old_model_mutation_succeeded": true,
+      "oracle_after": {
+        "actual_count": 1,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "declared_root_map_digest": "9b7e54750bb715fdb16dc20e84b33379214d8ba21acfd0671628404cccdf56d3",
+        "expected_count": 0,
+        "expected_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "extra": [
+          [
+            "source-a",
+            "entry-a-1",
+            "/root/a-shared.txt",
+            "/root/a-shared.txt"
+          ]
+        ],
+        "extra_count": 1,
+        "generation_errors": [
+          "generation gen-a count or digest mismatch"
+        ],
+        "generations": [
+          {
+            "actual_member_count": 0,
+            "actual_member_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "coverage_complete": 1,
+            "declared_member_count": 1,
+            "declared_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [],
+        "invalid_identity_count": 0,
+        "manifest_id": "legacy-post-publish",
+        "missing": [],
+        "missing_count": 0,
+        "parent_matches_current_pointer": false,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": false,
+        "status": "published",
+        "valid": false
+      },
+      "pointer_revision_before_after": [
+        1,
+        1
+      ],
+      "visible_sources_after": []
+    },
+    {
+      "case": "cross-transaction-cursor-no-revision-validation",
+      "continuation_result_against_current_fts": [],
+      "current_pointer": [
+        "legacy-cursor-new",
+        2
+      ],
+      "detail_returned_from_current_files_row": [
+        "file-cursor",
+        "/root/new-cursor-marker.txt",
+        "newcursorneedle.txt"
+      ],
+      "old_manifest_path_still_present": "/root/old-cursor-marker.txt",
+      "old_model_cursor_silently_reused": true,
+      "old_vs_new_fts_match_counts": [
+        0,
+        1
+      ],
+      "token_manifest_and_revision": [
+        "legacy-cursor-old",
+        1
+      ]
+    }
+  ],
+  "preserved_d4s2_baseline": {
+    "all_assertions_true": true,
+    "assertion_groups": 15,
+    "failure_recovery": {
+      "injected_constraint_failure": "rolled back full DDL; original files.path UNIQUE and child data intact",
+      "process_interruption_exit_code": 73,
+      "startup_recovery": "SQLite recovered Schema 37; migration rerun committed once; FK/integrity checks clean"
+    }
+  },
+  "protected_invalid_publications": [
+    {
+      "case": "omitted-member",
+      "oracle_rejected": true,
+      "pointer_count": 0,
+      "report": {
+        "actual_count": 1,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "declared_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "expected_count": 2,
+        "expected_sha256": "5d24dd9194d27942582e07431f06ea74d0a0f904b6559267b7f19c4763fb56f4",
+        "extra": [],
+        "extra_count": 0,
+        "generation_errors": [],
+        "generations": [
+          {
+            "actual_member_count": 2,
+            "actual_member_digest": "3f76b4b277ee8d925c9522e6f5a90fb3e2009a98111fd22eb919e73c36c22c49",
+            "coverage_complete": 1,
+            "declared_member_count": 2,
+            "declared_member_digest": "3f76b4b277ee8d925c9522e6f5a90fb3e2009a98111fd22eb919e73c36c22c49",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [],
+        "invalid_identity_count": 0,
+        "manifest_id": "protected-omitted-member",
+        "missing": [
+          [
+            "source-b",
+            "entry-b-1",
+            "/root/b-shared.txt",
+            "/root/b-shared.txt"
+          ]
+        ],
+        "missing_count": 1,
+        "parent_matches_current_pointer": true,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": true,
+        "status": "ready",
+        "valid": false
+      },
+      "rollback_kept_ready": true,
+      "sql_guard_error": "d4s3: manifest projection omits a selected member"
+    },
+    {
+      "case": "wrong-path",
+      "oracle_rejected": true,
+      "pointer_count": 0,
+      "report": {
+        "actual_count": 2,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "3ab1f150ca4aad856fbaca9651f5b5ffbdf1f6e660efe82f7d7e0ee239186f95",
+        "declared_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "expected_count": 2,
+        "expected_sha256": "5d24dd9194d27942582e07431f06ea74d0a0f904b6559267b7f19c4763fb56f4",
+        "extra": [
+          [
+            "source-a",
+            "entry-a-1",
+            "/root/a-shared.txt",
+            "/attacker/unobserved.txt"
+          ]
+        ],
+        "extra_count": 1,
+        "generation_errors": [],
+        "generations": [
+          {
+            "actual_member_count": 2,
+            "actual_member_digest": "3f76b4b277ee8d925c9522e6f5a90fb3e2009a98111fd22eb919e73c36c22c49",
+            "coverage_complete": 1,
+            "declared_member_count": 2,
+            "declared_member_digest": "3f76b4b277ee8d925c9522e6f5a90fb3e2009a98111fd22eb919e73c36c22c49",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [],
+        "invalid_identity_count": 0,
+        "manifest_id": "protected-wrong-path",
+        "missing": [
+          [
+            "source-a",
+            "entry-a-1",
+            "/root/a-shared.txt",
+            "/root/a-shared.txt"
+          ]
+        ],
+        "missing_count": 1,
+        "parent_matches_current_pointer": true,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": true,
+        "status": "ready",
+        "valid": false
+      },
+      "rollback_kept_ready": true,
+      "sql_guard_error": "d4s3: manifest projection omits a selected member"
+    },
+    {
+      "case": "extra-member",
+      "oracle_rejected": true,
+      "pointer_count": 0,
+      "report": {
+        "actual_count": 2,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "5d24dd9194d27942582e07431f06ea74d0a0f904b6559267b7f19c4763fb56f4",
+        "declared_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "expected_count": 1,
+        "expected_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "extra": [
+          [
+            "source-b",
+            "entry-b-1",
+            "/root/b-shared.txt",
+            "/root/b-shared.txt"
+          ]
+        ],
+        "extra_count": 1,
+        "generation_errors": [],
+        "generations": [
+          {
+            "actual_member_count": 1,
+            "actual_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "coverage_complete": 1,
+            "declared_member_count": 1,
+            "declared_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [],
+        "invalid_identity_count": 0,
+        "manifest_id": "protected-extra-member",
+        "missing": [],
+        "missing_count": 0,
+        "parent_matches_current_pointer": true,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": true,
+        "status": "ready",
+        "valid": false
+      },
+      "rollback_kept_ready": true,
+      "sql_guard_error": "d4s3: manifest projection contains an unselected member or wrong path"
+    },
+    {
+      "case": "unverified-path",
+      "oracle_rejected": true,
+      "pointer_count": 0,
+      "report": {
+        "actual_count": 1,
+        "actual_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "actual_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "declared_root_map_digest": "0adffbff82b12d1977ac6e266b5329953d866d6040485289ae5bdfe034373e78",
+        "expected_count": 1,
+        "expected_sha256": "4774077528a37ff4c4caa1fe020b1188b4f00beed5205ddd1a34f3d1a45e3efc",
+        "extra": [],
+        "extra_count": 0,
+        "generation_errors": [],
+        "generations": [
+          {
+            "actual_member_count": 1,
+            "actual_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "coverage_complete": 1,
+            "declared_member_count": 1,
+            "declared_member_digest": "6433768d114aa6adaa5c5fd3f1ebc1d25b146808b4df9022a2d6488e87754203",
+            "generation_id": "gen-a",
+            "root_id": "root-a",
+            "scan_status": "completed",
+            "status": "complete"
+          }
+        ],
+        "invalid_identity": [
+          {
+            "evidence_digest": "0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd",
+            "generation_id": "gen-a",
+            "identity_confidence": "native_verified",
+            "identity_digest": "0b659b39e53389ecea5ed78f3132dfa9876bc9501e2e22e3e36aac7c81cb32fd",
+            "identity_epoch": "observed-epoch-1",
+            "identity_status": "path_only",
+            "manifest_id": "protected-unverified-path",
+            "path_entry_id": "entry-a-1",
+            "physical_identity_id": "physical-a",
+            "platform_file_identity": "os-id-a",
+            "source_id": "source-a",
+            "source_status": "observed"
+          }
+        ],
+        "invalid_identity_count": 1,
+        "manifest_id": "protected-unverified-path",
+        "missing": [],
+        "missing_count": 0,
+        "parent_matches_current_pointer": true,
+        "path_conflicts": [],
+        "root_count": 1,
+        "root_map_digest_matches": true,
+        "status": "ready",
+        "valid": false
+      },
+      "rollback_kept_ready": true,
+      "sql_guard_error": "d4s3: source or path identity evidence is invalid"
+    }
+  ],
+  "rename_cursor_fts_bm25": {
+    "bm25_small_query": {
+      "active_visible_match_rows": 1,
+      "effective_corpus_note": "files_fts ranks all files rows before the effective-visibility join; hidden rows can affect BM25 statistics",
+      "explain_query_plan": [
+        "CO-ROUTINE effective_file_sources",
+        "SCAN mfp USING INDEX idx_manifest_file_paths_source",
+        "SEARCH fs USING INDEX sqlite_autoindex_file_sources_1 (source_id=?)",
+        "SEARCH mr USING COVERING INDEX sqlite_autoindex_manifest_root_heads_2 (manifest_id=?)",
+        "SEARCH gm USING COVERING INDEX sqlite_autoindex_source_generation_members_1 (generation_id=? AND source_id=? AND path_entry_id=?)",
+        "SEARCH p USING AUTOMATIC COVERING INDEX (manifest_id=?)",
+        "USE TEMP B-TREE FOR DISTINCT",
+        "SCAN files_fts VIRTUAL TABLE INDEX 0:M2",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH e USING AUTOMATIC COVERING INDEX (file_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "fts_match_corpus_rows": 2,
+      "ranked_rows_before_visibility_filter": [
+        [
+          "file-rename",
+          -1.4426229508196723e-06
+        ],
+        [
+          "/managed/reused/legacy marker.txt",
+          -1.3134328358208956e-06
+        ]
+      ]
+    },
+    "failed_rename_rollback": {
+      "new_path_history_rolled_back": true,
+      "old_files_path_and_fts_restored": true,
+      "oracle_missing_extra": [
+        1,
+        1
+      ],
+      "pointer": [
+        "manifest-old",
+        1
+      ]
+    },
+    "integrity_check": "ok",
+    "successful_rename": {
+      "current_fts_new_term_count": 1,
+      "current_fts_old_term_count": 0,
+      "current_projection": "/root/new-shared.txt",
+      "historical_connection_is_read_only": true,
+      "historical_path_entries": [
+        [
+          "entry-rename-1",
+          "/root/old-shared.txt"
+        ],
+        [
+          "entry-rename-2",
+          "/root/new-shared.txt"
+        ]
+      ],
+      "historical_read_api_row": [
+        "source-rename",
+        "entry-rename-1",
+        "/root/old-shared.txt"
+      ],
+      "new_pointer": [
+        "manifest-new",
+        2
+      ],
+      "old_cross_transaction_cursor_rejected": true,
+      "old_fts_in_pinned_snapshot": true,
+      "old_manifest_projection_retained": "/root/old-shared.txt",
+      "old_pinned_reader_before_after": [
+        [
+          "manifest-old",
+          1
+        ],
+        [
+          "manifest-old",
+          1
+        ]
+      ]
+    }
+  },
+  "research_scope": "isolated SQLite Schema 37 harness and test-only SQL; no production sources or Schema version changed",
+  "runtime": {
+    "fts5_available": true,
+    "product_sqlite_3_51_3": "not available in this harness; plan results are host SQLite 3.53.1 only",
+    "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "sqlite_version": "3.53.1"
+  },
+  "scope_limits": [
+    "All rows and filesystem identities are synthetic; the Oracle proves database-set consistency, not native filesystem observation truth.",
+    "SQLite triggers protect DML by the compatible process; an actor able to alter/drop schema objects remains outside the DML contract.",
+    "Cross-transaction cursors are rejected on manifest id/revision mismatch; an already pinned SQLite read transaction remains on its original WAL snapshot.",
+    "BM25 query plan is a small correctness/plan probe; no broad benchmark was run, and exact product SQLite 3.51.3 was unavailable.",
+    "No Schema v38, production schema/code, Scanner, File Library, IPC, installer, master, PR #383, or PR #386 changed."
+  ],
+  "valid_overlapping_root_publication": {
+    "manifest_oracle": {
+      "actual_count": 1,
+      "actual_root_map_digest": "a1beabbfe74f7ff86906df95c00ee67c8fbbfb67923062b167f87c3cdb0296b3",
+      "actual_sha256": "4fc248de42b31d12d5a036607bff1b1af6fba5ea92f53574746ec2238d6483ce",
+      "declared_root_map_digest": "a1beabbfe74f7ff86906df95c00ee67c8fbbfb67923062b167f87c3cdb0296b3",
+      "expected_count": 1,
+      "expected_sha256": "4fc248de42b31d12d5a036607bff1b1af6fba5ea92f53574746ec2238d6483ce",
+      "extra": [],
+      "extra_count": 0,
+      "generation_errors": [],
+      "generations": [
+        {
+          "actual_member_count": 1,
+          "actual_member_digest": "198d0c77b2088be36bd5e17964e829a99fa3e78313b0285ba7c4baff8e453911",
+          "coverage_complete": 1,
+          "declared_member_count": 1,
+          "declared_member_digest": "198d0c77b2088be36bd5e17964e829a99fa3e78313b0285ba7c4baff8e453911",
+          "generation_id": "gen-nested",
+          "root_id": "root-nested",
+          "scan_status": "completed",
+          "status": "complete"
+        },
+        {
+          "actual_member_count": 1,
+          "actual_member_digest": "198d0c77b2088be36bd5e17964e829a99fa3e78313b0285ba7c4baff8e453911",
+          "coverage_complete": 1,
+          "declared_member_count": 1,
+          "declared_member_digest": "198d0c77b2088be36bd5e17964e829a99fa3e78313b0285ba7c4baff8e453911",
+          "generation_id": "gen-parent",
+          "root_id": "root-parent",
+          "scan_status": "completed",
+          "status": "complete"
+        }
+      ],
+      "invalid_identity": [],
+      "invalid_identity_count": 0,
+      "manifest_id": "manifest-nested",
+      "missing": [],
+      "missing_count": 0,
+      "parent_matches_current_pointer": true,
+      "path_conflicts": [],
+      "root_count": 2,
+      "root_map_digest_matches": true,
+      "status": "ready",
+      "valid": true
+    },
+    "overlapping_root_members_deduplicated": true
+  }
+}

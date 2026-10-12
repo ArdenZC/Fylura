@@ -1,0 +1,14 @@
+#381-D4-S3 Manifest authority research harness
+sqlite_version=3.53.1
+sqlite_source_id=2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9
+schema37_ddl_sha256=b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5
+d4s2_original_assertion_groups=15 preserved
+legacy_counterexamples=7 reproduced
+protected_invalid_publications=4 rejected and rolled back
+published_table_mutations_blocked=16
+root_projection_union_count=1
+cross_transaction_cursor=stale cursor rejected after manifest pointer revision changed
+rename_fts_old_term=0; new_term=1
+bm25_small_plan_lines=11; active_vs_raw=1/2
+foreign_key_check=ok; integrity_check=ok; FTS5 external-content integrity-check=ok
+production_schema_version=unassigned (synthetic PRAGMA user_version remains 37)

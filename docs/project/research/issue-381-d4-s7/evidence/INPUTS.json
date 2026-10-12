@@ -1,0 +1,43 @@
+{
+  "track": "Zen Canvas #381 Managed Scan D4-S7",
+  "phase": "read-only production consumer inventory and integration readiness report",
+  "owner_authorization": "https://github.com/ArdenZC/Zen-Canvas/issues/381#issuecomment-6125801466",
+  "frozen_d4_s6": {
+    "head": "895acaa2f0afc0f2c3f554e799107fdd55b05eb4",
+    "tree": "8770037a9f9428066532e00cc8218d3c1f8485c7"
+  },
+  "audited_production_master": {
+    "head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "schema_version": 37,
+    "schema_source": "src-tauri/src/db/schema.rs",
+    "schema_source_sha256": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7"
+  },
+  "reused_exact_master_source_audit": {
+    "origin": "docs/project/research/issue-381-d4-s1/source-audit",
+    "source_revision": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "rust_files_scanned": 247,
+    "files_with_is_stale_references": 40,
+    "literal_is_stale_reference_lines": 262,
+    "grouped_production_or_schema_entries": 103,
+    "literal_mutation_reference_lines": 433,
+    "literal_mutation_production_schema_groups": 141,
+    "function_inventory_sha256": "1d93f122f5ff293ca06c4f7ce2a6cd57a7ddd4262550490643d3b4ceae6725ad",
+    "stale_reference_inventory_sha256": "f82cb7c5f8400478c410bcf2d64c57415600fd9ee2b1ae216f58b98f82973e85",
+    "frontend_consumers_sha256": "90765417b195ec35fe31bdff54a72240f5b7005a82ad09a0d1f2320fdd720187",
+    "source_audit_adr_sha256": "c53423642ff92d7de43d23d413a4cd94c713fc4b52b8e0f6912cf66b7ae52585"
+  },
+  "scope_and_execution": {
+    "changed_paths": ["docs/project/research/issue-381-d4-s7/"],
+    "production_code_changed": false,
+    "production_schema_changed": false,
+    "schema_version_allocated": false,
+    "tests_or_ci_run": false,
+    "hosted_windows_or_macos_run": false,
+    "large_benchmark_run": false,
+    "codex_review_run": false,
+    "pr_or_issue_mutated": false,
+    "merge_or_release": false
+  },
+  "evidence_boundary": "Static source inspection at the exact master revision plus previously accepted D4-S1 through D4-S6 research contracts. D4-S7 performs no runtime validation and does not promote synthetic research results into product evidence."
+}

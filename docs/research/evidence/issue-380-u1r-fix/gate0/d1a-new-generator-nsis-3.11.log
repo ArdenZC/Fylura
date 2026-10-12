@@ -1,0 +1,155 @@
+MakeNSIS v3.11 - Copyright 1999-2025 Contributors
+See the file COPYING for license details.
+Credits can be found in the Users Manual.
+
+Processing script file: "/tmp/issue-380-u1r-gate0-e88afb1e5ba24428ba4541babe89d256/d1a-compile/d1a.nsi" (UTF8)
+
+Processed 1 file, writing output (x86-unicode):
+warning 6010: uninstall function "un.WaitForZenCanvasPreviewDllRelease" not referenced - zeroing code (8166-8194) out
+
+warning 6010: uninstall function "un.QuiesceZenCanvasPreviewBeforeUninstall" not referenced - zeroing code (8205-8210) out
+
+warning 6010: uninstall function "un.ZCOnUserAbort" not referenced - zeroing code (10160-10162) out
+
+warning 6010: uninstall function "un.StopZenCanvasIndexService" not referenced - zeroing code (10941-10983) out
+
+warning 6010: uninstall function "un.ZCRecoverPreviewDllMutation" not referenced - zeroing code (11197-11236) out
+
+warning 6010: uninstall function "un.ZCLifecycleUserAbort" not referenced - zeroing code (18586-18596) out
+
+warning 6010: uninstall function "un.ZCPrepareUninstallLifecycle" not referenced - zeroing code (18858-18878) out
+
+warning 6010: uninstall function "un.ZCMarkUninstallIrreversible" not referenced - zeroing code (18878-18883) out
+
+warning 6010: uninstall function "un.ZCMarkUninstallGeneratedMutation" not referenced - zeroing code (18883-18888) out
+
+warning 6010: uninstall function "un.ZCFailUninstallReversible" not referenced - zeroing code (18893-18898) out
+
+warning 6010: uninstall function "un.ZCFailUninstallPartial" not referenced - zeroing code (18898-18909) out
+
+warning 6010: uninstall function "un.ZCFinishUninstallLifecycle" not referenced - zeroing code (18909-18913) out
+
+warning 6010: uninstall function "un.ZCPrepareUninstallLifecycleFinal" not referenced - zeroing code (18961-18981) out
+
+warning 6010: uninstall function "un.ZCPostUninstallLifecycleFinal" not referenced - zeroing code (18981-18998) out
+
+warning 6010: install function "WaitForZenCanvasPreviewDllRelease" not referenced - zeroing code (14827-14855) out
+
+warning 6010: install function "QuiesceZenCanvasPreviewBeforeInstall" not referenced - zeroing code (14866-14870) out
+
+warning 6010: install function "StopZenCanvasIndexService" not referenced - zeroing code (21258-21298) out
+
+warning 6010: install function "ZCLifecycleUserAbort" not referenced - zeroing code (28921-28929) out
+
+warning 6010: install function "ZCPrepareInstallLifecycle" not referenced - zeroing code (28965-28985) out
+
+warning 6010: install function "ZCMarkInstallIrreversible" not referenced - zeroing code (28985-28988) out
+
+warning 6010: install function "ZCMarkInstallGeneratedMutation" not referenced - zeroing code (28988-28991) out
+
+warning 6010: install function "ZCFailInstallReversible" not referenced - zeroing code (28994-28999) out
+
+warning 6010: install function "ZCFailInstallPartial" not referenced - zeroing code (28999-29006) out
+
+warning 6010: install function "ZCFinishInstallLifecycle" not referenced - zeroing code (29006-29010) out
+
+warning 6010: install function "ZCPostInstallLifecycleFinal" not referenced - zeroing code (31688-31707) out
+
+warning 6010: install function "PageReinstall" not referenced - zeroing code (31808-31827) out
+
+warning 6010: install function "PageLeaveReinstall" not referenced - zeroing code (31827-31832) out
+
+warning 6012: label "reinst_uninstall" not used
+warning 6040: LangString "appRunningOkKill" is not set in language table of language 1033
+warning 6040: LangString "failedToKillApp" is not set in language table of language 1033
+warning 6040: LangString "appRunningOkKill" is not set in language table of language 1033
+warning 6040: LangString "failedToKillApp" is not set in language table of language 1033
+warning 6040: LangString "appRunningOkKill" is not set in language table of language 1033
+warning 6040: LangString "failedToKillApp" is not set in language table of language 1033
+warning 6040: LangString "appRunningOkKill" is not set in language table of language 1033
+warning 6040: LangString "failedToKillApp" is not set in language table of language 1033
+warning 6040: LangString "appRunningOkKill" is not set in language table of language 1033
+warning 6040: LangString "failedToKillApp" is not set in language table of language 1033
+warning 6001: Variable "PassiveMode" not referenced or never set, wasting memory!
+warning 6001: Variable "UpdateMode" not referenced or never set, wasting memory!
+warning 6001: Variable "WixMode" not referenced or never set, wasting memory!
+warning 6001: Variable "ZC_PREVIEW_TXN_OLD_VALUE" not referenced or never set, wasting memory!
+warning 6001: Variable "ZC_PREVIEW_TXN_OLD_PRESENT" not referenced or never set, wasting memory!
+
+Output: "/tmp/issue-380-u1r-gate0-e88afb1e5ba24428ba4541babe89d256/d1a-compile/d1a.exe"
+Install: 1 page (64 bytes), 1 section (4120 bytes), 31857 instructions (891996 bytes), 526 strings (50618 bytes), 1 language table (206 bytes).
+Uninstall: 1 page (128 bytes), 0 sections (0 bytes), 19017 instructions (532476 bytes), 393 strings (39692 bytes), 1 language table (206 bytes).
+
+Using zlib compression.
+
+EXE header size:               38400 / 39936 bytes
+Install code:                  60842 / 945348 bytes
+Install data:                  30280 / 53780 bytes
+Uninstall code+data:           63503 / 68461 bytes
+CRC (0xCF61D398):                  4 / 4 bytes
+
+Total size:                   193029 / 1107529 bytes (17.4%)
+
+35 warnings:
+  6010: uninstall function "un.WaitForZenCanvasPreviewDllRelease" not referenced - zeroing code (8166-8194) out
+
+  6010: uninstall function "un.QuiesceZenCanvasPreviewBeforeUninstall" not referenced - zeroing code (8205-8210) out
+
+  6010: uninstall function "un.ZCOnUserAbort" not referenced - zeroing code (10160-10162) out
+
+  6010: uninstall function "un.StopZenCanvasIndexService" not referenced - zeroing code (10941-10983) out
+
+  6010: uninstall function "un.ZCRecoverPreviewDllMutation" not referenced - zeroing code (11197-11236) out
+
+  6010: uninstall function "un.ZCLifecycleUserAbort" not referenced - zeroing code (18586-18596) out
+
+  6010: uninstall function "un.ZCPrepareUninstallLifecycle" not referenced - zeroing code (18858-18878) out
+
+  6010: uninstall function "un.ZCMarkUninstallIrreversible" not referenced - zeroing code (18878-18883) out
+
+  6010: uninstall function "un.ZCMarkUninstallGeneratedMutation" not referenced - zeroing code (18883-18888) out
+
+  6010: uninstall function "un.ZCFailUninstallReversible" not referenced - zeroing code (18893-18898) out
+
+  6010: uninstall function "un.ZCFailUninstallPartial" not referenced - zeroing code (18898-18909) out
+
+  6010: uninstall function "un.ZCFinishUninstallLifecycle" not referenced - zeroing code (18909-18913) out
+
+  6010: uninstall function "un.ZCPrepareUninstallLifecycleFinal" not referenced - zeroing code (18961-18981) out
+
+  6010: uninstall function "un.ZCPostUninstallLifecycleFinal" not referenced - zeroing code (18981-18998) out
+
+  6010: install function "WaitForZenCanvasPreviewDllRelease" not referenced - zeroing code (14827-14855) out
+
+  6010: install function "QuiesceZenCanvasPreviewBeforeInstall" not referenced - zeroing code (14866-14870) out
+
+  6010: install function "StopZenCanvasIndexService" not referenced - zeroing code (21258-21298) out
+
+  6010: install function "ZCLifecycleUserAbort" not referenced - zeroing code (28921-28929) out
+
+  6010: install function "ZCPrepareInstallLifecycle" not referenced - zeroing code (28965-28985) out
+
+  6010: install function "ZCMarkInstallIrreversible" not referenced - zeroing code (28985-28988) out
+
+  6010: install function "ZCMarkInstallGeneratedMutation" not referenced - zeroing code (28988-28991) out
+
+  6010: install function "ZCFailInstallReversible" not referenced - zeroing code (28994-28999) out
+
+  6010: install function "ZCFailInstallPartial" not referenced - zeroing code (28999-29006) out
+
+  6010: install function "ZCFinishInstallLifecycle" not referenced - zeroing code (29006-29010) out
+
+  6010: install function "ZCPostInstallLifecycleFinal" not referenced - zeroing code (31688-31707) out
+
+  6010: install function "PageReinstall" not referenced - zeroing code (31808-31827) out
+
+  6010: install function "PageLeaveReinstall" not referenced - zeroing code (31827-31832) out
+
+  6012: label "reinst_uninstall" not used
+  6040: LangString "appRunningOkKill" is not set in language table of language 1033
+  6040: LangString "failedToKillApp" is not set in language table of language 1033
+  6001: Variable "PassiveMode" not referenced or never set, wasting memory!
+  6001: Variable "UpdateMode" not referenced or never set, wasting memory!
+  6001: Variable "WixMode" not referenced or never set, wasting memory!
+  6001: Variable "ZC_PREVIEW_TXN_OLD_VALUE" not referenced or never set, wasting memory!
+  6001: Variable "ZC_PREVIEW_TXN_OLD_PRESENT" not referenced or never set, wasting memory!

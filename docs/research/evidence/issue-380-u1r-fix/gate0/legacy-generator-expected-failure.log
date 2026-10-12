@@ -1,0 +1,10 @@
+MakeNSIS v3.11 - Copyright 1999-2025 Contributors
+See the file COPYING for license details.
+Credits can be found in the Users Manual.
+
+Processing script file: "/tmp/issue-380-u1r-gate0-e88afb1e5ba24428ba4541babe89d256/legacy-compile/legacy.nsi" (UTF8)
+Error: label "u1r_file_trace_11_had_error:" already declared in function
+Error in macro ZC_REQUIRE_PRODUCT_STRING on macroline 5
+!include: error in script: "/tmp/issue-380-u1r-gate0-e88afb1e5ba24428ba4541babe89d256/old-legacy-generator/src-tauri/windows/installer-hooks.nsh" on line 852
+!include: error in script: "/tmp/issue-380-u1r-gate0-e88afb1e5ba24428ba4541babe89d256/old-legacy-generator/src-tauri/windows/installer-lifecycle-wrapper.nsh" on line 17
+Error in script "/tmp/issue-380-u1r-gate0-e88afb1e5ba24428ba4541babe89d256/legacy-compile/legacy.nsi" on line 106 -- aborting creation process

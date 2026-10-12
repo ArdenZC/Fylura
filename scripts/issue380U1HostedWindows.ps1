@@ -938,47 +938,15 @@ function Convert-U1RDetailPrintsToFileTrace([string]$Path, [string]$TraceFileNam
     $pattern = '(?m)^(?<indent>[ \t]*)DetailPrint (?<message>"\[U1R(?:-OLD-UN)?\][^"\r\n]*")[ \t]*\r?$'
     $traceMatches = [regex]::Matches($source, $pattern)
     if ($traceMatches.Count -eq 0) { throw "U1R test diagnostic had no [U1R] DetailPrint lines to instrument in $Path" }
-    $builder = [Text.StringBuilder]::new()
-    $cursor = 0
-    $sequence = 0
-    foreach ($traceMatch in $traceMatches) {
-        [void]$builder.Append($source.Substring($cursor, $traceMatch.Index - $cursor))
-        $id = "u1r_file_trace_$sequence"
-        $sequence++
-        $indent = $traceMatch.Groups["indent"].Value
-        $message = $traceMatch.Groups["message"].Value
-        $writeMessage = $message.Substring(0, $message.Length - 1) + '$\r$\n"'
-        $tracePath = '$TEMP\' + $TraceFileName
-        $lines = @(
-            ($indent + 'Push $R8'),
-            ($indent + 'Push $9'),
-            ($indent + "IfErrors ${id}_had_error ${id}_no_error"),
-            ($indent + "${id}_had_error:"),
-            ($indent + 'StrCpy $R8 1'),
-            ($indent + "Goto ${id}_saved"),
-            ($indent + "${id}_no_error:"),
-            ($indent + 'StrCpy $R8 0'),
-            ($indent + "${id}_saved:"),
-            ($indent + ('FileOpen $9 "' + $tracePath + '" a')),
-            ($indent + ('FileWrite $9 ' + $writeMessage)),
-            ($indent + 'FileClose $9'),
-            ($indent + 'Pop $9'),
-            ($indent + 'ClearErrors'),
-            ($indent + ('StrCmp $R8 1 ' + $id + '_restore_error')),
-            ($indent + 'Pop $R8'),
-            ($indent + "Goto ${id}_done"),
-            ($indent + "${id}_restore_error:"),
-            ($indent + 'SetErrors'),
-            ($indent + 'Pop $R8'),
-            ($indent + "${id}_done:"),
-            ($indent + ('DetailPrint ' + $message))
-        )
-        [void]$builder.Append($lines -join "`n")
-        $cursor = $traceMatch.Index + $traceMatch.Length
+    if ($source -match 'u1r_(?:file|d1a)_trace_\d+_' -or $source -match 'Call (?:un\.)?U1RWrite(?:Installer|Uninstaller)Trace') {
+        throw "U1R diagnostic source contains generated trace labels or helper calls that are unsafe in repeated/mixed installer macro contexts: $Path"
     }
-    [void]$builder.Append($source.Substring($cursor))
-    $updated = $builder.ToString()
-    [IO.File]::WriteAllText($Path, $updated, [Text.UTF8Encoding]::new($false))
+    # NSIS /LOG captures DetailPrint. Keep diagnostics observational: the
+    # previous Push/Call/FileOpen sequence changed stack/error-state behavior
+    # and an unqualified Call is invalid when a shared macro expands inside an
+    # uninstaller function. The old uninstaller receives its own /LOG path via
+    # the test-only generated template instrumentation below.
+    [IO.File]::WriteAllText($Path, $source, [Text.UTF8Encoding]::new($false))
 }
 
 function Add-U1RTestInstrumentation([string]$Label, [string]$Path) {
@@ -1170,38 +1138,13 @@ function Add-U1RNsisDiagnostics([string]$Label, [string]$Path) {
       inject("Function PageLeaveReinstall\n", "Function PageLeaveReinstall\n  DetailPrint \"[U1R] PageLeaveReinstall compare=$R0 update=$UpdateMode passive=$PassiveMode wix=$WixMode\"\n", "maintenance page leave");
       inject("  reinst_uninstall:\n    HideWindow\n", "  reinst_uninstall:\n    DetailPrint \"[U1R] maintenance_uninstall_begin compare=$R0 selection=$R1 update=$UpdateMode wix=$WixMode\"\n    HideWindow\n", "maintenance uninstall branch");
       inject("    BringToFront\n\n    ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code\n", "    BringToFront\n    DetailPrint \"[U1R] maintenance_uninstaller_return exit=$0\"\n\n    ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code\n", "maintenance uninstaller return");
-      inject('      StrCpy $R1 "$R1 _?=$4" ; append uninstall directory\n', '      DetailPrint "[U1R] old_uninstaller_trace=$TEMP\\issue-380-u1r-old-uninstaller.log"\n      StrCpy $R1 "$R1 _?=$4" ; append uninstall directory\n', "old uninstaller diagnostic trace");
+      inject('      StrCpy $R1 "$R1 _?=$4" ; append uninstall directory\n', '      DetailPrint "[U1R] old_uninstaller_trace=$TEMP\\issue-380-u1r-old-uninstaller.log"\n      StrCpy $R1 "$R1 /LOG=$TEMP\\issue-380-u1r-old-uninstaller.log _?=$4" ; append uninstall directory\n', "old uninstaller diagnostic trace");
       inject("  Call ZCPrepareInstallLifecycleFinal", "  DetailPrint \"[U1R] lifecycle_prepare_final_begin\"\n  Call ZCPrepareInstallLifecycleFinal\n  DetailPrint \"[U1R] lifecycle_prepare_final_returned\"", "final lifecycle owner");
-      let traceSequence = 0;
-      diagnostic = diagnostic.replace(/^([ \t]*)DetailPrint ("\[U1R\][^"\r\n]*")[ \t]*\r?$/gm, (_line, indent, message) => {
-        const id = `u1r_d1a_trace_${traceSequence++}`;
-        const writeMessage = `${message.slice(0, -1)}$\\r$\\n\"`;
-        return [
-          `${indent}Push $R8`,
-          `${indent}Push $9`,
-          `${indent}IfErrors ${id}_had_error ${id}_no_error`,
-          `${indent}${id}_had_error:`,
-          `${indent}StrCpy $R8 1`,
-          `${indent}Goto ${id}_saved`,
-          `${indent}${id}_no_error:`,
-          `${indent}StrCpy $R8 0`,
-          `${indent}${id}_saved:`,
-          `${indent}FileOpen $9 "$TEMP\\issue-380-u1r-d1a-installer-trace.log" a`,
-          `${indent}FileWrite $9 ${writeMessage}`,
-          `${indent}FileClose $9`,
-          `${indent}Pop $9`,
-          `${indent}ClearErrors`,
-          `${indent}StrCmp $R8 1 ${id}_restore_error`,
-          `${indent}Pop $R8`,
-          `${indent}Goto ${id}_done`,
-          `${indent}${id}_restore_error:`,
-          `${indent}SetErrors`,
-          `${indent}Pop $R8`,
-          `${indent}${id}_done:`,
-          `${indent}DetailPrint ${message}`,
-        ].join("\n");
-      });
-      if (!diagnostic.includes("u1r_d1a_trace_")) throw new Error("U1R NSIS trace markers were not converted to file writes");
+      if (!diagnostic.includes('DetailPrint "[U1R] installer_on_init"') ||
+          !diagnostic.includes('DetailPrint "[U1R] lifecycle_prepare_final_begin"') ||
+          /u1r_d1a_trace_\d+_|Call U1RWriteInstallerTrace/.test(diagnostic)) {
+        throw new Error("U1R NSIS DetailPrint diagnostics are missing or contain unsafe generated trace labels/helper calls");
+      }
       fs.writeFileSync(generatedTemplatePath, diagnostic, "utf8");
     }
     generatedNsisTemplate = true;
@@ -1251,11 +1194,11 @@ Function ValidateZenCanvasPreviewCore
   DetailPrint "[U1R] preview_validation_result core=$ZC_PREVIEW_CORE_PRESENT clsid=$ZC_PREVIEW_CLSID_PRESENT appid=$ZC_PREVIEW_APPID_PRESENT threading=$ZC_PREVIEW_THREADING_PRESENT handler=$ZC_PREVIEW_HANDLER_PRESENT inproc=$ZC_PREVIEW_INPROC_PATH_PRESENT"
 '@
     Replace-U1RExactText $hooksPath $validatePreviewBefore $validatePreviewAfter "Preview validation result"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}' 'preview_value=CLSID state=$ZC_REG_VALUE_STATE' "Preview CLSID comparison trace"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "AppID" "${ZC_PREVIEW_PREVHOST_APP_ID}" ${ZC_REG_STRING_SZ_ONLY}' 'preview_value=AppID state=$ZC_REG_VALUE_STATE' "Preview AppID comparison trace"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "ThreadingModel" "${ZC_PREVIEW_THREADING_MODEL}" ${ZC_REG_STRING_SZ_ONLY}' 'preview_value=ThreadingModel state=$ZC_REG_VALUE_STATE' "Preview ThreadingModel comparison trace"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}' 'preview_value=PreviewHandlers state=$ZC_REG_VALUE_STATE' "PreviewHandlers comparison trace"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "" "${ZC_PREVIEW_INSTALLED_DLL}" ${ZC_REG_STRING_SZ_ONLY}' 'preview_value=InprocServer32 state=$ZC_REG_VALUE_STATE' "Preview InprocServer32 comparison trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}' '[U1R] preview_value=CLSID state=$ZC_REG_VALUE_STATE' "Preview CLSID comparison trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "AppID" "${ZC_PREVIEW_PREVHOST_APP_ID}" ${ZC_REG_STRING_SZ_ONLY}' '[U1R] preview_value=AppID state=$ZC_REG_VALUE_STATE' "Preview AppID comparison trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "ThreadingModel" "${ZC_PREVIEW_THREADING_MODEL}" ${ZC_REG_STRING_SZ_ONLY}' '[U1R] preview_value=ThreadingModel state=$ZC_REG_VALUE_STATE' "Preview ThreadingModel comparison trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}' '[U1R] preview_value=PreviewHandlers state=$ZC_REG_VALUE_STATE' "PreviewHandlers comparison trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_INPROC_KEY}" "" "${ZC_PREVIEW_INSTALLED_DLL}" ${ZC_REG_STRING_SZ_ONLY}' '[U1R] preview_value=InprocServer32 state=$ZC_REG_VALUE_STATE' "Preview InprocServer32 comparison trace"
     $imagePathBefore = @'
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}" "ImagePath" "$ZC_INDEX_SERVICE_EXPECTED_IMAGE_PATH" ${ZC_REG_STRING_EXPAND_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
@@ -1266,7 +1209,7 @@ Function ValidateZenCanvasPreviewCore
   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
 '@
     Replace-U1RExactText $hooksPath $imagePathBefore $imagePathAfter "service ImagePath typed comparison trace"
-    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"' 'service_key_state=$ZC_REG_KEY_STATE' "service registry key state trace"
+    Append-U1RDetailAfterAll $hooksPath '  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"' '[U1R] service_key_state=$ZC_REG_KEY_STATE' "service registry key state trace"
 
     if ($Label -eq "old") {
         $preUninstallMacroBefore = @'
@@ -1518,7 +1461,7 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
     Copy-Item -LiteralPath (Join-Path $InstallProfile "zen-canvas.sqlite3") -Destination (Join-Path $isolatedAppData "zen-canvas.sqlite3") -Force
     $isolatedProfileSnapshot = Invoke-U1RProfile "snapshot" $isolatedAppData $SourceId $MarkerName
     $appEnvironment = @{ APPDATA = $isolatedRoaming; LOCALAPPDATA = $isolatedLocal; TEMP = $isolatedTemp; TMP = $isolatedTemp }
-    $databaseBefore = $null
+    $databaseBefore = $isolatedProfileSnapshot
     $priorEnvironment = @{}
     foreach ($name in $appEnvironment.Keys) { $priorEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
     foreach ($name in $appEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, [string]$appEnvironment[$name], "Process") }
@@ -1544,16 +1487,22 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
         }
         $before = Get-U1RInstallIdentitySnapshot $exe
         $oldServiceProcess = if ($oldService.process) { [ordered]@{ pid = $oldService.processId; path = $oldService.process.path; created = $oldService.process.created; sha256 = Get-Hash $oldService.process.path } } else { $null }
-        $databaseBefore = Invoke-U1RProfile "snapshot" $isolatedAppData $SourceId $MarkerName
         $log = Join-Path $EvidenceRoot "u1r-d1a-inplace-no-update.log"
         $uninstallerTracePath = Join-Path $env:TEMP "issue-380-u1r-old-uninstaller.log"
-        $diagnosticTracePath = Join-Path $env:TEMP "issue-380-u1r-d1a-installer-trace.log"
+        $diagnosticTracePath = $log
+        Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $uninstallerTracePath -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $diagnosticTracePath -Force -ErrorAction SilentlyContinue
         $transition = Wait-ForInstaller $D1ACandidate.installer $installDir $log $D1ACandidate.packageExeSha256 (Get-Hash $exe) 300 $false
         $after = Get-U1RInstallIdentitySnapshot $exe
+        $oldDesktopStillRunning = @($after.desktopProcesses | Where-Object { $_.processId -eq $app.Id }).Count -gt 0
+        # The old client may still hold the SQLite database open after NSIS
+        # returns. Capture its process outcome first, then close it before any
+        # post-attempt database read so a Windows file lock cannot mask the
+        # state result or change the installer outcome.
+        Stop-U1Process $app
+        $app = $null
         $databaseAfter = Invoke-U1RProfile "snapshot" $isolatedAppData $SourceId $MarkerName
-        $diagnosticText = if (Test-Path -LiteralPath $diagnosticTracePath) { Get-Content -LiteralPath $diagnosticTracePath -Raw } else { "" }
+        $diagnosticText = if ($transition.Log.exists) { $transition.Log.text } else { "" }
         $taggedLines = @($diagnosticText -split "`r?`n" | Where-Object { $_ -match '\[U1R\]' })
         $uninstallerTraceText = if (Test-Path -LiteralPath $uninstallerTracePath) { Get-Content -LiteralPath $uninstallerTracePath -Raw } else { "" }
         $uninstallerTaggedLines = @($uninstallerTraceText -split "`r?`n" | Where-Object { $_ -match '\[U1R(?:-OLD-UN)?\]' })
@@ -1652,7 +1601,7 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
             databaseAfterNoUpdateAttempt = $databaseAfter
             databaseStatePreserved = Compare-U1RStateSnapshots $databaseBefore $databaseAfter
             serviceStoppedBeforeMutation = @($transition.Samples | Where-Object { $_.service -and $_.service.state -ieq "Stopped" -and $_.exeSha256 -ceq $before.exe.sha256 }).Count -gt 0
-            oldDesktopStillRunning = @($after.desktopProcesses | Where-Object { $_.processId -eq $app.Id }).Count -gt 0
+            oldDesktopStillRunning = $oldDesktopStillRunning
         }
         Save-Evidence
         Copy-U1RRuntimeFile $diagnosticTracePath "u1r-d1a-installer-nsis-trace.log" | Out-Null
@@ -1662,12 +1611,12 @@ function Invoke-U1RInstallerDiagnostics($OldCandidate, $D1ACandidate, [string]$I
             # path. This is an observation only; any earlier side effect is
             # captured above before the command is issued.
             $updateLog = Join-Path $EvidenceRoot "u1r-d1a-inplace-update-flag.log"
-            Remove-Item -LiteralPath $diagnosticTracePath -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $uninstallerTracePath -Force -ErrorAction SilentlyContinue
             $imageHashBeforeUpdateFlag = if (Test-Path -LiteralPath $exe) { Get-Hash $exe } else { "" }
             $update = Wait-ForInstaller $D1ACandidate.installer $installDir $updateLog $D1ACandidate.packageExeSha256 $imageHashBeforeUpdateFlag 300 $false @("/UPDATE")
             $updateSnapshot = Get-U1RInstallIdentitySnapshot $exe
-            $updateText = if (Test-Path -LiteralPath $diagnosticTracePath) { Get-Content -LiteralPath $diagnosticTracePath -Raw } else { "" }
+            $diagnosticTracePath = $updateLog
+            $updateText = if ($update.Log.exists) { $update.Log.text } else { "" }
             $global:U1Evidence.u1rInstaller.updateFlagAttempt = [ordered]@{ arguments = @("/S", "/UPDATE", "/LOG=$updateLog"); exitCode = $update.ExitCode; log = $updateLog; logSha256 = $update.Log.sha256; diagnosticTrace = $diagnosticTracePath; diagnosticTraceExists = Test-Path -LiteralPath $diagnosticTracePath; diagnosticTraceSha256 = if (Test-Path -LiteralPath $diagnosticTracePath) { Get-Hash $diagnosticTracePath } else { $null }; diagnosticLines = @($updateText -split "`r?`n" | Where-Object { $_ -match '\[U1R\]' }); finalSnapshot = $updateSnapshot; samples = $update.Samples; stdout = $update.Stdout; stderr = $update.Stderr }
             Save-Evidence
             Copy-U1RRuntimeFile $diagnosticTracePath "u1r-d1a-update-installer-nsis-trace.log" | Out-Null
@@ -1695,7 +1644,7 @@ function Invoke-U1RSamePathAndDirectTests($OldCandidate, $D1ACandidate, [string]
     $installDir = Join-Path $env:ProgramFiles "Zen Canvas"
     $exe = Join-Path $installDir "zen-canvas.exe"
     if (Get-CimInstance Win32_Service -Filter "Name='ZenCanvasGlobalIndex'" -ErrorAction SilentlyContinue) { throw "U1R same-path gate found an existing Service" }
-    if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
+    if (Test-Path -LiteralPath $installDir) { throw "U1R same-path gate requires a clean canonical install path but found: $installDir" }
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
     $global:U1OwnedInstallDirectory = $installDir
     Copy-Item -LiteralPath $OldCandidate.qaExe -Destination $exe -Force

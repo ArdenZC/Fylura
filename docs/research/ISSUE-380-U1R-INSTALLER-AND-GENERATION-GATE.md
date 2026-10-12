@@ -1,3 +1,36 @@
+# #380-U1R-FIX Gate 0 / Gate 1 增补
+
+当前状态：**Gate 0 PASS；Gate 1 等待唯一一次 Hosted Windows 运行**。本节是 U1R-FIX 的当前权威记录；下方 U1R 报告保留历史事实，包括 Run 38201379732 失败，不覆盖、不删除原始历史证据。
+
+本阶段只修正研究 Harness，未改正式安装器、IPC、Coordinator、Schema、数据库迁移或 PR #386。U1R-FIX 的实现仍不是 #380 生产缺陷修复。
+
+## Gate 0 基线与执行环境
+
+| 对象 | SHA / Tree | 用途 |
+|---|---|---|
+| 起始研究分支 / U1R HEAD | `dcd1b0ea5e7a2d055bba2a041f022587bcd37316` / `d3616615c27682539fbf2a81e14066856d8d400e` | 允许继续的既有分支基线 |
+| Frozen old master | `3275ac7c72df8ae4139a30f16c7f649971324e97` / `009576241cd4e8e2ba12cc644a368314f599faa6` | 旧版 NSIS 生命周期源码 |
+| Frozen D1-A | `d260131f9d6ec354f2361e6c7460c79e62e38391` / `4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69` | D1-A NSIS 生命周期及模板生成器 |
+| 本地隔离容器 | Ubuntu 22.04 / PowerShell 7 / NSIS `v3.11` / Node `v24.19.0` | 与失败 Hosted run 的 NSIS 版本一致；不是 Windows 产品构建 |
+
+Gate 0 使用 Docker 镜像 `issue380-u1r-gate0-test`（image ID `sha256:7adc66e030cf1a54a0d75ec4fb718fc49f57ebd63f6fc3418ec5cb3d69284e62`）。NSIS source tag commit 为 `7359413009afd4f0fff472d841fc2f2cc0e0a5f8`；Tauri NSIS data archive SHA-256 为 `c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1`；Tauri utility plugin SHA-256 为 `5ba143b5db4a87d32d6e7802e033330aae56cbceabe0d1e3ba41948385ad4709`。旧版生成器在相同 makensis 3.11 环境下以 `label "u1r_file_trace_11_had_error:" already declared in function` 确定失败；这是对已知 Run 38201379732 错误的独立离线复现。
+
+## Gate 0 结果
+
+`scripts/testIssue380U1RNsisGate0.ps1` 从两个固定 SHA 的归档源码建立临时副本，执行候选 anchor 插桩、模板生成器检查、完整 `installer-lifecycle-wrapper.nsh` 的离线 makensis 编译及安全谓词 byte-preservation 检查。状态与 hashes 见 [`u1r-gate0-evidence.json`](evidence/issue-380-u1r-fix/gate0/u1r-gate0-evidence.json)。
+
+- **旧生成器负向回归：PASS。** 它以重复的 `u1r_file_trace_11_had_error` 标签失败，完整原始日志为 [`legacy-generator-expected-failure.log`](evidence/issue-380-u1r-fix/gate0/legacy-generator-expected-failure.log)。
+- **新 Harness 编译：PASS。** NSIS 3.11 编译旧版完整生命周期包装器，exit code 0；编译 D1-A 完整生命周期包装器与真实生成器输出的模板 DetailPrint fixture，exit code 0。日志和编译输入分别为 `old-new-generator-nsis-3.11.log` / `old-generated-macro-expansion-fixture.nsi` 与 `d1a-new-generator-nsis-3.11.log` / `d1a-generated-macro-expansion-fixture.nsi`。
+- **生成器策略：** 宏内 per-line 数字标签会冲突；测试 Harness 现在保留观察行作为 NSIS `DetailPrint`，依靠 `/LOG` 采集。共享宏可能在 installer 与 uninstaller 上下文展开，不安全的 `Call`/文件写函数可能进入错误的 namespace；detail-only 插桩不增添 label、function、stack 操作、FileOpen 或错误标记更改。旧卸载器的 `/LOG` 参数仅在 isolated generated-template 副本增加。
+- **安全谓词保持：PASS。** 移除测试 DetailPrint 后，old 与 D1-A 的 `installer-hooks.nsh` 各自与冻结源码逐字节相同，哈希均为 `ee3139d253efa4833e7f93105003a8813a5d434f9176efa0522cca40a0ea55cf`。Registry typed query/ExpectedSize、Preview Handler、Service ImagePath/ownership 检查保持原文；没有删除、绕过或弱化正式安全条件。
+- **U1R_FOCUS 双候选注入：PASS。** 测试验证 old 和 D1-A 均应用各自真实代码锚点；旧客户端启动 gate 在 Coordinator 构造前，目标 Rebuild 在 gate 释放后、Coordinator 启动后。
+- **Harness 数据前置条件：PASS。** JSON `-AsHashtable` 保留空注册表值名；NSIS 与同路径场景要求 canonical 安装目录已不存在并 fail-closed，不再删除未知目录；旧客户端运行中不读取它可能锁住的 SQLite 文件，测试先做 pre-snapshot，在进程退出后做 post-snapshot。
+- Gate 0 没运行 Cargo/Rust、UI、安装包构建或完整 CI。实际 D1-A `buildWindowsPackage.mjs` 的注入代码通过 Node `--check` 与 converter contract smoke，Node 版本和输出源 hash 在 evidence JSON 中。
+
+Gate 0 没有执行 Hosted Windows 安装或同路径跨代请求，不能据此判断 NSIS exit 2 根因，也不能声称旧进程已被隔离。Gate 1 只允许由本分支触发一次；运行后在本增补中记录 exact run/job/artifact/hash、根因谓词和状态变化。若这次 run 因 Harness 无法完成，则不再重跑，提交 `#380-U1R HARNESS_BLOCKED`。
+
+---
+
 # #380-U1R 安装器根因与代际隔离研究报告
 
 状态：**BLOCKED — NSIS 首个生产失败条件与旧进程代际隔离均未证明**。最终窄范围 Hosted run 的 Harness 在 NSIS 编译阶段失败，目标场景没有运行。

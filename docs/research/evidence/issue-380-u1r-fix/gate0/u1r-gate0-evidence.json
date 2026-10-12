@@ -1,0 +1,81 @@
+{
+  "status": "PASS_GATE_0",
+  "baseline": {
+    "u1rHead": "dcd1b0ea5e7a2d055bba2a041f022587bcd37316",
+    "oldSha": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "oldTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "d1aSha": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "d1aTree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69"
+  },
+  "compiler": {
+    "path": "/opt/nsis/makensis",
+    "pluginDirectory": "/nsisplugins",
+    "version": "v3.11"
+  },
+  "tests": {
+    "focus_mode_old_and_d1a_injection": "PASS: Build-Candidate and exact frozen-source anchor application succeeded for both old and D1-A candidates",
+    "json_empty_registry_value_name": "PASS",
+    "clean_canonical_path_per_scenario": "PASS",
+    "no_pre_request_locked_database_read": "PASS",
+    "old_client_recovery_gate_precedes_target_request": "PASS: exact old candidate was instrumented with gate before Coordinator construction and forced Rebuild after Coordinator start",
+    "legacy_generator_duplicate_macro_label": {
+      "status": "PASS_EXPECTED_COMPILER_FAILURE",
+      "exitCode": 1,
+      "log": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/legacy-generator-expected-failure.log",
+      "logSha256": "3fe072e585ae1a63099af172a8efbb084981b880766a560996a86cc94017ffa4",
+      "firstError": "Error: label \"u1r_file_trace_11_had_error:\" already declared in function"
+    },
+    "nsis_3_11_old_generator_expected_failure_new_generator_pass": "PASS",
+    "actual_d1a_template_detailprint_contract_and_compile": {
+      "status": "PASS",
+      "node": "v24.19.0",
+      "source": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/d1a-generated-template-trace-smoke.nsh",
+      "sourceSha256": "0828864129313538a3f81f575887a63e1fde978a8f466034f66a923035e3223a",
+      "nodeCheckLog": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/d1a-build-script-node-check.log",
+      "nodeCheckLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "security_predicate_byte_preservation": "PASS: old and D1-A instrumented installer-hooks normalize byte-for-byte to their frozen candidate source"
+  },
+  "candidates": {
+    "old": {
+      "sha": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+      "baselineHooksSha256": "ee3139d253efa4833e7f93105003a8813a5d434f9176efa0522cca40a0ea55cf",
+      "normalizedHooksSha256": "ee3139d253efa4833e7f93105003a8813a5d434f9176efa0522cca40a0ea55cf",
+      "instrumentedHooksSha256": "0650ec8c72927c5c0a5096e5915c3172ddbf4591bb5a5884732cbdeaed815bd0",
+      "normalizedHooksExactMatch": true,
+      "traceInstruction": "DetailPrint-only; no functions, labels, Push/Pop, or file operations",
+      "instrumentedHooksEvidence": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/old-instrumented-installer-hooks.nsh",
+      "instrumentedHooksEvidenceSha256": "0650ec8c72927c5c0a5096e5915c3172ddbf4591bb5a5884732cbdeaed815bd0",
+      "compile": {
+        "status": "PASS",
+        "exitCode": 0,
+        "log": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/old-new-generator-nsis-3.11.log",
+        "logSha256": "032e02cbab74b4da7efb87b4a80316c4f8653315322b8ad8e661e1d570ba11ff",
+        "fixture": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/old-generated-macro-expansion-fixture.nsi",
+        "fixtureSha256": "80664e2e68d623bef9e086d8791c0d1121d629f9d7d934a76b31cb3c7fdf32e5"
+      }
+    },
+    "d1a": {
+      "sha": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+      "baselineHooksSha256": "ee3139d253efa4833e7f93105003a8813a5d434f9176efa0522cca40a0ea55cf",
+      "normalizedHooksSha256": "ee3139d253efa4833e7f93105003a8813a5d434f9176efa0522cca40a0ea55cf",
+      "instrumentedHooksSha256": "4f6397dfc47d78e8d06ea0525f6e80939ca31f6e46e32a0408875de651700b56",
+      "normalizedHooksExactMatch": true,
+      "traceInstruction": "DetailPrint-only; no functions, labels, Push/Pop, or file operations",
+      "instrumentedHooksEvidence": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/d1a-instrumented-installer-hooks.nsh",
+      "instrumentedHooksEvidenceSha256": "4f6397dfc47d78e8d06ea0525f6e80939ca31f6e46e32a0408875de651700b56",
+      "compile": {
+        "status": "PASS",
+        "exitCode": 0,
+        "log": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/d1a-new-generator-nsis-3.11.log",
+        "logSha256": "49fefc521955663ff046c6d29efce8abff691a5031cefe5142df96598e7853d1",
+        "fixture": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/d1a-generated-macro-expansion-fixture.nsi",
+        "fixtureSha256": "7ebc8656a65e2a71e00239b37f729f8b81270db3051d677d08295f0c8a3635d1"
+      }
+    }
+  },
+  "failures": [],
+  "path": "/workspace/Zen-Canvas-380-U1/docs/research/evidence/issue-380-u1r-fix/gate0/u1r-gate0-evidence.json"
+}

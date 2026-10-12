@@ -1,0 +1,121 @@
+{
+  "assertions": {
+    "all_roots_remove_old_source_without_deleting_history": true,
+    "conflicting_manifest_path_rolls_back_without_pointer_change": true,
+    "content_fts_and_artifact_are_retained_but_hidden": true,
+    "explicit_legacy_claim_audited": true,
+    "failed_path_conflict_rolls_back_path_fts_generation_and_pointer": true,
+    "final_integrity_and_foreign_key_check": "ok",
+    "hardlinks_share_physical_identity_but_not_source_or_tags": true,
+    "legacy_default_is_read_only_unverified": true,
+    "metadata_tag_history_fingerprint_duplicate_analysis_ai_retained": true,
+    "one_root_removal_keeps_other_root_visible": true,
+    "raw_fts_retains_old_term_but_effective_search_hides_it": true,
+    "same_identity_cross_directory_move_keeps_source_and_path_history": true,
+    "same_path_new_identity_gets_new_source_and_no_inheritance": true,
+    "source_id_crosswalk_is_complete_and_insert_triggered": true,
+    "unapproved_source_delete_rejected": true
+  },
+  "failure_recovery": {
+    "injected_constraint_failure": "rolled back full DDL; original files.path UNIQUE and child data intact",
+    "process_interruption_exit_code": 73,
+    "startup_recovery": "SQLite recovered Schema 37; migration rerun committed once; FK/integrity checks clean"
+  },
+  "input": {
+    "candidate_sql_sha256": "df3fc906526823c47c5b1236ead105d2529163766c873e8acd693760ad65002f",
+    "files_path_unique_after_candidate": false,
+    "legacy_file_id_equals_path": true,
+    "runner_script_sha256": "03cb943d2b4c872ab7e99164c5f7c0462fe6c44c09ed1c65985a94d00ab12213",
+    "schema37_ddl_sha256": "b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5",
+    "schema37_path_unique_before_migration": true
+  },
+  "migration": {
+    "direct_files_id_fk_tables_after": [
+      "content_artifacts",
+      "content_run_items",
+      "duplicate_group_members",
+      "file_fingerprints",
+      "file_sources",
+      "file_user_tags"
+    ],
+    "existing_file_fks_clean": true,
+    "file_fts_integrity_check": "ok",
+    "first_run": "applied",
+    "old_rowid_and_fts_terms_preserved": true,
+    "second_run": "already_applied",
+    "table_sha256_before_after": {
+      "after": {
+        "ai_analysis_state": "bd21ac071bb1ef9e6fdd4dbc65e916d6dfac28adbdf226c9edfacd320fd5f7a4",
+        "analysis_finding_evidence": "35cda10b458770af081a35e56c6635e79211b072e2ed1a7ea788d8ece12e9675",
+        "analysis_findings": "59151ae028b22052460898efe95aad5b257bd38655b1a6f8c09cf99dc6804dd9",
+        "classification_feedback": "f1b71b75f86094fb287fafd08a3b5b5f100119e5d2ae44458b3b21d9b72d75af",
+        "classification_history": "91fdaa04dc32c118f231f2b6ee3f7389a100d3f1a58195124b3dea280625daff",
+        "content_artifacts": "6782bc25da1e333de05633fc7d569bc09f61ce6d38476b006dcb3deb750da970",
+        "content_run_items": "8df46dd3dcbdcac7c715ce5c18276caefb43505ae819397f30d3ea64fbb7ccca",
+        "duplicate_group_members": "7f15bf96342607b3d7601e687095a7a046e68dc0dc20c90e94dca081da648e53",
+        "duplicate_groups": "aa051f8df8e13e94f4aa0887bfb25e23779b71449f59503045fd4f7e58b00530",
+        "file_fingerprints": "24dfebde4c276c7bffc6acc70b36a22e32954987568707d3cdae3443fb167ee9",
+        "file_user_tags": "0467743fa07e2b02dbc285ce999c8fdeae7df370103d6e471f871407b28673c7",
+        "files": "2909274acb16841f6208a76c4803b6c6ec826785cc23b695a407874aeb1198ee",
+        "operation_logs": "59e7be1bdc9b8e326604f5465ed8ea9a170efec7df1d07ca8061062c442f70ae"
+      },
+      "before": {
+        "ai_analysis_state": "bd21ac071bb1ef9e6fdd4dbc65e916d6dfac28adbdf226c9edfacd320fd5f7a4",
+        "analysis_finding_evidence": "35cda10b458770af081a35e56c6635e79211b072e2ed1a7ea788d8ece12e9675",
+        "analysis_findings": "59151ae028b22052460898efe95aad5b257bd38655b1a6f8c09cf99dc6804dd9",
+        "classification_feedback": "f1b71b75f86094fb287fafd08a3b5b5f100119e5d2ae44458b3b21d9b72d75af",
+        "classification_history": "91fdaa04dc32c118f231f2b6ee3f7389a100d3f1a58195124b3dea280625daff",
+        "content_artifacts": "6782bc25da1e333de05633fc7d569bc09f61ce6d38476b006dcb3deb750da970",
+        "content_run_items": "8df46dd3dcbdcac7c715ce5c18276caefb43505ae819397f30d3ea64fbb7ccca",
+        "duplicate_group_members": "7f15bf96342607b3d7601e687095a7a046e68dc0dc20c90e94dca081da648e53",
+        "duplicate_groups": "aa051f8df8e13e94f4aa0887bfb25e23779b71449f59503045fd4f7e58b00530",
+        "file_fingerprints": "24dfebde4c276c7bffc6acc70b36a22e32954987568707d3cdae3443fb167ee9",
+        "file_user_tags": "0467743fa07e2b02dbc285ce999c8fdeae7df370103d6e471f871407b28673c7",
+        "files": "2909274acb16841f6208a76c4803b6c6ec826785cc23b695a407874aeb1198ee",
+        "operation_logs": "59e7be1bdc9b8e326604f5465ed8ea9a170efec7df1d07ca8061062c442f70ae"
+      }
+    },
+    "user_rows_before_after": {
+      "after": {
+        "ai_analysis_state": 1,
+        "analysis_finding_evidence": 1,
+        "analysis_findings": 1,
+        "classification_feedback": 1,
+        "classification_history": 1,
+        "content_artifacts": 1,
+        "content_run_items": 1,
+        "duplicate_group_members": 1,
+        "duplicate_groups": 1,
+        "file_fingerprints": 1,
+        "file_user_tags": 1,
+        "operation_logs": 1
+      },
+      "before": {
+        "ai_analysis_state": 1,
+        "analysis_finding_evidence": 1,
+        "analysis_findings": 1,
+        "classification_feedback": 1,
+        "classification_history": 1,
+        "content_artifacts": 1,
+        "content_run_items": 1,
+        "duplicate_group_members": 1,
+        "duplicate_groups": 1,
+        "file_fingerprints": 1,
+        "file_user_tags": 1,
+        "operation_logs": 1
+      }
+    }
+  },
+  "runtime": {
+    "fts5_available": true,
+    "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "sqlite_version": "3.53.1",
+    "user_version_after_candidate": 37
+  },
+  "scope_limits": [
+    "Synthetic rows over the complete captured Schema 37 DDL; no production/user database was opened.",
+    "SQLite runtime is the workspace Python library, not Windows/macOS or the product-linked SQLite 3.51.3.",
+    "No performance benchmark, Schema version allocation, production code, IPC, installer, PR, or CI change.",
+    "Filesystem identity is represented by deterministic fixture IDs; this does not prove platform handle, inode reuse, reparse, ACL, or mount behavior."
+  ]
+}

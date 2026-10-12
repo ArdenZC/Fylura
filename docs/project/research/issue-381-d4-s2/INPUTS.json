@@ -1,0 +1,59 @@
+{
+  "track": "Zen Canvas #381 Managed Scan D4-S2",
+  "owner_review": "https://github.com/ArdenZC/Zen-Canvas/issues/381#issuecomment-6123115586",
+  "authorization": "Independent research branch; design, source audit, physical data model, and one disposable Schema 37 SQLite migration harness only",
+  "research_branch": "research/issue-381-d4-s2",
+  "frozen_inputs": {
+    "d4_s1_head": "bb46ba8bd0d4a2a01af976fb9b05d6c4224b4697",
+    "d4_s1_tree": "501bc4e54d9a391625888e4aab3485119e971f4b",
+    "master_head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "master_tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "schema_version": 37,
+    "schema_rs_sha256": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7",
+    "schema37_sqlite_master_dump": "docs/project/research/issue-381-d4-s0/evidence/schema37-sqlite-schema.sql",
+    "schema37_sqlite_master_dump_sha256": "b8405a675f05e55f40fa19af14b76f2390e22466b6fb185bc25ef743e5255cd5"
+  },
+  "source_findings": {
+    "scanner_id_behavior": "scanned_entry_to_insert_request sets id = entry.path; upsert_file_rows_tx uses ON CONFLICT(id)",
+    "files_path_constraint": "Schema 37 files.path TEXT NOT NULL UNIQUE",
+    "direct_files_id_foreign_keys": [
+      "file_user_tags.file_id REFERENCES files(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "file_fingerprints.file_id REFERENCES files(id) ON DELETE CASCADE",
+      "duplicate_group_members.file_id REFERENCES files(id) ON DELETE CASCADE",
+      "content_artifacts.file_id REFERENCES files(id) ON DELETE CASCADE",
+      "content_run_items.file_id REFERENCES files(id) ON DELETE CASCADE"
+    ],
+    "non_fk_history_and_global_ai": [
+      "classification_history.file_id and classification_feedback.file_id are text snapshots without files FK",
+      "analysis findings/evidence use subject/path snapshots without files FK",
+      "operation_logs preserve path and identity snapshots without files FK",
+      "ai_analysis_state is keyed to global_entries and is independent from a managed files row"
+    ]
+  },
+  "harness": {
+    "command": "python3 docs/project/research/issue-381-d4-s2/harness/run.py",
+    "runner": "docs/project/research/issue-381-d4-s2/harness/run.py",
+    "candidate_ddl": "docs/project/research/issue-381-d4-s2/harness/physical-candidate.sql",
+    "candidate_ddl_sha256": "df3fc906526823c47c5b1236ead105d2529163766c873e8acd693760ad65002f",
+    "runner_sha256": "03cb943d2b4c872ab7e99164c5f7c0462fe6c44c09ed1c65985a94d00ab12213",
+    "runtime_sqlite_version": "3.53.1",
+    "runtime_sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "database": "temporary synthetic SQLite database; no user DB opened",
+    "scope": "Schema 37 DDL/FK/FTS migration fidelity and small identity, retention, rollback, crash-recovery cases; no benchmark",
+    "results_json_sha256": "165a77070cc26f0dcceb0ac61128959a5787c76c4bb1969dbcba98800ac5655a",
+    "run_log_sha256": "317ccfe4bd885746d8ded808dcdc96c0ef117c57bc12631a7c2808fd84067f06"
+  },
+  "prohibited_changes_confirmed": {
+    "production_schema_or_code": false,
+    "schema_38_allocated": false,
+    "pr_383_changed": false,
+    "pr_386_changed": false,
+    "master_changed": false,
+    "hosted_windows_or_macos_run": false,
+    "full_ci_run": false,
+    "broad_benchmark_run": false,
+    "codex_review_run": false,
+    "issue_or_pr_comment_created": false,
+    "merge_or_release": false
+  }
+}

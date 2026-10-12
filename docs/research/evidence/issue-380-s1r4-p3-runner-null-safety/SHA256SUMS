@@ -1,0 +1,5 @@
+52a03b3908760287ff1838a7a9ab272346f86a3269a702311acaf6eee700731d  docs/research/ISSUE-380-S1R4-P3-RUNNER-NULL-SAFETY.md
+dbfc02aa18aaa0215aa68606dadfe75b2236e808feac5c2f12369311127b1abe  docs/research/ISSUE-380-S1R4-P3-RUNNER-NULL-SAFETY-WORKFLOW.md
+5aaeff4dc7a78362b1caea21927c3a07180d62548180d09c37cab2559616f176  scripts/issue380S1R4P3SyntheticNsisRunner.ps1
+a28d8b624c6c3d5e8fe707389ab9432ac0f2e19ec8ac5e7e9ccb977df373c59b  scripts/validateIssue380S1R4P3RunnerNullSafety.py
+2b904efbeb3f2140c77b2f8d54d1c67202b2a1cce7b8c93b4700bd924be312b7  docs/research/evidence/issue-380-s1r4-p3-runner-null-safety/runner-identity.json

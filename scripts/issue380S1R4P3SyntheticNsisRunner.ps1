@@ -26,7 +26,8 @@ $script:S1RTree = '9bcc5a2a03a8335d2cb2e81c3d497efb275b8724'
 $script:S1Head = 'bd56788aa317d808dadf930260e191e9d1b45adb'
 $script:S0Head = '1f4951f3c93b2eb549d159fed2dd288992c625c8'
 $script:ProbePath = 'scripts/issue380S0NsisObservabilityProbe.nsi'
-$script:ExpectedBranch = 'research/issue-380-s1r4-p3-p0-nsis-hosted-plan'
+$script:ExpectedBranch = 'research/issue-380-s1r4-p3-runner-null-safety-activation'
+$script:RunnerPath = 'scripts/issue380S1R4P3SyntheticNsisRunner.ps1'
 $script:ZipUrl = 'https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/nsis-3.11.zip/download'
 $script:ExpectedZipSha256 = 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1'
 $script:LauncherRelativePath = 'nsis-3.11/makensis.exe'
@@ -48,6 +49,7 @@ $script:SyntheticKeyChecked = $false
 $script:Assertions = [System.Collections.Generic.List[object]]::new()
 $script:Executables = [System.Collections.Generic.List[object]]::new()
 $script:Processes = [System.Collections.Generic.List[object]]::new()
+$script:GitInvocations = [System.Collections.Generic.List[object]]::new()
 $script:Acquisition = [ordered]@{
     source_url = $script:ZipUrl
     expected_sha256 = $script:ExpectedZipSha256
@@ -115,6 +117,148 @@ function Write-Utf8Text([string]$Path, [string]$Text) {
 
 function Write-Utf8Json([string]$Path, [object]$Value) {
     Write-Utf8Text -Path $Path -Text ((ConvertTo-Json -InputObject $Value -Depth 30) + "`n")
+}
+
+function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int]$TimeoutSeconds = 20) {
+    if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) { throw 'Git working directory is required.' }
+    $gitCommand = Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    if ($null -eq $gitCommand -or [string]::IsNullOrWhiteSpace([string]$gitCommand.Path)) {
+        throw 'Could not resolve a Git executable from PATH.'
+    }
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = [string]$gitCommand.Path
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $startInfo.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
+    foreach ($argument in $Arguments) { [void]$startInfo.ArgumentList.Add([string]$argument) }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $capture = [ordered]@{
+        executable = [string]$gitCommand.Path
+        arguments = @($Arguments)
+        working_directory = $WorkingDirectory
+        process_id = $null
+        exit_code = $null
+        timed_out = $false
+        launch_error = $null
+        cleanup_error = $null
+        stdout = [string]::Empty
+        stderr = [string]::Empty
+        stdout_char_count = 0
+        stderr_char_count = 0
+        stdout_truncated = $false
+        stderr_truncated = $false
+    }
+    $processStarted = $false
+    try {
+        if (-not $process.Start()) { throw 'Process.Start returned false.' }
+        $processStarted = $true
+        $capture.process_id = $process.Id
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $completed = $process.WaitForExit($TimeoutSeconds * 1000)
+        if (-not $completed) {
+            $capture.timed_out = $true
+            $process.Kill($true)
+            if (-not $process.WaitForExit(5000)) { throw 'Git process did not exit within 5 seconds after timeout termination.' }
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $capture.exit_code = if ($process.HasExited) { [int]$process.ExitCode } else { $null }
+        $capture.stdout_char_count = $stdout.Length
+        $capture.stderr_char_count = $stderr.Length
+        $capture.stdout_truncated = ($stdout.Length -gt 8192)
+        $capture.stderr_truncated = ($stderr.Length -gt 8192)
+        $capture.stdout = if ($capture.stdout_truncated) { $stdout.Substring(0, 8192) } else { $stdout }
+        $capture.stderr = if ($capture.stderr_truncated) { $stderr.Substring(0, 8192) } else { $stderr }
+        $capture.status = if ($capture.timed_out) { 'TIMED_OUT' } elseif ($capture.exit_code -eq 0) { 'EXITED_ZERO' } else { 'EXITED_NONZERO' }
+    } catch {
+        $capture.launch_error = $_.Exception.ToString()
+        $capture.status = 'LAUNCH_OR_CAPTURE_FAILED'
+    } finally {
+        if ($processStarted) {
+            try {
+                if (-not $process.HasExited) {
+                    $process.Kill($true)
+                    if (-not $process.WaitForExit(5000)) { throw 'Git process did not exit within 5 seconds after tree termination.' }
+                }
+            } catch {
+                $capture.cleanup_error = $_.Exception.ToString()
+                if ($null -eq $capture.launch_error) { $capture.launch_error = "Git process cleanup failed: $($capture.cleanup_error)" }
+                $capture.status = 'PROCESS_CLEANUP_FAILED'
+            }
+        }
+        $process.Dispose()
+    }
+
+    $script:GitInvocations.Add([ordered]@{
+        executable = $capture.executable
+        arguments = $capture.arguments
+        working_directory = $capture.working_directory
+        process_id = $capture.process_id
+        exit_code = $capture.exit_code
+        timed_out = $capture.timed_out
+        status = $capture.status
+        launch_error = $capture.launch_error
+        cleanup_error = $capture.cleanup_error
+        stdout = $capture.stdout
+        stderr = $capture.stderr
+        stdout_char_count = $capture.stdout_char_count
+        stderr_char_count = $capture.stderr_char_count
+        stdout_truncated = $capture.stdout_truncated
+        stderr_truncated = $capture.stderr_truncated
+    })
+    return [pscustomobject]$capture
+}
+
+function Get-RequiredGitScalar([string[]]$Arguments, [string]$WorkingDirectory, [string]$Label) {
+    $capture = Invoke-GitCapture -Arguments $Arguments -WorkingDirectory $WorkingDirectory
+    if ($capture.timed_out -or $capture.exit_code -ne 0 -or $null -ne $capture.launch_error) {
+        throw "$Label failed: exit=$($capture.exit_code) timed_out=$($capture.timed_out) launch_error=$($capture.launch_error) stderr=$($capture.stderr)"
+    }
+    if (-not [string]::IsNullOrEmpty($capture.stderr)) {
+        throw "$Label wrote unexpected stderr despite exit 0: $($capture.stderr)"
+    }
+    if ($capture.stdout_truncated -or $capture.stderr_truncated) {
+        throw "$Label output exceeded the bounded identity capture limit."
+    }
+    $lineMatch = [regex]::Match([string]$capture.stdout, '\A([^\r\n]+)(?:\r?\n)?\z')
+    if (-not $lineMatch.Success -or [string]::IsNullOrWhiteSpace($lineMatch.Groups[1].Value)) {
+        throw "$Label must return exactly one non-empty output line; exit=$($capture.exit_code) output_chars=$($capture.stdout_char_count) stderr=$($capture.stderr)"
+    }
+    return $lineMatch.Groups[1].Value.Trim()
+}
+
+function Assert-GitNoOutputSuccess([string[]]$Arguments, [string]$WorkingDirectory, [string]$Label) {
+    $capture = Invoke-GitCapture -Arguments $Arguments -WorkingDirectory $WorkingDirectory
+    if ($capture.timed_out -or $capture.exit_code -ne 0 -or $null -ne $capture.launch_error) {
+        throw "$Label failed: exit=$($capture.exit_code) timed_out=$($capture.timed_out) launch_error=$($capture.launch_error) stderr=$($capture.stderr)"
+    }
+    if (-not [string]::IsNullOrEmpty($capture.stderr)) {
+        throw "$Label wrote unexpected stderr despite exit 0: $($capture.stderr)"
+    }
+    if (-not [string]::IsNullOrEmpty($capture.stdout)) {
+        throw "$Label must succeed without stdout; output_chars=$($capture.stdout_char_count) output=$($capture.stdout)"
+    }
+}
+
+function Assert-GitWorktreeClean([string]$WorkingDirectory) {
+    $capture = Invoke-GitCapture -Arguments @('status', '--porcelain', '--untracked-files', 'all') -WorkingDirectory $WorkingDirectory
+    if ($capture.timed_out -or $capture.exit_code -ne 0 -or $null -ne $capture.launch_error) {
+        throw "Git worktree status failed: exit=$($capture.exit_code) timed_out=$($capture.timed_out) launch_error=$($capture.launch_error) stderr=$($capture.stderr)"
+    }
+    if (-not [string]::IsNullOrEmpty($capture.stderr)) {
+        throw "Git worktree status wrote unexpected stderr despite exit 0: $($capture.stderr)"
+    }
+    if ($capture.stdout_char_count -ne 0) {
+        throw "Checkout is not clean before Runner starts: status_output=$($capture.stdout) output_chars=$($capture.stdout_char_count) truncated=$($capture.stdout_truncated)"
+    }
 }
 
 function Add-Assertion([string]$Name, [bool]$Passed, [string]$Details) {
@@ -571,7 +715,7 @@ function Compile-Probe([string]$Makensis, [string]$Probe, [string]$TraceMode, [s
 }
 
 $result = [ordered]@{
-    phase = '#380-S1R4-P3-P0 Synthetic NSIS Hosted Plan Runner'
+    phase = '#380-S1R4-P3 Runner null-safety candidate'
     status = 'IN_PROGRESS'
     repository = $env:GITHUB_REPOSITORY
     ref = $env:GITHUB_REF
@@ -593,6 +737,11 @@ $result = [ordered]@{
     frozen_s1r_tree = $script:S1RTree
     frozen_s1_head = $script:S1Head
     frozen_s0_head = $script:S0Head
+    candidate_freeze_head = $null
+    candidate_freeze_tree = $null
+    activation_parent = $null
+    runner_git_blob_sha = $null
+    runner_file_sha256 = $null
     tested_head = $null
     tested_tree = $null
     frozen_probe_blob = $null
@@ -612,6 +761,7 @@ $result = [ordered]@{
     registry_snapshots = @()
     log_comparison = @()
     launcher_process = $null
+    git_invocations = @()
     assertions = @()
     cleanup = [ordered]@{ registry_key = 'NOT_CHECKED'; task_temp = 'NOT_CREATED'; task_owned_processes = 'NOT_CHECKED' }
     failure = $null
@@ -658,50 +808,64 @@ try {
     }
     Push-Location $repoRoot
     try {
-        $head = (& git rev-parse HEAD).Trim()
-        $tree = (& git rev-parse 'HEAD^{tree}').Trim()
-        if ($LASTEXITCODE -ne 0) { throw 'git could not resolve the checked out source identity.' }
+        $head = Get-RequiredGitScalar -Arguments @('rev-parse', 'HEAD') -WorkingDirectory $repoRoot -Label 'Resolve checked-out HEAD'
+        $tree = Get-RequiredGitScalar -Arguments @('rev-parse', 'HEAD^{tree}') -WorkingDirectory $repoRoot -Label 'Resolve checked-out Tree'
         if ($head -ne $env:GITHUB_SHA) { throw "Checkout HEAD $head differs from workflow SHA $env:GITHUB_SHA" }
-        $status = (& git status --porcelain --untracked-files all).Trim()
-        if ($LASTEXITCODE -ne 0 -or -not [string]::IsNullOrEmpty($status)) { throw "Checkout is not clean before Runner starts: $status" }
-        $frozenP2Tree = (& git rev-parse "$($script:P2Head)^{tree}").Trim()
-        if ($LASTEXITCODE -ne 0 -or $frozenP2Tree -ne $script:P2Tree) { throw "Frozen P2 identity mismatch: expected_tree=$($script:P2Tree) actual_tree=$frozenP2Tree" }
-        & git merge-base --is-ancestor $script:P2Head HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Frozen P2 HEAD is not an ancestor of this P3 candidate.' }
-        $frozenP1Tree = (& git rev-parse "$($script:P1Head)^{tree}").Trim()
-        if ($LASTEXITCODE -ne 0 -or $frozenP1Tree -ne $script:P1Tree) { throw "Frozen P1 identity mismatch: expected_tree=$($script:P1Tree) actual_tree=$frozenP1Tree" }
-        & git merge-base --is-ancestor $script:P1Head HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Frozen P1 HEAD is not an ancestor of this P3 candidate.' }
-        foreach ($path in @($script:P1PathGuardPath, $script:P1PathTestPath)) {
-            $frozenPathBlob = (& git rev-parse "$($script:P1Head):$path").Trim()
-            $actualPathBlob = (& git hash-object $path).Trim()
-            if ($LASTEXITCODE -ne 0 -or $frozenPathBlob -ne $actualPathBlob) { throw "Accepted P1 source changed: $path" }
+        Assert-GitWorktreeClean -WorkingDirectory $repoRoot
+
+        $activationParent = Get-RequiredGitScalar -Arguments @('rev-parse', 'HEAD^') -WorkingDirectory $repoRoot -Label 'Resolve activation parent'
+        $activationParentTree = Get-RequiredGitScalar -Arguments @('rev-parse', "$activationParent^{tree}") -WorkingDirectory $repoRoot -Label 'Resolve activation parent Tree'
+        if ($preflightRecord.candidate_freeze_head -cne $activationParent -or
+            $preflightRecord.candidate_freeze_tree -cne $activationParentTree -or
+            $preflightRecord.activation_parent -cne $activationParent) {
+            throw 'Preflight candidate freeze identity does not match the actual direct parent of this activation commit.'
         }
+
+        $runnerCommitBlob = Get-RequiredGitScalar -Arguments @('rev-parse', "HEAD:$($script:RunnerPath)") -WorkingDirectory $repoRoot -Label 'Resolve committed P3 Runner blob'
+        $runnerWorktreeBlob = Get-RequiredGitScalar -Arguments @('hash-object', '--', $script:RunnerPath) -WorkingDirectory $repoRoot -Label 'Resolve worktree P3 Runner blob'
+        $runnerFileSha256 = Get-FileSha256 (Join-Path $repoRoot $script:RunnerPath)
+        if ($runnerCommitBlob -cne $runnerWorktreeBlob -or
+            $preflightRecord.p3_runner_git_blob_sha -cne $runnerCommitBlob -or
+            $preflightRecord.p3_runner_file_sha256 -cne $runnerFileSha256) {
+            throw "P3 Runner identity mismatch: committed_blob=$runnerCommitBlob worktree_blob=$runnerWorktreeBlob file_sha256=$runnerFileSha256"
+        }
+
+        $frozenP2Tree = Get-RequiredGitScalar -Arguments @('rev-parse', "$($script:P2Head)^{tree}") -WorkingDirectory $repoRoot -Label 'Resolve frozen P2 Tree'
+        if ($frozenP2Tree -cne $script:P2Tree) { throw "Frozen P2 identity mismatch: expected_tree=$($script:P2Tree) actual_tree=$frozenP2Tree" }
+        Assert-GitNoOutputSuccess -Arguments @('merge-base', '--is-ancestor', $script:P2Head, 'HEAD') -WorkingDirectory $repoRoot -Label 'Check frozen P2 ancestry'
+        $frozenP1Tree = Get-RequiredGitScalar -Arguments @('rev-parse', "$($script:P1Head)^{tree}") -WorkingDirectory $repoRoot -Label 'Resolve frozen P1 Tree'
+        if ($frozenP1Tree -cne $script:P1Tree) { throw "Frozen P1 identity mismatch: expected_tree=$($script:P1Tree) actual_tree=$frozenP1Tree" }
+        Assert-GitNoOutputSuccess -Arguments @('merge-base', '--is-ancestor', $script:P1Head, 'HEAD') -WorkingDirectory $repoRoot -Label 'Check frozen P1 ancestry'
+        foreach ($path in @($script:P1PathGuardPath, $script:P1PathTestPath)) {
+            $frozenPathBlob = Get-RequiredGitScalar -Arguments @('rev-parse', "$($script:P1Head):$path") -WorkingDirectory $repoRoot -Label "Resolve frozen P1 blob for $path"
+            $actualPathBlob = Get-RequiredGitScalar -Arguments @('hash-object', '--', $path) -WorkingDirectory $repoRoot -Label "Resolve current P1 blob for $path"
+            if ($frozenPathBlob -cne $actualPathBlob) { throw "Accepted P1 source changed: $path" }
+        }
+        $result.candidate_freeze_head = $preflightRecord.candidate_freeze_head
+        $result.candidate_freeze_tree = $preflightRecord.candidate_freeze_tree
+        $result.activation_parent = $activationParent
+        $result.runner_git_blob_sha = $runnerCommitBlob
+        $result.runner_file_sha256 = $runnerFileSha256
         $result.frozen_p2_head = $script:P2Head
         $result.frozen_p2_tree = $frozenP2Tree
         $result.frozen_p1_head = $script:P1Head
         $result.frozen_p1_tree = $frozenP1Tree
-        $frozenP0Tree = (& git rev-parse "$($script:S1R4P0Head)^{tree}").Trim()
-        if ($LASTEXITCODE -ne 0 -or $frozenP0Tree -ne $script:S1R4P0Tree) { throw "Frozen S1R4-P0 identity mismatch: expected_tree=$($script:S1R4P0Tree) actual_tree=$frozenP0Tree" }
-        & git merge-base --is-ancestor $script:S1R4P0Head HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Frozen S1R4-P0 final HEAD is not an ancestor of this S1R4 candidate.' }
-        $frozenS1R3Tree = (& git rev-parse "$($script:S1R3Head)^{tree}").Trim()
-        if ($LASTEXITCODE -ne 0 -or $frozenS1R3Tree -ne $script:S1R3Tree) { throw "Frozen S1R3 identity mismatch: expected_tree=$($script:S1R3Tree) actual_tree=$frozenS1R3Tree" }
-        & git merge-base --is-ancestor $script:S1R3Head HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Frozen S1R3 final HEAD is not an ancestor of this S1R4 candidate.' }
-        $frozenS1R2Tree = (& git rev-parse "$($script:S1R2Head)^{tree}").Trim()
-        if ($LASTEXITCODE -ne 0 -or $frozenS1R2Tree -ne $script:S1R2Tree) { throw "Frozen S1R2 identity mismatch: expected_tree=$($script:S1R2Tree) actual_tree=$frozenS1R2Tree" }
-        & git merge-base --is-ancestor $script:S1R2Head HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Frozen S1R2 final HEAD is not an ancestor of this S1R4 candidate.' }
-        $frozenS1RTree = (& git rev-parse "$($script:S1RHead)^{tree}").Trim()
-        if ($LASTEXITCODE -ne 0 -or $frozenS1RTree -ne $script:S1RTree) { throw "Frozen S1R identity mismatch: expected_tree=$($script:S1RTree) actual_tree=$frozenS1RTree" }
-        & git merge-base --is-ancestor $script:S1RHead HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Frozen S1R final HEAD is not an ancestor of this S1R4 candidate.' }
-        & git merge-base --is-ancestor $script:S1Head HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'Frozen S1 HEAD is not an ancestor of this S1R4 candidate.' }
-        $probeBlob = (& git rev-parse "$($script:S0Head):$($script:ProbePath)").Trim()
-        $actualProbeBlob = (& git hash-object $script:ProbePath).Trim()
-        if ($LASTEXITCODE -ne 0 -or $probeBlob -ne $actualProbeBlob) { throw 'Frozen S0 Probe blob changed.' }
+        $frozenP0Tree = Get-RequiredGitScalar -Arguments @('rev-parse', "$($script:S1R4P0Head)^{tree}") -WorkingDirectory $repoRoot -Label 'Resolve frozen S1R4-P0 Tree'
+        if ($frozenP0Tree -cne $script:S1R4P0Tree) { throw "Frozen S1R4-P0 identity mismatch: expected_tree=$($script:S1R4P0Tree) actual_tree=$frozenP0Tree" }
+        Assert-GitNoOutputSuccess -Arguments @('merge-base', '--is-ancestor', $script:S1R4P0Head, 'HEAD') -WorkingDirectory $repoRoot -Label 'Check frozen S1R4-P0 ancestry'
+        $frozenS1R3Tree = Get-RequiredGitScalar -Arguments @('rev-parse', "$($script:S1R3Head)^{tree}") -WorkingDirectory $repoRoot -Label 'Resolve frozen S1R3 Tree'
+        if ($frozenS1R3Tree -cne $script:S1R3Tree) { throw "Frozen S1R3 identity mismatch: expected_tree=$($script:S1R3Tree) actual_tree=$frozenS1R3Tree" }
+        Assert-GitNoOutputSuccess -Arguments @('merge-base', '--is-ancestor', $script:S1R3Head, 'HEAD') -WorkingDirectory $repoRoot -Label 'Check frozen S1R3 ancestry'
+        $frozenS1R2Tree = Get-RequiredGitScalar -Arguments @('rev-parse', "$($script:S1R2Head)^{tree}") -WorkingDirectory $repoRoot -Label 'Resolve frozen S1R2 Tree'
+        if ($frozenS1R2Tree -cne $script:S1R2Tree) { throw "Frozen S1R2 identity mismatch: expected_tree=$($script:S1R2Tree) actual_tree=$frozenS1R2Tree" }
+        Assert-GitNoOutputSuccess -Arguments @('merge-base', '--is-ancestor', $script:S1R2Head, 'HEAD') -WorkingDirectory $repoRoot -Label 'Check frozen S1R2 ancestry'
+        $frozenS1RTree = Get-RequiredGitScalar -Arguments @('rev-parse', "$($script:S1RHead)^{tree}") -WorkingDirectory $repoRoot -Label 'Resolve frozen S1R Tree'
+        if ($frozenS1RTree -cne $script:S1RTree) { throw "Frozen S1R identity mismatch: expected_tree=$($script:S1RTree) actual_tree=$frozenS1RTree" }
+        Assert-GitNoOutputSuccess -Arguments @('merge-base', '--is-ancestor', $script:S1RHead, 'HEAD') -WorkingDirectory $repoRoot -Label 'Check frozen S1R ancestry'
+        Assert-GitNoOutputSuccess -Arguments @('merge-base', '--is-ancestor', $script:S1Head, 'HEAD') -WorkingDirectory $repoRoot -Label 'Check frozen S1 ancestry'
+        $probeBlob = Get-RequiredGitScalar -Arguments @('rev-parse', "$($script:S0Head):$($script:ProbePath)") -WorkingDirectory $repoRoot -Label 'Resolve frozen S0 Probe blob'
+        $actualProbeBlob = Get-RequiredGitScalar -Arguments @('hash-object', '--', $script:ProbePath) -WorkingDirectory $repoRoot -Label 'Resolve current S0 Probe blob'
+        if ($probeBlob -cne $actualProbeBlob) { throw 'Frozen S0 Probe blob changed.' }
         $result.tested_head = $head
         $result.tested_tree = $tree
         $result.frozen_probe_blob = $probeBlob
@@ -1051,6 +1215,7 @@ try {
     $result.processes = @($script:Processes.ToArray())
     $result.registry_snapshots = @($script:RegistrySnapshots.ToArray())
     $result.log_comparison = @($script:LogComparison.ToArray())
+    $result.git_invocations = @($script:GitInvocations.ToArray())
     $result.assertions = @($script:Assertions.ToArray())
     try { Write-Utf8Json -Path (Join-Path $outputFullPath 'tool-acquisition.json') -Value $script:Acquisition } catch { }
     if ($null -eq $script:Failure) {

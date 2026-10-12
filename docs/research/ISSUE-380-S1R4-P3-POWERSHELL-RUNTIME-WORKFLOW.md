@@ -10,23 +10,23 @@ name: Issue 380 S1R4-P3 bounded Git capture PowerShell 7 runtime
 on:
   push:
     branches:
-      - qualification/s1r4-p3-windows-runtime-r1
+      - qualification/s1r4-p3-windows-runtime-r2
     paths:
-      - .github/workflows/issue-380-s1r4-p3-git-runtime-r1.yml
+      - .github/workflows/issue-380-s1r4-p3-git-runtime-r2.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: issue-380-s1r4-p3-git-runtime-r1
+  group: issue-380-s1r4-p3-git-runtime-r2
   cancel-in-progress: false
 
 jobs:
   powershell-runtime:
-    name: Frozen Git capture functions only
+    name: R2 candidate Git capture functions only
     if: >-
       github.repository == 'ArdenZC/Zen-Canvas' &&
-      github.ref == 'refs/heads/qualification/s1r4-p3-windows-runtime-r1' &&
+      github.ref == 'refs/heads/qualification/s1r4-p3-windows-runtime-r2' &&
       github.run_attempt == 1
     runs-on: windows-2022
     timeout-minutes: 10
@@ -44,7 +44,7 @@ jobs:
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
           if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas') { throw "Unexpected repository: $env:GITHUB_REPOSITORY" }
-          if ($env:GITHUB_REF -ne 'refs/heads/qualification/s1r4-p3-windows-runtime-r1') { throw "Unexpected ref: $env:GITHUB_REF" }
+          if ($env:GITHUB_REF -ne 'refs/heads/qualification/s1r4-p3-windows-runtime-r2') { throw "Unexpected ref: $env:GITHUB_REF" }
           if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw "One-shot contract refuses attempt $env:GITHUB_RUN_ATTEMPT" }
           $runRoot = Join-Path $env:RUNNER_TEMP ("issue380-s1r4-p3-git-runtime-{0}" -f $env:GITHUB_RUN_ID)
           if (Test-Path -LiteralPath $runRoot) { throw "Refusing to reuse run root: $runRoot" }
@@ -85,7 +85,7 @@ jobs:
 
       - name: Checkout exact activation child with raw LF policy in effect
         if: ${{ steps.bootstrap.outcome == 'success' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -102,8 +102,10 @@ jobs:
           $freezeHead = 'af305adb8fba017dd9284a829b5101a209a9b4e2'
           $freezeTree = '9d7716add5fde99c6e797065f336e0d0cf86a510'
           $runnerPath = 'scripts/issue380S1R4P3SyntheticNsisRunner.ps1'
-          $runnerBlob = 'c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa'
-          $runnerSha = '92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece'
+          $historicalRunnerBlob = 'c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa'
+          $historicalRunnerSha = '92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece'
+          $runnerBlob = '7d6081468d5fce46a18d1af2aaaf1d4091a89d5f'
+          $runnerSha = 'd8466b47ea548b8482c30db88e1fbb47025f64d54b3f18d465c320658deca995'
           $p1Head = '7a6fa69e5521d9759702c1923a9ade60a75819c3'
           $p1Guard = 'scripts/issue380S1R4PathGuard.ps1'
           $p1GuardBlob = '42f38d81b314e6faa3426920b7671179015b26c3'
@@ -119,8 +121,8 @@ jobs:
           $oldWorkflowBlob = '05bcc48e531f662d7aa52e4887f329d2b9710739'
           $oldWorkflowSha = '19bdbce52a890fd340fb9d0d84d45666298080fc2934a0ff1d551d553eaab022'
           $harnessPath = 'scripts/issue380S1R4P3GitRuntimeQualification.ps1'
-          $harnessBlob = 'e20787ff1d2a2bce753af7dd7fd440953a6617e9'
-          $harnessSha = '62f18f04d98d4c923f20cd7a4b9d2b7e23836080588aa962080b018f5612de91'
+          $harnessBlob = 'ab92741ba7836f7b8f99b877d62dd650fa2e7d8f'
+          $harnessSha = 'e130d8772c9afa927b00c4e18b8ed629db9f261ec50f307b7eb5e6c715dc91d9'
           $childPath = 'scripts/issue380S1R4P3GitRuntimeChild.ps1'
           $childBlob = 'b2f9895172335160315cfd5cd4d1715406704bcb'
           $childSha = 'fb453ed1d79a2079dc3eae0c82d4433090511654a5e366d4620ff2fa07e3575e'
@@ -131,12 +133,12 @@ jobs:
           $artifactBlob = 'fc9f946f28ea6f1fd9b8fe0ecece8a6642e5f014'
           $artifactSha = '9738659b1829592ffbe62f17952c30dd5cefdd12559eff4fdbca7e9e2000b81f'
           $validatorPath = 'scripts/validateIssue380S1R4P3GitRuntimePlan.py'
-          $validatorBlob = '58ceeb87781f8f0234eb6a9be177f53835b10128'
-          $validatorSha = 'f075cda36daf8c4e8223d6fb02a94c54c3a31220c0b363c72d455a1c13e0fc32'
-          $activationWorkflow = '.github/workflows/issue-380-s1r4-p3-git-runtime-r1.yml'
+          $validatorBlob = '613df81be88ebf421e24d1a8e05634184e0219dd'
+          $validatorSha = '1f7cb5720e44597925b4ffc7822307099cf661e7650b983e1183b93817799d53'
+          $activationWorkflow = '.github/workflows/issue-380-s1r4-p3-git-runtime-r2.yml'
           $approvedPlanParent = 'OWNER_REVIEWED_PLAN_HEAD_REQUIRED'
           if ($approvedPlanParent -eq 'OWNER_REVIEWED_PLAN_HEAD_REQUIRED') { throw 'Owner-reviewed plan parent has not been bound; refusing activation.' }
-          if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas' -or $env:GITHUB_REF -ne 'refs/heads/qualification/s1r4-p3-windows-runtime-r1') { throw 'Repository or branch does not match the one-shot contract.' }
+          if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas' -or $env:GITHUB_REF -ne 'refs/heads/qualification/s1r4-p3-windows-runtime-r2') { throw 'Repository or branch does not match the one-shot contract.' }
           if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw "One-shot contract refuses attempt $env:GITHUB_RUN_ATTEMPT" }
 
           function Get-GitText([string[]]$Arguments) {
@@ -163,10 +165,10 @@ jobs:
           if ($parent -cne $approvedPlanParent) { throw "Activation parent mismatch: expected=$approvedPlanParent actual=$parent" }
           $changed = Get-GitText @('diff-tree', '--no-commit-id', '--name-status', '-r', $parent, 'HEAD')
           if ($changed -cne "A`t$activationWorkflow") { throw "Activation commit must add only $activationWorkflow; actual=[$changed]" }
-          if ((Get-GitText @('status', '--porcelain=v1', '--untracked-files', 'all')) -ne '') { throw 'Activation checkout is not clean.' }
+          if ((Get-GitText @('status', '--porcelain=v1', '--untracked-files=all')) -ne '') { throw 'Activation checkout is not clean.' }
           if ((Get-GitScalar @('rev-parse', "$freezeHead^{tree}")) -cne $freezeTree) { throw 'Frozen code Tree mismatch.' }
           Get-GitText @('merge-base', '--is-ancestor', $freezeHead, 'HEAD') | Out-Null
-          if ((Get-GitScalar @('rev-parse', "$freezeHead`:$runnerPath")) -cne $runnerBlob) { throw 'Frozen Runner Blob mismatch.' }
+          if ((Get-GitScalar @('rev-parse', "$freezeHead`:$runnerPath")) -cne $historicalRunnerBlob) { throw 'Historical frozen Runner Blob mismatch.' }
           $runnerBlobActual = Get-GitScalar @('rev-parse', "HEAD`:$runnerPath")
           if ($runnerBlobActual -cne $runnerBlob) { throw 'Activation Runner Blob mismatch.' }
           $runnerWorktreeBlob = Get-GitScalar @('hash-object', '--', $runnerPath)
@@ -220,6 +222,9 @@ jobs:
             activation_diff = $changed
             freeze_head = $freezeHead
             freeze_tree = $freezeTree
+            historical_runner_blob = $historicalRunnerBlob
+            historical_runner_sha256 = $historicalRunnerSha
+            runner_identity_kind = 'R2_CANDIDATE_NOT_WINDOWS_QUALIFIED'
             runner_blob_expected = $runnerBlob
             runner_blob_actual = $runnerWorktreeBlob
             runner_raw_sha_expected = $runnerSha
@@ -238,7 +243,7 @@ jobs:
           }
           [System.IO.File]::WriteAllText((Join-Path $evidenceRoot 'preflight.json'), ((ConvertTo-Json -InputObject $preflight -Depth 12) + "`n"), [System.Text.UTF8Encoding]::new($false))
 
-      - name: Run only the frozen Git capture qualification harness
+      - name: Run only the R2 candidate Git capture qualification harness
         id: runtime
         if: ${{ steps.preflight.outcome == 'success' }}
         shell: pwsh
@@ -329,7 +334,7 @@ jobs:
 
       - name: Upload run-owned runtime evidence
         if: always() && steps.upload_qualification.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: issue-380-s1r4-p3-git-runtime-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/issue380-s1r4-p3-git-runtime-archive-${{ github.run_id }}/**
@@ -351,10 +356,12 @@ jobs:
 
 ## Activation and interpretation limits
 
-- The only trigger is a push to `qualification/s1r4-p3-windows-runtime-r1` that changes this exact Workflow path. There is no `workflow_dispatch`, matrix, retry, or broad CI invocation.
+- The only trigger is a push to `qualification/s1r4-p3-windows-runtime-r2` that changes this exact Workflow path. There is no `workflow_dispatch`, matrix, retry, or broad CI invocation.
 - The activation commit is a direct child of the reviewed plan HEAD and adds only this Workflow. Its parent SHA must replace the sentinel above before activation; otherwise preflight fails before starting the harness.
-- The plan pins the Runner plus harness, child, controller, P1, S0, and historical Workflow identities. Windows Git checkout policy is set through Git environment configuration before `actions/checkout`; attributes, Git Blob IDs, and raw hashes are checked after checkout.
+- The plan pins the new R2 candidate Runner plus harness, child, controller, P1, S0, and historical Workflow identities. Windows Git checkout policy is set through Git environment configuration before `actions/checkout`; attributes, Git Blob IDs, and raw hashes are checked after checkout.
 - Harness status `PARTIAL_BLOCKED_FAULT_INJECTION_UNPROVEN` is a failure, not a pass. No evidence from this workflow could close the deterministic kill/cleanup-error injection gap without a separate Owner decision.
 - `WaitForExit`, `Task.WaitAll`, synchronous `Kill`, `Close`, and `Dispose` observations are recorded individually. This draft does not claim a strict total execution-time bound from configured waits.
 
 Remediation archive rule: upload only the separately staged archive tree. SHA256SUMS covers every payload file; SHA256SUMS itself is the sole self-hash exception. Source and staged archive limits remain 250 files / 20 MB, with ownership and Reparse Point checks. Hidden paths and temporary Git databases are excluded. The helper verifies copies and exact manifest membership before upload. This remains an inactive draft; the Owner parent sentinel is unchanged.
+
+R2 candidate boundary: historical freeze Head/Tree/Blob remain provenance only. The separately pinned Runner Blob/SHA above identify the new candidate, not the original freeze. No Windows R2 runtime evidence exists. This draft remains unactivated; Parent sentinel must be bound only after Owner authorization.

@@ -1,0 +1,31 @@
+exception-with-git: System.Management.Automation.RuntimeException: ORIGINAL_SENTINEL_ERROR
+Final cleanup failed: System.Management.Automation.RuntimeException: cleanup sentinel
+Final cleanup failed: System.Management.Automation.RuntimeException: cleanup sentinel
+Could not persist summary evidence: System.Management.Automation.MethodInvocationException: Exception calling "WriteAllText" with "3" argument(s): "Could not find a part of the path '/workspace/scratch/s1r4-p3-r2/final-existing/absent-parent/summary.json'."
+ ---> System.IO.DirectoryNotFoundException: Could not find a part of the path '/workspace/scratch/s1r4-p3-r2/final-existing/absent-parent/summary.json'.
+   at Interop.ThrowExceptionForIoErrno(ErrorInfo errorInfo, String path, Boolean isDirError)
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String path, OpenFlags flags, Int32 mode, Boolean failForSymlink, Boolean& wasSymlink, Func`4 createOpenException)
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, UnixFileMode openPermissions, Int64& fileLength, UnixFileMode& filePermissions, Boolean failForSymlink, Boolean& wasSymlink, Func`4 createOpenException)
+   at System.IO.File.OpenHandle(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize)
+   at System.IO.File.WriteToFile(String path, FileMode mode, String contents, Encoding encoding)
+   at CallSite.Target(Closure, CallSite, Type, String, Object, Object)
+   --- End of inner exception stack trace ---
+   at System.Management.Automation.ExceptionHandlingOps.CheckActionPreference(FunctionContext funcContext, Exception exception)
+   at System.Management.Automation.Interpreter.ActionCallInstruction`2.Run(InterpretedFrame frame)
+   at System.Management.Automation.Interpreter.EnterTryCatchFinallyInstruction.Run(InterpretedFrame frame)
+   at System.Management.Automation.Interpreter.EnterTryCatchFinallyInstruction.Run(InterpretedFrame frame)
+Could not validate final runtime evidence: System.Management.Automation.RuntimeException: Final evidence case has no expected/actual value: bad-roundtrip
+Could not persist controller record: System.Management.Automation.MethodInvocationException: Exception calling "WriteAllText" with "3" argument(s): "Could not find a part of the path '/workspace/scratch/s1r4-p3-r2/final-existing/missing-parent/controller.json'."
+ ---> System.IO.DirectoryNotFoundException: Could not find a part of the path '/workspace/scratch/s1r4-p3-r2/final-existing/missing-parent/controller.json'.
+   at Interop.ThrowExceptionForIoErrno(ErrorInfo errorInfo, String path, Boolean isDirError)
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String path, OpenFlags flags, Int32 mode, Boolean failForSymlink, Boolean& wasSymlink, Func`4 createOpenException)
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, UnixFileMode openPermissions, Int64& fileLength, UnixFileMode& filePermissions, Boolean failForSymlink, Boolean& wasSymlink, Func`4 createOpenException)
+   at System.IO.File.OpenHandle(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize)
+   at System.IO.File.WriteToFile(String path, FileMode mode, String contents, Encoding encoding)
+   at CallSite.Target(Closure, CallSite, Type, String, Object, Object)
+   --- End of inner exception stack trace ---
+   at System.Management.Automation.ExceptionHandlingOps.CheckActionPreference(FunctionContext funcContext, Exception exception)
+   at System.Management.Automation.Interpreter.ActionCallInstruction`2.Run(InterpretedFrame frame)
+   at System.Management.Automation.Interpreter.EnterTryCatchFinallyInstruction.Run(InterpretedFrame frame)
+   at System.Management.Automation.Interpreter.EnterTryCatchFinallyInstruction.Run(InterpretedFrame frame)
+PASS: 71 real PowerShell checks

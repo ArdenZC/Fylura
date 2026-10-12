@@ -1,0 +1,78 @@
+{
+  "status": "SAFE_NO_PUSH_WORKFLOW_MATCH",
+  "branch": "remediation/s1r4-p3-runtime-r2",
+  "new_workflow_files": [],
+  "matched": [],
+  "audit": [
+    {
+      "workflow": ".github/workflows/ci.yml",
+      "branches": [
+        "master"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1-synthetic-nsis-probe.yml",
+      "branches": [
+        "research/issue-380-s1-synthetic-nsis-runtime-trace"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r-synthetic-nsis-zip-probe.yml",
+      "branches": [
+        "research/issue-380-s1r-nsis-zip-trace-persistence"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r2-synthetic-nsis-launcher-probe.yml",
+      "branches": [
+        "research/issue-380-s1r2-nsis-launcher-verification"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r3-synthetic-nsis-uninstaller-trace.yml",
+      "branches": [
+        "research/issue-380-s1r3-nsis-uninstaller-trace-verification"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r4-p2-windows-path-matrix.yml",
+      "branches": [
+        "research/issue-380-s1r4-p2-windows-path-matrix"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-s1r4-p3-synthetic-nsis.yml",
+      "branches": [
+        "research/issue-380-s1r4-p3-p0-nsis-hosted-plan"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-u1-hosted-windows.yml",
+      "branches": [
+        "research/issue-380-u1-windows-upgrade-gate"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/issue-380-u1r-hosted-windows.yml",
+      "branches": [
+        "research/issue-380-u1r-install-generation-gate"
+      ],
+      "matches": false
+    },
+    {
+      "workflow": ".github/workflows/resident-interactive-qualification.yml",
+      "branches": [
+        "perf/resident-interactive-qualification"
+      ],
+      "matches": false
+    }
+  ]
+}

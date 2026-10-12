@@ -138,6 +138,8 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
     $processStarted = $false
     $stdoutTask = $null
     $stderrTask = $null
+    $stdoutReader = $null
+    $stderrReader = $null
     $stdoutText = $null
     $stderrText = $null
 
@@ -168,8 +170,11 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
         $capture.process_id = $process.Id
 
         # Drain both redirected pipes concurrently before waiting for Git.
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
+        # Only these initialized readers may be closed, including partial setup.
+        $stdoutReader = $process.StandardOutput
+        $stderrReader = $process.StandardError
+        $stdoutTask = $stdoutReader.ReadToEndAsync()
+        $stderrTask = $stderrReader.ReadToEndAsync()
         try {
             $capture.process_exit_confirmed = $process.WaitForExit($TimeoutSeconds * 1000)
         } catch {
@@ -243,14 +248,17 @@ function Invoke-GitCapture([string[]]$Arguments, [string]$WorkingDirectory, [int
             if ($capture.output_timed_out -and $null -eq $capture.capture_error) {
                 $capture.capture_error = 'One or both Git output reads exceeded the bounded wait.'
             }
-            if ($null -ne $process) {
+            if ($null -ne $stdoutReader) {
                 $capture.stream_close_attempted = $true
-                try { $process.StandardOutput.Close() } catch {
+                try { $stdoutReader.Close() } catch {
                     $closeError = "stdout: $($_.Exception.ToString())"
                     if ($null -eq $capture.stream_close_error) { $capture.stream_close_error = $closeError }
                     else { $capture.stream_close_error += "`n$closeError" }
                 }
-                try { $process.StandardError.Close() } catch {
+            }
+            if ($null -ne $stderrReader) {
+                $capture.stream_close_attempted = $true
+                try { $stderrReader.Close() } catch {
                     if ($null -eq $capture.stream_close_error) { $capture.stream_close_error = "stderr: $($_.Exception.ToString())" }
                     else { $capture.stream_close_error += "`nstderr: $($_.Exception.ToString())" }
                 }
@@ -371,7 +379,7 @@ function Assert-GitNoOutputSuccess([string[]]$Arguments, [string]$WorkingDirecto
 }
 
 function Assert-GitWorktreeClean([string]$WorkingDirectory) {
-    $capture = Invoke-GitCapture -Arguments @('status', '--porcelain', '--untracked-files', 'all') -WorkingDirectory $WorkingDirectory
+    $capture = Invoke-GitCapture -Arguments @('status', '--porcelain', '--untracked-files=all') -WorkingDirectory $WorkingDirectory
     if ($capture.status -notin @('EXITED_ZERO', 'EXITED_NONZERO') -or -not $capture.stdout_complete -or -not $capture.stderr_complete -or
         $capture.timed_out -or $capture.output_timed_out -or $capture.exit_code -ne 0 -or
         $null -ne $capture.launch_error -or $null -ne $capture.process_error -or

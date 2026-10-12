@@ -230,7 +230,7 @@ jobs:
             if ($activationDiff.Count -ne 1 -or [string]$activationDiff[0] -cne $expectedActivation) {
               throw "Activation diff must add only the designated Workflow file: $($activationDiff -join '; ')"
             }
-            $statusResult = Invoke-Issue380GitCapture -Arguments @('-C', $env:GITHUB_WORKSPACE, 'status', '--porcelain', '--untracked-files', 'all')
+            $statusResult = Invoke-Issue380GitCapture -Arguments @('-C', $env:GITHUB_WORKSPACE, 'status', '--porcelain', '--untracked-files=all')
             if ($statusResult.ExitCode -ne 0) { throw "Could not verify clean checkout (exit $($statusResult.ExitCode)): $($statusResult.Text)" }
             $record.checkout_status_output_count = $statusResult.OutputCount
             if ($statusResult.OutputCount -ne 0) { throw "Activation checkout is not clean: $($statusResult.Text)" }

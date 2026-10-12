@@ -1,0 +1,15 @@
+{
+  "name": "11_evidence_json_temporal_and_status_consistency",
+  "status": "PASS",
+  "expected": "timestamps and capture status fields are internally consistent",
+  "actual": {
+    "cases": 7,
+    "invocations": 22
+  },
+  "started_utc": "2026-10-12T20:30:55.0198361Z",
+  "ended_utc": "2026-10-12T20:30:55.2019043Z",
+  "elapsed_ms": 182.037,
+  "exception": null,
+  "error_record": null,
+  "git_invocations": []
+}

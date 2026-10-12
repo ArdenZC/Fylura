@@ -1,0 +1,1 @@
+PASS: 62 additional real PowerShell checks (includes explicitly labeled controlled-object branch tests)

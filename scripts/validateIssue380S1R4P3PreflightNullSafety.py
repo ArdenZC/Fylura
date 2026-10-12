@@ -352,7 +352,7 @@ class GitOutputContractTests(unittest.TestCase):
             subprocess.run(["git", "-C", tmp, "add", "tracked.txt"], check=True)
             subprocess.run(["git", "-C", tmp, "commit", "-qm", "fixture"], check=True)
             result = subprocess.run(
-                ["git", "-C", tmp, "status", "--porcelain", "--untracked-files", "all"],
+                ["git", "-C", tmp, "status", "--porcelain", "--untracked-files=all"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
             )
             self.assertEqual(result.returncode, 0)

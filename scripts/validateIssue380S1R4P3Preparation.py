@@ -74,7 +74,7 @@ def require(condition: bool, message: str) -> None:
 def changed_paths() -> set[str]:
     committed = set(git("diff", "--name-only", f"{P2}...HEAD").splitlines())
     status_result = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files", "all"],
+        ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=ROOT,
         text=True,
         capture_output=True,

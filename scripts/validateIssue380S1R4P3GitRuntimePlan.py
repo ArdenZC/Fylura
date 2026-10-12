@@ -44,12 +44,24 @@ IDENTITY = f"{EVIDENCE}/plan-identity.json"
 STATIC_RESULT = f"{EVIDENCE}/static-validation.txt"
 SHA_SUMS = f"{EVIDENCE}/SHA256SUMS"
 CASE03_OBSERVATION = f"{EVIDENCE}/case03-real-git-observation.json"
-WORKFLOW_PATH = ".github/workflows/issue-380-s1r4-p3-git-runtime-r1.yml"
-FUTURE_BRANCH = "qualification/s1r4-p3-windows-runtime-r1"
-PREPARATION_BRANCH = "qualification/s1r4-p3-windows-runtime-r1"
+WORKFLOW_PATH = ".github/workflows/issue-380-s1r4-p3-git-runtime-r2.yml"
+FUTURE_BRANCH = "qualification/s1r4-p3-windows-runtime-r2"
+PREPARATION_BRANCH = "remediation/s1r4-p3-runtime-r2"
 REMEDIATION_BASE = "18b8e5d4826b246c3741bf37d772e47d98340d16"
 
+CANDIDATE_RUNNER_BLOB = "7d6081468d5fce46a18d1af2aaaf1d4091a89d5f"
+CANDIDATE_RUNNER_SHA256 = "d8466b47ea548b8482c30db88e1fbb47025f64d54b3f18d465c320658deca995"
+R1_PREPARATION = "2f5a6136be17df9a1149b9a8facab98ebcec231f"
+
 ALLOWED_ADDITIONS = {
+    RUNNER_PATH,
+    "scripts/testIssue380S1R4P3GitRuntimeR2.ps1",
+    "scripts/validateIssue380S1R4P3Preparation.py",
+    "scripts/validateIssue380S1R4P3PreflightNullSafety.py",
+    "docs/research/ISSUE-380-S1R4-P3-PREFLIGHT-NULL-SAFETY-WORKFLOW.md",
+    "docs/research/ISSUE-380-S1R4-P3-RUNNER-NULL-SAFETY-WORKFLOW.md",
+    "docs/research/ISSUE-380-S1R4-P3-BOUNDED-GIT-CAPTURE-WORKFLOW.md",
+    "docs/research/ISSUE-380-S1R4-P3-R2-RUNTIME-FIX.md",
     REPORT,
     DRAFT,
     HARNESS,
@@ -117,14 +129,14 @@ class RuntimePlanContracts(unittest.TestCase):
         current = str(git("rev-parse", "HEAD"))
         self.assertNotEqual(current, "c474517ff2ae9fe91932c61468fbdf6e2baf28a2", "Do not prepare on the historical activated branch.")
         self.assertEqual(str(git("rev-parse", f"{BASE_HEAD}^{{tree}}")), BASE_TREE)
-        self.assertEqual(subprocess.run(["git", "merge-base", "--is-ancestor", REMEDIATION_BASE, current], cwd=ROOT).returncode, 0)
+        self.assertEqual(subprocess.run(["git", "merge-base", "--is-ancestor", R1_PREPARATION, current], cwd=ROOT).returncode, 0)
 
     def test_02_allowed_paths_and_no_active_workflow(self) -> None:
         changed = set(str(git("diff", "--name-only", REMEDIATION_BASE)).splitlines())
         status = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE).stdout
         changed.update(status.splitlines())
         evidence_prefix = "docs/research/evidence/issue-380-s1r4-p3-runtime-remediation/"
-        changed = {path for path in changed if not path.startswith(evidence_prefix)}
+        changed = {path for path in changed if not path.startswith((evidence_prefix, "docs/research/evidence/issue-380-s1r4-p3-r2-runtime-fix/"))}
         if (ROOT / WORKFLOW_PATH).exists():
             self.assertEqual(str(git("diff-tree", "--no-commit-id", "--name-status", "-r", "HEAD^", "HEAD")), "A\t" + WORKFLOW_PATH)
             active = (ROOT / WORKFLOW_PATH).read_text()
@@ -135,7 +147,12 @@ class RuntimePlanContracts(unittest.TestCase):
         self.assertTrue(all(path.startswith("docs/") or path.startswith("scripts/") for path in changed))
 
     def test_03_frozen_sources_and_historical_workflow_are_unchanged(self) -> None:
-        protected = (RUNNER_PATH, P1_PATH_GUARD, P1_PATH_TEST, S0_PROBE, OLD_WORKFLOW)
+        self.assertEqual(str(git("hash-object", RUNNER_PATH)), CANDIDATE_RUNNER_BLOB)
+        self.assertEqual(sha((ROOT / RUNNER_PATH).read_bytes()), CANDIDATE_RUNNER_SHA256)
+        historical_runner = str(git("show", f"{R1_PREPARATION}:{RUNNER_PATH}"))
+        remove_targets = r"(?ms)^function (?:Invoke-GitCapture|Assert-GitWorktreeClean)\b.*?(?=^function |\Z)"
+        self.assertEqual(re.sub(remove_targets, "", historical_runner).strip(), re.sub(remove_targets, "", self.runner).strip(), "Runner non-target regions changed")
+        protected = (P1_PATH_GUARD, P1_PATH_TEST, S0_PROBE, OLD_WORKFLOW)
         for path in protected:
             committed = git("show", f"{BASE_HEAD}:{path}", text=False)
             self.assertEqual((ROOT / path).read_bytes(), committed, path)
@@ -270,7 +287,7 @@ class RuntimePlanContracts(unittest.TestCase):
             self.assertEqual(expected, actual, relpath)
 
     def test_14_workflow_raw_hash_and_git_blob_pins_match_test_tools(self) -> None:
-        for path, label in ((HARNESS, "harness"), (CHILD, "child"), (CONTROLLER, "controller"), ("scripts/issue380S1R4P3GitRuntimeArtifact.ps1", "artifact")):
+        for path, label in ((RUNNER_PATH, "runner"), (HARNESS, "harness"), (CHILD, "child"), (CONTROLLER, "controller"), ("scripts/issue380S1R4P3GitRuntimeArtifact.ps1", "artifact")):
             expected_blob = str(git("hash-object", path))
             expected_sha = sha((ROOT / path).read_bytes())
             self.assertIn(f"${label}Blob = '{expected_blob}'", self.workflow)
@@ -364,6 +381,29 @@ class RuntimePlanContracts(unittest.TestCase):
         self.assertIn("include-hidden-files: false", self.workflow)
         self.assertIn("git-runtime-archive-${{ github.run_id }}/**", self.workflow)
         self.assertEqual(str(git("diff", "--name-only", REMEDIATION_BASE, "--", EVIDENCE)), "")
+
+    def test_20_r2_status_arguments_and_inactive_candidate_identity(self) -> None:
+        bad_arguments = re.compile(r"['\"]--untracked-files['\"],\s*['\"]all['\"]")
+        for path in (ROOT / "scripts").glob("*380*.ps1"):
+            self.assertNotRegex(path.read_text(), bad_arguments, path.name)
+        for path in (ROOT / "scripts").glob("*380*.py"):
+            # One quoted historical .Trim() detector is preserved as provenance.
+            self.assertNotRegex(path.read_text(), bad_arguments, path.name)
+        for name in ("POWERSHELL-RUNTIME", "PREFLIGHT-NULL-SAFETY", "RUNNER-NULL-SAFETY", "BOUNDED-GIT-CAPTURE"):
+            source = (ROOT / f"docs/research/ISSUE-380-S1R4-P3-{name}-WORKFLOW.md").read_text()
+            self.assertNotRegex(source, bad_arguments, name)
+        self.assertFalse((ROOT / WORKFLOW_PATH).exists(), "R2 has no Hosted activation authorization")
+        self.assertIn("$script:RunnerBlob = '" + CANDIDATE_RUNNER_BLOB + "'", self.harness)
+        self.assertIn("$script:RunnerSha256 = '" + CANDIDATE_RUNNER_SHA256 + "'", self.harness)
+        self.assertIn("$script:HistoricalRunnerBlob $blobCapture.stdout.Trim()", self.harness)
+        self.assertIn("$historicalRunnerBlob) { throw 'Historical frozen Runner Blob mismatch.' }", self.workflow)
+        self.assertIn("Assert-GitInvocationConsistency $capture", self.harness)
+        self.assertIn("if ($null -ne $stdoutReader)", self.runner)
+        self.assertIn("if ($null -ne $stderrReader)", self.runner)
+        historical_capture = re.search(r"(?ms)^function Invoke-GitCapture\b.*?(?=^function )", str(git("show", f"{R1_PREPARATION}:{RUNNER_PATH}"))).group(0)
+        current_capture = re.search(r"(?ms)^function Invoke-GitCapture\b.*?(?=^function )", self.runner).group(0)
+        timeout_region = r"(?s)        try \{\n            \$capture.process_exit_confirmed = \$process.WaitForExit.*?(?=    \} catch \{\n        if \(-not \$processStarted)"
+        self.assertEqual(re.search(timeout_region, historical_capture).group(0), re.search(timeout_region, current_capture).group(0), "timeout/tree-kill semantics changed")
 
 
 if __name__ == "__main__":

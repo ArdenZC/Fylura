@@ -1,0 +1,68 @@
+{
+  "status": "PASS",
+  "base": "2f5a6136be17df9a1149b9a8facab98ebcec231f",
+  "base_tree": "9c79b70367ce482bc110907d13c50b0cb60acfe5",
+  "r1_head": "81ec2e5927b1b0476d6bb0bd9503abf63026ba92",
+  "r1_tree": "496f0d3042a80811b47e0ac4f17719f6440929c5",
+  "r1_run": 38301832290,
+  "r1_job": 114986342028,
+  "r1_artifact": 11771265983,
+  "historical_runner_blob": "c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa",
+  "candidate_identity_policy": "NEW_R2_CANDIDATE_NOT_WINDOWS_QUALIFIED",
+  "source_files": {
+    "scripts/issue380S1R4P3SyntheticNsisRunner.ps1": {
+      "blob": "7d6081468d5fce46a18d1af2aaaf1d4091a89d5f",
+      "sha256": "d8466b47ea548b8482c30db88e1fbb47025f64d54b3f18d465c320658deca995"
+    },
+    "scripts/issue380S1R4P3GitRuntimeQualification.ps1": {
+      "blob": "ab92741ba7836f7b8f99b877d62dd650fa2e7d8f",
+      "sha256": "e130d8772c9afa927b00c4e18b8ed629db9f261ec50f307b7eb5e6c715dc91d9"
+    },
+    "scripts/testIssue380S1R4P3GitRuntimeR2.ps1": {
+      "blob": "3b7cb74128dcf918e67f48ff34f8051c5111aa78",
+      "sha256": "56fcc22295e470270a0ff27252512fb23f839f9be63ab7dfd1573897659c6210"
+    },
+    "scripts/validateIssue380S1R4P3GitRuntimePlan.py": {
+      "blob": "613df81be88ebf421e24d1a8e05634184e0219dd",
+      "sha256": "1f7cb5720e44597925b4ffc7822307099cf661e7650b983e1183b93817799d53"
+    },
+    "docs/research/ISSUE-380-S1R4-P3-POWERSHELL-RUNTIME-WORKFLOW.md": {
+      "blob": "71db313d9884ef09a2c2e19fffcff2e22f59c0fb",
+      "sha256": "16950e6a978580a4cf60cd11be76c6c6839928ef96800ac1e002f4ebf571e477"
+    },
+    "scripts/issue380S1R4P3GitRuntimeArtifact.ps1": {
+      "blob": "fc9f946f28ea6f1fd9b8fe0ecece8a6642e5f014",
+      "sha256": "9738659b1829592ffbe62f17952c30dd5cefdd12559eff4fdbca7e9e2000b81f"
+    },
+    "scripts/issue380S1R4P3GitRuntimeChild.ps1": {
+      "blob": "b2f9895172335160315cfd5cd4d1715406704bcb",
+      "sha256": "fb453ed1d79a2079dc3eae0c82d4433090511654a5e366d4620ff2fa07e3575e"
+    },
+    "scripts/issue380S1R4P3GitRuntimeController.ps1": {
+      "blob": "b52d1304aeb1e273cd6a264a2a2d80e6e2f0fa94",
+      "sha256": "7bd66ecac889bcf0e552a83b905a2a1973ba0b6face7bed482b42e4517970068"
+    }
+  },
+  "protected_paths": [
+    "scripts/issue380S1R4P3GitRuntimeArtifact.ps1",
+    "scripts/issue380S1R4P3GitRuntimeChild.ps1",
+    "scripts/issue380S1R4P3GitRuntimeController.ps1",
+    "scripts/testIssue380S1R4P3GitRuntimeRemediation.ps1",
+    "scripts/issue380S1R4PathGuard.ps1",
+    "scripts/testIssue380S1R4PathGuard.ps1",
+    "scripts/issue380S1R4SyntheticNsisRunner.ps1",
+    "scripts/issue380S0NsisObservabilityProbe.nsi",
+    ".github/workflows",
+    "docs/research/evidence/issue-380-s1r4-p3-runtime-remediation",
+    "docs/research/evidence/issue-380-s1r4-p3-pwsh-runtime"
+  ],
+  "protected_diff": [],
+  "runner_non_target_regions_byte_identical": true,
+  "target_functions": [
+    "Invoke-GitCapture",
+    "Assert-GitWorktreeClean"
+  ],
+  "timeout_tree_termination_source_region_unchanged": "verified by static test 20",
+  "historical_actions_operations": "NONE",
+  "hosted_r2": "NOT RUN"
+}

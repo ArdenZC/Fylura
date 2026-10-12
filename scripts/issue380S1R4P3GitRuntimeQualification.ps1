@@ -13,9 +13,11 @@ $ErrorActionPreference = 'Stop'
 $script:FreezeHead = 'af305adb8fba017dd9284a829b5101a209a9b4e2'
 $script:FreezeTree = '9d7716add5fde99c6e797065f336e0d0cf86a510'
 $script:RunnerPath = 'scripts/issue380S1R4P3SyntheticNsisRunner.ps1'
-$script:RunnerBlob = 'c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa'
-$script:RunnerSha256 = '92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece'
-$script:TestBranch = 'qualification/s1r4-p3-windows-runtime-r1'
+$script:HistoricalRunnerBlob = 'c2cef7e5a6c8f98fe47b3136e1e4017270dc6bfa'
+$script:HistoricalRunnerSha256 = '92e99edccc65749a1394d0a40b19ce303fc6632a2eebc6301c7fc9aa27264ece'
+$script:RunnerBlob = '7d6081468d5fce46a18d1af2aaaf1d4091a89d5f'
+$script:RunnerSha256 = 'd8466b47ea548b8482c30db88e1fbb47025f64d54b3f18d465c320658deca995'
+$script:TestBranch = 'qualification/s1r4-p3-windows-runtime-r2'
 $script:GitInvocations = [System.Collections.Generic.List[object]]::new()
 $script:CaseRecords = [System.Collections.Generic.List[object]]::new()
 $script:UnprovenCases = [System.Collections.Generic.List[string]]::new()
@@ -78,7 +80,7 @@ function Get-FunctionFragment([string]$Name, [string]$SourceText) {
         [ref]$parseErrors
     )
     if ($parseErrors.Count -gt 0) {
-        throw "Frozen Runner parse failed: $($parseErrors | Out-String)"
+        throw "R2 candidate Runner parse failed: $($parseErrors | Out-String)"
     }
 
     $found = @($ast.FindAll({
@@ -213,6 +215,59 @@ function Assert-GitSuccess([object]$Capture, [string]$Label) {
     Assert-True ($Capture.stdout_task_status -eq 'RanToCompletion' -and $Capture.stderr_task_status -eq 'RanToCompletion') "$Label output tasks did not complete successfully."
     Assert-True (-not $Capture.kill_attempted -and $Capture.stream_close_error -eq $null) "$Label has a termination or stream close error."
     Assert-True ($null -eq $Capture.launch_error -and $null -eq $Capture.capture_error -and $null -eq $Capture.process_error -and $null -eq $Capture.cleanup_error) "$Label has a recorded failure."
+}
+
+# Raw wrapper records have the capture fields; Invoke-GitForTest adds an all-or-none timing group.
+function Assert-GitInvocationConsistency([object]$Capture) {
+    $fields = @{}
+    if ($Capture -is [System.Collections.IDictionary]) {
+        foreach ($key in $Capture.Keys) { $fields[$key] = $Capture[$key] }
+    } elseif ($Capture -is [pscustomobject]) {
+        foreach ($property in $Capture.PSObject.Properties) { $fields[$property.Name] = $property.Value }
+    } else { throw 'Git invocation must be a dictionary or PSCustomObject.' }
+    foreach ($name in @('status', 'exit_code', 'stdout_complete', 'stderr_complete', 'cleanup_completed',
+        'timed_out', 'output_timed_out', 'process_exit_confirmed', 'launch_error', 'process_error',
+        'capture_error', 'cleanup_error', 'kill_error', 'stream_close_error', 'process_timeout_ms',
+        'termination_timeout_ms', 'output_wait_timeout_ms', 'post_close_wait_timeout_ms')) {
+        Assert-True ($fields.ContainsKey($name)) "Git invocation is missing required field $name."
+    }
+    foreach ($name in @('stdout_complete', 'stderr_complete', 'cleanup_completed', 'timed_out', 'output_timed_out', 'process_exit_confirmed')) {
+        Assert-True ($fields[$name] -is [bool]) "Git invocation $name must be Boolean."
+    }
+    Assert-True ($fields['status'] -is [string] -and $fields['status'] -in @('EXITED_ZERO', 'EXITED_NONZERO',
+        'LAUNCH_FAILED', 'PROCESS_TIMEOUT', 'OUTPUT_CAPTURE_TIMEOUT', 'PROCESS_WAIT_FAILED',
+        'OUTPUT_CAPTURE_FAILED', 'PROCESS_CLEANUP_FAILED')) 'Git invocation status is invalid.'
+    foreach ($name in @('process_timeout_ms', 'termination_timeout_ms', 'output_wait_timeout_ms', 'post_close_wait_timeout_ms')) {
+        Assert-True (($fields[$name] -is [int] -or $fields[$name] -is [long]) -and $fields[$name] -ge 0) "Git invocation $name must be a non-negative integer."
+    }
+    $timingNames = @('harness_started_utc', 'harness_ended_utc', 'harness_elapsed_ms', 'configured_explicit_wait_budget_ms')
+    $timingCount = @($timingNames | Where-Object { $fields.ContainsKey($_) }).Count
+    if ($timingCount -gt 0) {
+        Assert-Equal $timingNames.Count $timingCount 'Incomplete Harness timing group'
+        foreach ($name in @('harness_started_utc', 'harness_ended_utc')) {
+            Assert-True ($fields[$name] -is [string] -and -not [string]::IsNullOrWhiteSpace($fields[$name])) "Git invocation $name must be a timestamp string."
+        }
+        $start = [DateTimeOffset]::Parse($fields['harness_started_utc'])
+        $end = [DateTimeOffset]::Parse($fields['harness_ended_utc'])
+        Assert-True ($end -ge $start) 'Git invocation time order is invalid.'
+        $elapsed = $fields['harness_elapsed_ms']
+        Assert-True (($elapsed -is [double] -or $elapsed -is [int] -or $elapsed -is [long] -or $elapsed -is [decimal]) -and
+            -not [double]::IsNaN([double]$elapsed) -and -not [double]::IsInfinity([double]$elapsed) -and $elapsed -ge 0) 'Git invocation elapsed time is invalid.'
+        Assert-True ($fields['configured_explicit_wait_budget_ms'] -is [int] -or $fields['configured_explicit_wait_budget_ms'] -is [long]) 'Explicit wait budget must be an integer.'
+        $budget = [long]$fields['process_timeout_ms'] + [long]$fields['termination_timeout_ms'] +
+            [long]$fields['output_wait_timeout_ms'] + [long]$fields['post_close_wait_timeout_ms']
+        Assert-Equal $budget $fields['configured_explicit_wait_budget_ms'] 'Explicit wait budget is inconsistent.'
+    }
+    if ($fields['status'] -in @('EXITED_ZERO', 'EXITED_NONZERO')) {
+        Assert-True ($fields['exit_code'] -is [int] -or $fields['exit_code'] -is [long]) 'Completed Git invocation requires an integer exit code.'
+        Assert-True ($fields['stdout_complete'] -and $fields['stderr_complete'] -and $fields['cleanup_completed'] -and
+            $fields['process_exit_confirmed'] -and -not $fields['timed_out'] -and -not $fields['output_timed_out']) 'Completed Git status contradicts its completion fields.'
+        foreach ($name in @('launch_error', 'process_error', 'capture_error', 'cleanup_error', 'kill_error', 'stream_close_error')) {
+            Assert-True ($null -eq $fields[$name]) "Completed Git status has $name."
+        }
+        if ($fields['status'] -eq 'EXITED_ZERO') { Assert-Equal 0 $fields['exit_code'] 'EXITED_ZERO exit code' }
+        else { Assert-True ($fields['exit_code'] -ne 0) 'EXITED_NONZERO has exit zero.' }
+    }
 }
 
 function Assert-GitBashAliasAvailable {
@@ -372,6 +427,9 @@ $script:Result = [ordered]@{
     run_attempt = $env:GITHUB_RUN_ATTEMPT
     freeze_head = $script:FreezeHead
     freeze_tree = $script:FreezeTree
+    historical_runner_blob = $script:HistoricalRunnerBlob
+    historical_runner_sha256 = $script:HistoricalRunnerSha256
+    runner_identity_kind = 'R2_CANDIDATE_NOT_WINDOWS_QUALIFIED'
     runner_blob = $script:RunnerBlob
     runner_sha256_expected = $script:RunnerSha256
     runner_sha256_actual = $null
@@ -429,15 +487,15 @@ try {
 
     $runnerBytes = [System.IO.File]::ReadAllBytes($script:RunnerFile)
     $script:Result.runner_sha256_actual = Get-Sha256Hex $runnerBytes
-    Assert-Equal $script:RunnerSha256 $script:Result.runner_sha256_actual 'Frozen Runner raw SHA-256'
+    Assert-Equal $script:RunnerSha256 $script:Result.runner_sha256_actual 'R2 candidate Runner raw SHA-256'
     $utf8 = [System.Text.UTF8Encoding]::new($false, $true)
     $runnerText = $utf8.GetString($runnerBytes)
     $tokens = $null
     $parseErrors = $null
     $runnerAst = [System.Management.Automation.Language.Parser]::ParseInput($runnerText, [ref]$tokens, [ref]$parseErrors)
-    if ($parseErrors.Count -gt 0) { throw "Frozen Runner parse failed: $($parseErrors | Out-String)" }
+    if ($parseErrors.Count -gt 0) { throw "R2 candidate Runner parse failed: $($parseErrors | Out-String)" }
 
-    $fragmentRoot = Join-Path $script:TaskRoot 'extracted-frozen-functions'
+    $fragmentRoot = Join-Path $script:TaskRoot 'extracted-candidate-functions'
     New-Item -ItemType Directory -Path $fragmentRoot -ErrorAction Stop | Out-Null
     $encoding = [System.Text.UTF8Encoding]::new($false)
     foreach ($name in $script:FunctionNames) {
@@ -496,11 +554,11 @@ try {
     Assert-Equal $script:FreezeTree $treeCapture.stdout.Trim() 'Frozen code Tree'
     $blobCapture = Invoke-GitForTest -Arguments @('rev-parse', "$($script:FreezeHead):$($script:RunnerPath)") -WorkingDirectory $script:RepoRoot
     Assert-GitSuccess -Capture $blobCapture -Label 'Frozen Runner blob lookup'
-    Assert-Equal $script:RunnerBlob $blobCapture.stdout.Trim() 'Frozen Runner Git blob'
+    Assert-Equal $script:HistoricalRunnerBlob $blobCapture.stdout.Trim() 'Historical frozen Runner Git blob'
     $worktreeBlobCapture = Invoke-GitForTest -Arguments @('hash-object', '--', $script:RunnerPath) -WorkingDirectory $script:RepoRoot
     Assert-GitSuccess -Capture $worktreeBlobCapture -Label 'Checked-out Runner blob lookup'
     $script:Result.runner_blob_actual = $worktreeBlobCapture.stdout.Trim()
-    Assert-Equal $script:RunnerBlob $script:Result.runner_blob_actual 'Checked-out Runner Git blob'
+    Assert-Equal $script:RunnerBlob $script:Result.runner_blob_actual 'Checked-out R2 candidate Runner Git blob'
     $versionCapture = Invoke-GitForTest -Arguments @('--version') -WorkingDirectory $script:RepoRoot
     Assert-GitSuccess -Capture $versionCapture -Label 'Git version lookup'
     $script:Result.git_version = $versionCapture.stdout.Trim()
@@ -532,7 +590,7 @@ try {
         [System.IO.File]::WriteAllText($dirtyFile, "synthetic dirty state`n", [System.Text.UTF8Encoding]::new($false))
         $dirtyError = $null
         try { Assert-GitWorktreeClean -WorkingDirectory $script:RepoPath } catch { $dirtyError = $_.Exception.Message }
-        $status = Invoke-GitForTest -Arguments @('status', '--porcelain', '--untracked-files', 'all') -WorkingDirectory $script:RepoPath
+        $status = Invoke-GitForTest -Arguments @('status', '--porcelain', '--untracked-files=all') -WorkingDirectory $script:RepoPath
         Remove-Item -LiteralPath $dirtyFile -Force -ErrorAction Stop
         Assert-True ($dirtyError -like 'Checkout is not clean before Runner starts:*') 'WorktreeClean wrapper did not reject the dirty worktree with its dirty-state error.'
         Assert-Equal 'EXITED_ZERO' $status.status 'Dirty status Git exit status'
@@ -676,14 +734,7 @@ try {
         foreach ($case in $script:CaseRecords) {
             Assert-True ([DateTimeOffset]::Parse([string]$case.ended_utc) -ge [DateTimeOffset]::Parse([string]$case.started_utc)) "Case time order is invalid: $($case.name)"
             Assert-True ([double]$case.elapsed_ms -ge 0) "Case elapsed time is invalid: $($case.name)"
-            foreach ($capture in $case.git_invocations) {
-                if ($capture.status -eq 'EXITED_ZERO') {
-                    Assert-True ($capture.exit_code -eq 0 -and $capture.stdout_complete -and $capture.stderr_complete -and $capture.cleanup_completed -and -not $capture.timed_out -and -not $capture.output_timed_out) 'EXITED_ZERO record contradicts its completion fields.'
-                }
-                if ($capture.timed_out -or $capture.output_timed_out -or $null -ne $capture.capture_error -or $null -ne $capture.cleanup_error -or $null -ne $capture.kill_error) {
-                    Assert-True ($capture.status -notin @('EXITED_ZERO', 'EXITED_NONZERO')) 'Error/timeout record was classified as an ordinary completed exit.'
-                }
-            }
+            foreach ($capture in $case.git_invocations) { Assert-GitInvocationConsistency $capture }
         }
         return @{ passed = $true; expected = 'timestamps and capture status fields are internally consistent'; actual = @{ cases = $script:CaseRecords.Count; invocations = $script:GitInvocations.Count } }
     }
@@ -714,19 +765,7 @@ try {
             $end = [DateTimeOffset]::Parse([string]$case.ended_utc)
             Assert-True ($end -ge $start) "Case time order is invalid: $($case.name)"
             Assert-True ([double]$case.elapsed_ms -ge 0) "Case elapsed time is invalid: $($case.name)"
-            foreach ($capture in $case.git_invocations) {
-                $captureStart = [DateTimeOffset]::Parse([string]$capture.harness_started_utc)
-                $captureEnd = [DateTimeOffset]::Parse([string]$capture.harness_ended_utc)
-                Assert-True ($captureEnd -ge $captureStart) 'Git invocation time order is invalid.'
-                Assert-True ([double]$capture.harness_elapsed_ms -ge 0) 'Git invocation elapsed time is negative.'
-                Assert-True ([int]$capture.configured_explicit_wait_budget_ms -ge [int]$capture.process_timeout_ms) 'Explicit wait budget is inconsistent.'
-                if ($capture.status -eq 'EXITED_ZERO') {
-                    Assert-True ($capture.exit_code -eq 0 -and $capture.stdout_complete -and $capture.stderr_complete -and $capture.cleanup_completed -and -not $capture.timed_out -and -not $capture.output_timed_out) 'EXITED_ZERO record contradicts its completion fields.'
-                }
-                if ($capture.timed_out -or $capture.output_timed_out -or $null -ne $capture.capture_error -or $null -ne $capture.cleanup_error -or $null -ne $capture.kill_error) {
-                    Assert-True ($capture.status -notin @('EXITED_ZERO', 'EXITED_NONZERO')) 'Error/timeout record was classified as an ordinary completed exit.'
-                }
-            }
+            foreach ($capture in $case.git_invocations) { Assert-GitInvocationConsistency $capture }
         }
         return @{ passed = $true; expected = 'all case and Git invocation timestamps/statuses are internally consistent'; actual = @{ cases_checked = $script:CaseRecords.Count; invocations_checked = $script:GitInvocations.Count } }
     }

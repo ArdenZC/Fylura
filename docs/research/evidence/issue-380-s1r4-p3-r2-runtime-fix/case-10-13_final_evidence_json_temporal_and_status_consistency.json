@@ -1,0 +1,15 @@
+{
+  "name": "13_final_evidence_json_temporal_and_status_consistency",
+  "status": "PASS",
+  "expected": "all case and Git invocation timestamps/statuses are internally consistent",
+  "actual": {
+    "cases_checked": 9,
+    "invocations_checked": 24
+  },
+  "started_utc": "2026-10-12T20:30:55.2703453Z",
+  "ended_utc": "2026-10-12T20:30:55.3448589Z",
+  "elapsed_ms": 74.488,
+  "exception": null,
+  "error_record": null,
+  "git_invocations": []
+}

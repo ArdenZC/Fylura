@@ -1,0 +1,513 @@
+Frozen P1 PowerShell path matrix	Set up job	﻿2026-10-12T13:53:25.2762446Z Current runner version: '2.337.0'
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2835429Z ##[group]Runner Image Provisioner
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2836352Z Hosted Compute Agent
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2836898Z Version: 20261002.596
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2837534Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2838248Z Build Date: 2026-10-02T22:28:27Z
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2838950Z Worker ID: {e2a66f7e-7fa2-4ec9-ad05-9a4c1d2f51e2}
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2839661Z Region: northcentralus
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2840212Z Cloud: Azure
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2840718Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2842065Z ##[group]Operating System
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2842659Z Microsoft Windows Server 2022
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2843237Z 10.0.20348
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2843718Z Datacenter
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2844261Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2844789Z ##[group]Runner Image
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2845360Z Image: windows-2022
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2845930Z Version: 20261004.326.1
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2846973Z Included Software: https://github.com/actions/runner-images/blob/win22/20261004.326/images/windows/Windows2022-Readme.md
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2848960Z Image Release: https://github.com/actions/runner-images/releases/tag/win22%2F20261004.326
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2849855Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2850898Z ##[group]GITHUB_TOKEN Permissions
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2852810Z Contents: read
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2853346Z Metadata: read
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2853853Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2855855Z Secret source: Actions
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2856701Z Cache mode: write
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.2857365Z Prepare workflow directory
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.3213217Z Prepare all required actions
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.3265166Z Getting action download info
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.5471331Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.6334400Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+Frozen P1 PowerShell path matrix	Set up job	2026-10-12T13:53:25.9371962Z Complete job name: Frozen P1 PowerShell path matrix
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	﻿2026-10-12T13:53:26.1218463Z ##[group]Run $ErrorActionPreference = 'Stop'
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1219713Z [36;1m$ErrorActionPreference = 'Stop'[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1220657Z [36;1m$evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence'[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1221651Z [36;1mif (Test-Path -LiteralPath $evidenceRoot) {[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1222550Z [36;1m  throw "Refusing to reuse an existing evidence directory: $evidenceRoot"[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1223376Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1224159Z [36;1mNew-Item -ItemType Directory -Path $evidenceRoot -ErrorAction Stop | Out-Null[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1225033Z [36;1m$run = [ordered]@{[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1225640Z [36;1m  repository = $env:GITHUB_REPOSITORY[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1226379Z [36;1m  workflow = $env:GITHUB_WORKFLOW[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1227073Z [36;1m  workflow_ref = $env:GITHUB_WORKFLOW_REF[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1227856Z [36;1m  triggering_ref = $env:GITHUB_REF[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1228537Z [36;1m  triggering_head = $env:GITHUB_SHA[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1229278Z [36;1m  run_id = $env:GITHUB_RUN_ID[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1229936Z [36;1m  run_attempt = $env:GITHUB_RUN_ATTEMPT[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1230608Z [36;1m  runner_os = $env:RUNNER_OS[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1231263Z [36;1m  runner_arch = $env:RUNNER_ARCH[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1231892Z [36;1m  image_os = $env:ImageOS[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1232496Z [36;1m  image_version = $env:ImageVersion[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1233328Z [36;1m  host_powershell_version = $PSVersionTable.PSVersion.ToString()[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1234331Z [36;1m  host_powershell_path = (Join-Path $PSHOME 'pwsh.exe')[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1235328Z [36;1m  environment_version = [System.Environment]::OSVersion.VersionString[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1236160Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1236671Z [36;1m[System.IO.File]::WriteAllText([0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1237376Z [36;1m  (Join-Path $evidenceRoot 'workflow-run.json'),[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1239581Z [36;1m  ((ConvertTo-Json -InputObject $run -Depth 8) + "`n"),[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1240362Z [36;1m  [System.Text.UTF8Encoding]::new($false)[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1241017Z [36;1m)[0m
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1352815Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+Frozen P1 PowerShell path matrix	Prepare run evidence directory	2026-10-12T13:53:26.1353961Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	﻿2026-10-12T13:53:26.6515831Z ##[group]Run actions/checkout@v4
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6516679Z with:
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6517123Z   fetch-depth: 0
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6517659Z   persist-credentials: false
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6518215Z   repository: ArdenZC/Zen-Canvas
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6522348Z   token: ***
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6522807Z   ssh-strict: true
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6523299Z   ssh-user: git
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6523772Z   clean: true
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6524279Z   sparse-checkout-cone-mode: true
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6524839Z   fetch-tags: false
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6525330Z   show-progress: true
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6525844Z   lfs: false
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6526364Z   submodules: false
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6526913Z   set-safe-directory: true
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6527445Z   allow-unsafe-pr-checkout: false
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.6528002Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.8012592Z Syncing repository: ArdenZC/Zen-Canvas
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.8014541Z ##[group]Getting Git version info
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.8015211Z Working directory is 'D:\a\Zen-Canvas\Zen-Canvas'
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:26.8786212Z [command]"C:\Program Files\Git\bin\git.exe" version
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.2293256Z git version 2.56.0.windows.1
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.2335852Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.2358502Z Temporarily overriding HOME='D:\a\_temp\826a0273-2a69-4b34-a5f1-e10ac7d324f2' before making global git config changes
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.2361440Z Adding repository directory to the temporary git global config as a safe directory
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.2369569Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\Zen-Canvas\Zen-Canvas
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.2961308Z Deleting the contents of 'D:\a\Zen-Canvas\Zen-Canvas'
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.2967280Z ##[group]Initializing the repository
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.2976561Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\Zen-Canvas\Zen-Canvas
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.3875803Z Initialized empty Git repository in D:/a/Zen-Canvas/Zen-Canvas/.git/
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.3918860Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/ArdenZC/Zen-Canvas
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.4499462Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.4501256Z ##[group]Disabling automatic garbage collection
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.4508274Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.4812359Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.4814298Z ##[group]Setting up auth
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.4824464Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:27.5137999Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:28.9199146Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:28.9510147Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:29.5213441Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:29.5529415Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:30.0374897Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:30.0692411Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:30.0693398Z ##[group]Fetching the repository
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:30.0707245Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6288151Z From https://github.com/ArdenZC/Zen-Canvas
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6292114Z  * [new branch]      codex/270-macos-tahoe-tray-m0-m3 -> origin/codex/270-macos-tahoe-tray-m0-m3
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6293018Z  * [new branch]      codex/issue-381     -> origin/codex/issue-381
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6293975Z  * [new branch]      codex/w6-10c-macos-release-qualification -> origin/codex/w6-10c-macos-release-qualification
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6295085Z  * [new branch]      docs/ai-only-migration-final-closure -> origin/docs/ai-only-migration-final-closure
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6296513Z  * [new branch]      docs/isg-01-owner-adr0014-proposal-2026-10-11 -> origin/docs/isg-01-owner-adr0014-proposal-2026-10-11
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6297641Z  * [new branch]      docs/w6-06-design-exploration -> origin/docs/w6-06-design-exploration
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6298743Z  * [new branch]      fix/ci-rust-toolchain-reproducibility -> origin/fix/ci-rust-toolchain-reproducibility
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6300721Z  * [new branch]      fix/issue-380-d1a-ipc-admission -> origin/fix/issue-380-d1a-ipc-admission
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6301990Z  * [new branch]      fix/tauri-default-run-baseline -> origin/fix/tauri-default-run-baseline
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6303293Z  * [new branch]      investigate/issue-353-windows-privateusage-growth -> origin/investigate/issue-353-windows-privateusage-growth
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6304413Z  * [new branch]      master              -> origin/master
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6305111Z  * [new branch]      noop-w4-06          -> origin/noop-w4-06
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6306071Z  * [new branch]      perf/zb-01-database-resident-footprint -> origin/perf/zb-01-database-resident-footprint
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6307198Z  * [new branch]      perf/zb-02a-managed-ai-idle-wakeup -> origin/perf/zb-02a-managed-ai-idle-wakeup
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6308283Z  * [new branch]      product/ai-only-core-experience -> origin/product/ai-only-core-experience
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6309319Z  * [new branch]      product/pm-01-ai-only-core -> origin/product/pm-01-ai-only-core
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6310122Z  * [new branch]      rc/w6-10-0.1.40-rc1 -> origin/rc/w6-10-0.1.40-rc1
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6311160Z  * [new branch]      research/isg-00-owner-cost-study-2026-10-11 -> origin/research/isg-00-owner-cost-study-2026-10-11
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6312347Z  * [new branch]      research/issue-380-s0-nsis-observability -> origin/research/issue-380-s0-nsis-observability
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6313676Z  * [new branch]      research/issue-380-s1-synthetic-nsis-runtime-trace -> origin/research/issue-380-s1-synthetic-nsis-runtime-trace
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6315219Z  * [new branch]      research/issue-380-s1r-nsis-zip-trace-persistence -> origin/research/issue-380-s1r-nsis-zip-trace-persistence
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6316591Z  * [new branch]      research/issue-380-s1r2-nsis-launcher-verification -> origin/research/issue-380-s1r2-nsis-launcher-verification
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6318506Z  * [new branch]      research/issue-380-s1r3-nsis-uninstaller-trace-verification -> origin/research/issue-380-s1r3-nsis-uninstaller-trace-verification
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6319684Z  * [new branch]      research/issue-380-s1r4-p0-offline-harness -> origin/research/issue-380-s1r4-p0-offline-harness
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6320754Z  * [new branch]      research/issue-380-s1r4-p1-windows-path-guard-preparation -> origin/research/issue-380-s1r4-p1-windows-path-guard-preparation
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6321766Z  * [new branch]      research/issue-380-s1r4-p2-windows-path-matrix -> origin/research/issue-380-s1r4-p2-windows-path-matrix
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6322782Z  * [new branch]      research/issue-380-u1-windows-upgrade-gate -> origin/research/issue-380-u1-windows-upgrade-gate
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6324245Z  * [new branch]      research/issue-380-u1r-install-generation-gate -> origin/research/issue-380-u1r-install-generation-gate
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6324999Z  * [new branch]      research/issue-381-d4-s0 -> origin/research/issue-381-d4-s0
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6325679Z  * [new branch]      research/issue-381-d4-s1 -> origin/research/issue-381-d4-s1
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6327300Z  * [new branch]      research/issue-381-d4-s2 -> origin/research/issue-381-d4-s2
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6327871Z  * [new branch]      research/issue-381-d4-s3 -> origin/research/issue-381-d4-s3
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6328473Z  * [new branch]      research/issue-381-d4-s4 -> origin/research/issue-381-d4-s4
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6329037Z  * [new branch]      research/issue-381-d4-s5 -> origin/research/issue-381-d4-s5
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6329655Z  * [new branch]      research/issue-381-d4-s6 -> origin/research/issue-381-d4-s6
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6330394Z  * [new branch]      test/issue-351-docs-only-aggregate-smoke -> origin/test/issue-351-docs-only-aggregate-smoke
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6331376Z  * [new branch]      test/issue-380-d0-executable-contract -> origin/test/issue-380-d0-executable-contract
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6346985Z [command]"C:\Program Files\Git\bin\git.exe" branch --list --remote origin/research/issue-380-s1r4-p2-windows-path-matrix
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6737025Z   origin/research/issue-380-s1r4-p2-windows-path-matrix
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.6779670Z [command]"C:\Program Files\Git\bin\git.exe" rev-parse refs/remotes/origin/research/issue-380-s1r4-p2-windows-path-matrix
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.7098943Z 86c21c14dd65bd2bbdb3056513489e0d4139bb47
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.7128729Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.7129373Z ##[group]Determining the checkout info
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.7130681Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.7140689Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.7564409Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.7871570Z ##[group]Checking out the ref
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:32.7881175Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B research/issue-380-s1r4-p2-windows-path-matrix refs/remotes/origin/research/issue-380-s1r4-p2-windows-path-matrix
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:33.5255423Z Switched to a new branch 'research/issue-380-s1r4-p2-windows-path-matrix'
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:33.5274731Z branch 'research/issue-380-s1r4-p2-windows-path-matrix' set up to track 'origin/research/issue-380-s1r4-p2-windows-path-matrix'.
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:33.5370387Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:33.5784531Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:33.6069894Z 86c21c14dd65bd2bbdb3056513489e0d4139bb47
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:33.6107442Z ##[group]Removing auth
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:33.6116553Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:33.6422423Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:34.1599568Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:34.1886632Z http.https://github.com/.extraheader
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:34.1925631Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:34.2247640Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:34.7260272Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:34.7572844Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+Frozen P1 PowerShell path matrix	Checkout P2 activation commit	2026-10-12T13:53:35.2395644Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	﻿2026-10-12T13:53:35.2671124Z ##[group]Run $ErrorActionPreference = 'Stop'
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2671926Z [36;1m$ErrorActionPreference = 'Stop'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2672415Z [36;1m$evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2673030Z [36;1m$sourceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-frozen-p1-source'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2673607Z [36;1m$ownerPath = Join-Path $evidenceRoot 'source-worktree-owner.txt'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2674172Z [36;1m$expectedHead = '7a6fa69e5521d9759702c1923a9ade60a75819c3'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2674706Z [36;1m$expectedTree = 'c5465ef93eae268e2c683876d959db90fac5da08'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2675223Z [36;1m$p2Branch = 'research/issue-380-s1r4-p2-windows-path-matrix'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2675710Z [36;1m$record = [ordered]@{[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2676063Z [36;1m  status = 'FAIL'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2676421Z [36;1m  repository = $env:GITHUB_REPOSITORY[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2676812Z [36;1m  expected_p2_branch = $p2Branch[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2677427Z [36;1m  triggering_ref = $env:GITHUB_REF[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2677799Z [36;1m  triggering_head = $env:GITHUB_SHA[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2678204Z [36;1m  checked_out_head = $null[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2678657Z [36;1m  frozen_p1_head = $expectedHead[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2679097Z [36;1m  frozen_p1_expected_tree = $expectedTree[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2679496Z [36;1m  frozen_p1_actual_tree = $null[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2679864Z [36;1m  tested_source_head = $null[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2680204Z [36;1m  tested_source_tree = $null[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2680582Z [36;1m  path_guard_sha256 = $null[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2680925Z [36;1m  test_script_sha256 = $null[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2681273Z [36;1m  source_worktree = $sourceRoot[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2681667Z [36;1m  source_worktree_created = $false[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2682064Z [36;1m  failure = $null[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2682400Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2682694Z [36;1mtry {[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2683237Z [36;1m  if ($env:GITHUB_REPOSITORY -ne 'ArdenZC/Zen-Canvas') { throw "Unexpected repository: $env:GITHUB_REPOSITORY" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2684018Z [36;1m  if ($env:GITHUB_REF -ne "refs/heads/$p2Branch") { throw "Unexpected ref: $env:GITHUB_REF" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2684746Z [36;1m  if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw "One-shot workflow refuses attempt $env:GITHUB_RUN_ATTEMPT" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2685447Z [36;1m  if ($env:RUNNER_OS -ne 'Windows') { throw "Unexpected runner OS: $env:RUNNER_OS" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2686215Z [36;1m  if ($PSVersionTable.PSVersion.Major -ne 7) { throw "PowerShell 7 is required: $($PSVersionTable.PSVersion)" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2686772Z [36;1m[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2687136Z [36;1m  $head = (& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim()[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2687844Z [36;1m  if ($LASTEXITCODE -ne 0 -or $head -ne $env:GITHUB_SHA) { throw "P2 checkout identity mismatch: head=$head event=$env:GITHUB_SHA" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2688486Z [36;1m  $record.checked_out_head = $head[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2688983Z [36;1m  $p1Tree = (& git -C $env:GITHUB_WORKSPACE rev-parse "${expectedHead}^{tree}").Trim()[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2689776Z [36;1m  if ($LASTEXITCODE -ne 0 -or $p1Tree -ne $expectedTree) { throw "Frozen P1 Tree mismatch: actual=$p1Tree expected=$expectedTree" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2690558Z [36;1m  $record.frozen_p1_actual_tree = $p1Tree[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2691080Z [36;1m  & git -C $env:GITHUB_WORKSPACE merge-base --is-ancestor $expectedHead HEAD[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2691748Z [36;1m  if ($LASTEXITCODE -ne 0) { throw 'Frozen P1 HEAD is not an ancestor of the P2 activation commit.' }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2692463Z [36;1m  if (Test-Path -LiteralPath $sourceRoot) { throw "Refusing to reuse source path: $sourceRoot" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2693677Z [36;1m[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2694151Z [36;1m  & git -C $env:GITHUB_WORKSPACE worktree add --detach $sourceRoot $expectedHead[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2696027Z [36;1m  if ($LASTEXITCODE -ne 0) { throw 'Could not create the detached frozen P1 source worktree.' }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2696603Z [36;1m  $record.source_worktree_created = $true[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2697132Z [36;1m  $ownershipRecord = "$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|$expectedHead|$sourceRoot"[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2697865Z [36;1m  [System.IO.File]::WriteAllText($ownerPath, $ownershipRecord, [System.Text.UTF8Encoding]::new($false))[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2698580Z [36;1m  $record.tested_source_head = (& git -C $sourceRoot rev-parse HEAD).Trim()[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2699254Z [36;1m  $record.tested_source_tree = (& git -C $sourceRoot rev-parse 'HEAD^{tree}').Trim()[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2700016Z [36;1m  if ($LASTEXITCODE -ne 0 -or $record.tested_source_head -ne $expectedHead -or $record.tested_source_tree -ne $expectedTree) {[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2700907Z [36;1m    throw "Frozen test-source worktree mismatch: head=$($record.tested_source_head) tree=$($record.tested_source_tree)"[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2701498Z [36;1m  }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2701792Z [36;1m[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2702192Z [36;1m  $guardPath = Join-Path $sourceRoot 'scripts/issue380S1R4PathGuard.ps1'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2702850Z [36;1m  $testPath = Join-Path $sourceRoot 'scripts/testIssue380S1R4PathGuard.ps1'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2703616Z [36;1m  if (-not (Test-Path -LiteralPath $guardPath -PathType Leaf) -or -not (Test-Path -LiteralPath $testPath -PathType Leaf)) {[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2704304Z [36;1m    throw 'Frozen P1 path guard or test script is missing.'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2704746Z [36;1m  }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2705276Z [36;1m  $record.path_guard_sha256 = (Get-FileHash -LiteralPath $guardPath -Algorithm SHA256).Hash.ToLowerInvariant()[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2706109Z [36;1m  $record.test_script_sha256 = (Get-FileHash -LiteralPath $testPath -Algorithm SHA256).Hash.ToLowerInvariant()[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2706784Z [36;1m  $record.status = 'PASS'[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2707099Z [36;1m} catch {[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2707466Z [36;1m  $record.failure = $_.Exception.ToString()[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2707876Z [36;1m} finally {[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2708221Z [36;1m  [System.IO.File]::WriteAllText([0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2708654Z [36;1m    (Join-Path $evidenceRoot 'preflight.json'),[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2709155Z [36;1m    ((ConvertTo-Json -InputObject $record -Depth 10) + "`n"),[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2709650Z [36;1m    [System.Text.UTF8Encoding]::new($false)[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2710015Z [36;1m  )[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2710281Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2710751Z [36;1mif ($record.status -ne 'PASS') { throw "P2/P1 identity preflight failed: $($record.failure)" }[0m
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2747951Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.2748623Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:35.7198954Z Preparing worktree (detached HEAD 7a6fa69)
+Frozen P1 PowerShell path matrix	Verify P2 trigger and create exact P1 source worktree	2026-10-12T13:53:36.4595097Z HEAD is now at 7a6fa69 test(issue-380): prepare S1R4 Windows path guard harness
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	﻿2026-10-12T13:53:36.6595833Z ##[group]Run $ErrorActionPreference = 'Stop'
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6596633Z [36;1m$ErrorActionPreference = 'Stop'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6597131Z [36;1m$evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6597735Z [36;1m$sourceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-frozen-p1-source'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6598367Z [36;1m$testPath = Join-Path $sourceRoot 'scripts/testIssue380S1R4PathGuard.ps1'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6599109Z [36;1m$preflight = Get-Content -LiteralPath (Join-Path $evidenceRoot 'preflight.json') -Raw | ConvertFrom-Json[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6599839Z [36;1m$stdoutPath = Join-Path $evidenceRoot 'path-matrix.stdout.raw.txt'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6600576Z [36;1m$stderrPath = Join-Path $evidenceRoot 'path-matrix.stderr.raw.txt'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6601150Z [36;1m$processInfoPath = Join-Path $evidenceRoot 'path-matrix-process.json'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6601639Z [36;1m$stdoutText = ''[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6601962Z [36;1m$stderrText = ''[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6602403Z [36;1m$exitCode = $null[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6602727Z [36;1m$timedOut = $false[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6603044Z [36;1m$processId = $null[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6603377Z [36;1m$failure = $null[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6603706Z [36;1m$process = $null[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6604026Z [36;1m$stdoutTask = $null[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6604330Z [36;1m$stderrTask = $null[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6604648Z [36;1m$startedAt = [DateTime]::UtcNow[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6605009Z [36;1mtry {[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6605535Z [36;1m  if ($PSVersionTable.PSVersion.Major -ne 7) { throw "PowerShell 7 is required: $($PSVersionTable.PSVersion)" }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6606351Z [36;1m  if (-not (Test-Path -LiteralPath $testPath -PathType Leaf)) { throw "Frozen path test is missing: $testPath" }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6607172Z [36;1m  $actualTestHash = (Get-FileHash -LiteralPath $testPath -Algorithm SHA256).Hash.ToLowerInvariant()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6608066Z [36;1m  $actualGuardHash = (Get-FileHash -LiteralPath (Join-Path $sourceRoot 'scripts/issue380S1R4PathGuard.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6609078Z [36;1m  if ($actualTestHash -ne $preflight.test_script_sha256 -or $actualGuardHash -ne $preflight.path_guard_sha256) {[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6609737Z [36;1m    throw 'Frozen source SHA-256 changed after preflight.'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6610157Z [36;1m  }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6610439Z [36;1m[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6610723Z [36;1m  $pwshPath = Join-Path $PSHOME 'pwsh.exe'[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6611385Z [36;1m  if (-not (Test-Path -LiteralPath $pwshPath -PathType Leaf)) { throw "PowerShell 7 host not found: $pwshPath" }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6612030Z [36;1m  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6612474Z [36;1m  $startInfo.FileName = $pwshPath[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6612854Z [36;1m  $startInfo.WorkingDirectory = $sourceRoot[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6613274Z [36;1m  $startInfo.UseShellExecute = $false[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6613675Z [36;1m  $startInfo.CreateNoWindow = $true[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6614080Z [36;1m  $startInfo.RedirectStandardOutput = $true[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6614568Z [36;1m  $startInfo.RedirectStandardError = $true[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6615059Z [36;1m  $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6615591Z [36;1m  $startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6616206Z [36;1m  foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $testPath)) {[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6616757Z [36;1m    [void]$startInfo.ArgumentList.Add($argument)[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6617127Z [36;1m  }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6617451Z [36;1m  $process = [System.Diagnostics.Process]::new()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6617878Z [36;1m  $process.StartInfo = $startInfo[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6618374Z [36;1m  if (-not $process.Start()) { throw 'PowerShell 7 test process did not start.' }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6620473Z [36;1m  $processId = $process.Id[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6620898Z [36;1m  $stdoutTask = $process.StandardOutput.ReadToEndAsync()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6621422Z [36;1m  $stderrTask = $process.StandardError.ReadToEndAsync()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6621881Z [36;1m  if (-not $process.WaitForExit(180000)) {[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6622633Z [36;1m    $timedOut = $true[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6623030Z [36;1m    try { $process.Kill($true) } catch { }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6623402Z [36;1m    $process.WaitForExit()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6623744Z [36;1m  }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6624267Z [36;1m  if ($process.HasExited) { $exitCode = [int]$process.ExitCode }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6624884Z [36;1m  if (-not $stdoutTask.Wait(5000)) { throw 'Timed out collecting the path-test stdout stream.' }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6625570Z [36;1m  if (-not $stderrTask.Wait(5000)) { throw 'Timed out collecting the path-test stderr stream.' }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6626106Z [36;1m  $stdoutText = $stdoutTask.Result[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6626534Z [36;1m  $stderrText = $stderrTask.Result[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6626893Z [36;1m} catch {[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6627224Z [36;1m  $failure = $_.Exception.ToString()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6627829Z [36;1m  if ($null -ne $stdoutTask -and $stdoutTask.IsCompleted) { $stdoutText = $stdoutTask.Result }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6628500Z [36;1m  if ($null -ne $stderrTask -and $stderrTask.IsCompleted) { $stderrText = $stderrTask.Result }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6629045Z [36;1m} finally {[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6629550Z [36;1m  [System.IO.File]::WriteAllText($stdoutPath, $stdoutText, [System.Text.UTF8Encoding]::new($false))[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6630345Z [36;1m  [System.IO.File]::WriteAllText($stderrPath, $stderrText, [System.Text.UTF8Encoding]::new($false))[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6630904Z [36;1m  $processRecord = [ordered]@{[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6631480Z [36;1m    executable = if ($null -ne $process) { $process.StartInfo.FileName } else { Join-Path $PSHOME 'pwsh.exe' }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6632103Z [36;1m    process_id = $processId[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6632583Z [36;1m    arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $testPath)[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6633055Z [36;1m    test_script = $testPath[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6633451Z [36;1m    test_script_sha256 = $preflight.test_script_sha256[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6633900Z [36;1m    path_guard_sha256 = $preflight.path_guard_sha256[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6634386Z [36;1m    powershell_version = $PSVersionTable.PSVersion.ToString()[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6634841Z [36;1m    started_utc = $startedAt.ToString('o')[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6635240Z [36;1m    finished_utc = [DateTime]::UtcNow.ToString('o')[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6635658Z [36;1m    exit_code = $exitCode[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6636003Z [36;1m    timed_out = $timedOut[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6636353Z [36;1m    failure = $failure[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6636696Z [36;1m  }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6637353Z [36;1m  [System.IO.File]::WriteAllText($processInfoPath, ((ConvertTo-Json -InputObject $processRecord -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6638087Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6638498Z [36;1mif ($null -ne $failure) { throw "Path matrix invocation failed: $failure" }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6639122Z [36;1mif ($timedOut) { throw 'Frozen P1 path matrix exceeded its 180-second process deadline.' }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6639757Z [36;1mif ($exitCode -ne 0) { throw "Frozen P1 path test returned exit code $exitCode." }[0m
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6680544Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+Frozen P1 PowerShell path matrix	Run only the frozen P1 PowerShell path matrix	2026-10-12T13:53:36.6681030Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	﻿2026-10-12T13:53:37.7786869Z ##[group]Run $ErrorActionPreference = 'Stop'
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7787662Z [36;1m$ErrorActionPreference = 'Stop'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7788161Z [36;1m$evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7788775Z [36;1mif (-not (Test-Path -LiteralPath $evidenceRoot -PathType Container)) {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7789404Z [36;1m  New-Item -ItemType Directory -Path $evidenceRoot -ErrorAction Stop | Out-Null[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7789903Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7790327Z [36;1m$sourceRoot = Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-frozen-p1-source'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7790957Z [36;1m$ownerPath = Join-Path $evidenceRoot 'source-worktree-owner.txt'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7791429Z [36;1m$sourceRemoved = $false[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7791813Z [36;1m$sourceCleanup = 'NOT_CREATED_OR_UNOWNED'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7792630Z [36;1m$expectedOwner = "$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|7a6fa69e5521d9759702c1923a9ade60a75819c3|$sourceRoot"[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7793340Z [36;1mtry {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7793709Z [36;1m  if (Test-Path -LiteralPath $ownerPath -PathType Leaf) {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7794198Z [36;1m    $owner = [System.IO.File]::ReadAllText($ownerPath)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7794828Z [36;1m    if ($owner -ne $expectedOwner) { throw 'Frozen source worktree ownership record mismatch; refusing cleanup.' }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7795526Z [36;1m    if (Test-Path -LiteralPath $sourceRoot) {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7796011Z [36;1m      & git -C $env:GITHUB_WORKSPACE worktree remove --force $sourceRoot[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7796645Z [36;1m      if ($LASTEXITCODE -ne 0) { throw 'git worktree remove failed for the owned frozen source.' }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7797237Z [36;1m    }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7797578Z [36;1m    $sourceRemoved = -not (Test-Path -LiteralPath $sourceRoot)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7798178Z [36;1m    if (-not $sourceRemoved) { throw 'Owned frozen source worktree remains after cleanup.' }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7798721Z [36;1m    $sourceCleanup = 'OWNED_WORKTREE_REMOVED'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7799182Z [36;1m  } elseif (Test-Path -LiteralPath $sourceRoot) {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7799598Z [36;1m    $sourceCleanup = 'UNOWNED_PATH_PRESERVED'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7799916Z [36;1m  }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7800585Z [36;1m} catch {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7800972Z [36;1m  $sourceCleanup = "CLEANUP_FAILED: $($_.Exception.Message)"[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7801382Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7801671Z [36;1m[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7801931Z [36;1m$preflight = $null[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7802330Z [36;1m$testResult = $null[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7802652Z [36;1m$parseFailure = $null[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7802975Z [36;1m$caseCount = 0[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7803294Z [36;1m$uniqueCaseCount = 0[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7803641Z [36;1m$allCasesMatch = $false[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7803998Z [36;1m$testCleanupPass = $false[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7804340Z [36;1m$processRecord = $null[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7804842Z [36;1mif (Test-Path -LiteralPath (Join-Path $evidenceRoot 'preflight.json') -PathType Leaf) {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7805886Z [36;1m  try { $preflight = Get-Content -LiteralPath (Join-Path $evidenceRoot 'preflight.json') -Raw | ConvertFrom-Json } catch { $parseFailure = "preflight JSON: $($_.Exception.Message)" }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7806671Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7807165Z [36;1mif (Test-Path -LiteralPath (Join-Path $evidenceRoot 'path-matrix-process.json') -PathType Leaf) {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7808230Z [36;1m  try { $processRecord = Get-Content -LiteralPath (Join-Path $evidenceRoot 'path-matrix-process.json') -Raw | ConvertFrom-Json } catch { $parseFailure = "process JSON: $($_.Exception.Message)" }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7809037Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7809467Z [36;1m$stdoutPath = Join-Path $evidenceRoot 'path-matrix.stdout.raw.txt'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7810212Z [36;1mif ((Test-Path -LiteralPath $stdoutPath -PathType Leaf) -and (Get-Item -LiteralPath $stdoutPath).Length -gt 0) {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7812323Z [36;1m  try {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7812717Z [36;1m    $stdoutText = [System.IO.File]::ReadAllText($stdoutPath)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7813189Z [36;1m    $testResult = $stdoutText | ConvertFrom-Json[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7813617Z [36;1m    $cases = @($testResult.cases)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7813984Z [36;1m    $caseCount = $cases.Count[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7814479Z [36;1m    $uniqueCaseCount = @($cases | ForEach-Object { $_.name } | Sort-Object -Unique).Count[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7815151Z [36;1m    $allCasesMatch = ($caseCount -eq 40) -and ($uniqueCaseCount -eq 40) -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7815774Z [36;1m      (@($cases | Where-Object { -not $_.passed -or $_.expected -ne $_.actual }).Count -eq 0) -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7817124Z [36;1m      (@($cases | Where-Object { $_.expected -notin @('ALLOW', 'REJECT') -or $_.actual -notin @('ALLOW', 'REJECT') }).Count -eq 0)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7817888Z [36;1m    $testCleanupPass = ($testResult.cleanup.owned_scope_root_removed -eq $true) -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7818505Z [36;1m      ($testResult.cleanup.owned_external_fixture_removed -eq $true) -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7819106Z [36;1m      ($testResult.cleanup.owned_links_removed -eq $true)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7819518Z [36;1m    [System.IO.File]::WriteAllText([0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7819967Z [36;1m      (Join-Path $evidenceRoot 'path-matrix.result.json'),[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7820457Z [36;1m      ((ConvertTo-Json -InputObject $testResult -Depth 12) + "`n"),[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7820918Z [36;1m      [System.Text.UTF8Encoding]::new($false)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7821284Z [36;1m    )[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7821563Z [36;1m  } catch {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7821966Z [36;1m    $parseFailure = "path-test stdout JSON: $($_.Exception.ToString())"[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7822482Z [36;1m  }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7822783Z [36;1m} elseif ($null -eq $parseFailure) {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7823279Z [36;1m  $parseFailure = 'No nonempty path-test stdout JSON was produced.'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7823711Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7823975Z [36;1m[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7824489Z [36;1m$exitPass = ($null -ne $processRecord) -and ($processRecord.exit_code -eq 0) -and (-not $processRecord.timed_out)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7825312Z [36;1m$pathMatrixPass = ($env:PREFLIGHT_OUTCOME -eq 'success') -and ($env:PATH_MATRIX_OUTCOME -eq 'success') -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7826006Z [36;1m  ($null -ne $preflight) -and ($preflight.status -eq 'PASS') -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7826593Z [36;1m  ($null -ne $testResult) -and ($testResult.status -eq 'WINDOWS_RUNTIME_PASS') -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7827288Z [36;1m  ($testResult.is_windows -eq $true) -and ($testResult.process_launch_count -eq 0) -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7828060Z [36;1m  ($testResult.nsis_launched -eq $false) -and ($testResult.unrelated_executable_launched -eq $false) -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7828740Z [36;1m  $allCasesMatch -and $testCleanupPass -and $exitPass -and $sourceRemoved -and[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7829376Z [36;1m  ($sourceCleanup -eq 'OWNED_WORKTREE_REMOVED') -and ($null -eq $parseFailure)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7829916Z [36;1m$assessment = [ordered]@{[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7830474Z [36;1m  status = if ($pathMatrixPass) { 'PATH_MATRIX_PASS' } else { 'PATH_MATRIX_FAIL_CLOSED' }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7831033Z [36;1m  path_matrix_pass = [bool]$pathMatrixPass[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7831416Z [36;1m  triggering_head = $env:GITHUB_SHA[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7831993Z [36;1m  frozen_test_source_head = if ($null -ne $preflight) { $preflight.tested_source_head } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7832738Z [36;1m  frozen_test_source_tree = if ($null -ne $preflight) { $preflight.tested_source_tree } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7833500Z [36;1m  path_guard_sha256 = if ($null -ne $preflight) { $preflight.path_guard_sha256 } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7834592Z [36;1m  test_script_sha256 = if ($null -ne $preflight) { $preflight.test_script_sha256 } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7835281Z [36;1m  powershell_version = if ($null -ne $testResult) { $testResult.powershell_version } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7835995Z [36;1m  windows_version = if ($null -ne $testResult) { $testResult.operating_system } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7836528Z [36;1m  expected_case_count = 40[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7836872Z [36;1m  actual_case_count = $caseCount[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7837327Z [36;1m  unique_case_count = $uniqueCaseCount[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7837728Z [36;1m  all_expected_actual_and_passed = $allCasesMatch[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7838190Z [36;1m  test_fixture_cleanup_pass = $testCleanupPass[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7838776Z [36;1m  test_process_exit_code = if ($null -ne $processRecord) { $processRecord.exit_code } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7839581Z [36;1m  test_process_timed_out = if ($null -ne $processRecord) { $processRecord.timed_out } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7840298Z [36;1m  test_process_id = if ($null -ne $processRecord) { $processRecord.process_id } else { $null }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7840866Z [36;1m  preflight_step_outcome = $env:PREFLIGHT_OUTCOME[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7841354Z [36;1m  path_matrix_step_outcome = $env:PATH_MATRIX_OUTCOME[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7841798Z [36;1m  owned_source_worktree_cleanup = $sourceCleanup[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7842189Z [36;1m  parse_failure = $parseFailure[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7842549Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7842816Z [36;1m[System.IO.File]::WriteAllText([0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7843218Z [36;1m  (Join-Path $evidenceRoot 'assessment.json'),[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7843662Z [36;1m  ((ConvertTo-Json -InputObject $assessment -Depth 12) + "`n"),[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7844185Z [36;1m  [System.Text.UTF8Encoding]::new($false)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7844555Z [36;1m)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7844829Z [36;1m[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7845154Z [36;1m$manifestPath = Join-Path $evidenceRoot 'SHA256SUMS'[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7845565Z [36;1m$manifestLines = @([0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7845949Z [36;1m  Get-ChildItem -LiteralPath $evidenceRoot -File -Recurse |[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7846543Z [36;1m    Where-Object { $_.FullName -ne $manifestPath -and $_.Name -ne 'SHA256SUMS.sha256' } |[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7847034Z [36;1m    Sort-Object FullName |[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7847393Z [36;1m    ForEach-Object {[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7847931Z [36;1m      $relative = $_.FullName.Substring($evidenceRoot.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7848674Z [36;1m      $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7849232Z [36;1m      "$digest  $relative"[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7849555Z [36;1m    }[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7849818Z [36;1m)[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7850355Z [36;1m[System.IO.File]::WriteAllLines($manifestPath, [string[]]$manifestLines, [System.Text.UTF8Encoding]::new($false))[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7851168Z [36;1m$manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7852088Z [36;1m[System.IO.File]::WriteAllText((Join-Path $evidenceRoot 'SHA256SUMS.sha256'), "$manifestHash  SHA256SUMS`n", [System.Text.UTF8Encoding]::new($false))[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7852992Z [36;1m"path_matrix_pass=$([bool]$pathMatrixPass)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7853851Z [36;1mWrite-Host "P2 assessment: $($assessment.status); cases=$caseCount/40; fixture_cleanup=$testCleanupPass; source_cleanup=$sourceCleanup"[0m
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7889196Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7889694Z env:
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7890004Z   PREFLIGHT_OUTCOME: success
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7890338Z   PATH_MATRIX_OUTCOME: success
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:37.7890799Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Finalize raw evidence and assess all 40 cases	2026-10-12T13:53:38.3635345Z P2 assessment: PATH_MATRIX_PASS; cases=40/40; fixture_cleanup=True; source_cleanup=OWNED_WORKTREE_REMOVED
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	﻿2026-10-12T13:53:38.4237494Z ##[group]Run actions/upload-artifact@v4
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4238029Z with:
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4238376Z   name: issue380-s1r4-p2-38258879642-attempt-1
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4238861Z   path: D:\a\_temp/issue380-s1r4-p2-evidence/
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4239287Z   if-no-files-found: error
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4239601Z   retention-days: 14
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4239990Z   compression-level: 6
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4240284Z   overwrite: false
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4240593Z   include-hidden-files: false
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.4240959Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.6078724Z (node:2976) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.6079893Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.6168326Z With the provided path, there will be 10 files uploaded
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.6173379Z Artifact name is valid!
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.6175373Z Root directory input is valid!
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.8536752Z Beginning upload of artifact content to blob storage
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:38.8888832Z (node:2976) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:39.0128968Z Uploaded bytes 6876
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:39.0506994Z Finished uploading artifact content to blob storage!
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:39.0507915Z SHA256 digest of uploaded artifact zip is d4c139e3447a2ecb9c2e9bc376b7d36742d36aacbd07ed394db0d693c2436782
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:39.0510402Z Finalizing artifact upload
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:39.2749559Z Artifact issue380-s1r4-p2-38258879642-attempt-1.zip successfully finalized. Artifact ID 11751421846
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:39.2751400Z Artifact issue380-s1r4-p2-38258879642-attempt-1 has been successfully uploaded! Final size is 6876 bytes. Artifact ID is 11751421846
+Frozen P1 PowerShell path matrix	Upload complete raw run evidence	2026-10-12T13:53:39.2759512Z Artifact download URL: https://github.com/ArdenZC/Zen-Canvas/actions/runs/38258879642/artifacts/11751421846
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	﻿2026-10-12T13:53:39.3311440Z ##[group]Run $ErrorActionPreference = 'Stop'
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3312013Z [36;1m$ErrorActionPreference = 'Stop'[0m
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3312601Z [36;1m$assessmentPath = Join-Path (Join-Path $env:RUNNER_TEMP 'issue380-s1r4-p2-evidence') 'assessment.json'[0m
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3313484Z [36;1mif (-not (Test-Path -LiteralPath $assessmentPath -PathType Leaf)) { throw 'P2 assessment is missing; refusing PASS.' }[0m
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3314234Z [36;1m$assessment = Get-Content -LiteralPath $assessmentPath -Raw | ConvertFrom-Json[0m
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3314889Z [36;1mif ($assessment.path_matrix_pass -ne $true -or $assessment.status -ne 'PATH_MATRIX_PASS') {[0m
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3315877Z [36;1m  throw "P2 path matrix failed closed: status=$($assessment.status), cases=$($assessment.actual_case_count)/40, fixture_cleanup=$($assessment.test_fixture_cleanup_pass)."[0m
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3316596Z [36;1m}[0m
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3317093Z [36;1mWrite-Host 'PATH_MATRIX_PASS: all 40 expected results, process exit, and fixture cleanup verified.'[0m
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3351636Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.3352082Z ##[endgroup]
+Frozen P1 PowerShell path matrix	Enforce fail-closed matrix result	2026-10-12T13:53:39.6448184Z PATH_MATRIX_PASS: all 40 expected results, process exit, and fixture cleanup verified.
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	﻿2026-10-12T13:53:39.7028912Z Post job cleanup.
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:39.8765934Z [command]"C:\Program Files\Git\bin\git.exe" version
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:39.9044027Z git version 2.56.0.windows.1
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:39.9116242Z Temporarily overriding HOME='D:\a\_temp\2459f16b-5b87-4caa-8795-87aff4bbd398' before making global git config changes
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:39.9117555Z Adding repository directory to the temporary git global config as a safe directory
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:39.9131392Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\Zen-Canvas\Zen-Canvas
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:39.9453247Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:39.9834268Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:40.5009264Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:40.5317362Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:41.0328883Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+Frozen P1 PowerShell path matrix	Post Checkout P2 activation commit	2026-10-12T13:53:41.0636872Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+Frozen P1 PowerShell path matrix	Complete job	﻿2026-10-12T13:53:41.5529349Z Cleaning up orphan processes
+Frozen P1 PowerShell path matrix	Complete job	2026-10-12T13:53:41.5572227Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

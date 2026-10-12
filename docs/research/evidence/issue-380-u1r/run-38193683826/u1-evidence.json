@@ -1,0 +1,2741 @@
+{
+  "contract": "U1R focused installer diagnostics and same-path generation test; test-only; not a production fix",
+  "mode": "U1R",
+  "u1Head": "3e66debd56952572c6289efcb989329bc4b744b1",
+  "u1Tree": "f507518a6ad2f0876123fd05720a4c20fafd3084",
+  "old": {
+    "commit": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38193683826-1\\old-master"
+  },
+  "d1a": {
+    "commit": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "sourceStatus": "PASS_EXACT_CLEAN",
+    "sourceTree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+    "worktree": "D:\\a\\_temp\\issue-380-u1-worktrees-38193683826-1\\d1a"
+  },
+  "runner": {
+    "caption": "Microsoft Windows Server 2025 Datacenter",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "64-bit",
+    "runId": "38193683826",
+    "runAttempt": "1",
+    "powershell": "7.6.6",
+    "currentDirectory": "D:\\a\\Zen-Canvas\\Zen-Canvas"
+  },
+  "candidates": {
+    "old": {
+      "sha": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38193683826-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38193683826-1\\old-master\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "76a7fc141b87957da995a78802823f3cd63fb2f2e8161188a89c2c03a55f7640",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "c1c74cfc24c320d68165029f76a616abe1a9600db98f2fe978af04c24fd07bbe",
+      "packageExeSha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+      "packageExeEvidence": {
+        "status": "PASS_EXTRACTED",
+        "extractionTool": "C:\\ProgramData\\Chocolatey\\bin\\7z.exe",
+        "exitCode": 0,
+        "log": "D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\old-nsis-payload-extract.log",
+        "payloadFiles": [
+          {
+            "path": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\old-nsis-payload\\zen-canvas.exe",
+            "sha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+            "bytes": 33956864
+          }
+        ],
+        "selectedPayload": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\old-nsis-payload\\zen-canvas.exe",
+        "selectedSha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+        "selectedMatchesReleaseExe": false
+      },
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38193683826-1\\old-master\\src-tauri\\target\\release\\u1-qa\\old-setup.exe",
+      "installerSha256": "3be76b6c8df60855e46e5de3130d09812a939a5267bf17eee8ec6c309ee924ca",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    },
+    "d1a": {
+      "sha": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "tree": "4765285668095fb3d7c0dcefd8a8ba5f2bd4fb69",
+      "packageVersion": "0.1.40",
+      "cargoVersion": "0.1.40",
+      "tauriVersion": "0.1.40",
+      "identifier": "com.startlan.zencanvas",
+      "qaExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38193683826-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zen-canvas-qa.exe",
+      "qaExeSha256": "b233c181b38fa129f8f6f4ac9a76ff1673989e6c942f76a26ea5886714dbe580",
+      "probeExe": "D:\\a\\_temp\\issue-380-u1-worktrees-38193683826-1\\d1a\\src-tauri\\target\\release\\u1-qa\\zb05-global-index-qa.exe",
+      "probeExeSha256": "eb95f13d5ffeb3c20be41b4d8a0a2a4983f1322f7345dba66858bbc8e88fb044",
+      "productionExe": "D:\\a\\Zen-Canvas\\Zen-Canvas\\src-tauri\\target\\release\\zen-canvas.exe",
+      "productionExeSha256": "5c8c263e78146fed9d539e4523012de366d523bcbe72271344873b36ae378eb3",
+      "packageExeSha256": "6c8929fc197ae76d953f054cc52efb8f6f705ac4215782e3578b6fa02c75a11a",
+      "packageExeEvidence": {
+        "status": "PASS_EXTRACTED",
+        "extractionTool": "C:\\ProgramData\\Chocolatey\\bin\\7z.exe",
+        "exitCode": 0,
+        "log": "D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\d1a-nsis-payload-extract.log",
+        "payloadFiles": [
+          {
+            "path": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\d1a-nsis-payload\\zen-canvas.exe",
+            "sha256": "6c8929fc197ae76d953f054cc52efb8f6f705ac4215782e3578b6fa02c75a11a",
+            "bytes": 33971712
+          }
+        ],
+        "selectedPayload": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\d1a-nsis-payload\\zen-canvas.exe",
+        "selectedSha256": "6c8929fc197ae76d953f054cc52efb8f6f705ac4215782e3578b6fa02c75a11a",
+        "selectedMatchesReleaseExe": false
+      },
+      "installer": "D:\\a\\_temp\\issue-380-u1-worktrees-38193683826-1\\d1a\\src-tauri\\target\\release\\u1-qa\\d1a-setup.exe",
+      "installerSha256": "22c78122959cecb97da8997197f6edefd5949c54e1f3f1e4307e731bfc4edfb6",
+      "fileVersion": "0.1.40",
+      "productVersion": "0.1.40"
+    }
+  },
+  "matchingPairs": {},
+  "mixedPairs": {},
+  "directFallback": {},
+  "installer": {
+    "status": "UNVERIFIED",
+    "samples": [],
+    "transitions": [],
+    "interruption": {
+      "status": "UNVERIFIED"
+    },
+    "repair": {
+      "status": "UNVERIFIED"
+    }
+  },
+  "u1rDisposition": {
+    "status": "BLOCKED",
+    "blockers": [
+      "old process isolation is not proven by a same-path generation identity gate",
+      "legacy Direct fallback changed one or more old index, checkpoint, or user association fields",
+      "failed in-place installation changed the old active database or associated rows"
+    ],
+    "nsisRootCauseLocated": true,
+    "oldSamePathClientIsolation": "UNVERIFIED_SAME_PATH_TEST_HARNESS_FAILURE",
+    "oldClientDirectFallback": "OBSERVED_LEGACY_DIRECT_FALLBACK_WITH_RICH_BASELINE",
+    "productionFixImplemented": false
+  },
+  "cleanup": {
+    "details": [
+      "created task-owned isolated volume u1r-rich-generation-fixture at Z:\\",
+      "cleanup inspected only the task service name and task-owned process paths",
+      "detached and removed task-owned isolated volume u1r-rich-generation-fixture"
+    ],
+    "failures": [
+      "process cleanup: Exception calling \"Kill\" with \"1\" argument(s): \"No process is associated with this object.\""
+    ]
+  },
+  "failures": [],
+  "oldTestInstrumentation": {
+    "patch": "D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\old-u1r-test-instrumentation.patch",
+    "sha256": "4529f2db209f41c0033c2bf3dd3f5ee9bc2274100cfef0c20ccb95789e51a6c7",
+    "files": [
+      "src-tauri/src/main.rs",
+      "src-tauri/src/global_index/windows/mod.rs",
+      "src-tauri/windows/installer-hooks.nsh"
+    ],
+    "restoredToFrozenSource": true
+  },
+  "d1aTestInstrumentation": {
+    "patch": "D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\d1a-u1r-test-instrumentation.patch",
+    "sha256": "b4aaca798c20e49c8c06d30d2b0f7899793495736e897fbfb764deff8d8a000c",
+    "files": [
+      "src-tauri/src/global_index/windows/service.rs",
+      "src-tauri/src/global_index/windows/service_host.rs",
+      "scripts/buildWindowsPackage.mjs",
+      "src-tauri/windows/installer-hooks.nsh"
+    ],
+    "restoredToFrozenSource": true
+  },
+  "d1aNsisInstaller": {
+    "installerSha256": "22c78122959cecb97da8997197f6edefd5949c54e1f3f1e4307e731bfc4edfb6",
+    "diagnosticBuild": true,
+    "diagnosticHookPatchSha256": "b4aaca798c20e49c8c06d30d2b0f7899793495736e897fbfb764deff8d8a000c"
+  },
+  "u1rInstaller": {
+    "oldFreshExitCode": 0,
+    "oldFreshLog": "D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\u1r-old-fresh-install.log",
+    "oldFreshSnapshot": {
+      "atUtc": "2026-10-12T02:30:22.7090612Z",
+      "exe": {
+        "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+        "exists": true,
+        "sha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+        "bytes": 33956864,
+        "fileVersion": "0.1.40",
+        "productVersion": "0.1.40"
+      },
+      "arp": {
+        "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Zen Canvas",
+        "present": true,
+        "values": {
+          "DisplayIcon": {
+            "kind": "String",
+            "value": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\""
+          },
+          "DisplayName": {
+            "kind": "String",
+            "value": "Zen Canvas"
+          },
+          "DisplayVersion": {
+            "kind": "String",
+            "value": "0.1.40"
+          },
+          "EstimatedSize": {
+            "kind": "DWord",
+            "value": 35150
+          },
+          "InstallLocation": {
+            "kind": "String",
+            "value": "\"C:\\Program Files\\Zen Canvas\""
+          },
+          "MainBinaryName": {
+            "kind": "String",
+            "value": "zen-canvas.exe"
+          },
+          "NoModify": {
+            "kind": "DWord",
+            "value": 1
+          },
+          "NoRepair": {
+            "kind": "DWord",
+            "value": 1
+          },
+          "Publisher": {
+            "kind": "String",
+            "value": "startlan"
+          },
+          "UninstallString": {
+            "kind": "String",
+            "value": "\"C:\\Program Files\\Zen Canvas\\uninstall.exe\""
+          }
+        }
+      },
+      "manufacturerProduct": {
+        "path": "SOFTWARE\\startlan\\Zen Canvas",
+        "present": true,
+        "values": {
+          "": {
+            "kind": "String",
+            "value": "C:\\Program Files\\Zen Canvas"
+          }
+        }
+      },
+      "previewClsid": {
+        "path": "SOFTWARE\\Classes\\CLSID\\{3D1A446C-162E-4313-A026-8ADC792C4862}",
+        "present": true,
+        "values": {
+          "": {
+            "kind": "String",
+            "value": "Zen Canvas Preview Handler"
+          },
+          "AppID": {
+            "kind": "String",
+            "value": "{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}"
+          }
+        }
+      },
+      "previewInproc": {
+        "path": "SOFTWARE\\Classes\\CLSID\\{3D1A446C-162E-4313-A026-8ADC792C4862}\\InprocServer32",
+        "present": true,
+        "values": {
+          "": {
+            "kind": "String",
+            "value": "C:\\Program Files\\Zen Canvas\\native\\zen_canvas_windows_preview_handler.dll"
+          },
+          "ThreadingModel": {
+            "kind": "String",
+            "value": "Apartment"
+          }
+        }
+      },
+      "previewHandlers": {
+        "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
+        "present": true,
+        "values": {
+          "{031EE060-67BC-460d-8847-E4A7C5E45A27}": {
+            "kind": "String",
+            "value": "Windows Media Player Rich Preview Handler"
+          },
+          "{13D3C4B8-B179-4ebb-BF62-F704173E7448}": {
+            "kind": "String",
+            "value": "Windows Contact Preview Handler"
+          },
+          "{1531d583-8375-4d3f-b5fb-d23bbd169f22}": {
+            "kind": "String",
+            "value": "Windows TXT Previewer"
+          },
+          "{3A84F9C2-6164-485C-A7D9-4B27F8AC009E}": {
+            "kind": "String",
+            "value": "Microsoft PDF Previewer"
+          },
+          "{3D1A446C-162E-4313-A026-8ADC792C4862}": {
+            "kind": "String",
+            "value": "Zen Canvas Preview Handler"
+          },
+          "{53BEDF0B-4E5B-4183-8DC9-B844344FA104}": {
+            "kind": "String",
+            "value": "Microsoft Windows MAPI Preview Handler"
+          },
+          "{85862EDA-F507-4d5b-ACA9-BB2C34A85682}": {
+            "kind": "String",
+            "value": "Microsoft XPS Rich Preview Handler"
+          },
+          "{8a7cae0e-5951-49cb-bf20-ab3fa1e44b01}": {
+            "kind": "String",
+            "value": "Windows Font previewer"
+          },
+          "{92dbad9f-5025-49b0-9078-2d78f935e341}": {
+            "kind": "String",
+            "value": "Microsoft Windows Mail Mime Preview Handler"
+          },
+          "{a42c2ccb-67d3-46fa-abe6-7d2f3488c7a3}": {
+            "kind": "String",
+            "value": "Windows RTF Previewer"
+          },
+          "{b9815375-5d7f-4ce2-9245-c9d4da436930}": {
+            "kind": "String",
+            "value": "Microsoft Windows Mail Mime Preview Handler"
+          },
+          "{BFD468D2-D0A0-4bdc-878C-E69C2F5B435D}": {
+            "kind": "String",
+            "value": "Microsoft Windows Mail Html Preview Handler"
+          },
+          "{E64164EB-1AE0-4C50-BAEF-A413C2B3A4BC}": {
+            "kind": "String",
+            "value": "Microsoft 3MF Shell Thumbnail and Preview Handler"
+          },
+          "{f8b8412b-dea3-4130-b36c-5e8be73106ac}": {
+            "kind": "String",
+            "value": "Microsoft Windows Mail Html Preview Handler"
+          }
+        }
+      },
+      "serviceRegistry": {
+        "path": "SYSTEM\\CurrentControlSet\\Services\\ZenCanvasGlobalIndex",
+        "present": true,
+        "values": {
+          "Description": {
+            "kind": "String",
+            "value": "Enumerates local Windows volume metadata for Zen Canvas global search."
+          },
+          "DisplayName": {
+            "kind": "String",
+            "value": "Zen Canvas Global Index"
+          },
+          "ErrorControl": {
+            "kind": "DWord",
+            "value": 1
+          },
+          "FailureActions": {
+            "kind": "Binary",
+            "value": [
+              128,
+              81,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              3,
+              0,
+              0,
+              0,
+              20,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              136,
+              19,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              48,
+              117,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "ImagePath": {
+            "kind": "ExpandString",
+            "value": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service"
+          },
+          "ObjectName": {
+            "kind": "String",
+            "value": "LocalSystem"
+          },
+          "Start": {
+            "kind": "DWord",
+            "value": 2
+          },
+          "Type": {
+            "kind": "DWord",
+            "value": 16
+          },
+          "WOW64": {
+            "kind": "DWord",
+            "value": 332
+          }
+        }
+      },
+      "service": {
+        "state": "Running",
+        "processId": 3044,
+        "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+        "exitCode": 0,
+        "serviceSpecificExitCode": 0,
+        "process": {
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "created": "2026-10-12T02:30:21.968912+00:00"
+        }
+      },
+      "desktopProcesses": [
+        {
+          "processId": 3044,
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+          "created": "2026-10-12T02:30:21.968912+00:00"
+        }
+      ],
+      "elevated": true
+    },
+    "noUpdateAttempt": {
+      "arguments": [
+        "/S",
+        "/LOG=D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\u1r-d1a-inplace-no-update.log"
+      ],
+      "exitCode": 2,
+      "status": "EXIT_2_ROOT_CAUSE_LOCATED",
+      "log": "D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\u1r-d1a-inplace-no-update.log",
+      "logExists": false,
+      "logSha256": null,
+      "diagnosticTrace": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-installer-profile\\temp\\issue-380-u1r-d1a-installer-trace.log",
+      "diagnosticTraceExists": true,
+      "diagnosticTraceSha256": "1220ee7d73f6c9b24b24356e4d31f56df78f690fad78f1905337486b293dd8df",
+      "allDiagnosticLines": [
+        "[U1R] product_validation_result product=2 valid=0 uninstaller=1"
+      ],
+      "oldUninstallerLog": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-installer-profile\\temp\\issue-380-u1r-old-uninstaller.log",
+      "oldUninstallerLogExists": false,
+      "oldUninstallerLogSha256": null,
+      "oldUninstallerDiagnosticLines": [],
+      "oldUninstallerFirstFailingValidationTrace": null,
+      "oldUninstallerProcessSamples": [],
+      "lastDiagnosticLine": "[U1R] product_validation_result product=2 valid=0 uninstaller=1",
+      "firstFailingCondition": "DetectZenCanvasPreexistingProduct returned invalid product state; inspect the ordered ARP comparison trace and typed before-snapshot for the first non-exact value",
+      "firstFailingValidationTrace": null,
+      "firstAbortMessage": [],
+      "installerStdout": "",
+      "installerStderr": "",
+      "before": {
+        "atUtc": "2026-10-12T02:30:27.4994511Z",
+        "exe": {
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "exists": true,
+          "sha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+          "bytes": 33956864,
+          "fileVersion": "0.1.40",
+          "productVersion": "0.1.40"
+        },
+        "arp": {
+          "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Zen Canvas",
+          "present": true,
+          "values": {
+            "DisplayIcon": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\""
+            },
+            "DisplayName": {
+              "kind": "String",
+              "value": "Zen Canvas"
+            },
+            "DisplayVersion": {
+              "kind": "String",
+              "value": "0.1.40"
+            },
+            "EstimatedSize": {
+              "kind": "DWord",
+              "value": 35150
+            },
+            "InstallLocation": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\""
+            },
+            "MainBinaryName": {
+              "kind": "String",
+              "value": "zen-canvas.exe"
+            },
+            "NoModify": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "NoRepair": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "Publisher": {
+              "kind": "String",
+              "value": "startlan"
+            },
+            "UninstallString": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\\uninstall.exe\""
+            }
+          }
+        },
+        "manufacturerProduct": {
+          "path": "SOFTWARE\\startlan\\Zen Canvas",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "C:\\Program Files\\Zen Canvas"
+            }
+          }
+        },
+        "previewClsid": {
+          "path": "SOFTWARE\\Classes\\CLSID\\{3D1A446C-162E-4313-A026-8ADC792C4862}",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "Zen Canvas Preview Handler"
+            },
+            "AppID": {
+              "kind": "String",
+              "value": "{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}"
+            }
+          }
+        },
+        "previewInproc": {
+          "path": "SOFTWARE\\Classes\\CLSID\\{3D1A446C-162E-4313-A026-8ADC792C4862}\\InprocServer32",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "C:\\Program Files\\Zen Canvas\\native\\zen_canvas_windows_preview_handler.dll"
+            },
+            "ThreadingModel": {
+              "kind": "String",
+              "value": "Apartment"
+            }
+          }
+        },
+        "previewHandlers": {
+          "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
+          "present": true,
+          "values": {
+            "{031EE060-67BC-460d-8847-E4A7C5E45A27}": {
+              "kind": "String",
+              "value": "Windows Media Player Rich Preview Handler"
+            },
+            "{13D3C4B8-B179-4ebb-BF62-F704173E7448}": {
+              "kind": "String",
+              "value": "Windows Contact Preview Handler"
+            },
+            "{1531d583-8375-4d3f-b5fb-d23bbd169f22}": {
+              "kind": "String",
+              "value": "Windows TXT Previewer"
+            },
+            "{3A84F9C2-6164-485C-A7D9-4B27F8AC009E}": {
+              "kind": "String",
+              "value": "Microsoft PDF Previewer"
+            },
+            "{3D1A446C-162E-4313-A026-8ADC792C4862}": {
+              "kind": "String",
+              "value": "Zen Canvas Preview Handler"
+            },
+            "{53BEDF0B-4E5B-4183-8DC9-B844344FA104}": {
+              "kind": "String",
+              "value": "Microsoft Windows MAPI Preview Handler"
+            },
+            "{85862EDA-F507-4d5b-ACA9-BB2C34A85682}": {
+              "kind": "String",
+              "value": "Microsoft XPS Rich Preview Handler"
+            },
+            "{8a7cae0e-5951-49cb-bf20-ab3fa1e44b01}": {
+              "kind": "String",
+              "value": "Windows Font previewer"
+            },
+            "{92dbad9f-5025-49b0-9078-2d78f935e341}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Mime Preview Handler"
+            },
+            "{a42c2ccb-67d3-46fa-abe6-7d2f3488c7a3}": {
+              "kind": "String",
+              "value": "Windows RTF Previewer"
+            },
+            "{b9815375-5d7f-4ce2-9245-c9d4da436930}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Mime Preview Handler"
+            },
+            "{BFD468D2-D0A0-4bdc-878C-E69C2F5B435D}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Html Preview Handler"
+            },
+            "{E64164EB-1AE0-4C50-BAEF-A413C2B3A4BC}": {
+              "kind": "String",
+              "value": "Microsoft 3MF Shell Thumbnail and Preview Handler"
+            },
+            "{f8b8412b-dea3-4130-b36c-5e8be73106ac}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Html Preview Handler"
+            }
+          }
+        },
+        "serviceRegistry": {
+          "path": "SYSTEM\\CurrentControlSet\\Services\\ZenCanvasGlobalIndex",
+          "present": true,
+          "values": {
+            "Description": {
+              "kind": "String",
+              "value": "Enumerates local Windows volume metadata for Zen Canvas global search."
+            },
+            "DisplayName": {
+              "kind": "String",
+              "value": "Zen Canvas Global Index"
+            },
+            "ErrorControl": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "FailureActions": {
+              "kind": "Binary",
+              "value": [
+                128,
+                81,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                3,
+                0,
+                0,
+                0,
+                20,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                136,
+                19,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                48,
+                117,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "ImagePath": {
+              "kind": "ExpandString",
+              "value": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service"
+            },
+            "ObjectName": {
+              "kind": "String",
+              "value": "LocalSystem"
+            },
+            "Start": {
+              "kind": "DWord",
+              "value": 2
+            },
+            "Type": {
+              "kind": "DWord",
+              "value": 16
+            },
+            "WOW64": {
+              "kind": "DWord",
+              "value": 332
+            }
+          }
+        },
+        "service": {
+          "state": "Running",
+          "processId": 3044,
+          "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+          "exitCode": 0,
+          "serviceSpecificExitCode": 0,
+          "process": {
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "created": "2026-10-12T02:30:21.968912+00:00"
+          }
+        },
+        "desktopProcesses": [
+          {
+            "processId": 3044,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "created": "2026-10-12T02:30:21.968912+00:00"
+          },
+          {
+            "processId": 1324,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+            "created": "2026-10-12T02:30:23.061888+00:00"
+          }
+        ],
+        "elevated": true
+      },
+      "after": {
+        "atUtc": "2026-10-12T02:30:28.8628107Z",
+        "exe": {
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "exists": true,
+          "sha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+          "bytes": 33956864,
+          "fileVersion": "0.1.40",
+          "productVersion": "0.1.40"
+        },
+        "arp": {
+          "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Zen Canvas",
+          "present": true,
+          "values": {
+            "DisplayIcon": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\""
+            },
+            "DisplayName": {
+              "kind": "String",
+              "value": "Zen Canvas"
+            },
+            "DisplayVersion": {
+              "kind": "String",
+              "value": "0.1.40"
+            },
+            "EstimatedSize": {
+              "kind": "DWord",
+              "value": 35150
+            },
+            "InstallLocation": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\""
+            },
+            "MainBinaryName": {
+              "kind": "String",
+              "value": "zen-canvas.exe"
+            },
+            "NoModify": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "NoRepair": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "Publisher": {
+              "kind": "String",
+              "value": "startlan"
+            },
+            "UninstallString": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\\uninstall.exe\""
+            }
+          }
+        },
+        "manufacturerProduct": {
+          "path": "SOFTWARE\\startlan\\Zen Canvas",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "C:\\Program Files\\Zen Canvas"
+            }
+          }
+        },
+        "previewClsid": {
+          "path": "SOFTWARE\\Classes\\CLSID\\{3D1A446C-162E-4313-A026-8ADC792C4862}",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "Zen Canvas Preview Handler"
+            },
+            "AppID": {
+              "kind": "String",
+              "value": "{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}"
+            }
+          }
+        },
+        "previewInproc": {
+          "path": "SOFTWARE\\Classes\\CLSID\\{3D1A446C-162E-4313-A026-8ADC792C4862}\\InprocServer32",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "C:\\Program Files\\Zen Canvas\\native\\zen_canvas_windows_preview_handler.dll"
+            },
+            "ThreadingModel": {
+              "kind": "String",
+              "value": "Apartment"
+            }
+          }
+        },
+        "previewHandlers": {
+          "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
+          "present": true,
+          "values": {
+            "{031EE060-67BC-460d-8847-E4A7C5E45A27}": {
+              "kind": "String",
+              "value": "Windows Media Player Rich Preview Handler"
+            },
+            "{13D3C4B8-B179-4ebb-BF62-F704173E7448}": {
+              "kind": "String",
+              "value": "Windows Contact Preview Handler"
+            },
+            "{1531d583-8375-4d3f-b5fb-d23bbd169f22}": {
+              "kind": "String",
+              "value": "Windows TXT Previewer"
+            },
+            "{3A84F9C2-6164-485C-A7D9-4B27F8AC009E}": {
+              "kind": "String",
+              "value": "Microsoft PDF Previewer"
+            },
+            "{3D1A446C-162E-4313-A026-8ADC792C4862}": {
+              "kind": "String",
+              "value": "Zen Canvas Preview Handler"
+            },
+            "{53BEDF0B-4E5B-4183-8DC9-B844344FA104}": {
+              "kind": "String",
+              "value": "Microsoft Windows MAPI Preview Handler"
+            },
+            "{85862EDA-F507-4d5b-ACA9-BB2C34A85682}": {
+              "kind": "String",
+              "value": "Microsoft XPS Rich Preview Handler"
+            },
+            "{8a7cae0e-5951-49cb-bf20-ab3fa1e44b01}": {
+              "kind": "String",
+              "value": "Windows Font previewer"
+            },
+            "{92dbad9f-5025-49b0-9078-2d78f935e341}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Mime Preview Handler"
+            },
+            "{a42c2ccb-67d3-46fa-abe6-7d2f3488c7a3}": {
+              "kind": "String",
+              "value": "Windows RTF Previewer"
+            },
+            "{b9815375-5d7f-4ce2-9245-c9d4da436930}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Mime Preview Handler"
+            },
+            "{BFD468D2-D0A0-4bdc-878C-E69C2F5B435D}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Html Preview Handler"
+            },
+            "{E64164EB-1AE0-4C50-BAEF-A413C2B3A4BC}": {
+              "kind": "String",
+              "value": "Microsoft 3MF Shell Thumbnail and Preview Handler"
+            },
+            "{f8b8412b-dea3-4130-b36c-5e8be73106ac}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Html Preview Handler"
+            }
+          }
+        },
+        "serviceRegistry": {
+          "path": "SYSTEM\\CurrentControlSet\\Services\\ZenCanvasGlobalIndex",
+          "present": true,
+          "values": {
+            "Description": {
+              "kind": "String",
+              "value": "Enumerates local Windows volume metadata for Zen Canvas global search."
+            },
+            "DisplayName": {
+              "kind": "String",
+              "value": "Zen Canvas Global Index"
+            },
+            "ErrorControl": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "FailureActions": {
+              "kind": "Binary",
+              "value": [
+                128,
+                81,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                3,
+                0,
+                0,
+                0,
+                20,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                136,
+                19,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                48,
+                117,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "ImagePath": {
+              "kind": "ExpandString",
+              "value": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service"
+            },
+            "ObjectName": {
+              "kind": "String",
+              "value": "LocalSystem"
+            },
+            "Start": {
+              "kind": "DWord",
+              "value": 2
+            },
+            "Type": {
+              "kind": "DWord",
+              "value": 16
+            },
+            "WOW64": {
+              "kind": "DWord",
+              "value": 332
+            }
+          }
+        },
+        "service": {
+          "state": "Running",
+          "processId": 3044,
+          "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+          "exitCode": 0,
+          "serviceSpecificExitCode": 0,
+          "process": {
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "created": "2026-10-12T02:30:21.968912+00:00"
+          }
+        },
+        "desktopProcesses": [
+          {
+            "processId": 3044,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "created": "2026-10-12T02:30:21.968912+00:00"
+          },
+          {
+            "processId": 1324,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+            "created": "2026-10-12T02:30:23.061888+00:00"
+          }
+        ],
+        "elevated": true
+      },
+      "processSamples": [
+        {
+          "atUtc": "2026-10-12T02:30:28.6339323Z",
+          "installerPid": 8140,
+          "installerExited": true,
+          "exeSha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+          "targetExeHashObserved": false,
+          "service": {
+            "state": "Running",
+            "processId": 3044,
+            "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "exitCode": 0,
+            "serviceSpecificExitCode": 0,
+            "process": {
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "created": "2026-10-12T02:30:21.968912+00:00"
+            }
+          },
+          "appProcesses": [
+            {
+              "processId": 3044,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+              "created": "2026-10-12T02:30:21.968912+00:00"
+            },
+            {
+              "processId": 1324,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+              "created": "2026-10-12T02:30:23.061888+00:00"
+            }
+          ],
+          "uninstallerProcesses": []
+        }
+      ],
+      "stdout": "",
+      "stderr": "",
+      "initialOldDesktop": {
+        "processId": 1324,
+        "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+        "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+        "created": "2026-10-12T02:30:23.061888+00:00"
+      },
+      "initialOldService": {
+        "state": "Running",
+        "processId": 3044,
+        "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+        "exitCode": 0,
+        "serviceSpecificExitCode": 0,
+        "process": {
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "created": "2026-10-12T02:30:21.968912+00:00"
+        }
+      },
+      "initialOldServiceBinary": {
+        "pid": 3044,
+        "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+        "created": "2026-10-12T02:30:21.968912+00:00",
+        "sha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef"
+      },
+      "isolatedProfileDatabase": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-installer-profile\\roaming\\com.startlan.zencanvas\\zen-canvas.sqlite3",
+      "isolatedProfileDatabaseSha256": "ed395b3daca143163476c15d076922e7c8db5b5e906a328fc6f3d141e4a9f7b5",
+      "isolatedProfileSnapshotBeforeLaunch": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791771363,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "is_stale": 0,
+          "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+          }
+        ],
+        "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "markerFtsHits": 1,
+        "mode": "snapshot",
+        "schemaVersion": 37,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+          "index_status": "ready",
+          "journal_cursor": "664",
+          "journal_id": "134362449615844939",
+          "last_error": null,
+          "last_full_index_at": 1791771362,
+          "last_incremental_sync_at": 1791771362,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791771364
+        },
+        "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "staleEntries": 0
+      },
+      "databaseBeforeInstaller": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791771363,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "is_stale": 0,
+          "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+          }
+        ],
+        "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "markerFtsHits": 1,
+        "mode": "snapshot",
+        "schemaVersion": 37,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+          "index_status": "ready",
+          "journal_cursor": "664",
+          "journal_id": "134362449615844939",
+          "last_error": null,
+          "last_full_index_at": 1791771362,
+          "last_incremental_sync_at": 1791771362,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791771364
+        },
+        "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "staleEntries": 0
+      },
+      "databaseAfterNoUpdateAttempt": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791771363,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "is_stale": 0,
+          "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+          }
+        ],
+        "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "markerFtsHits": 1,
+        "mode": "snapshot",
+        "schemaVersion": 37,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+          "index_status": "ready",
+          "journal_cursor": "664",
+          "journal_id": "134362449615844939",
+          "last_error": null,
+          "last_full_index_at": 1791771362,
+          "last_incremental_sync_at": 1791771362,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791771364
+        },
+        "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "staleEntries": 0
+      },
+      "databaseStatePreserved": {
+        "preserved": false,
+        "sourceFields": {
+          "enabled": true,
+          "provider": true,
+          "index_status": true,
+          "last_error": true,
+          "journal_id": true,
+          "journal_cursor": true,
+          "last_full_index_at": true,
+          "last_incremental_sync_at": true,
+          "entry_count": true,
+          "updated_at": true
+        },
+        "associations": {
+          "managedScopes": true,
+          "managedEntries": true,
+          "aiAnalysisState": true,
+          "aiJobs": true,
+          "aiJobItems": true,
+          "counts": true
+        },
+        "markerEntry": true,
+        "activeEntries": true,
+        "staleEntries": true,
+        "markerFtsHits": true
+      },
+      "serviceStoppedBeforeMutation": false,
+      "oldDesktopStillRunning": true
+    },
+    "updateFlagAttempt": {
+      "arguments": [
+        "/S",
+        "/UPDATE",
+        "/LOG=D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\u1r-d1a-inplace-update-flag.log"
+      ],
+      "exitCode": 2,
+      "log": "D:\\a\\_temp\\issue-380-u1r-evidence-38193683826-1\\u1r-d1a-inplace-update-flag.log",
+      "logSha256": null,
+      "diagnosticTrace": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-installer-profile\\temp\\issue-380-u1r-d1a-installer-trace.log",
+      "diagnosticTraceExists": true,
+      "diagnosticTraceSha256": "1220ee7d73f6c9b24b24356e4d31f56df78f690fad78f1905337486b293dd8df",
+      "diagnosticLines": [
+        "[U1R] product_validation_result product=2 valid=0 uninstaller=1"
+      ],
+      "finalSnapshot": {
+        "atUtc": "2026-10-12T02:30:30.0031221Z",
+        "exe": {
+          "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+          "exists": true,
+          "sha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+          "bytes": 33956864,
+          "fileVersion": "0.1.40",
+          "productVersion": "0.1.40"
+        },
+        "arp": {
+          "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Zen Canvas",
+          "present": true,
+          "values": {
+            "DisplayIcon": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\""
+            },
+            "DisplayName": {
+              "kind": "String",
+              "value": "Zen Canvas"
+            },
+            "DisplayVersion": {
+              "kind": "String",
+              "value": "0.1.40"
+            },
+            "EstimatedSize": {
+              "kind": "DWord",
+              "value": 35150
+            },
+            "InstallLocation": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\""
+            },
+            "MainBinaryName": {
+              "kind": "String",
+              "value": "zen-canvas.exe"
+            },
+            "NoModify": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "NoRepair": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "Publisher": {
+              "kind": "String",
+              "value": "startlan"
+            },
+            "UninstallString": {
+              "kind": "String",
+              "value": "\"C:\\Program Files\\Zen Canvas\\uninstall.exe\""
+            }
+          }
+        },
+        "manufacturerProduct": {
+          "path": "SOFTWARE\\startlan\\Zen Canvas",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "C:\\Program Files\\Zen Canvas"
+            }
+          }
+        },
+        "previewClsid": {
+          "path": "SOFTWARE\\Classes\\CLSID\\{3D1A446C-162E-4313-A026-8ADC792C4862}",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "Zen Canvas Preview Handler"
+            },
+            "AppID": {
+              "kind": "String",
+              "value": "{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}"
+            }
+          }
+        },
+        "previewInproc": {
+          "path": "SOFTWARE\\Classes\\CLSID\\{3D1A446C-162E-4313-A026-8ADC792C4862}\\InprocServer32",
+          "present": true,
+          "values": {
+            "": {
+              "kind": "String",
+              "value": "C:\\Program Files\\Zen Canvas\\native\\zen_canvas_windows_preview_handler.dll"
+            },
+            "ThreadingModel": {
+              "kind": "String",
+              "value": "Apartment"
+            }
+          }
+        },
+        "previewHandlers": {
+          "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
+          "present": true,
+          "values": {
+            "{031EE060-67BC-460d-8847-E4A7C5E45A27}": {
+              "kind": "String",
+              "value": "Windows Media Player Rich Preview Handler"
+            },
+            "{13D3C4B8-B179-4ebb-BF62-F704173E7448}": {
+              "kind": "String",
+              "value": "Windows Contact Preview Handler"
+            },
+            "{1531d583-8375-4d3f-b5fb-d23bbd169f22}": {
+              "kind": "String",
+              "value": "Windows TXT Previewer"
+            },
+            "{3A84F9C2-6164-485C-A7D9-4B27F8AC009E}": {
+              "kind": "String",
+              "value": "Microsoft PDF Previewer"
+            },
+            "{3D1A446C-162E-4313-A026-8ADC792C4862}": {
+              "kind": "String",
+              "value": "Zen Canvas Preview Handler"
+            },
+            "{53BEDF0B-4E5B-4183-8DC9-B844344FA104}": {
+              "kind": "String",
+              "value": "Microsoft Windows MAPI Preview Handler"
+            },
+            "{85862EDA-F507-4d5b-ACA9-BB2C34A85682}": {
+              "kind": "String",
+              "value": "Microsoft XPS Rich Preview Handler"
+            },
+            "{8a7cae0e-5951-49cb-bf20-ab3fa1e44b01}": {
+              "kind": "String",
+              "value": "Windows Font previewer"
+            },
+            "{92dbad9f-5025-49b0-9078-2d78f935e341}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Mime Preview Handler"
+            },
+            "{a42c2ccb-67d3-46fa-abe6-7d2f3488c7a3}": {
+              "kind": "String",
+              "value": "Windows RTF Previewer"
+            },
+            "{b9815375-5d7f-4ce2-9245-c9d4da436930}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Mime Preview Handler"
+            },
+            "{BFD468D2-D0A0-4bdc-878C-E69C2F5B435D}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Html Preview Handler"
+            },
+            "{E64164EB-1AE0-4C50-BAEF-A413C2B3A4BC}": {
+              "kind": "String",
+              "value": "Microsoft 3MF Shell Thumbnail and Preview Handler"
+            },
+            "{f8b8412b-dea3-4130-b36c-5e8be73106ac}": {
+              "kind": "String",
+              "value": "Microsoft Windows Mail Html Preview Handler"
+            }
+          }
+        },
+        "serviceRegistry": {
+          "path": "SYSTEM\\CurrentControlSet\\Services\\ZenCanvasGlobalIndex",
+          "present": true,
+          "values": {
+            "Description": {
+              "kind": "String",
+              "value": "Enumerates local Windows volume metadata for Zen Canvas global search."
+            },
+            "DisplayName": {
+              "kind": "String",
+              "value": "Zen Canvas Global Index"
+            },
+            "ErrorControl": {
+              "kind": "DWord",
+              "value": 1
+            },
+            "FailureActions": {
+              "kind": "Binary",
+              "value": [
+                128,
+                81,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                3,
+                0,
+                0,
+                0,
+                20,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                136,
+                19,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                48,
+                117,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "ImagePath": {
+              "kind": "ExpandString",
+              "value": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service"
+            },
+            "ObjectName": {
+              "kind": "String",
+              "value": "LocalSystem"
+            },
+            "Start": {
+              "kind": "DWord",
+              "value": 2
+            },
+            "Type": {
+              "kind": "DWord",
+              "value": 16
+            },
+            "WOW64": {
+              "kind": "DWord",
+              "value": 332
+            }
+          }
+        },
+        "service": {
+          "state": "Running",
+          "processId": 3044,
+          "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+          "exitCode": 0,
+          "serviceSpecificExitCode": 0,
+          "process": {
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "created": "2026-10-12T02:30:21.968912+00:00"
+          }
+        },
+        "desktopProcesses": [
+          {
+            "processId": 3044,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "created": "2026-10-12T02:30:21.968912+00:00"
+          },
+          {
+            "processId": 1324,
+            "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+            "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+            "created": "2026-10-12T02:30:23.061888+00:00"
+          }
+        ],
+        "elevated": true
+      },
+      "samples": [
+        {
+          "atUtc": "2026-10-12T02:30:29.7406568Z",
+          "installerPid": 7184,
+          "installerExited": true,
+          "exeSha256": "a190f909d54e219274d8928e5e7e5644751dd3f547e69c44144ce9dc25dc5bef",
+          "targetExeHashObserved": false,
+          "service": {
+            "state": "Running",
+            "processId": 3044,
+            "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+            "exitCode": 0,
+            "serviceSpecificExitCode": 0,
+            "process": {
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "created": "2026-10-12T02:30:21.968912+00:00"
+            }
+          },
+          "appProcesses": [
+            {
+              "processId": 3044,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+              "created": "2026-10-12T02:30:21.968912+00:00"
+            },
+            {
+              "processId": 1324,
+              "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+              "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+              "created": "2026-10-12T02:30:23.061888+00:00"
+            }
+          ],
+          "uninstallerProcesses": []
+        }
+      ],
+      "stdout": "",
+      "stderr": ""
+    },
+    "databaseAfterProcessShutdown": {
+      "activeEntries": 4,
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": null,
+          "model": "fixture",
+          "provider": "local",
+          "status": "completed",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "status": "pending"
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": null,
+          "created_at": 1791771363,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "pending"
+        }
+      ],
+      "counts": {
+        "aiAnalysisState": 1,
+        "aiJobItems": 1,
+        "aiJobs": 1,
+        "managedEntries": 1,
+        "managedScopes": 1
+      },
+      "entry": {
+        "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+        "is_stale": 0,
+        "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "managedEntries": [
+        {
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "managedScopes": [
+        {
+          "allow_cloud_ai": 0,
+          "allow_local_ai": 1,
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-scope",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+        }
+      ],
+      "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+      "markerFtsHits": 1,
+      "mode": "snapshot",
+      "schemaVersion": 37,
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "index_status": "ready",
+        "journal_cursor": "664",
+        "journal_id": "134362449615844939",
+        "last_error": null,
+        "last_full_index_at": 1791771362,
+        "last_incremental_sync_at": 1791771362,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791771364
+      },
+      "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+      "staleEntries": 0
+    },
+    "databaseStateAfterShutdown": {
+      "preserved": false,
+      "sourceFields": {
+        "enabled": true,
+        "provider": true,
+        "index_status": true,
+        "last_error": true,
+        "journal_id": true,
+        "journal_cursor": true,
+        "last_full_index_at": true,
+        "last_incremental_sync_at": true,
+        "entry_count": true,
+        "updated_at": true
+      },
+      "associations": {
+        "managedScopes": true,
+        "managedEntries": true,
+        "aiAnalysisState": true,
+        "aiJobs": true,
+        "aiJobItems": true,
+        "counts": true
+      },
+      "markerEntry": true,
+      "activeEntries": true,
+      "staleEntries": true,
+      "markerFtsHits": true
+    }
+  },
+  "u1rSamePath": {
+    "status": "UNVERIFIED_SAME_PATH_TEST_HARNESS_FAILURE",
+    "installPath": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+    "oldBinarySha256": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1",
+    "d1aBinarySha256": "b233c181b38fa129f8f6f4ac9a76ff1673989e6c942f76a26ea5886714dbe580",
+    "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+    "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+    "preSnapshot": {
+      "activeEntries": 4,
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": null,
+          "model": "fixture",
+          "provider": "local",
+          "status": "completed",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "status": "pending"
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": null,
+          "created_at": 1791771363,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "pending"
+        }
+      ],
+      "counts": {
+        "aiAnalysisState": 1,
+        "aiJobItems": 1,
+        "aiJobs": 1,
+        "managedEntries": 1,
+        "managedScopes": 1
+      },
+      "entry": {
+        "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+        "is_stale": 0,
+        "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "managedEntries": [
+        {
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "managedScopes": [
+        {
+          "allow_cloud_ai": 0,
+          "allow_local_ai": 1,
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-scope",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+        }
+      ],
+      "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+      "markerFtsHits": 1,
+      "mode": "snapshot",
+      "schemaVersion": 37,
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "index_status": "rebuild_required",
+        "journal_cursor": "664",
+        "journal_id": "134362449615844939",
+        "last_error": null,
+        "last_full_index_at": 1791771362,
+        "last_incremental_sync_at": 1791771362,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791771363
+      },
+      "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+      "staleEntries": 0
+    },
+    "databasePath": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-same-path-profile\\zen-canvas.sqlite3",
+    "databaseSha256BeforeRequest": "fae4fd43f5b718951f8860d8127d0eceb2d721a129463b72fb82bf6cf7605da6",
+    "oldClientBeforeReplacement": {
+      "processId": 9024,
+      "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+      "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+      "created": "2026-10-12T02:16:10.712862+00:00"
+    },
+    "oldClientBinarySha256AtStart": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1",
+    "oldClientTrace": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-same-path-client.stderr.log",
+    "generationMarkerPath": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-old-client-gate\\generation",
+    "oldServiceBeforeReplacement": {
+      "state": "Running",
+      "processId": 7916,
+      "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+      "exitCode": 0,
+      "serviceSpecificExitCode": 0,
+      "process": {
+        "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+        "created": "2026-10-12T02:16:10.467341+00:00"
+      }
+    },
+    "oldServiceBinarySha256": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1",
+    "oldServiceStoppedBeforeReplacement": {
+      "state": "Stopped",
+      "processId": 0,
+      "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+      "exitCode": 0,
+      "serviceSpecificExitCode": 0,
+      "process": null
+    },
+    "oldServiceRegistrationRemovedBeforeReplacement": true,
+    "fileReplace": {
+      "status": "PASS_ATOMIC_REPLACE_WITH_OLD_PROCESS_ALIVE",
+      "backup": "C:\\Program Files\\Zen Canvas\\zen-canvas.u1r-old-mapped-backup.exe",
+      "backupSha256": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1",
+      "installedNewSha256": "b233c181b38fa129f8f6f4ac9a76ff1673989e6c942f76a26ea5886714dbe580"
+    },
+    "oldProcessAfterReplacement": {
+      "processId": 9024,
+      "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+      "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+      "created": "2026-10-12T02:16:10.712862+00:00"
+    },
+    "newServiceAfterReplacement": {
+      "state": "Running",
+      "processId": 9232,
+      "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+      "exitCode": 0,
+      "serviceSpecificExitCode": 0,
+      "process": {
+        "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+        "created": "2026-10-12T02:16:13.203744+00:00"
+      }
+    },
+    "newServiceProcess": {
+      "pid": 9232,
+      "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+      "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+      "creationDate": "2026-10-12T02:16:13.203744+00:00",
+      "onDiskSha256": "b233c181b38fa129f8f6f4ac9a76ff1673989e6c942f76a26ea5886714dbe580"
+    },
+    "newServiceBinaryMatchesD1A": true,
+    "oldClientLogBeforeRelease": "native_qa startup_checkpoint=process_main_entered\nnative_qa startup_checkpoint=tauri_setup_entered\nnative_qa startup_checkpoint=database_ready\nu1r_process_generation=old-master-3275ac7-test-instrumented pid=9024\n",
+    "oldGenerationTracePresent": true,
+    "identityAcceptedOldPid": false,
+    "rebuildRequestAccepted": false,
+    "serviceOperationClaimed": false,
+    "serviceSourceValidated": false,
+    "requestIdsMatchAcrossAcceptanceClaimAndValidation": false,
+    "acceptedRequestId": null,
+    "claimedRequestId": null,
+    "validatedRequestId": null,
+    "validatedSourceId": null,
+    "oldClientServiceRouteCompleted": false,
+    "serviceTrace": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-same-path-service.trace.log",
+    "clientTrace": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-same-path-client.trace.log",
+    "oldClientTraceAfterRelease": "native_qa startup_checkpoint=process_main_entered\nnative_qa startup_checkpoint=tauri_setup_entered\nnative_qa startup_checkpoint=database_ready\nu1r_process_generation=old-master-3275ac7-test-instrumented pid=9024\nu1r_startup_gate_released pid=9024\nnative_qa startup_checkpoint=core_runtime_owners_ready\nnative_qa startup_checkpoint=tray_ready\nnative_qa startup_checkpoint=autostart_sync_complete\nnative_qa startup_checkpoint=hotkey_setup_complete\nnative_qa watcher event=watcher_mode backend_reconciliation_enabled=true\nnative_qa watcher event=settings_reload_restart result=success changed=true\nnative_qa watcher event=settings_reload_reconciliation_schedule result=success\nnative_qa startup_checkpoint=watcher_setup_complete\nui_runtime startup_mode=background webview_count=0 labels=\nnative_qa startup_checkpoint=setup_complete\n",
+    "postSnapshot": {
+      "activeEntries": 4,
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": null,
+          "model": "fixture",
+          "provider": "local",
+          "status": "completed",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "status": "pending"
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": null,
+          "created_at": 1791771363,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "pending"
+        }
+      ],
+      "counts": {
+        "aiAnalysisState": 1,
+        "aiJobItems": 1,
+        "aiJobs": 1,
+        "managedEntries": 1,
+        "managedScopes": 1
+      },
+      "entry": {
+        "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+        "is_stale": 0,
+        "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "managedEntries": [
+        {
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "managedScopes": [
+        {
+          "allow_cloud_ai": 0,
+          "allow_local_ai": 1,
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-scope",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+        }
+      ],
+      "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+      "markerFtsHits": 1,
+      "mode": "snapshot",
+      "schemaVersion": 37,
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "index_status": "rebuild_required",
+        "journal_cursor": "664",
+        "journal_id": "134362449615844939",
+        "last_error": null,
+        "last_full_index_at": 1791771362,
+        "last_incremental_sync_at": 1791771362,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791771363
+      },
+      "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+      "staleEntries": 0
+    },
+    "failure": "System.IO.IOException: The process cannot access the file 'D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-same-path-profile\\zen-canvas.sqlite3' because it is being used by another process.\r\n   at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)\r\n   at System.IO.Strategies.FileStreamHelpers.ChooseStrategyCore(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)\r\n   at System.IO.File.OpenRead(String path)\r\n   at Microsoft.PowerShell.Commands.GetFileHashCommand.ComputeFileHash(String path, String& hash)",
+    "profileFiles": [
+      {
+        "name": "zen-canvas.sqlite3",
+        "sha256": "fae4fd43f5b718951f8860d8127d0eceb2d721a129463b72fb82bf6cf7605da6",
+        "bytes": 1073152
+      },
+      {
+        "name": "zen-canvas.sqlite3-wal",
+        "sha256": "17cb79a4a4897326ce52741e76c1f2edf6a803dd9b4ce2ec3cadab8834e21898",
+        "bytes": 412032
+      },
+      {
+        "name": "zen-canvas.sqlite3-shm",
+        "sha256": "88e8b45864078dd29891585f6ddf4b3dfaeca6f0e2cf8779ac4cad319b2a2d7b",
+        "bytes": 32768
+      }
+    ]
+  },
+  "u1rDirectFallback": {
+    "status": "OBSERVED_LEGACY_DIRECT_FALLBACK_WITH_RICH_BASELINE",
+    "clientPid": 10176,
+    "process": {
+      "processId": 10176,
+      "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+      "commandLine": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --background",
+      "created": "2026-10-12T02:27:17.830921+00:00"
+    },
+    "binarySha256": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1",
+    "clientTrace": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-direct-client.trace.log",
+    "serviceWasStopped": true,
+    "startedService": {
+      "state": "Running",
+      "processId": 3200,
+      "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+      "exitCode": 0,
+      "serviceSpecificExitCode": 0,
+      "process": {
+        "path": "C:\\Program Files\\Zen Canvas\\zen-canvas.exe",
+        "created": "2026-10-12T02:27:16.333255+00:00"
+      }
+    },
+    "stoppedService": {
+      "state": "Stopped",
+      "processId": 0,
+      "imagePath": "\"C:\\Program Files\\Zen Canvas\\zen-canvas.exe\" --index-service",
+      "exitCode": 0,
+      "serviceSpecificExitCode": 0,
+      "process": null
+    },
+    "stoppedServiceBinarySha256": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1",
+    "transportErrorObserved": true,
+    "databasePath": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-direct-profile\\zen-canvas.sqlite3",
+    "databaseSha256BeforeRequest": "fae4fd43f5b718951f8860d8127d0eceb2d721a129463b72fb82bf6cf7605da6",
+    "initialSnapshot": {
+      "activeEntries": 4,
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": null,
+          "model": "fixture",
+          "provider": "local",
+          "status": "completed",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "status": "pending"
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": null,
+          "created_at": 1791771363,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": null,
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "pending"
+        }
+      ],
+      "counts": {
+        "aiAnalysisState": 1,
+        "aiJobItems": 1,
+        "aiJobs": 1,
+        "managedEntries": 1,
+        "managedScopes": 1
+      },
+      "entry": {
+        "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+        "is_stale": 0,
+        "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "managedEntries": [
+        {
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "managedScopes": [
+        {
+          "allow_cloud_ai": 0,
+          "allow_local_ai": 1,
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-scope",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+        }
+      ],
+      "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+      "markerFtsHits": 1,
+      "mode": "snapshot",
+      "schemaVersion": 37,
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "index_status": "rebuild_required",
+        "journal_cursor": "664",
+        "journal_id": "134362449615844939",
+        "last_error": null,
+        "last_full_index_at": 1791771362,
+        "last_incremental_sync_at": 1791771362,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791771363
+      },
+      "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+      "staleEntries": 0
+    },
+    "directFallbackObserved": true,
+    "mftReturned": true,
+    "postSnapshot": {
+      "activeEntries": 4,
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": "global_entry_stale",
+          "model": "fixture",
+          "provider": "local",
+          "status": "stale",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": "global_entry_stale",
+          "status": "stale"
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": 1791772218,
+          "created_at": 1791771363,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": "global_entry_stale",
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "stale"
+        }
+      ],
+      "counts": {
+        "aiAnalysisState": 1,
+        "aiJobItems": 1,
+        "aiJobs": 1,
+        "managedEntries": 1,
+        "managedScopes": 1
+      },
+      "entry": {
+        "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+        "is_stale": 0,
+        "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "managedEntries": [
+        {
+          "enabled": 0,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "managedScopes": [
+        {
+          "allow_cloud_ai": 0,
+          "allow_local_ai": 1,
+          "enabled": 1,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-scope",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+        }
+      ],
+      "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+      "markerFtsHits": 1,
+      "mode": "snapshot",
+      "schemaVersion": 37,
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "index_status": "ready",
+        "journal_cursor": "664",
+        "journal_id": "134362449615844939",
+        "last_error": null,
+        "last_full_index_at": 1791772218,
+        "last_incremental_sync_at": 1791772218,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791772218
+      },
+      "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+      "staleEntries": 0
+    },
+    "databaseSha256AfterRequest": "fae4fd43f5b718951f8860d8127d0eceb2d721a129463b72fb82bf6cf7605da6",
+    "statePreservation": {
+      "preserved": false,
+      "sourceFields": {
+        "enabled": true,
+        "provider": true,
+        "index_status": false,
+        "last_error": true,
+        "journal_id": true,
+        "journal_cursor": true,
+        "last_full_index_at": false,
+        "last_incremental_sync_at": false,
+        "entry_count": true,
+        "updated_at": false
+      },
+      "associations": {
+        "managedScopes": true,
+        "managedEntries": false,
+        "aiAnalysisState": false,
+        "aiJobs": false,
+        "aiJobItems": false,
+        "counts": true
+      },
+      "markerEntry": true,
+      "activeEntries": true,
+      "staleEntries": true,
+      "markerFtsHits": true
+    },
+    "stateDelta": {
+      "source": {
+        "enabled": 1,
+        "entry_count": 4,
+        "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+        "index_status": "ready",
+        "journal_cursor": "664",
+        "journal_id": "134362449615844939",
+        "last_error": null,
+        "last_full_index_at": 1791772218,
+        "last_incremental_sync_at": 1791772218,
+        "provider": "windows_mft_usn",
+        "updated_at": 1791772218
+      },
+      "entry": {
+        "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+        "is_stale": 0,
+        "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+        "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+        "source_provider": "windows_mft_usn"
+      },
+      "markerFtsHits": 1,
+      "managedEntries": [
+        {
+          "enabled": 0,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-managed-entry",
+          "managed_scope_id": "u1r-synthetic-managed-scope"
+        }
+      ],
+      "aiAnalysisState": [
+        {
+          "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+          "content_summary": "synthetic U1R association",
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "input_fingerprint": "u1r-fixture-fingerprint",
+          "last_error": "global_entry_stale",
+          "model": "fixture",
+          "provider": "local",
+          "status": "stale",
+          "user_corrected": 1
+        }
+      ],
+      "aiJobs": [
+        {
+          "attempt_count": 0,
+          "completed_at": 1791772218,
+          "created_at": 1791771363,
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job",
+          "last_error": "global_entry_stale",
+          "managed_scope_id": "u1r-synthetic-managed-scope",
+          "started_at": null,
+          "status": "stale"
+        }
+      ],
+      "aiJobItems": [
+        {
+          "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "id": "u1r-synthetic-ai-job-item",
+          "job_id": "u1r-synthetic-ai-job",
+          "last_error": "global_entry_stale",
+          "status": "stale"
+        }
+      ]
+    },
+    "profileFiles": [
+      {
+        "name": "zen-canvas.sqlite3",
+        "sha256": "fae4fd43f5b718951f8860d8127d0eceb2d721a129463b72fb82bf6cf7605da6",
+        "bytes": 1073152
+      },
+      {
+        "name": "zen-canvas.sqlite3-wal",
+        "sha256": "34498b04e891323abfa07bd1a06eef31be065b4be43eae3d7065bc5b049614c4",
+        "bytes": 560352
+      },
+      {
+        "name": "zen-canvas.sqlite3-shm",
+        "sha256": "a9051188a462db546231e636d4cbf0cd195cc5be9afcbd5f540a414d4d265750",
+        "bytes": 32768
+      }
+    ]
+  },
+  "u1rFixture": {
+    "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+    "volume": {
+      "name": "u1r-rich-generation-fixture",
+      "vhd": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-rich-generation-fixture.vhdx",
+      "drive": "Z",
+      "root": "Z:\\",
+      "filesystem": "NTFS",
+      "usnJournal": "Usn Journal ID   : 0x01dd59efa080f64b\r\nFirst Usn        : 0x0000000000000000\r\nNext Usn         : 0x0000000000000000\r\nLowest Valid Usn : 0x0000000000000000\r\nMax Usn          : 0x00000fffffff0000\r\nMaximum Size     : 0x0000000000100000 (  1.0 MB)\r\nAllocation Delta : 0x0000000000040000 (256.0 KB)\r\nMinimum record version supported : 2\r\nMaximum record version supported : 4\r\nWrite range tracking: Disabled"
+    },
+    "fixtureRoot": "Z:\\fixture",
+    "markerName": "u1r-generation-2abb20935a254d488539180118896513.txt",
+    "baselineProfile": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-baseline-profile",
+    "installerProfile": "D:\\a\\_temp\\issue-380-u1-runtime-38193683826-1\\u1r-installer-profile",
+    "richFixture": {
+      "after": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791771363,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "is_stale": 0,
+          "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+          }
+        ],
+        "markerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+          "index_status": "rebuild_required",
+          "journal_cursor": "664",
+          "journal_id": "134362449615844939",
+          "last_error": null,
+          "last_full_index_at": 1791771362,
+          "last_incremental_sync_at": 1791771362,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791771363
+        },
+        "staleEntries": 0
+      },
+      "before": {
+        "activeEntries": 4,
+        "aiAnalysisState": [],
+        "aiJobItems": [],
+        "aiJobs": [],
+        "counts": {
+          "aiAnalysisState": 0,
+          "aiJobItems": 0,
+          "aiJobs": 0,
+          "managedEntries": 0,
+          "managedScopes": 0
+        },
+        "entry": {
+          "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "is_stale": 0,
+          "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [],
+        "managedScopes": [],
+        "markerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+          "index_status": "ready",
+          "journal_cursor": "664",
+          "journal_id": "134362449615844939",
+          "last_error": null,
+          "last_full_index_at": 1791771362,
+          "last_incremental_sync_at": 1791771362,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791771362
+        },
+        "staleEntries": 0
+      },
+      "checkpointProvenance": {
+        "journal_cursor": "observed_from_old_master_index",
+        "journal_id": "observed_from_old_master_index",
+        "last_full_index_at": "observed_from_old_master_index",
+        "last_incremental_sync_at": "observed_from_old_master_index"
+      },
+      "effectiveCheckpoint": {
+        "journal_cursor": "664",
+        "journal_id": "134362449615844939",
+        "last_full_index_at": 1791771362,
+        "last_incremental_sync_at": 1791771362
+      },
+      "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+      "mode": "seed-rich",
+      "schemaVersion": 37,
+      "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1"
+    },
+    "installerProfileReady": {
+      "after": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791771363,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "is_stale": 0,
+          "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+          }
+        ],
+        "markerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+          "index_status": "ready",
+          "journal_cursor": "664",
+          "journal_id": "134362449615844939",
+          "last_error": null,
+          "last_full_index_at": 1791771362,
+          "last_incremental_sync_at": 1791771362,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791771364
+        },
+        "staleEntries": 0
+      },
+      "before": {
+        "activeEntries": 4,
+        "aiAnalysisState": [
+          {
+            "classification_json": "{\"fixture\":\"u1r\",\"user_note\":\"preserve for test\"}",
+            "content_summary": "synthetic U1R association",
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "input_fingerprint": "u1r-fixture-fingerprint",
+            "last_error": null,
+            "model": "fixture",
+            "provider": "local",
+            "status": "completed",
+            "user_corrected": 1
+          }
+        ],
+        "aiJobItems": [
+          {
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job-item",
+            "job_id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "status": "pending"
+          }
+        ],
+        "aiJobs": [
+          {
+            "attempt_count": 0,
+            "completed_at": null,
+            "created_at": 1791771363,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-ai-job",
+            "last_error": null,
+            "managed_scope_id": "u1r-synthetic-managed-scope",
+            "started_at": null,
+            "status": "pending"
+          }
+        ],
+        "counts": {
+          "aiAnalysisState": 1,
+          "aiJobItems": 1,
+          "aiJobs": 1,
+          "managedEntries": 1,
+          "managedScopes": 1
+        },
+        "entry": {
+          "id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+          "is_stale": 0,
+          "name": "u1r-generation-2abb20935a254d488539180118896513.txt",
+          "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt",
+          "source_provider": "windows_mft_usn"
+        },
+        "managedEntries": [
+          {
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-entry",
+            "managed_scope_id": "u1r-synthetic-managed-scope"
+          }
+        ],
+        "managedScopes": [
+          {
+            "allow_cloud_ai": 0,
+            "allow_local_ai": 1,
+            "enabled": 1,
+            "global_entry_id": "ge_54b3bba2a48afe85dd38f36e8d0ba6c84206020e92f60dfe9129aebf39e34e01",
+            "id": "u1r-synthetic-managed-scope",
+            "path": "Z:\\fixture\\u1r-generation-2abb20935a254d488539180118896513.txt\\..u1r-managed-root"
+          }
+        ],
+        "markerFtsHits": 1,
+        "source": {
+          "enabled": 1,
+          "entry_count": 4,
+          "id": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1",
+          "index_status": "rebuild_required",
+          "journal_cursor": "664",
+          "journal_id": "134362449615844939",
+          "last_error": null,
+          "last_full_index_at": 1791771362,
+          "last_incremental_sync_at": 1791771362,
+          "provider": "windows_mft_usn",
+          "updated_at": 1791771363
+        },
+        "staleEntries": 0
+      },
+      "marker": "u1r-generation-2abb20935a254d488539180118896513.txt",
+      "mode": "set-ready",
+      "schemaVersion": 37,
+      "sourceId": "gv_cd847714863a7cfade08572ea8df696deda29987cb1151be0cfc69f02e366fd1"
+    },
+    "baselineServiceSha256": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1",
+    "baselineClientSha256": "97cc082ad501e6055f0a8fee11e21d3ddcc4312f159768179eeb4701c04ef3b1"
+  }
+}

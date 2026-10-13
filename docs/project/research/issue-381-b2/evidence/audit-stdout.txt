@@ -1,0 +1,1 @@
+{"positive_passed": 16, "expected_rejections_observed": 6, "independent_negative_diffs": 6, "assertions": 497, "sqlite_integrity_and_fk_snapshots": 27, "source_hashes_match": true}

@@ -1,0 +1,15 @@
+A	docs/project/research/issue-381-b2/README.md
+A	docs/project/research/issue-381-b2/REPORT.md
+A	docs/project/research/issue-381-b2/evidence/input-381-comments.json
+A	docs/project/research/issue-381-b2/evidence/input-381.json
+A	docs/project/research/issue-381-b2/evidence/input-383.json
+A	docs/project/research/issue-381-b2/evidence/input-394.json
+A	docs/project/research/issue-381-b2/evidence/input-owner.json
+A	docs/project/research/issue-381-b2/evidence/input-s6-cursor.md
+A	docs/project/research/issue-381-b2/evidence/input-s7-fts.md
+A	docs/project/research/issue-381-b2/evidence/input-s8-admission.md
+A	docs/project/research/issue-381-b2/evidence/inputs.json
+A	tests/issue381_b2/.gitignore
+A	tests/issue381_b2/model.py
+A	tests/issue381_b2/oracle.py
+A	tests/issue381_b2/run.py

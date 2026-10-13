@@ -1,0 +1,50 @@
+[
+  {
+    "pr": 386,
+    "head": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/coordinator.rs",
+    "sha256": "6f113e4e295e85dc8baf4148d420848fe677094eb10ee826e0b0f94a45583fef"
+  },
+  {
+    "pr": 386,
+    "head": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/service.rs",
+    "sha256": "69a73728e6b130f3c6ee80e058eed18da8d3e49c497eefad10f2b0079b4ef16b"
+  },
+  {
+    "pr": 386,
+    "head": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/service_errors.rs",
+    "sha256": "1b658ceed575fdad84af527d7356e9f28725c672cb5393d5aa9321f788d9646d"
+  },
+  {
+    "pr": 386,
+    "head": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/service_host.rs",
+    "sha256": "cf5512b70f8ccc36a7cd662703e797f54cb8d98d92a20df5bf233ed45cd13dc6"
+  },
+  {
+    "pr": 386,
+    "head": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/mod.rs",
+    "sha256": "2d4f2ebd27c80164c5fc019ad54557dd5a01baa3c6deff66ecc32e428c40a62a"
+  },
+  {
+    "pr": 393,
+    "head": "0532e0ddee5c65a3ae98f5722512d2a2faed16ee",
+    "path": "src-tauri/src/global_index/coordinator_service_busy_ownership_tests.rs",
+    "sha256": "86da9f69a72ce55e3a6d2bdf4545d8bb9282f5246a663e67304999075579c8ec"
+  },
+  {
+    "pr": 397,
+    "head": "44a929e6f21cf597ac031887e85e072855989888",
+    "path": "tests/issue380_d3/model.py",
+    "sha256": "e6d58bf44076294ce05bac35677438501bb43d85c9786f02807d5af6ab62fe43"
+  },
+  {
+    "pr": 397,
+    "head": "44a929e6f21cf597ac031887e85e072855989888",
+    "path": "docs/project/research/issue-380-d3/README.md",
+    "sha256": "ba695b7441981960a33ba13c87a4ee9bedfea90e390298b5b5c2746f21677e87"
+  }
+]

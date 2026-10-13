@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "--lib",
+    "p1_scope_",
+    "--",
+    "--nocapture"
+  ],
+  "exit_code": 101,
+  "tests_executed": false,
+  "reason": "glib-2.0 >=2.70 pkg-config dependency missing before tests",
+  "log_sha256": "9829e3596061f5e9a1e0ab6b5b5cf5a211237e8c41786e026e29159e14f9f250"
+}

@@ -1,0 +1,61 @@
+{
+  "terminal": "ISSUE_380_P1_OWNER_ESCALATION_REQUIRED",
+  "product": "ISSUE_380_PRODUCT_FIX_NO_GO",
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "execution_head": "e37b19e5930b03b13da8f48c996ed1e0510d1c23",
+  "execution_tree": "49ce2e3c3687825cbae043d100c9824e56aa77a6",
+  "source_sha256": {
+    "src-tauri/src/db/types.rs": "4ae77b02eb1e6991bd1776e4ecd9b257ba45df659078a758be6ebc5ab8e9f603",
+    "src-tauri/src/global_index/coordinator.rs": "f900d313542e4acc5a2694fed75b8089b16bc14891ea1f5c4428a9e89d3805cd",
+    "src-tauri/src/global_index/models.rs": "b18d9d1cc3ef307d68e40493afda5e8ef4ebe4014b84ae0d39685019d8c77f5c",
+    "src-tauri/src/global_index/windows/service.rs": "c7ebb1e2a3023784d55c52d5777fb54519b430e0e5d7829f86e06083926457e2",
+    "src-tauri/src/global_index/windows/service_errors.rs": "75d7570c9c18f292dd729a55b2b7030e5be2817bf09a15052c30df4305767494",
+    "src-tauri/src/global_index/windows/service_errors_p1_scope_tests.rs": "0cdcd34c4f552c67684fd2bcd619b30ed385d6b06b915e70166fea2cb2a8536b"
+  },
+  "runner_sha256": "da05f537fc37c173c0b76bb95b2a3bcb5ed934aaa9989f12e270a2cbf724a14c",
+  "generated_harness_sha256": "88c0f371b41138d1c0c0f845cc6177bb4b665f0461b756b9cfdc1e5fa379cb80",
+  "fixture_cargo_sha256": "15fc432b24670a7046901dc9d92cd7e70f0a56701328d07c1885771c25200218",
+  "fixture_lock_sha256": "76b82ce6fb70848e85812a5deed49bb32775e1d3d44b2c7142cc32a4bfa20b2b",
+  "extracted_definitions_sha256": {
+    "db-error.rs": "105db8f410bdd75b4abb26401588e7eaffe6491b36d7d225e4fa520036f65121",
+    "global-error.rs": "2f1c2ee75ce3ccf67cb906c0c4f5dc320467286ef14d70309a89eb9e873224f3",
+    "response.rs": "1bde5352411ae725ad9681556f758ca147463e35940df119315bbf9488fbd8f5",
+    "protocol.rs": "184a46405b818c1d7c61b22b96ad7a9c045f6f3d2f4a461e857471935af5a3c3",
+    "models.rs": "817917a6bfcfbb4c1f50f2e4d009143bf9b36ec0c20965df8749363bb86ab1ca"
+  },
+  "runs": [
+    {
+      "label": "characterization",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--manifest-path",
+        ".tmp-tests/p1/fixture/Cargo.toml",
+        "p1_scope_",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "log_sha256": "b0fdf61e77099e4cb2a228bf02310483b822caab4cd8d3c28dfbab02a2a524cc"
+    },
+    {
+      "label": "required-contract",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--manifest-path",
+        ".tmp-tests/p1/fixture/Cargo.toml",
+        "p1_required_",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "log_sha256": "0a4296fa96fd9c927416e7ec39f82d8586adeec6109ee391c82a3294fb1a512e"
+    }
+  ],
+  "required_contract_failures_observed": true,
+  "qualification": "Actual Rust production decoder and verbatim definitions; reduced Linux crate, NOT desktop/native runtime qualification"
+}

@@ -1,0 +1,1 @@
+{"native_cases": ["B3F-C01", "B3F-C01-one", "B3F-C02", "B3F-C03", "B3F-C04", "B3F-C05", "B3F-C06", "B3F-C07", "B3F-C08", "B3F-C09", "B3F-C10", "B3F-C11", "B3F-C12"], "independent_checks": 760, "exact_source_hashes": true, "unmodified_native_archives_verified": true, "sigkill_barriers": 6, "competing_writer_pairs": 4, "bounded_gc_batches": 99, "max_gc_members_per_batch": 1000}

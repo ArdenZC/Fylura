@@ -1,0 +1,6 @@
+
+> zen-canvas@0.1.40 test:docs
+> node scripts/checkDocumentation.mjs && node scripts/checkProjectGovernance.mjs
+
+Documentation validation passed for 3 changed Markdown file(s).
+Project governance validation passed.

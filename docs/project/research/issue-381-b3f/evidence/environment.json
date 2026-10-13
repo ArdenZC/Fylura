@@ -1,0 +1,34 @@
+{
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "os": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "seed": 38131020261013,
+  "command": [
+    "tests/issue381_b3_fts/run.py",
+    "--output",
+    ".tmp-tests/issue381_b3f/qualification-source-head"
+  ],
+  "git": {
+    "head": "35bd609ce1d0002d86596a31e8c5904d56e7d61a",
+    "tree": "88fa267c0521ea9a2a4505520516a24f63d646ae",
+    "branch": "test/issue-381-b3f-product-fts-options",
+    "base": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "base_tree": "009576241cd4e8e2ba12cc644a368314f599faa6"
+  },
+  "source_sha256": {
+    "tests/issue381_b3_fts/run.py": "1adc804100bf485c37de6a7cbd1af8dab0a893a74ca005cfb078633b94170bf7",
+    "tests/issue381_b3_fts/fixture.py": "1d20d2fe854f1e90198c4bfffe9b106bc0ee5902fd842e3736361422ff7a6090",
+    "tests/issue381_b3_fts/reference.py": "daa5096f0fca36f21efc83f2b11499b87b7e268d1795cfa77d534f8fefe1da48",
+    "tests/issue381_b3_fts/.gitignore": "024f5d8f0e3fd394c91743c1b5023ed12c5abdf411d8239acb1225d9e7bdb8fe",
+    "tests/issue381_b3_fts/Cargo.toml": "1fc1a2197bd7c9072137cf515388a57639a2a36e21683614a46085c9820a2043",
+    "tests/issue381_b3_fts/build.rs": "70b11177ca3986934b85c03af4181484cb10ba161fbda98b798a574973be829d",
+    "tests/issue381_b3_fts/Cargo.lock": "8e027b7cd2b5b38e471a53d2234946391ec8eff2e17176b48daefd4ce86ffeb6",
+    "tests/issue381_b3_fts/src/query.rs": "bee62fb80f7621f276f44949437bda0608aa285d69cdfaa9a228dec5142ff5aa",
+    "tests/issue381_b3_fts/src/lifecycle.rs": "c502e5885a79a8043776327eb72886f1f24cbf0bb873eb3755095476eb92b694",
+    "tests/issue381_b3_fts/src/rank.c": "af07332961ef84fc4dee7d579c4b0b61a6c0b514c590eff5186875ac926b4b80",
+    "tests/issue381_b3_fts/src/corpus.rs": "b19297aa357a9e73b846441cd004f3adc5b0b3b41d1ce86aa47756cc2b140e99",
+    "tests/issue381_b3_fts/src/main.rs": "306cef613bedaead7395eff411b2f0a2a381759ca75e83761158b4b17e5ccb27",
+    "tests/issue381_b3_fts/src/db.rs": "9a4521cf1409bc8c5e71ac1c6007bd64c84a045b6f57424a7f2c44b88d5025c2",
+    "tests/issue381_b3_fts/src/product-index.sql": "7c8bda9ea851df17a984bc1c97b541924971f6dc1295430a5fa90559008002b0"
+  },
+  "runtime_version_provenance": "native Rust output only; independent Python sqlite3 is never a ranking/runtime substitute"
+}

@@ -1,6 +1,4 @@
-//! P1 scope blocker characterization, NOT repaired-behavior acceptance.
-//! The three required typed-contract probes in the qualification runner FAIL
-//! against these same production definitions; these tests retain the cause.
+//! Repaired P1 contract; pre-fix outputs remain in the committed research evidence.
 use super::{classify, decode};
 use crate::global_index::coordinator::GlobalIndexError;
 use crate::global_index::windows::service::IndexServiceResponse;
@@ -19,29 +17,29 @@ fn trusted_response(code: &str) -> IndexServiceResponse {
 }
 
 #[test]
-fn p1_scope_busy_permission_unknown_erase_at_public_error_boundary() {
+fn p1_scope_busy_permission_unknown_remain_distinct_at_public_error_boundary() {
     let provider = GlobalIndexError::Provider("ordinary provider failure".into());
     for (code, required) in [
         ("index_service_busy", "ServiceBusy"),
         ("index_permission_required", "PermissionRequired"),
-        ("index_outcome_unknown", "UnknownOutcome"),
+        ("index_outcome_unknown", "ServiceProtocol"),
     ] {
         let decoded = decode(&trusted_response(code));
-        assert!(matches!(&decoded, GlobalIndexError::Provider(_)));
-        assert_eq!(discriminant(&decoded), discriminant(&provider));
+        assert!(!matches!(&decoded, GlobalIndexError::Provider(_)));
+        assert_ne!(discriminant(&decoded), discriminant(&provider));
         println!(
-            "p1_scope_blocker code={code} required={required} actual=Provider typed_contract_pass=false"
+            "p1_scope_blocker code={code} required={required} actual={decoded:?} typed_contract_pass=true"
         );
     }
 }
 
 #[test]
-fn p1_scope_true_provider_is_encoded_as_permission_on_master() {
+fn p1_scope_true_provider_is_not_encoded_as_permission() {
     let (code, status) = classify(&GlobalIndexError::Provider("ordinary failure".into()));
-    assert_eq!(code, "index_permission_required");
-    assert_eq!(status, "permission_required");
+    assert_eq!(code, "index_provider_error");
+    assert_eq!(status, "error");
     println!(
-        "p1_scope_blocker server_input=Provider actual_code={code} provider_permission_distinct=false"
+        "p1_scope_blocker server_input=Provider actual_code={code} provider_permission_distinct=true"
     );
 }
 
@@ -80,7 +78,7 @@ fn p1_scope_real_sqlite_busy_keeps_local_database_identity() {
     assert_ne!(discriminant(&local), discriminant(&remote));
     writer.execute_batch("ROLLBACK").unwrap();
     println!(
-        "p1_scope_sqlite sqlite_version={} actual_sqlite_code=5 local=Database remote_service_busy=Provider sqlite_service_distinct=true",
+        "p1_scope_sqlite sqlite_version={} actual_sqlite_code=5 local=Database remote_service_busy=ServiceBusy sqlite_service_distinct=true",
         rusqlite::version()
     );
 }

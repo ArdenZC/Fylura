@@ -42,6 +42,7 @@ pub struct IndexServiceRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct IndexServiceResponse {
     pub protocol_version: u16,
     pub request_id: String,
@@ -53,6 +54,7 @@ pub struct IndexServiceResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "event")]
+#[serde(deny_unknown_fields)]
 pub enum IndexServiceEvent {
     Sources {
         sources: Vec<GlobalVolume>,
@@ -96,6 +98,7 @@ pub enum IndexServiceEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "response")]
+#[serde(deny_unknown_fields)]
 pub enum IndexServiceLookupResponse {
     ParentPath {
         lookup_id: String,
@@ -109,6 +112,7 @@ pub enum IndexServiceLookupResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "kind")]
+#[serde(deny_unknown_fields)]
 pub enum IndexServiceFrame {
     Event {
         request_id: String,
@@ -152,6 +156,9 @@ pub fn validate_request(request: &IndexServiceRequest) -> Result<(), String> {
                 .as_ref()
                 .ok_or_else(|| "index_service_source_snapshot_required".to_string())?;
             validate_source_snapshot(source)?;
+            if source.id != *source_id {
+                return Err("index_service_source_identity_mismatch".into());
+            }
         }
         IndexServiceCommand::Shutdown => {
             return Err("index_service_shutdown_via_scm_only".to_string());
@@ -184,6 +191,354 @@ fn validate_source_snapshot(source: &GlobalVolume) -> Result<(), String> {
 
 pub fn direct_mode_reason() -> &'static str {
     "The Windows index service is unavailable; using the in-process least-privilege fallback."
+}
+
+/// Only connect failure before dispatch permits Direct. A write/read failure after
+/// dispatch is ambiguous; a protocol rejection is not a remote outcome claim.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum IndexServiceCallError {
+    #[error("request was not sent: {0}")]
+    NotSent(String),
+    #[error("invalid service protocol: {0}")]
+    Protocol(String),
+    #[error("service transport outcome unknown: {0}")]
+    UnknownOutcome(String),
+    #[error("local index sink failed: {0}")]
+    Sink(#[from] crate::global_index::coordinator::GlobalIndexError),
+}
+
+impl IndexServiceCallError {
+    pub(crate) fn into_global(self) -> crate::global_index::coordinator::GlobalIndexError {
+        use crate::global_index::coordinator::GlobalIndexError;
+        match self {
+            Self::Protocol(message) => GlobalIndexError::ServiceProtocol(message),
+            Self::UnknownOutcome(message) => GlobalIndexError::ServiceOutcomeUnknown(message),
+            Self::NotSent(message) => GlobalIndexError::Provider(message),
+            Self::Sink(error) => error,
+        }
+    }
+}
+
+pub(crate) trait IndexServiceIo {
+    fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), String>;
+    fn read_frame(&mut self) -> Result<IndexServiceFrame, IndexServiceCallError>;
+    fn send_lookup(&mut self, response: IndexServiceLookupResponse) -> Result<(), String>;
+}
+
+/// Shared by the actual named-pipe client and deterministic transport tests.
+/// Validate the envelope before the callback can touch a database or reply.
+pub(crate) fn exchange<F>(
+    request: &IndexServiceRequest,
+    io: &mut impl IndexServiceIo,
+    mut event: F,
+) -> Result<IndexServiceResponse, IndexServiceCallError>
+where
+    F: FnMut(
+        IndexServiceEvent,
+    ) -> Result<Option<IndexServiceLookupResponse>, IndexServiceCallError>,
+{
+    validate_request(request).map_err(IndexServiceCallError::Protocol)?;
+    io.send_request(request)
+        .map_err(IndexServiceCallError::UnknownOutcome)?;
+    loop {
+        match io.read_frame()? {
+            IndexServiceFrame::Event {
+                request_id,
+                event: item,
+            } => {
+                if request_id != request.request_id {
+                    return Err(IndexServiceCallError::Protocol(
+                        "event request identity mismatch".into(),
+                    ));
+                }
+                if let Some(response) = event(item)? {
+                    io.send_lookup(response)
+                        .map_err(IndexServiceCallError::UnknownOutcome)?;
+                }
+            }
+            IndexServiceFrame::Response { response } => {
+                if response.protocol_version != IPC_PROTOCOL_VERSION
+                    || response.request_id != request.request_id
+                {
+                    return Err(IndexServiceCallError::Protocol(
+                        "response version/request identity mismatch".into(),
+                    ));
+                }
+                if (response.ok && response.error_code.is_some())
+                    || (!response.ok
+                        && !response
+                            .error_code
+                            .as_deref()
+                            .is_some_and(super::service_errors::known_code))
+                {
+                    return Err(IndexServiceCallError::Protocol(
+                        "invalid response error_code/ok structure".into(),
+                    ));
+                }
+                return Ok(response);
+            }
+            IndexServiceFrame::LookupResponse { .. } => {
+                return Err(IndexServiceCallError::Protocol(
+                    "unsolicited lookup response".into(),
+                ))
+            }
+        }
+    }
+}
+
+pub(crate) trait IndexServiceConnection {
+    fn send_event(&mut self, event: IndexServiceEvent) -> Result<(), String>;
+    fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String>;
+    fn read_lookup_response(
+        &mut self,
+        expected_lookup_id: &str,
+    ) -> Result<IndexServiceLookupResponse, String>;
+}
+
+/// In-memory validation of an identity-bound v3 scan stream, not a persistent
+/// Source ownership claim. EntryStale retains its original one-field wire shape.
+pub(crate) struct IndexServiceAdmission<'a> {
+    request: &'a IndexServiceRequest,
+    admitted: bool,
+    provider: bool,
+    stale: bool,
+    checkpoint: bool,
+    fault: Option<String>,
+    lookups: std::collections::HashSet<String>,
+    owned_entries: std::collections::HashSet<String>,
+}
+
+impl<'a> IndexServiceAdmission<'a> {
+    pub(crate) fn new(request: &'a IndexServiceRequest) -> Self {
+        Self {
+            request,
+            admitted: false,
+            provider: false,
+            stale: false,
+            checkpoint: false,
+            fault: None,
+            lookups: Default::default(),
+            owned_entries: Default::default(),
+        }
+    }
+
+    fn reject(message: &str) -> IndexServiceCallError {
+        IndexServiceCallError::Protocol(message.into())
+    }
+
+    pub(crate) fn apply(
+        &mut self,
+        sink: &mut dyn crate::global_index::coordinator::GlobalIndexSink,
+        event: IndexServiceEvent,
+    ) -> Result<Option<IndexServiceLookupResponse>, IndexServiceCallError> {
+        use crate::global_index::models::*;
+        let source = self
+            .request
+            .source
+            .as_ref()
+            .ok_or_else(|| Self::reject("scan source absent"))?;
+        if let IndexServiceEvent::Sources { sources } = &event {
+            if self.admitted
+                || sources.len() != 1
+                || !sources.first().is_some_and(|offered| {
+                    offered.id == source.id
+                        && offered.stable_volume_id == source.stable_volume_id
+                        && offered.mount_path.eq_ignore_ascii_case(&source.mount_path)
+                        && offered
+                            .filesystem_type
+                            .eq_ignore_ascii_case(&source.filesystem_type)
+                        && offered.platform == source.platform
+                        && offered.provider == PROVIDER_WINDOWS_MFT_USN
+                        && offered.enabled == source.enabled
+                        && offered.journal_id == source.journal_id
+                        && offered.journal_cursor == source.journal_cursor
+                })
+            {
+                return Err(Self::reject("invalid or duplicate admission"));
+            }
+            self.admitted = true;
+            return Ok(None);
+        }
+        if !self.admitted || self.fault.is_some() {
+            return Err(Self::reject("event outside admitted active scan"));
+        }
+        let volume = match &event {
+            IndexServiceEvent::Checkpoint { volume_id, .. }
+            | IndexServiceEvent::SourceState { volume_id, .. }
+            | IndexServiceEvent::SourceProvider { volume_id, .. }
+            | IndexServiceEvent::VolumeEntriesStale { volume_id }
+            | IndexServiceEvent::ResolveParentPath { volume_id, .. }
+            | IndexServiceEvent::FindEntryByIdentity { volume_id, .. } => Some(volume_id),
+            _ => None,
+        };
+        if volume.is_some_and(|id| id != &source.id) {
+            return Err(Self::reject("foreign volume event"));
+        }
+        let full = !matches!(
+            self.request.command,
+            IndexServiceCommand::ResumeIncrementalSync { .. }
+        );
+        match event {
+            IndexServiceEvent::SourceProvider {
+                volume_id,
+                provider,
+            } => {
+                if self.provider
+                    || self.checkpoint
+                    || provider != crate::global_index::models::PROVIDER_WINDOWS_MFT_USN
+                {
+                    return Err(Self::reject("invalid scan provider/order"));
+                }
+                sink.set_source_provider(&volume_id, &provider)?;
+                self.provider = true;
+            }
+            IndexServiceEvent::VolumeEntriesStale { volume_id } => {
+                if !self.provider || self.stale || (full && self.checkpoint) {
+                    return Err(Self::reject("invalid stale boundary"));
+                }
+                sink.mark_volume_entries_stale(&volume_id)?;
+                self.stale = true;
+            }
+            IndexServiceEvent::Entries { entries } => {
+                if !self.provider
+                    || self.checkpoint
+                    || (full && !self.stale)
+                    || entries.iter().any(|entry| {
+                        entry.volume_id != source.id
+                            || entry.source_provider != PROVIDER_WINDOWS_MFT_USN
+                    })
+                {
+                    return Err(Self::reject("unauthorized entries/order"));
+                }
+                sink.write_batch(&entries)?;
+            }
+            IndexServiceEvent::EntryStale { entry_id } => {
+                if !self.provider || self.checkpoint || !self.owned_entries.remove(&entry_id) {
+                    return Err(Self::reject("unproven stale entry identity"));
+                }
+                sink.mark_entry_stale(&entry_id)?;
+            }
+            IndexServiceEvent::Checkpoint {
+                volume_id,
+                journal_id,
+                journal_cursor,
+            } => {
+                if !self.provider
+                    || self.checkpoint
+                    || (full && !self.stale)
+                    || journal_id.as_ref().is_none_or(|value| value.is_empty())
+                    || journal_cursor.as_ref().is_none_or(|value| value.is_empty())
+                {
+                    return Err(Self::reject("missing scan completion boundary"));
+                }
+                sink.checkpoint(&volume_id, journal_id.as_deref(), journal_cursor.as_deref())?;
+                self.checkpoint = true;
+            }
+            IndexServiceEvent::SourceState {
+                volume_id,
+                status,
+                error,
+            } => {
+                if !matches!(
+                    status.as_str(),
+                    INDEX_STATUS_PAUSED
+                        | INDEX_STATUS_PERMISSION_REQUIRED
+                        | INDEX_STATUS_REBUILD_REQUIRED
+                        | INDEX_STATUS_ERROR
+                        | INDEX_STATUS_UNAVAILABLE
+                ) {
+                    return Err(Self::reject("illegal service source state"));
+                }
+                sink.set_source_state(&volume_id, &status, error.as_deref())?;
+                self.fault = Some(status);
+            }
+            IndexServiceEvent::ResolveParentPath {
+                lookup_id,
+                volume_id,
+                parent_platform_file_id,
+            } => {
+                if !self.provider
+                    || self.checkpoint
+                    || lookup_id.is_empty()
+                    || !self.lookups.insert(lookup_id.clone())
+                {
+                    return Err(Self::reject("invalid or replayed lookup"));
+                }
+                let path = sink.resolve_parent_path(&volume_id, &parent_platform_file_id)?;
+                return Ok(Some(IndexServiceLookupResponse::ParentPath {
+                    lookup_id,
+                    path,
+                }));
+            }
+            IndexServiceEvent::FindEntryByIdentity {
+                lookup_id,
+                volume_id,
+                platform_file_id,
+                parent_platform_file_id,
+                name,
+            } => {
+                if !self.provider
+                    || self.checkpoint
+                    || lookup_id.is_empty()
+                    || !self.lookups.insert(lookup_id.clone())
+                {
+                    return Err(Self::reject("invalid or replayed lookup"));
+                }
+                let entry = sink.find_entry_by_identity(
+                    &volume_id,
+                    &platform_file_id,
+                    &parent_platform_file_id,
+                    &name,
+                )?;
+                if let Some(entry) = &entry {
+                    if entry.volume_id != volume_id
+                        || entry.platform_file_id != platform_file_id
+                        || entry.parent_platform_file_id != parent_platform_file_id
+                        || entry.name != name
+                    {
+                        return Err(Self::reject("foreign lookup result identity"));
+                    }
+                    self.owned_entries.insert(entry.id.clone());
+                }
+                return Ok(Some(IndexServiceLookupResponse::Entry {
+                    lookup_id,
+                    entry: Box::new(entry),
+                }));
+            }
+            IndexServiceEvent::Sources { .. } => unreachable!(),
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn finish(
+        &self,
+        response: &IndexServiceResponse,
+    ) -> Result<(), IndexServiceCallError> {
+        if response.ok {
+            let full = !matches!(
+                self.request.command,
+                IndexServiceCommand::ResumeIncrementalSync { .. }
+            );
+            if !self.admitted
+                || !self.provider
+                || !self.checkpoint
+                || (full && !self.stale)
+                || (!full && self.stale)
+                || self.fault.is_some()
+            {
+                return Err(Self::reject("success without complete scan evidence"));
+            }
+        } else if response.error_code.as_deref() == Some("index_service_busy") && self.admitted {
+            return Err(Self::reject("busy after admission"));
+        } else if let Some(fault) = &self.fault {
+            let (_, expected) =
+                super::service_errors::classify(&super::service_errors::decode(response));
+            if fault != expected {
+                return Err(Self::reject("source fault/terminal error mismatch"));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(windows)]
@@ -255,14 +610,59 @@ mod named_pipe {
         }
     }
 
+    impl super::IndexServiceIo for IndexServiceClient {
+        fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), String> {
+            IndexServiceClient::send_request(self, request)
+        }
+        fn read_frame(&mut self) -> Result<IndexServiceFrame, super::IndexServiceCallError> {
+            let bytes =
+                read_frame(self.pipe).map_err(super::IndexServiceCallError::UnknownOutcome)?;
+            serde_json::from_slice(&bytes)
+                .map_err(|error| super::IndexServiceCallError::Protocol(error.to_string()))
+        }
+        fn send_lookup(&mut self, response: IndexServiceLookupResponse) -> Result<(), String> {
+            self.send_lookup_response(response)
+        }
+    }
+
+    pub(crate) fn call_admitted<F>(
+        request: &IndexServiceRequest,
+        event: F,
+    ) -> Result<IndexServiceResponse, super::IndexServiceCallError>
+    where
+        F: FnMut(
+            IndexServiceEvent,
+        )
+            -> Result<Option<IndexServiceLookupResponse>, super::IndexServiceCallError>,
+    {
+        validate_request(request).map_err(super::IndexServiceCallError::Protocol)?;
+        let mut client = connect().map_err(super::IndexServiceCallError::NotSent)?;
+        super::exchange(request, &mut client, event)
+    }
+
     pub fn call(request: &IndexServiceRequest) -> Result<IndexServiceResponse, String> {
         validate_request(request)?;
         let mut client = connect()?;
         client.send_request(request)?;
         loop {
             match client.read_frame()? {
-                IndexServiceFrame::Response { response } => return Ok(response),
-                IndexServiceFrame::Event { .. } => continue,
+                IndexServiceFrame::Response { response } => {
+                    if response.protocol_version != super::IPC_PROTOCOL_VERSION
+                        || response.request_id != request.request_id
+                        || (response.ok && response.error_code.is_some())
+                        || (!response.ok
+                            && !response
+                                .error_code
+                                .as_deref()
+                                .is_some_and(super::super::service_errors::known_code))
+                    {
+                        return Err("index_service_invalid_response".into());
+                    }
+                    return Ok(response);
+                }
+                IndexServiceFrame::Event { .. } => {
+                    return Err("index_service_unexpected_event".into())
+                }
                 IndexServiceFrame::LookupResponse { .. } => {
                     return Err("index_service_unexpected_lookup_response".to_string());
                 }
@@ -282,8 +682,26 @@ mod named_pipe {
         client.send_request(request)?;
         loop {
             match client.read_frame()? {
-                IndexServiceFrame::Response { response } => return Ok(response),
-                IndexServiceFrame::Event { event, .. } => on_event(&mut client, event)?,
+                IndexServiceFrame::Response { response } => {
+                    if response.protocol_version != super::IPC_PROTOCOL_VERSION
+                        || response.request_id != request.request_id
+                        || (response.ok && response.error_code.is_some())
+                        || (!response.ok
+                            && !response
+                                .error_code
+                                .as_deref()
+                                .is_some_and(super::super::service_errors::known_code))
+                    {
+                        return Err("index_service_invalid_response".into());
+                    }
+                    return Ok(response);
+                }
+                IndexServiceFrame::Event { request_id, event } => {
+                    if request_id != request.request_id {
+                        return Err("index_service_event_identity_mismatch".into());
+                    }
+                    on_event(&mut client, event)?;
+                }
                 IndexServiceFrame::LookupResponse { .. } => {
                     return Err("index_service_unexpected_lookup_response".to_string());
                 }
@@ -351,6 +769,18 @@ mod named_pipe {
                 return Err("index_service_lookup_id_mismatch".to_string());
             }
             Ok(response)
+        }
+    }
+
+    impl super::IndexServiceConnection for IndexServiceServerConnection {
+        fn send_event(&mut self, event: IndexServiceEvent) -> Result<(), String> {
+            IndexServiceServerConnection::send_event(self, event)
+        }
+        fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String> {
+            IndexServiceServerConnection::send_response(self, response)
+        }
+        fn read_lookup_response(&mut self, id: &str) -> Result<IndexServiceLookupResponse, String> {
+            IndexServiceServerConnection::read_lookup_response(self, id)
         }
     }
 
@@ -704,11 +1134,18 @@ mod named_pipe {
 }
 
 #[cfg(windows)]
+pub(crate) use named_pipe::call_admitted as call_index_service_admitted;
+
+#[cfg(windows)]
 pub use named_pipe::{
     call as call_index_service, call_stream as call_index_service_stream,
     serve_loop as serve_index_service_loop, serve_once as serve_index_service_once,
     wake_service_pipe, IndexServiceClient, IndexServiceServerConnection, ServiceRequestHandler,
 };
+
+#[cfg(test)]
+#[path = "service_p1_tests.rs"]
+pub(crate) mod p1_tests;
 
 #[cfg(test)]
 mod tests {

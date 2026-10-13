@@ -21,6 +21,14 @@ pub enum GlobalIndexError {
     Database(#[from] DbError),
     #[error("provider error: {0}")]
     Provider(String),
+    #[error("service request busy: {0}")]
+    ServiceBusy(String),
+    #[error("permission required: {0}")]
+    PermissionRequired(String),
+    #[error("invalid service protocol: {0}")]
+    ServiceProtocol(String),
+    #[error("service request outcome unknown: {0}")]
+    ServiceOutcomeUnknown(String),
     #[error("rebuild required: {0}")]
     RebuildRequired(String),
     #[error("Windows I/O failed (Win32 error {0})")]

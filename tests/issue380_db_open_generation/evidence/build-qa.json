@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "--manifest-path",
+    "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe/Cargo.toml",
+    "--features",
+    "native-qa"
+  ],
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "returncode": 0,
+  "elapsed_seconds": 0.37706756700026745,
+  "binary_sha256": "ced1771aefc2daab2f911a0c113c63af27c05cd85aa1526a3b0d5628331d5585",
+  "native_windows": false
+}

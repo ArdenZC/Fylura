@@ -1,0 +1,3503 @@
+{
+  "environment": {
+    "os": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "machine": "x86_64",
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "python_sqlite": "3.53.1",
+    "base": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+    "command": "python3 tests/issue380_db_open_generation/test_isolation.py",
+    "test_inputs": {
+      "tests/issue380_db_open_generation/Cargo.lock": "c1a188866cc5f622f0c1025accd9e2c1b0f46aa6dfdf09c08927191a8856d484",
+      "tests/issue380_db_open_generation/Probe.toml": "bf5ef2618ab6f0783b4d05f7d0417ac33dd3f1ea22d17933e6c51f2a744a914c",
+      "tests/issue380_db_open_generation/build_probe.py": "c19c3ba4f2f37e73fa02e70120d4228700e6c152a601cda3e1d64a063bde2df7",
+      "tests/issue380_db_open_generation/policy.rs": "8dd653344a52c13397da422e6d3e70ee1a0706d8ac8e8bd9cb766514c5aca8f9",
+      "tests/issue380_db_open_generation/probe.rs": "a980c131b4c6300d9e601cf43f84a74029b6f85dd1f50c401700a5cca11c59d2",
+      "tests/issue380_db_open_generation/run.py": "cf10f039c086b4528af5be290a65eec74946c7710bf240f4d6bc55e5b7d4d5bc",
+      "tests/issue380_db_open_generation/test_isolation.py": "b9048832ae83fd90e689c218c645c0342badb73d3e1020cd4330ec5215dc9b16",
+      "tests/issue380_db_open_generation/worker.py": "cdac1ba17c4e8e108801e09f68a2219f8cb533a03e84eb33c6662786bf47092d"
+    },
+    "source_manifest_sha256": "3ce1538653298bf0bcb9f89b90b5c709325d47028befefcf100562b887847c17",
+    "methods_run": 20,
+    "success": true,
+    "HOSTED_WINDOWS_VERIFIED": "NOT_RUN",
+    "OWNER_NATIVE_VERIFIED": "NOT_RUN"
+  },
+  "events": [
+    {
+      "case": "test_k1_01_frozen_open_and_migration_precede_any_post_open_gate",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmpsdbj7ny1",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmpsdbj7ny1/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 100.707
+    },
+    {
+      "case": "test_k1_01_frozen_open_and_migration_precede_any_post_open_gate",
+      "grade": "STATIC_SOURCE_FINDING",
+      "chain": [
+        "database_path",
+        "Database::open",
+        "configure_connection/WAL",
+        "pool build opens SQLite",
+        "migrate/DDL/user_version",
+        "main recovery/prune",
+        "later IPC/domain admission"
+      ]
+    },
+    {
+      "case": "test_k1_01_same_version_open_can_still_recreate_persistent_schema",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-sw0z0shr",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-sw0z0shr/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 103.042
+    },
+    {
+      "case": "test_k1_01_same_version_open_can_still_recreate_persistent_schema",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-sw0z0shr",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-sw0z0shr/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 13.29
+    },
+    {
+      "case": "test_k1_01_same_version_open_can_still_recreate_persistent_schema",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "witness": "schema37 ensure DDL ran before post-open reject"
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p0c35quo",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p0c35quo/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 101.437
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16240, \"role\": \"old-desktop-held\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p0c35quo/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16240,
+        "role": "old-desktop-held",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p0c35quo/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p0c35quo",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "",
+      "stderr": "Database schema version 1000 is newer than this app supports (37).\n",
+      "returncode": 23,
+      "elapsed_ms": 6.729
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"HELD_IGNORES_FUTURE\", \"pid\": 16240, \"role\": \"old-desktop-held\", \"elapsed_ms\": 2.253}\n"
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "HELD_IGNORES_FUTURE"
+      },
+      "response": {
+        "op": "write",
+        "value": "HELD_IGNORES_FUTURE",
+        "pid": 16240,
+        "role": "old-desktop-held",
+        "elapsed_ms": 2.253
+      }
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe": false,
+      "witness": "migrator future refusal is not SQLite authorization"
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_02_future_version_refusal_does_not_revoke_existing_connection",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ch3592uw",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ch3592uw/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 101.955
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16250, \"role\": \"old-held-reader\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ch3592uw/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16250,
+        "role": "old-held-reader",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ch3592uw/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"begin_read\", \"value\": \"user correction\", \"pid\": 16250, \"role\": \"old-held-reader\", \"elapsed_ms\": 1.358}\n"
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "begin_read"
+      },
+      "response": {
+        "op": "begin_read",
+        "value": "user correction",
+        "pid": 16250,
+        "role": "old-held-reader",
+        "elapsed_ms": 1.358
+      }
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ch3592uw",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ch3592uw/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 14.105
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"read\", \"value\": \"user correction\", \"pid\": 16250, \"role\": \"old-held-reader\", \"elapsed_ms\": 0.018}\n"
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "read"
+      },
+      "response": {
+        "op": "read",
+        "value": "user correction",
+        "pid": 16250,
+        "role": "old-held-reader",
+        "elapsed_ms": 0.018
+      }
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"rollback\", \"value\": \"released\", \"pid\": 16250, \"role\": \"old-held-reader\", \"elapsed_ms\": 0.017}\n"
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "rollback"
+      },
+      "response": {
+        "op": "rollback",
+        "value": "released",
+        "pid": 16250,
+        "role": "old-held-reader",
+        "elapsed_ms": 0.017
+      }
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"read\", \"value\": \"NEW_COMMIT\", \"pid\": 16250, \"role\": \"old-held-reader\", \"elapsed_ms\": 1.423}\n"
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "read"
+      },
+      "response": {
+        "op": "read",
+        "value": "NEW_COMMIT",
+        "pid": 16250,
+        "role": "old-held-reader",
+        "elapsed_ms": 1.423
+      }
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe_property": "SQLite transaction snapshot is consistent",
+      "safe": false,
+      "witness": "held read transaction is not generation revocation"
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-6tib_ajf",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-6tib_ajf/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 100.783
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16260, \"role\": \"old-desktop\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-6tib_ajf/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16260,
+        "role": "old-desktop",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-6tib_ajf/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"BEFORE_OPEN\", \"pid\": 16260, \"role\": \"old-desktop\", \"elapsed_ms\": 2.628}\n"
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "BEFORE_OPEN"
+      },
+      "response": {
+        "op": "write",
+        "value": "BEFORE_OPEN",
+        "pid": 16260,
+        "role": "old-desktop",
+        "elapsed_ms": 2.628
+      }
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-6tib_ajf",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-6tib_ajf/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 14.229
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"AFTER_NEW_OPEN\", \"pid\": 16260, \"role\": \"old-desktop\", \"elapsed_ms\": 2.636}\n"
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "AFTER_NEW_OPEN"
+      },
+      "response": {
+        "op": "write",
+        "value": "AFTER_NEW_OPEN",
+        "pid": 16260,
+        "role": "old-desktop",
+        "elapsed_ms": 2.636
+      }
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"reconnect\", \"value\": 37, \"pid\": 16260, \"role\": \"old-desktop\", \"elapsed_ms\": 0.356}\n"
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "reconnect"
+      },
+      "response": {
+        "op": "reconnect",
+        "value": 37,
+        "pid": 16260,
+        "role": "old-desktop",
+        "elapsed_ms": 0.356
+      }
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"AFTER_RECONNECT\", \"pid\": 16260, \"role\": \"old-desktop\", \"elapsed_ms\": 1.921}\n"
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "AFTER_RECONNECT"
+      },
+      "response": {
+        "op": "write",
+        "value": "AFTER_RECONNECT",
+        "pid": 16260,
+        "role": "old-desktop",
+        "elapsed_ms": 1.921
+      }
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe": false,
+      "witness": "old connection and re-open still write shared file"
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-n3uoquei",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-n3uoquei/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 100.841
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16269, \"role\": \"legacy-desktop-worker\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-n3uoquei/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16269,
+        "role": "legacy-desktop-worker",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-n3uoquei/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "service_control": "modeled stopped; worker kept alive",
+      "native": "NOT_RUN"
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-n3uoquei",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-n3uoquei/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 15.251
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"REPLAY_BEFORE_SWITCH\", \"pid\": 16269, \"role\": \"legacy-desktop-worker\", \"elapsed_ms\": 2.732}\n"
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "REPLAY_BEFORE_SWITCH"
+      },
+      "response": {
+        "op": "write",
+        "value": "REPLAY_BEFORE_SWITCH",
+        "pid": 16269,
+        "role": "legacy-desktop-worker",
+        "elapsed_ms": 2.732
+      }
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-n3uoquei",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-n3uoquei/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 16.054
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"REPLAY_AFTER_SWITCH\", \"pid\": 16269, \"role\": \"legacy-desktop-worker\", \"elapsed_ms\": 2.324}\n"
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "REPLAY_AFTER_SWITCH"
+      },
+      "response": {
+        "op": "write",
+        "value": "REPLAY_AFTER_SWITCH",
+        "pid": 16269,
+        "role": "legacy-desktop-worker",
+        "elapsed_ms": 2.324
+      }
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "STATIC_SOURCE_FINDING",
+      "service": "frozen Service uses PipeSink; SQLite belongs to Desktop sink/worker, not host-owned connection"
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_03_worker_replay_after_mock_service_stop_still_writes",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-v5uxsid4",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-v5uxsid4/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 106.153
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16283, \"role\": \"old-ignores-new-lock\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-v5uxsid4/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16283,
+        "role": "old-ignores-new-lock",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-v5uxsid4/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"IGNORES_NEW_LOCK\", \"pid\": 16283, \"role\": \"old-ignores-new-lock\", \"elapsed_ms\": 2.63}\n"
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "IGNORES_NEW_LOCK"
+      },
+      "response": {
+        "op": "write",
+        "value": "IGNORES_NEW_LOCK",
+        "pid": 16283,
+        "role": "old-ignores-new-lock",
+        "elapsed_ms": 2.63
+      }
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe": false,
+      "witness": "new-only advisory lock has no legacy cooperation",
+      "windows_mutex": "NOT_RUN; POSIX flock witness only"
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-7anms35f",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-7anms35f/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 99.565
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "STATIC_SOURCE_FINDING",
+      "installer_checkpoint": "service_stopped",
+      "native": "NOT_RUN"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16288, \"role\": \"late-old-desktop\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-7anms35f/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16288,
+        "role": "late-old-desktop",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-7anms35f/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"service_stopped\", \"pid\": 16288, \"role\": \"late-old-desktop\", \"elapsed_ms\": 2.494}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "service_stopped"
+      },
+      "response": {
+        "op": "write",
+        "value": "service_stopped",
+        "pid": 16288,
+        "role": "late-old-desktop",
+        "elapsed_ms": 2.494
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe": false,
+      "witness": "late process opened fixed path after modeled close"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-7nb2sa2k",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-7nb2sa2k/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 101.463
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "STATIC_SOURCE_FINDING",
+      "installer_checkpoint": "desktop_closed",
+      "native": "NOT_RUN"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16293, \"role\": \"late-old-desktop\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-7nb2sa2k/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16293,
+        "role": "late-old-desktop",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-7nb2sa2k/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"desktop_closed\", \"pid\": 16293, \"role\": \"late-old-desktop\", \"elapsed_ms\": 2.446}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "desktop_closed"
+      },
+      "response": {
+        "op": "write",
+        "value": "desktop_closed",
+        "pid": 16293,
+        "role": "late-old-desktop",
+        "elapsed_ms": 2.446
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe": false,
+      "witness": "late process opened fixed path after modeled close"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-rt9fr8p0",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-rt9fr8p0/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 107.184
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "STATIC_SOURCE_FINDING",
+      "installer_checkpoint": "binary_replaced",
+      "native": "NOT_RUN"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16299, \"role\": \"late-old-desktop\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-rt9fr8p0/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16299,
+        "role": "late-old-desktop",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-rt9fr8p0/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"binary_replaced\", \"pid\": 16299, \"role\": \"late-old-desktop\", \"elapsed_ms\": 2.158}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "binary_replaced"
+      },
+      "response": {
+        "op": "write",
+        "value": "binary_replaced",
+        "pid": 16299,
+        "role": "late-old-desktop",
+        "elapsed_ms": 2.158
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe": false,
+      "witness": "late process opened fixed path after modeled close"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ly1m38oi",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ly1m38oi/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 110.895
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "STATIC_SOURCE_FINDING",
+      "installer_checkpoint": "service_restarted",
+      "native": "NOT_RUN"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16304, \"role\": \"late-old-desktop\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ly1m38oi/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16304,
+        "role": "late-old-desktop",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-ly1m38oi/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"service_restarted\", \"pid\": 16304, \"role\": \"late-old-desktop\", \"elapsed_ms\": 2.39}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "service_restarted"
+      },
+      "response": {
+        "op": "write",
+        "value": "service_restarted",
+        "pid": 16304,
+        "role": "late-old-desktop",
+        "elapsed_ms": 2.39
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe": false,
+      "witness": "late process opened fixed path after modeled close"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_04_one_time_close_allows_real_late_child_to_open_db",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-spatlwqq",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-spatlwqq/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 104.206
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16310, \"role\": \"new-namespace-alias\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-spatlwqq/generation-2/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16310,
+        "role": "new-namespace-alias",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-spatlwqq/generation-2/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"NAMESPACE_ALIAS\", \"pid\": 16310, \"role\": \"new-namespace-alias\", \"elapsed_ms\": 3.001}\n"
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "NAMESPACE_ALIAS"
+      },
+      "response": {
+        "op": "write",
+        "value": "NAMESPACE_ALIAS",
+        "pid": 16310,
+        "role": "new-namespace-alias",
+        "elapsed_ms": 3.001
+      }
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "safe": false,
+      "witness": "path generation label without physical separation aliases old DB"
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-1bmocxse",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-1bmocxse/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 99.16
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16315, \"role\": \"old-wal-writer\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-1bmocxse/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16315,
+        "role": "old-wal-writer",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-1bmocxse/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"COMMITTED_WAL_ONLY\", \"pid\": 16315, \"role\": \"old-wal-writer\", \"elapsed_ms\": 2.546}\n"
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "COMMITTED_WAL_ONLY"
+      },
+      "response": {
+        "op": "write",
+        "value": "COMMITTED_WAL_ONLY",
+        "pid": 16315,
+        "role": "old-wal-writer",
+        "elapsed_ms": 2.546
+      }
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"copy_main\", \"value\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-1bmocxse/main-only.sqlite3\", \"pid\": 16315, \"role\": \"old-wal-writer\", \"elapsed_ms\": 1.76}\n"
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "copy_main",
+        "name": "main-only.sqlite3"
+      },
+      "response": {
+        "op": "copy_main",
+        "value": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-1bmocxse/main-only.sqlite3",
+        "pid": 16315,
+        "role": "old-wal-writer",
+        "elapsed_ms": 1.76
+      }
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"backup\", \"value\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-1bmocxse/online-backup.sqlite3\", \"pid\": 16315, \"role\": \"old-wal-writer\", \"elapsed_ms\": 3.784}\n"
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "backup",
+        "name": "online-backup.sqlite3"
+      },
+      "response": {
+        "op": "backup",
+        "value": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-1bmocxse/online-backup.sqlite3",
+        "pid": 16315,
+        "role": "old-wal-writer",
+        "elapsed_ms": 3.784
+      }
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "main_only": "user correction",
+      "online_backup": "COMMITTED_WAL_ONLY",
+      "safe": false,
+      "witness": "main-file copy loses committed WAL data"
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-f_lxkfzk",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-f_lxkfzk/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 106.452
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16320, \"role\": \"alias-old\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-f_lxkfzk/alias/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16320,
+        "role": "alias-old",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-f_lxkfzk/alias/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"zen-canvas.sqlite3\", \"pid\": 16320, \"role\": \"alias-old\", \"elapsed_ms\": 2.567}\n"
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "zen-canvas.sqlite3"
+      },
+      "response": {
+        "op": "write",
+        "value": "zen-canvas.sqlite3",
+        "pid": 16320,
+        "role": "alias-old",
+        "elapsed_ms": 2.567
+      }
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16321, \"role\": \"alias-old\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-f_lxkfzk/sub/../zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16321,
+        "role": "alias-old",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-f_lxkfzk/sub/../zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"zen-canvas.sqlite3\", \"pid\": 16321, \"role\": \"alias-old\", \"elapsed_ms\": 2.187}\n"
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "zen-canvas.sqlite3"
+      },
+      "response": {
+        "op": "write",
+        "value": "zen-canvas.sqlite3",
+        "pid": 16321,
+        "role": "alias-old",
+        "elapsed_ms": 2.187
+      }
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_05_normalized_alias_and_symlink_are_same_database",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "witness": "different lexical names may alias the same SQLite/WAL identity",
+      "platform": "POSIX symlink/inode; Windows NOT_RUN"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-tc0eroif",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-tc0eroif/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 98.928
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16326, \"role\": \"crashing-worker\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-tc0eroif/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16326,
+        "role": "crashing-worker",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-tc0eroif/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "uncommitted_crash"
+      },
+      "process_exit": 73,
+      "stderr": ""
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "journal_mode": "WAL",
+      "crash": "uncommitted_crash",
+      "recovered_context": "user correction"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 73,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-kq506l5q",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-kq506l5q/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 100.031
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16331, \"role\": \"crashing-worker\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-kq506l5q/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16331,
+        "role": "crashing-worker",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-kq506l5q/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "committed_crash"
+      },
+      "process_exit": 74,
+      "stderr": ""
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "journal_mode": "WAL",
+      "crash": "committed_crash",
+      "recovered_context": "COMMITTED"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 74,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5u7iaps7",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5u7iaps7/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 103.914
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16336, \"role\": \"crashing-worker\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5u7iaps7/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16336,
+        "role": "crashing-worker",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5u7iaps7/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "uncommitted_crash"
+      },
+      "process_exit": 73,
+      "stderr": ""
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "journal_mode": "DELETE",
+      "crash": "uncommitted_crash",
+      "recovered_context": "user correction"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 73,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p7r1mxju",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p7r1mxju/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 100.57
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16341, \"role\": \"crashing-worker\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p7r1mxju/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16341,
+        "role": "crashing-worker",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-p7r1mxju/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "committed_crash"
+      },
+      "process_exit": 74,
+      "stderr": ""
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "journal_mode": "DELETE",
+      "crash": "committed_crash",
+      "recovered_context": "COMMITTED"
+    },
+    {
+      "case": "test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 74,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5bedwsao",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5bedwsao/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 100.82
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16346, \"role\": \"old-desktop\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5bedwsao/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16346,
+        "role": "old-desktop",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5bedwsao/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"AT_SNAPSHOT\", \"pid\": 16346, \"role\": \"old-desktop\", \"elapsed_ms\": 2.501}\n"
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "AT_SNAPSHOT"
+      },
+      "response": {
+        "op": "write",
+        "value": "AT_SNAPSHOT",
+        "pid": 16346,
+        "role": "old-desktop",
+        "elapsed_ms": 2.501
+      }
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"LATE_OLD_WRITE\", \"pid\": 16346, \"role\": \"old-desktop\", \"elapsed_ms\": 0.515}\n"
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "LATE_OLD_WRITE"
+      },
+      "response": {
+        "op": "write",
+        "value": "LATE_OLD_WRITE",
+        "pid": 16346,
+        "role": "old-desktop",
+        "elapsed_ms": 0.515
+      }
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"pointer\", \"value\": \"generation-2.sqlite3\", \"pid\": 16346, \"role\": \"old-desktop\", \"elapsed_ms\": 0.802}\n"
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "pointer",
+        "name": "generation-2.sqlite3"
+      },
+      "response": {
+        "op": "pointer",
+        "value": "generation-2.sqlite3",
+        "pid": 16346,
+        "role": "old-desktop",
+        "elapsed_ms": 0.802
+      }
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "safe": false,
+      "witness": "backup is consistent snapshot, not cutover quiescence"
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_06_online_snapshot_loses_writes_committed_after_snapshot",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_06_partial_real_migration_failure_does_not_publish_new_copy",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-qpani68q",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-qpani68q/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 99.776
+    },
+    {
+      "case": "test_k1_06_partial_real_migration_failure_does_not_publish_new_copy",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-qpani68q/generation-2",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-qpani68q/generation-2/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 34.686
+    },
+    {
+      "case": "test_k1_06_partial_real_migration_failure_does_not_publish_new_copy",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "safe_property": "real 36->37 successful control preserves rows; injected failure rolls back copied DB and no pointer promotion occurs",
+      "fault": "none"
+    },
+    {
+      "case": "test_k1_06_partial_real_migration_failure_does_not_publish_new_copy",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5qugaetx",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5qugaetx/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 105.376
+    },
+    {
+      "case": "test_k1_06_partial_real_migration_failure_does_not_publish_new_copy",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-5qugaetx/generation-2",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "",
+      "stderr": "sqlite error: there is already a table named idx_automation_intents_active\n",
+      "returncode": 23,
+      "elapsed_ms": 28.835
+    },
+    {
+      "case": "test_k1_06_partial_real_migration_failure_does_not_publish_new_copy",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "safe_property": "real 36->37 successful control preserves rows; injected failure rolls back copied DB and no pointer promotion occurs",
+      "fault": "index name occupied by view"
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-69wlwaae",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-69wlwaae/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 107.302
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16370, \"role\": \"pointer-writer\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-69wlwaae/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16370,
+        "role": "pointer-writer",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-69wlwaae/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "pointer",
+        "name": "generation-2.sqlite3",
+        "crash": "before_replace"
+      },
+      "process_exit": 71,
+      "stderr": ""
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 71,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "phase": "before_replace",
+      "pointer": "zen-canvas.sqlite3",
+      "claim": "POSIX process-exit atomicity only; not power-loss/Windows durability"
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-k89dsu12",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-k89dsu12/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 102.809
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16375, \"role\": \"pointer-writer\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-k89dsu12/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16375,
+        "role": "pointer-writer",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-k89dsu12/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "pointer",
+        "name": "generation-2.sqlite3",
+        "crash": "after_replace"
+      },
+      "process_exit": 72,
+      "stderr": ""
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 72,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "phase": "after_replace",
+      "pointer": "generation-2.sqlite3",
+      "claim": "POSIX process-exit atomicity only; not power-loss/Windows durability"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_sd7s7z",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_sd7s7z/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 100.815
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16380, \"role\": \"old-desktop\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_sd7s7z/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16380,
+        "role": "old-desktop",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_sd7s7z/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"pointer\", \"value\": \"generation-2.sqlite3\", \"pid\": 16380, \"role\": \"old-desktop\", \"elapsed_ms\": 1.2}\n"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "pointer",
+        "name": "generation-2.sqlite3"
+      },
+      "response": {
+        "op": "pointer",
+        "value": "generation-2.sqlite3",
+        "pid": 16380,
+        "role": "old-desktop",
+        "elapsed_ms": 1.2
+      }
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16381, \"role\": \"new-desktop\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_sd7s7z/generation-2.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16381,
+        "role": "new-desktop",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_sd7s7z/generation-2.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"OLD_BRANCH\", \"pid\": 16380, \"role\": \"old-desktop\", \"elapsed_ms\": 2.326}\n"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "OLD_BRANCH"
+      },
+      "response": {
+        "op": "write",
+        "value": "OLD_BRANCH",
+        "pid": 16380,
+        "role": "old-desktop",
+        "elapsed_ms": 2.326
+      }
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"NEW_BRANCH\", \"pid\": 16381, \"role\": \"new-desktop\", \"elapsed_ms\": 2.834}\n"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "NEW_BRANCH"
+      },
+      "response": {
+        "op": "write",
+        "value": "NEW_BRANCH",
+        "pid": 16381,
+        "role": "new-desktop",
+        "elapsed_ms": 2.834
+      }
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"rename\", \"value\": {\"renamed\": true, \"content\": \"user-fixture\"}, \"pid\": 16380, \"role\": \"old-desktop\", \"elapsed_ms\": 0.104}\n"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "rename"
+      },
+      "response": {
+        "op": "rename",
+        "value": {
+          "renamed": true,
+          "content": "user-fixture"
+        },
+        "pid": 16380,
+        "role": "old-desktop",
+        "elapsed_ms": 0.104
+      }
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "new_file_isolated": true,
+      "safe": false,
+      "witness": "old/new branches diverge and old process still has native file capability",
+      "native_product_action": "NOT_RUN; owned POSIX rename executed"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmpub8ttyba",
+        "route",
+        "old",
+        "busy"
+      ],
+      "qa_override": null,
+      "stdout": "{\"direct_opened_database\":false,\"fault\":\"busy\",\"generation\":\"old\",\"outcome\":\"Err(Provider(\\\"index_service_busy\\\"))\",\"sink_states\":[],\"wire_transport\":\"classification injection; not real named pipe\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 1.532
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "route": {
+        "direct_opened_database": false,
+        "fault": "busy",
+        "generation": "old",
+        "outcome": "Err(Provider(\"index_service_busy\"))",
+        "sink_states": [],
+        "wire_transport": "classification injection; not real named pipe"
+      },
+      "witness": "request-local rejection does not certify DB generation"
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmp51phgefb",
+        "route",
+        "old",
+        "sqlite_busy"
+      ],
+      "qa_override": null,
+      "stdout": "{\"direct_opened_database\":true,\"fault\":\"sqlite_busy\",\"generation\":\"old\",\"outcome\":\"Ok(())\",\"sink_states\":[\"unavailable\"],\"wire_transport\":\"classification injection; not real named pipe\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 105.82
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "route": {
+        "direct_opened_database": true,
+        "fault": "sqlite_busy",
+        "generation": "old",
+        "outcome": "Ok(())",
+        "sink_states": [
+          "unavailable"
+        ],
+        "wire_transport": "classification injection; not real named pipe"
+      },
+      "witness": "Direct actually executes frozen Database::open/migrate, outside a hypothetical generation gate"
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmp4x8b9f1d",
+        "route",
+        "old",
+        "unknown"
+      ],
+      "qa_override": null,
+      "stdout": "{\"direct_opened_database\":true,\"fault\":\"unknown\",\"generation\":\"old\",\"outcome\":\"Ok(())\",\"sink_states\":[\"unavailable\"],\"wire_transport\":\"classification injection; not real named pipe\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 102.139
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "route": {
+        "direct_opened_database": true,
+        "fault": "unknown",
+        "generation": "old",
+        "outcome": "Ok(())",
+        "sink_states": [
+          "unavailable"
+        ],
+        "wire_transport": "classification injection; not real named pipe"
+      },
+      "witness": "Direct actually executes frozen Database::open/migrate, outside a hypothetical generation gate"
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmpt5ot8whr",
+        "route",
+        "old",
+        "not_sent"
+      ],
+      "qa_override": null,
+      "stdout": "{\"direct_opened_database\":true,\"fault\":\"not_sent\",\"generation\":\"old\",\"outcome\":\"Ok(())\",\"sink_states\":[\"unavailable\"],\"wire_transport\":\"classification injection; not real named pipe\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 105.491
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "route": {
+        "direct_opened_database": true,
+        "fault": "not_sent",
+        "generation": "old",
+        "outcome": "Ok(())",
+        "sink_states": [
+          "unavailable"
+        ],
+        "wire_transport": "classification injection; not real named pipe"
+      },
+      "witness": "Direct actually executes frozen Database::open/migrate, outside a hypothetical generation gate"
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmpndjdaknc",
+        "route",
+        "new",
+        "busy"
+      ],
+      "qa_override": null,
+      "stdout": "{\"direct_opened_database\":false,\"fault\":\"busy\",\"generation\":\"new\",\"outcome\":\"Err(ServiceBusy)\",\"sink_states\":[],\"wire_transport\":\"classification injection; not real named pipe\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 1.496
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "route": {
+        "direct_opened_database": false,
+        "fault": "busy",
+        "generation": "new",
+        "outcome": "Err(ServiceBusy)",
+        "sink_states": [],
+        "wire_transport": "classification injection; not real named pipe"
+      },
+      "witness": "request-local rejection does not certify DB generation"
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmpbnzac_b9",
+        "route",
+        "new",
+        "sqlite_busy"
+      ],
+      "qa_override": null,
+      "stdout": "{\"direct_opened_database\":false,\"fault\":\"sqlite_busy\",\"generation\":\"new\",\"outcome\":\"Err(DatabaseBusy(\\\"fixture SQLite BUSY classification at IO seam\\\"))\",\"sink_states\":[],\"wire_transport\":\"classification injection; not real named pipe\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 1.61
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "route": {
+        "direct_opened_database": false,
+        "fault": "sqlite_busy",
+        "generation": "new",
+        "outcome": "Err(DatabaseBusy(\"fixture SQLite BUSY classification at IO seam\"))",
+        "sink_states": [],
+        "wire_transport": "classification injection; not real named pipe"
+      },
+      "witness": "request-local rejection does not certify DB generation"
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmpbqq1qi4x",
+        "route",
+        "new",
+        "unknown"
+      ],
+      "qa_override": null,
+      "stdout": "{\"direct_opened_database\":false,\"fault\":\"unknown\",\"generation\":\"new\",\"outcome\":\"Err(ServiceOutcomeUnknown(\\\"post-send transport loss\\\"))\",\"sink_states\":[],\"wire_transport\":\"classification injection; not real named pipe\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 1.625
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "route": {
+        "direct_opened_database": false,
+        "fault": "unknown",
+        "generation": "new",
+        "outcome": "Err(ServiceOutcomeUnknown(\"post-send transport loss\"))",
+        "sink_states": [],
+        "wire_transport": "classification injection; not real named pipe"
+      },
+      "witness": "request-local rejection does not certify DB generation"
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/tmpznajj84a",
+        "route",
+        "new",
+        "not_sent"
+      ],
+      "qa_override": null,
+      "stdout": "{\"direct_opened_database\":true,\"fault\":\"not_sent\",\"generation\":\"new\",\"outcome\":\"Ok(())\",\"sink_states\":[\"unavailable\"],\"wire_transport\":\"classification injection; not real named pipe\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 106.636
+    },
+    {
+      "case": "test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S/N",
+      "safe": false,
+      "route": {
+        "direct_opened_database": true,
+        "fault": "not_sent",
+        "generation": "new",
+        "outcome": "Ok(())",
+        "sink_states": [
+          "unavailable"
+        ],
+        "wire_transport": "classification injection; not real named pipe"
+      },
+      "witness": "Direct actually executes frozen Database::open/migrate, outside a hypothetical generation gate"
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-w0ef7lh9",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-w0ef7lh9/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 99.784
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16407, \"role\": \"held-writer\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-w0ef7lh9/zen-canvas.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16407,
+        "role": "held-writer",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-w0ef7lh9/zen-canvas.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"begin_write\", \"value\": \"locked\", \"pid\": 16407, \"role\": \"held-writer\", \"elapsed_ms\": 0.083}\n"
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "begin_write"
+      },
+      "response": {
+        "op": "begin_write",
+        "value": "locked",
+        "pid": 16407,
+        "role": "held-writer",
+        "elapsed_ms": 0.083
+      }
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-w0ef7lh9",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "",
+      "stderr": "sqlite error: database is locked\n",
+      "returncode": 23,
+      "elapsed_ms": 5016.736
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"rollback\", \"value\": \"released\", \"pid\": 16407, \"role\": \"held-writer\", \"elapsed_ms\": 0.052}\n"
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "rollback"
+      },
+      "response": {
+        "op": "rollback",
+        "value": "released",
+        "pid": 16407,
+        "role": "held-writer",
+        "elapsed_ms": 0.052
+      }
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-w0ef7lh9",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-w0ef7lh9/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 15.113
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"AFTER_BUSY_RELEASE\", \"pid\": 16407, \"role\": \"held-writer\", \"elapsed_ms\": 2.88}\n"
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "AFTER_BUSY_RELEASE"
+      },
+      "response": {
+        "op": "write",
+        "value": "AFTER_BUSY_RELEASE",
+        "pid": 16407,
+        "role": "held-writer",
+        "elapsed_ms": 2.88
+      }
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "S",
+      "safe": false,
+      "witness": "actual production 5s timeout fails temporarily, then legacy writer proceeds",
+      "elapsed_seconds": 5.016895755000405
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_07_real_busy_is_not_admission_or_generation_fencing",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 100.897
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc",
+        "path"
+      ],
+      "qa_override": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/qa",
+      "stdout": "{\"native_qa\":false,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/zen-canvas.sqlite3\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 1.692
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-qa",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc",
+        "path"
+      ],
+      "qa_override": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/qa",
+      "stdout": "{\"native_qa\":true,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/qa/zen-canvas.sqlite3\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 1.782
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-qa",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc",
+        "path"
+      ],
+      "qa_override": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/qa-alias",
+      "stdout": "{\"native_qa\":true,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/qa-alias/zen-canvas.sqlite3\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 1.611
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc",
+        "path"
+      ],
+      "qa_override": null,
+      "stdout": "{\"native_qa\":false,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/zen-canvas.sqlite3\"}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 1.5
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"ready\": true, \"pid\": 16443, \"role\": \"new-active\", \"db\": \"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/generation-2.sqlite3\", \"sqlite\": \"3.53.1\"}\n"
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "actor_ready": {
+        "ready": true,
+        "pid": 16443,
+        "role": "new-active",
+        "db": "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-d_yjunbc/generation-2.sqlite3",
+        "sqlite": "3.53.1"
+      }
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"op\": \"write\", \"value\": \"NEW_AFTER_BACKUP\", \"pid\": 16443, \"role\": \"new-active\", \"elapsed_ms\": 2.988}\n"
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "write",
+        "value": "NEW_AFTER_BACKUP"
+      },
+      "response": {
+        "op": "write",
+        "value": "NEW_AFTER_BACKUP",
+        "pid": 16443,
+        "role": "new-active",
+        "elapsed_ms": 2.988
+      }
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "raw_child_stdout": "{\"closed\": true}\n"
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "sync_command": {
+        "op": "close"
+      },
+      "response": {
+        "closed": true
+      }
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "worker_exit": 0,
+      "raw_child_stderr": ""
+    },
+    {
+      "case": "test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "safe": false,
+      "witness": "QA alias, old fixed-path relaunch and restore selection are not generation authority",
+      "nsis_reinstall_uninstall": "NATIVE_UNVERIFIED/NOT_RUN"
+    },
+    {
+      "case": "test_k1_09_backup_preserves_ids_rowids_fk_tags_corrections_history_and_fts",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "command": [
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe-normal",
+        "/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-oafq9sd4",
+        "init"
+      ],
+      "qa_override": null,
+      "stdout": "{\"busy_timeout_ms\":5000,\"path\":\"/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/zc-k1-oafq9sd4/zen-canvas.sqlite3\",\"persistent_tables\":65,\"post_open_admission\":\"hypothetical_reject_after_migration\",\"sqlite\":\"3.51.3\",\"user_version\":37}\n",
+      "stderr": "",
+      "returncode": 0,
+      "elapsed_ms": 106.923
+    },
+    {
+      "case": "test_k1_09_backup_preserves_ids_rowids_fk_tags_corrections_history_and_fts",
+      "grade": "ISOLATED_EXECUTED_EVIDENCE",
+      "strategy": "N",
+      "safe_property": "online backup retains representative complete row/association projections",
+      "table_count": 17,
+      "rows": 3,
+      "projection": {
+        "files": [
+          [
+            1,
+            "stable-file-0",
+            "C:/fixture/oldtoken-0.txt",
+            "oldtoken-0.txt",
+            "txt",
+            4096,
+            10,
+            0,
+            0,
+            "Other",
+            "User purpose",
+            "Inbox",
+            "user correction",
+            "Normal",
+            "Keep",
+            "",
+            "",
+            0.5,
+            "Indexed by Zen Canvas Tauri backend.",
+            "[]",
+            0,
+            1,
+            0,
+            1,
+            0,
+            "",
+            0,
+            0,
+            "",
+            "classified",
+            null
+          ],
+          [
+            2,
+            "stable-file-1",
+            "C:/fixture/oldtoken-1.txt",
+            "oldtoken-1.txt",
+            "txt",
+            4097,
+            11,
+            0,
+            0,
+            "Other",
+            "User purpose",
+            "Inbox",
+            "user correction",
+            "Normal",
+            "Keep",
+            "",
+            "",
+            0.5,
+            "Indexed by Zen Canvas Tauri backend.",
+            "[]",
+            0,
+            1,
+            0,
+            1,
+            0,
+            "",
+            0,
+            0,
+            "",
+            "classified",
+            null
+          ],
+          [
+            3,
+            "stable-file-2",
+            "C:/fixture/oldtoken-2.txt",
+            "oldtoken-2.txt",
+            "txt",
+            4098,
+            12,
+            0,
+            0,
+            "Other",
+            "User purpose",
+            "Inbox",
+            "user correction",
+            "Normal",
+            "Keep",
+            "",
+            "",
+            0.5,
+            "Indexed by Zen Canvas Tauri backend.",
+            "[]",
+            0,
+            1,
+            0,
+            1,
+            0,
+            "",
+            0,
+            0,
+            "",
+            "classified",
+            null
+          ]
+        ],
+        "global_entries": [
+          [
+            1,
+            "entry-0",
+            "v",
+            "physical-0",
+            "parent",
+            "oldtoken-0.txt",
+            "oldtoken-0.txt",
+            "C:/fixture/oldtoken-0.txt",
+            "c:/fixture/oldtoken-0.txt",
+            "txt",
+            0,
+            4096,
+            1,
+            10,
+            32,
+            0,
+            0,
+            0,
+            "ntfs",
+            1
+          ],
+          [
+            2,
+            "entry-1",
+            "v",
+            "physical-0",
+            "parent",
+            "oldtoken-1.txt",
+            "oldtoken-1.txt",
+            "C:/fixture/oldtoken-1.txt",
+            "c:/fixture/oldtoken-1.txt",
+            "txt",
+            0,
+            4097,
+            1,
+            11,
+            32,
+            1,
+            0,
+            0,
+            "ntfs",
+            1
+          ],
+          [
+            3,
+            "entry-2",
+            "v",
+            "physical-1",
+            "parent",
+            "oldtoken-2.txt",
+            "oldtoken-2.txt",
+            "C:/fixture/oldtoken-2.txt",
+            "c:/fixture/oldtoken-2.txt",
+            "txt",
+            0,
+            4098,
+            1,
+            12,
+            32,
+            0,
+            0,
+            0,
+            "ntfs",
+            1
+          ]
+        ],
+        "global_volumes": [
+          [
+            1,
+            "v",
+            "windows",
+            "volume-1",
+            "Fixture",
+            "C:/fixture",
+            "NTFS",
+            "fixed",
+            1,
+            "ntfs",
+            "ready",
+            null,
+            "j1",
+            "old",
+            null,
+            null,
+            3,
+            1,
+            1
+          ]
+        ],
+        "file_fingerprints": [
+          [
+            1,
+            "stable-file-0",
+            "C:/fixture/oldtoken-0.txt",
+            "verified",
+            "windows",
+            "volume-1",
+            "physical-0",
+            "windows:v1:volume-1:physical-0",
+            2,
+            4096,
+            10,
+            null,
+            "blake3-head-tail",
+            1,
+            4096,
+            "hash",
+            "blake3",
+            1,
+            "complete",
+            1,
+            null,
+            null,
+            1,
+            null,
+            null,
+            1
+          ],
+          [
+            2,
+            "stable-file-1",
+            "C:/fixture/oldtoken-1.txt",
+            "verified",
+            "windows",
+            "volume-1",
+            "physical-0",
+            "windows:v1:volume-1:physical-0",
+            2,
+            4097,
+            11,
+            null,
+            "blake3-head-tail",
+            1,
+            4096,
+            "hash",
+            "blake3",
+            1,
+            "complete",
+            1,
+            null,
+            null,
+            1,
+            null,
+            null,
+            1
+          ],
+          [
+            3,
+            "stable-file-2",
+            "C:/fixture/oldtoken-2.txt",
+            "verified",
+            "windows",
+            "volume-1",
+            "physical-1",
+            "windows:v1:volume-1:physical-1",
+            2,
+            4098,
+            12,
+            null,
+            "blake3-head-tail",
+            1,
+            4096,
+            "hash",
+            "blake3",
+            1,
+            "complete",
+            1,
+            null,
+            null,
+            1,
+            null,
+            null,
+            1
+          ]
+        ],
+        "managed_entries": [
+          [
+            1,
+            "managed-0",
+            "entry-0",
+            "scope",
+            1,
+            1,
+            1
+          ],
+          [
+            2,
+            "managed-1",
+            "entry-1",
+            "scope",
+            1,
+            1,
+            1
+          ],
+          [
+            3,
+            "managed-2",
+            "entry-2",
+            "scope",
+            1,
+            1,
+            1
+          ]
+        ],
+        "managed_scopes": [
+          [
+            1,
+            "scope",
+            "C:/fixture",
+            null,
+            1,
+            1,
+            0,
+            1,
+            1
+          ]
+        ],
+        "ai_analysis_state": [
+          [
+            1,
+            "entry-0",
+            "completed",
+            "old",
+            "local",
+            "fixture",
+            "Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary ",
+            "{\"purpose\":\"user correction\"}",
+            1,
+            null,
+            1
+          ],
+          [
+            2,
+            "entry-1",
+            "completed",
+            "old",
+            "local",
+            "fixture",
+            "Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary ",
+            "{\"purpose\":\"user correction\"}",
+            1,
+            null,
+            1
+          ],
+          [
+            3,
+            "entry-2",
+            "completed",
+            "old",
+            "local",
+            "fixture",
+            "Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary Summary ",
+            "{\"purpose\":\"user correction\"}",
+            1,
+            null,
+            1
+          ]
+        ],
+        "ai_jobs": [
+          [
+            1,
+            "job-0",
+            "entry-0",
+            "scope",
+            "old",
+            "local",
+            "",
+            "metadata",
+            "canceled",
+            0,
+            null,
+            1,
+            null,
+            null
+          ],
+          [
+            2,
+            "job-1",
+            "entry-1",
+            "scope",
+            "old",
+            "local",
+            "",
+            "metadata",
+            "running",
+            0,
+            null,
+            1,
+            null,
+            null
+          ],
+          [
+            3,
+            "job-2",
+            "entry-2",
+            "scope",
+            "old",
+            "local",
+            "",
+            "metadata",
+            "canceled",
+            0,
+            null,
+            1,
+            null,
+            null
+          ]
+        ],
+        "ai_job_items": [
+          [
+            1,
+            "item-0",
+            "job-0",
+            "entry-0",
+            "canceled",
+            null,
+            1,
+            1
+          ],
+          [
+            2,
+            "item-1",
+            "job-1",
+            "entry-1",
+            "running",
+            null,
+            1,
+            1
+          ],
+          [
+            3,
+            "item-2",
+            "job-2",
+            "entry-2",
+            "canceled",
+            null,
+            1,
+            1
+          ]
+        ],
+        "user_tags": [
+          [
+            1,
+            "tag",
+            "Preserve",
+            "preserve",
+            "neutral",
+            1,
+            1,
+            1
+          ]
+        ],
+        "file_user_tags": [
+          [
+            1,
+            "stable-file-0",
+            "tag",
+            1
+          ],
+          [
+            2,
+            "stable-file-1",
+            "tag",
+            1
+          ],
+          [
+            3,
+            "stable-file-2",
+            "tag",
+            1
+          ]
+        ],
+        "classification_history": [
+          [
+            1,
+            "hist-0",
+            "stable-file-0",
+            "oldtoken-0.txt",
+            "C:/fixture/oldtoken-0.txt",
+            "",
+            "user",
+            "Document",
+            "User purpose",
+            "Inbox",
+            "",
+            "Normal",
+            "Keep",
+            "",
+            "",
+            0.5,
+            "",
+            "[]",
+            1,
+            1
+          ],
+          [
+            2,
+            "hist-1",
+            "stable-file-1",
+            "oldtoken-1.txt",
+            "C:/fixture/oldtoken-1.txt",
+            "",
+            "user",
+            "Document",
+            "User purpose",
+            "Inbox",
+            "",
+            "Normal",
+            "Keep",
+            "",
+            "",
+            0.5,
+            "",
+            "[]",
+            1,
+            1
+          ],
+          [
+            3,
+            "hist-2",
+            "stable-file-2",
+            "oldtoken-2.txt",
+            "C:/fixture/oldtoken-2.txt",
+            "",
+            "user",
+            "Document",
+            "User purpose",
+            "Inbox",
+            "",
+            "Normal",
+            "Keep",
+            "",
+            "",
+            0.5,
+            "",
+            "[]",
+            1,
+            1
+          ]
+        ],
+        "classification_feedback": [
+          [
+            1,
+            "feedback-0",
+            "stable-file-0",
+            "oldtoken-0.txt",
+            "{}",
+            "{\"user\":true}",
+            1
+          ],
+          [
+            2,
+            "feedback-1",
+            "stable-file-1",
+            "oldtoken-1.txt",
+            "{}",
+            "{\"user\":true}",
+            1
+          ],
+          [
+            3,
+            "feedback-2",
+            "stable-file-2",
+            "oldtoken-2.txt",
+            "{}",
+            "{\"user\":true}",
+            1
+          ]
+        ],
+        "operation_logs": [
+          [
+            1,
+            "log-0",
+            "history-batch",
+            "rename",
+            "C:/fixture/oldtoken-0.txt",
+            "C:/fixture/oldtoken-0.txt",
+            "oldtoken-0.txt",
+            "oldtoken-0.txt",
+            "success",
+            null,
+            1,
+            0,
+            "C:/fixture/oldtoken-0.txt",
+            "C:/fixture/oldtoken-0.txt",
+            "oldtoken-0.txt",
+            "oldtoken-0.txt",
+            0,
+            null,
+            "not_restored",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "completed",
+            null,
+            null,
+            null,
+            null,
+            "idle",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          [
+            2,
+            "log-1",
+            "history-batch",
+            "rename",
+            "C:/fixture/oldtoken-1.txt",
+            "C:/fixture/oldtoken-1.txt",
+            "oldtoken-1.txt",
+            "oldtoken-1.txt",
+            "success",
+            null,
+            1,
+            0,
+            "C:/fixture/oldtoken-1.txt",
+            "C:/fixture/oldtoken-1.txt",
+            "oldtoken-1.txt",
+            "oldtoken-1.txt",
+            0,
+            null,
+            "not_restored",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "completed",
+            null,
+            null,
+            null,
+            null,
+            "idle",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          [
+            3,
+            "log-2",
+            "history-batch",
+            "rename",
+            "C:/fixture/oldtoken-2.txt",
+            "C:/fixture/oldtoken-2.txt",
+            "oldtoken-2.txt",
+            "oldtoken-2.txt",
+            "success",
+            null,
+            1,
+            0,
+            "C:/fixture/oldtoken-2.txt",
+            "C:/fixture/oldtoken-2.txt",
+            "oldtoken-2.txt",
+            "oldtoken-2.txt",
+            0,
+            null,
+            "not_restored",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "completed",
+            null,
+            null,
+            null,
+            null,
+            "idle",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        ],
+        "analysis_findings": [
+          [
+            1,
+            "finding-0",
+            "key-0",
+            "run",
+            "fixture",
+            1,
+            "scope",
+            "active",
+            "review",
+            "fixture",
+            "none",
+            "Historical finding",
+            "fixture",
+            null,
+            "exact",
+            0,
+            null,
+            0,
+            1,
+            0,
+            "file",
+            "stable-file-0",
+            "C:/fixture/oldtoken-0.txt",
+            "{\"physical\":\"physical-0\"}",
+            "{}",
+            1,
+            1,
+            1,
+            null,
+            null
+          ],
+          [
+            2,
+            "finding-1",
+            "key-1",
+            "run",
+            "fixture",
+            1,
+            "scope",
+            "active",
+            "review",
+            "fixture",
+            "none",
+            "Historical finding",
+            "fixture",
+            null,
+            "exact",
+            0,
+            null,
+            0,
+            1,
+            0,
+            "file",
+            "stable-file-1",
+            "C:/fixture/oldtoken-1.txt",
+            "{\"physical\":\"physical-0\"}",
+            "{}",
+            1,
+            1,
+            1,
+            null,
+            null
+          ],
+          [
+            3,
+            "finding-2",
+            "key-2",
+            "run",
+            "fixture",
+            1,
+            "scope",
+            "active",
+            "review",
+            "fixture",
+            "none",
+            "Historical finding",
+            "fixture",
+            null,
+            "exact",
+            0,
+            null,
+            0,
+            1,
+            0,
+            "file",
+            "stable-file-2",
+            "C:/fixture/oldtoken-2.txt",
+            "{\"physical\":\"physical-1\"}",
+            "{}",
+            1,
+            1,
+            1,
+            null,
+            null
+          ]
+        ],
+        "analysis_finding_evidence": [
+          [
+            1,
+            "evidence-0",
+            "finding-0",
+            "fixture",
+            "file",
+            "stable-file-0",
+            "C:/fixture/oldtoken-0.txt",
+            "{}",
+            1
+          ],
+          [
+            2,
+            "evidence-1",
+            "finding-1",
+            "fixture",
+            "file",
+            "stable-file-1",
+            "C:/fixture/oldtoken-1.txt",
+            "{}",
+            1
+          ],
+          [
+            3,
+            "evidence-2",
+            "finding-2",
+            "fixture",
+            "file",
+            "stable-file-2",
+            "C:/fixture/oldtoken-2.txt",
+            "{}",
+            1
+          ]
+        ],
+        "analysis_finding_decisions": [
+          [
+            1,
+            "key-0",
+            "dismissed",
+            null,
+            "user decision",
+            1,
+            1,
+            1
+          ],
+          [
+            2,
+            "key-1",
+            "dismissed",
+            null,
+            "user decision",
+            1,
+            1,
+            1
+          ],
+          [
+            3,
+            "key-2",
+            "dismissed",
+            null,
+            "user decision",
+            1,
+            1,
+            1
+          ]
+        ],
+        "fk": [],
+        "integrity": [
+          [
+            "ok"
+          ]
+        ],
+        "global_fts": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        "files_fts": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ]
+      },
+      "projection_sha256": "146405593e21d7acd05fab3f571305a0d1ba578f48c5ce646b4f2dcef4c8d984",
+      "witness": "separate old/new metadata still forks"
+    }
+  ]
+}

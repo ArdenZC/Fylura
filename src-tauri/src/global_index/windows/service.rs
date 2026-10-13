@@ -675,33 +675,12 @@ mod named_pipe {
     }
 
     pub fn call(request: &IndexServiceRequest) -> Result<IndexServiceResponse, String> {
-        validate_request(request)?;
-        let mut client = connect()?;
-        client.send_request(request)?;
-        loop {
-            match client.read_frame()? {
-                IndexServiceFrame::Response { response } => {
-                    if response.protocol_version != super::IPC_PROTOCOL_VERSION
-                        || response.request_id != request.request_id
-                        || (response.ok && response.error_code.is_some())
-                        || (!response.ok
-                            && !response
-                                .error_code
-                                .as_deref()
-                                .is_some_and(super::super::service_errors::known_code))
-                    {
-                        return Err("index_service_invalid_response".into());
-                    }
-                    return Ok(response);
-                }
-                IndexServiceFrame::Event { .. } => {
-                    return Err("index_service_unexpected_event".into())
-                }
-                IndexServiceFrame::LookupResponse { .. } => {
-                    return Err("index_service_unexpected_lookup_response".to_string());
-                }
-            }
-        }
+        call_admitted(request, |_| {
+            Err(super::IndexServiceCallError::Protocol(
+                "unexpected control event".into(),
+            ))
+        })
+        .map_err(|error| error.to_string())
     }
 
     pub fn call_stream<F>(

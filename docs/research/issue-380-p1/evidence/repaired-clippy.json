@@ -1,0 +1,8 @@
+{
+  "execution_source_head": "332ebc8475b934e426acccbd5bb9487dbf26e985",
+  "command": "cargo clippy --offline --manifest-path .tmp-tests/p1/repaired-fixture/Cargo.toml --all-targets -- -D warnings -A dead_code",
+  "exit_code": 0,
+  "content": "    Checking issue380-p1-repaired-production-client v0.0.0 (/workspace/issue-380-p1-v3-ipc-admission-hardening/.tmp-tests/p1/repaired-fixture)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.84s\n",
+  "sha256": "ed34632d9963b57acdd818f6f760be8b7449e5cc67570e4cd897c1279c702355",
+  "limitation": "Reduced Linux fixture only; final full Windows/macOS Clippy required."
+}

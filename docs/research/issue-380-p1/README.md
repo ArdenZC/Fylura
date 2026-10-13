@@ -1,185 +1,83 @@
-# Issue #380 P1 — public error boundary scope blocker
+# #380-P1 IPC v3 / Service Admission candidate
 
-**ISSUE_380_P1_OWNER_ESCALATION_REQUIRED**
+Production is **ISSUE_380_PRODUCT_FIX_NO_GO**. This candidate repairs Windows IPC admission/identity/completion and typed errors; it does not repair Coordinator durable source ownership.
 
-**ISSUE_380_PRODUCT_FIX_NO_GO**
+Owner scope: [6145267380](https://github.com/ArdenZC/Zen-Canvas/issues/380#issuecomment-6145267380), [signed independent review](https://github.com/ArdenZC/Zen-Canvas/pull/398#issuecomment-6145257628). Existing [Draft PR #398](https://github.com/ArdenZC/Zen-Canvas/pull/398), same branch. No merge/cherry-pick of #386, no other candidate baseline.
 
-This is a bounded **diagnostic Draft**, not a P1 production candidate. The first
-semantic boundary requires an Owner scope decision. No production behavior was
-changed; only three characterization tests and their cfg(test) include were
-added. No claim that P1 or #380 is fixed.
+## Identity and reproducible evidence
 
-## Authority and source baseline
+- Starting/current checked master: `3275ac7c72df8ae4139a30f16c7f649971324e97`; Tree `009576241cd4e8e2ba12cc644a368314f599faa6`.
+- Accepted diagnostic HEAD: `5144c44b34dbe0039c59feebf52399510c0c0629`; Tree `4b3cee18a28499669737b7e017df1fabe6c2e6ec`.
+- Locally tested production source commit: `332ebc8475b934e426acccbd5bb9487dbf26e985`; Tree `92ee581b1f07499a3deb87f0341340910409ab72`. The delivery commit adds report/raw evidence only. Final delivery HEAD/Tree, complete Diff and exact-HEAD CI results are recorded in PR #398's description and handoff; CI results must not be predicted from this local run.
+- [Historical scope report](HISTORICAL-SCOPE-BLOCKER.md), [old characterization](evidence/characterization.json), [three real failing required-contract probes](evidence/required-contract.json), [old source/command provenance](evidence/probe.json) are retained. They establish erased error semantics, not genuine UnknownOutcome or repaired-runtime acceptance. Original runner remains historical: its expected exit 101 contract no longer describes repaired source.
+- [Green-after actual-source raw output](evidence/repaired-client.json): 28 passed, 0 failed on Linux, Rust 1.97.1, rusqlite 0.39 / SQLite 3.51.3. Full output and SHA-256 source/harness hashes included, with exact execution commit. Source files are imported whole for client/decoder; model/error/trait and ServiceRuntime/PipeSink core are extracted verbatim. An **unused default Direct constructor stub** permits Linux compilation; tests immediately install controlled providers. This is not Windows native API qualification.
+- Reproduce this limited Linux experiment: `python3 docs/research/issue-380-p1/run_repaired_contract.py --fixture .tmp-tests/p1/repaired-fixture --output .tmp-tests/p1/repaired-results`. The full desktop local build remains environment-blocked by missing glib >=2.70 ([original raw failure](evidence/full-project-local.json)).
+- Local `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` and `git diff --check` passed. Reduced-fixture Clippy passed with `-D warnings -A dead_code`; dead-code suppression is confined to the fixture command because Windows constructors/SCM APIs are excluded. Actual Windows/macOS CI must run full production Clippy without suppression.
+- First production push `bfa31184be92b69fc6c74ae06ed6dad27d9e7aef`: [CI 38399155013](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38399155013) had genuine Windows compilation failures (private helper exports; connection trait missing Send). Both corrected; no CI rerun/waiver. Final normal PR CI is separate and required; cancelled/skipped/failed jobs remain visible in the original run.
 
-- [Owner production authorization](https://github.com/ArdenZC/Zen-Canvas/issues/380#issuecomment-6144080753).
-- [D3 independent review](https://github.com/ArdenZC/Zen-Canvas/pull/397#issuecomment-6144062928).
-- Branch: `fix/issue-380-p1-v3-ipc-admission-hardening`.
-- Starting master: `3275ac7c72df8ae4139a30f16c7f649971324e97`.
-- Starting Tree: `009576241cd4e8e2ba12cc644a368314f599faa6`.
-- Current origin: `https://github.com/ArdenZC/Zen-Canvas.git`.
+## Changed behavior and error mapping
 
-The Owner scope lists the four Windows IPC files and directly related tests,
-then says: **“If complete P1 correctness requires expanding outside those
-paths, stop at OWNER_ESCALATION_REQUIRED with smallest necessary scope and
-tests; do not silently broaden.”** The user's execution brief additionally
-requires escalation when the existing public error type cannot express the
-required distinctions. This is that scope stop, not a new A/B/C research phase.
+Only `coordinator.rs` lines added inside `GlobalIndexError` define four variants. Each pair of lines is a derive display annotation and its public variant: ServiceBusy, PermissionRequired, ServiceProtocol, ServiceOutcomeUnknown. No Coordinator method, scheduler, match algorithm, SQL/repository or database ownership code changed. No non-Windows production caller required a new match arm.
 
-[Reference source manifest](reference-sources.json) records exact PR heads,
-paths and SHA-256 for independently read #386, #393 and #397. No candidate
-branch was merged, cherry-picked or used as the development baseline.
+| Trusted v3 error_code / local condition | Public error | Meaning |
+| --- | --- | --- |
+| `index_service_busy` | ServiceBusy | Service slot rejected request; no admitted Sink event |
+| `index_permission_required` | PermissionRequired | Explicit remote permission diagnosis |
+| `index_provider_error` | Provider | Ordinary provider fault; not permission |
+| `index_failed` | Database(DbError::Validation) | Remote database-class failure; does **not** invent a remote SQLite numeric code |
+| `index_windows_io:<canonical u32>` | WindowsIo(original code) | Original OS identity; 5 ACCESS_DENIED and 1314 PRIVILEGE_NOT_HELD have permission status, other codes ERROR |
+| `index_paused` / `index_rebuild_required` | Paused / RebuildRequired | Existing recovery semantics retained |
+| Missing/unknown/noncanonical code, malformed JSON/frame, version or request mismatch | ServiceProtocol | Untrusted remote/protocol input, never fabricated remote UnknownOutcome |
+| Actual write attempt or read/lookup-reply transport failure after dispatch | ServiceOutcomeUnknown | Completion may be ambiguous; no Direct replay |
+| Local Sink error | Original GlobalIndexError, including Database(Sqlite BUSY 5) | Preserved without serialization/text reclassification |
+| Valid request, pipe connect fails before dispatch | Private NotSent | Only this branch can consider Direct; source's prior uncertainty fence must also be clear |
 
-## First source blocker and actual failing contract probes
+`classify` never encodes ordinary Provider/arbitrary WindowsIo as permission. Message text does not decide semantics. No fabricated `index_outcome_unknown` wire code. Existing v3 six response fields and event variants retained; `EntryStale` still has only entry_id, `journal_cursor` remains Option<String>. Unknown fields are rejected on inbound responses/events/lookup frames. No permission/transport authentication weakening.
 
-`coordinator.rs:19-29` defines the public `GlobalIndexError` with only:
-Database, Provider(String), RebuildRequired(String), WindowsIo(u32), Paused.
-`GlobalIndexProvider:67-90` requires that same type for its indexing methods.
-`windows/mod.rs:299-312,406-455` returns it at the provider boundary.
+Direct producer completion error-state mapping uses the typed classifier rather than marking every fault PermissionRequired. Existing recovery test is deliberately updated to expect ERROR for ordinary Provider; original historical evidence remains. Paused and actual journal discontinuity/rebuild handling remain typed.
 
-Production `service_errors.rs:24-34` currently collapses the trusted busy and
-permission error codes into Provider. Its server `classify:10-21` also maps an
-ordinary Provider failure to permission. The public type supplies no typed
-Service request rejection/outcome or permission variant. SQLite Database,
-Paused, RebuildRequired and WindowsIo must not be repurposed as such a variant.
+## Admission, ownership checks and completion
 
-A Windows-local transport enum can distinguish NotSent, UnknownOutcome and
-SinkFailure **inside the IPC loop**. That is viable and does not itself require
-public scope expansion. It cannot preserve those distinctions after conversion
-to the existing `GlobalIndexProvider -> GlobalIndexError` API: the remaining
-Provider(String) carries only text. Recovering request classification from
-message prefixes/contains would violate the contract. Writing a SourceState
-as a side channel for an unadmitted busy request would also violate it.
+Actual runtime: reserve busy slot → operation mutex → native-discovered source revalidation + durable snapshot merge → Sources marker with the selected source → Direct provider/PipeSink events → response. Reservation failure sends correlated busy response and emits no marker/event. Failure to send marker prevents provider invocation; operation exits and releases slot.
 
-The desired typed public-boundary assertions are genuinely executed against
-the production decoder and verbatim production Rust definitions. Results:
+Actual named-pipe client uses the same `exchange` function tested with deterministic channels. It validates request v3/source ID before connect; every event request ID before callback; every response version, active request ID and ok/error_code consistency before decoding. Send/framing errors are structured: serialization/size/JSON errors are Protocol; actual Win32 write/read failure is transport UnknownOutcome. A callback Sink failure retains its original typed error. Server-side same-executable/security/SCM restrictions are unchanged.
 
-| Probe input | Actual current class | Desired boundary contract | Result |
-| --- | --- | --- | --- |
-| Existing `index_service_busy` | Provider | Request-level ServiceBusy, distinct from Provider | FAIL |
-| Existing `index_permission_required` | Provider | PermissionRequired, distinct from Provider | FAIL |
-| Unrecognized/proposed `index_outcome_unknown` | Provider | Conservative distinguishable unclassified failure | FAIL |
+Admission marker is mandatory and unique. It must bind source ID, stable physical volume identity, mount/filesystem (Windows case-insensitive), platform, native MFT/USN provider, enabled and journal snapshot. Native display/count/timestamps may differ from the durable desktop projection and are not mistaken for authority. Sources acceptance itself performs **no Sink writes**.
 
-The third code exists in #386's proposal, **not master's accepted code set**.
-It is an adversarial unknown-code decoder probe, not evidence of a real
-transport UnknownOutcome or a trusted native Service emission. In a repaired
-P1 it must first be rejected/classified by the strict code/identity gate.
-Actual transport interruption and native runtime tests were NOT_RUN here.
-The first two probes establish the public busy/permission erasure directly.
+Before each callback effect, validate source ownership and order. Every Entries element must belong to the bound source/provider. All volume-bearing variants must match. Legacy EntryStale is allowed only for an entry ID returned by this request's validated FindEntryByIdentity lookup; its returned volume/file/parent/name identity must match the query. Duplicate lookup IDs and old-request frame replay are rejected before a reply. No new EntryStale field or Sink trait/database method.
 
-- [Actual required-contract log](evidence/required-contract.json): **0 pass /
-  3 fail**, Cargo exit **101**. No ignored tests or weakened assertions.
-- [Characterization log](evidence/characterization.json): **3 pass**, confirming
-  the old collisions and generating real SQLite lock contention.
-- Real isolated SQLite contender returns BUSY **5**, remains
-  `GlobalIndexError::Database`; Service busy is currently Provider. Bundled
-  SQLite measured by this Rust fixture: **3.51.3**. No busy_timeout change to
-  production or any real database.
-- [Environment, commands, source/fixture hashes](evidence/probe.json).
+Full/Initial/Rebuild success requires admitted source + trusted SourceProvider + full-volume stale boundary + actual nonempty journal checkpoint. Incremental success requires admitted source + trusted SourceProvider + checkpoint. No fabricated Entries is required for an empty stream. Terminal OK alone never qualifies. Native MFT's existing empty-baseline integrity rejection remains unchanged: controlled empty-provider tests do not claim an actual empty MFT baseline is accepted. Source faults must be terminal-compatible; post-completion entries/lookup/checkpoints are rejected. Existing incremental directory-rename stale/rebuild flow remains an error/reconciliation flow, not success.
 
-The launcher exit 0 means **the expected scope blocker was reproduced**;
-it does not mean the three required repaired-contract assertions passed.
-The characterization tests passing likewise characterize the defect.
+No Direct for remote busy/rejection, bad protocol, partial stream, failed completion evidence or local Sink failure. A lifetime source fence also blocks a later NotSent request after previous uncertainty. It is deliberately fail closed and has no automatic retry/reset. It is **not** durable intent, global arbitration or process-restart isolation.
 
-## Smallest Owner decision
+## P1 contracts and actual execution scope
 
-Authorize only a typed public error carrier in
-`src-tauri/src/global_index/coordinator.rs::GlobalIndexError`, plus necessary
-exhaustive error matches. A concrete minimal option is three variants:
-`ServiceBusy`, `PermissionRequired(String)` and
-`ServiceOutcomeUnknown(String)`, or one typed ServiceRequest wrapper carrying
-those reasons. No changes to provider trait signatures, scheduler, source
-health writes, Rebuild logic, repository SQL or schema are needed merely for
-this type extension. Existing Database retains local SQLite/extended codes;
-NotSent can remain a Windows-local transport type. A separate DatabaseBusy
-string wrapper is not required for genuine local BUSY(5).
-
-**This proposal is not implemented or authorized by this Draft.** In particular,
-no #386 Coordinator busy `continue`/rollback branch is copied. Such state
-behavior needs P2 owner/revision/intent authority, not this type extension.
-If Owner instead intends P1 distinctions to end at the internal IPC enum and
-accepts their erasure at the public boundary, that narrower acceptance must be
-explicit: it leaves downstream request-versus-source classification unresolved.
-
-## Source reconciliation with #386
-
-Reference HEAD `d260131f9d6ec354f2361e6c7460c79e62e38391`, normal
-[CI 38161607367](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38161607367)
-SUCCESS; still unmerged Draft. Prior CI does not qualify this branch.
-
-| Prior design | P1 disposition |
+| Contract | Production regression evidence |
 | --- | --- |
-| Local InvalidRequest / NotSent / MissingAdmission / UnknownOutcome / SinkFailure | Sound direction to reimplement after scope decision; not copied here |
-| GlobalIndexError ServiceBusy / PermissionRequired / ServiceOutcomeUnknown | Exact outside-scope dependency; needs the narrow public-type authorization above |
-| Sources marker after Service busy reservation/operation/source checks | Source-read; would need actual runtime/client ordering tests; not implemented/qualified here |
-| SourceProvider + volume-stale + Checkpoint full/Rebuild completion, provider + Checkpoint incremental completion | Source-read; zero-event and empty-volume runtime proof remains pending, no false READY claim |
-| `EntryStale { volume_id, entry_id }` in #386 service.rs | **Reject direct reuse:** master v3 only has entry_id; no pretend existing volume field |
-| Checkpoint cursor | Keep actual `Option<String>`; no integer assumption |
-| Request/lookup binding and no replay after partial stream | Necessary directions; full production regressions not executed here |
-| Coordinator busy skip/recovery changes | Outside P1 and insufficient for ownership; not copied |
+| 01 Busy before writes | p1_t01 plus barrier-controlled actual Runtime competitors |
+| 02 Version/request identity | p1_t02 validates before callback |
+| 03 Foreign entries/stale/state | p1_t03 plus owned/foreign lookup and nonempty Entries test |
+| 04 Duplicate/missing/order | p1_t04; no completion without admission |
+| 05 Permission/Rebuild/Provider fault | p1_t05 plus actual Runtime encoded-error test |
+| 06 Initial/Rebuild completion | p1_t06 plus actual Runtime/PipeSink/client roundtrip |
+| 07 Empty full vs incremental | p1_t07, no fake Entries, existing native MFT integrity guard preserved |
+| 08 Partial/disconnect | p1_t08, actual exchange returns transport UnknownOutcome |
+| 09 Local SQLite vs ServiceBusy | p1_t09 actual file lock BUSY(5) through Sink callback; original two-connection test |
+| 10 Lookup ownership/order | p1_t10, source/result ownership test, actual Runtime PipeSink lookup roundtrip |
+| 11 No unsafe Direct replay | Windows provider p1_direct_fallback_only_for_proven_not_sent_and_never_after_uncertain_history |
+| 12 Legitimate Direct | Same provider test proves fresh NotSent invokes Direct once; partial-send p1_t12 refuses NotSent |
+| 13 Before any DB effect | p1_t13 and callback/write-count assertions; Sources writes nothing |
+| 14 Normal v3 / recovery | p1_t14, retained wire-shape/recovery tests, Runtime Initial/Resume/Rebuild tests |
 
-Current USN Stale path (`windows/usn.rs:135-141`) first performs a
-source-scoped `find_entry_by_identity` and then uses its returned entry ID.
-A future allowed adapter can investigate that per-request read provenance to
-validate legacy EntryStale without inventing a volume field. This is a source
-observation, not a completed replay/lookup safety proof or a demand for schema.
+28 Linux checks passed. Complete Windows CI additionally compiles/runs the actual Windows provider fallback test and **original complete ServiceRuntime**, without the Linux constructor stub. All P1-controlled producers/transport fault injectors are test doubles; Native Service/API acceptance depends on the separate normal Windows Service qualification job and its raw evidence, not ordinary CI success alone. Tests use channels/barriers and checked counters; recv_timeout only prevents hangs, no sleep-based correctness argument.
 
-## Validation and qualification limits
+## Mandatory P2/P3 dependencies and NO-GO
 
-Run the reproducible offline source probe:
+- P2: public Coordinator Rebuild still writes REBUILD_REQUIRED, clears cause and marks volume stale **before** Service Admission. Initial/resume still prewrite INDEXING/SYNCING. Generic error handling can still persist ERROR for typed busy. No whole-source preservation claim.
+- P2: Source Revision/CAS, request/operation-owned conditional writes and persistent intent are absent. Admission validates IPC eligibility, not DB ownership. Already authorized effects cannot be rolled back when a later stream fails.
+- P2: lifetime Direct fence does not survive desktop restart; it does not isolate another desktop/process/Direct writer or prove Service quiescence after transport loss. No unified arbitration added.
+- P3: Global/Managed/AI publication remains multiple non-atomic repository operations; no production publication or schema change here.
+- #328 remains true SQLite contention. This patch preserves local SQLITE_BUSY(5) identity and adds no busy_timeout/retry/workers/queue; it does not cure database locking.
+- Windows Owner native adversarial acceptance (service restart/late requests/real process loss/IPC fault timing against durable state) remains NOT_RUN on Owner hardware. Hosted normal Service qualification cannot certify these P2/P3 properties.
 
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 docs/research/issue-380-p1/run_error_boundary_probe.py --output .tmp-tests/p1/review --fixture .tmp-tests/p1/review-fixture
-```
-
-The launcher extracts production DbError, GlobalIndexError,
-IndexServiceResponse, protocol and status constants verbatim with hashes, and
-includes actual production service_errors.rs and the committed test module.
-It does not substitute mock error or response types. This is a reduced Linux
-Rust crate, not the full desktop, Service Runtime, codec/request loop or native
-SCM qualification. Its additional three required-contract tests intentionally
-fail; raw output is preserved in JSON `content` with its original SHA-256. Encoding retains logger whitespace/newlines exactly without introducing diff whitespace errors; local .log originals are also retained.
-
-Full-project Linux targeted Rust tests are blocked before execution by missing
-`glib-2.0 >=2.70` pkg-config dependencies:
-[command/exit](evidence/full-project-local.json),
-[original log](evidence/full-project-local.json). No system packages or CI gates
-were changed. Initial format check identified one new-test formatting issue;
-standard cargo fmt corrected it, and final format check passes.
-
-Published source-run HEAD/Tree are stated in probe.json. The final delivery
-repeats the probe on the final PR HEAD and records source-hash equality and
-exact identities in the PR body. Natural CI runs the committed Windows
-characterization tests where routed; its exact-head source and same-tree
-merge-integration evidence are recorded separately. Native qualification is
-reported only if actually run. Green diagnostic CI is not P1 acceptance.
-
-## Uncompleted P1 acceptance and P2/P3 dependencies
-
-| Required P1 regression | Status |
-| --- | --- |
-| Busy before any Sink writer | NOT_IMPLEMENTED / NOT_RUN runtime test |
-| Request ID and protocol version checks | NOT_IMPLEMENTED / NOT_RUN |
-| Cross-source Entries/legacy EntryStale/Volume states | NOT_IMPLEMENTED / NOT_RUN |
-| Missing/duplicate Admission and event ordering | NOT_IMPLEMENTED / NOT_RUN |
-| True SourceState permission/rebuild/provider errors | Public taxonomy collision reproduced; runtime repair NOT_DONE |
-| Legal Initial/Rebuild completion | NOT_IMPLEMENTED / NOT_RUN |
-| Empty Rebuild vs empty Incremental | NOT_IMPLEMENTED / NOT_RUN; no completion claim |
-| Partial events then disconnect | NOT_IMPLEMENTED / NOT_RUN |
-| Local SQLite vs remote Service busy | Real local BUSY distinction characterized; full client SinkFailure path NOT_RUN |
-| Lookup ID duplicate/mix/replay | NOT_IMPLEMENTED / NOT_RUN |
-| No Direct replay after rejection/unknown | NOT_IMPLEMENTED / NOT_RUN |
-| Legitimate Direct no-effect proof | NOT_IMPLEMENTED / NOT_RUN; ultimate DB ownership is P2 |
-| Reject before unauthorized Sink side effects | NOT_IMPLEMENTED / NOT_RUN |
-| Existing normal v3 flows | Existing CI only; no new P1 repaired-behavior qualification |
-
-All original tests remain; #393 diagnostics are unchanged. No claims of fixing
-Coordinator public Rebuild pre-admission health/stale writes, independently
-durable Rebuild Intent, source/operation revision CAS, atomic Global/Managed/AI
-publication or complete crash/restart recovery. Native Windows long-term
-Service/SCM experience and #328 SQLite lock competition remain unresolved.
-No schema v38, IPC v4, release, installer, ranking/FTS, watcher or #381 changes.
-
-Stop at an **OPEN/Draft diagnostic PR** for the smallest Owner scope decision.
-No production implementation continues, no merge/close/master mutation or
-Codex Review occurs. Final status remains
-**ISSUE_380_P1_OWNER_ESCALATION_REQUIRED / ISSUE_380_PRODUCT_FIX_NO_GO**.
+Only report P1 candidate READY after final exact-HEAD native-capable Rust tests/format/Clippy and applicable normal CI pass. Product remains NO_GO. Keep #398 OPEN/Draft for Owner review; no master/Schema/CI/installer/release modification or Codex Review.

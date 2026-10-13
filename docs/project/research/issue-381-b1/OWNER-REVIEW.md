@@ -38,14 +38,15 @@ This is an evidence correction, not an accusation that frozen S8/S8R's ID-set in
 
 These are **provisional primary lanes**, not one-hot program effects. A read guard may feed AI, and a scan writer may influence FTS; both duties must be tested through the owning semantic contract. `PINNED_SOURCE` means source coordinates or ownership were rechecked, **not** that the implementation has passed native/behavioral tests. `SOURCE_RECHECK` means verify the exact handler/source and writer ordering before any code plan. Details: [B1-GROUP-DISPOSITION.csv](B1-GROUP-DISPOSITION.csv).
 
-## IPC and frontend scope (220 entries: 209 commands + 11 frontend)
+## IPC and frontend scope (219 entries: 209 commands + 10 frontend)
 
 | B1 lane | Entries |
 | --- | ---: |
 | IPC_CALLPATH_PENDING | 169 |
 | D16_INDEPENDENT_SERVICE | 8 |
-| D16_STORAGE_ACTION | 32 |
-| FRONTEND_DTO_GUARD | 10 |
+| D16_EXPLICIT_WORKSPACE | 22 |
+| D16_STORAGE_ACTION | 10 |
+| FRONTEND_DTO_GUARD | 9 |
 | FRONTEND_LEGACY_COMPAT | 1 |
 
 The exactly **40 D-16-only commands** are separated into **8 independent service/system**, **22 explicit user-selected File Workspace**, and **10 Storage Analyzer/journal** capability commands. These are *not* automatically 40 Managed Scan commands; Storage Analyzer actions still require finding/journal, physical file identity and source-overlap validation. The remaining **169 registered commands** are placed in `IPC_CALLPATH_PENDING` until their **actual** handler-to-repository call paths are traced; no inference of production changes from co-membership in D-16. Frontend includes **10** production consumers; FE-011 remains a fixture and is not counted. Details: [B1-IPC-FE-DISPOSITION.csv](B1-IPC-FE-DISPOSITION.csv).

@@ -1,0 +1,11 @@
+test_cancel_and_partial_failure_recovery_source_and_model (__main__.InstallerSchedules.test_cancel_and_partial_failure_recovery_source_and_model) ... ok
+test_source_stop_close_replace_restart_order_is_not_a_launch_barrier (__main__.InstallerSchedules.test_source_stop_close_replace_restart_order_is_not_a_launch_barrier) ... ok
+test_all_four_pairs_have_pre_admission_rebuild_damage (__main__.SQLiteEvidence.test_all_four_pairs_have_pre_admission_rebuild_damage) ... ok
+test_child_exit_after_pre_admission_sql_preserves_damage (__main__.SQLiteEvidence.test_child_exit_after_pre_admission_sql_preserves_damage) ... ok
+test_each_sql_failure_retains_prior_autocommit_damage (__main__.SQLiteEvidence.test_each_sql_failure_retains_prior_autocommit_damage) ... ok
+test_real_writer_lock_is_sqlite_busy_not_service_busy (__main__.SQLiteEvidence.test_real_writer_lock_is_sqlite_busy_not_service_busy) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.394s
+
+OK

@@ -1,0 +1,390 @@
+{
+  "sqlite_version": "3.53.1",
+  "observations": [
+    {
+      "case": "installer-recovery-model",
+      "state": "cancel_before_mutation",
+      "native_verified": false,
+      "required_owner_gate": "coherent_pair_and_launch_exclusion"
+    },
+    {
+      "case": "installer-recovery-model",
+      "state": "failure_after_mutation",
+      "native_verified": false,
+      "required_owner_gate": "coherent_pair_and_launch_exclusion"
+    },
+    {
+      "case": "installer-recovery-model",
+      "state": "successful_switch",
+      "native_verified": false,
+      "required_owner_gate": "coherent_pair_and_launch_exclusion"
+    },
+    {
+      "case": "installer-recovery-model",
+      "state": "launch_after_close_check",
+      "native_verified": false,
+      "required_owner_gate": "coherent_pair_and_launch_exclusion"
+    },
+    {
+      "case": "installer-interleaving-model",
+      "checkpoint": "before_stop",
+      "index_attempt": [
+        "old",
+        "old"
+      ],
+      "post_restart_desktops": [],
+      "post_restart_service": "new",
+      "NotSent_direct_window": false,
+      "mixed_pair_after_restart": false,
+      "native_verified": false
+    },
+    {
+      "case": "installer-interleaving-model",
+      "checkpoint": "service_stopped",
+      "index_attempt": [
+        "old",
+        null
+      ],
+      "post_restart_desktops": [],
+      "post_restart_service": "new",
+      "NotSent_direct_window": true,
+      "mixed_pair_after_restart": false,
+      "native_verified": false
+    },
+    {
+      "case": "installer-interleaving-model",
+      "checkpoint": "desktop_closed",
+      "index_attempt": [
+        "old",
+        null
+      ],
+      "post_restart_desktops": [
+        "old"
+      ],
+      "post_restart_service": "new",
+      "NotSent_direct_window": true,
+      "mixed_pair_after_restart": true,
+      "native_verified": false
+    },
+    {
+      "case": "installer-interleaving-model",
+      "checkpoint": "binary_replaced",
+      "index_attempt": [
+        "new",
+        null
+      ],
+      "post_restart_desktops": [
+        "new"
+      ],
+      "post_restart_service": "new",
+      "NotSent_direct_window": true,
+      "mixed_pair_after_restart": false,
+      "native_verified": false
+    },
+    {
+      "case": "installer-interleaving-model",
+      "checkpoint": "service_restarted",
+      "index_attempt": [
+        "new",
+        "new"
+      ],
+      "post_restart_desktops": [
+        "new"
+      ],
+      "post_restart_service": "new",
+      "NotSent_direct_window": false,
+      "mixed_pair_after_restart": false,
+      "native_verified": false
+    },
+    {
+      "case": "installer-source",
+      "path": "src-tauri/windows/installer-lifecycle-final.nsh",
+      "sha256": "e3b79bdb70fa99cff9d0a0c5f940e7d515a7f479541dbab52ea66abe38d5be5b",
+      "calls": [
+        "ZCInitializeInstallLifecycle",
+        "ZCStopCapturedServiceForLifecycle",
+        "ZCResolveMainAppGateFinal",
+        "ZCQuiescePreviewForLifecycle"
+      ],
+      "native_verified": false
+    },
+    {
+      "case": "pre-admission",
+      "desktop": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "service": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "stale": 1,
+      "managed_enabled": 0,
+      "ai": "stale",
+      "count": 0,
+      "checkpoint": "old",
+      "active_search_hits": 0
+    },
+    {
+      "case": "pre-admission",
+      "desktop": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "service": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "stale": 1,
+      "managed_enabled": 0,
+      "ai": "stale",
+      "count": 0,
+      "checkpoint": "old",
+      "active_search_hits": 0
+    },
+    {
+      "case": "pre-admission",
+      "desktop": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "service": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "stale": 1,
+      "managed_enabled": 0,
+      "ai": "stale",
+      "count": 0,
+      "checkpoint": "old",
+      "active_search_hits": 0
+    },
+    {
+      "case": "pre-admission",
+      "desktop": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "service": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "stale": 1,
+      "managed_enabled": 0,
+      "ai": "stale",
+      "count": 0,
+      "checkpoint": "old",
+      "active_search_hits": 0
+    },
+    {
+      "case": "child-exit",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "WAL",
+      "exit": 73,
+      "damage_survives": true
+    },
+    {
+      "case": "child-exit",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "DELETE",
+      "exit": 73,
+      "damage_survives": true
+    },
+    {
+      "case": "child-exit",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "WAL",
+      "exit": 73,
+      "damage_survives": true
+    },
+    {
+      "case": "child-exit",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "DELETE",
+      "exit": 73,
+      "damage_survives": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "WAL",
+      "fail_statement": 1,
+      "committed_prefix": 0,
+      "damage": false
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "WAL",
+      "fail_statement": 2,
+      "committed_prefix": 1,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "WAL",
+      "fail_statement": 3,
+      "committed_prefix": 2,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "WAL",
+      "fail_statement": 4,
+      "committed_prefix": 3,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "WAL",
+      "fail_statement": 5,
+      "committed_prefix": 4,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "WAL",
+      "fail_statement": 6,
+      "committed_prefix": 5,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "DELETE",
+      "fail_statement": 1,
+      "committed_prefix": 0,
+      "damage": false
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "DELETE",
+      "fail_statement": 2,
+      "committed_prefix": 1,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "DELETE",
+      "fail_statement": 3,
+      "committed_prefix": 2,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "DELETE",
+      "fail_statement": 4,
+      "committed_prefix": 3,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "DELETE",
+      "fail_statement": 5,
+      "committed_prefix": 4,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+      "mode": "DELETE",
+      "fail_statement": 6,
+      "committed_prefix": 5,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "WAL",
+      "fail_statement": 1,
+      "committed_prefix": 0,
+      "damage": false
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "WAL",
+      "fail_statement": 2,
+      "committed_prefix": 1,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "WAL",
+      "fail_statement": 3,
+      "committed_prefix": 2,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "WAL",
+      "fail_statement": 4,
+      "committed_prefix": 3,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "WAL",
+      "fail_statement": 5,
+      "committed_prefix": 4,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "WAL",
+      "fail_statement": 6,
+      "committed_prefix": 5,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "DELETE",
+      "fail_statement": 1,
+      "committed_prefix": 0,
+      "damage": false
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "DELETE",
+      "fail_statement": 2,
+      "committed_prefix": 1,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "DELETE",
+      "fail_statement": 3,
+      "committed_prefix": 2,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "DELETE",
+      "fail_statement": 4,
+      "committed_prefix": 3,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "DELETE",
+      "fail_statement": 5,
+      "committed_prefix": 4,
+      "damage": true
+    },
+    {
+      "case": "partial-sql",
+      "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+      "mode": "DELETE",
+      "fail_statement": 6,
+      "committed_prefix": 5,
+      "damage": true
+    },
+    {
+      "case": "sqlite-writer-lock",
+      "mode": "WAL",
+      "error_code": 5,
+      "wait_ms": 53.051,
+      "test_busy_timeout_ms": 50
+    },
+    {
+      "case": "sqlite-writer-lock",
+      "mode": "DELETE",
+      "error_code": 5,
+      "wait_ms": 53.828,
+      "test_busy_timeout_ms": 50
+    }
+  ]
+}

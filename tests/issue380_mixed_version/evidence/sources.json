@@ -1,0 +1,153 @@
+[
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/db/schema.rs",
+    "sha256": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/models.rs",
+    "sha256": "b18d9d1cc3ef307d68e40493afda5e8ef4ebe4014b84ae0d39685019d8c77f5c"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/models.rs",
+    "sha256": "b18d9d1cc3ef307d68e40493afda5e8ef4ebe4014b84ae0d39685019d8c77f5c"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/windows/service.rs",
+    "sha256": "c7ebb1e2a3023784d55c52d5777fb54519b430e0e5d7829f86e06083926457e2"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/windows/service_host.rs",
+    "sha256": "78a808017e4bd9e083992121b8fe0187aed63548fba290aacfed56580bd89d8b"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/coordinator.rs",
+    "sha256": "f900d313542e4acc5a2694fed75b8089b16bc14891ea1f5c4428a9e89d3805cd"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/windows/mod.rs",
+    "sha256": "b06126a43b1cfc5dce00b9bfa2a8b4565a95c169062a361ab2d05ee7cd7e3710"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/windows/service_errors.rs",
+    "sha256": "0660329a4cbed6e9c8fa2372a4156a27893464080f8deaa9250cb047a9c036f9"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/repository.rs",
+    "sha256": "d3c0dd5ad1c9d45b85f7dd25d62876d1ee35bb6dee32ff2b06031816d4f02bb9"
+  },
+  {
+    "generated_module": "old",
+    "sha256": "445ceb4daf76a400aa84f9317a824a52a9bb42779090503827601b2183054dc3"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/service.rs",
+    "sha256": "69a73728e6b130f3c6ee80e058eed18da8d3e49c497eefad10f2b0079b4ef16b"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/service_host.rs",
+    "sha256": "cf5512b70f8ccc36a7cd662703e797f54cb8d98d92a20df5bf233ed45cd13dc6"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/coordinator.rs",
+    "sha256": "6f113e4e295e85dc8baf4148d420848fe677094eb10ee826e0b0f94a45583fef"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/mod.rs",
+    "sha256": "2d4f2ebd27c80164c5fc019ad54557dd5a01baa3c6deff66ecc32e428c40a62a"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/service_errors.rs",
+    "sha256": "1b658ceed575fdad84af527d7356e9f28725c672cb5393d5aa9321f788d9646d"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/repository.rs",
+    "sha256": "d3c0dd5ad1c9d45b85f7dd25d62876d1ee35bb6dee32ff2b06031816d4f02bb9"
+  },
+  {
+    "generated_module": "new",
+    "sha256": "dd7440dacaef2959bb2071ce9042a6297bad488ee9d1ab33c6916b900d73e6dc"
+  },
+  {
+    "ref": "8ab50cb627712abef8debfa786d9fb2354ef9581",
+    "path": "docs/research/ISSUE-380-D0-TEST-CONTRACT.md",
+    "sha256": "a2d59804b0f26cf396d3977b11a72815c6213d11d8b71903736a4552168a76a5",
+    "reference_only": true
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "docs/research/issue-380-d1a-mixed-version-contract.md",
+    "sha256": "50c6ff2ee9cf9bd90a139d00ef83a8463d39355251f33548ff0b71771d6f87a3",
+    "reference_only": true
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/Cargo.lock",
+    "sha256": "cadb69608c6f054487a1ffc4def7fbfa73d4255bb496e09530962841a9ba7fc4"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/fixture.sql",
+    "sha256": "01859f1d729828e148922c138dd26c027806f94e684d9897884f218a9b14aaba"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/harness.rs",
+    "sha256": "7d3757596659beabf0c98de09b16b47cfa5e48e4038748480a53ac4d8c317260"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/host_bridge.rs",
+    "sha256": "2bdab5f225b841a741191c6ef084df765ebc11091373a335c409e4bcc35bd140"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/new_bridge.rs",
+    "sha256": "31f67cab3afca6a1853f6a7cc12a62a7ba8050816952a452c87b843f2cad2da5"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/new_io.rs",
+    "sha256": "579e162b6bc38371004bb93e0437b29136b36bf89a2cf796feb47a526b1daefb"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/old_bridge.rs",
+    "sha256": "d4972c96683a6870cae11cc1e2996b4ff6ab7b424f1c77054f58f8fa1a996e72"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/old_io.rs",
+    "sha256": "6bcf04b97dc7f93da1a503f0aeed4217159e88bde1c107c72ae066eeb23da9ab"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/old_stream.rs",
+    "sha256": "4cf51af84cc58c72395431eebf02e1cc558c1d0ebcc99fdd55b36a8d522519ca"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/provider.rs",
+    "sha256": "1b1c4ebfb4d5330d958774724e1f34bdac3d8325881feb0efe18a4ac6faf77e7"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/rebuild_bridge.rs",
+    "sha256": "eb7a252abd437f18dbdf87bfa460342d80cad554a4d6978a7c077556394487e2"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/run.py",
+    "sha256": "cdb4c8963c4a3fb21c6a0299f9d99d63867b135d6b9d747bbfd3529a8fc4ab32"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/sink.rs",
+    "sha256": "ec761b8c69d0b96a2c89c68aa748ddb92cd1c096a33e87ecd3a9db947fb18c24"
+  },
+  {
+    "test_input": "tests/issue380_mixed_version/sqlite_installer.py",
+    "sha256": "fed2fb86beb5777e93e1fa5168517e2a13479c7fd08fb28750b1a466794adc82"
+  }
+]

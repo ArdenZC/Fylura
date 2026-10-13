@@ -424,28 +424,51 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
         }
         let request = IndexServiceRequest::new(IndexServiceCommand::DiscoverSources, None);
         let mut sources = None;
-        match service::call_index_service_stream(&request, |_client, event| {
-            if let IndexServiceEvent::Sources {
+        match service::call_index_service_admitted(&request, |event| {
+            let IndexServiceEvent::Sources {
                 sources: discovered,
             } = event
-            {
-                sources = Some(discovered);
+            else {
+                return Err(service::IndexServiceCallError::Protocol(
+                    "unexpected discovery event".into(),
+                ));
+            };
+            if sources.is_some() {
+                return Err(service::IndexServiceCallError::Protocol(
+                    "duplicate discovery result".into(),
+                ));
             }
-            Ok(())
+            let mut ids = std::collections::HashSet::new();
+            for source in &discovered {
+                service::validate_source_snapshot(source)
+                    .map_err(service::IndexServiceCallError::Protocol)?;
+                if !ids.insert(source.id.clone()) {
+                    return Err(service::IndexServiceCallError::Protocol(
+                        "duplicate discovery source identity".into(),
+                    ));
+                }
+            }
+            sources = Some(discovered);
+            Ok(None)
         }) {
             Ok(response) if response.ok => {
                 self.service_connected();
                 Ok(sources
-                    .unwrap_or_default()
+                    .ok_or_else(|| {
+                        GlobalIndexError::ServiceProtocol(
+                            "discovery success without Sources".into(),
+                        )
+                    })?
                     .into_iter()
                     .map(|volume| GlobalSourceDescriptor { volume })
                     .collect())
             }
             Ok(response) => Err(Self::service_response_error(&response)),
-            Err(_) => {
+            Err(service::IndexServiceCallError::NotSent(_)) => {
                 self.service_failed();
                 self.direct.discover_sources()
             }
+            Err(error) => Err(error.into_global()),
         }
     }
 

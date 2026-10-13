@@ -33,6 +33,7 @@ pub enum IndexServiceCommand {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct IndexServiceRequest {
     pub protocol_version: u16,
     pub request_id: String,
@@ -174,7 +175,7 @@ pub fn validate_request(request: &IndexServiceRequest) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_source_snapshot(source: &GlobalVolume) -> Result<(), String> {
+pub(crate) fn validate_source_snapshot(source: &GlobalVolume) -> Result<(), String> {
     for (field, value, max) in [
         ("id", source.id.as_str(), 256usize),
         ("stable_volume_id", source.stable_volume_id.as_str(), 1024),
@@ -425,10 +426,41 @@ impl<'a> IndexServiceAdmission<'a> {
                 if !self.provider
                     || self.checkpoint
                     || (full && !self.stale)
-                    || journal_id.as_ref().is_none_or(|value| value.is_empty())
-                    || journal_cursor.as_ref().is_none_or(|value| value.is_empty())
+                    || journal_id.as_ref().is_none_or(|value| {
+                        value
+                            .parse::<u64>()
+                            .ok()
+                            .is_none_or(|parsed| parsed.to_string() != *value)
+                    })
+                    || journal_cursor.as_ref().is_none_or(|value| {
+                        value
+                            .parse::<i64>()
+                            .ok()
+                            .is_none_or(|parsed| parsed < 0 || parsed.to_string() != *value)
+                    })
                 {
                     return Err(Self::reject("missing scan completion boundary"));
+                }
+                if !full {
+                    if source
+                        .journal_id
+                        .as_ref()
+                        .is_some_and(|old| Some(old) != journal_id.as_ref())
+                    {
+                        return Err(Self::reject("incremental journal identity changed"));
+                    }
+                    if let Some(old) = &source.journal_cursor {
+                        let old = old
+                            .parse::<i64>()
+                            .map_err(|_| Self::reject("invalid saved incremental cursor"))?;
+                        if journal_cursor
+                            .as_ref()
+                            .and_then(|value| value.parse::<i64>().ok())
+                            .is_none_or(|cursor| cursor < old)
+                        {
+                            return Err(Self::reject("incremental checkpoint rewind"));
+                        }
+                    }
                 }
                 sink.checkpoint(&volume_id, journal_id.as_deref(), journal_cursor.as_deref())?;
                 self.checkpoint = true;

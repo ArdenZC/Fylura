@@ -612,3 +612,62 @@ fn p1_t14_v3_shape_and_checkpoint_type_remain_unchanged() {
     )
     .unwrap();
 }
+
+#[test]
+fn p1_malformed_checkpoint_text_is_not_scan_completion() {
+    let request = request(false);
+    for (journal, cursor) in [("junk", "42"), ("7", "junk"), ("7", "-1"), ("07", "42")] {
+        let mut sink = Sink::default();
+        let event = IndexServiceEvent::Checkpoint {
+            volume_id: "v".into(),
+            journal_id: Some(journal.into()),
+            journal_cursor: Some(cursor.into()),
+        };
+        assert!(matches!(
+            run(
+                &request,
+                vec![marker(), provider(), event],
+                Some(response(&request, None)),
+                &mut sink
+            ),
+            Err(IndexServiceCallError::Protocol(_))
+        ));
+        assert_eq!(sink.writes, 1);
+    }
+}
+
+#[test]
+fn p1_resume_checkpoint_never_changes_journal_or_rewinds_snapshot() {
+    for (journal, cursor) in [("8", "43"), ("7", "41")] {
+        let mut volume = source();
+        volume.journal_id = Some("7".into());
+        volume.journal_cursor = Some("42".into());
+        let request = IndexServiceRequest::new(
+            IndexServiceCommand::ResumeIncrementalSync {
+                source_id: "v".into(),
+            },
+            Some(volume.clone()),
+        );
+        let mut sink = Sink::default();
+        assert!(matches!(
+            run(
+                &request,
+                vec![
+                    IndexServiceEvent::Sources {
+                        sources: vec![volume]
+                    },
+                    provider(),
+                    IndexServiceEvent::Checkpoint {
+                        volume_id: "v".into(),
+                        journal_id: Some(journal.into()),
+                        journal_cursor: Some(cursor.into())
+                    }
+                ],
+                Some(response(&request, None)),
+                &mut sink
+            ),
+            Err(IndexServiceCallError::Protocol(_))
+        ));
+        assert_eq!(sink.writes, 1);
+    }
+}

@@ -6,16 +6,21 @@ struct UnadmittedBusyProvider {
     source: GlobalSourceDescriptor,
     reached: SyncSender<&'static str>,
     release: Mutex<Receiver<()>>,
+    blocked_once: AtomicBool,
 }
 
 impl UnadmittedBusyProvider {
     fn reject(&self, operation: &'static str) -> Result<(), GlobalIndexError> {
-        self.reached.send(operation).unwrap();
-        self.release
-            .lock()
-            .unwrap()
-            .recv_timeout(Duration::from_secs(30))
-            .expect("test must release the rejected request");
+        // Public start leaves its existing Startup wake pending. Block only
+        // the first call so that ordinary follow-up cycle is not a fake deadlock.
+        if !self.blocked_once.swap(true, Ordering::AcqRel) {
+            self.reached.send(operation).unwrap();
+            self.release
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(30))
+                .expect("test must release the rejected request");
+        }
         // No sink call/event/admitted indexing work occurs. On Windows this is
         // the production decoder applied to the existing exact v3 wire shape.
         #[cfg(target_os = "windows")]
@@ -135,6 +140,7 @@ fn issue380_ownership_blocker_rebuild_mutates_before_service_admission() {
         source: source.clone(),
         reached: reached_tx,
         release: Mutex::new(release_rx),
+        blocked_once: AtomicBool::new(false),
     });
     let wake = Arc::new(GlobalIndexWakeSlot::default());
     let coordinator = GlobalIndexCoordinator::with_provider(db.clone(), provider, wake.clone());
@@ -207,6 +213,7 @@ fn issue380_ownership_blocker_late_busy_overwrites_committed_owner_health() {
             source: source.clone(),
             reached: reached_tx,
             release: Mutex::new(release_rx),
+            blocked_once: AtomicBool::new(false),
         });
         let wake = Arc::new(GlobalIndexWakeSlot::default());
         let worker = {

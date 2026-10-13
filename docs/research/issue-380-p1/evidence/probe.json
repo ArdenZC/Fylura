@@ -3,8 +3,8 @@
   "product": "ISSUE_380_PRODUCT_FIX_NO_GO",
   "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
   "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
-  "execution_head": "e37b19e5930b03b13da8f48c996ed1e0510d1c23",
-  "execution_tree": "49ce2e3c3687825cbae043d100c9824e56aa77a6",
+  "execution_head": "36a0c2026f2792b159d3e6177bbbec5d28de8cd6",
+  "execution_tree": "c85f652f1862af75017f22505e80d49f3c55bfb3",
   "source_sha256": {
     "src-tauri/src/db/types.rs": "4ae77b02eb1e6991bd1776e4ecd9b257ba45df659078a758be6ebc5ab8e9f603",
     "src-tauri/src/global_index/coordinator.rs": "f900d313542e4acc5a2694fed75b8089b16bc14891ea1f5c4428a9e89d3805cd",
@@ -13,7 +13,7 @@
     "src-tauri/src/global_index/windows/service_errors.rs": "75d7570c9c18f292dd729a55b2b7030e5be2817bf09a15052c30df4305767494",
     "src-tauri/src/global_index/windows/service_errors_p1_scope_tests.rs": "0cdcd34c4f552c67684fd2bcd619b30ed385d6b06b915e70166fea2cb2a8536b"
   },
-  "runner_sha256": "da05f537fc37c173c0b76bb95b2a3bcb5ed934aaa9989f12e270a2cbf724a14c",
+  "runner_sha256": "0008e6b4378550e0201e06661bde5a06c96bdba68d5e90662b3f7b9dc4a892cd",
   "generated_harness_sha256": "88c0f371b41138d1c0c0f845cc6177bb4b665f0461b756b9cfdc1e5fa379cb80",
   "fixture_cargo_sha256": "15fc432b24670a7046901dc9d92cd7e70f0a56701328d07c1885771c25200218",
   "fixture_lock_sha256": "76b82ce6fb70848e85812a5deed49bb32775e1d3d44b2c7142cc32a4bfa20b2b",
@@ -38,7 +38,7 @@
         "--nocapture"
       ],
       "exit_code": 0,
-      "log_sha256": "b0fdf61e77099e4cb2a228bf02310483b822caab4cd8d3c28dfbab02a2a524cc"
+      "log_sha256": "727ef5ff54061f38735334e7caf1ea30e035e66c9f9d9f6e50ae6badebcc850f"
     },
     {
       "label": "required-contract",
@@ -53,7 +53,7 @@
         "--nocapture"
       ],
       "exit_code": 101,
-      "log_sha256": "0a4296fa96fd9c927416e7ec39f82d8586adeec6109ee391c82a3294fb1a512e"
+      "log_sha256": "4bcea16e37529c150bddb7e4e3e0491b53e3a5d2e0ab9b28bacc06bc63f7aba5"
     }
   ],
   "required_contract_failures_observed": true,

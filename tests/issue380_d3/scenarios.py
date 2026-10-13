@@ -359,7 +359,7 @@ safe candidate transitions and then merely assert that an enum exists.
         mutation = "UPDATE health SET status='READY',cause=NULL WHERE source='s1'"
         invariant = 'blind_restore_overwrites_new_owner'
     elif number == 3:
-        mutation = "UPDATE global_rows SET stale=1 WHERE source='s1'; UPDATE managed SET enabled=0 WHERE source='s1'; UPDATE health SET count=0 WHERE source='s1'"
+        mutation = "UPDATE global_rows SET stale=1 WHERE source='s1'; UPDATE managed SET enabled=0 WHERE source='s1'; UPDATE health SET count=0 WHERE source='s1'; UPDATE ai_jobs SET state='stale' WHERE source='s1'; UPDATE ai_items SET state='stale' WHERE source='s1'; UPDATE ai_analysis SET state='stale' WHERE source='s1'"
         invariant = 'pre_admission_destructive_stale'
     elif number == 4:
         w.ok('external_owner', status='READY', metadata='ABA-new-owner')
@@ -370,7 +370,7 @@ safe candidate transitions and then merely assert that an enum exists.
         s.prepare()
         s.stream()
         w.ok('interrupt', request='r1', action='transport')
-        mutation = "UPDATE operations SET route='Direct' WHERE request='r1'; UPDATE health SET reconciliation=0,status='READY' WHERE source='s1'"
+        mutation = "UPDATE operations SET route='Direct' WHERE request='r1'; UPDATE health SET reconciliation=0,status='READY' WHERE source='s1'; INSERT INTO global_rows VALUES ('s1','direct-replayed','unsafe-replay',0)"
         invariant = 'unknown_no_replay'
     else:
         # A real resource lease artifact (a separate file) does not reserve the

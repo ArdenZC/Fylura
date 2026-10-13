@@ -1,0 +1,38 @@
+name: Issue 380 K2-G1 Native Authority
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'tests/issue380_k2_g1/**'
+      - 'docs/research/ISSUE-380-K2-G1-PLATFORM-AUTHORITY.md'
+      - '.github/workflows/issue380-k2-g1-native.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: G1 native / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Controlled native SQLite and file-handle experiments
+        shell: bash
+        run: python3 tests/issue380_k2_g1/run.py --output .tmp-tests/issue380-k2-g1/native
+      - name: Preserve raw native evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue380-k2-g1-${{ runner.os }}-${{ github.event.pull_request.head.sha }}
+          path: .tmp-tests/issue380-k2-g1/native/results.json
+          if-no-files-found: error
+          retention-days: 30

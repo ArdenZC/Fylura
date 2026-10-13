@@ -98,6 +98,7 @@ class Candidate:
     def offer(self, request, now=0, expiry=10):
         if self.approach != 'B':
             raise Rejected('not a v3 frame')
+        self.expire_offers(now)
         op = self.op(request)
         if op['state'] != 'sent':
             raise Rejected('offer order')
@@ -111,7 +112,16 @@ class Candidate:
             self.db.execute("UPDATE operations SET state='offered' WHERE request=?", (request,))
         return dict(self.db.execute('SELECT * FROM offers WHERE request=?', (request,)).fetchone())
 
-    def grant(self, request, token, instance='service-1', now=0):
+    def expire_offers(self, now):
+        if self.approach != 'B':
+            raise Rejected('not offer protocol')
+        with self.transaction():
+            for offer in self.db.execute('SELECT * FROM offers WHERE expires<=? AND granted=0', (now,)).fetchall():
+                self.db.execute("UPDATE operations SET state='expired' WHERE request=? AND state='offered'", (offer['request'],))
+                self.db.execute('UPDATE service_slot SET reserved=NULL WHERE reserved=?', (offer['request'],))
+        return True
+
+    def grant(self, request, token, instance='service-1', now=0, source=None, revision=None):
         with self.transaction():
             op = self.op(request)
             offer = self.db.execute('SELECT * FROM offers WHERE request=?', (request,)).fetchone()
@@ -122,6 +132,10 @@ class Candidate:
                 raise Rejected('offer order/expiry')
             if (offer['token'], offer['instance'], offer['source'], offer['revision']) != (token, instance, op['source'], op['revision']):
                 raise Rejected('offer identity')
+            if source is not None and source != offer['source']:
+                raise Rejected('grant source identity')
+            if revision is not None and revision != offer['revision']:
+                raise Rejected('grant revision identity')
             self._claim(op)
             self.db.execute('UPDATE offers SET granted=1 WHERE request=?', (request,))
         return True

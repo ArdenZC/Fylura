@@ -16,7 +16,7 @@ import sys
 import tempfile
 import traceback
 from pathlib import Path
-from scenarios import Scenario, execute, interrupt_case, fault_case, negative, response, before_intent_commit, legal_event_routes, source_fault_with_ok_terminal, same_source_competition, b_handshake_loss, no_inventory_checkpoint, old_intent_cancel, different_source_fault, live_owner_wake
+from scenarios import Scenario, execute, interrupt_case, fault_case, negative, response, before_intent_commit, legal_event_routes, source_fault_with_ok_terminal, same_source_competition, b_handshake_loss, no_inventory_checkpoint, old_intent_cancel, different_source_fault, live_owner_wake, b_expiry_release
 
 ROOT = Path(__file__).resolve().parents[2]
 TEST = Path(__file__).resolve().parent
@@ -52,6 +52,7 @@ def main():
                    'execution_head': git('rev-parse', 'HEAD'), 'execution_tree': git('rev-parse', 'HEAD^{tree}'),
                    'working_diff': git('status', '--short'), 'test_source_sha256': test_hashes,
                    'production_read_only_provenance': production,
+                   'owner_input_sha256': sha((ROOT / 'docs/project/research/issue-380-d3/owner-inputs.json').read_bytes()),
                    'qualification': 'Linux isolated SQLite research model; NOT native Windows/macOS Service acceptance',
                    'ordering': 'JSON pipe readiness / SQLite transactions / process exit barriers; no sleeps or clock-based ordering'}
     db.close()
@@ -99,6 +100,7 @@ def main():
             for label, method in [('D3-T11-live-owner-wake', live_owner_wake), ('D3-T04-different-source-fault', different_source_fault), ('D3-T06-old-intent-cancel', old_intent_cancel), ('D3-T06-before-intent-commit', before_intent_commit), ('D3-T09-legal-event-routes', legal_event_routes), ('D3-T10-checkpoint-only', no_inventory_checkpoint), ('D3-T14-staged-source-fault', source_fault_with_ok_terminal), ('D3-T05-same-source-competition', same_source_competition)]:
                 run(approach, label, method)
             if approach == 'B':
+                run(approach, 'D3-T09-expiry-release', b_expiry_release)
                 run(approach, 'D3-T11-offer-lost-service-restart', lambda s: b_handshake_loss(s, False))
                 run(approach, 'D3-T11-grant-lost-service-restart', lambda s: b_handshake_loss(s, True))
             # Run ALL six negative algorithms against each candidate fixture;

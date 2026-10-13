@@ -516,3 +516,20 @@ def live_owner_wake(s):
     s.oracle.unchanged(peer.snapshot())
     s.worker.ok('frame', request='r1', frame=response())
     s.oracle.published(s.worker.snapshot(), INVENTORY)
+
+
+def b_expiry_release(s):
+    s.request(command='Rebuild')
+    offered = s.worker.ok('offer', request='r1', expiry=2)
+    s.worker.reject('grant', request='r1', token=offered['token'], source='s2')
+    s.worker.reject('grant', request='r1', token=offered['token'], revision=99)
+    s.worker.ok('expire_offers', now=2)
+    assert s.worker.snapshot()['service_slot'][0]['reserved'] is None
+    s.worker.reject('grant', request='r1', token=offered['token'], now=2)
+    s.worker.reject('frame', request='r1', frame=event())
+    s.request(request='after-expiry', command='Rebuild')
+    offered = s.worker.ok('offer', request='after-expiry', now=2)
+    s.worker.ok('grant', request='after-expiry', token=offered['token'], source='s1', revision=offered['revision'], now=2)
+    s.stream('after-expiry')
+    s.worker.ok('frame', request='after-expiry', frame=response('after-expiry'))
+    s.oracle.published(s.worker.snapshot(), INVENTORY)

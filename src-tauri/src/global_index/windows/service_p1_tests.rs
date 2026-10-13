@@ -75,6 +75,9 @@ fn event_frame(request: &IndexServiceRequest, event: IndexServiceEvent) -> Index
 #[derive(Default)]
 pub(crate) struct Sink {
     pub(crate) writes: usize,
+    pub(crate) provider_writes: usize,
+    pub(crate) volume_stale_writes: usize,
+    pub(crate) batch_writes: usize,
     fail: Option<GlobalIndexError>,
     lookup: Option<GlobalEntry>,
 }
@@ -93,6 +96,7 @@ impl Sink {
 impl GlobalIndexSink for Sink {
     fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError> {
         self.write()?;
+        self.batch_writes += 1;
         Ok(entries.len())
     }
     fn mark_entry_stale(&mut self, _: &str) -> Result<(), GlobalIndexError> {
@@ -115,7 +119,9 @@ impl GlobalIndexSink for Sink {
         self.write()
     }
     fn set_source_provider(&mut self, _: &str, _: &str) -> Result<(), GlobalIndexError> {
-        self.write()
+        self.write()?;
+        self.provider_writes += 1;
+        Ok(())
     }
     fn resolve_parent_path(
         &mut self,
@@ -134,7 +140,9 @@ impl GlobalIndexSink for Sink {
         Ok(self.lookup.clone())
     }
     fn mark_volume_entries_stale(&mut self, _: &str) -> Result<(), GlobalIndexError> {
-        self.write()
+        self.write()?;
+        self.volume_stale_writes += 1;
+        Ok(())
     }
 }
 struct Io {

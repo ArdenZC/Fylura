@@ -339,10 +339,54 @@ impl WindowsGlobalIndexProvider {
         request: &IndexServiceRequest,
         sink: &mut dyn GlobalIndexSink,
     ) -> Result<Result<(), GlobalIndexError>, service::IndexServiceCallError> {
+        self.run_service_stream_using(request, sink, |request, event| {
+            service::call_index_service_admitted(request, event)
+        })
+    }
+
+    fn run_service_stream_using(
+        &self,
+        request: &IndexServiceRequest,
+        sink: &mut dyn GlobalIndexSink,
+        call: impl FnOnce(
+            &IndexServiceRequest,
+            &mut dyn FnMut(
+                IndexServiceEvent,
+            ) -> Result<
+                Option<service::IndexServiceLookupResponse>,
+                service::IndexServiceCallError,
+            >,
+        ) -> Result<IndexServiceResponse, service::IndexServiceCallError>,
+    ) -> Result<Result<(), GlobalIndexError>, service::IndexServiceCallError> {
         let mut admission = service::IndexServiceAdmission::new(request);
-        let response =
-            service::call_index_service_admitted(request, |event| admission.apply(sink, event))?;
+        let mut admitted = false;
+        let response = {
+            let mut apply_event = |event| {
+                let is_admission = matches!(&event, IndexServiceEvent::Sources { .. });
+                let result = admission.apply(sink, event)?;
+                admitted |= is_admission;
+                Ok(result)
+            };
+            call(request, &mut apply_event)?
+        };
         admission.finish(&response)?;
+        if admitted && !response.ok {
+            // Sink writes are not transactional; do not replay this source via
+            // Direct after a valid failed terminal response.
+            let source_id = request
+                .source
+                .as_ref()
+                .map(|source| source.id.clone())
+                .unwrap_or_default();
+            self.direct_blocked_sources
+                .lock()
+                .map_err(|_| {
+                    service::IndexServiceCallError::Protocol(
+                        "Direct safety fence poisoned".into(),
+                    )
+                })?
+                .insert(source_id);
+        }
         self.service_connected();
         if response.ok {
             super::qa_trace::record("windows_service_route_ok");
@@ -350,6 +394,18 @@ impl WindowsGlobalIndexProvider {
         } else {
             Ok(Err(Self::service_response_error(&response)))
         }
+    }
+
+    #[cfg(test)]
+    fn run_service_stream_with_io(
+        &self,
+        request: &IndexServiceRequest,
+        sink: &mut dyn GlobalIndexSink,
+        io: &mut impl service::IndexServiceIo,
+    ) -> Result<Result<(), GlobalIndexError>, service::IndexServiceCallError> {
+        self.run_service_stream_using(request, sink, |request, event| {
+            service::exchange(request, io, event)
+        })
     }
 
     fn run_with_fallback(
@@ -581,6 +637,35 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
 mod tests {
     use super::*;
     use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
+    use std::collections::VecDeque;
+
+    struct ScriptedServiceIo {
+        frames: VecDeque<service::IndexServiceFrame>,
+    }
+
+    impl service::IndexServiceIo for ScriptedServiceIo {
+        fn send_request(
+            &mut self,
+            _request: &IndexServiceRequest,
+        ) -> Result<(), service::IndexServiceCallError> {
+            Ok(())
+        }
+
+        fn read_frame(
+            &mut self,
+        ) -> Result<service::IndexServiceFrame, service::IndexServiceCallError> {
+            self.frames.pop_front().ok_or_else(|| {
+                service::IndexServiceCallError::UnknownOutcome("scripted stream ended".into())
+            })
+        }
+
+        fn send_lookup(
+            &mut self,
+            _response: service::IndexServiceLookupResponse,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
 
     fn windows_source() -> GlobalSourceDescriptor {
         GlobalSourceDescriptor {
@@ -730,6 +815,169 @@ mod tests {
                 direct
             )
             .is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn p1_admitted_failed_terminal_fences_later_not_sent_direct_replay() {
+        let provider = WindowsGlobalIndexProvider::new();
+        let volume = service::p1_tests::source();
+        let request = IndexServiceRequest::new(
+            IndexServiceCommand::Rebuild {
+                source_id: volume.id.clone(),
+            },
+            Some(volume.clone()),
+        );
+        let event = |event| service::IndexServiceFrame::Event {
+            request_id: request.request_id.clone(),
+            event,
+        };
+        let terminal = IndexServiceResponse {
+            protocol_version: service::IPC_PROTOCOL_VERSION,
+            request_id: request.request_id.clone(),
+            ok: false,
+            error_code: Some("index_provider_error".into()),
+            message: Some("provider failed after partial scan".into()),
+            status: Some("error".into()),
+        };
+        let mut io = ScriptedServiceIo {
+            frames: VecDeque::from([
+                event(IndexServiceEvent::Sources {
+                    sources: vec![volume.clone()],
+                }),
+                event(IndexServiceEvent::SourceProvider {
+                    volume_id: volume.id.clone(),
+                    provider: PROVIDER_WINDOWS_MFT_USN.into(),
+                }),
+                event(IndexServiceEvent::VolumeEntriesStale {
+                    volume_id: volume.id.clone(),
+                }),
+                event(IndexServiceEvent::Entries {
+                    entries: vec![GlobalEntryInput {
+                        volume_id: volume.id.clone(),
+                        platform_file_id: "file-1".into(),
+                        parent_platform_file_id: "parent-1".into(),
+                        name: "partial.txt".into(),
+                        path: "Z:\\partial.txt".into(),
+                        extension: "txt".into(),
+                        is_directory: false,
+                        size: 17,
+                        created_at_fs: None,
+                        modified_at_fs: None,
+                        file_attributes: 0,
+                        is_hidden: false,
+                        is_system: false,
+                        source_provider: PROVIDER_WINDOWS_MFT_USN.into(),
+                        last_seen_at: 1,
+                    }],
+                }),
+                service::IndexServiceFrame::Response { response: terminal },
+            ]),
+        };
+        let mut sink = service::p1_tests::Sink::default();
+        let stream = provider.run_service_stream_with_io(&request, &mut sink, &mut io);
+        assert!(matches!(
+            &stream,
+            Ok(Err(GlobalIndexError::Provider(message)))
+                if message == "provider failed after partial scan"
+        ));
+        assert_eq!(sink.provider_writes, 1);
+        assert_eq!(sink.volume_stale_writes, 1);
+        assert_eq!(sink.batch_writes, 1);
+        assert_eq!(sink.writes, 3);
+
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let error = provider
+            .resolve_service_route(
+                &request,
+                &mut sink,
+                stream,
+                |_, _| {
+                    calls.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(error, GlobalIndexError::Provider(_)));
+        let next_request = IndexServiceRequest::new(
+            IndexServiceCommand::Rebuild {
+                source_id: volume.id.clone(),
+            },
+            Some(volume),
+        );
+        let next = provider.resolve_service_route(
+            &next_request,
+            &mut sink,
+            Err(service::IndexServiceCallError::NotSent(
+                "next connection failed before send".into(),
+            )),
+            |_, _| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            },
+        );
+        assert!(matches!(next, Err(GlobalIndexError::ServiceProtocol(_))));
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn p1_pre_admission_busy_stays_typed_and_does_not_block_a_later_not_sent_request() {
+        let provider = WindowsGlobalIndexProvider::new();
+        let volume = service::p1_tests::source();
+        let request = IndexServiceRequest::new(
+            IndexServiceCommand::Rebuild {
+                source_id: volume.id.clone(),
+            },
+            Some(volume),
+        );
+        let busy = IndexServiceResponse {
+            protocol_version: service::IPC_PROTOCOL_VERSION,
+            request_id: request.request_id.clone(),
+            ok: false,
+            error_code: Some("index_service_busy".into()),
+            message: Some("another request owns the service slot".into()),
+            status: Some("indexing".into()),
+        };
+        let mut io = ScriptedServiceIo {
+            frames: VecDeque::from([service::IndexServiceFrame::Response { response: busy }]),
+        };
+        let mut sink = service::p1_tests::Sink::default();
+        let stream = provider.run_service_stream_with_io(&request, &mut sink, &mut io);
+        assert!(matches!(
+            &stream,
+            Ok(Err(GlobalIndexError::ServiceBusy(message)))
+                if message == "another request owns the service slot"
+        ));
+        assert_eq!(sink.writes, 0);
+
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let error = provider
+            .resolve_service_route(&request, &mut sink, stream, |_, _| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            })
+            .unwrap_err();
+        assert!(matches!(error, GlobalIndexError::ServiceBusy(_)));
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        let next_request = IndexServiceRequest::new(
+            IndexServiceCommand::Rebuild {
+                source_id: request.source.as_ref().unwrap().id.clone(),
+            },
+            request.source.clone(),
+        );
+        provider
+            .resolve_service_route(
+                &next_request,
+                &mut sink,
+                Err(service::IndexServiceCallError::NotSent(
+                    "new request was not sent".into(),
+                )),
+                |_, _| {
+                    calls.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                },
+            )
+            .unwrap();
         assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 

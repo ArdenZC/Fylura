@@ -51,6 +51,16 @@ struct ServiceRuntime {
     provider: Box<dyn GlobalIndexProvider>,
 }
 
+struct BusyReservation<'a> {
+    busy: &'a AtomicBool,
+}
+
+impl Drop for BusyReservation<'_> {
+    fn drop(&mut self) {
+        self.busy.store(false, Ordering::Release);
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct ServiceLifecycleState {
     status: String,
@@ -201,9 +211,10 @@ impl ServiceRuntime {
         request: IndexServiceRequest,
         connection: &mut dyn IndexServiceConnection,
     ) -> Result<(), String> {
-        if let Err(response) = self.try_begin_index_request(&request) {
-            return connection.send_response(response);
-        }
+        let _reservation = match self.try_begin_index_request(&request) {
+            Ok(reservation) => reservation,
+            Err(response) => return connection.send_response(response),
+        };
         let operation_result = (|| {
             let _operation_guard = self.operation_lock.lock().map_err(|_| {
                 (
@@ -254,7 +265,6 @@ impl ServiceRuntime {
                 }
             }
         })();
-        self.busy.store(false, Ordering::Release);
         match operation_result {
             Ok(()) => connection.send_response(self.response(
                 &request,
@@ -270,10 +280,10 @@ impl ServiceRuntime {
     fn try_begin_index_request(
         &self,
         request: &IndexServiceRequest,
-    ) -> Result<(), IndexServiceResponse> {
+    ) -> Result<BusyReservation<'_>, IndexServiceResponse> {
         self.busy
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map(|_| ())
+            .map(|_| BusyReservation { busy: &self.busy })
             .map_err(|_| {
                 self.response(
                     request,
@@ -942,7 +952,7 @@ mod tests {
                 source_id: "source-a".to_string(),
             },
         );
-        runtime
+        let _active_reservation = runtime
             .try_begin_index_request(&active)
             .expect("first operation owns the service slot");
         runtime.set_state("indexing", None);

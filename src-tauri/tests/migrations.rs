@@ -68,6 +68,22 @@ fn drop_identity_foundation(conn: &Connection, user_version: i32) {
     .expect("remove P0 objects from historical fixture");
 }
 
+fn source_incarnations_sql_with_case_changed_verification_check(conn: &Connection) -> String {
+    let sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_schema \
+             WHERE type = 'table' AND name = 'library_source_incarnations'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read source incarnation DDL");
+    let expected_check = "verification_state <> 'verified' OR";
+    assert_eq!(sql.matches(expected_check).count(), 1);
+    let changed_sql = sql.replace(expected_check, "verification_state <> 'VERIFIED' OR");
+    assert_ne!(changed_sql, sql, "fixture must change the CHECK literal");
+    changed_sql
+}
+
 fn sqlite_value_snapshot(value: ValueRef<'_>) -> String {
     match value {
         ValueRef::Null => "<null>".to_string(),
@@ -1577,6 +1593,93 @@ fn p0_t06_schema_37_collision_is_rejected_without_touching_legacy_data() {
     assert_eq!(full_schema_snapshot(&conn), before_schema);
     assert_eq!(table_snapshot(&conn, "files"), before_files);
     assert_eq!(table_snapshot(&conn, "user_tags"), before_tags);
+    assert_eq!(fts_rows_matching(&conn, "migrationtoken"), before_fts);
+}
+
+#[test]
+fn p0_r1_schema_38_reopen_rejects_case_changed_check_without_mutation() {
+    let path = test_db_path("p0-r1-schema38-case-check");
+    let db = Database::open(&path).expect("create current schema fixture");
+    drop(db);
+    let conn = Connection::open(&path).expect("open schema 38 case-check fixture");
+    seed_legacy_contract_rows(&conn);
+
+    let changed_source_sql = source_incarnations_sql_with_case_changed_verification_check(&conn);
+    conn.execute_batch("DROP TABLE library_source_incarnations;")
+        .expect("remove source table for DDL-only fixture change");
+    conn.execute_batch(&changed_source_sql)
+        .expect("install CHECK with case-sensitive semantic change");
+    let before_schema = full_schema_snapshot(&conn);
+    let before_files = table_snapshot(&conn, "files");
+    let before_tags = table_snapshot(&conn, "user_tags");
+    let before_file_tags = table_snapshot(&conn, "file_user_tags");
+    let before_authority = table_snapshot(&conn, "library_generation_authority");
+    let before_fts = fts_rows_matching(&conn, "migrationtoken");
+    drop(conn);
+
+    let error = match Database::open(&path) {
+        Ok(_) => panic!("schema 38 with a case-changed CHECK must be rejected"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        error.to_string(),
+        "library_schema38_identity_foundation_conflict: library_source_incarnations"
+    );
+
+    let conn = Connection::open(&path).expect("inspect rejected schema 38 fixture");
+    assert_eq!(
+        conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .expect("read rejected schema version"),
+        38
+    );
+    assert_eq!(full_schema_snapshot(&conn), before_schema);
+    assert_eq!(table_snapshot(&conn, "files"), before_files);
+    assert_eq!(table_snapshot(&conn, "user_tags"), before_tags);
+    assert_eq!(table_snapshot(&conn, "file_user_tags"), before_file_tags);
+    assert_eq!(
+        table_snapshot(&conn, "library_generation_authority"),
+        before_authority
+    );
+    assert_eq!(fts_rows_matching(&conn, "migrationtoken"), before_fts);
+}
+
+#[test]
+fn p0_r1_schema_37_case_changed_same_name_collision_is_rejected_without_mutation() {
+    let path = test_db_path("p0-r1-schema37-case-collision");
+    let db = Database::open(&path).expect("create current schema fixture");
+    drop(db);
+    let conn = Connection::open(&path).expect("open schema 37 case-collision fixture");
+    seed_legacy_contract_rows(&conn);
+    let changed_source_sql = source_incarnations_sql_with_case_changed_verification_check(&conn);
+    drop_identity_foundation(&conn, 37);
+    conn.execute_batch(&changed_source_sql)
+        .expect("install same-name table with case-changed CHECK");
+    let before_schema = full_schema_snapshot(&conn);
+    let before_files = table_snapshot(&conn, "files");
+    let before_tags = table_snapshot(&conn, "user_tags");
+    let before_file_tags = table_snapshot(&conn, "file_user_tags");
+    let before_fts = fts_rows_matching(&conn, "migrationtoken");
+    drop(conn);
+
+    let error = match Database::open(&path) {
+        Ok(_) => panic!("schema 37 with a case-changed same-name CHECK must be rejected"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        error.to_string(),
+        "library_schema38_identity_foundation_conflict: library_source_incarnations"
+    );
+
+    let conn = Connection::open(&path).expect("inspect rejected schema 37 fixture");
+    assert_eq!(
+        conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .expect("read rejected schema version"),
+        37
+    );
+    assert_eq!(full_schema_snapshot(&conn), before_schema);
+    assert_eq!(table_snapshot(&conn, "files"), before_files);
+    assert_eq!(table_snapshot(&conn, "user_tags"), before_tags);
+    assert_eq!(table_snapshot(&conn, "file_user_tags"), before_file_tags);
     assert_eq!(fts_rows_matching(&conn, "migrationtoken"), before_fts);
 }
 

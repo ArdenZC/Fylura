@@ -1003,10 +1003,31 @@ fn validate_library_identity_schema(conn: &Connection) -> Result<(), DbError> {
 }
 
 fn schema_sql_signature(sql: &str) -> String {
-    sql.chars()
-        .filter(|character| !character.is_ascii_whitespace() && *character != ';')
-        .flat_map(char::to_lowercase)
-        .collect()
+    let mut signature = String::with_capacity(sql.len());
+    let mut characters = sql.chars().peekable();
+    let mut in_string_literal = false;
+
+    while let Some(character) = characters.next() {
+        if in_string_literal {
+            signature.push(character);
+            if character == '\'' {
+                if characters.peek() == Some(&'\'') {
+                    signature.push(characters.next().expect("peeked escaped quote"));
+                } else {
+                    in_string_literal = false;
+                }
+            }
+        } else if character == '\'' {
+            signature.push(character);
+            in_string_literal = true;
+        } else if character.is_ascii_whitespace() || character == ';' {
+            continue;
+        } else {
+            signature.extend(character.to_lowercase());
+        }
+    }
+
+    signature
 }
 
 const MACOS_CLEANUP_PHYSICAL_ID_PREFIX: &str = "macos-dev-ino:";

@@ -6,7 +6,7 @@ import { resolvePerformanceProfile } from "./performanceProfile.mjs";
 import { getFixtureWorkingFiles } from "./performanceManifest.mjs";
 
 const root = process.cwd();
-export const PERFORMANCE_FIXTURE_SCHEMA_VERSION = 37;
+export const PERFORMANCE_FIXTURE_SCHEMA_VERSION = 38;
 export const PERFORMANCE_FIXTURE_FORMAT_VERSION = 1;
 
 function parseFlag(argv, name) {

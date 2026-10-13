@@ -51,6 +51,7 @@ struct ServiceRuntime {
     provider: Box<dyn GlobalIndexProvider>,
 }
 
+#[derive(Debug)]
 struct BusyReservation<'a> {
     busy: &'a AtomicBool,
 }

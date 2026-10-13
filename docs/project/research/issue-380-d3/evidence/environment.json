@@ -1,0 +1,109 @@
+{
+  "base_head": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+  "base_tree": "009576241cd4e8e2ba12cc644a368314f599faa6",
+  "command": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "/workspace/issue-380-d3-admission-owner-oracle/tests/issue380_d3/run.py",
+    "--output",
+    "docs/project/research/issue-380-d3/evidence"
+  ],
+  "cwd": "/workspace/issue-380-d3-admission-owner-oracle",
+  "executable": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+  "execution_head": "0a94403b52ed9ffc3ff825b40be59c1b885795d9",
+  "execution_tree": "0b007dbf79f722e79ad0c85ed9a861ff03691f2c",
+  "exit_code": 0,
+  "machine": "x86_64",
+  "ordering": "JSON pipe readiness / SQLite transactions / process exit barriers; no sleeps or clock-based ordering",
+  "owner_input_sha256": "3cb84b8672825a7557ebd45d5dc1f3589e3b0cc501a5cd5aae4d1a658568901c",
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "production_read_only_provenance": {
+    "src-tauri/src/global_index/coordinator.rs": {
+      "git_blob": "e8e5f1068e15fd134416b31492e94805cf7b14e3",
+      "sha256": "f900d313542e4acc5a2694fed75b8089b16bc14891ea1f5c4428a9e89d3805cd"
+    },
+    "src-tauri/src/global_index/repository.rs": {
+      "git_blob": "fd2a9b4cdf612eb26b347899100ae38200c25dbc",
+      "sha256": "d3c0dd5ad1c9d45b85f7dd25d62876d1ee35bb6dee32ff2b06031816d4f02bb9"
+    },
+    "src-tauri/src/global_index/windows/mod.rs": {
+      "git_blob": "1611f134d1522e2e1f32d6dc32614e868cae9d85",
+      "sha256": "b06126a43b1cfc5dce00b9bfa2a8b4565a95c169062a361ab2d05ee7cd7e3710"
+    },
+    "src-tauri/src/global_index/windows/service.rs": {
+      "git_blob": "bcbfd49ade368c07e0fc98d8faa2906c4b594044",
+      "sha256": "c7ebb1e2a3023784d55c52d5777fb54519b430e0e5d7829f86e06083926457e2"
+    },
+    "src-tauri/src/global_index/windows/service_errors.rs": {
+      "git_blob": "f1020637f14d5ef70a0ee2a4221f7786c2c67bb5",
+      "sha256": "0660329a4cbed6e9c8fa2372a4156a27893464080f8deaa9250cb047a9c036f9"
+    },
+    "src-tauri/src/global_index/windows/service_host.rs": {
+      "git_blob": "2d475efee8b513637f22eeebfe4394d725213345",
+      "sha256": "78a808017e4bd9e083992121b8fe0187aed63548fba290aacfed56580bd89d8b"
+    }
+  },
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "qualification": "Linux isolated SQLite research model; NOT native Windows/macOS Service acceptance",
+  "sqlite_compile_options": [
+    "ATOMIC_INTRINSICS=1",
+    "COMPILER=clang-22.1.3",
+    "DEFAULT_AUTOVACUUM",
+    "DEFAULT_CACHE_SIZE=-2000",
+    "DEFAULT_FILE_FORMAT=4",
+    "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+    "DEFAULT_MMAP_SIZE=0",
+    "DEFAULT_PAGE_SIZE=4096",
+    "DEFAULT_PCACHE_INITSZ=20",
+    "DEFAULT_RECURSIVE_TRIGGERS",
+    "DEFAULT_SECTOR_SIZE=4096",
+    "DEFAULT_SYNCHRONOUS=2",
+    "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+    "DEFAULT_WAL_SYNCHRONOUS=2",
+    "DEFAULT_WORKER_THREADS=0",
+    "DIRECT_OVERFLOW_READ",
+    "ENABLE_DBSTAT_VTAB",
+    "ENABLE_FTS3",
+    "ENABLE_FTS3_PARENTHESIS",
+    "ENABLE_FTS4",
+    "ENABLE_FTS5",
+    "ENABLE_GEOPOLY",
+    "ENABLE_MATH_FUNCTIONS",
+    "ENABLE_PERCENTILE",
+    "ENABLE_RTREE",
+    "MALLOC_SOFT_LIMIT=1024",
+    "MAX_ATTACHED=10",
+    "MAX_COLUMN=2000",
+    "MAX_COMPOUND_SELECT=500",
+    "MAX_DEFAULT_PAGE_SIZE=8192",
+    "MAX_EXPR_DEPTH=1000",
+    "MAX_FUNCTION_ARG=1000",
+    "MAX_LENGTH=1000000000",
+    "MAX_LIKE_PATTERN_LENGTH=50000",
+    "MAX_MMAP_SIZE=0x7fff0000",
+    "MAX_PAGE_COUNT=0xfffffffe",
+    "MAX_PAGE_SIZE=65536",
+    "MAX_SQL_LENGTH=1000000000",
+    "MAX_TRIGGER_DEPTH=1000",
+    "MAX_VARIABLE_NUMBER=32766",
+    "MAX_VDBE_OP=250000000",
+    "MAX_WORKER_THREADS=8",
+    "MUTEX_PTHREADS",
+    "SYSTEM_MALLOC",
+    "TEMP_STORE=1",
+    "THREADSAFE=1"
+  ],
+  "sqlite_source_id": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+  "sqlite_version": "3.53.1",
+  "test_source_sha256": {
+    "tests/issue380_d3/fixture.sql": "20544ad387f97cf38f295db454a742c07667893b91b82a9c3590eeb870959468",
+    "tests/issue380_d3/model.py": "e6d58bf44076294ce05bac35677438501bb43d85c9786f02807d5af6ab62fe43",
+    "tests/issue380_d3/oracle.py": "e7e17ae29ee298997b37aa229db8a182ac2db8f0b0a8b562eb4de4e3c030627b",
+    "tests/issue380_d3/process.py": "6bb74d6c3624269c598a18a249dcde3e8633af4b286e89d3ea7cf13a08aa439e",
+    "tests/issue380_d3/producer.py": "93961dae0ec3328cf1327e14fd14c93c5b6422d8a55e4ef60c8a18ac5317f40b",
+    "tests/issue380_d3/run.py": "1a57a177f9d172ec0ce5777e43e271a35dfea186f1cd400259b7a35593dce3f1",
+    "tests/issue380_d3/scenarios.py": "78dc1baeeed76bbfa61dfe1449f489afd0ae1181e1ef4c8e11e538e893422357",
+    "tests/issue380_d3/verify_evidence.py": "5e6ab68fc46313dcdefa249ff2a707b793a3831500f8a0f421b041485ca48ed5",
+    "tests/issue380_d3/wire.py": "e8feba0b0bcd0a576f73b65bf947dadb3aa2a101a9a1dd9fd5066da05894261a"
+  },
+  "working_diff": "?? docs/project/research/issue-380-d3/README.md\n?? docs/project/research/issue-380-d3/evidence/\n?? tests/issue380_d3/__pycache__/"
+}

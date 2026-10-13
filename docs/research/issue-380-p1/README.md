@@ -66,9 +66,9 @@ P1 it must first be rejected/classified by the strict code/identity gate.
 Actual transport interruption and native runtime tests were NOT_RUN here.
 The first two probes establish the public busy/permission erasure directly.
 
-- [Actual required-contract log](evidence/required-contract.log): **0 pass /
+- [Actual required-contract log](evidence/required-contract.json): **0 pass /
   3 fail**, Cargo exit **101**. No ignored tests or weakened assertions.
-- [Characterization log](evidence/characterization.log): **3 pass**, confirming
+- [Characterization log](evidence/characterization.json): **3 pass**, confirming
   the old collisions and generating real SQLite lock contention.
 - Real isolated SQLite contender returns BUSY **5**, remains
   `GlobalIndexError::Database`; Service busy is currently Provider. Bundled
@@ -137,12 +137,12 @@ includes actual production service_errors.rs and the committed test module.
 It does not substitute mock error or response types. This is a reduced Linux
 Rust crate, not the full desktop, Service Runtime, codec/request loop or native
 SCM qualification. Its additional three required-contract tests intentionally
-fail; raw output is preserved.
+fail; raw output is preserved in JSON `content` with its original SHA-256. Encoding retains logger whitespace/newlines exactly without introducing diff whitespace errors; local .log originals are also retained.
 
 Full-project Linux targeted Rust tests are blocked before execution by missing
 `glib-2.0 >=2.70` pkg-config dependencies:
 [command/exit](evidence/full-project-local.json),
-[original log](evidence/full-project-local.log). No system packages or CI gates
+[original log](evidence/full-project-local.json). No system packages or CI gates
 were changed. Initial format check identified one new-test formatting issue;
 standard cargo fmt corrected it, and final format check passes.
 

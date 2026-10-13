@@ -103,6 +103,7 @@ pub mod global_index {
         command = ['cargo', 'test', '--offline', '--manifest-path', str(args.fixture / 'Cargo.toml'), selector, '--', '--nocapture']
         result = subprocess.run(command, env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         (args.output / (label + '.log')).write_text(result.stdout)
+        (args.output / (label + '.json')).write_text(json.dumps({'content':result.stdout,'sha256':hashlib.sha256(result.stdout.encode()).hexdigest()},indent=2) + '\n')
         runs.append({'label':label,'command':command,'exit_code':result.returncode,'log_sha256':hashlib.sha256(result.stdout.encode()).hexdigest()})
     actual_failures = (args.output / 'required-contract.log').read_text()
     expected = runs[0]['exit_code'] == 0 and runs[1]['exit_code'] == 101 and '3 failed' in actual_failures and 'P1 typed semantic erased' in actual_failures

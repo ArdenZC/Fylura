@@ -823,3 +823,12 @@ mod tests {
     }
     include!("recovery_tests.rs");
 }
+
+// Test-only bridge: exercise the unchanged production v3 decoder with the
+// coordinator ownership diagnostic without expanding production visibility.
+#[cfg(test)]
+pub(crate) fn decode_response_for_ownership_test(
+    response: &IndexServiceResponse,
+) -> GlobalIndexError {
+    service_errors::decode(response)
+}

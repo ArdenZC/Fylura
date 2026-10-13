@@ -1,5 +1,5 @@
 # #380-P2 — Durable Rebuild Intent and Source Operation Ownership
-**Owner source-grounded implementation contract — 2026-10-14**  
+**Owner source-grounded implementation contract — 2026-10-14**
 **Stage:** `P2_SOURCE_AUTHORITY_DESIGN_READY_FOR_OWNER_REVIEW`; **production code remains NO-GO** until explicit dependency/Schema gate. Zen Canvas is unreleased and under active development; no released-client upgrade matrix.
 
 ## Source anchors and scope boundary

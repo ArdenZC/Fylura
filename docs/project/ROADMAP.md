@@ -1,5 +1,7 @@
 # Zen Canvas Roadmap
 
+> **Owner scope correction (2026-10-13): the product remains in ongoing development, NOT release preparation.** Current authoritative engineering queue and cross-track dependency register: [Active Development Decision Ledger — 2026-10-13](tasks/ACTIVE-DEVELOPMENT-LEDGER-2026-10-13.md). Older W6/RC/release sequencing below is retained for history, not activated now. Internal pre-public-release legacy-upgrade K1/K2/G1 research is not a blocker; core runtime correctness, macOS/Windows native stability, Index Scope, measured performance and feature maturity remain normal development work.
+
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
 Last verified: 2026-10-05

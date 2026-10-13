@@ -1,5 +1,7 @@
 # Zen Canvas Project Status
 
+> **Current phase update (2026-10-13): ACTIVE DEVELOPMENT; no public release and no release timetable.** Live master: 3275ac7c72df8ae4139a30f16c7f649971324e97. For the current 11-open-Issue / 12-open-Draft-PR classification, scope boundaries, dependencies and Owner development queue see [Active Development Decision Ledger — 2026-10-13](tasks/ACTIVE-DEVELOPMENT-LEDGER-2026-10-13.md). The detailed dated closeouts and release qualifications below remain **historical evidence**; in particular #329/PR #335, #377, #378 are merged, while #380/#381 production remedies are not accepted. Do not treat older release-reentry wording as a current launch mandate.
+
 Last verified: 2026-10-09
 
 ## Current execution truth

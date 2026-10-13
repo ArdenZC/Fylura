@@ -74,6 +74,21 @@ def execute(r):
             conn.close()
             conn = None
         return dict(closed=True)
+    if op == 'raw_same_bytes':
+        p = owned(r['path'])
+        fd = os.open(p, os.O_RDWR)
+        try:
+            before = os.read(fd, 16)
+            os.lseek(fd, 0, os.SEEK_SET)
+            count = os.write(fd, before)
+            os.fsync(fd)
+            os.lseek(fd, 0, os.SEEK_SET)
+            after = os.read(fd, 16)
+            return dict(api='open(O_RDWR)/read/write/fsync', fd=fd, written=count,
+                        bytes_unchanged=before == after, sqlite_commit=False,
+                        identity=identities(p))
+        finally:
+            os.close(fd)
     if op == 'identity':
         return identities(owned(r['path']))
     if op == 'win_gate':

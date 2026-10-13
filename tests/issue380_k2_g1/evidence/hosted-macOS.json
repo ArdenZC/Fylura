@@ -1,0 +1,5221 @@
+{
+  "base": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+  "head": "e6afbf6f8b5311cfb5cfb5f0a327d5fbe2ccf788",
+  "tree": "799a1692a2d8f0a6f48798071017ad74d97bd201",
+  "source_hashes": {
+    "actor.py": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+    "native.py": "e6ce021bdb4f7da51c99eea3ff457429ebc833fda7f9d29bfaea702352baddc5",
+    "run.py": "7edbc3a1b237374cb705de27e272f29f62726bb40db2f560be1cb887a7ec6298"
+  },
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "system": "Darwin",
+  "machine": "arm64",
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]",
+  "sqlite": "3.53.4",
+  "pid": 1873,
+  "uid": 501,
+  "fixture_root": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq",
+  "runner_os": "macOS",
+  "image_os": "macos26",
+  "image_version": "20260907.0351.1",
+  "github_run_id": "38359437737",
+  "github_run_attempt": "1",
+  "evidence_level": "HOSTED_NATIVE_API",
+  "shipped_old_product": "NOT_RUN",
+  "reconstructed_product": "NOT_RUN",
+  "controlled_actors": "TEST_MODEL",
+  "owner_native": "NOT_RUN",
+  "production_migration": "NOT_AUTHORIZED",
+  "production": "NO_GO",
+  "candidates": [
+    {
+      "candidate": "posix-flock",
+      "spec": {
+        "kind": "flock"
+      },
+      "existing_acquisition": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960416
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960418
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960419
+            }
+          ],
+          "all_acquired": true
+        }
+      },
+      "existing_retained_write": {
+        "ok": false,
+        "error": "BOUNDED_ACTOR_TIMEOUT",
+        "timeout_seconds": 8,
+        "sqlite_errorcode": null,
+        "note": "No SQLite result returned; not a SQLITE_BUSY claim"
+      },
+      "acquired_after_exit": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960416
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960418
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960419
+            }
+          ],
+          "all_acquired": true
+        }
+      },
+      "complete_gate": true,
+      "late": {
+        "open": {
+          "ok": false,
+          "error": "OperationalError",
+          "message": "database is locked",
+          "sqlite_errorcode": 5,
+          "sqlite_errorname": "SQLITE_BUSY",
+          "errno": null,
+          "winerror": null
+        },
+        "write": null,
+        "acknowledged": false
+      },
+      "aliases": {
+        "hardlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        },
+        "symlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        },
+        "directory_symlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        }
+      },
+      "snapshot_open": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      },
+      "snapshot": null,
+      "snapshot_includes_all_known_confirmed": false,
+      "confirmed_before_snapshot": [
+        "old-final"
+      ],
+      "snapshot_ids": [],
+      "separate_generation": null,
+      "holder_abnormal_exit_old_relaunch": {
+        "open": {
+          "ok": true,
+          "result": {
+            "journal": "wal",
+            "identities": {
+              "main": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960416,
+                "links": 2,
+                "mode": 33188,
+                "size": 4096,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+              },
+              "-wal": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960418,
+                "links": 2,
+                "mode": 33188,
+                "size": 20632,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+              },
+              "-shm": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960419,
+                "links": 2,
+                "mode": 33188,
+                "size": 32768,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+              }
+            }
+          }
+        },
+        "write": {
+          "ok": true,
+          "result": {
+            "acknowledged": true,
+            "id": "old-after-holder-exit",
+            "rows": [
+              [
+                "old-after-holder-exit",
+                "confirmed old-model correction"
+              ],
+              [
+                "old-final",
+                "confirmed correction before barrier"
+              ]
+            ]
+          }
+        },
+        "acknowledged": true
+      },
+      "final_old": {
+        "ok": true,
+        "result": {
+          "rows": [
+            [
+              "old-after-holder-exit",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ],
+          "integrity": "ok"
+        }
+      },
+      "real_product": "NOT_RUN",
+      "production": "NO_GO",
+      "bounded_held_window_candidate": false,
+      "two_generations_acknowledged_after_holder_exit": false
+    },
+    {
+      "candidate": "posix-fcntl-whole-file",
+      "spec": {
+        "kind": "fcntl"
+      },
+      "existing_acquisition": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960463
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960465
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960466
+            }
+          ],
+          "all_acquired": true
+        }
+      },
+      "existing_retained_write": {
+        "ok": false,
+        "error": "BOUNDED_ACTOR_TIMEOUT",
+        "timeout_seconds": 8,
+        "sqlite_errorcode": null,
+        "note": "No SQLite result returned; not a SQLITE_BUSY claim"
+      },
+      "acquired_after_exit": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960463
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960465
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960466
+            }
+          ],
+          "all_acquired": true
+        }
+      },
+      "complete_gate": true,
+      "late": {
+        "open": {
+          "ok": false,
+          "error": "OperationalError",
+          "message": "database is locked",
+          "sqlite_errorcode": 5,
+          "sqlite_errorname": "SQLITE_BUSY",
+          "errno": null,
+          "winerror": null
+        },
+        "write": null,
+        "acknowledged": false
+      },
+      "aliases": {
+        "hardlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        },
+        "symlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        },
+        "directory_symlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        }
+      },
+      "snapshot_open": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      },
+      "snapshot": null,
+      "snapshot_includes_all_known_confirmed": false,
+      "confirmed_before_snapshot": [
+        "old-final"
+      ],
+      "snapshot_ids": [],
+      "separate_generation": null,
+      "holder_abnormal_exit_old_relaunch": {
+        "open": {
+          "ok": true,
+          "result": {
+            "journal": "wal",
+            "identities": {
+              "main": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960463,
+                "links": 2,
+                "mode": 33188,
+                "size": 4096,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+              },
+              "-wal": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960465,
+                "links": 2,
+                "mode": 33188,
+                "size": 20632,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+              },
+              "-shm": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960466,
+                "links": 2,
+                "mode": 33188,
+                "size": 32768,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+              }
+            }
+          }
+        },
+        "write": {
+          "ok": true,
+          "result": {
+            "acknowledged": true,
+            "id": "old-after-holder-exit",
+            "rows": [
+              [
+                "old-after-holder-exit",
+                "confirmed old-model correction"
+              ],
+              [
+                "old-final",
+                "confirmed correction before barrier"
+              ]
+            ]
+          }
+        },
+        "acknowledged": true
+      },
+      "final_old": {
+        "ok": true,
+        "result": {
+          "rows": [
+            [
+              "old-after-holder-exit",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ],
+          "integrity": "ok"
+        }
+      },
+      "real_product": "NOT_RUN",
+      "production": "NO_GO",
+      "bounded_held_window_candidate": false,
+      "two_generations_acknowledged_after_holder_exit": false
+    }
+  ],
+  "execution": "COMPLETE",
+  "events": [
+    {
+      "sequence": 0,
+      "monotonic_ns": 149333343375,
+      "kind": "launch",
+      "actor": "posix-flock-old",
+      "pid": 1879,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 1,
+      "monotonic_ns": 149391337416,
+      "kind": "exchange",
+      "actor": "posix-flock-old",
+      "pid": 1879,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1879,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 2,
+      "monotonic_ns": 149398377416,
+      "kind": "exchange",
+      "actor": "posix-flock-old",
+      "pid": 1879,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "delete",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 4,
+              "device": 16777226,
+              "inode": 2960416,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+            },
+            "-wal": {
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "errno": 2,
+              "error": "[Errno 2] No such file or directory: '/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal'"
+            },
+            "-shm": {
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "errno": 2,
+              "error": "[Errno 2] No such file or directory: '/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm'"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 3,
+      "monotonic_ns": 149400325291,
+      "kind": "exchange",
+      "actor": "posix-flock-old",
+      "pid": 1879,
+      "request": {
+        "op": "init"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal"
+        }
+      }
+    },
+    {
+      "sequence": 4,
+      "monotonic_ns": 149400591041,
+      "kind": "exchange",
+      "actor": "posix-flock-old",
+      "pid": 1879,
+      "request": {
+        "op": "write",
+        "id": "old-final",
+        "value": "confirmed correction before barrier"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "acknowledged": true,
+          "id": "old-final",
+          "rows": [
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 5,
+      "monotonic_ns": 149400873041,
+      "kind": "exchange",
+      "actor": "posix-flock-old",
+      "pid": 1879,
+      "request": {
+        "op": "identity",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "main": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960416,
+            "links": 1,
+            "mode": 33188,
+            "size": 4096,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+          },
+          "-wal": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960418,
+            "links": 1,
+            "mode": 33188,
+            "size": 20632,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+          },
+          "-shm": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960419,
+            "links": 1,
+            "mode": 33188,
+            "size": 32768,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 6,
+      "monotonic_ns": 149404247583,
+      "kind": "launch",
+      "actor": "posix-flock-guard",
+      "pid": 1880,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 7,
+      "monotonic_ns": 149459216500,
+      "kind": "exchange",
+      "actor": "posix-flock-guard",
+      "pid": 1880,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1880,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 8,
+      "monotonic_ns": 149459654166,
+      "kind": "exchange",
+      "actor": "posix-flock-guard",
+      "pid": 1880,
+      "request": {
+        "op": "posix_gate",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+        "suffixes": [
+          "",
+          "-wal",
+          "-shm"
+        ],
+        "kind": "flock"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960416
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960418
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960419
+            }
+          ],
+          "all_acquired": true
+        }
+      }
+    },
+    {
+      "sequence": 9,
+      "monotonic_ns": 157539587583,
+      "kind": "process_exit",
+      "actor": "posix-flock-old",
+      "pid": 1879,
+      "abnormal": true,
+      "returncode": -9
+    },
+    {
+      "sequence": 10,
+      "monotonic_ns": 157539645458,
+      "kind": "exchange",
+      "actor": "posix-flock-old",
+      "pid": 1879,
+      "request": {
+        "op": "write",
+        "id": "retained-before-stop",
+        "value": "confirmed retained-handle correction"
+      },
+      "response": {
+        "ok": false,
+        "error": "BOUNDED_ACTOR_TIMEOUT",
+        "timeout_seconds": 8,
+        "sqlite_errorcode": null,
+        "note": "No SQLite result returned; not a SQLITE_BUSY claim"
+      }
+    },
+    {
+      "sequence": 11,
+      "monotonic_ns": 157540692833,
+      "kind": "exchange",
+      "actor": "posix-flock-guard",
+      "pid": 1880,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": [
+            {
+              "fd": 3,
+              "closed": true
+            },
+            {
+              "fd": 4,
+              "closed": true
+            },
+            {
+              "fd": 5,
+              "closed": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 12,
+      "monotonic_ns": 157546508708,
+      "kind": "alias",
+      "alias_type": "hardlink",
+      "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/hardlink.sqlite3",
+      "identities": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/hardlink.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960416,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/hardlink.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/hardlink.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960418,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/hardlink.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/hardlink.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960419,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/hardlink.sqlite3-shm"
+        }
+      },
+      "canonical": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960416,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960418,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960419,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+        }
+      }
+    },
+    {
+      "sequence": 13,
+      "monotonic_ns": 157547027625,
+      "kind": "alias",
+      "alias_type": "symlink",
+      "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/symlink.sqlite3",
+      "identities": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/symlink.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960416,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/symlink.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960418,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/symlink.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960419,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+        }
+      },
+      "canonical": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960416,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960418,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960419,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+        }
+      }
+    },
+    {
+      "sequence": 14,
+      "monotonic_ns": 157547397250,
+      "kind": "alias",
+      "alias_type": "directory_symlink",
+      "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/directory-alias/old.sqlite3",
+      "identities": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/directory-alias/old.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960416,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/directory-alias/old.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960418,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/directory-alias/old.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960419,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+        }
+      },
+      "canonical": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960416,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960418,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960419,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+        }
+      }
+    },
+    {
+      "sequence": 15,
+      "monotonic_ns": 157548061416,
+      "kind": "exchange",
+      "actor": "posix-flock-guard",
+      "pid": 1880,
+      "request": {
+        "op": "posix_gate",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+        "suffixes": [
+          "",
+          "-wal",
+          "-shm"
+        ],
+        "kind": "flock"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960416
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960418
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960419
+            }
+          ],
+          "all_acquired": true
+        }
+      }
+    },
+    {
+      "sequence": 16,
+      "monotonic_ns": 157553032208,
+      "kind": "launch",
+      "actor": "posix-flock-late",
+      "pid": 1975,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 17,
+      "monotonic_ns": 157598811541,
+      "kind": "exchange",
+      "actor": "posix-flock-late",
+      "pid": 1975,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1975,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 18,
+      "monotonic_ns": 158264929708,
+      "kind": "exchange",
+      "actor": "posix-flock-late",
+      "pid": 1975,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 19,
+      "monotonic_ns": 158265112500,
+      "kind": "exchange",
+      "actor": "posix-flock-late",
+      "pid": 1975,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 20,
+      "monotonic_ns": 158265256375,
+      "kind": "exchange",
+      "actor": "posix-flock-late",
+      "pid": 1975,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 21,
+      "monotonic_ns": 158265437291,
+      "kind": "exchange",
+      "actor": "posix-flock-late",
+      "pid": 1975,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 22,
+      "monotonic_ns": 158265563583,
+      "kind": "exchange",
+      "actor": "posix-flock-late",
+      "pid": 1975,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 23,
+      "monotonic_ns": 158270758583,
+      "kind": "process_exit",
+      "actor": "posix-flock-late",
+      "pid": 1975,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 24,
+      "monotonic_ns": 158272754125,
+      "kind": "launch",
+      "actor": "posix-flock-hardlink",
+      "pid": 1976,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 25,
+      "monotonic_ns": 158332274750,
+      "kind": "exchange",
+      "actor": "posix-flock-hardlink",
+      "pid": 1976,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1976,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 26,
+      "monotonic_ns": 158861916333,
+      "kind": "exchange",
+      "actor": "posix-flock-hardlink",
+      "pid": 1976,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/hardlink.sqlite3"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 27,
+      "monotonic_ns": 158862322500,
+      "kind": "exchange",
+      "actor": "posix-flock-hardlink",
+      "pid": 1976,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 28,
+      "monotonic_ns": 158862483583,
+      "kind": "exchange",
+      "actor": "posix-flock-hardlink",
+      "pid": 1976,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 29,
+      "monotonic_ns": 158862592583,
+      "kind": "exchange",
+      "actor": "posix-flock-hardlink",
+      "pid": 1976,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 30,
+      "monotonic_ns": 158862702625,
+      "kind": "exchange",
+      "actor": "posix-flock-hardlink",
+      "pid": 1976,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 31,
+      "monotonic_ns": 158876361583,
+      "kind": "process_exit",
+      "actor": "posix-flock-hardlink",
+      "pid": 1976,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 32,
+      "monotonic_ns": 158880371916,
+      "kind": "launch",
+      "actor": "posix-flock-symlink",
+      "pid": 1978,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 33,
+      "monotonic_ns": 158933606166,
+      "kind": "exchange",
+      "actor": "posix-flock-symlink",
+      "pid": 1978,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1978,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 34,
+      "monotonic_ns": 159405468500,
+      "kind": "exchange",
+      "actor": "posix-flock-symlink",
+      "pid": 1978,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/symlink.sqlite3"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 35,
+      "monotonic_ns": 159405717208,
+      "kind": "exchange",
+      "actor": "posix-flock-symlink",
+      "pid": 1978,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 36,
+      "monotonic_ns": 159405794083,
+      "kind": "exchange",
+      "actor": "posix-flock-symlink",
+      "pid": 1978,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 37,
+      "monotonic_ns": 159405855250,
+      "kind": "exchange",
+      "actor": "posix-flock-symlink",
+      "pid": 1978,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 38,
+      "monotonic_ns": 159405954833,
+      "kind": "exchange",
+      "actor": "posix-flock-symlink",
+      "pid": 1978,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 39,
+      "monotonic_ns": 159411092750,
+      "kind": "process_exit",
+      "actor": "posix-flock-symlink",
+      "pid": 1978,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 40,
+      "monotonic_ns": 159414541291,
+      "kind": "launch",
+      "actor": "posix-flock-directory_symlink",
+      "pid": 1980,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 41,
+      "monotonic_ns": 159466724083,
+      "kind": "exchange",
+      "actor": "posix-flock-directory_symlink",
+      "pid": 1980,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1980,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 42,
+      "monotonic_ns": 159961157625,
+      "kind": "exchange",
+      "actor": "posix-flock-directory_symlink",
+      "pid": 1980,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/directory-alias/old.sqlite3"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 43,
+      "monotonic_ns": 159961455875,
+      "kind": "exchange",
+      "actor": "posix-flock-directory_symlink",
+      "pid": 1980,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 44,
+      "monotonic_ns": 159961543083,
+      "kind": "exchange",
+      "actor": "posix-flock-directory_symlink",
+      "pid": 1980,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 45,
+      "monotonic_ns": 159961609875,
+      "kind": "exchange",
+      "actor": "posix-flock-directory_symlink",
+      "pid": 1980,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 46,
+      "monotonic_ns": 159961767000,
+      "kind": "exchange",
+      "actor": "posix-flock-directory_symlink",
+      "pid": 1980,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 47,
+      "monotonic_ns": 159976925250,
+      "kind": "process_exit",
+      "actor": "posix-flock-directory_symlink",
+      "pid": 1980,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 48,
+      "monotonic_ns": 159981915166,
+      "kind": "launch",
+      "actor": "posix-flock-backup",
+      "pid": 1981,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 49,
+      "monotonic_ns": 160039325958,
+      "kind": "exchange",
+      "actor": "posix-flock-backup",
+      "pid": 1981,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1981,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 50,
+      "monotonic_ns": 160467395541,
+      "kind": "exchange",
+      "actor": "posix-flock-backup",
+      "pid": 1981,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+        "readonly": true
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 51,
+      "monotonic_ns": 160467562291,
+      "kind": "exchange",
+      "actor": "posix-flock-backup",
+      "pid": 1981,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 52,
+      "monotonic_ns": 160467630291,
+      "kind": "exchange",
+      "actor": "posix-flock-backup",
+      "pid": 1981,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 53,
+      "monotonic_ns": 160467804041,
+      "kind": "exchange",
+      "actor": "posix-flock-backup",
+      "pid": 1981,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 54,
+      "monotonic_ns": 160481657000,
+      "kind": "process_exit",
+      "actor": "posix-flock-backup",
+      "pid": 1981,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 55,
+      "monotonic_ns": 160486853583,
+      "kind": "process_exit",
+      "actor": "posix-flock-guard",
+      "pid": 1880,
+      "abnormal": true,
+      "returncode": -9
+    },
+    {
+      "sequence": 56,
+      "monotonic_ns": 160490145333,
+      "kind": "launch",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/copied-old-model/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 57,
+      "monotonic_ns": 160542000583,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1983,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/copied-old-model/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 58,
+      "monotonic_ns": 160543486333,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960416,
+              "links": 2,
+              "mode": 33188,
+              "size": 4096,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960418,
+              "links": 2,
+              "mode": 33188,
+              "size": 20632,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960419,
+              "links": 2,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 59,
+      "monotonic_ns": 160544327916,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "write",
+        "id": "old-after-holder-exit",
+        "value": "confirmed old-model correction"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "acknowledged": true,
+          "id": "old-after-holder-exit",
+          "rows": [
+            [
+              "old-after-holder-exit",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 60,
+      "monotonic_ns": 160545518833,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 61,
+      "monotonic_ns": 160546165750,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960416,
+              "links": 2,
+              "mode": 33188,
+              "size": 12288,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960459,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960460,
+              "links": 1,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 62,
+      "monotonic_ns": 160546295875,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "read"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "rows": [
+            [
+              "old-after-holder-exit",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ],
+          "integrity": "ok"
+        }
+      }
+    },
+    {
+      "sequence": 63,
+      "monotonic_ns": 160546834250,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 64,
+      "monotonic_ns": 160546896750,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 65,
+      "monotonic_ns": 160547035041,
+      "kind": "exchange",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 66,
+      "monotonic_ns": 160552230083,
+      "kind": "process_exit",
+      "actor": "posix-flock-copied-relaunch",
+      "pid": 1983,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 67,
+      "monotonic_ns": 160552271291,
+      "kind": "candidate_summary",
+      "candidate": "posix-flock",
+      "spec": {
+        "kind": "flock"
+      },
+      "existing_acquisition": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960416
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960418
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960419
+            }
+          ],
+          "all_acquired": true
+        }
+      },
+      "existing_retained_write": {
+        "ok": false,
+        "error": "BOUNDED_ACTOR_TIMEOUT",
+        "timeout_seconds": 8,
+        "sqlite_errorcode": null,
+        "note": "No SQLite result returned; not a SQLITE_BUSY claim"
+      },
+      "acquired_after_exit": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960416
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960418
+            },
+            {
+              "api": "flock",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960419
+            }
+          ],
+          "all_acquired": true
+        }
+      },
+      "complete_gate": true,
+      "late": {
+        "open": {
+          "ok": false,
+          "error": "OperationalError",
+          "message": "database is locked",
+          "sqlite_errorcode": 5,
+          "sqlite_errorname": "SQLITE_BUSY",
+          "errno": null,
+          "winerror": null
+        },
+        "write": null,
+        "acknowledged": false
+      },
+      "aliases": {
+        "hardlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        },
+        "symlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        },
+        "directory_symlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        }
+      },
+      "snapshot_open": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      },
+      "snapshot": null,
+      "snapshot_includes_all_known_confirmed": false,
+      "confirmed_before_snapshot": [
+        "old-final"
+      ],
+      "snapshot_ids": [],
+      "separate_generation": null,
+      "holder_abnormal_exit_old_relaunch": {
+        "open": {
+          "ok": true,
+          "result": {
+            "journal": "wal",
+            "identities": {
+              "main": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960416,
+                "links": 2,
+                "mode": 33188,
+                "size": 4096,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3"
+              },
+              "-wal": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960418,
+                "links": 2,
+                "mode": 33188,
+                "size": 20632,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-wal"
+              },
+              "-shm": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960419,
+                "links": 2,
+                "mode": 33188,
+                "size": 32768,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-flock/old.sqlite3-shm"
+              }
+            }
+          }
+        },
+        "write": {
+          "ok": true,
+          "result": {
+            "acknowledged": true,
+            "id": "old-after-holder-exit",
+            "rows": [
+              [
+                "old-after-holder-exit",
+                "confirmed old-model correction"
+              ],
+              [
+                "old-final",
+                "confirmed correction before barrier"
+              ]
+            ]
+          }
+        },
+        "acknowledged": true
+      },
+      "final_old": {
+        "ok": true,
+        "result": {
+          "rows": [
+            [
+              "old-after-holder-exit",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ],
+          "integrity": "ok"
+        }
+      },
+      "real_product": "NOT_RUN",
+      "production": "NO_GO",
+      "bounded_held_window_candidate": false,
+      "two_generations_acknowledged_after_holder_exit": false
+    },
+    {
+      "sequence": 68,
+      "monotonic_ns": 160554740708,
+      "kind": "launch",
+      "actor": "posix-fcntl-whole-file-old",
+      "pid": 1984,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 69,
+      "monotonic_ns": 160593465125,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-old",
+      "pid": 1984,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1984,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 70,
+      "monotonic_ns": 160594126625,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-old",
+      "pid": 1984,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "delete",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 4,
+              "device": 16777226,
+              "inode": 2960463,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+            },
+            "-wal": {
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "errno": 2,
+              "error": "[Errno 2] No such file or directory: '/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal'"
+            },
+            "-shm": {
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "errno": 2,
+              "error": "[Errno 2] No such file or directory: '/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm'"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 71,
+      "monotonic_ns": 160595569833,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-old",
+      "pid": 1984,
+      "request": {
+        "op": "init"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal"
+        }
+      }
+    },
+    {
+      "sequence": 72,
+      "monotonic_ns": 160595879500,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-old",
+      "pid": 1984,
+      "request": {
+        "op": "write",
+        "id": "old-final",
+        "value": "confirmed correction before barrier"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "acknowledged": true,
+          "id": "old-final",
+          "rows": [
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 73,
+      "monotonic_ns": 160596167416,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-old",
+      "pid": 1984,
+      "request": {
+        "op": "identity",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "main": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960463,
+            "links": 1,
+            "mode": 33188,
+            "size": 4096,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+          },
+          "-wal": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960465,
+            "links": 1,
+            "mode": 33188,
+            "size": 20632,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+          },
+          "-shm": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960466,
+            "links": 1,
+            "mode": 33188,
+            "size": 32768,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 74,
+      "monotonic_ns": 160598269041,
+      "kind": "launch",
+      "actor": "posix-fcntl-whole-file-guard",
+      "pid": 1985,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 75,
+      "monotonic_ns": 160640698166,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-guard",
+      "pid": 1985,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 1985,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 76,
+      "monotonic_ns": 160641109291,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-guard",
+      "pid": 1985,
+      "request": {
+        "op": "posix_gate",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+        "suffixes": [
+          "",
+          "-wal",
+          "-shm"
+        ],
+        "kind": "fcntl"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960463
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960465
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960466
+            }
+          ],
+          "all_acquired": true
+        }
+      }
+    },
+    {
+      "sequence": 77,
+      "monotonic_ns": 168649379666,
+      "kind": "process_exit",
+      "actor": "posix-fcntl-whole-file-old",
+      "pid": 1984,
+      "abnormal": true,
+      "returncode": -9
+    },
+    {
+      "sequence": 78,
+      "monotonic_ns": 168649429458,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-old",
+      "pid": 1984,
+      "request": {
+        "op": "write",
+        "id": "retained-before-stop",
+        "value": "confirmed retained-handle correction"
+      },
+      "response": {
+        "ok": false,
+        "error": "BOUNDED_ACTOR_TIMEOUT",
+        "timeout_seconds": 8,
+        "sqlite_errorcode": null,
+        "note": "No SQLite result returned; not a SQLITE_BUSY claim"
+      }
+    },
+    {
+      "sequence": 79,
+      "monotonic_ns": 168650270208,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-guard",
+      "pid": 1985,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": [
+            {
+              "fd": 3,
+              "closed": true
+            },
+            {
+              "fd": 4,
+              "closed": true
+            },
+            {
+              "fd": 5,
+              "closed": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 80,
+      "monotonic_ns": 168651584041,
+      "kind": "alias",
+      "alias_type": "hardlink",
+      "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/hardlink.sqlite3",
+      "identities": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/hardlink.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960463,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/hardlink.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/hardlink.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960465,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/hardlink.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/hardlink.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960466,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/hardlink.sqlite3-shm"
+        }
+      },
+      "canonical": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960463,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960465,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960466,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+        }
+      }
+    },
+    {
+      "sequence": 81,
+      "monotonic_ns": 168652044916,
+      "kind": "alias",
+      "alias_type": "symlink",
+      "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/symlink.sqlite3",
+      "identities": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/symlink.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960463,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/symlink.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960465,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/symlink.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960466,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+        }
+      },
+      "canonical": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960463,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960465,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960466,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+        }
+      }
+    },
+    {
+      "sequence": 82,
+      "monotonic_ns": 168652486750,
+      "kind": "alias",
+      "alias_type": "directory_symlink",
+      "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/directory-alias/old.sqlite3",
+      "identities": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/directory-alias/old.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960463,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/directory-alias/old.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960465,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/directory-alias/old.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960466,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+        }
+      },
+      "canonical": {
+        "main": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960463,
+          "links": 2,
+          "mode": 33188,
+          "size": 4096,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+        },
+        "-wal": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960465,
+          "links": 2,
+          "mode": 33188,
+          "size": 20632,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+        },
+        "-shm": {
+          "api": "open/fstat",
+          "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+          "fd": 3,
+          "device": 16777226,
+          "inode": 2960466,
+          "links": 2,
+          "mode": 33188,
+          "size": 32768,
+          "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+        }
+      }
+    },
+    {
+      "sequence": 83,
+      "monotonic_ns": 168653103291,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-guard",
+      "pid": 1985,
+      "request": {
+        "op": "posix_gate",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+        "suffixes": [
+          "",
+          "-wal",
+          "-shm"
+        ],
+        "kind": "fcntl"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960463
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960465
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960466
+            }
+          ],
+          "all_acquired": true
+        }
+      }
+    },
+    {
+      "sequence": 84,
+      "monotonic_ns": 168661695583,
+      "kind": "launch",
+      "actor": "posix-fcntl-whole-file-late",
+      "pid": 2052,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 85,
+      "monotonic_ns": 168730080458,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-late",
+      "pid": 2052,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2052,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 86,
+      "monotonic_ns": 169252165375,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-late",
+      "pid": 2052,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 87,
+      "monotonic_ns": 169252345041,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-late",
+      "pid": 2052,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 88,
+      "monotonic_ns": 169252483041,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-late",
+      "pid": 2052,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 89,
+      "monotonic_ns": 169252568958,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-late",
+      "pid": 2052,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 90,
+      "monotonic_ns": 169252663500,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-late",
+      "pid": 2052,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 91,
+      "monotonic_ns": 169257817750,
+      "kind": "process_exit",
+      "actor": "posix-fcntl-whole-file-late",
+      "pid": 2052,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 92,
+      "monotonic_ns": 169259991500,
+      "kind": "launch",
+      "actor": "posix-fcntl-whole-file-hardlink",
+      "pid": 2053,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 93,
+      "monotonic_ns": 169302549041,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-hardlink",
+      "pid": 2053,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2053,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 94,
+      "monotonic_ns": 169744662333,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-hardlink",
+      "pid": 2053,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/hardlink.sqlite3"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 95,
+      "monotonic_ns": 169744930458,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-hardlink",
+      "pid": 2053,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 96,
+      "monotonic_ns": 169745074625,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-hardlink",
+      "pid": 2053,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 97,
+      "monotonic_ns": 169745216333,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-hardlink",
+      "pid": 2053,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 98,
+      "monotonic_ns": 169745340375,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-hardlink",
+      "pid": 2053,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 99,
+      "monotonic_ns": 169759247541,
+      "kind": "process_exit",
+      "actor": "posix-fcntl-whole-file-hardlink",
+      "pid": 2053,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 100,
+      "monotonic_ns": 169764141833,
+      "kind": "launch",
+      "actor": "posix-fcntl-whole-file-symlink",
+      "pid": 2055,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 101,
+      "monotonic_ns": 169810340916,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-symlink",
+      "pid": 2055,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2055,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 102,
+      "monotonic_ns": 170090461916,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-symlink",
+      "pid": 2055,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/symlink.sqlite3"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 103,
+      "monotonic_ns": 170090617833,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-symlink",
+      "pid": 2055,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 104,
+      "monotonic_ns": 170090686083,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-symlink",
+      "pid": 2055,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 105,
+      "monotonic_ns": 170090744208,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-symlink",
+      "pid": 2055,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 106,
+      "monotonic_ns": 170090900125,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-symlink",
+      "pid": 2055,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 107,
+      "monotonic_ns": 170107641083,
+      "kind": "process_exit",
+      "actor": "posix-fcntl-whole-file-symlink",
+      "pid": 2055,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 108,
+      "monotonic_ns": 170110735875,
+      "kind": "launch",
+      "actor": "posix-fcntl-whole-file-directory_symlink",
+      "pid": 2056,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 109,
+      "monotonic_ns": 170164726333,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-directory_symlink",
+      "pid": 2056,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2056,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 110,
+      "monotonic_ns": 170635391750,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-directory_symlink",
+      "pid": 2056,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/directory-alias/old.sqlite3"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 111,
+      "monotonic_ns": 170635623708,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-directory_symlink",
+      "pid": 2056,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 112,
+      "monotonic_ns": 170635745458,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-directory_symlink",
+      "pid": 2056,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 113,
+      "monotonic_ns": 170635863458,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-directory_symlink",
+      "pid": 2056,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 114,
+      "monotonic_ns": 170635989541,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-directory_symlink",
+      "pid": 2056,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 115,
+      "monotonic_ns": 170651501791,
+      "kind": "process_exit",
+      "actor": "posix-fcntl-whole-file-directory_symlink",
+      "pid": 2056,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 116,
+      "monotonic_ns": 170656713625,
+      "kind": "launch",
+      "actor": "posix-fcntl-whole-file-backup",
+      "pid": 2068,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 117,
+      "monotonic_ns": 170716299375,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-backup",
+      "pid": 2068,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2068,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 118,
+      "monotonic_ns": 171320354625,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-backup",
+      "pid": 2068,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+        "readonly": true
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 119,
+      "monotonic_ns": 171320647250,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-backup",
+      "pid": 2068,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 120,
+      "monotonic_ns": 171320740750,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-backup",
+      "pid": 2068,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 121,
+      "monotonic_ns": 171320893916,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-backup",
+      "pid": 2068,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 122,
+      "monotonic_ns": 171335769458,
+      "kind": "process_exit",
+      "actor": "posix-fcntl-whole-file-backup",
+      "pid": 2068,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 123,
+      "monotonic_ns": 171337040666,
+      "kind": "process_exit",
+      "actor": "posix-fcntl-whole-file-guard",
+      "pid": 1985,
+      "abnormal": true,
+      "returncode": -9
+    },
+    {
+      "sequence": 124,
+      "monotonic_ns": 171348823916,
+      "kind": "launch",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/copied-old-model/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 125,
+      "monotonic_ns": 171430143875,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2069,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/copied-old-model/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 126,
+      "monotonic_ns": 171432622791,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960463,
+              "links": 2,
+              "mode": 33188,
+              "size": 4096,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960465,
+              "links": 2,
+              "mode": 33188,
+              "size": 20632,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960466,
+              "links": 2,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 127,
+      "monotonic_ns": 171433060000,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "write",
+        "id": "old-after-holder-exit",
+        "value": "confirmed old-model correction"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "acknowledged": true,
+          "id": "old-after-holder-exit",
+          "rows": [
+            [
+              "old-after-holder-exit",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 128,
+      "monotonic_ns": 171433557791,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 129,
+      "monotonic_ns": 171435264125,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960463,
+              "links": 2,
+              "mode": 33188,
+              "size": 12288,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960704,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960705,
+              "links": 1,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 130,
+      "monotonic_ns": 171435459000,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "read"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "rows": [
+            [
+              "old-after-holder-exit",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ],
+          "integrity": "ok"
+        }
+      }
+    },
+    {
+      "sequence": 131,
+      "monotonic_ns": 171436025875,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 132,
+      "monotonic_ns": 171436100750,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 133,
+      "monotonic_ns": 171436212333,
+      "kind": "exchange",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 134,
+      "monotonic_ns": 171451357208,
+      "kind": "process_exit",
+      "actor": "posix-fcntl-whole-file-copied-relaunch",
+      "pid": 2069,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 135,
+      "monotonic_ns": 171451438500,
+      "kind": "candidate_summary",
+      "candidate": "posix-fcntl-whole-file",
+      "spec": {
+        "kind": "fcntl"
+      },
+      "existing_acquisition": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960463
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960465
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960466
+            }
+          ],
+          "all_acquired": true
+        }
+      },
+      "existing_retained_write": {
+        "ok": false,
+        "error": "BOUNDED_ACTOR_TIMEOUT",
+        "timeout_seconds": 8,
+        "sqlite_errorcode": null,
+        "note": "No SQLite result returned; not a SQLITE_BUSY claim"
+      },
+      "acquired_after_exit": {
+        "ok": true,
+        "result": {
+          "handles": [
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+              "fd": 3,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960463
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+              "fd": 4,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960465
+            },
+            {
+              "api": "fcntl",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+              "fd": 5,
+              "acquired": true,
+              "device": 16777226,
+              "inode": 2960466
+            }
+          ],
+          "all_acquired": true
+        }
+      },
+      "complete_gate": true,
+      "late": {
+        "open": {
+          "ok": false,
+          "error": "OperationalError",
+          "message": "database is locked",
+          "sqlite_errorcode": 5,
+          "sqlite_errorname": "SQLITE_BUSY",
+          "errno": null,
+          "winerror": null
+        },
+        "write": null,
+        "acknowledged": false
+      },
+      "aliases": {
+        "hardlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        },
+        "symlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        },
+        "directory_symlink": {
+          "open": {
+            "ok": false,
+            "error": "OperationalError",
+            "message": "database is locked",
+            "sqlite_errorcode": 5,
+            "sqlite_errorname": "SQLITE_BUSY",
+            "errno": null,
+            "winerror": null
+          },
+          "write": null,
+          "acknowledged": false
+        }
+      },
+      "snapshot_open": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      },
+      "snapshot": null,
+      "snapshot_includes_all_known_confirmed": false,
+      "confirmed_before_snapshot": [
+        "old-final"
+      ],
+      "snapshot_ids": [],
+      "separate_generation": null,
+      "holder_abnormal_exit_old_relaunch": {
+        "open": {
+          "ok": true,
+          "result": {
+            "journal": "wal",
+            "identities": {
+              "main": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960463,
+                "links": 2,
+                "mode": 33188,
+                "size": 4096,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3"
+              },
+              "-wal": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960465,
+                "links": 2,
+                "mode": 33188,
+                "size": 20632,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-wal"
+              },
+              "-shm": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960466,
+                "links": 2,
+                "mode": 33188,
+                "size": 32768,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/posix-fcntl-whole-file/old.sqlite3-shm"
+              }
+            }
+          }
+        },
+        "write": {
+          "ok": true,
+          "result": {
+            "acknowledged": true,
+            "id": "old-after-holder-exit",
+            "rows": [
+              [
+                "old-after-holder-exit",
+                "confirmed old-model correction"
+              ],
+              [
+                "old-final",
+                "confirmed correction before barrier"
+              ]
+            ]
+          }
+        },
+        "acknowledged": true
+      },
+      "final_old": {
+        "ok": true,
+        "result": {
+          "rows": [
+            [
+              "old-after-holder-exit",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ],
+          "integrity": "ok"
+        }
+      },
+      "real_product": "NOT_RUN",
+      "production": "NO_GO",
+      "bounded_held_window_candidate": false,
+      "two_generations_acknowledged_after_holder_exit": false
+    },
+    {
+      "sequence": 136,
+      "monotonic_ns": 171453859166,
+      "kind": "launch",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 137,
+      "monotonic_ns": 171501594375,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2070,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 138,
+      "monotonic_ns": 171502151916,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "delete",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+              "fd": 4,
+              "device": 16777226,
+              "inode": 2960709,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+            },
+            "-wal": {
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+              "errno": 2,
+              "error": "[Errno 2] No such file or directory: '/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal'"
+            },
+            "-shm": {
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+              "errno": 2,
+              "error": "[Errno 2] No such file or directory: '/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm'"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 139,
+      "monotonic_ns": 171503676791,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "init"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal"
+        }
+      }
+    },
+    {
+      "sequence": 140,
+      "monotonic_ns": 171503946291,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "write",
+        "id": "old-final",
+        "value": "confirmed correction before barrier"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "acknowledged": true,
+          "id": "old-final",
+          "rows": [
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 141,
+      "monotonic_ns": 171504211000,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "identity",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "main": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960709,
+            "links": 1,
+            "mode": 33188,
+            "size": 4096,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+          },
+          "-wal": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960711,
+            "links": 1,
+            "mode": 33188,
+            "size": 20632,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal"
+          },
+          "-shm": {
+            "api": "open/fstat",
+            "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+            "fd": 6,
+            "device": 16777226,
+            "inode": 2960712,
+            "links": 1,
+            "mode": 33188,
+            "size": 32768,
+            "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 142,
+      "monotonic_ns": 171504724250,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 143,
+      "monotonic_ns": 171504820583,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 144,
+      "monotonic_ns": 171504903791,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 145,
+      "monotonic_ns": 171505040666,
+      "kind": "exchange",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 146,
+      "monotonic_ns": 171510333416,
+      "kind": "process_exit",
+      "actor": "lifecycle-old",
+      "pid": 2070,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 147,
+      "monotonic_ns": 171512622583,
+      "kind": "launch",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 148,
+      "monotonic_ns": 171555530750,
+      "kind": "exchange",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2072,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 149,
+      "monotonic_ns": 171556302166,
+      "kind": "exchange",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960709,
+              "links": 1,
+              "mode": 33188,
+              "size": 12288,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960714,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960715,
+              "links": 1,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 150,
+      "monotonic_ns": 171556798208,
+      "kind": "exchange",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "request": {
+        "op": "write",
+        "id": "restart-after-clean-stop",
+        "value": "confirmed old-model correction"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "acknowledged": true,
+          "id": "restart-after-clean-stop",
+          "rows": [
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ],
+            [
+              "restart-after-clean-stop",
+              "confirmed old-model correction"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 151,
+      "monotonic_ns": 171557253583,
+      "kind": "exchange",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 152,
+      "monotonic_ns": 171557335416,
+      "kind": "exchange",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 153,
+      "monotonic_ns": 171557391208,
+      "kind": "exchange",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 154,
+      "monotonic_ns": 171557510000,
+      "kind": "exchange",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 155,
+      "monotonic_ns": 171562876166,
+      "kind": "process_exit",
+      "actor": "lifecycle-restart",
+      "pid": 2072,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 156,
+      "monotonic_ns": 171565843666,
+      "kind": "launch",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 157,
+      "monotonic_ns": 171606788833,
+      "kind": "exchange",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2073,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 158,
+      "monotonic_ns": 171607382166,
+      "kind": "exchange",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960709,
+              "links": 1,
+              "mode": 33188,
+              "size": 12288,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960716,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960717,
+              "links": 1,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 159,
+      "monotonic_ns": 172156569500,
+      "kind": "exchange",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "request": {
+        "op": "write",
+        "id": "during-sqlite-transaction",
+        "value": "confirmed old-model correction"
+      },
+      "response": {
+        "ok": false,
+        "error": "OperationalError",
+        "message": "database is locked",
+        "sqlite_errorcode": 5,
+        "sqlite_errorname": "SQLITE_BUSY",
+        "errno": null,
+        "winerror": null
+      }
+    },
+    {
+      "sequence": 160,
+      "monotonic_ns": 172156841250,
+      "kind": "exchange",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 161,
+      "monotonic_ns": 172156923833,
+      "kind": "exchange",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 162,
+      "monotonic_ns": 172156983583,
+      "kind": "exchange",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 163,
+      "monotonic_ns": 172157165208,
+      "kind": "exchange",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 164,
+      "monotonic_ns": 172169944916,
+      "kind": "process_exit",
+      "actor": "lifecycle-sqlite-busy",
+      "pid": 2073,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 165,
+      "monotonic_ns": 172172946375,
+      "kind": "launch",
+      "actor": "lifecycle-snapshot",
+      "pid": 2087,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 166,
+      "monotonic_ns": 172229402208,
+      "kind": "exchange",
+      "actor": "lifecycle-snapshot",
+      "pid": 2087,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2087,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 167,
+      "monotonic_ns": 172277106166,
+      "kind": "exchange",
+      "actor": "lifecycle-snapshot",
+      "pid": 2087,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+        "readonly": true
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960709,
+              "links": 1,
+              "mode": 33188,
+              "size": 12288,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960716,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960717,
+              "links": 1,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 168,
+      "monotonic_ns": 172313422291,
+      "kind": "exchange",
+      "actor": "lifecycle-snapshot",
+      "pid": 2087,
+      "request": {
+        "op": "backup",
+        "target": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "api": "sqlite3_backup",
+          "rows": [
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ],
+            [
+              "restart-after-clean-stop",
+              "confirmed old-model correction"
+            ]
+          ],
+          "integrity": "ok",
+          "target": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3",
+              "fd": 9,
+              "device": 16777226,
+              "inode": 2960728,
+              "links": 1,
+              "mode": 33188,
+              "size": 12288,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3-wal",
+              "fd": 9,
+              "device": 16777226,
+              "inode": 2960730,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3-shm",
+              "fd": 9,
+              "device": 16777226,
+              "inode": 2960731,
+              "links": 1,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 169,
+      "monotonic_ns": 172313717458,
+      "kind": "exchange",
+      "actor": "lifecycle-snapshot",
+      "pid": 2087,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 170,
+      "monotonic_ns": 172313855041,
+      "kind": "exchange",
+      "actor": "lifecycle-snapshot",
+      "pid": 2087,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 171,
+      "monotonic_ns": 172313968708,
+      "kind": "exchange",
+      "actor": "lifecycle-snapshot",
+      "pid": 2087,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 172,
+      "monotonic_ns": 172326434250,
+      "kind": "process_exit",
+      "actor": "lifecycle-snapshot",
+      "pid": 2087,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 173,
+      "monotonic_ns": 172329402125,
+      "kind": "launch",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-u",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+        "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq"
+      ],
+      "actor_sha256": "472b1397ef4e48d5f784aef4daed5208a6fe9712df8b724a09f7c1cd032b9e5c",
+      "evidence_level": "TEST_MODEL"
+    },
+    {
+      "sequence": 174,
+      "monotonic_ns": 172371909666,
+      "kind": "exchange",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "request": {
+        "op": "hello"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "pid": 2098,
+          "parent": 1873,
+          "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "actor": "/Users/runner/work/Zen-Canvas/Zen-Canvas/tests/issue380_k2_g1/actor.py",
+          "sqlite": "3.53.4",
+          "uid": 501
+        }
+      }
+    },
+    {
+      "sequence": 175,
+      "monotonic_ns": 172372693875,
+      "kind": "exchange",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "request": {
+        "op": "open",
+        "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "journal": "wal",
+          "identities": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960709,
+              "links": 1,
+              "mode": 33188,
+              "size": 12288,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960733,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+              "fd": 6,
+              "device": 16777226,
+              "inode": 2960734,
+              "links": 1,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 176,
+      "monotonic_ns": 172391029500,
+      "kind": "exchange",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "request": {
+        "op": "write",
+        "id": "after-sqlite-release",
+        "value": "confirmed old-model correction"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "acknowledged": true,
+          "id": "after-sqlite-release",
+          "rows": [
+            [
+              "after-sqlite-release",
+              "confirmed old-model correction"
+            ],
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ],
+            [
+              "restart-after-clean-stop",
+              "confirmed old-model correction"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 177,
+      "monotonic_ns": 172409087083,
+      "kind": "exchange",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 178,
+      "monotonic_ns": 172409260791,
+      "kind": "exchange",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "request": {
+        "op": "close"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "closed": true
+        }
+      }
+    },
+    {
+      "sequence": 179,
+      "monotonic_ns": 172409396666,
+      "kind": "exchange",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "request": {
+        "op": "release"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "released": []
+        }
+      }
+    },
+    {
+      "sequence": 180,
+      "monotonic_ns": 172409522291,
+      "kind": "exchange",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "request": {
+        "op": "exit"
+      },
+      "response": {
+        "ok": true,
+        "result": {
+          "exit": true
+        }
+      }
+    },
+    {
+      "sequence": 181,
+      "monotonic_ns": 172439985708,
+      "kind": "process_exit",
+      "actor": "lifecycle-after-sqlite-release",
+      "pid": 2098,
+      "abnormal": false,
+      "returncode": 0
+    },
+    {
+      "sequence": 182,
+      "monotonic_ns": 172440039125,
+      "kind": "lifecycle_control",
+      "restart": {
+        "open": {
+          "ok": true,
+          "result": {
+            "journal": "wal",
+            "identities": {
+              "main": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960709,
+                "links": 1,
+                "mode": 33188,
+                "size": 12288,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+              },
+              "-wal": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960714,
+                "links": 1,
+                "mode": 33188,
+                "size": 0,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal"
+              },
+              "-shm": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960715,
+                "links": 1,
+                "mode": 33188,
+                "size": 32768,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm"
+              }
+            }
+          }
+        },
+        "write": {
+          "ok": true,
+          "result": {
+            "acknowledged": true,
+            "id": "restart-after-clean-stop",
+            "rows": [
+              [
+                "old-final",
+                "confirmed correction before barrier"
+              ],
+              [
+                "restart-after-clean-stop",
+                "confirmed old-model correction"
+              ]
+            ]
+          }
+        },
+        "acknowledged": true
+      },
+      "sqlite_held": {
+        "open": {
+          "ok": true,
+          "result": {
+            "journal": "wal",
+            "identities": {
+              "main": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960709,
+                "links": 1,
+                "mode": 33188,
+                "size": 12288,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+              },
+              "-wal": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960716,
+                "links": 1,
+                "mode": 33188,
+                "size": 0,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal"
+              },
+              "-shm": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960717,
+                "links": 1,
+                "mode": 33188,
+                "size": 32768,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm"
+              }
+            }
+          }
+        },
+        "write": {
+          "ok": false,
+          "error": "OperationalError",
+          "message": "database is locked",
+          "sqlite_errorcode": 5,
+          "sqlite_errorname": "SQLITE_BUSY",
+          "errno": null,
+          "winerror": null
+        },
+        "acknowledged": false
+      },
+      "snapshot": {
+        "ok": true,
+        "result": {
+          "api": "sqlite3_backup",
+          "rows": [
+            [
+              "old-final",
+              "confirmed correction before barrier"
+            ],
+            [
+              "restart-after-clean-stop",
+              "confirmed old-model correction"
+            ]
+          ],
+          "integrity": "ok",
+          "target": {
+            "main": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3",
+              "fd": 9,
+              "device": 16777226,
+              "inode": 2960728,
+              "links": 1,
+              "mode": 33188,
+              "size": 12288,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3"
+            },
+            "-wal": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3-wal",
+              "fd": 9,
+              "device": 16777226,
+              "inode": 2960730,
+              "links": 1,
+              "mode": 33188,
+              "size": 0,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3-wal"
+            },
+            "-shm": {
+              "api": "open/fstat",
+              "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3-shm",
+              "fd": 9,
+              "device": 16777226,
+              "inode": 2960731,
+              "links": 1,
+              "mode": 33188,
+              "size": 32768,
+              "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/busy-snapshot.sqlite3-shm"
+            }
+          }
+        }
+      },
+      "sqlite_released": {
+        "open": {
+          "ok": true,
+          "result": {
+            "journal": "wal",
+            "identities": {
+              "main": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960709,
+                "links": 1,
+                "mode": 33188,
+                "size": 12288,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3"
+              },
+              "-wal": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960733,
+                "links": 1,
+                "mode": 33188,
+                "size": 0,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-wal"
+              },
+              "-shm": {
+                "api": "open/fstat",
+                "path": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm",
+                "fd": 6,
+                "device": 16777226,
+                "inode": 2960734,
+                "links": 1,
+                "mode": 33188,
+                "size": 32768,
+                "realpath": "/Users/runner/work/Zen-Canvas/Zen-Canvas/.tmp-tests/issue380-k2-g1/native/issue380-k2-g1-p4f1tcwq/lifecycle/old.sqlite3-shm"
+              }
+            }
+          }
+        },
+        "write": {
+          "ok": true,
+          "result": {
+            "acknowledged": true,
+            "id": "after-sqlite-release",
+            "rows": [
+              [
+                "after-sqlite-release",
+                "confirmed old-model correction"
+              ],
+              [
+                "old-final",
+                "confirmed correction before barrier"
+              ],
+              [
+                "restart-after-clean-stop",
+                "confirmed old-model correction"
+              ]
+            ]
+          }
+        },
+        "acknowledged": true
+      },
+      "conclusion": "SQLite transaction lock is not a durable generation fence"
+    }
+  ],
+  "actor_stderr": {
+    "posix-flock-old": "",
+    "posix-flock-guard": "",
+    "posix-flock-late": "",
+    "posix-flock-hardlink": "",
+    "posix-flock-symlink": "",
+    "posix-flock-directory_symlink": "",
+    "posix-flock-backup": "",
+    "posix-flock-copied-relaunch": "",
+    "posix-fcntl-whole-file-old": "",
+    "posix-fcntl-whole-file-guard": "",
+    "posix-fcntl-whole-file-late": "",
+    "posix-fcntl-whole-file-hardlink": "",
+    "posix-fcntl-whole-file-symlink": "",
+    "posix-fcntl-whole-file-directory_symlink": "",
+    "posix-fcntl-whole-file-backup": "",
+    "posix-fcntl-whole-file-copied-relaunch": "",
+    "lifecycle-old": "",
+    "lifecycle-restart": "",
+    "lifecycle-sqlite-busy": "",
+    "lifecycle-snapshot": "",
+    "lifecycle-after-sqlite-release": ""
+  }
+}

@@ -90,11 +90,54 @@ no K1/T0 suites or #381 inventory/consumer audit are rerun.
 These three generation domains remain distinct. Schema v38 is unallocated;
 #381 production, NSIS/U2 release and #380 automatic migration remain NO-GO.
 
-## Execution and closeout
+## First genuine Hosted execution
 
-Native results are pending the first ordinary Draft PR event. Local Linux smoke
-checks only actor sequencing, bounded failures and evidence serialization. Its
-first run hit a fcntl-held SQLite timeout; that result led to explicit recorded
-bounded timeout handling. The corrected smoke completed; it is not native proof.
-The final closeout will preserve real Hosted outputs, failures and unverified
-items, without treating ordinary CI success as platform authority certification.
+[Native run 38359437737](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38359437737)
+completed SUCCESS, attempt 1, both native jobs. Checked-out input HEAD
+`e6afbf6f8b5311cfb5cfb5f0a327d5fbe2ccf788`, tree
+`799a1692a2d8f0a6f48798071017ad74d97bd201`.
+[Manifest](../../tests/issue380_k2_g1/evidence/hosted-first-manifest.json)
+retains original Artifact IDs/digests and preserved JSON SHA-256. These are
+historical inputs, not evidence for subsequently added probe commands.
+
+| Platform | Actual image / interpreter / SQLite | Execution |
+| --- | --- | --- |
+| Windows | Server 2025 build 26100 AMD64; win25-vs2026 `20260925.250.1`; Python 3.12.10; SQLite 3.49.1 | COMPLETE; 294 events / 33 child launches |
+| macOS | macOS 26.6.2 arm64; macos26 `20260907.0351.1`; Python 3.14.7; SQLite 3.53.4 | COMPLETE; 183 events / 21 child launches |
+
+| Candidate | Existing writer / late writer | Snapshot while held | Outcome |
+| --- | --- | --- | --- |
+| Windows share 0 | Existing handles cause Win32 ERROR_SHARING_VIOLATION 32; retained old commit succeeds. After exit, gate acquires and late/alias opens fail SQLITE_CANTOPEN 14. | Backup reader also fails SQLITE_CANTOPEN 14. | NO-GO: backup blocked. |
+| Windows share READ | Existing handles cause error 32 and retained old commit succeeds. After exit, all three handles acquire; late and all tested alias writes fail SQLITE_READONLY 8. | Online Backup/integrity succeeds, includes both acknowledged old corrections; fixture generation 2 and first new write succeed while guard holds. | Bounded held-window capability observed. Guard death allows copied old relaunch/confirmed correction while new correction survives recovery: lifetime/product NO-GO. |
+| Windows share READ+WRITE | Gate acquires alongside writer; retained, late and all alias commits succeed. | Backup/integrity succeeds and includes six observed corrections. | NO-GO: no write exclusion. |
+| macOS flock, all three files | Locks acquire. Retained write returns no SQLite result in 8 seconds (bounded timeout); late/alias SQLite opens return SQLITE_BUSY 5. | Read-only backup source also fails SQLITE_BUSY 5. | NO-GO: backup blocked; do not infer OS permission revocation from one SQLite implementation. |
+| macOS whole-file fcntl | Same observed timeout/BUSY/read-only-backup blockage; locks acquire. | Backup source fails SQLITE_BUSY 5. | NO-GO: backup blocked. |
+
+All tested hardlink/symlink aliases succeed in construction on both systems;
+Windows junction creation succeeds. Raw JSON gives main/WAL/SHM identity equality,
+not just matching paths. For example Windows READ gate main volume serial
+`375717793`, file index `281474976712782`; macOS flock main device `16777226`,
+inode `2960416`. Sidecar identities, every PID, descriptor and API result remain in
+[Windows raw evidence](../../tests/issue380_k2_g1/evidence/hosted-Windows.json) and
+[macOS raw evidence](../../tests/issue380_k2_g1/evidence/hosted-macOS.json).
+
+The separate BEGIN IMMEDIATE control on both systems permits WAL backup, returns
+SQLITE_BUSY 5 for the held-window writer and permits old writing after release.
+It is a transaction capability, not installation or generation authority.
+No new generation was opened in candidates whose held barrier blocks backup.
+This is fail-closed experimental behavior, not a production gate implementation.
+
+## Remaining closeout
+
+Added VFS/compile-option reporting, a raw O_RDWR identical-byte write/fsync probe
+(no changed SQLite bytes and no claimed user commit), and a separate-generation
+first-write/recovery/no-silent-fork control under the SQLite transaction gate.
+These resolve actual first-run uncertainty; their Linux smoke completed and does
+not count as native proof. The next ordinary synchronization event will run the
+revised native source. No manual workflow dispatch/rerun, K1/T0 repetition, broad
+consumer audit, Full Validation, Review bot or production change is authorized.
+
+**Current production conclusion: NO-GO.** Released old binary, product-specific
+bundled VFS, cross-session/service/installer behavior, guard-death recovery authority
+and Owner-native qualification remain unverified. A successful Windows READ-held
+fixture window is a useful capability result, not an end-to-end upgrade guarantee.

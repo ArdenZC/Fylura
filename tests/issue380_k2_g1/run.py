@@ -178,6 +178,9 @@ def experiment(name, spec):
         actor = Actor(name + '-' + alias)
         alias_results[alias] = open_write(actor, alternate, 'alias-' + alias)
         actor.stop()
+    probe = Actor(name + '-raw-fd-probe')
+    raw_fd = probe.ask('raw_same_bytes', path=str(path))
+    probe.stop()
     reader = Actor(name + '-backup')
     opened = reader.ask('open', path=str(path), readonly=True)
     target = folder / 'new.sqlite3'
@@ -214,7 +217,7 @@ def experiment(name, spec):
     snapshot_ids = {r[0] for r in backup['result']['rows']} if backup and backup['ok'] else set()
     summary = dict(candidate=name, spec=spec, existing_acquisition=existing,
                    existing_retained_write=retained, acquired_after_exit=acquired, complete_gate=complete_gate,
-                   late=late_result, aliases=alias_results, snapshot_open=opened, snapshot=backup,
+                   late=late_result, aliases=alias_results, raw_fd_probe=raw_fd, snapshot_open=opened, snapshot=backup,
                    snapshot_includes_all_known_confirmed=bool(backup and backup['ok'] and last_known <= snapshot_ids),
                    confirmed_before_snapshot=sorted(last_known), snapshot_ids=sorted(snapshot_ids),
                    separate_generation=new_result, holder_abnormal_exit_old_relaunch=after_exit,
@@ -245,12 +248,23 @@ def lifecycle_control():
     require(reader.ask('open', path=str(path), readonly=True))
     backup = reader.ask('backup', target=str(folder / 'busy-snapshot.sqlite3'))
     reader.stop()
+    newer = Actor('lifecycle-new-generation')
+    require(newer.ask('open', path=str(folder / 'busy-snapshot.sqlite3')))
+    prepared = require(newer.ask('prepare'))
+    new_first = require(newer.ask('write', id='new-first', value='confirmed independent new-generation correction'))
+    newer.stop(abnormal=True)
+    recover = Actor('lifecycle-new-recovery')
+    require(recover.ask('open', path=str(folder / 'busy-snapshot.sqlite3')))
+    recovered = require(recover.ask('read'))
+    recover.stop()
     writer.rollback()
     writer.close()
     late = Actor('lifecycle-after-sqlite-release')
     unblocked = open_write(late, path, 'after-sqlite-release')
     late.stop()
-    event('lifecycle_control', restart=result, sqlite_held=response, snapshot=backup, sqlite_released=unblocked,
+    event('lifecycle_control', restart=result, sqlite_held=response, snapshot=backup,
+          prepare=prepared, new_first=new_first, new_recovery=recovered, sqlite_released=unblocked,
+          two_generations_acknowledged=bool(new_first['acknowledged'] and unblocked['acknowledged']),
           conclusion='SQLite transaction lock is not a durable generation fence')
 
 
@@ -279,6 +293,25 @@ def main():
                   evidence_level='HOSTED_NATIVE_API' if system in ('Windows', 'Darwin') and os.environ.get('GITHUB_ACTIONS') else 'LOCAL_SMOKE_ONLY',
                   shipped_old_product='NOT_RUN', reconstructed_product='NOT_RUN', controlled_actors='TEST_MODEL',
                   owner_native='NOT_RUN', production_migration='NOT_AUTHORIZED', production='NO_GO')
+    info = sqlite3.connect(':memory:')
+    report['sqlite_compile_options'] = [r[0] for r in info.execute('PRAGMA compile_options')]
+    info.close()
+    # Resolve the real Python SQLite default VFS when its linked symbol is exposed.
+    # Never infer the product's bundled rusqlite VFS from this interpreter.
+    try:
+        import ctypes
+        import _sqlite3
+        class VFS(ctypes.Structure):
+            pass
+        VFS._fields_ = [('version', ctypes.c_int), ('szOsFile', ctypes.c_int),
+                       ('mxPathname', ctypes.c_int), ('next', ctypes.c_void_p), ('name', ctypes.c_char_p)]
+        library = ctypes.CDLL(_sqlite3.__file__)
+        find = library.sqlite3_vfs_find
+        find.argtypes = [ctypes.c_char_p]
+        find.restype = ctypes.POINTER(VFS)
+        report['sqlite_default_vfs'] = find(None).contents.name.decode()
+    except Exception as error:
+        report['sqlite_default_vfs'] = dict(unavailable=str(error))
     try:
         if system == 'Windows':
             specs = [('win-exclusive', dict(access=0x80000000, share=0)),

@@ -34,6 +34,10 @@ pub(super) fn decode(response: &IndexServiceResponse) -> GlobalIndexError {
 }
 
 #[cfg(test)]
+#[path = "service_errors_p1_scope_tests.rs"]
+mod p1_scope_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::global_index::windows::service::IPC_PROTOCOL_VERSION;

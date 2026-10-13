@@ -241,7 +241,7 @@ fn issue380_ownership_blocker_late_busy_overwrites_committed_owner_health() {
         db.update_global_volume_state(
             &source.volume.id,
             owner_status,
-            Some("confirmed_owner_cause"),
+            (owner_status != INDEX_STATUS_READY).then_some("confirmed_owner_cause"),
             Some("owner-journal"),
             Some("99"),
             Some(7),

@@ -326,6 +326,7 @@ fn t07_anchors_and_zero_results_do_not_prove_source_health() {
         oracle::expected(14)
     );
     let mut stage = StageAccounting {
+        evaluated_fingerprint: fingerprint(&s),
         enumerated: 1,
         evaluated: 1,
         unresolved: 0,
@@ -646,6 +647,7 @@ fn t12_canonical_fingerprint_cache_and_generation_replay() {
         Hint::RejectGeneration
     );
     let stage = StageAccounting {
+        evaluated_fingerprint: fingerprint(&snapshot),
         enumerated: 0,
         evaluated: 0,
         unresolved: 0,
@@ -667,6 +669,21 @@ fn t12_canonical_fingerprint_cache_and_generation_replay() {
         coverage(&advanced, SourceHealth::Accounted, &old_stage, &[]),
         CoverageProjection::Obsolete
     );
+    for variant in 0..3 {
+        let mut same_revision = snapshot.clone();
+        match variant {
+            0 => same_revision.known_folder_version += 1,
+            1 => same_revision
+                .rules
+                .push(rule("C:/Users/owner/Projects", false, "changed-rule")),
+            2 => same_revision.roots[0].identity.birth += 1,
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            coverage(&same_revision, SourceHealth::Accounted, &old_stage, &[]),
+            CoverageProjection::Obsolete
+        );
+    }
 }
 
 #[test]

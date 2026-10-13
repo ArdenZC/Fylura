@@ -519,6 +519,7 @@ pub enum CoverageProjection {
 }
 #[derive(Clone, Debug)]
 pub struct StageAccounting {
+    pub evaluated_fingerprint: Snapshot,
     pub enumerated: usize,
     pub evaluated: usize,
     pub unresolved: usize,
@@ -533,7 +534,10 @@ pub fn coverage(
     stage: &StageAccounting,
     results: &[Decision],
 ) -> CoverageProjection {
-    if stage.source != snapshot.source || stage.policy_revision != snapshot.revision {
+    if stage.source != snapshot.source
+        || stage.policy_revision != snapshot.revision
+        || fingerprint(&stage.evaluated_fingerprint) != fingerprint(snapshot)
+    {
         return CoverageProjection::Obsolete;
     }
     if health != SourceHealth::Accounted

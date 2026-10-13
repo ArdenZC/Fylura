@@ -55,7 +55,8 @@ known-folder version. Cache keys also bind the full immutable Context, including
 path/rename epoch, parent/birth identities, alias kind/target/source/permission,
 Unicode evidence and health. Older keys can remain in this bounded experiment
 cache, but can never alias newer keys; publication validates the current
-snapshot against stage source/revision and rejects obsolete generations.
+complete fingerprint against the stage receipt (as well as source/revision) and
+rejects obsolete generations, including same-revision rules/roots/known-folder drift.
 Parent chains and alias traversal each stop at 32; the cache stores at most one
 entry per sample in T16. This is no production cache design or adoption decision.
 

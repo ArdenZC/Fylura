@@ -56,12 +56,12 @@
   "command": [
     "tests/issue381_b2/run.py",
     "--output",
-    "/workspace/Zen-Canvas-b2/docs/project/research/issue-381-b2/evidence"
+    "/workspace/scratch/b2-trace-final"
   ],
-  "started_utc": "2026-10-13T09:25:39Z",
+  "started_utc": "2026-10-13T09:29:39Z",
   "git": {
-    "head": "d85565c229e35c9b13c48226b3b8e5a4ee1621ff",
-    "tree": "7e571a683e70869543b96f89040280a78733113c",
+    "head": "d1e5ab957c6b72428910c3d2e9dbaf57e4344c4d",
+    "tree": "ff0c7810219ab4a957cfda758132be4c0958a010",
     "branch": "test/issue-381-b2-effective-visibility-oracle",
     "base": "3275ac7c72df8ae4139a30f16c7f649971324e97",
     "base_tree": "009576241cd4e8e2ba12cc644a368314f599faa6"
@@ -69,7 +69,7 @@
   "seed": 38120261013,
   "fts5": true,
   "source_sha256": {
-    "run.py": "f5ebc2b9415c09e5dbb7521bb0b955c996aba4df198fca12318c8a4e90c92c95",
+    "run.py": "ab305ff06f0fec6aa4bebb95ed77326516e9da25673fb24bc868fc10d30f82bf",
     "model.py": "33f14139a9d4125f9078b2e32c5d6a91fb976994933053a3c9e0dc1437d3a261",
     "oracle.py": "40313c9036c6b7f96f7b3400c3f019d968163bf4713433279f5ae861b83358e2"
   }

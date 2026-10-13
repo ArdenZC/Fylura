@@ -1822,10 +1822,18 @@ fn p0_t09_file_library_search_tags_scan_upsert_and_restore_keep_legacy_authority
             .expect("scanner upsert path"),
         1
     );
-    let normalized_root = fs::canonicalize(&root)
+    let canonical_root = fs::canonicalize(&root)
         .expect("canonicalize indexed root")
         .to_string_lossy()
-        .into_owned();
+        .replace('\\', "/");
+    let normalized_root = if let Some(unc_root) = canonical_root.strip_prefix("//?/UNC/") {
+        format!("//{unc_root}")
+    } else if let Some(root) = canonical_root.strip_prefix("//?/") {
+        root.to_string()
+    } else {
+        canonical_root
+    };
+    let normalized_file_path = original_path.to_string_lossy().replace('\\', "/");
     let conn = Connection::open(&path).expect("open root fixture");
     conn.execute(
         "INSERT INTO scan_roots (
@@ -1838,7 +1846,7 @@ fn p0_t09_file_library_search_tags_scan_upsert_and_restore_keep_legacy_authority
     let file_id: String = conn
         .query_row(
             "SELECT id FROM files WHERE path = ?1",
-            [original_path.to_string_lossy().as_ref()],
+            [&normalized_file_path],
             |row| row.get(0),
         )
         .expect("read scanner file ID");

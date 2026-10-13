@@ -480,7 +480,11 @@ def contend(m, publish, records):
     def writer(i):
         db=connect(m.path)
         start=time.perf_counter_ns()
-        attempted[i].set()
+        # Signal from SQLite's actual statement execution, not thread intent.
+        def trace(statement):
+            if statement == 'BEGIN IMMEDIATE':
+                attempted[i].set()
+        db.set_trace_callback(trace)
         try:
             db.execute('BEGIN IMMEDIATE')
             acquired=time.perf_counter_ns()
@@ -492,7 +496,7 @@ def contend(m, publish, records):
                 db.execute("INSERT INTO history(uid,body) VALUES('anchor','writer preserved')")
             db.execute('COMMIT')
             end=time.perf_counter_ns()
-            completed.append(dict(writer=['source_metadata','user_tag_note'][i],begin_wait_ms=(acquired-start)/1e6,elapsed_ms=(end-start)/1e6,exit='committed',busy_timeout_ms=5000))
+            completed.append(dict(writer=['source_metadata','user_tag_note'][i],begin_wait_ms=(acquired-start)/1e6,elapsed_ms=(end-start)/1e6,exit='committed',busy_timeout_ms=5000,attempt_barrier='sqlite trace BEGIN IMMEDIATE'))
         except BaseException as exc:
             errors.append(repr(exc))
         finally: db.close()

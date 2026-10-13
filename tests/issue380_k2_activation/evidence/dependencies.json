@@ -1,0 +1,50 @@
+[
+  {
+    "domain": "installation activation",
+    "future_migration_contract": "OS lifetime exclusion + authenticated activation/forward recovery",
+    "frozen_evidence": "K1/K2 negative witnesses",
+    "qualified": false
+  },
+  {
+    "domain": "DB generation",
+    "future_migration_contract": "last old commit, full WAL snapshot, distinct physical DB/WAL/SHM, first new writer",
+    "frozen_evidence": "K1 representative backup and K2 race traces",
+    "qualified": false
+  },
+  {
+    "domain": "C2 Global Index",
+    "future_migration_contract": "complete generation seal, active pointer CAS, all reader/writer participation",
+    "frozen_evidence": "Track B isolated prototype; CTAS not relational proof",
+    "qualified": false
+  },
+  {
+    "domain": "#381 Root/Source Manifest",
+    "future_migration_contract": "same-read-transaction compatible physical/source/path epochs + visibility",
+    "frozen_evidence": "frozen S8R inventory, not new audit",
+    "qualified": false
+  },
+  {
+    "domain": "tags/corrections/Consent",
+    "future_migration_contract": "independent user metadata authority, preserve latest correction, consent predicates",
+    "frozen_evidence": "K1 17-table three-row projection; K2 late correction witness",
+    "qualified": false
+  },
+  {
+    "domain": "IDs/rowid/FK/history",
+    "future_migration_contract": "stable identity and history anchors through migration/add/delete/path reuse",
+    "frozen_evidence": "K1 limited equality; K2 representative preservation",
+    "qualified": false
+  },
+  {
+    "domain": "Global FTS/BM25/Cursor",
+    "future_migration_contract": "full visible generation corpus and generation-bound cursor",
+    "frozen_evidence": "Track B limited FTS; product rank/pagination NOT_PROVEN",
+    "qualified": false
+  },
+  {
+    "domain": "GC/Recovery",
+    "future_migration_contract": "leases, crash reclamation, budgets, one active generation, no silent rollback/fork",
+    "frozen_evidence": "Track B isolated lease/backup controls; K2 process-exit model",
+    "qualified": false
+  }
+]

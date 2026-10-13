@@ -1,0 +1,57 @@
+[
+  {
+    "ref": "bbdd3db254582ae622236237b87adb73b097bc42",
+    "path": "tests/issue380_db_open_generation/build_probe.py",
+    "sha256": "c19c3ba4f2f37e73fa02e70120d4228700e6c152a601cda3e1d64a063bde2df7"
+  },
+  {
+    "ref": "bbdd3db254582ae622236237b87adb73b097bc42",
+    "path": "tests/issue380_db_open_generation/probe.rs",
+    "sha256": "a980c131b4c6300d9e601cf43f84a74029b6f85dd1f50c401700a5cca11c59d2"
+  },
+  {
+    "ref": "bbdd3db254582ae622236237b87adb73b097bc42",
+    "path": "tests/issue380_db_open_generation/policy.rs",
+    "sha256": "8dd653344a52c13397da422e6d3e70ee1a0706d8ac8e8bd9cb766514c5aca8f9"
+  },
+  {
+    "ref": "bbdd3db254582ae622236237b87adb73b097bc42",
+    "path": "tests/issue380_db_open_generation/Probe.toml",
+    "sha256": "bf5ef2618ab6f0783b4d05f7d0417ac33dd3f1ea22d17933e6c51f2a744a914c"
+  },
+  {
+    "ref": "bbdd3db254582ae622236237b87adb73b097bc42",
+    "path": "tests/issue380_db_open_generation/Cargo.lock",
+    "sha256": "c1a188866cc5f622f0c1025accd9e2c1b0f46aa6dfdf09c08927191a8856d484"
+  },
+  {
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--locked",
+      "--manifest-path",
+      "/workspace/issue-380-k2-t0-activation-feasibility/.tmp-tests/issue380-k2-t0/probe/Cargo.toml"
+    ],
+    "returncode": 0,
+    "binary_sha256": "4803322b51764b94be75a5fa4c00debab7594c35a16283bf7d36af25d8d97dc4",
+    "elapsed_s": 0.28264806299921474,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+  },
+  {
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--locked",
+      "--manifest-path",
+      "/workspace/issue-380-k2-t0-activation-feasibility/.tmp-tests/issue380-k2-t0/probe/Cargo.toml",
+      "--features",
+      "native-qa"
+    ],
+    "returncode": 0,
+    "binary_sha256": "82ebf11351c9fcc6805312186de6fb8fa95f933e166901a6dd24be3466695f10",
+    "elapsed_s": 0.26462042599996494,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+  }
+]

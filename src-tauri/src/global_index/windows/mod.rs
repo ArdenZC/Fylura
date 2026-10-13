@@ -381,9 +381,7 @@ impl WindowsGlobalIndexProvider {
             self.direct_blocked_sources
                 .lock()
                 .map_err(|_| {
-                    service::IndexServiceCallError::Protocol(
-                        "Direct safety fence poisoned".into(),
-                    )
+                    service::IndexServiceCallError::Protocol("Direct safety fence poisoned".into())
                 })?
                 .insert(source_id);
         }
@@ -888,15 +886,10 @@ mod tests {
 
         let calls = std::sync::atomic::AtomicUsize::new(0);
         let error = provider
-            .resolve_service_route(
-                &request,
-                &mut sink,
-                stream,
-                |_, _| {
-                    calls.fetch_add(1, Ordering::Relaxed);
-                    Ok(())
-                },
-            )
+            .resolve_service_route(&request, &mut sink, stream, |_, _| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            })
             .unwrap_err();
         assert!(matches!(error, GlobalIndexError::Provider(_)));
         let next_request = IndexServiceRequest::new(

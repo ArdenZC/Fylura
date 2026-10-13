@@ -1,6 +1,6 @@
 # #380 K2-G1 native authority feasibility
 
-Production **NO-GO**. This is test-only platform research, not an implementation
+**Terminal: K2_G1_PLATFORM_AUTHORITY_BLOCKED. Production NO-GO.** This is test-only platform research, not an implementation
 selection or certification of a shipped Zen Canvas upgrade.
 
 ## Authority and exact inputs
@@ -127,17 +127,76 @@ It is a transaction capability, not installation or generation authority.
 No new generation was opened in candidates whose held barrier blocks backup.
 This is fail-closed experimental behavior, not a production gate implementation.
 
-## Remaining closeout
+## Qualified native source and final matrix
 
-Added VFS/compile-option reporting, a raw O_RDWR identical-byte write/fsync probe
-(no changed SQLite bytes and no claimed user commit), and a separate-generation
-first-write/recovery/no-silent-fork control under the SQLite transaction gate.
-These resolve actual first-run uncertainty; their Linux smoke completed and does
-not count as native proof. The next ordinary synchronization event will run the
-revised native source. No manual workflow dispatch/rerun, K1/T0 repetition, broad
-consumer audit, Full Validation, Review bot or production change is authorized.
+[Native run 38360029127](https://github.com/ArdenZC/Zen-Canvas/actions/runs/38360029127)
+completed SUCCESS, attempt 1, both jobs, actual input HEAD
+`581aef465a2dc35ec4d5f3d87d89f1c2c8646365`, tree
+`96ae4765812bfe9925f86119d57c0168def97bb3`. Platform/image/Python/SQLite versions
+match the first-run table. Windows now records 329 events / 38 child launches;
+macOS 211 events / 25 launches. Revised code is frozen; final evidence/report-only
+HEAD's natural native run is linked separately in the PR closeout.
 
-**Current production conclusion: NO-GO.** Released old binary, product-specific
-bundled VFS, cross-session/service/installer behavior, guard-death recovery authority
-and Owner-native qualification remain unverified. A successful Windows READ-held
-fixture window is a useful capability result, not an end-to-end upgrade guarantee.
+[Qualified manifest](../../tests/issue380_k2_g1/evidence/hosted-qualified-manifest.json),
+[Windows raw input/output](../../tests/issue380_k2_g1/evidence/hosted-qualified-Windows.json),
+[macOS raw input/output](../../tests/issue380_k2_g1/evidence/hosted-qualified-macOS.json)
+retain exact original Artifact bytes, hashes and every experiment exchange. Windows
+checkout inputs have CRLF and macOS/Git blobs LF: all raw source SHA-256 values were
+verified against precisely these bytes, without treating distinct hashes as equal.
+Default SQLite VFS is `unix` on this macOS interpreter. Windows extension does not
+export `sqlite3_vfs_find`; the missing symbol is explicitly recorded, not guessed.
+Both compile-option arrays are preserved. Neither interpreter's SQLite is claimed
+to be the product's bundled rusqlite SQLite or a shipped binary.
+
+| Gate | Genuine Windows result | Genuine macOS result | Qualification |
+| --- | --- | --- | --- |
+| G1-01 | No matching installer bytes obtained; no installer execution. | No authentic old macOS product bytes obtained. | Shipped old Zen Canvas **NOT_RUN**; reconstruction **NOT_RUN**. |
+| G1-02 | Existing READ/exclusive gates fail error 32 and retained commits succeed; READ+WRITE gate allows retained and late writes. | Existing locks acquired but SQLite writes time out; timeout is not an acknowledged commit or SQLite error code. | Real OS/SQLite evidence; retained writer cannot be retroactively assumed revoked. |
+| G1-03 | READ-only sharing blocks tested old/alias writes with error 8 while WAL backup, integrity, last-confirmed preservation and new first write succeed; share 0 blocks backup error 14. | Both held native lock types block required backup source with error 5. | Windows READ has bounded fixture GO only; complete final-snapshot/lifetime authority **not qualified**. |
+| G1-04 | Main/WAL/SHM file IDs, hardlinks, symlinks and junction reparse aliases captured; alias write outcomes follow candidate sharing mode. | Device/inode/fd identity and hardlink/file/directory symlinks captured. | Actual physical identity; all constructed alias types ran. Arbitrary reparse types, malicious namespace replacement, cross-volume and all product paths **UNVERIFIED**. |
+| G1-05 | Retained writer, clean stop/restart, killed writer, late/copy launch and killed guard are actual separate processes. All guards' death allows old relaunch commits. | Same controlled lifecycle coverage; no permission withdrawal from ordinary old copies. | Actual controlled process evidence. Real SCM, Desktop/Direct/Worker, single-instance and cross-session **NOT_RUN**. |
+| G1-06 | Raw O_RDWR probe fails errno 13 under share 0/READ, succeeds under READ+WRITE. | Under both flock/fcntl, raw O_RDWR writes identical 16 bytes and fsync succeeds while locks remain held. Actual SQLite attempts may block, but OS file write access remains. | Advisory locks are not general write revocation. No claims about untested ACL/broker/sandbox mechanisms. |
+| G1-07 | READ window preserves old acknowledged data, new first write and crash recovery, then guard death yields old/new acknowledged divergence. Independent SQL gate also forks after release. | SQL gate permits WAL snapshot; separate-generation first correction survives abnormal exit/reopen with integrity ok; old correction after release yields two acknowledged generations. | **NO-GO / RECOVERY_REQUIRED**; no silent old rollback. Snapshot-blocked native candidates never open new generation. |
+| G1-08 | Accepted K1/T0/C2/#381 inputs and constraints reused above. | Same frozen contract. | STATIC_DEPENDENCY_ONLY; no broad audit, repeat old suite or production integration. |
+
+The identical-byte descriptor probe does not modify logical SQLite contents and
+is **not** an acknowledged user correction. It demonstrates actual file-write
+capability independent of SQLite's cooperative locking/VFS. macOS lock behavior
+here is real, but does not generalize to mandatory enforcement over arbitrary
+same-user old programs. The retained-connection write timeout remains preserved
+as uncertain outcome, never relabeled successful cancellation or SQLITE_BUSY.
+
+Both SQL transaction controls keep BEGIN IMMEDIATE held while Online Backup
+preserves old-final and the clean-restart confirmed correction; new generation 2
+accepts `new-first`, then its process is killed and reopened with integrity `ok`.
+After old SQL gate release, `after-sqlite-release` is confirmed only in old DB.
+This is the required two-authority counterexample on both native platforms.
+It does not qualify crash-durable activation or power-loss recovery.
+
+## CI, unverified boundaries and decision
+
+The G1 native executions are genuine Windows/macOS Hosted evidence, not ordinary
+CI proxy results. Normal CI runs 38359437781 and 38360029169 automatically selected
+performance work because a workflow was added. They were cancelled to limit this
+research scope; some source/routing/frontend steps had completed, performance had
+started, and neither CI run is claimed PASS. Raw job dispositions are retained in
+the qualified manifest. The final ordinary CI will likewise be cancelled if it
+selects those broad tasks. No manual Hosted, Full Validation or test rerun was
+requested; native runs came only from ordinary PR opened/synchronize events.
+
+**Test-only execution GO; production NO-GO.** Windows READ sharing establishes a
+useful held-window capability for this controlled SQLite fixture. It does not
+acquire over existing writer handles, survive guard death or certify all released
+product writers. Other tested native gates either allow writes or prevent the
+required final snapshot. No persistent end-to-end upgrade exclusion has been
+proved. Do not infer that every possible native mechanism is impossible.
+
+Unverified: authentic released binaries and their actual routes/VFS; Owner-native
+acceptance; real service/installer/login/session behavior; complete namespace/ACL
+and privileged brokers; power loss, durable activation and recovery selection;
+all production state preservation/FTS/Root+Source semantics. No production gate,
+migration, activation ledger, Schema v38, #381 integration or NSIS change is made.
+
+**Stop: K2_G1_PLATFORM_AUTHORITY_BLOCKED.** Draft PR only for Owner review. #380,
+#381 production and NSIS/U2 release remain NO-GO; prior Draft holds unchanged.
+No merge, issue closure, release or next research/development phase is started.

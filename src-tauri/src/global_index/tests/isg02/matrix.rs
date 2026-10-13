@@ -5,6 +5,9 @@ use std::time::Instant;
 
 fn fixture(witness: usize) -> (Context, Snapshot) {
     let source = Source {
+        source_id: "synthetic-source".into(),
+        volume_id: "synthetic-volume".into(),
+        provider_id: "synthetic-provider".into(),
         platform: Platform::Windows,
         provider: Provider::Service,
         source_epoch: 1,
@@ -100,7 +103,11 @@ fn fixture(witness: usize) -> (Context, Snapshot) {
                 id: CHILD,
                 parent: Some(FILE),
             });
-            c.anchor = Some(("included-child".into(), CHILD));
+            c.anchor = Some(AnchorNeed {
+                need: "included-child".into(),
+                descendant_identity: CHILD,
+                included_snapshot: Box::new(s.clone()),
+            });
         }
         8 => c.classification_complete = false,
         9 => c.parents.retain(|n| n.id != ROOT),
@@ -308,9 +315,15 @@ fn t07_anchors_and_zero_results_do_not_prove_source_health() {
     explicitly_included
         .rules
         .push(rule("C:/Users/owner/Projects", true, "user-include"));
+    let mut current_anchor = c.clone();
+    *current_anchor.anchor.as_mut().unwrap().included_snapshot = explicitly_included.clone();
+    assert_eq!(
+        policy_evaluate(&current_anchor, &explicitly_included),
+        oracle::expected(7)
+    );
     assert_eq!(
         policy_evaluate(&c, &explicitly_included),
-        oracle::expected(7)
+        oracle::expected(14)
     );
     let mut stage = StageAccounting {
         enumerated: 1,
@@ -376,7 +389,11 @@ fn t07_anchors_and_zero_results_do_not_prove_source_health() {
         CoverageProjection::Partial
     );
     let mut invalid_anchor = c;
-    invalid_anchor.anchor = Some(("invented-child".into(), OS));
+    invalid_anchor.anchor = Some(AnchorNeed {
+        need: "invented-child".into(),
+        descendant_identity: OS,
+        included_snapshot: Box::new(s.clone()),
+    });
     assert_unknown(
         &invalid_anchor,
         &s,
@@ -597,6 +614,31 @@ fn t12_canonical_fingerprint_cache_and_generation_replay() {
         assert_eq!(cache.evaluate(&next, &s), policy_evaluate(&next, &s));
     }
     assert_eq!(cache.evaluations, 18);
+    for identity in 0..3 {
+        let mut unrelated = s.clone();
+        match identity {
+            0 => unrelated.source.source_id = "other-source-same-epoch".into(),
+            1 => unrelated.source.volume_id = "other-volume-same-epoch".into(),
+            2 => unrelated.source.provider_id = "other-provider-same-epoch".into(),
+            _ => unreachable!(),
+        }
+        assert_ne!(fingerprint(&unrelated), fingerprint(&s));
+        assert_eq!(cache.evaluate(&c, &unrelated), oracle::expected(15));
+    }
+    let (mut empty_identity, mut empty_snapshot) = fixture(0);
+    empty_identity.source.source_id.clear();
+    empty_snapshot.source.source_id.clear();
+    assert_eq!(
+        policy_evaluate(&empty_identity, &empty_snapshot),
+        oracle::expected(15)
+    );
+    let (mut old_anchor, mut new_snapshot) = fixture(7);
+    new_snapshot.revision += 1;
+    old_anchor.policy_revision = new_snapshot.revision;
+    assert_eq!(
+        policy_evaluate(&old_anchor, &new_snapshot),
+        oracle::expected(14)
+    );
     let (stale, snapshot) = fixture(14);
     let result = policy_evaluate(&stale, &snapshot);
     assert_eq!(
@@ -653,6 +695,9 @@ fn t13_abstract_platform_provider_parity_is_not_native_evidence() {
                 for rule in &mut s.rules {
                     rule.path = rule.path.replace("C:/", "/");
                 }
+            }
+            if let Some(anchor) = &mut c.anchor {
+                *anchor.included_snapshot = s.clone();
             }
             assert_eq!(policy_evaluate(&c, &s), oracle::expected(witness));
         }

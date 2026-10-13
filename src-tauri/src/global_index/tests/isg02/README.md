@@ -37,7 +37,7 @@ an evidence handle to a specific subtree. Names alone supply no classification.
 Scope roots delimit lawful lookup; explicit choices are separate rules. A
 narrower explicit Include beats weaker performance evidence; an equally deep
 explicit Exclude wins the conflict. Graph-only occurrences consume a
-source-verified included-descendant need; they cannot become search/AI payloads.
+source-verified included-descendant need bound to a complete immutable snapshot; they cannot become search/AI payloads.
 
 Path matching uses components, Windows ASCII case and extended DOS/UNC transport
 spellings. Unicode canonical spelling, when present, is an explicit source fact;
@@ -49,8 +49,8 @@ alias/permission behavior and native stage counts. Platform parity is abstract
 conformance only. Synthetic stage-accounting booleans are not native proof.
 
 The canonical fingerprint is a collision-free structured snapshot rather than
-a digest: sorted/deduplicated roots, rules and protection registry plus source,
-volume, provider, mount and permission epochs, mode, revision, platform and
+a digest: sorted/deduplicated roots, rules and protection registry plus stable source/volume/provider IDs,
+source, volume, provider, mount and permission epochs, mode, revision, platform and
 known-folder version. Cache keys also bind the full immutable Context, including
 path/rename epoch, parent/birth identities, alias kind/target/source/permission,
 Unicode evidence and health. Older keys can remain in this bounded experiment
@@ -74,7 +74,7 @@ entry per sample in T16. This is no production cache design or adoption decision
 | T09 | Windows case, UNC/extended paths, component boundaries, NFC/NFD source fact + identity fallback |
 | T10 | Hardlink paths, typed symlink/junction/reparse targets, cycles, bounds, cross-volume/permission guards |
 | T11 | Rename/move, Include-to-Exclude Reconcile and Exclude-to-Include Backfill values only |
-| T12 | Canonical fingerprint, cache changes, policy/source/volume/provider/mount/permission replay |
+| T12 | Canonical fingerprint, cache changes, policy/stable identities and source/volume/provider/mount/permission replay |
 | T13 | Windows Service/Direct and abstract macOS parity, no native claim |
 | T14 | Immutable mock Global/Managed/AI/consent/corrections/history/files/schema/IPC sentinels |
 | T15 | Out-of-order/double/missing parents, FRN/inode birth reuse and checkpoint gaps |

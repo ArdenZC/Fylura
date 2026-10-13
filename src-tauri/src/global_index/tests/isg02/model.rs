@@ -20,6 +20,9 @@ pub enum Mode {
 }
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Source {
+    pub source_id: String,
+    pub volume_id: String,
+    pub provider_id: String,
     pub platform: Platform,
     pub provider: Provider,
     pub source_epoch: u64,
@@ -141,6 +144,14 @@ pub struct AliasEdge {
     pub source: Source,
     pub permission: bool,
 }
+/// Synthetic receipt of an included descendant, tied to its immutable snapshot.
+/// Receipt acquisition is a source fact; there is no native adapter here.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct AnchorNeed {
+    pub need: String,
+    pub descendant_identity: Identity,
+    pub included_snapshot: Box<Snapshot>,
+}
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Context {
     pub source: Source,
@@ -161,7 +172,7 @@ pub struct Context {
     /// Source-verified subtree to which the contextual evidence applies.
     pub performance_path: Option<String>,
     /// Source-verified anchor need; anchors have no searchable payload.
-    pub anchor: Option<(String, Identity)>,
+    pub anchor: Option<AnchorNeed>,
     pub rename_epoch: u64,
 }
 fn unknown(reason: Reason, missing: &str) -> Decision {
@@ -237,7 +248,11 @@ fn chain(start: Identity, nodes: &[Node]) -> Result<Vec<Identity>, Reason> {
 pub fn policy_evaluate(context: &Context, immutable_snapshot: &Snapshot) -> Decision {
     let s = immutable_snapshot;
     let c = context;
-    if c.source != s.source {
+    if c.source != s.source
+        || s.source.source_id.is_empty()
+        || s.source.volume_id.is_empty()
+        || s.source.provider_id.is_empty()
+    {
         return unknown(
             Reason::SourceIdentity,
             "current source/volume/provider/mount/permission identity",
@@ -326,7 +341,18 @@ pub fn policy_evaluate(context: &Context, immutable_snapshot: &Snapshot) -> Deci
     }
     // A source-verified graph-only occurrence never becomes a search payload,
     // even when a broader user Include also matches its display path.
-    if let Some((need, descendant)) = &c.anchor {
+    if let Some(anchor) = &c.anchor {
+        if anchor.included_snapshot.source != s.source {
+            return unknown(
+                Reason::SourceIdentity,
+                "current source/volume/provider/mount/permission identity",
+            );
+        }
+        if fingerprint(&anchor.included_snapshot) != fingerprint(s) {
+            return unknown(Reason::StaleGeneration, "current policy revision");
+        }
+        let need = &anchor.need;
+        let descendant = &anchor.descendant_identity;
         match chain(*descendant, &c.parents) {
             Ok(descendants)
                 if *descendant != c.identity

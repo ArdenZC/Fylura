@@ -1,6 +1,6 @@
 //! Actual ServiceRuntime -> PipeSink -> production exchange/admission path.
 //! Controlled providers are test doubles, not native MFT or released binaries.
-use super::super::service::p1_tests::{source, Sink};
+use super::super::service::p1_tests::{owned_entry, source, Sink};
 use super::super::service::{
     exchange, IndexServiceAdmission, IndexServiceCallError, IndexServiceFrame, IndexServiceIo,
 };
@@ -57,7 +57,12 @@ impl Provider {
             return Err(GlobalIndexError::Paused);
         }
         sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_MFT_USN)?;
-        if let Some(fault) = self.fault {
+        if self.fault == Some("lookup") {
+            let entry = sink
+                .find_entry_by_identity(&source.volume.id, "f", "p", "name")?
+                .expect("controlled owned entry");
+            sink.mark_entry_stale(&entry.id)?;
+        } else if let Some(fault) = self.fault {
             return Err(match fault {
                 "permission" => GlobalIndexError::PermissionRequired("same message".into()),
                 "io" => GlobalIndexError::WindowsIo(32),
@@ -109,7 +114,7 @@ struct Client {
     lookups: mpsc::Sender<IndexServiceLookupResponse>,
 }
 impl IndexServiceIo for Client {
-    fn send_request(&mut self, _: &IndexServiceRequest) -> Result<(), String> {
+    fn send_request(&mut self, _: &IndexServiceRequest) -> Result<(), IndexServiceCallError> {
         Ok(())
     }
     fn read_frame(&mut self) -> Result<IndexServiceFrame, IndexServiceCallError> {
@@ -294,4 +299,24 @@ fn p1_runtime_provider_permission_and_io_keep_actual_encoded_identity() {
         });
         handle.join().unwrap().unwrap();
     }
+}
+
+#[test]
+fn p1_runtime_lookup_roundtrip_binds_response_and_legacy_stale_identity() {
+    let runtime = runtime(Provider {
+        gate: None,
+        fault: Some("lookup"),
+    });
+    let request = IndexServiceRequest::new(
+        IndexServiceCommand::ResumeIncrementalSync {
+            source_id: "v".into(),
+        },
+        Some(source()),
+    );
+    let (mut client, handle) = start(runtime, request.clone());
+    let mut sink = Sink::default();
+    sink.set_lookup(owned_entry());
+    assert!(finish(&request, &mut client, &mut sink).unwrap().ok);
+    assert_eq!(sink.writes, 3);
+    handle.join().unwrap().unwrap();
 }

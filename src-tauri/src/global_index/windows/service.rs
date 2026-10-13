@@ -220,7 +220,7 @@ impl IndexServiceCallError {
 }
 
 pub(crate) trait IndexServiceIo {
-    fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), String>;
+    fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), IndexServiceCallError>;
     fn read_frame(&mut self) -> Result<IndexServiceFrame, IndexServiceCallError>;
     fn send_lookup(&mut self, response: IndexServiceLookupResponse) -> Result<(), String>;
 }
@@ -238,8 +238,7 @@ where
     ) -> Result<Option<IndexServiceLookupResponse>, IndexServiceCallError>,
 {
     validate_request(request).map_err(IndexServiceCallError::Protocol)?;
-    io.send_request(request)
-        .map_err(IndexServiceCallError::UnknownOutcome)?;
+    io.send_request(request)?;
     loop {
         match io.read_frame()? {
             IndexServiceFrame::Event {
@@ -286,7 +285,7 @@ where
     }
 }
 
-pub(crate) trait IndexServiceConnection {
+pub(crate) trait IndexServiceConnection: Send {
     fn send_event(&mut self, event: IndexServiceEvent) -> Result<(), String>;
     fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String>;
     fn read_lookup_response(
@@ -459,7 +458,7 @@ impl<'a> IndexServiceAdmission<'a> {
             } => {
                 if !self.provider
                     || self.checkpoint
-                    || lookup_id.is_empty()
+                    || (lookup_id.trim().is_empty() || lookup_id.len() > 128)
                     || !self.lookups.insert(lookup_id.clone())
                 {
                     return Err(Self::reject("invalid or replayed lookup"));
@@ -479,7 +478,7 @@ impl<'a> IndexServiceAdmission<'a> {
             } => {
                 if !self.provider
                     || self.checkpoint
-                    || lookup_id.is_empty()
+                    || (lookup_id.trim().is_empty() || lookup_id.len() > 128)
                     || !self.lookups.insert(lookup_id.clone())
                 {
                     return Err(Self::reject("invalid or replayed lookup"));
@@ -491,7 +490,8 @@ impl<'a> IndexServiceAdmission<'a> {
                     &name,
                 )?;
                 if let Some(entry) = &entry {
-                    if entry.volume_id != volume_id
+                    if entry.id.is_empty()
+                        || entry.volume_id != volume_id
                         || entry.platform_file_id != platform_file_id
                         || entry.parent_platform_file_id != parent_platform_file_id
                         || entry.name != name
@@ -611,12 +611,14 @@ mod named_pipe {
     }
 
     impl super::IndexServiceIo for IndexServiceClient {
-        fn send_request(&mut self, request: &IndexServiceRequest) -> Result<(), String> {
-            IndexServiceClient::send_request(self, request)
+        fn send_request(
+            &mut self,
+            request: &IndexServiceRequest,
+        ) -> Result<(), super::IndexServiceCallError> {
+            write_frame_typed(self.pipe, request)
         }
         fn read_frame(&mut self) -> Result<IndexServiceFrame, super::IndexServiceCallError> {
-            let bytes =
-                read_frame(self.pipe).map_err(super::IndexServiceCallError::UnknownOutcome)?;
+            let bytes = read_frame_typed(self.pipe)?;
             serde_json::from_slice(&bytes)
                 .map_err(|error| super::IndexServiceCallError::Protocol(error.to_string()))
         }
@@ -1070,11 +1072,21 @@ mod named_pipe {
     }
 
     fn write_frame<T: serde::Serialize>(pipe: HANDLE, value: &T) -> Result<(), String> {
-        let mut frame = serde_json::to_vec(value)
-            .map_err(|error| format!("index_service_encode_failed: {error}"))?;
+        write_frame_typed(pipe, value).map_err(|error| error.to_string())
+    }
+
+    fn write_frame_typed<T: serde::Serialize>(
+        pipe: HANDLE,
+        value: &T,
+    ) -> Result<(), super::IndexServiceCallError> {
+        let mut frame = serde_json::to_vec(value).map_err(|error| {
+            super::IndexServiceCallError::Protocol(format!("index_service_encode_failed: {error}"))
+        })?;
         frame.push(b'\n');
         if frame.is_empty() || frame.len() > MAX_FRAME_BYTES {
-            return Err("index_service_frame_too_large".to_string());
+            return Err(super::IndexServiceCallError::Protocol(
+                "index_service_frame_too_large".into(),
+            ));
         }
         let mut written = 0u32;
         let ok = unsafe {
@@ -1087,18 +1099,25 @@ mod named_pipe {
             )
         };
         if ok == 0 || written as usize != frame.len() {
-            return Err(format!("index_service_pipe_write_failed: {}", unsafe {
-                GetLastError()
-            }));
+            return Err(super::IndexServiceCallError::UnknownOutcome(format!(
+                "index_service_pipe_write_failed: {}",
+                unsafe { GetLastError() }
+            )));
         }
         Ok(())
     }
 
     fn read_frame(pipe: HANDLE) -> Result<Vec<u8>, String> {
+        read_frame_typed(pipe).map_err(|error| error.to_string())
+    }
+
+    fn read_frame_typed(pipe: HANDLE) -> Result<Vec<u8>, super::IndexServiceCallError> {
         let mut frame = Vec::with_capacity(PIPE_BUFFER_BYTES as usize);
         loop {
             if frame.len() >= MAX_FRAME_BYTES {
-                return Err("index_service_invalid_frame_size".to_string());
+                return Err(super::IndexServiceCallError::Protocol(
+                    "index_service_invalid_frame_size".into(),
+                ));
             }
             let remaining = MAX_FRAME_BYTES - frame.len();
             let chunk_len = remaining.min(PIPE_BUFFER_BYTES as usize);
@@ -1120,14 +1139,18 @@ mod named_pipe {
             }
             let error = unsafe { GetLastError() };
             if error != ERROR_MORE_DATA {
-                return Err(format!("index_service_pipe_read_failed: {error}"));
+                return Err(super::IndexServiceCallError::UnknownOutcome(format!(
+                    "index_service_pipe_read_failed: {error}"
+                )));
             }
         }
         if frame.last() == Some(&b'\n') {
             frame.pop();
         }
         if frame.is_empty() || frame.len() > MAX_FRAME_BYTES {
-            return Err("index_service_invalid_frame_size".to_string());
+            return Err(super::IndexServiceCallError::Protocol(
+                "index_service_invalid_frame_size".into(),
+            ));
         }
         Ok(frame)
     }

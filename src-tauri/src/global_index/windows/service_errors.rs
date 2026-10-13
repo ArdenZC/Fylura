@@ -94,7 +94,7 @@ mod tests {
                 protocol_version: IPC_PROTOCOL_VERSION,
                 request_id: "bounded".into(),
                 ok: false,
-                error_code: Some(code.into()),
+                error_code: Some(code),
                 message: Some(error.to_string()),
                 status: Some(status.into()),
             };

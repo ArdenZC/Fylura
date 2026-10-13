@@ -4,12 +4,19 @@ use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexSink};
 use crate::global_index::models::*;
 use std::collections::VecDeque;
 
-pub(super) fn source() -> GlobalVolume {
+pub(crate) fn source() -> GlobalVolume {
     serde_json::from_value(serde_json::json!({
         "id":"v", "platform":"windows", "stableVolumeId":"native-v", "displayName":"test", "mountPath":"Z:\\",
         "filesystemType":"NTFS", "driveKind":"fixed", "enabled":true, "provider":PROVIDER_WINDOWS_MFT_USN,
         "indexStatus":INDEX_STATUS_READY, "lastError":null, "journalId":null, "journalCursor":null,
         "lastFullIndexAt":null, "lastIncrementalSyncAt":null, "entryCount":0, "createdAt":0, "updatedAt":0
+    })).unwrap()
+}
+pub(crate) fn owned_entry() -> GlobalEntry {
+    serde_json::from_value(serde_json::json!({
+        "id":"owned-id", "volumeId":"v", "platformFileId":"f", "parentPlatformFileId":"p", "name":"name", "nameNormalized":"name",
+        "path":"Z:\\name", "pathNormalized":"z:/name", "extension":"", "isDirectory":false, "size":0, "createdAtFs":null, "modifiedAtFs":null,
+        "fileAttributes":0, "isHidden":false, "isSystem":false, "isStale":false, "sourceProvider":PROVIDER_WINDOWS_MFT_USN, "lastSeenAt":0
     })).unwrap()
 }
 fn request(full: bool) -> IndexServiceRequest {
@@ -66,12 +73,15 @@ fn event_frame(request: &IndexServiceRequest, event: IndexServiceEvent) -> Index
     }
 }
 #[derive(Default)]
-pub(super) struct Sink {
-    pub(super) writes: usize,
+pub(crate) struct Sink {
+    pub(crate) writes: usize,
     fail: Option<GlobalIndexError>,
     lookup: Option<GlobalEntry>,
 }
 impl Sink {
+    pub(crate) fn set_lookup(&mut self, entry: GlobalEntry) {
+        self.lookup = Some(entry);
+    }
     fn write(&mut self) -> Result<(), GlobalIndexError> {
         if let Some(error) = self.fail.take() {
             return Err(error);
@@ -134,10 +144,12 @@ struct Io {
     send_failure: bool,
 }
 impl IndexServiceIo for Io {
-    fn send_request(&mut self, _: &IndexServiceRequest) -> Result<(), String> {
+    fn send_request(&mut self, _: &IndexServiceRequest) -> Result<(), IndexServiceCallError> {
         self.sent = true;
         if self.send_failure {
-            Err("partial write".into())
+            Err(IndexServiceCallError::UnknownOutcome(
+                "partial write".into(),
+            ))
         } else {
             Ok(())
         }
@@ -498,6 +510,90 @@ fn p1_t13_no_unadmitted_state_or_lookup_side_effects() {
         assert_eq!(sink.writes, 0);
     }
 }
+#[test]
+fn p1_lookup_result_ownership_and_nonempty_entries_are_checked_before_effects() {
+    let request = request(false);
+    let lookup = IndexServiceEvent::FindEntryByIdentity {
+        lookup_id: "l".into(),
+        volume_id: "v".into(),
+        platform_file_id: "f".into(),
+        parent_platform_file_id: "p".into(),
+        name: "name".into(),
+    };
+    let mut sink = Sink {
+        lookup: Some(owned_entry()),
+        ..Default::default()
+    };
+    run(
+        &request,
+        vec![
+            marker(),
+            provider(),
+            lookup.clone(),
+            IndexServiceEvent::EntryStale {
+                entry_id: "owned-id".into(),
+            },
+            checkpoint(),
+        ],
+        Some(response(&request, None)),
+        &mut sink,
+    )
+    .unwrap();
+    assert_eq!(sink.writes, 3);
+    let mut foreign = owned_entry();
+    foreign.volume_id = "foreign".into();
+    let mut sink = Sink {
+        lookup: Some(foreign),
+        ..Default::default()
+    };
+    assert!(matches!(
+        run(
+            &request,
+            vec![marker(), provider(), lookup.clone()],
+            None,
+            &mut sink
+        ),
+        Err(IndexServiceCallError::Protocol(_))
+    ));
+    assert_eq!(sink.writes, 1);
+    let mut input = serde_json::to_value(owned_entry()).unwrap();
+    input["volumeId"] = "foreign".into();
+    let entry: GlobalEntryInput = serde_json::from_value(input).unwrap();
+    let mut sink = Sink::default();
+    assert!(matches!(
+        run(
+            &request,
+            vec![
+                marker(),
+                provider(),
+                IndexServiceEvent::Entries {
+                    entries: vec![entry]
+                }
+            ],
+            None,
+            &mut sink
+        ),
+        Err(IndexServiceCallError::Protocol(_))
+    ));
+    assert_eq!(sink.writes, 1);
+    let mut io = Io {
+        frames: VecDeque::from([IndexServiceFrame::Event {
+            request_id: "previous-request".into(),
+            event: lookup,
+        }]),
+        sent: false,
+        replies: 0,
+        send_failure: false,
+    };
+    assert!(matches!(
+        exchange(&request, &mut io, |_| panic!(
+            "replayed lookup must never reach callback"
+        )),
+        Err(IndexServiceCallError::Protocol(_))
+    ));
+    assert_eq!(io.replies, 0);
+}
+
 #[test]
 fn p1_t14_v3_shape_and_checkpoint_type_remain_unchanged() {
     let json = serde_json::to_value(IndexServiceEvent::EntryStale {

@@ -11,7 +11,9 @@ import os
 import platform
 import re
 import subprocess
+import sys
 from pathlib import Path
+sys.dont_write_bytecode = True
 from run_error_boundary_probe import definition, ROOT
 
 
@@ -26,17 +28,43 @@ def main():
              'src-tauri/src/global_index/models.rs', 'src-tauri/src/global_index/windows/service.rs',
              'src-tauri/src/global_index/windows/service_errors.rs',
              'src-tauri/src/global_index/windows/service_errors_p1_scope_tests.rs',
-             'src-tauri/src/global_index/windows/service_p1_tests.rs']
+             'src-tauri/src/global_index/windows/service_p1_tests.rs',
+             'src-tauri/src/global_index/windows/service_host.rs',
+             'src-tauri/src/global_index/windows/service_host_p1_tests.rs']
     fixtures = {'db.rs': definition(paths[0], 'enum DbError'),
                 'error.rs': definition(paths[1], 'enum GlobalIndexError')}
     models = (ROOT / paths[2]).read_text()
     fixtures['models.rs'] = '\n'.join(re.findall(r'^pub const [^\n]+', models, re.M)) + '\n'
-    for name in ['GlobalVolume', 'GlobalEntry', 'GlobalEntryInput']:
+    for name in ['GlobalVolume', 'GlobalEntry', 'GlobalEntryInput', 'GlobalSourceDescriptor']:
         fixtures['models.rs'] += definition(paths[2], 'struct ' + name)
     coordinator = (ROOT / paths[1]).read_text()
     start = coordinator.index('pub trait GlobalIndexSink:')
     end = coordinator.index('\npub trait GlobalIndexProvider:', start)
     fixtures['sink.rs'] = coordinator[start:end]
+    provider_end = coordinator.index('\n#[derive(Debug, Default)]', end)
+    fixtures['provider.rs'] = coordinator[end:provider_end]
+    host = (ROOT / paths[7]).read_text()
+    host_start = host.index('struct ServiceRuntime {')
+    host_end = host.index('\nfn service_handler(', host_start)
+    # Only the unused constructor default is stubbed on Linux. Each runtime
+    # experiment immediately replaces it with its explicit controlled provider.
+    # Windows CI compiles the original complete service_host.rs without this stub.
+    constructor_stub = r"""
+struct DirectWindowsGlobalIndexProvider;
+impl DirectWindowsGlobalIndexProvider {fn new()->Self{Self}}
+impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
+ fn discover_sources(&self)->Result<Vec<GlobalSourceDescriptor>,GlobalIndexError>{unreachable!()}
+ fn start_initial_index(&self,_:&GlobalSourceDescriptor,_:&mut dyn GlobalIndexSink,_:&AtomicBool)->Result<(),GlobalIndexError>{unreachable!()}
+ fn resume_incremental_sync(&self,_:&GlobalSourceDescriptor,_:&mut dyn GlobalIndexSink,_:&AtomicBool)->Result<(),GlobalIndexError>{unreachable!()}
+ fn pause(&self)->Result<(),GlobalIndexError>{unreachable!()}
+ fn status(&self)->Result<String,GlobalIndexError>{unreachable!()}
+ fn shutdown(&self)->Result<(),GlobalIndexError>{unreachable!()}
+}
+"""
+    fixtures['runtime-core.rs'] = ('use super::service::*;\nuse crate::global_index::coordinator::*;\n'
+        'use crate::global_index::models::*;\nuse std::sync::{Arc,Mutex,atomic::{AtomicBool,Ordering}};\n'
+        + constructor_stub + host[host_start:host_end]
+        + '\n#[cfg(test)] #[path=' + json.dumps(str(ROOT / paths[8])) + '] mod p1_tests;\n')
     for filename, content in fixtures.items():
         (args.fixture / filename).write_text(content)
     cargo = '''[package]
@@ -57,8 +85,9 @@ uuid={version="1",features=["v4"]}
     lib = '''pub mod db {use thiserror::Error;include!("db.rs");}
 pub mod global_index {
  pub mod models {use serde::{Serialize,Deserialize};include!("models.rs");}
- pub mod coordinator {use crate::db::DbError;use thiserror::Error;use super::models::{GlobalEntry,GlobalEntryInput};include!("error.rs");include!("sink.rs");}
+ pub mod coordinator {use crate::db::DbError;use thiserror::Error;use super::models::{GlobalEntry,GlobalEntryInput};include!("error.rs");include!("sink.rs");use super::models::GlobalSourceDescriptor;use std::sync::atomic::AtomicBool;use std::time::Duration;include!("provider.rs");}
  pub mod windows {
+  pub mod service_host {include!("runtime-core.rs");}
   #[path=SERVICE] pub mod service;
   #[path=ERRORS] pub mod service_errors;
  }
@@ -82,7 +111,7 @@ pub mod global_index {
               'runner_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               'extracted_sha256': {k: hashlib.sha256(v.encode()).hexdigest() for k, v in fixtures.items()},
               'harness_sha256': hashlib.sha256(lib.encode()).hexdigest(),
-              'qualification': 'Complete production client/decoder imported; native named pipe/ServiceRuntime excluded on Linux; normal Windows CI required.'}
+              'qualification': 'Complete production client/decoder imported; ServiceRuntime/PipeSink core verbatim with unused Direct constructor stub and controlled test providers. Linux core tests are not Windows native API acceptance. Normal Windows CI compiles complete real runtime.'}
     (args.output / 'repaired-client.json').write_text(json.dumps(record, indent=2) + '\n')
     print(result.stdout)
     return result.returncode

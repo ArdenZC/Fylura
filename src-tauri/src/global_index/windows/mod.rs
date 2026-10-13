@@ -486,22 +486,31 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
     fn pause(&self) -> Result<(), GlobalIndexError> {
         self.clear_native_change_watchers();
         let request = IndexServiceRequest::new(IndexServiceCommand::Pause, None);
-        match service::call_index_service(&request) {
+        match service::call_index_service_admitted(&request, |_| {
+            Err(service::IndexServiceCallError::Protocol(
+                "unexpected control event".into(),
+            ))
+        }) {
             Ok(response) if response.ok => {
                 self.service_connected();
                 Ok(())
             }
             Ok(response) => Err(Self::service_response_error(&response)),
-            Err(_) => {
+            Err(service::IndexServiceCallError::NotSent(_)) => {
                 self.service_failed();
                 self.direct.pause()
             }
+            Err(error) => Err(error.into_global()),
         }
     }
 
     fn status(&self) -> Result<String, GlobalIndexError> {
         let request = IndexServiceRequest::new(IndexServiceCommand::Status, None);
-        match service::call_index_service(&request) {
+        match service::call_index_service_admitted(&request, |_| {
+            Err(service::IndexServiceCallError::Protocol(
+                "unexpected control event".into(),
+            ))
+        }) {
             Ok(response) if response.ok => {
                 self.service_connected();
                 Ok(format!(
@@ -510,10 +519,11 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
                 ))
             }
             Ok(response) => Err(Self::service_response_error(&response)),
-            Err(_) => {
+            Err(service::IndexServiceCallError::NotSent(_)) => {
                 self.service_failed();
                 Ok(format!("{}:service_unavailable", self.direct.status()?))
             }
+            Err(error) => Err(error.into_global()),
         }
     }
 

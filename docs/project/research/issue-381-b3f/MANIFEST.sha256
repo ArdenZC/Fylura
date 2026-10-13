@@ -21,8 +21,8 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/project/r
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/project/research/issue-381-b3f/evidence/cargo-version-stderr.txt
 1aedaa9cce116919d39b1eb303a58865771582bc24fc259aa8e26cb212e0f59e  docs/project/research/issue-381-b3f/evidence/cargo-version-stdout.txt
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/project/research/issue-381-b3f/evidence/cc-version-stderr.txt
-78fc11ae2c3ff7c235eb18ed90989d18f6cc864fb27027f839368cd0888deebc  docs/project/research/issue-381-b3f/evidence/cc-version-stdout.txt
-ecc55ddf37fcadadd97e3c68e4b11c8bbd78d100efc9c2c694137a395983c6c5  docs/project/research/issue-381-b3f/evidence/commands.json
+d59894ec2337635670d9d1399d807ed8f84526ec7a9f78aac4e1a85f4850f773  docs/project/research/issue-381-b3f/evidence/cc-version-stdout.txt.gz
+6b282472ed07aba30d15197a4303bc65d9ff6301e04a3fe8bfb90e761d4a87a0  docs/project/research/issue-381-b3f/evidence/commands.json
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/project/research/issue-381-b3f/evidence/dependency-features-stderr.txt
 41da59f514c73c1ca3adfb19c6348f5fc8ebdfd311db8ad4d4738262e389abbe  docs/project/research/issue-381-b3f/evidence/dependency-features-stdout.txt
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/project/research/issue-381-b3f/evidence/diff-stderr.txt

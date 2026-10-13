@@ -169,8 +169,10 @@
     "cwd": "/workspace/Zen-Canvas-b3f",
     "exit_code": 0,
     "elapsed_seconds": 0.0014595379998354474,
-    "stdout_file": "cc-version-stdout.txt",
-    "stderr_file": "cc-version-stderr.txt"
+    "stdout_file": "cc-version-stdout.txt.gz",
+    "stderr_file": "cc-version-stderr.txt",
+    "stdout_encoding": "lossless gzip of unmodified raw stdout",
+    "stdout_raw_sha256": "78fc11ae2c3ff7c235eb18ed90989d18f6cc864fb27027f839368cd0888deebc"
   },
   {
     "argv": [

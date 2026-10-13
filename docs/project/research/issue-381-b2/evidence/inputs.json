@@ -1,0 +1,14 @@
+{
+  "s8-admission": {
+    "ref": "4005073337f198a245773e30a76178749bfd2920",
+    "path": "docs/project/research/issue-381-d4-s8/FTS-CURSOR-ADMISSION.md"
+  },
+  "s7-fts": {
+    "ref": "4005073337f198a245773e30a76178749bfd2920",
+    "path": "docs/project/research/issue-381-d4-s7/FTS-CURSOR-VALIDATION-CONTRACT.md"
+  },
+  "s6-cursor": {
+    "ref": "4005073337f198a245773e30a76178749bfd2920",
+    "path": "docs/project/research/issue-381-d4-s6/CURSOR-SCOPE-CONTRACT.md"
+  }
+}

@@ -1,0 +1,1 @@
+{"hyper_v_module":[{"Name":"Hyper-V","Version":{"Major":2,"Minor":0,"Build":0,"Revision":0,"MajorRevision":0,"MinorRevision":0}}],"commands":[{"name":"New-VHD","available":true},{"name":"Mount-VHD","available":true},{"name":"Get-VHD","available":true}],"diskpart_path":true}

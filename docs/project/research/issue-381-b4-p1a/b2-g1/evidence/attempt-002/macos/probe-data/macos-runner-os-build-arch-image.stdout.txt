@@ -1,0 +1,8 @@
+runner_os=macOS
+runner_arch=ARM64
+image_os=macos26
+image_version=20260907.0351.1
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+Darwin sat12-bq147-694a8311-4dc4-4936-8745-708a2e7c7865-06CE6D6A4C81.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:16:43 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_VMAPPLE arm64

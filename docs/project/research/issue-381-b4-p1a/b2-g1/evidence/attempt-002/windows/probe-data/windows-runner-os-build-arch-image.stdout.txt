@@ -1,0 +1,1 @@
+{"runner_os":"Windows","runner_arch":"X64","image_os":"win25-vs2026","image_version":"20260925.250.1","caption":"Microsoft Windows Server 2025 Datacenter","version":"10.0.26100","build_number":"26100","os_architecture":"64-bit","powershell":"7.6.6"}

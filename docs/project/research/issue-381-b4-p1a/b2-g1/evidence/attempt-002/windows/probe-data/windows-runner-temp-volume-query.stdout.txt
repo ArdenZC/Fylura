@@ -1,0 +1,1 @@
+{"query_available":true,"volumes":[{"DriveLetter":"D","FileSystem":"NTFS","FileSystemLabel":"Temp","DriveType":"Fixed","HealthStatus":"Healthy","OperationalStatus":"OK","size_bytes":236205371392,"free_bytes":235992928256}]}

@@ -1,0 +1,33 @@
+read-only diskutil list:
+/dev/disk0 (internal, physical):
+   #:                       TYPE NAME                    SIZE       IDENTIFIER
+   0:      GUID_partition_scheme                        *349.0 GB   disk0
+   1:             Apple_APFS_ISC Container disk1         524.3 MB   disk0s1
+   2:                 Apple_APFS Container disk2         343.1 GB   disk0s2
+   3:        Apple_APFS_Recovery                         5.4 GB     disk0s3
+
+/dev/disk2 (synthesized):
+   #:                       TYPE NAME                    SIZE       IDENTIFIER
+   0:      APFS Container Scheme -                      +343.1 GB   disk2
+                                 Physical Store disk0s2
+   1:                APFS Volume Macintosh HD            12.6 GB    disk2s1
+   2:              APFS Snapshot com.apple.os.update-... 12.6 GB    disk2s1s1
+   3:                APFS Volume Preboot                 7.2 GB     disk2s2
+   4:                APFS Volume Recovery                1.3 GB     disk2s3
+   5:                APFS Volume Data                    220.0 GB   disk2s5
+   6:                APFS Volume VM                      20.5 KB    disk2s6
+
+
+read-only df mapping for RUNNER_TEMP:
+Filesystem   1024-blocks      Used Available Capacity  Mounted on
+/dev/disk2s5   335032320 214810204  99442404    69%    /System/Volumes/Data
+
+read-only diskutil info for RUNNER_TEMP device /dev/disk2s5:
+   Device Identifier:         disk2s5
+   Volume Name:               Data
+   Mount Point:               /System/Volumes/Data
+   File System Personality:   APFS
+   Type (Bundle):             apfs
+   Owners:                    Enabled
+   Container Total Space:     343.1 GB (343073095680 Bytes) (exactly 670064640 512-Byte-Units)
+   Container Free Space:      101.8 GB (101829021696 Bytes) (exactly 198884808 512-Byte-Units)

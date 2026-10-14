@@ -1,0 +1,10 @@
+name	required	exit_code	stdout	stderr	exit_file
+macos-source-provenance	true	0	macos-source-provenance.stdout.txt	macos-source-provenance.stderr.txt	macos-source-provenance.exit-code.txt
+macos-runner-os-build-arch-image	true	0	macos-runner-os-build-arch-image.stdout.txt	macos-runner-os-build-arch-image.stderr.txt	macos-runner-os-build-arch-image.exit-code.txt
+macos-identity-permission-hints	true	0	macos-identity-permission-hints.stdout.txt	macos-identity-permission-hints.stderr.txt	macos-identity-permission-hints.exit-code.txt
+macos-host-storage-free-space	true	0	macos-host-storage-free-space.stdout.txt	macos-host-storage-free-space.stderr.txt	macos-host-storage-free-space.exit-code.txt
+macos-runner-temp-path-filesystem	true	0	macos-runner-temp-path-filesystem.stdout.txt	macos-runner-temp-path-filesystem.stderr.txt	macos-runner-temp-path-filesystem.exit-code.txt
+macos-read-only-tool-availability	false	0	macos-read-only-tool-availability.stdout.txt	macos-read-only-tool-availability.stderr.txt	macos-read-only-tool-availability.exit-code.txt
+macos-hdiutil-help-query	false	0	macos-hdiutil-help-query.stdout.txt	macos-hdiutil-help-query.stderr.txt	macos-hdiutil-help-query.exit-code.txt
+macos-diskutil-help-query	false	1	macos-diskutil-help-query.stdout.txt	macos-diskutil-help-query.stderr.txt	macos-diskutil-help-query.exit-code.txt
+macos-read-only-device-volume-inventory	false	0	macos-read-only-device-volume-inventory.stdout.txt	macos-read-only-device-volume-inventory.stderr.txt	macos-read-only-device-volume-inventory.exit-code.txt

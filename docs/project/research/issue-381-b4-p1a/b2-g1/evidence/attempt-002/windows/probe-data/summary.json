@@ -1,0 +1,16 @@
+{
+  "platform": "windows",
+  "source_sha": "5ccea76349aa5da2e31b9cb2203c2366d3d263ac",
+  "run_id": "38562031226",
+  "run_attempt": "1",
+  "runner_name": "GitHub Actions 1000028247",
+  "image_os": "win25-vs2026",
+  "image_version": "20260925.250.1",
+  "classification": "ENVIRONMENT_UNAVAILABLE",
+  "reasons": [
+    "Optional metadata probe windows-diskpart-help-query exited 999999999; see its raw stdout/stderr."
+  ],
+  "no_disk_mutation_performed": true,
+  "g1_scope": "read-only hosted environment inventory",
+  "interpretation": "CAPABILITY_PRESENT_UNVALIDATED does not prove that creating or attaching a bounded VHD will work."
+}

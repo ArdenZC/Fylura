@@ -1,0 +1,482 @@
+name: Issue 414 B2-G1 hosted read-only preflight
+
+on:
+  push:
+    branches:
+      - research/issue-414-b2-g1-hosted-preflight
+    paths:
+      - .github/workflows/issue-414-b2-g1-hosted-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: read-only inventory (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact event source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Windows read-only inventory
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportRoot = Join-Path $env:RUNNER_TEMP 'issue-414-b2-g1'
+          New-Item -ItemType Directory -Force -Path $reportRoot | Out-Null
+          $script:probeResults = @()
+
+          function Invoke-Probe {
+            param(
+              [string]$Name,
+              [scriptblock]$Action,
+              [bool]$Required = $false
+            )
+            $stdoutPath = Join-Path $reportRoot "$Name.stdout.txt"
+            $stderrPath = Join-Path $reportRoot "$Name.stderr.txt"
+            $exitPath = Join-Path $reportRoot "$Name.exit-code.txt"
+            $code = 0
+            try {
+              $global:LASTEXITCODE = 0
+              & $Action 1> $stdoutPath 2> $stderrPath
+              $succeeded = $?
+              $code = [int]$global:LASTEXITCODE
+              if (($code -eq 0) -and (-not $succeeded)) { $code = 1 }
+            } catch {
+              $_ | Format-List * -Force | Out-String | Set-Content -LiteralPath $stderrPath -Encoding utf8
+              $code = 1
+            }
+            [string]$code | Set-Content -LiteralPath $exitPath -Encoding ascii
+            $script:probeResults += [pscustomobject]@{
+              name = $Name
+              required = $Required
+              exit_code = $code
+              stdout = [IO.Path]::GetFileName($stdoutPath)
+              stderr = [IO.Path]::GetFileName($stderrPath)
+              exit_file = [IO.Path]::GetFileName($exitPath)
+            }
+          }
+
+          Invoke-Probe -Name 'windows-source-provenance' -Required $true -Action {
+            $head = (& git rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'git rev-parse HEAD failed' }
+            $tree = (& git rev-parse 'HEAD^{tree}').Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'git rev-parse HEAD^{tree} failed' }
+            $dirty = (& git status --porcelain)
+            if ($LASTEXITCODE -ne 0) { throw 'git status --porcelain failed' }
+            if ($head -ne $env:EXPECTED_SHA) { throw "HEAD does not match expected source SHA: $head" }
+            if (-not [string]::IsNullOrWhiteSpace(($dirty -join ''))) { throw 'checkout is not clean' }
+            [pscustomobject]@{
+              source_sha = $env:EXPECTED_SHA
+              head = $head
+              tree = $tree
+              worktree_clean = $true
+              run_id = $env:GITHUB_RUN_ID
+              run_attempt = $env:GITHUB_RUN_ATTEMPT
+            } | ConvertTo-Json -Compress
+          }
+
+          Invoke-Probe -Name 'windows-runner-os-build-arch-image' -Required $true -Action {
+            $os = Get-CimInstance -ClassName Win32_OperatingSystem
+            if (-not $os) { throw 'Win32_OperatingSystem query returned no row' }
+            [pscustomobject]@{
+              runner_os = $env:RUNNER_OS
+              runner_arch = $env:RUNNER_ARCH
+              image_os = $env:ImageOS
+              image_version = $env:ImageVersion
+              caption = $os.Caption
+              version = $os.Version
+              build_number = $os.BuildNumber
+              os_architecture = $os.OSArchitecture
+              powershell = $PSVersionTable.PSVersion.ToString()
+            } | ConvertTo-Json -Compress
+          }
+
+          Invoke-Probe -Name 'windows-identity-privileges' -Required $true -Action {
+            & whoami.exe /all
+            if ($LASTEXITCODE -ne 0) { throw "whoami /all exited $LASTEXITCODE" }
+          }
+
+          Invoke-Probe -Name 'windows-host-storage-free-space' -Required $true -Action {
+            $drives = @(Get-CimInstance -ClassName Win32_LogicalDisk -Filter 'DriveType=3' |
+              Select-Object @{Name='drive';Expression={$_.DeviceID}},
+                            @{Name='filesystem';Expression={$_.FileSystem}},
+                            @{Name='size_bytes';Expression={[int64]$_.Size}},
+                            @{Name='free_bytes';Expression={[int64]$_.FreeSpace}})
+            if ($drives.Count -eq 0) { throw 'No fixed host volumes were returned' }
+            $drives | ConvertTo-Json -Compress
+          }
+
+          Invoke-Probe -Name 'windows-runner-temp-path-acl' -Required $true -Action {
+            $item = Get-Item -LiteralPath $env:RUNNER_TEMP -ErrorAction Stop
+            $acl = Get-Acl -LiteralPath $env:RUNNER_TEMP -ErrorAction Stop
+            [pscustomobject]@{
+              runner_temp = $item.FullName
+              full_path = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+              path_root = [IO.Path]::GetPathRoot($env:RUNNER_TEMP)
+              item_type = if ($item.PSIsContainer) { 'directory' } else { 'file' }
+              attributes = $item.Attributes.ToString()
+              acl_owner = $acl.Owner
+              access_rules = @($acl.Access | ForEach-Object {
+                [pscustomobject]@{
+                  identity = $_.IdentityReference.Value
+                  rights = $_.FileSystemRights.ToString()
+                  access = $_.AccessControlType.ToString()
+                  inherited = [bool]$_.IsInherited
+                }
+              })
+            } | ConvertTo-Json -Depth 6 -Compress
+          }
+
+          Invoke-Probe -Name 'windows-runner-temp-volume-query' -Action {
+            $command = Get-Command Get-Volume -ErrorAction SilentlyContinue
+            if (-not $command) {
+              [pscustomobject]@{ query_available = $false; reason = 'Get-Volume cmdlet not found' } | ConvertTo-Json -Compress
+              return
+            }
+            $driveRoot = [IO.Path]::GetPathRoot($env:RUNNER_TEMP)
+            $driveLetter = $driveRoot.TrimEnd([char]92).Substring(0, 1)
+            $volumes = @(Get-Volume -DriveLetter $driveLetter -ErrorAction Stop |
+              Select-Object DriveLetter, FileSystem, FileSystemLabel, DriveType,
+                            HealthStatus, OperationalStatus,
+                            @{Name='size_bytes';Expression={[int64]$_.Size}},
+                            @{Name='free_bytes';Expression={[int64]$_.SizeRemaining}})
+            if ($volumes.Count -eq 0) { throw "Get-Volume returned no volume for RUNNER_TEMP drive $driveLetter" }
+            [pscustomobject]@{ query_available = $true; volumes = $volumes } | ConvertTo-Json -Depth 6 -Compress
+          }
+
+          Invoke-Probe -Name 'windows-read-only-device-volume-inventory' -Action {
+            $getDisk = Get-Command Get-Disk -ErrorAction SilentlyContinue
+            $getVolume = Get-Command Get-Volume -ErrorAction SilentlyContinue
+            if (-not $getDisk -or -not $getVolume) {
+              [pscustomobject]@{
+                query_available = $false
+                missing = @(
+                  if (-not $getDisk) { 'Get-Disk' }
+                  if (-not $getVolume) { 'Get-Volume' }
+                )
+              } | ConvertTo-Json -Compress
+              return
+            }
+            $disks = @(Get-Disk -ErrorAction Stop | Select-Object Number, FriendlyName, BusType,
+              OperationalStatus, HealthStatus, PartitionStyle, IsBoot, IsSystem, IsReadOnly,
+              @{Name='size_bytes';Expression={[int64]$_.Size}})
+            $volumes = @(Get-Volume -ErrorAction Stop | Select-Object DriveLetter, FileSystem,
+              DriveType, HealthStatus, OperationalStatus,
+              @{Name='size_bytes';Expression={[int64]$_.Size}},
+              @{Name='free_bytes';Expression={[int64]$_.SizeRemaining}})
+            [pscustomobject]@{ query_available = $true; disks = $disks; volumes = $volumes } |
+              ConvertTo-Json -Depth 6 -Compress
+          }
+
+          Invoke-Probe -Name 'windows-virtual-disk-tool-availability' -Action {
+            $module = @(Get-Module -ListAvailable Hyper-V | Select-Object -First 1 Name, Version)
+            $names = @('New-VHD', 'Mount-VHD', 'Get-VHD')
+            $commands = foreach ($name in $names) {
+              $found = Get-Command $name -ErrorAction SilentlyContinue
+              [pscustomobject]@{ name = $name; available = [bool]$found }
+            }
+            [pscustomobject]@{
+              hyper_v_module = $module
+              commands = @($commands)
+              diskpart_path = [bool](Get-Command diskpart.exe -ErrorAction SilentlyContinue)
+            } | ConvertTo-Json -Depth 5 -Compress
+          }
+
+          Invoke-Probe -Name 'windows-diskpart-help-query' -Action {
+            $command = Get-Command diskpart.exe -ErrorAction SilentlyContinue
+            if (-not $command) {
+              [pscustomobject]@{ available = $false; reason = 'diskpart.exe not found' } | ConvertTo-Json -Compress
+              return
+            }
+            & $command.Source /?
+          }
+
+          $requiredFailures = @($script:probeResults | Where-Object { $_.required -and $_.exit_code -ne 0 })
+          $optionalFailures = @($script:probeResults | Where-Object { -not $_.required -and $_.exit_code -ne 0 })
+          $reasons = @()
+          $classification = 'CAPABILITY_PRESENT_UNVALIDATED'
+          if ($requiredFailures.Count -gt 0) {
+            $classification = 'FAIL'
+            $reasons += 'One or more required read-only metadata probes failed; inspect probe-index.json and raw exit files.'
+          }
+          if ($optionalFailures.Count -gt 0) {
+            if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }
+            foreach ($probe in $optionalFailures) {
+              $reasons += "Optional metadata probe $($probe.name) exited $($probe.exit_code); see its raw stdout/stderr."
+            }
+          }
+          $volumeData = $null
+          try { $volumeData = Get-Content -Raw -LiteralPath (Join-Path $reportRoot 'windows-runner-temp-volume-query.stdout.txt') | ConvertFrom-Json } catch {}
+          if (-not $volumeData -or -not $volumeData.query_available -or -not $volumeData.volumes) {
+            if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }
+            $reasons += 'RUNNER_TEMP filesystem volume metadata could not be queried.'
+          } elseif (@($volumeData.volumes | Where-Object { $_.FileSystem -ne 'NTFS' }).Count -gt 0) {
+            if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }
+            $reasons += 'RUNNER_TEMP is not on an NTFS volume.'
+          }
+          $drives = @()
+          try { $drives = @(Get-Content -Raw -LiteralPath (Join-Path $reportRoot 'windows-host-storage-free-space.stdout.txt') | ConvertFrom-Json) } catch {}
+          $tempRoot = [IO.Path]::GetPathRoot($env:RUNNER_TEMP).TrimEnd([char]92)
+          $tempDrive = @($drives | Where-Object { $_.drive -eq $tempRoot } | Select-Object -First 1)
+          if ($tempDrive.Count -eq 0 -or $null -eq $tempDrive[0].free_bytes) {
+            if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }
+            $reasons += 'Host free capacity for the RUNNER_TEMP volume is unknown.'
+          } elseif ([int64]$tempDrive[0].free_bytes -lt 4294967296) {
+            if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }
+            $reasons += 'RUNNER_TEMP host volume has less than the 4 GiB G2 admission floor.'
+          }
+          $volumeTools = $null
+          try { $volumeTools = Get-Content -Raw -LiteralPath (Join-Path $reportRoot 'windows-virtual-disk-tool-availability.stdout.txt') | ConvertFrom-Json } catch {}
+          $diskpartAvailable = $false
+          if ($volumeTools) { $diskpartAvailable = [bool]$volumeTools.diskpart_path }
+          $hyperVAvailable = $false
+          if ($volumeTools) {
+            $hyperVAvailable = @($volumeTools.commands | Where-Object { -not $_.available }).Count -eq 0
+          }
+          if (-not $diskpartAvailable -and -not $hyperVAvailable) {
+            if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }
+            $reasons += 'Neither DiskPart nor the Hyper-V VHD cmdlet set is available for later G2 investigation.'
+          }
+          $summary = [ordered]@{
+            platform = 'windows'
+            source_sha = $env:EXPECTED_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_name = $env:RUNNER_NAME
+            image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+            classification = $classification
+            reasons = $reasons
+            no_disk_mutation_performed = $true
+            g1_scope = 'read-only hosted environment inventory'
+            interpretation = 'CAPABILITY_PRESENT_UNVALIDATED does not prove that creating or attaching a bounded VHD will work.'
+          }
+          $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportRoot 'summary.json') -Encoding utf8
+          $script:probeResults | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportRoot 'probe-index.json') -Encoding utf8
+          $files = @(Get-ChildItem -LiteralPath $reportRoot -File -Recurse |
+            Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object FullName)
+          $hashLines = foreach ($file in $files) {
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          $hashLines | Set-Content -LiteralPath (Join-Path $reportRoot 'SHA256SUMS.txt') -Encoding ascii
+          if ($classification -eq 'FAIL') { exit 1 }
+          exit 0
+
+      - name: macOS read-only inventory
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set +e
+          report_root="${RUNNER_TEMP}/issue-414-b2-g1"
+          mkdir -p "$report_root"
+          if [ "$?" -ne 0 ]; then
+            printf '%s\n' 'cannot create bounded report directory under RUNNER_TEMP' >&2
+            exit 1
+          fi
+          required_failure=0
+          probe_index="$report_root/probe-index.tsv"
+          printf '%s\t%s\t%s\t%s\t%s\t%s\n' name required exit_code stdout stderr exit_file > "$probe_index"
+
+          run_probe() {
+            name="$1"
+            required="$2"
+            shift 2
+            stdout_file="$report_root/$name.stdout.txt"
+            stderr_file="$report_root/$name.stderr.txt"
+            exit_file="$report_root/$name.exit-code.txt"
+            "$@" > "$stdout_file" 2> "$stderr_file"
+            status=$?
+            printf '%s\n' "$status" > "$exit_file"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$required" "$status" "$(basename "$stdout_file")" "$(basename "$stderr_file")" "$(basename "$exit_file")" >> "$probe_index"
+            if [ "$required" = 'true' ] && [ "$status" -ne 0 ]; then required_failure=1; fi
+          }
+
+          probe_source_provenance() {
+            head_sha="$(git rev-parse HEAD)" || return $?
+            tree_sha="$(git rev-parse 'HEAD^{tree}')" || return $?
+            dirty="$(git status --porcelain)" || return $?
+            if [ "$head_sha" != "$EXPECTED_SHA" ]; then
+              printf 'HEAD mismatch expected=%s actual=%s\n' "$EXPECTED_SHA" "$head_sha" >&2
+              return 1
+            fi
+            if [ -n "$dirty" ]; then
+              printf '%s\n' 'checkout is not clean' >&2
+              return 1
+            fi
+            printf 'source_sha=%s\nhead=%s\ntree=%s\nworktree_clean=true\nrun_id=%s\nrun_attempt=%s\n' "$EXPECTED_SHA" "$head_sha" "$tree_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          }
+          probe_runner_os() {
+            printf 'runner_os=%s\nrunner_arch=%s\nimage_os=%s\nimage_version=%s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion"
+            sw_vers || return $?
+            uname -a || return $?
+          }
+          probe_identity_privileges() {
+            id || return $?
+            groups || return $?
+            stat -f 'runner_temp_owner=%Su runner_temp_group=%Sg runner_temp_mode=%Lp' "$RUNNER_TEMP"
+          }
+          probe_host_storage() {
+            printf '%s\n' 'host_capacity_for_root_and_RUNNER_TEMP (df -kP):'
+            df_output="$(df -kP / "$RUNNER_TEMP")" || return $?
+            printf '%s\n' "$df_output"
+            free_kb="$(printf '%s\n' "$df_output" | awk 'END { print $4 }')"
+            if ! [[ "$free_kb" =~ ^[0-9]+$ ]]; then
+              printf 'could not parse RUNNER_TEMP available space from df: %s\n' "$free_kb" >&2
+              return 1
+            fi
+            printf 'runner_temp_free_bytes=%s\n' "$((free_kb * 1024))"
+          }
+          probe_temp_path() {
+            printf 'runner_temp=%s\nrunner_workspace=%s\n' "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+            cd "$RUNNER_TEMP" || return $?
+            printf 'runner_temp_realpath=%s\n' "$(pwd -P)"
+            ls -lde "$RUNNER_TEMP" || return $?
+            stat -f 'runner_temp_owner=%Su group=%Sg mode=%Lp' "$RUNNER_TEMP" || return $?
+          }
+          probe_tool_availability() {
+            for tool in hdiutil diskutil stat df shasum; do
+              if tool_path="$(command -v "$tool" 2>/dev/null)"; then
+                printf '%s=available:%s\n' "$tool" "$tool_path"
+              else
+                printf '%s=missing\n' "$tool"
+              fi
+            done
+          }
+          probe_hdiutil_help() {
+            if ! command -v hdiutil >/dev/null 2>&1; then
+              printf '%s\n' 'available=false reason=hdiutil-not-found'
+              return 0
+            fi
+            hdiutil help
+          }
+          probe_diskutil_help() {
+            if ! command -v diskutil >/dev/null 2>&1; then
+              printf '%s\n' 'available=false reason=diskutil-not-found'
+              return 0
+            fi
+            diskutil
+          }
+          probe_current_devices() {
+            if ! command -v diskutil >/dev/null 2>&1; then
+              printf '%s\n' 'query_available=false reason=diskutil-not-found'
+              return 0
+            fi
+            printf '%s\n' 'read-only diskutil list:'
+            diskutil list || return $?
+            df_output="$(df -kP "$RUNNER_TEMP")" || return $?
+            printf '\n%s\n' 'read-only df mapping for RUNNER_TEMP:'
+            printf '%s\n' "$df_output"
+            device="$(printf '%s\n' "$df_output" | awk 'END { print $1 }')"
+            if [[ "$device" != /dev/* ]]; then
+              printf 'df did not return an unambiguous device for RUNNER_TEMP: %s\n' "$device" >&2
+              return 1
+            fi
+            printf '\nread-only diskutil info for RUNNER_TEMP device %s:\n' "$device"
+            diskutil info "$device" | awk -F ':' '
+              /Device Identifier|Volume Name|Mount Point|File System Personality|Type \(Bundle\)|Owners|Total Size|Volume Free Space|Container Total Space|Container Free Space/ {
+                print $1 ":" $2
+              }'
+            query_status=${PIPESTATUS[0]}
+            if [ "$query_status" -ne 0 ]; then return "$query_status"; fi
+          }
+
+          run_probe macos-source-provenance true probe_source_provenance
+          run_probe macos-runner-os-build-arch-image true probe_runner_os
+          run_probe macos-identity-permission-hints true probe_identity_privileges
+          run_probe macos-host-storage-free-space true probe_host_storage
+          run_probe macos-runner-temp-path-filesystem true probe_temp_path
+          run_probe macos-read-only-tool-availability false probe_tool_availability
+          run_probe macos-hdiutil-help-query false probe_hdiutil_help
+          run_probe macos-diskutil-help-query false probe_diskutil_help
+          run_probe macos-read-only-device-volume-inventory false probe_current_devices
+
+          free_bytes="$(sed -n 's/^runner_temp_free_bytes=//p' "$report_root/macos-host-storage-free-space.stdout.txt" | tail -n 1)"
+          fs_type="$(awk -F ':' '/File System Personality/ { sub(/^[[:space:]]*/, "", $2); print $2 }' "$report_root/macos-read-only-device-volume-inventory.stdout.txt" | tail -n 1)"
+          fs_type_lower="$(printf '%s' "$fs_type" | tr '[:upper:]' '[:lower:]')"
+          hdiutil_path="$(sed -n 's/^hdiutil=available://p' "$report_root/macos-read-only-tool-availability.stdout.txt" | head -n 1)"
+          diskutil_path="$(sed -n 's/^diskutil=available://p' "$report_root/macos-read-only-tool-availability.stdout.txt" | head -n 1)"
+          classification='CAPABILITY_PRESENT_UNVALIDATED'
+          reasons=''
+          if [ "$required_failure" -ne 0 ]; then
+            classification='FAIL'
+            reasons='One or more required read-only metadata probes failed; inspect probe-index.tsv and raw exit files.'
+          fi
+          optional_failures="$(awk -F '\t' 'NR > 1 && $2 == "false" && $3 != "0" { printf "%s:%s ", $1, $3 }' "$probe_index")"
+          if [ -n "$optional_failures" ]; then
+            if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi
+            reasons="$reasons; optional metadata probes failed: $optional_failures"
+          fi
+          if [ -z "$free_bytes" ] || [ -z "$fs_type" ]; then
+            if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi
+            reasons="$reasons; RUNNER_TEMP filesystem type or host free capacity is unknown."
+          elif [ "$free_bytes" -lt 4294967296 ]; then
+            if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi
+            reasons="$reasons; RUNNER_TEMP host volume has less than the 4 GiB G2 admission floor."
+          fi
+          if [ "$fs_type_lower" != 'apfs' ]; then
+            if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi
+            reasons="$reasons; RUNNER_TEMP host filesystem is not APFS."
+          fi
+          if [ -z "$hdiutil_path" ] || [ -z "$diskutil_path" ]; then
+            if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi
+            reasons="$reasons; hdiutil or diskutil is unavailable."
+          fi
+          cat > "$report_root/summary.txt" <<SUMMARY
+          platform=macOS
+          source_sha=$EXPECTED_SHA
+          run_id=$GITHUB_RUN_ID
+          run_attempt=$GITHUB_RUN_ATTEMPT
+          runner_name=$RUNNER_NAME
+          runner_arch=$RUNNER_ARCH
+          image_os=$ImageOS
+          image_version=$ImageVersion
+          runner_temp_filesystem=$fs_type
+          runner_temp_free_bytes=$free_bytes
+          classification=$classification
+          reasons=$reasons
+          no_disk_mutation_performed=true
+          g1_scope=read-only hosted environment inventory
+          interpretation=CAPABILITY_PRESENT_UNVALIDATED does not prove that creating or attaching a bounded APFS image will work.
+          SUMMARY
+          hash_file="$report_root/SHA256SUMS.txt"
+          (
+            cd "$report_root" || exit 1
+            find . -type f ! -name 'SHA256SUMS.txt' | LC_ALL=C sort > hash-inputs.txt || exit 1
+            while IFS= read -r file; do
+              shasum -a 256 "$file" || exit 1
+            done < hash-inputs.txt > SHA256SUMS.txt
+          )
+          hash_status=$?
+          if [ "$hash_status" -ne 0 ]; then
+            printf '%s\n' 'SHA-256 manifest generation failed' >&2
+            exit 1
+          fi
+          if [ "$classification" = 'FAIL' ]; then exit 1; fi
+
+      - name: Upload platform-local read-only inventory
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue-414-b2-g1-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/issue-414-b2-g1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9

@@ -1,0 +1,1 @@
+[{"drive":"C:","filesystem":"NTFS","size_bytes":160467759104,"free_bytes":30958166016},{"drive":"D:","filesystem":"NTFS","size_bytes":236205371392,"free_bytes":235992932352}]

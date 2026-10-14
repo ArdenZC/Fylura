@@ -1,0 +1,80 @@
+{
+  "branch": "research/issue-414-b2-g1-hosted-preflight",
+  "run_id": 38562031226,
+  "run_attempt": 1,
+  "event": "push",
+  "created_at": "2026-10-14T12:12:01Z",
+  "run_url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38562031226",
+  "source_sha": "5ccea76349aa5da2e31b9cb2203c2366d3d263ac",
+  "source_tree": "4623041007610337e512e3f2784404cceeb29766",
+  "workflow_path": ".github/workflows/issue-414-b2-g1-hosted-preflight.yml",
+  "jobs": [
+    {
+      "platform": "macos-latest",
+      "job_id": 115845214197,
+      "job_conclusion": "success",
+      "inventory_step": "success",
+      "artifact_id": 11892191907,
+      "artifact_name": "issue-414-b2-g1-macos-latest-38562031226-1",
+      "artifact_bytes": 10443,
+      "github_artifact_digest": "sha256:0987b59d87452dd6993ae37ddd6cc3e95dc7d0ba9ffa6162e03ecc0daab40cfb"
+    },
+    {
+      "platform": "windows-latest",
+      "job_id": 115845213827,
+      "job_conclusion": "success",
+      "inventory_step": "success",
+      "artifact_id": 11893365960,
+      "artifact_name": "issue-414-b2-g1-windows-latest-38562031226-1",
+      "artifact_bytes": 9673,
+      "github_artifact_digest": "sha256:135a8ba5d716ffd1321fa44286063ef839b47b1dc8bc8bde260b4889480d391b"
+    }
+  ],
+  "platform_results": {
+    "macos": {
+      "classification": "ENVIRONMENT_UNAVAILABLE",
+      "runner": "macOS 26.6.2 / build 25G83 / ARM64; image macos-26-arm64 / 20260907.0351.1; ImageOS=macos26",
+      "runner_temp": "APFS on device /dev/disk2s5 (Data), 101845848064 bytes free by df",
+      "tools": "hdiutil and diskutil available; hdiutil help exit 0; diskutil list and info for the df-mapped RUNNER_TEMP device exit 0",
+      "required_probe_exit_codes": {
+        "source_provenance": 0,
+        "runner_os_build_arch_image": 0,
+        "identity_permission_hints": 0,
+        "host_storage_free_space": 0,
+        "runner_temp_path_filesystem": 0
+      },
+      "optional_nonzero": [
+        {
+          "probe": "macos-diskutil-help-query",
+          "exit_code": 1,
+          "stderr": "diskutil no-argument usage output (valid command list) was written to stderr; the utility returned 1"
+        }
+      ],
+      "in_run_sha256_manifest": "30 entries; every entry verified against extracted artifact bytes"
+    },
+    "windows": {
+      "classification": "ENVIRONMENT_UNAVAILABLE",
+      "runner": "Windows Server 2025 / build 26100 / X64; image win25-vs2026 / 20260925.250.1",
+      "runner_temp": "D: NTFS, size 236205371392 bytes, free 235992932352 bytes by Win32_LogicalDisk; Get-Volume free 235992928256 bytes",
+      "tools": "Hyper-V module 2.0; New-VHD, Mount-VHD, Get-VHD, and diskpart.exe all reported available; DiskPart /? emitted its usage text",
+      "required_probe_exit_codes": {
+        "source_provenance": 0,
+        "runner_os_build_arch_image": 0,
+        "identity_privileges": 0,
+        "host_storage_free_space": 0,
+        "runner_temp_path_acl": 0
+      },
+      "optional_nonzero": [
+        {
+          "probe": "windows-diskpart-help-query",
+          "exit_code": 999999999,
+          "stderr": "",
+          "stdout": "Microsoft DiskPart syntax help was emitted; preserve the exact unexpected process exit code"
+        }
+      ],
+      "in_run_sha256_manifest": "29 entries; every entry verified against extracted artifact bytes"
+    }
+  },
+  "overall_disposition": "Both hosted platform inventories and uploads completed. Per-platform summaries remain ENVIRONMENT_UNAVAILABLE because optional utility help probes returned nonzero; this is not a capability PASS and is not a script/job failure.",
+  "mutating_disk_operations": "none; only metadata/help queries ran and bounded reports were written under each ephemeral RUNNER_TEMP"
+}

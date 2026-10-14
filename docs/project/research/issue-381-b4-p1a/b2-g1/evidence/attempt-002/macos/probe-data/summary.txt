@@ -1,0 +1,15 @@
+platform=macOS
+source_sha=5ccea76349aa5da2e31b9cb2203c2366d3d263ac
+run_id=38562031226
+run_attempt=1
+runner_name=GitHub Actions 1000028248
+runner_arch=ARM64
+image_os=macos26
+image_version=20260907.0351.1
+runner_temp_filesystem=APFS
+runner_temp_free_bytes=101845848064
+classification=ENVIRONMENT_UNAVAILABLE
+reasons=; optional metadata probes failed: macos-diskutil-help-query:1 
+no_disk_mutation_performed=true
+g1_scope=read-only hosted environment inventory
+interpretation=CAPABILITY_PRESENT_UNVALIDATED does not prove that creating or attaching a bounded APFS image will work.

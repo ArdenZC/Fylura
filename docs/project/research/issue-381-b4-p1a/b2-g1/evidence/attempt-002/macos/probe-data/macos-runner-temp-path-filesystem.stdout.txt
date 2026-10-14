@@ -1,0 +1,5 @@
+runner_temp=/Users/runner/work/_temp
+runner_workspace=/Users/runner/work/Zen-Canvas/Zen-Canvas
+runner_temp_realpath=/Users/runner/work/_temp
+drwxr-xr-x  6 runner  staff  192 Oct 14 12:12 /Users/runner/work/_temp
+runner_temp_owner=runner group=staff mode=755

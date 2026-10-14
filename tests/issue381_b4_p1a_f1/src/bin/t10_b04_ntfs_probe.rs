@@ -19,6 +19,8 @@ const CONSENT_VARIABLE: &str = "T10_B04_PROBE_ENABLE";
 const EXPECTED_HEAD_VARIABLE: &str = "T10_B04_EXPECTED_HEAD";
 #[cfg(target_os = "windows")]
 const EXPECTED_TREE_VARIABLE: &str = "T10_B04_EXPECTED_TREE";
+#[cfg(target_os = "windows")]
+const EXPECTED_BINARY_SHA256_VARIABLE: &str = "T10_B04_EXPECTED_BINARY_SHA256";
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_DISPOSABLE_FILES: u8 = 10;
 const MAX_WALL_TIME: Duration = Duration::from_secs(30);
@@ -46,13 +48,218 @@ fn valid_git_object_id(value: &str) -> bool {
 }
 
 #[cfg(any(target_os = "windows", test))]
+fn valid_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+#[cfg(any(target_os = "windows", test))]
 fn ntfs_is_verified(value: Option<&str>) -> bool {
     value.is_some_and(|filesystem| filesystem.eq_ignore_ascii_case("NTFS"))
 }
 
 #[cfg(any(target_os = "windows", test))]
-fn identity_is_known<T>(identity: Option<T>) -> bool {
-    identity.is_some()
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    volume_serial_number: u64,
+    file_id: [u8; 16],
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn identity_is_known(identity: Option<&FileIdentity>) -> bool {
+    identity.is_some_and(|identity| {
+        identity.volume_serial_number != 0
+            && identity.volume_serial_number != u64::MAX
+            && identity.file_id.iter().any(|byte| *byte != 0)
+            && !identity.file_id.iter().all(|byte| *byte == u8::MAX)
+    })
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn identities_match(expected: Option<&FileIdentity>, observed: Option<&FileIdentity>) -> bool {
+    identity_is_known(expected) && identity_is_known(observed) && expected == observed
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeStatus {
+    NotExecuted,
+    FileOperationObserved,
+    SafetyRejection,
+    EnvironmentUnavailable,
+    ProbeIncomplete,
+    CleanupIncomplete,
+}
+
+impl ProbeStatus {
+    #[cfg(target_os = "windows")]
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NotExecuted => "NOT_EXECUTED",
+            Self::FileOperationObserved => "FILE_OPERATION_OBSERVED",
+            Self::SafetyRejection => "SAFETY_REJECTION",
+            Self::EnvironmentUnavailable => "ENVIRONMENT_UNAVAILABLE",
+            Self::ProbeIncomplete => "PROBE_INCOMPLETE",
+            Self::CleanupIncomplete => "CLEANUP_INCOMPLETE",
+        }
+    }
+
+    fn exit_code(self) -> u8 {
+        match self {
+            Self::NotExecuted | Self::FileOperationObserved => 0,
+            Self::SafetyRejection => 2,
+            Self::EnvironmentUnavailable => 3,
+            Self::ProbeIncomplete => 4,
+            Self::CleanupIncomplete => 5,
+        }
+    }
+}
+
+fn status_from_name(status: &str) -> ProbeStatus {
+    match status {
+        "NOT_EXECUTED" => ProbeStatus::NotExecuted,
+        "FILE_OPERATION_OBSERVED" => ProbeStatus::FileOperationObserved,
+        "ENVIRONMENT_UNAVAILABLE" => ProbeStatus::EnvironmentUnavailable,
+        "PROBE_INCOMPLETE" => ProbeStatus::ProbeIncomplete,
+        "CLEANUP_INCOMPLETE" => ProbeStatus::CleanupIncomplete,
+        _ => ProbeStatus::SafetyRejection,
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn final_probe_status(primary: ProbeStatus, cleanup_complete: bool) -> ProbeStatus {
+    if cleanup_complete {
+        primary
+    } else {
+        ProbeStatus::CleanupIncomplete
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn rename_identity_gate_allows(
+    identity_at_creation: Option<&FileIdentity>,
+    identity_at_path: Option<&FileIdentity>,
+) -> bool {
+    identities_match(identity_at_creation, identity_at_path)
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn required_phase_outcome<'a>(
+    observations: &'a [Value],
+    phase: &str,
+    case_id: Option<&str>,
+) -> Option<&'a str> {
+    observations.iter().find_map(|observation| {
+        if observation["phase"].as_str() != Some(phase) {
+            return None;
+        }
+        if let Some(expected_case) = case_id
+            && observation["case_id"].as_str() != Some(expected_case)
+        {
+            return None;
+        }
+        observation["result"].as_str()
+    })
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn required_phases_complete(observations: &[Value]) -> bool {
+    let directory_cases = [
+        "A_FILE_OPEN_BASELINE",
+        "B_BACKUP_SEMANTICS_GENERIC_READ",
+        "C_BACKUP_SEMANTICS_GENERIC_WRITE",
+    ];
+    for case_id in directory_cases {
+        match required_phase_outcome(observations, "directory_open", Some(case_id)) {
+            Some("SUCCESS") => {
+                if !matches!(
+                    required_phase_outcome(observations, "directory_sync", Some(case_id)),
+                    Some("SUCCESS" | "ERROR")
+                ) {
+                    return false;
+                }
+            }
+            Some("ERROR") => {}
+            _ => return false,
+        }
+    }
+
+    if required_phase_outcome(observations, "small_file_open_create_new", None) != Some("SUCCESS")
+        || required_phase_outcome(observations, "file_identity_at_creation", None)
+            != Some("API_RETURN_OBSERVED")
+        || required_phase_outcome(observations, "small_file_write", None) != Some("SUCCESS")
+        || required_phase_outcome(observations, "small_file_sync", None) != Some("SUCCESS")
+        || required_phase_outcome(observations, "file_identity_before_rename", None)
+            != Some("API_RETURN_OBSERVED")
+        || required_phase_outcome(observations, "source_reopen_before_rename", None)
+            != Some("SUCCESS")
+        || required_phase_outcome(observations, "same_directory_rename", None)
+            != Some("API_RETURN_OBSERVED")
+        || required_phase_outcome(observations, "readonly_reopen_after_rename", None)
+            != Some("SUCCESS")
+        || required_phase_outcome(observations, "file_identity_after_rename", None)
+            != Some("API_RETURN_OBSERVED")
+        || required_phase_outcome(observations, "readonly_reopen_content_check", None)
+            != Some("API_RETURN_OBSERVED")
+    {
+        return false;
+    }
+
+    let Some(post_rename_identity) = observations
+        .iter()
+        .find(|observation| observation["phase"] == "file_identity_after_rename")
+    else {
+        return false;
+    };
+    let Some(pre_rename_identity) = observations
+        .iter()
+        .find(|observation| observation["phase"] == "file_identity_before_rename")
+    else {
+        return false;
+    };
+    let Some(content_check) = observations
+        .iter()
+        .find(|observation| observation["phase"] == "readonly_reopen_content_check")
+    else {
+        return false;
+    };
+    pre_rename_identity["creation_before_rename_identity_matches"] == true
+        && post_rename_identity["before_after_identity_matches"] == true
+        && content_check["payload_matches"] == true
+        && content_check["before_after_sha256_matches"] == true
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn aggregate_probe_status(observations: &[Value]) -> (ProbeStatus, &'static str) {
+    if observations
+        .iter()
+        .any(|observation| observation["result"] == "SAFETY_REJECTION")
+    {
+        return (ProbeStatus::SafetyRejection, "SAFETY_CHECK_REJECTED");
+    }
+    if observations
+        .iter()
+        .any(|observation| observation["result"] == "ENVIRONMENT_UNAVAILABLE")
+    {
+        return (
+            ProbeStatus::EnvironmentUnavailable,
+            "REQUIRED_CAPABILITY_UNAVAILABLE",
+        );
+    }
+    if observations
+        .iter()
+        .any(|observation| observation["result"] == "NOT_ATTEMPTED")
+    {
+        return (ProbeStatus::ProbeIncomplete, "REQUIRED_PHASE_NOT_ATTEMPTED");
+    }
+    if !required_phases_complete(observations) {
+        return (
+            ProbeStatus::ProbeIncomplete,
+            "REQUIRED_PHASE_MISSING_OR_FAILED",
+        );
+    }
+    (
+        ProbeStatus::FileOperationObserved,
+        "ALL_REQUIRED_PHASES_COMPLETE_API_RETURNS_ONLY",
+    )
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -144,20 +351,32 @@ fn native_windows_probe_allowed(os: &str) -> bool {
 
 fn emit_record(
     status: &str,
+    primary_status: &str,
     reason: Option<&str>,
     source_head: Option<&str>,
     source_tree: Option<&str>,
+    binary_sha256: Option<&str>,
     os_build: Option<&str>,
     filesystem: Option<&str>,
     free_bytes: Option<u64>,
     observations: &[Value],
     cleanup: Option<&str>,
 ) {
+    let cleanup_failure = observations
+        .iter()
+        .find(|observation| observation["result"] == "CLEANUP_INCOMPLETE");
     let record = json!({
         "schema": "zen-canvas-t10-b04-ntfs-probe-v1",
         "status": status,
+        "primary_status": primary_status,
+        "exit_code": status_from_name(status).exit_code(),
         "reason": reason,
-        "source": {"head": source_head, "tree": source_tree},
+        "primary_outcome": {
+            "status": primary_status,
+            "reason": reason,
+        },
+        "cleanup_failure": cleanup_failure,
+        "source": {"head": source_head, "tree": source_tree, "binary_sha256": binary_sha256},
         "host": {
             "os": std::env::consts::OS,
             "build": os_build,
@@ -180,9 +399,10 @@ fn emit_record(
 }
 
 #[cfg(target_os = "windows")]
-fn main() {
+fn main() -> std::process::ExitCode {
     if !native_windows_probe_allowed(std::env::consts::OS) {
         emit_record(
+            "NOT_EXECUTED",
             "NOT_EXECUTED",
             Some("NON_WINDOWS_BUILD_NO_NATIVE_PROBE"),
             None,
@@ -190,13 +410,15 @@ fn main() {
             None,
             None,
             None,
+            None,
             &[],
             Some("NO_SANDBOX_CREATED"),
         );
-        return;
+        return std::process::ExitCode::SUCCESS;
     }
     if consent(std::env::var(CONSENT_VARIABLE).ok().as_deref()) == Consent::Disabled {
         emit_record(
+            "NOT_EXECUTED",
             "NOT_EXECUTED",
             Some("CONSENT_GATE_NOT_SET_TO_1"),
             None,
@@ -204,14 +426,16 @@ fn main() {
             None,
             None,
             None,
+            None,
             &[],
             Some("NO_SANDBOX_CREATED"),
         );
-        return;
+        return std::process::ExitCode::SUCCESS;
     }
 
     if std::env::args_os().len() != 1 {
         emit_record(
+            "SAFETY_REJECTION",
             "SAFETY_REJECTION",
             Some("UNEXPECTED_ARGUMENTS"),
             None,
@@ -219,13 +443,14 @@ fn main() {
             None,
             None,
             None,
+            None,
             &[],
             Some("NO_SANDBOX_CREATED"),
         );
-        return;
+        return std::process::ExitCode::from(ProbeStatus::SafetyRejection.exit_code());
     }
 
-    windows_probe::run();
+    std::process::ExitCode::from(windows_probe::run())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -238,7 +463,9 @@ fn main() {
     };
     emit_record(
         "NOT_EXECUTED",
+        "NOT_EXECUTED",
         Some(reason),
+        None,
         None,
         None,
         None,
@@ -293,6 +520,7 @@ mod windows_probe {
     struct Context {
         source_head: Option<String>,
         source_tree: Option<String>,
+        binary_sha256: Option<String>,
         os_build: Option<String>,
         filesystem: Option<String>,
         free_bytes: Option<u64>,
@@ -304,6 +532,7 @@ mod windows_probe {
             Self {
                 source_head: None,
                 source_tree: None,
+                binary_sha256: None,
                 os_build: None,
                 filesystem: None,
                 free_bytes: None,
@@ -312,11 +541,23 @@ mod windows_probe {
         }
 
         fn record(&self, status: &str, reason: Option<&str>, cleanup: Option<&str>) {
+            self.record_with_primary(status, status, reason, cleanup);
+        }
+
+        fn record_with_primary(
+            &self,
+            status: &str,
+            primary_status: &str,
+            reason: Option<&str>,
+            cleanup: Option<&str>,
+        ) {
             emit_record(
                 status,
+                primary_status,
                 reason,
                 self.source_head.as_deref(),
                 self.source_tree.as_deref(),
+                self.binary_sha256.as_deref(),
                 self.os_build.as_deref(),
                 self.filesystem.as_deref(),
                 self.free_bytes,
@@ -332,77 +573,76 @@ mod windows_probe {
         is_elevated: bool,
     }
 
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    struct FileIdentity {
-        volume_serial_number: u64,
-        file_id: [u8; 16],
+    #[derive(Default)]
+    struct OwnedFile {
+        was_created: bool,
+        identity: Option<FileIdentity>,
     }
 
-    #[derive(Clone, Copy)]
-    enum OwnedFileLocation {
-        None,
-        BeforeRename,
-        AfterRename,
-    }
-
-    fn preflight_failure(context: &Context, status: &str, reason: &str) {
+    fn preflight_failure(context: &Context, status: &str, reason: &str) -> u8 {
         context.record(status, Some(reason), Some("NO_SANDBOX_CREATED"));
+        status_from_name(status).exit_code()
     }
 
-    pub(super) fn run() {
+    pub(super) fn run() -> u8 {
         let start = Instant::now();
         let mut context = Context::new();
 
         let source = match verify_source_identity() {
             Ok(source) => source,
             Err(reason) => {
-                preflight_failure(&context, "SAFETY_REJECTION", reason);
-                return;
+                return preflight_failure(&context, "SAFETY_REJECTION", reason);
             }
         };
         context.source_head = Some(source.0);
         context.source_tree = Some(source.1);
 
+        let binary_sha256 = match verify_binary_identity() {
+            Ok(digest) => digest,
+            Err(reason) => {
+                return preflight_failure(&context, "SAFETY_REJECTION", reason);
+            }
+        };
+        context.binary_sha256 = Some(binary_sha256);
+
         let runner_temp = match std::env::var_os("RUNNER_TEMP") {
             Some(path) => PathBuf::from(path),
             None => {
-                preflight_failure(&context, "ENVIRONMENT_UNAVAILABLE", "RUNNER_TEMP_MISSING");
-                return;
+                return preflight_failure(
+                    &context,
+                    "ENVIRONMENT_UNAVAILABLE",
+                    "RUNNER_TEMP_MISSING",
+                );
             }
         };
         if !runner_temp.is_absolute() {
-            preflight_failure(&context, "SAFETY_REJECTION", "RUNNER_TEMP_NOT_ABSOLUTE");
-            return;
+            return preflight_failure(&context, "SAFETY_REJECTION", "RUNNER_TEMP_NOT_ABSOLUTE");
         }
         if let Err(reason) = ensure_non_reparse_components(&runner_temp) {
-            preflight_failure(&context, "SAFETY_REJECTION", reason);
-            return;
+            return preflight_failure(&context, "SAFETY_REJECTION", reason);
         }
         let canonical_temp = match fs::canonicalize(&runner_temp) {
             Ok(path) => path,
             Err(_) => {
-                preflight_failure(
+                return preflight_failure(
                     &context,
                     "ENVIRONMENT_UNAVAILABLE",
                     "RUNNER_TEMP_UNRESOLVED",
                 );
-                return;
             }
         };
         if !canonical_temp.is_dir() {
-            preflight_failure(&context, "SAFETY_REJECTION", "RUNNER_TEMP_NOT_DIRECTORY");
-            return;
+            return preflight_failure(&context, "SAFETY_REJECTION", "RUNNER_TEMP_NOT_DIRECTORY");
         }
         let canonical_text = canonical_temp.to_string_lossy().into_owned();
         let protected_roots = match protected_roots() {
             Some(roots) => roots,
             None => {
-                preflight_failure(
+                return preflight_failure(
                     &context,
                     "ENVIRONMENT_UNAVAILABLE",
                     "USER_OR_SYSTEM_ROOT_UNAVAILABLE",
                 );
-                return;
             }
         };
         let protected_text = protected_roots
@@ -414,43 +654,38 @@ mod windows_probe {
             .map(String::as_str)
             .collect::<Vec<_>>();
         if validate_temp_scope(&canonical_text, &protected_refs, true).is_err() {
-            preflight_failure(
+            return preflight_failure(
                 &context,
                 "SAFETY_REJECTION",
                 "RUNNER_TEMP_OUTSIDE_SAFE_SCOPE",
             );
-            return;
         }
 
         let security = match security_info(&canonical_temp) {
             Ok(info) => info,
             Err(_) => {
-                preflight_failure(
+                return preflight_failure(
                     &context,
                     "ENVIRONMENT_UNAVAILABLE",
                     "RUNNER_IDENTITY_OR_OWNER_UNAVAILABLE",
                 );
-                return;
             }
         };
         if security.is_elevated {
-            preflight_failure(&context, "SAFETY_REJECTION", "ELEVATED_TOKEN_REJECTED");
-            return;
+            return preflight_failure(&context, "SAFETY_REJECTION", "ELEVATED_TOKEN_REJECTED");
         }
         if security.current_user_sid != security.owner_sid {
-            preflight_failure(&context, "SAFETY_REJECTION", "RUNNER_TEMP_OWNER_MISMATCH");
-            return;
+            return preflight_failure(&context, "SAFETY_REJECTION", "RUNNER_TEMP_OWNER_MISMATCH");
         }
 
         let os_build = match windows_build() {
             Some(build) => build,
             None => {
-                preflight_failure(
+                return preflight_failure(
                     &context,
                     "ENVIRONMENT_UNAVAILABLE",
                     "WINDOWS_BUILD_UNAVAILABLE",
                 );
-                return;
             }
         };
         context.os_build = Some(os_build);
@@ -458,23 +693,28 @@ mod windows_probe {
         let drive = match local_drive_designator(&canonical_temp) {
             Some(drive) => drive,
             None => {
-                preflight_failure(&context, "SAFETY_REJECTION", "RUNNER_TEMP_NOT_LOCAL_DRIVE");
-                return;
+                return preflight_failure(
+                    &context,
+                    "SAFETY_REJECTION",
+                    "RUNNER_TEMP_NOT_LOCAL_DRIVE",
+                );
             }
         };
         let filesystem = match filesystem_name(&drive) {
             Some(filesystem) if ntfs_is_verified(Some(&filesystem)) => filesystem,
             Some(_) => {
-                preflight_failure(&context, "ENVIRONMENT_UNAVAILABLE", "FILESYSTEM_NOT_NTFS");
-                return;
+                return preflight_failure(
+                    &context,
+                    "ENVIRONMENT_UNAVAILABLE",
+                    "FILESYSTEM_NOT_NTFS",
+                );
             }
             None => {
-                preflight_failure(
+                return preflight_failure(
                     &context,
                     "ENVIRONMENT_UNAVAILABLE",
                     "FILESYSTEM_TYPE_UNAVAILABLE",
                 );
-                return;
             }
         };
         context.filesystem = Some(filesystem);
@@ -482,28 +722,25 @@ mod windows_probe {
         let free_bytes = match free_bytes(&drive) {
             Some(free) if free >= MAX_FILE_BYTES => free,
             Some(_) => {
-                preflight_failure(
+                return preflight_failure(
                     &context,
                     "ENVIRONMENT_UNAVAILABLE",
                     "STORAGE_BUDGET_UNAVAILABLE",
                 );
-                return;
             }
             None => {
-                preflight_failure(
+                return preflight_failure(
                     &context,
                     "ENVIRONMENT_UNAVAILABLE",
                     "FREE_SPACE_UNAVAILABLE",
                 );
-                return;
             }
         };
         context.free_bytes = Some(free_bytes);
 
         let expected_payload_bytes = FILE_PAYLOAD.len() as u64;
         if !budget_is_valid(expected_payload_bytes, 1, start.elapsed()) {
-            preflight_failure(&context, "SAFETY_REJECTION", "STATIC_PROBE_BUDGET_EXCEEDED");
-            return;
+            return preflight_failure(&context, "SAFETY_REJECTION", "STATIC_PROBE_BUDGET_EXCEEDED");
         }
 
         let run_id = format!(
@@ -513,8 +750,7 @@ mod windows_probe {
         );
         let sandbox = canonical_temp.join(run_id);
         if path_exists(&sandbox) {
-            preflight_failure(&context, "SAFETY_REJECTION", "SANDBOX_NAME_ALREADY_EXISTS");
-            return;
+            return preflight_failure(&context, "SAFETY_REJECTION", "SANDBOX_NAME_ALREADY_EXISTS");
         }
         if let Err(error) = fs::create_dir(&sandbox) {
             context.observations.push(rust_io_observation(
@@ -529,7 +765,7 @@ mod windows_probe {
                 Some("SANDBOX_CREATE_FAILED"),
                 Some("NO_SANDBOX_CREATED_OR_EMPTY"),
             );
-            return;
+            return ProbeStatus::EnvironmentUnavailable.exit_code();
         }
 
         let mut cleanup_state = "CLEANUP_COMPLETE";
@@ -542,33 +778,55 @@ mod windows_probe {
             _ => {
                 if !remove_empty_verified_sandbox(&sandbox) {
                     cleanup_state = "CLEANUP_INCOMPLETE";
+                    context.observations.push(json!({
+                        "phase": "cleanup_sandbox_remove",
+                        "result": "CLEANUP_INCOMPLETE",
+                        "reason": "SANDBOX_OWNER_RECHECK_FAILED; sandbox left untouched",
+                    }));
                 }
-                context.record(
+                let primary_status = if cleanup_state == "CLEANUP_COMPLETE" {
+                    ProbeStatus::SafetyRejection
+                } else {
+                    ProbeStatus::CleanupIncomplete
+                };
+                context.record_with_primary(
                     if cleanup_state == "CLEANUP_COMPLETE" {
-                        "SAFETY_REJECTION"
+                        ProbeStatus::SafetyRejection.as_str()
                     } else {
-                        "CLEANUP_INCOMPLETE"
+                        ProbeStatus::CleanupIncomplete.as_str()
                     },
+                    ProbeStatus::SafetyRejection.as_str(),
                     Some("SANDBOX_OWNER_OR_TOKEN_RECHECK_FAILED"),
                     Some(cleanup_state),
                 );
-                return;
+                return primary_status.exit_code();
             }
         }
         if ensure_non_reparse_components(&sandbox).is_err() {
             if !remove_empty_verified_sandbox(&sandbox) {
                 cleanup_state = "CLEANUP_INCOMPLETE";
+                context.observations.push(json!({
+                    "phase": "cleanup_sandbox_remove",
+                    "result": "CLEANUP_INCOMPLETE",
+                    "reason": "SANDBOX_REPARSE_RECHECK_FAILED; sandbox left untouched",
+                }));
             }
-            context.record(
+            let final_status = if cleanup_state == "CLEANUP_COMPLETE" {
+                ProbeStatus::SafetyRejection
+            } else {
+                ProbeStatus::CleanupIncomplete
+            };
+            context.record_with_primary(
                 if cleanup_state == "CLEANUP_COMPLETE" {
-                    "SAFETY_REJECTION"
+                    ProbeStatus::SafetyRejection.as_str()
                 } else {
-                    "CLEANUP_INCOMPLETE"
+                    ProbeStatus::CleanupIncomplete.as_str()
                 },
+                ProbeStatus::SafetyRejection.as_str(),
                 Some("SANDBOX_REPARSE_POINT_REJECTED"),
                 Some(cleanup_state),
             );
-            return;
+            return final_status.exit_code();
         }
 
         probe_directory_baseline(&sandbox, start, &mut context.observations);
@@ -579,7 +837,7 @@ mod windows_probe {
         let destination_name = "regular-after-rename.bin";
         let source_path = sandbox.join(source_name);
         let destination_path = sandbox.join(destination_name);
-        let mut owned_file = OwnedFileLocation::None;
+        let mut owned_file = OwnedFile::default();
         if !budget_expired(start) {
             probe_small_file_and_rename(
                 &source_path,
@@ -599,15 +857,19 @@ mod windows_probe {
             &sandbox,
             &source_path,
             &destination_path,
-            owned_file,
+            &owned_file,
             &mut context.observations,
         );
-        let final_status = if cleanup_state == "CLEANUP_INCOMPLETE" {
-            "CLEANUP_INCOMPLETE"
-        } else {
-            "FILE_OPERATION_OBSERVED"
-        };
-        context.record(final_status, None, Some(cleanup_state));
+        let (primary_status, reason) = aggregate_probe_status(&context.observations);
+        let final_status =
+            final_probe_status(primary_status, cleanup_state != "CLEANUP_INCOMPLETE");
+        context.record_with_primary(
+            final_status.as_str(),
+            primary_status.as_str(),
+            Some(reason),
+            Some(cleanup_state),
+        );
+        final_status.exit_code()
     }
 
     fn verify_source_identity() -> Result<(String, String), &'static str> {
@@ -645,6 +907,38 @@ mod windows_probe {
             return Err("SOURCE_ID_DOES_NOT_MATCH_OWNER_APPROVED_EXPECTATION");
         }
         Ok((head, tree))
+    }
+
+    fn verify_binary_identity() -> Result<String, &'static str> {
+        const MAX_EXECUTABLE_HASH_BYTES: u64 = 256 * 1024 * 1024;
+        let expected = std::env::var(EXPECTED_BINARY_SHA256_VARIABLE)
+            .map_err(|_| "EXPECTED_BINARY_SHA256_MISSING")?;
+        if !valid_sha256_hex(&expected) {
+            return Err("EXPECTED_BINARY_SHA256_INVALID");
+        }
+        let executable = std::env::current_exe().map_err(|_| "EXECUTABLE_PATH_UNAVAILABLE")?;
+        let mut file = File::open(executable).map_err(|_| "EXECUTABLE_OPEN_FAILED")?;
+        let mut hasher = Sha256::new();
+        let mut total = 0_u64;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .map_err(|_| "EXECUTABLE_HASH_READ_FAILED")?;
+            if read == 0 {
+                break;
+            }
+            total = total.saturating_add(read as u64);
+            if total > MAX_EXECUTABLE_HASH_BYTES {
+                return Err("EXECUTABLE_HASH_SIZE_LIMIT_EXCEEDED");
+            }
+            hasher.update(&buffer[..read]);
+        }
+        let actual = format!("{:x}", hasher.finalize());
+        if !actual.eq_ignore_ascii_case(&expected) {
+            return Err("EXECUTABLE_SHA256_MISMATCH");
+        }
+        Ok(actual)
     }
 
     fn git_value(arguments: &[&str]) -> Option<String> {
@@ -951,7 +1245,7 @@ mod windows_probe {
             ));
             return;
         }
-        observations.push(rust_io_observation(
+        let mut sync_observation = rust_io_observation(
             "directory_sync",
             "std::fs::File::sync_all",
             requested_access,
@@ -961,7 +1255,9 @@ mod windows_probe {
                 "custom_flags": flags,
                 "semantics": "API return only; namespace durability is unproven",
             }),
-        ));
+        );
+        sync_observation["case_id"] = json!(case_id);
+        observations.push(sync_observation);
     }
 
     fn probe_directory_baseline(path: &Path, start: Instant, observations: &mut Vec<Value>) {
@@ -1055,7 +1351,7 @@ mod windows_probe {
         destination: &Path,
         start: Instant,
         observations: &mut Vec<Value>,
-        owned_file: &mut OwnedFileLocation,
+        owned_file: &mut OwnedFile,
     ) {
         if path_exists(source) || path_exists(destination) {
             observations.push(json!({
@@ -1082,7 +1378,7 @@ mod windows_probe {
 
         let mut file = match OpenOptions::new().write(true).create_new(true).open(source) {
             Ok(file) => {
-                *owned_file = OwnedFileLocation::BeforeRename;
+                owned_file.was_created = true;
                 observations.push(json!({
                     "phase": "small_file_open_create_new",
                     "api": "std::fs::OpenOptions::create_new",
@@ -1104,6 +1400,46 @@ mod windows_probe {
                     "error_kind": format!("{:?}", error.kind()),
                     "win32_error_code": raw.and_then(|code| u32::try_from(code).ok()),
                     "rust_raw_os_error": raw,
+                }));
+                return;
+            }
+        };
+
+        if budget_expired(start) {
+            observations.push(skipped_observation(
+                "file_identity_at_creation",
+                "30_SECOND_WALL_TIME_BUDGET_EXHAUSTED",
+            ));
+            return;
+        }
+        let created_identity = match file_identity(&file) {
+            Ok(identity) => {
+                owned_file.identity = Some(identity);
+                if !identity_is_known(Some(&identity)) {
+                    observations.push(json!({
+                        "phase": "file_identity_at_creation",
+                        "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on newly created handle",
+                        "result": "SAFETY_REJECTION",
+                        "reason": "ZERO_OR_PLACEHOLDER_FILE_ID",
+                        "identity": identity_json(&identity),
+                    }));
+                    return;
+                }
+                observations.push(json!({
+                    "phase": "file_identity_at_creation",
+                    "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on newly created handle",
+                    "result": "API_RETURN_OBSERVED",
+                    "identity": identity_json(&identity),
+                }));
+                identity
+            }
+            Err(code) => {
+                observations.push(json!({
+                    "phase": "file_identity_at_creation",
+                    "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on newly created handle",
+                    "result": "ENVIRONMENT_UNAVAILABLE",
+                    "win32_error_code": code,
+                    "rust_raw_os_error": null,
                 }));
                 return;
             }
@@ -1159,42 +1495,124 @@ mod windows_probe {
             return;
         }
 
-        let before_identity = if budget_expired(start) {
+        if budget_expired(start) {
             observations.push(skipped_observation(
                 "file_identity_before_rename",
                 "30_SECOND_WALL_TIME_BUDGET_EXHAUSTED",
             ));
-            None
-        } else {
-            match file_identity(&file) {
-                Ok(identity) => {
-                    observations.push(json!({
-                        "phase": "file_identity_before_rename",
-                        "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on open handle",
-                        "result": "API_RETURN_OBSERVED",
-                        "identity": identity_json(&identity),
-                    }));
-                    Some(identity)
-                }
-                Err(code) => {
-                    observations.push(json!({
-                        "phase": "file_identity_before_rename",
-                        "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on open handle",
-                        "result": "ENVIRONMENT_UNAVAILABLE",
-                        "win32_error_code": code,
-                        "rust_raw_os_error": null,
-                    }));
-                    None
-                }
+            return;
+        }
+        let current_handle_identity = match file_identity(&file) {
+            Ok(identity) => identity,
+            Err(code) => {
+                observations.push(json!({
+                    "phase": "file_identity_before_rename",
+                    "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on open handle",
+                    "result": "ENVIRONMENT_UNAVAILABLE",
+                    "win32_error_code": code,
+                    "rust_raw_os_error": null,
+                }));
+                return;
             }
         };
-        drop(file);
+        let handle_identity_matches =
+            rename_identity_gate_allows(Some(&created_identity), Some(&current_handle_identity));
+        if !identity_is_known(Some(&current_handle_identity)) || !handle_identity_matches {
+            observations.push(json!({
+                "phase": "file_identity_before_rename",
+                "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on open handle",
+                "result": "SAFETY_REJECTION",
+                "reason": "CREATED_HANDLE_IDENTITY_CHANGED_OR_INVALID",
+                "identity": identity_json(&current_handle_identity),
+                "creation_before_rename_identity_matches": false,
+            }));
+            return;
+        }
+
+        let source_handle = match File::open(source) {
+            Ok(handle) => {
+                observations.push(json!({
+                    "phase": "source_reopen_before_rename",
+                    "api": "std::fs::File::open",
+                    "requested_access": "read-only",
+                    "result": "SUCCESS",
+                    "file_name": "regular-before-rename.bin",
+                    "win32_error_code": null,
+                    "rust_raw_os_error": null,
+                }));
+                handle
+            }
+            Err(error) => {
+                let raw = error.raw_os_error();
+                observations.push(json!({
+                    "phase": "source_reopen_before_rename",
+                    "api": "std::fs::File::open",
+                    "requested_access": "read-only",
+                    "result": "ENVIRONMENT_UNAVAILABLE",
+                    "error_kind": format!("{:?}", error.kind()),
+                    "win32_error_code": raw.and_then(|code| u32::try_from(code).ok()),
+                    "rust_raw_os_error": raw,
+                }));
+                return;
+            }
+        };
+        if budget_expired(start) {
+            observations.push(skipped_observation(
+                "file_identity_before_rename",
+                "30_SECOND_WALL_TIME_BUDGET_EXHAUSTED",
+            ));
+            return;
+        }
+        let path_identity = match file_identity(&source_handle) {
+            Ok(identity) => identity,
+            Err(code) => {
+                observations.push(json!({
+                    "phase": "file_identity_before_rename",
+                    "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on reopened source path",
+                    "result": "ENVIRONMENT_UNAVAILABLE",
+                    "win32_error_code": code,
+                    "rust_raw_os_error": null,
+                }));
+                return;
+            }
+        };
+        let creation_before_rename_identity_matches =
+            rename_identity_gate_allows(Some(&created_identity), Some(&path_identity));
+        if !identity_is_known(Some(&path_identity)) || !creation_before_rename_identity_matches {
+            observations.push(json!({
+                "phase": "file_identity_before_rename",
+                "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on reopened source path",
+                "result": "SAFETY_REJECTION",
+                "reason": "SOURCE_PATH_IDENTITY_MISMATCH_OR_INVALID; rename not issued",
+                "identity": identity_json(&path_identity),
+                "creation_before_rename_identity_matches": false,
+            }));
+            return;
+        }
+        observations.push(json!({
+            "phase": "file_identity_before_rename",
+            "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on reopened source path",
+            "result": "API_RETURN_OBSERVED",
+            "identity": identity_json(&path_identity),
+            "creation_before_rename_identity_matches": true,
+            "rename_gate": "AUTHORIZED_BY_NONZERO_NONPLACEHOLDER_MATCHING_IDENTITY",
+        }));
 
         if path_exists(destination) {
             observations.push(json!({
                 "phase": "rename_destination_precheck",
                 "result": "SAFETY_REJECTION",
                 "reason": "DESTINATION_ALREADY_EXISTS",
+            }));
+            return;
+        }
+        if !rename_identity_gate_allows(Some(&created_identity), Some(&path_identity)) {
+            observations.push(json!({
+                "phase": "same_directory_rename",
+                "result": "SAFETY_REJECTION",
+                "reason": "IDENTITY_GATE_DENIED; rename not issued",
+                "win32_error_code": null,
+                "rust_raw_os_error": null,
             }));
             return;
         }
@@ -1207,7 +1625,6 @@ mod windows_probe {
         }
         match move_file_write_through(source, destination) {
             Ok(()) => {
-                *owned_file = OwnedFileLocation::AfterRename;
                 observations.push(json!({
                     "phase": "same_directory_rename",
                     "api": "MoveFileExW",
@@ -1239,6 +1656,8 @@ mod windows_probe {
                 "rust_raw_os_error": null,
             })),
         }
+        drop(source_handle);
+        drop(file);
         if observations
             .last()
             .is_some_and(|item| item["result"] != "API_RETURN_OBSERVED")
@@ -1294,17 +1713,19 @@ mod windows_probe {
         }
         match file_identity(&reopened) {
             Ok(after_identity) => {
-                let matches = before_identity.as_ref().is_some_and(|before| {
-                    before.volume_serial_number == after_identity.volume_serial_number
-                        && before.file_id == after_identity.file_id
-                });
+                let matches = identities_match(Some(&created_identity), Some(&after_identity));
+                let valid = identity_is_known(Some(&after_identity));
                 observations.push(json!({
                     "phase": "file_identity_after_rename",
                     "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on read-only reopened handle",
-                    "result": if identity_is_known(before_identity.as_ref()) { "API_RETURN_OBSERVED" } else { "ENVIRONMENT_UNAVAILABLE" },
+                    "result": if !valid { "SAFETY_REJECTION" } else if matches { "API_RETURN_OBSERVED" } else { "SAFETY_REJECTION" },
+                    "reason": if !valid { Some("ZERO_OR_PLACEHOLDER_FILE_ID") } else if matches { None } else { Some("IDENTITY_CHANGED_AFTER_RENAME; follow-on read not issued") },
                     "identity": identity_json(&after_identity),
-                    "before_after_identity_matches": before_identity.as_ref().map(|_| matches),
+                    "before_after_identity_matches": matches,
                 }));
+                if !valid || !matches {
+                    return;
+                }
             }
             Err(code) => {
                 observations.push(json!({
@@ -1314,6 +1735,7 @@ mod windows_probe {
                     "win32_error_code": code,
                     "rust_raw_os_error": null,
                 }));
+                return;
             }
         }
 
@@ -1331,13 +1753,15 @@ mod windows_probe {
                 let digest = format!("{:x}", Sha256::digest(&bytes));
                 let expected_digest = format!("{:x}", Sha256::digest(FILE_PAYLOAD));
                 let digest_matches = digest == expected_digest;
+                let payload_matches = bytes.as_slice() == FILE_PAYLOAD;
                 observations.push(json!({
                     "phase": "readonly_reopen_content_check",
                     "api": "std::io::Read::read_to_end bounded to 1 MiB + 1",
-                    "result": "API_RETURN_OBSERVED",
+                    "result": if payload_matches && digest_matches { "API_RETURN_OBSERVED" } else { "SAFETY_REJECTION" },
+                    "reason": if payload_matches && digest_matches { None } else { Some("READ_CONTENT_OR_HASH_MISMATCH") },
                     "file_bytes": read,
                     "sha256": digest,
-                    "payload_matches": bytes.as_slice() == FILE_PAYLOAD,
+                    "payload_matches": payload_matches,
                     "before_after_sha256_matches": digest_matches,
                 }));
             }
@@ -1399,57 +1823,263 @@ mod windows_probe {
         Ok(wide)
     }
 
+    fn cleanup_io_failure(phase: &str, api: &str, error: io::Error, reason: &str) -> Value {
+        let raw = error.raw_os_error();
+        json!({
+            "phase": phase,
+            "api": api,
+            "result": "CLEANUP_INCOMPLETE",
+            "reason": reason,
+            "error_kind": format!("{:?}", error.kind()),
+            "win32_error_code": raw.and_then(|code| u32::try_from(code).ok()),
+            "rust_raw_os_error": raw,
+        })
+    }
+
     fn cleanup_known_paths(
         sandbox: &Path,
         source: &Path,
         destination: &Path,
-        owned_file: OwnedFileLocation,
+        owned_file: &OwnedFile,
         observations: &mut Vec<Value>,
     ) -> &'static str {
         let mut complete = true;
-        let owned_path = match owned_file {
-            OwnedFileLocation::None => None,
-            OwnedFileLocation::BeforeRename => Some(("regular-before-rename.bin", source)),
-            OwnedFileLocation::AfterRename => Some(("regular-after-rename.bin", destination)),
-        };
-        if let Some((name, path)) = owned_path {
-            match fs::symlink_metadata(path) {
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        let mut found_probe_file = false;
+        let paths = [
+            ("regular-before-rename.bin", source),
+            ("regular-after-rename.bin", destination),
+        ];
+
+        for (name, path) in paths {
+            let path_metadata = match fs::symlink_metadata(path) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => {
                     complete = false;
-                    observations.push(rust_io_observation(
+                    observations.push(cleanup_io_failure(
                         "cleanup_file_inspect",
                         "std::fs::symlink_metadata",
-                        "exact generated child only",
-                        Err(error),
-                        json!({"file_name": name}),
+                        error,
+                        "PATH_INSPECTION_FAILED; left untouched",
                     ));
+                    continue;
                 }
+                Ok(metadata) => metadata,
+            };
+            found_probe_file = true;
+            if !path_metadata.file_type().is_file()
+                || path_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            {
+                complete = false;
+                observations.push(json!({
+                    "phase": "cleanup_file_identity_check",
+                    "result": "CLEANUP_INCOMPLETE",
+                    "file_name": name,
+                    "reason": "UNEXPECTED_FILE_TYPE_OR_REPARSE_POINT; left untouched",
+                }));
+                continue;
+            }
+
+            let Some(expected_identity) = owned_file.identity.as_ref() else {
+                complete = false;
+                observations.push(json!({
+                    "phase": "cleanup_file_identity_check",
+                    "result": "CLEANUP_INCOMPLETE",
+                    "file_name": name,
+                    "reason": "OWNED_IDENTITY_UNAVAILABLE; file left untouched",
+                }));
+                continue;
+            };
+            if !owned_file.was_created || !identity_is_known(Some(expected_identity)) {
+                complete = false;
+                observations.push(json!({
+                    "phase": "cleanup_file_identity_check",
+                    "result": "CLEANUP_INCOMPLETE",
+                    "file_name": name,
+                    "reason": "NO_VALID_CREATION_IDENTITY; file left untouched",
+                }));
+                continue;
+            }
+
+            let file = match File::open(path) {
+                Ok(file) => file,
+                Err(error) => {
+                    complete = false;
+                    observations.push(cleanup_io_failure(
+                        "cleanup_file_open_for_identity",
+                        "std::fs::File::open",
+                        error,
+                        "IDENTITY_HANDLE_UNAVAILABLE; file left untouched",
+                    ));
+                    continue;
+                }
+            };
+            let handle_metadata = match file.metadata() {
                 Ok(metadata)
                     if metadata.file_type().is_file()
                         && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 =>
                 {
-                    if let Err(error) = fs::remove_file(path) {
-                        complete = false;
-                        observations.push(rust_io_observation(
-                            "cleanup_file_remove",
-                            "std::fs::remove_file",
-                            "exact generated regular file only",
-                            Err(error),
-                            json!({"file_name": name}),
-                        ));
-                    }
+                    metadata
                 }
                 Ok(_) => {
                     complete = false;
                     observations.push(json!({
-                        "phase": "cleanup_file_remove",
+                        "phase": "cleanup_file_identity_check",
                         "result": "CLEANUP_INCOMPLETE",
                         "file_name": name,
-                        "reason": "UNEXPECTED_FILE_TYPE_OR_REPARSE_POINT; left untouched",
+                        "reason": "OPEN_HANDLE_NOT_A_REGULAR_FILE; left untouched",
                     }));
+                    continue;
                 }
+                Err(error) => {
+                    complete = false;
+                    observations.push(cleanup_io_failure(
+                        "cleanup_file_handle_metadata",
+                        "std::fs::File::metadata",
+                        error,
+                        "OPEN_HANDLE_METADATA_UNAVAILABLE; file left untouched",
+                    ));
+                    continue;
+                }
+            };
+            let _ = handle_metadata;
+            let observed_identity = match file_identity(&file) {
+                Ok(identity) => identity,
+                Err(code) => {
+                    complete = false;
+                    observations.push(json!({
+                        "phase": "cleanup_file_identity_check",
+                        "api": "GetFileInformationByHandleEx(FILE_ID_INFO)",
+                        "result": "CLEANUP_INCOMPLETE",
+                        "file_name": name,
+                        "win32_error_code": code,
+                        "rust_raw_os_error": null,
+                        "reason": "IDENTITY_QUERY_FAILED; file left untouched",
+                    }));
+                    continue;
+                }
+            };
+            if !identity_is_known(Some(&observed_identity))
+                || !identities_match(Some(expected_identity), Some(&observed_identity))
+            {
+                complete = false;
+                observations.push(json!({
+                    "phase": "cleanup_file_identity_check",
+                    "api": "GetFileInformationByHandleEx(FILE_ID_INFO)",
+                    "result": "CLEANUP_INCOMPLETE",
+                    "file_name": name,
+                    "expected_identity": identity_json(expected_identity),
+                    "observed_identity": identity_json(&observed_identity),
+                    "reason": "OBJECT_IDENTITY_MISMATCH; file left untouched",
+                }));
+                continue;
             }
+
+            let path_binding = match File::open(path) {
+                Ok(file) => file,
+                Err(error) => {
+                    complete = false;
+                    observations.push(cleanup_io_failure(
+                        "cleanup_file_reopen_for_remove",
+                        "std::fs::File::open",
+                        error,
+                        "FINAL_PATH_HANDLE_UNAVAILABLE; file left untouched",
+                    ));
+                    continue;
+                }
+            };
+            let path_binding_metadata = match path_binding.metadata() {
+                Ok(metadata)
+                    if metadata.file_type().is_file()
+                        && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 =>
+                {
+                    metadata
+                }
+                Ok(_) => {
+                    complete = false;
+                    observations.push(json!({
+                        "phase": "cleanup_file_identity_check",
+                        "result": "CLEANUP_INCOMPLETE",
+                        "file_name": name,
+                        "reason": "FINAL_PATH_HANDLE_NOT_A_REGULAR_FILE; left untouched",
+                    }));
+                    continue;
+                }
+                Err(error) => {
+                    complete = false;
+                    observations.push(cleanup_io_failure(
+                        "cleanup_file_final_handle_metadata",
+                        "std::fs::File::metadata",
+                        error,
+                        "FINAL_PATH_HANDLE_METADATA_UNAVAILABLE; file left untouched",
+                    ));
+                    continue;
+                }
+            };
+            let _ = path_binding_metadata;
+            let path_identity = match file_identity(&path_binding) {
+                Ok(identity) => identity,
+                Err(code) => {
+                    complete = false;
+                    observations.push(json!({
+                        "phase": "cleanup_file_identity_check",
+                        "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on final path handle",
+                        "result": "CLEANUP_INCOMPLETE",
+                        "file_name": name,
+                        "win32_error_code": code,
+                        "rust_raw_os_error": null,
+                        "reason": "FINAL_PATH_IDENTITY_UNAVAILABLE; file left untouched",
+                    }));
+                    continue;
+                }
+            };
+            if !identities_match(Some(expected_identity), Some(&path_identity)) {
+                complete = false;
+                observations.push(json!({
+                    "phase": "cleanup_file_identity_check",
+                    "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on final path handle",
+                    "result": "CLEANUP_INCOMPLETE",
+                    "file_name": name,
+                    "expected_identity": identity_json(expected_identity),
+                    "observed_identity": identity_json(&path_identity),
+                    "reason": "FINAL_PATH_HANDLE_IDENTITY_MISMATCH; file left untouched",
+                }));
+                continue;
+            }
+            observations.push(json!({
+                "phase": "cleanup_file_identity_check",
+                "api": "GetFileInformationByHandleEx(FILE_ID_INFO) on final path handle",
+                "result": "API_RETURN_OBSERVED",
+                "file_name": name,
+                "identity_match": true,
+                "deletion_policy": "remove exact path while verified handle remains open",
+            }));
+            if let Err(error) = fs::remove_file(path) {
+                complete = false;
+                observations.push(cleanup_io_failure(
+                    "cleanup_file_remove",
+                    "std::fs::remove_file",
+                    error,
+                    "IDENTITY_VERIFIED_BUT_REMOVE_FAILED",
+                ));
+            } else {
+                observations.push(json!({
+                    "phase": "cleanup_file_remove",
+                    "result": "API_RETURN_OBSERVED",
+                    "file_name": name,
+                    "identity_match_required": true,
+                    "identity_match": true,
+                    "path_scope": "exact generated direct child only",
+                }));
+            }
+        }
+
+        if owned_file.was_created && !found_probe_file {
+            complete = false;
+            observations.push(json!({
+                "phase": "cleanup_file_identity_check",
+                "result": "CLEANUP_INCOMPLETE",
+                "reason": "CREATED_OBJECT_NOT_FOUND_AT_EITHER_EXPECTED_NAME",
+            }));
         }
 
         match fs::symlink_metadata(sandbox) {
@@ -1460,12 +2090,11 @@ mod windows_probe {
             {
                 if let Err(error) = fs::remove_dir(sandbox) {
                     complete = false;
-                    observations.push(rust_io_observation(
+                    observations.push(cleanup_io_failure(
                         "cleanup_sandbox_remove",
                         "std::fs::remove_dir",
-                        "empty unique sandbox directory only; no recursion",
-                        Err(error),
-                        json!({"sandbox": "RUNNER_TEMP/<unique-direct-child>"}),
+                        error,
+                        "EMPTY_UNIQUE_SANDBOX_REMOVE_FAILED; no recursive deletion",
                     ));
                 }
             }
@@ -1489,6 +2118,35 @@ mod windows_probe {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn identity_with(byte: u8) -> FileIdentity {
+        FileIdentity {
+            volume_serial_number: 17,
+            file_id: [byte; 16],
+        }
+    }
+
+    fn complete_observations() -> Vec<Value> {
+        let mut observations = vec![
+            serde_json::json!({"phase":"directory_open","case_id":"A_FILE_OPEN_BASELINE","result":"ERROR","win32_error_code":5,"rust_raw_os_error":Some(5)}),
+            serde_json::json!({"phase":"directory_open","case_id":"B_BACKUP_SEMANTICS_GENERIC_READ","result":"SUCCESS"}),
+            serde_json::json!({"phase":"directory_sync","case_id":"B_BACKUP_SEMANTICS_GENERIC_READ","result":"ERROR","win32_error_code":5,"rust_raw_os_error":Some(5)}),
+            serde_json::json!({"phase":"directory_open","case_id":"C_BACKUP_SEMANTICS_GENERIC_WRITE","result":"SUCCESS"}),
+            serde_json::json!({"phase":"directory_sync","case_id":"C_BACKUP_SEMANTICS_GENERIC_WRITE","result":"SUCCESS"}),
+            serde_json::json!({"phase":"small_file_open_create_new","result":"SUCCESS"}),
+            serde_json::json!({"phase":"file_identity_at_creation","result":"API_RETURN_OBSERVED"}),
+            serde_json::json!({"phase":"small_file_write","result":"SUCCESS"}),
+            serde_json::json!({"phase":"small_file_sync","result":"SUCCESS"}),
+            serde_json::json!({"phase":"file_identity_before_rename","result":"API_RETURN_OBSERVED","creation_before_rename_identity_matches":true}),
+            serde_json::json!({"phase":"source_reopen_before_rename","result":"SUCCESS"}),
+            serde_json::json!({"phase":"same_directory_rename","result":"API_RETURN_OBSERVED"}),
+            serde_json::json!({"phase":"readonly_reopen_after_rename","result":"SUCCESS"}),
+            serde_json::json!({"phase":"file_identity_after_rename","result":"API_RETURN_OBSERVED","before_after_identity_matches":true}),
+            serde_json::json!({"phase":"readonly_reopen_content_check","result":"API_RETURN_OBSERVED","payload_matches":true,"before_after_sha256_matches":true}),
+        ];
+        observations.shrink_to_fit();
+        observations
+    }
 
     #[test]
     fn missing_or_nonexact_consent_keeps_probe_disabled() {
@@ -1562,9 +2220,148 @@ mod tests {
     }
 
     #[test]
-    fn unknown_object_identity_is_not_accepted() {
-        assert!(!identity_is_known::<u64>(None));
-        assert!(identity_is_known(Some(7_u64)));
+    fn missing_zero_and_placeholder_identity_never_issue_rename() {
+        let zero_file_id = FileIdentity {
+            volume_serial_number: 17,
+            file_id: [0; 16],
+        };
+        let placeholder_file_id = FileIdentity {
+            volume_serial_number: 17,
+            file_id: [u8::MAX; 16],
+        };
+        let zero_volume = FileIdentity {
+            volume_serial_number: 0,
+            file_id: [1; 16],
+        };
+        let placeholder_volume = FileIdentity {
+            volume_serial_number: u64::MAX,
+            file_id: [1; 16],
+        };
+        let created_identity = identity_with(1);
+        let changed_identity = identity_with(2);
+        let rejected = [
+            None,
+            Some(&zero_file_id),
+            Some(&placeholder_file_id),
+            Some(&zero_volume),
+            Some(&placeholder_volume),
+            Some(&changed_identity),
+        ];
+        for identity in rejected {
+            let mut rename_issued = false;
+            if rename_identity_gate_allows(Some(&created_identity), identity) {
+                rename_issued = true;
+            }
+            assert!(!rename_issued);
+        }
+        assert!(rename_identity_gate_allows(
+            Some(&created_identity),
+            Some(&created_identity)
+        ));
+    }
+
+    #[test]
+    fn changed_post_rename_identity_blocks_follow_on_and_aggregates_rejection() {
+        let expected = identity_with(1);
+        let changed = identity_with(2);
+        assert!(!identities_match(Some(&expected), Some(&changed)));
+
+        let mut observations = complete_observations();
+        observations.retain(|item| item["phase"] != "readonly_reopen_content_check");
+        let after = observations
+            .iter_mut()
+            .find(|item| item["phase"] == "file_identity_after_rename")
+            .unwrap();
+        after["result"] = serde_json::json!("SAFETY_REJECTION");
+        after["before_after_identity_matches"] = serde_json::json!(false);
+        assert_eq!(
+            aggregate_probe_status(&observations).0,
+            ProbeStatus::SafetyRejection
+        );
+    }
+
+    #[test]
+    fn missing_identity_query_blocks_rename_and_is_unavailable() {
+        let mut observations = complete_observations();
+        observations.retain(|item| item["phase"] != "same_directory_rename");
+        let before = observations
+            .iter_mut()
+            .find(|item| item["phase"] == "file_identity_before_rename")
+            .unwrap();
+        before["result"] = serde_json::json!("ENVIRONMENT_UNAVAILABLE");
+        before["win32_error_code"] = serde_json::json!(5);
+        assert_eq!(
+            aggregate_probe_status(&observations).0,
+            ProbeStatus::EnvironmentUnavailable
+        );
+    }
+
+    #[test]
+    fn directory_api_errors_are_observations_when_required_phases_complete() {
+        let observations = complete_observations();
+        assert_eq!(
+            aggregate_probe_status(&observations),
+            (
+                ProbeStatus::FileOperationObserved,
+                "ALL_REQUIRED_PHASES_COMPLETE_API_RETURNS_ONLY"
+            )
+        );
+        assert_eq!(ProbeStatus::FileOperationObserved.exit_code(), 0);
+    }
+
+    #[test]
+    fn wrong_content_digest_is_a_safety_rejection() {
+        let mut observations = complete_observations();
+        let content = observations
+            .iter_mut()
+            .find(|item| item["phase"] == "readonly_reopen_content_check")
+            .unwrap();
+        content["result"] = serde_json::json!("SAFETY_REJECTION");
+        content["before_after_sha256_matches"] = serde_json::json!(false);
+        assert_eq!(
+            aggregate_probe_status(&observations).0,
+            ProbeStatus::SafetyRejection
+        );
+    }
+
+    #[test]
+    fn skipped_or_missing_required_phase_is_probe_incomplete() {
+        let mut skipped = complete_observations();
+        skipped.push(serde_json::json!({"phase":"directory_sync","case_id":"C_BACKUP_SEMANTICS_GENERIC_WRITE","result":"NOT_ATTEMPTED"}));
+        assert_eq!(
+            aggregate_probe_status(&skipped).0,
+            ProbeStatus::ProbeIncomplete
+        );
+
+        let mut missing = complete_observations();
+        missing.retain(|item| item["phase"] != "readonly_reopen_content_check");
+        assert_eq!(
+            aggregate_probe_status(&missing).0,
+            ProbeStatus::ProbeIncomplete
+        );
+    }
+
+    #[test]
+    fn cleanup_failure_does_not_promote_or_erase_primary_status() {
+        let observations = complete_observations();
+        let (primary, _) = aggregate_probe_status(&observations);
+        assert_eq!(primary, ProbeStatus::FileOperationObserved);
+        assert_eq!(
+            final_probe_status(primary, false),
+            ProbeStatus::CleanupIncomplete
+        );
+        assert_ne!(ProbeStatus::CleanupIncomplete.exit_code(), 0);
+    }
+
+    #[test]
+    fn source_and_owner_preflight_failures_return_nonzero_statuses() {
+        let source_rejected = final_probe_status(status_from_name("SAFETY_REJECTION"), true);
+        let owner_unavailable =
+            final_probe_status(status_from_name("ENVIRONMENT_UNAVAILABLE"), true);
+        assert_eq!(source_rejected, ProbeStatus::SafetyRejection);
+        assert_eq!(owner_unavailable, ProbeStatus::EnvironmentUnavailable);
+        assert_ne!(source_rejected.exit_code(), 0);
+        assert_ne!(owner_unavailable.exit_code(), 0);
     }
 
     #[test]
@@ -1575,6 +2372,17 @@ mod tests {
         assert!(!valid_git_object_id("not-a-commit"));
         assert!(!valid_git_object_id(
             "0123456789abcdef0123456789abcdef0123456g"
+        ));
+    }
+
+    #[test]
+    fn executable_identity_requires_full_sha256_hex() {
+        assert!(valid_sha256_hex(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!valid_sha256_hex("short"));
+        assert!(!valid_sha256_hex(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefg"
         ));
     }
 

@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - test/issue-381-b4-p1a-native-t10
+    paths:
+      - .github/workflows/issue-381-b4-p1a-native-t10.yml
+      - tests/issue381_b4_p1a_f1/**
 
 permissions:
   contents: read

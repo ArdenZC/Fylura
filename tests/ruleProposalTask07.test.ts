@@ -5,6 +5,40 @@ import { makeTranslator } from "../src/i18n";
 
 const read = (path: string) => readFileSync(resolve(path), "utf8");
 
+const RULE_PROPOSAL_SCHEMA_MINIMUM_VERSION = 33;
+
+const readRuleProposalSchemaVersion = (schema: string): number => {
+  const declarations = [
+    ...schema.matchAll(
+      /^[ \t]*pub\(crate\)[ \t]+const[ \t]+CURRENT_SCHEMA_VERSION:[ \t]*i32[ \t]*=[ \t]*([^;\r\n]*)[ \t]*;[ \t]*$/gm
+    )
+  ];
+  if (declarations.length !== 1) {
+    throw new Error("Expected exactly one CURRENT_SCHEMA_VERSION i32 declaration");
+  }
+
+  const literal = declarations[0]?.[1];
+  if (literal === undefined || !/^[+-]?\d(?:_?\d)*$/.test(literal)) {
+    throw new Error("CURRENT_SCHEMA_VERSION must be an integer literal");
+  }
+
+  const version = Number(literal.replaceAll("_", ""));
+  if (
+    !Number.isSafeInteger(version) ||
+    version < -2_147_483_648 ||
+    version > 2_147_483_647
+  ) {
+    throw new Error("CURRENT_SCHEMA_VERSION must fit in an i32");
+  }
+  if (version < RULE_PROPOSAL_SCHEMA_MINIMUM_VERSION) {
+    throw new Error(
+      `Rule Proposal requires schema version ${RULE_PROPOSAL_SCHEMA_MINIMUM_VERSION} or later`
+    );
+  }
+
+  return version;
+};
+
 const proposalCommands = [
   "create_rule_proposal",
   "regenerate_rule_proposal",
@@ -36,7 +70,9 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
       schema.indexOf("fn ensure_rule_proposal_schema"),
       schema.indexOf("fn require_exact_table_columns")
     );
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 37");
+    expect(readRuleProposalSchemaVersion(schema)).toBeGreaterThanOrEqual(
+      RULE_PROPOSAL_SCHEMA_MINIMUM_VERSION
+    );
     expect(section).toContain("CREATE TABLE IF NOT EXISTS rule_proposals");
     expect(section).toContain("CREATE TABLE IF NOT EXISTS rule_catalog_state");
     expect(section).toContain("ALTER TABLE rules ADD COLUMN ast_version");
@@ -45,6 +81,25 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
     expect(section).not.toContain("ALTER TABLE files");
     expect(section).not.toContain("ALTER TABLE operation_logs");
     expect(section).not.toContain("ALTER TABLE cleanup_");
+  });
+
+  it("keeps the Rule Proposal schema floor forward-compatible and rejects invalid versions", () => {
+    const schemaWithVersion = (version: string) =>
+      `pub(crate) const CURRENT_SCHEMA_VERSION: i32 = ${version};`;
+
+    expect(readRuleProposalSchemaVersion(schemaWithVersion("39"))).toBe(39);
+    expect(() => readRuleProposalSchemaVersion(schemaWithVersion("32"))).toThrow(
+      /33 or later/
+    );
+    expect(() => readRuleProposalSchemaVersion(schemaWithVersion("not-a-number"))).toThrow(
+      /integer literal/
+    );
+    expect(() => readRuleProposalSchemaVersion(schemaWithVersion("2147483648"))).toThrow(
+      /fit in an i32/
+    );
+    expect(() =>
+      readRuleProposalSchemaVersion("const CURRENT_SCHEMA_VERSION: i32 = 38;")
+    ).toThrow(/exactly one/);
   });
 
   it("exposes V2 and proposal commands only to the main window", () => {

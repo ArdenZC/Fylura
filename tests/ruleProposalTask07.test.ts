@@ -97,8 +97,16 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
     expect(() => readRuleProposalSchemaVersion(schemaWithVersion("2147483648"))).toThrow(
       /fit in an i32/
     );
+    expect(() => readRuleProposalSchemaVersion(schemaWithVersion("-2147483649"))).toThrow(
+      /fit in an i32/
+    );
     expect(() =>
       readRuleProposalSchemaVersion("const CURRENT_SCHEMA_VERSION: i32 = 38;")
+    ).toThrow(/exactly one/);
+    expect(() =>
+      readRuleProposalSchemaVersion(
+        `${schemaWithVersion("38")}\n${schemaWithVersion("39")}`
+      )
     ).toThrow(/exactly one/);
   });
 

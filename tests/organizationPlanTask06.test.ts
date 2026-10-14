@@ -4,6 +4,42 @@ import { describe, expect, it } from "vitest";
 
 const read = (path: string) => readFileSync(resolve(path), "utf8");
 
+const ORGANIZATION_PLAN_SCHEMA_MINIMUM_VERSION = 32;
+
+const readSchemaVersionAtLeast = (
+  schema: string,
+  minimum: number,
+  feature: string
+): number => {
+  const declarations = [
+    ...schema.matchAll(
+      /^[ \t]*pub\(crate\)[ \t]+const[ \t]+CURRENT_SCHEMA_VERSION:[ \t]*i32[ \t]*=[ \t]*([^;\r\n]*)[ \t]*;[ \t]*$/gm
+    )
+  ];
+  if (declarations.length !== 1) {
+    throw new Error("Expected exactly one CURRENT_SCHEMA_VERSION i32 declaration");
+  }
+
+  const literal = declarations[0]?.[1];
+  if (literal === undefined || !/^[+-]?\d(?:_?\d)*$/.test(literal)) {
+    throw new Error("CURRENT_SCHEMA_VERSION must be an integer literal");
+  }
+
+  const version = Number(literal.replaceAll("_", ""));
+  if (
+    !Number.isSafeInteger(version) ||
+    version < -2_147_483_648 ||
+    version > 2_147_483_647
+  ) {
+    throw new Error("CURRENT_SCHEMA_VERSION must fit in an i32");
+  }
+  if (version < minimum) {
+    throw new Error(`${feature} requires schema version ${minimum} or later`);
+  }
+
+  return version;
+};
+
 describe("Task 06 durable Organization Plan contracts", () => {
   it("retains the schema 32 plan ledger and small-table revisions after later migrations", () => {
     const schema = read("src-tauri/src/db/schema.rs");
@@ -11,7 +47,13 @@ describe("Task 06 durable Organization Plan contracts", () => {
       schema.indexOf("fn ensure_organization_plan_schema"),
       schema.indexOf("fn ensure_journal_state_triggers")
     );
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 37");
+    expect(
+      readSchemaVersionAtLeast(
+        schema,
+        ORGANIZATION_PLAN_SCHEMA_MINIMUM_VERSION,
+        "Organization Plan"
+      )
+    ).toBeGreaterThanOrEqual(ORGANIZATION_PLAN_SCHEMA_MINIMUM_VERSION);
     expect(section).toContain("CREATE TABLE IF NOT EXISTS organization_plans");
     expect(section).toContain("CREATE TABLE IF NOT EXISTS organization_plan_items");
     expect(section).toContain("ALTER TABLE user_tags ADD COLUMN revision");
@@ -20,6 +62,34 @@ describe("Task 06 durable Organization Plan contracts", () => {
     expect(section).not.toContain("ALTER TABLE operation_logs");
     expect(section).not.toContain("CREATE TABLE operation_logs");
     expect(section).not.toContain("CREATE TABLE managed_ai");
+  });
+
+  it("keeps the schema-version check valid for later migrations and rejects invalid declarations", () => {
+    const schemaWithVersion = (version: string) =>
+      `pub(crate) const CURRENT_SCHEMA_VERSION: i32 = ${version};`;
+    const feature = "Organization Plan";
+
+    expect(
+      readSchemaVersionAtLeast(schemaWithVersion("39"), ORGANIZATION_PLAN_SCHEMA_MINIMUM_VERSION, feature)
+    ).toBe(39);
+    expect(() =>
+      readSchemaVersionAtLeast(schemaWithVersion("31"), ORGANIZATION_PLAN_SCHEMA_MINIMUM_VERSION, feature)
+    ).toThrow(/schema version 32 or later/);
+    expect(() => readSchemaVersionAtLeast("", ORGANIZATION_PLAN_SCHEMA_MINIMUM_VERSION, feature)).toThrow(
+      /exactly one/
+    );
+    expect(() =>
+      readSchemaVersionAtLeast(
+        `${schemaWithVersion("38")}\n${schemaWithVersion("39")}`,
+        ORGANIZATION_PLAN_SCHEMA_MINIMUM_VERSION,
+        feature
+      )
+    ).toThrow(/exactly one/);
+    for (const invalid of ["not-a-number", "2147483648", "-2147483649"]) {
+      expect(() =>
+        readSchemaVersionAtLeast(schemaWithVersion(invalid), ORGANIZATION_PLAN_SCHEMA_MINIMUM_VERSION, feature)
+      ).toThrow();
+    }
   });
 
   it("keeps plan execution on the existing authoritative preview and operation journal", () => {

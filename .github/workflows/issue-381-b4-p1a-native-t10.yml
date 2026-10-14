@@ -1,0 +1,260 @@
+name: Issue 381 B4 P1A T10 hosted native research
+
+on:
+  push:
+    branches:
+      - test/issue-381-b4-p1a-native-t10
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-381-b4-p1a-native-t10-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-t10:
+    name: T10 native ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    env:
+      RUST_BACKTRACE: "1"
+      T10_HOSTED_RUNNER: "true"
+      T10_SOURCE_SHA: ${{ github.sha }}
+      T10_RUN_ID: ${{ github.run_id }}
+      T10_RUN_ATTEMPT: ${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout the pushed source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify source scope and prepare Windows runner paths
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'issue381-b4-p1a-native-t10-evidence'
+          $sandboxRoot = Join-Path $env:RUNNER_TEMP 'issue381-b4-p1a-native-t10-sandbox'
+          $targetRoot = Join-Path $env:RUNNER_TEMP 'issue381-b4-p1a-native-t10-target'
+          New-Item -ItemType Directory -Force -Path $evidenceRoot, $sandboxRoot, $targetRoot | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $evidenceRoot 'raw') | Out-Null
+          "T10_EVIDENCE_ROOT=$evidenceRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "T10_SANDBOX_ROOT=$sandboxRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CARGO_TARGET_DIR=$targetRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          $head = (git rev-parse HEAD).Trim()
+          $tree = (git rev-parse 'HEAD^{tree}').Trim()
+          $base = 'd5ba2b07b7f6c1be6dce5f58b67718bb5b7ef84f'
+          if ($head -ne $env:GITHUB_SHA) { throw 'checked-out HEAD differs from push event SHA' }
+          git merge-base --is-ancestor $base HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'source is not descended from the authorized #408 HEAD' }
+          $changed = @(git diff --name-only $base HEAD)
+          $changed | Set-Content -Path (Join-Path $evidenceRoot 'changed-paths.txt') -Encoding utf8
+          foreach ($path in $changed) {
+            if ($path -notlike 'tests/issue381_b4_p1a_f1/*' -and
+                $path -notlike 'docs/project/research/issue-381-b4-p1a/*' -and
+                $path -ne '.github/workflows/issue-381-b4-p1a-native-t10.yml') {
+              throw "source path outside authorized research scope: $path"
+            }
+          }
+
+          $filesystem = 'unreported'
+          try { $filesystem = (Get-Volume -FilePath $env:RUNNER_TEMP -ErrorAction Stop).FileSystem } catch {}
+          try {
+            $rustcVersion = (rustc --version).Trim()
+            $cargoVersion = (cargo --version).Trim()
+            $rustcDetails = rustc -vV
+            $rustcHost = (($rustcDetails | Where-Object { $_ -like 'host: *' } | Select-Object -First 1) -replace '^host: ', '')
+            if (-not $rustcVersion -or -not $cargoVersion -or -not $rustcHost) { throw 'Rust toolchain metadata is incomplete' }
+          } catch {
+            $_ | Out-String | Set-Content -Path (Join-Path $evidenceRoot 'raw/runner-toolchain-error.txt') -Encoding utf8
+            throw
+          }
+          $osVersion = [System.Environment]::OSVersion.VersionString
+          $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+          $runnerImage = "$env:ImageOS/$env:ImageVersion"
+          @(
+            "run_id=$env:T10_RUN_ID"
+            "run_attempt=$env:T10_RUN_ATTEMPT"
+            "head=$head"
+            "tree=$tree"
+            "base=$base"
+            "os=Windows"
+            "os_version=$osVersion"
+            "architecture=$arch"
+            "filesystem_type=$filesystem"
+            "runner_image=$runnerImage"
+            "rustc_version=$rustcVersion"
+            "rustc_host=$rustcHost"
+            "cargo_version=$cargoVersion"
+            'source_checkout=github.sha; persist_credentials=false'
+            'sandbox_and_target_roots=runner.temp'
+          ) | Set-Content -Path (Join-Path $evidenceRoot 'host-environment.txt') -Encoding utf8
+          "T10_SOURCE_TREE=$tree" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "T10_FILESYSTEM=$filesystem" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "T10_RUSTC_VERSION=$rustcVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "T10_CARGO_VERSION=$cargoVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "T10_RUSTC_HOST=$rustcHost" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-Content (Join-Path $evidenceRoot 'host-environment.txt')
+
+      - name: Verify source scope and prepare macOS runner paths
+        if: ${{ matrix.os == 'macos-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_root="$RUNNER_TEMP/issue381-b4-p1a-native-t10-evidence"
+          sandbox_root="$RUNNER_TEMP/issue381-b4-p1a-native-t10-sandbox"
+          target_root="$RUNNER_TEMP/issue381-b4-p1a-native-t10-target"
+          mkdir -p "$evidence_root/raw" "$sandbox_root" "$target_root"
+          printf 'T10_EVIDENCE_ROOT=%s\n' "$evidence_root" >> "$GITHUB_ENV"
+          printf 'T10_SANDBOX_ROOT=%s\n' "$sandbox_root" >> "$GITHUB_ENV"
+          printf 'CARGO_TARGET_DIR=%s\n' "$target_root" >> "$GITHUB_ENV"
+
+          head="$(git rev-parse HEAD)"
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          base='d5ba2b07b7f6c1be6dce5f58b67718bb5b7ef84f'
+          test "$head" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --name-only "$base" HEAD > "$evidence_root/changed-paths.txt"
+          while IFS= read -r path; do
+            case "$path" in
+              tests/issue381_b4_p1a_f1/*|docs/project/research/issue-381-b4-p1a/*|.github/workflows/issue-381-b4-p1a-native-t10.yml) ;;
+              *) printf 'source path outside authorized research scope: %s\n' "$path" >&2; exit 1 ;;
+            esac
+          done < "$evidence_root/changed-paths.txt"
+          filesystem="$(diskutil info "$RUNNER_TEMP" 2>/dev/null | awk -F': *' '$1 ~ /File System Personality/ { print $2; exit }' || true)"
+          if [ -z "$filesystem" ]; then filesystem='unreported'; fi
+          rustc_version="$(rustc --version)"
+          cargo_version="$(cargo --version)"
+          rustc_host="$(rustc -vV | sed -n 's/^host: //p')"
+          os_version="$(sw_vers -productVersion)"
+          arch="$(uname -m)"
+          runner_image="${ImageOS:-unreported}/${ImageVersion:-unreported}"
+          {
+            printf 'run_id=%s\n' "$T10_RUN_ID"
+            printf 'run_attempt=%s\n' "$T10_RUN_ATTEMPT"
+            printf 'head=%s\n' "$head"
+            printf 'tree=%s\n' "$tree"
+            printf 'base=%s\n' "$base"
+            printf 'os=macOS\n'
+            printf 'os_version=%s\n' "$os_version"
+            printf 'architecture=%s\n' "$arch"
+            printf 'filesystem_type=%s\n' "$filesystem"
+            printf 'runner_image=%s\n' "$runner_image"
+            printf 'rustc_version=%s\n' "$rustc_version"
+            printf 'rustc_host=%s\n' "$rustc_host"
+            printf 'cargo_version=%s\n' "$cargo_version"
+            printf 'source_checkout=github.sha; persist_credentials=false\n'
+            printf 'sandbox_and_target_roots=runner.temp\n'
+          } > "$evidence_root/host-environment.txt"
+          printf 'T10_SOURCE_TREE=%s\nT10_FILESYSTEM=%s\nT10_RUSTC_VERSION=%s\nT10_CARGO_VERSION=%s\nT10_RUSTC_HOST=%s\n' \
+            "$tree" "$filesystem" "$rustc_version" "$cargo_version" "$rustc_host" >> "$GITHUB_ENV"
+          cat "$evidence_root/host-environment.txt"
+
+      - name: Build only the isolated harness with its locked graph (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $buildOut = Join-Path $env:T10_EVIDENCE_ROOT 'raw/cargo-build.stdout.txt'
+          $buildErr = Join-Path $env:T10_EVIDENCE_ROOT 'raw/cargo-build.stderr.txt'
+          cargo build --release --locked --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml 1> $buildOut 2> $buildErr
+          $buildCode = $LASTEXITCODE
+          "exit_code=$buildCode" | Set-Content (Join-Path $env:T10_EVIDENCE_ROOT 'raw/cargo-build.exit.txt')
+          if ($buildCode -ne 0) { throw "cargo build failed with exit code $buildCode" }
+          cargo tree -e features --locked --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml 1> (Join-Path $env:T10_EVIDENCE_ROOT 'raw/cargo-tree.stdout.txt') 2> (Join-Path $env:T10_EVIDENCE_ROOT 'raw/cargo-tree.stderr.txt')
+          $treeCode = $LASTEXITCODE
+          "exit_code=$treeCode" | Set-Content (Join-Path $env:T10_EVIDENCE_ROOT 'raw/cargo-tree.exit.txt')
+          if ($treeCode -ne 0) { throw "cargo tree failed with exit code $treeCode" }
+
+      - name: Build only the isolated harness with its locked graph (macOS)
+        if: ${{ matrix.os == 'macos-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_root="$T10_EVIDENCE_ROOT"
+          set +e
+          cargo build --release --locked --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml \
+            > "$evidence_root/raw/cargo-build.stdout.txt" 2> "$evidence_root/raw/cargo-build.stderr.txt"
+          build_code=$?
+          printf 'exit_code=%s\n' "$build_code" > "$evidence_root/raw/cargo-build.exit.txt"
+          if [ "$build_code" -ne 0 ]; then exit "$build_code"; fi
+          cargo tree -e features --locked --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml \
+            > "$evidence_root/raw/cargo-tree.stdout.txt" 2> "$evidence_root/raw/cargo-tree.stderr.txt"
+          tree_code=$?
+          printf 'exit_code=%s\n' "$tree_code" > "$evidence_root/raw/cargo-tree.exit.txt"
+          exit "$tree_code"
+
+      - name: Execute native T10 matrix (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $binary = Join-Path $env:CARGO_TARGET_DIR 'release/issue381-b4-p1a-f1.exe'
+          $stdout = Join-Path $env:T10_EVIDENCE_ROOT 'raw/t10-native.stdout.jsonl'
+          $stderr = Join-Path $env:T10_EVIDENCE_ROOT 'raw/t10-native.stderr.txt'
+          & $binary --t10-native 1> $stdout 2> $stderr
+          $testCode = $LASTEXITCODE
+          "exit_code=$testCode" | Set-Content (Join-Path $env:T10_EVIDENCE_ROOT 'raw/t10-native.exit.txt')
+          if ($testCode -ne 0) { throw "--t10-native failed with exit code $testCode" }
+
+      - name: Execute native T10 matrix (macOS)
+        if: ${{ matrix.os == 'macos-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_root="$T10_EVIDENCE_ROOT"
+          binary="$CARGO_TARGET_DIR/release/issue381-b4-p1a-f1"
+          set +e
+          "$binary" --t10-native > "$evidence_root/raw/t10-native.stdout.jsonl" 2> "$evidence_root/raw/t10-native.stderr.txt"
+          test_code=$?
+          printf 'exit_code=%s\n' "$test_code" > "$evidence_root/raw/t10-native.exit.txt"
+          exit "$test_code"
+
+      - name: Hash Windows evidence
+        if: ${{ always() && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          if (-not $env:T10_EVIDENCE_ROOT) { exit 0 }
+          $root = $env:T10_EVIDENCE_ROOT
+          $manifestPath = Join-Path $root 'SHA256SUMS.json'
+          $entries = Get-ChildItem -Path $root -File -Recurse |
+            Where-Object { $_.FullName -ne $manifestPath } |
+            Sort-Object FullName |
+            ForEach-Object {
+              [ordered]@{
+                path = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
+                sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+                bytes = $_.Length
+              }
+            }
+          [ordered]@{ algorithm = 'SHA-256'; files = @($entries) } |
+            ConvertTo-Json -Depth 5 |
+            Set-Content -Path $manifestPath -Encoding utf8NoBOM
+
+      - name: Hash macOS evidence
+        if: ${{ always() && matrix.os == 'macos-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${T10_EVIDENCE_ROOT:-}" ]; then exit 0; fi
+          cd "$T10_EVIDENCE_ROOT"
+          find . -type f ! -name 'SHA256SUMS.txt' -print | LC_ALL=C sort | while IFS= read -r file; do shasum -a 256 "$file"; done > SHA256SUMS.txt
+
+      - name: Upload sanitized raw OS evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue-381-b4-p1a-t10-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/issue381-b4-p1a-native-t10-evidence
+          if-no-files-found: warn
+          include-hidden-files: true

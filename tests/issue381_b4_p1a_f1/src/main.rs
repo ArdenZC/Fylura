@@ -1,5 +1,6 @@
 mod db;
 mod model;
+mod t10_native;
 
 use crate::db::{
     ManifestExpectation, PRODUCT_POOL_SIZE, authority_slot, claim_live_lease_count,
@@ -2561,6 +2562,12 @@ fn run_remediation_only() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     let args = std::env::args().collect::<Vec<_>>();
+    if args.get(1).map(String::as_str) == Some("--t10-native") {
+        std::process::exit(t10_native::run());
+    }
+    if args.get(1).map(String::as_str) == Some("--t10-native-child") {
+        std::process::exit(t10_native::run_child(&args[2..]));
+    }
     if args.get(1).map(String::as_str) == Some("--remediation-only") {
         if let Err(error) = run_remediation_only() {
             eprintln!("focused remediation failure: {error}");

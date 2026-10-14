@@ -56,7 +56,16 @@ pub struct BuiltSlot {
     pub checkpoint_ms: f64,
     pub file_sync_ms: f64,
     pub directory_sync_ms: f64,
+    pub directory_sync_attempts: Vec<DirectorySyncAttempt>,
     pub wal_bytes_after_seal: u64,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct DirectorySyncAttempt {
+    pub outcome: &'static str,
+    pub elapsed_ms: f64,
+    pub error_kind: Option<String>,
+    pub raw_os_error: Option<i32>,
 }
 
 pub fn open_connection(path: &Path) -> rusqlite::Result<Connection> {
@@ -95,6 +104,27 @@ pub fn create_slot(
     path: &Path,
     slot_id: &str,
     docs: &[Document],
+) -> Result<BuiltSlot, Box<dyn std::error::Error>> {
+    create_slot_with_directory_sync_policy(path, slot_id, docs, false)
+}
+
+/// T10-only slot sealer. File data and manifest files still require real
+/// `sync_all`; on Windows only, directory-sync failures are preserved as
+/// evidence and the disposable fixture may continue so other native gates can
+/// run. Those failures never count as directory durability proof.
+pub fn create_native_test_slot(
+    path: &Path,
+    slot_id: &str,
+    docs: &[Document],
+) -> Result<BuiltSlot, Box<dyn std::error::Error>> {
+    create_slot_with_directory_sync_policy(path, slot_id, docs, cfg!(windows))
+}
+
+fn create_slot_with_directory_sync_policy(
+    path: &Path,
+    slot_id: &str,
+    docs: &[Document],
+    record_windows_directory_sync_failure: bool,
 ) -> Result<BuiltSlot, Box<dyn std::error::Error>> {
     let start = Instant::now();
     let mut conn = Connection::open(path)?;
@@ -191,9 +221,16 @@ pub fn create_slot(
     std::fs::File::open(path)?.sync_all()?;
     let file_sync_ms = file_sync.elapsed().as_secs_f64() * 1_000.0;
     let parent = path.parent().ok_or("slot parent missing")?;
-    let dir_sync = Instant::now();
-    std::fs::File::open(parent)?.sync_all()?;
-    let directory_sync_ms = dir_sync.elapsed().as_secs_f64() * 1_000.0;
+    let directory_sync = sync_directory(parent);
+    if directory_sync.outcome != "SYNCED"
+        && !record_windows_directory_sync_failure
+    {
+        return Err(format!(
+            "parent directory sync failed: kind={:?}, raw_os_error={:?}",
+            directory_sync.error_kind, directory_sync.raw_os_error
+        )
+        .into());
+    }
     let (sqlite_file_sha256, sqlite_file_bytes) = file_sha256(path)?;
     let source_id = {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -225,7 +262,18 @@ pub fn create_slot(
         file.sync_all()?;
     }
     std::fs::rename(&manifest_tmp, &manifest_path)?;
-    std::fs::File::open(parent)?.sync_all()?;
+    let manifest_directory_sync = sync_directory(parent);
+    if manifest_directory_sync.outcome != "SYNCED"
+        && !record_windows_directory_sync_failure
+    {
+        return Err(format!(
+            "manifest directory sync failed: kind={:?}, raw_os_error={:?}",
+            manifest_directory_sync.error_kind, manifest_directory_sync.raw_os_error
+        )
+        .into());
+    }
+    let directory_sync_ms = directory_sync.elapsed_ms + manifest_directory_sync.elapsed_ms;
+    let directory_sync_attempts = vec![directory_sync, manifest_directory_sync];
     let manifest_sha256 = sha256_bytes(&manifest_bytes);
     Ok(BuiltSlot {
         path: path.to_path_buf(),
@@ -236,8 +284,27 @@ pub fn create_slot(
         checkpoint_ms,
         file_sync_ms,
         directory_sync_ms,
+        directory_sync_attempts,
         wal_bytes_after_seal,
     })
+}
+
+fn sync_directory(path: &Path) -> DirectorySyncAttempt {
+    let start = Instant::now();
+    match std::fs::File::open(path).and_then(|directory| directory.sync_all()) {
+        Ok(()) => DirectorySyncAttempt {
+            outcome: "SYNCED",
+            elapsed_ms: start.elapsed().as_secs_f64() * 1_000.0,
+            error_kind: None,
+            raw_os_error: None,
+        },
+        Err(error) => DirectorySyncAttempt {
+            outcome: "UNAVAILABLE_OR_FAILED",
+            elapsed_ms: start.elapsed().as_secs_f64() * 1_000.0,
+            error_kind: Some(format!("{:?}", error.kind())),
+            raw_os_error: error.raw_os_error(),
+        },
+    }
 }
 
 pub fn create_unsealed_slot(
@@ -503,6 +570,10 @@ pub fn verify_seal(slot: &BuiltSlot) -> Result<serde_json::Value, Box<dyn std::e
     object.insert(
         "directory_sync_ms".into(),
         serde_json::json!(slot.directory_sync_ms),
+    );
+    object.insert(
+        "directory_sync_attempts".into(),
+        serde_json::to_value(&slot.directory_sync_attempts)?,
     );
     Ok(details)
 }

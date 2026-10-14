@@ -4,6 +4,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -218,7 +219,7 @@ fn create_slot_with_directory_sync_policy(
     let wal_path = suffix(path, "-wal");
     let wal_bytes_after_seal = std::fs::metadata(wal_path).map(|m| m.len()).unwrap_or(0);
     let file_sync = Instant::now();
-    std::fs::File::open(path)?.sync_all()?;
+    file_system_sync(path)?;
     let file_sync_ms = file_sync.elapsed().as_secs_f64() * 1_000.0;
     let parent = path.parent().ok_or("slot parent missing")?;
     let directory_sync = sync_directory(parent);
@@ -692,7 +693,7 @@ pub fn wal_bytes(path: &Path) -> u64 {
 }
 
 pub fn file_system_sync(path: &Path) -> std::io::Result<()> {
-    std::fs::File::open(path)?.sync_all()
+    OpenOptions::new().write(true).open(path)?.sync_all()
 }
 
 pub fn update_doc_for_delta(

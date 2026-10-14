@@ -3,7 +3,7 @@
 
 use crate::db::{
     DirectorySyncAttempt, ManifestExpectation, PRODUCT_BUSY_TIMEOUT_MS, PRODUCT_POOL_SIZE,
-    create_native_test_slot, open_connection, open_product_pool, pool_get,
+    create_native_test_slot, file_system_sync, open_connection, open_product_pool, pool_get,
     open_readonly, query_pool_settings, query_rows, read_only_slot_tx, sha256_bytes, suffix,
     verify_manifest_file, verify_seal,
 };
@@ -849,6 +849,7 @@ fn t10_02() -> T10Result<CaseReport> {
     let reader = read_only_slot_tx(&slot.path)?;
     let rows = query_rows(&reader, "common", None, None)?;
     let documents: i64 = reader.query_row("SELECT COUNT(*) FROM slot_docs", [], |row| row.get(0))?;
+    drop(reader);
     let file_sha = file_sha256(&slot.path)?;
     let manifest_bytes = fs::read(&slot.manifest_path)?;
     let manifest_sha = sha256_bytes(&manifest_bytes);
@@ -878,7 +879,6 @@ fn t10_02() -> T10Result<CaseReport> {
         "directory_sync_complete":directory_sync_ok,
         "no_authority_published":true
     });
-    drop(reader);
     let cleanup_ok = temp.cleanup().is_ok();
     let wal_cleared = wal["exists"] == false || wal["bytes"] == 0;
     let shm_cleared = shm["exists"] == false || shm["bytes"] == 0;
@@ -1122,7 +1122,7 @@ fn t10_04() -> T10Result<CaseReport> {
     )?;
     let late_pin_denied = pin_result["accepted"] == false
         && pin_result["observed_state"] == "GC_ELIGIBLE"
-        && pin_result["observed_authority"] == next_slot
+        && pin_result["observed_authority"] == json!([next_slot.clone(), 1])
         && lease_rows == 0;
     drop(reopened);
     let gc = guarded_gc(&fixture)?;
@@ -1413,7 +1413,7 @@ fn t10_06() -> T10Result<CaseReport> {
     let mut forged: Value = serde_json::from_slice(&original_manifest)?;
     forged["slot_id"] = json!("T10-FORGED-SLOT");
     fs::write(&fixture.manifest_path, serde_json::to_vec(&forged)?)?;
-    fs::File::open(&fixture.manifest_path)?.sync_all()?;
+    file_system_sync(&fixture.manifest_path)?;
     let manifest_tamper_rejected = verify_manifest_file(
         &fixture.slot_path,
         &fixture.manifest_path,
@@ -1421,7 +1421,7 @@ fn t10_06() -> T10Result<CaseReport> {
     )
     .is_err();
     fs::write(&fixture.manifest_path, &original_manifest)?;
-    fs::File::open(&fixture.manifest_path)?.sync_all()?;
+    file_system_sync(&fixture.manifest_path)?;
     let restored_manifest_valid = verify_manifest_file(
         &fixture.slot_path,
         &fixture.manifest_path,
@@ -1463,7 +1463,7 @@ fn t10_06() -> T10Result<CaseReport> {
         *first ^= 0x80;
     }
     fs::write(&corrupt_slot, corrupt_bytes)?;
-    fs::File::open(&corrupt_slot)?.sync_all()?;
+    file_system_sync(&corrupt_slot)?;
     let corrupt_slot_rejected = verify_manifest_file(
         &corrupt_slot,
         &fixture.manifest_path,
@@ -1520,7 +1520,7 @@ fn t10_06() -> T10Result<CaseReport> {
 
 fn readonly_permission_probe(path: &Path) -> T10Result<Value> {
     fs::write(path, b"disposable permission probe")?;
-    fs::File::open(path)?.sync_all()?;
+    file_system_sync(path)?;
     let mut permissions = fs::metadata(path)?.permissions();
     permissions.set_readonly(true);
     fs::set_permissions(path, permissions)?;

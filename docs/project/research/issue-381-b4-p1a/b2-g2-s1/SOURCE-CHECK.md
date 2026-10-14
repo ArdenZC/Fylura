@@ -24,3 +24,11 @@ Before any separately authorized G2-S2 proposal, Owner review must compare this 
 ## Crosscheck field semantics
 
 The fixtures set `inventoryEvidence.crosscheck: "PASS"` only to exercise the positive branch of a synthetic model. It is not a cryptographic source receipt, a runtime fetch, a native preflight, or evidence that every source page was validated. The test separately proves `FAIL` and `MISSING` crosschecks suppress all intents. The mirror-versus-canonical Apple source and target-OS gap remains explicit above for independent review.
+
+## R1 remediation boundary (2026-10-14)
+
+The R1 static review retained the existing pinned Microsoft Learn source snapshot for the VHDX command-surface assumptions. The focused code checks exact object/path binding, fixed bounded allocation, no-drive-letter attach, and returned object identity. This is not a fresh provider-version certification or an execution authorization.
+
+The recorded Apple command text remains a third-party mirror, not canonical Apple documentation. R1 adds an explicit synthetic identity graph: one image root, allowed child roles, exact source-image and creation-record association, complete new-device enumeration, host-inventory continuity, and a specific APFS-volume-to-mountpoint binding. It does not infer that this record shape matches any particular `hdiutil -plist` version. The macOS model remains `s2Eligibility: NOT_QUALIFIED`; Owner must establish the canonical structured-output contract and selected-runner behavior before proposing S2.
+
+No native storage API, subprocess, or platform command was run for this review. All source associations, inventory rows, host-space values, cleanup events, and hierarchy records used by R1 are synthetic. This source-check record must not be read as proof of real disk capacity, image allocation, APFS mounting, detach, or release.

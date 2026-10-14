@@ -1,0 +1,134 @@
+
+ RUN  v4.1.9 /workspace/Zen-Canvas
+
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > admits the isolated Windows plan and emits only exact-object, never-executed intents 5ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > admits the isolated macOS plan using one structured attach result and exact UDRW origin 2ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: source hash mismatch without emitting intents 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: pre-existing backing path without emitting intents 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: root symlink without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: reparse point without emitting intents 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: target symlink without emitting intents 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: mount-point reparse point without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: path escape without emitting intents 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: unowned sandbox without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: non-unique sandbox without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: dynamic allocation without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: sparse allocation without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: unbounded growth without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: source partition import without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: physical device target without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: nominal volume over 256 MiB without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: image cap over 320 MiB without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: observed image over cap without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: host delta cap over 320 MiB without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: observed host delta over cap without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: overstated independent free space without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: TOCTOU host fingerprint change without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: failed source/document crosscheck without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: missing before inventory without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: missing post-plan inventory without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: default selector without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: disk-number selector without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: friendly-name selector without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: drive-letter selector without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: broad selector without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects common unsafe plan: drive-letter assignment without emitting intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: NaN 6ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: positive infinity 2ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: negative infinity 10ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: negative 3ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: zero 6ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: fraction 12ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: unsafe integer 2ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: missing 10ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: null 5ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects invalid resource dimensions across both platforms: wrong type 5ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > enforces the fixed virtual-volume and host-increment ceilings on both platforms: nominal volume above 256 MiB 2ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > enforces the fixed virtual-volume and host-increment ceilings on both platforms: image above 320 MiB 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > enforces the fixed virtual-volume and host-increment ceilings on both platforms: host delta cap above 320 MiB 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > enforces the fixed virtual-volume and host-increment ceilings on both platforms: observed image above its bounded cap 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > enforces the fixed virtual-volume and host-increment ceilings on both platforms: observed host delta above its bounded cap 3ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > requires both host snapshots and independent caps to prove at least 4 GiB remains 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: lost Windows baseline with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: changed Windows fingerprint with no intents 2ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: changed Windows identity with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: changed Windows critical attribute with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: changed Windows size with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: changed Windows disk number with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: changed Windows host role with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: duplicate Windows baseline record with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: duplicate Windows fingerprint with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows baseline continuity failure: reused Windows baseline identity with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS baseline continuity failure: lost macOS baseline with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS baseline continuity failure: changed macOS fingerprint with no intents 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS baseline continuity failure: changed macOS identity with no intents 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS baseline continuity failure: changed macOS host classification with no intents 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS baseline continuity failure: duplicate macOS baseline record with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS baseline continuity failure: duplicate macOS fingerprint with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS baseline continuity failure: reused macOS host identity with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS baseline continuity failure: host Data volume selected by identity with no intents 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > accepts a fully linked multi-record macOS image hierarchy as a static-only model 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: missing root origin 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: stale image origin 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: mismatched creation record 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: orphan image child 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: mismatched returned image identity 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: child from another image 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: new device parented into host hierarchy 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: root reuses existing host hierarchy identity 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: attach omits one discovered image device 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: attach repeats an image device identity 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS image hierarchy without complete provenance: mount points to a root instead of an APFS volume 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > classifies unknown backing or free-space as unavailable rather than safe 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > fails closed when either pre- or post-plan free space is below 4 GiB 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects missing or failed static positive-control evidence with distinct outcomes 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects G1 Windows system and data disk fingerprints as targets 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects unknown baseline or post-plan inventory identities 3ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects missing VHD return identity and a missing disk identity 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects two newly returned Windows disks and disk-number initialization 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows identity or format failure: non-RAW returned disk 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows identity or format failure: wrong virtual disk size 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows identity or format failure: boot disk 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows identity or format failure: unbound partition 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows identity or format failure: wrong partition formatting target 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects Windows identity or format failure: wrong filesystem 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects the exact G1 macOS host Data volume fingerprint as an image target 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects a macOS attach result that names an existing G1 host device 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: missing attach identity 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: double mount 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: multiple attach results 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: wrong backing image origin 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: outside mount point 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: mount-point reparse path 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: guessed device selector 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: broad device selector 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: implicit device default 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: non-empty mount point 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: wrong filesystem 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: wrong image format 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: wrong image path 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: sparse image 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 pure static safety model > rejects macOS origin, identity, mount or filesystem failure: global disk operation 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > requires ordered opaque intents and matching observations before exact image removal 2ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > keeps the original failure and blocks removal when release cannot be proven 1ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > cleans up Windows by returned VHD object identity without requiring a drive-letter selector 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > reports removal failure while retaining the original modeled failure 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: failed unmount 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: unmount reported without confirmation 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: skipped unmount 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: reverse release event 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: wrong mount identity 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: changed device identity 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: changed image identity 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: changed ownership 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > fails closed on unverified or out-of-order cleanup event: missing ownership observation 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > rejects a repeated stale transition rather than advancing the new phase 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > does not accept transition evidence or an intent issued for another cleanup session 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > does not trust a directly forged release phase and all-true proof flags 0ms
+ ✓ tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts > G2-S1 exact-resource cleanup state machine > blocks invalid initial ownership, escaped paths, and linked mount points 0ms
+
+ Test Files  1 passed (1)
+      Tests  125 passed (125)
+   Start at  14:22:38
+   Duration  613ms (transform 231ms, setup 0ms, import 285ms, tests 114ms, environment 0ms)
+

@@ -4,7 +4,9 @@ import {
   MAX_IMAGE_BYTES,
   MAX_NOMINAL_VOLUME_BYTES,
   MIB,
-  type CleanupState,
+  createCleanupSession,
+  type CleanupSession,
+  type CleanupStart,
   type MacSafetyPlan,
   type SimulatedDevice,
   type SimulatedDisk,
@@ -43,6 +45,10 @@ const g1MacHostDataVolume: SimulatedDevice = {
   // Composite read-only G1 tuple: Data / APFS / /System/Volumes/Data.
   fingerprint: "g1:/dev/disk2s5:Data:APFS:/System/Volumes/Data",
   isInternalHostDevice: true,
+  deviceRole: "host",
+  parentIdentity: "/dev/disk2",
+  sourceImageIdentity: null,
+  sizeBytes: 200 * GIB,
 };
 
 export function makeWindowsSafePlan(): WindowsSafetyPlan {
@@ -109,8 +115,8 @@ export function makeWindowsSafePlan(): WindowsSafetyPlan {
       attachedDiskIdentities: [newDisk.identity],
       driveLetterAssigned: false,
     },
-    disksBefore: [g1WindowsSystemDisk, g1WindowsDataDisk],
-    disksAfter: [g1WindowsSystemDisk, g1WindowsDataDisk, newDisk],
+    disksBefore: [{ ...g1WindowsSystemDisk }, { ...g1WindowsDataDisk }],
+    disksAfter: [{ ...g1WindowsSystemDisk }, { ...g1WindowsDataDisk }, newDisk],
     initializeDiskIdentity: newDisk.identity,
     partition: { identity: "returned-partition-object-001", diskIdentity: newDisk.identity },
     format: { partitionIdentity: "returned-partition-object-001", fileSystem: "NTFS" },
@@ -122,15 +128,61 @@ export function makeMacSafePlan(): MacSafetyPlan {
   const sandbox = `${root}/case-001`;
   const target = `${sandbox}/bounded.dmg`;
   const mountPoint = `${sandbox}/mount`;
-  const newDevice: SimulatedDevice = {
-    identity: "/dev/disk9s1",
-    fingerprint: "new-udrw-image-device-fingerprint-001",
+  const imageIdentity = "created-udrw-image-001";
+  const creationRecordIdentity = "image-create-record-001";
+  const imageRoot: SimulatedDevice = {
+    identity: "MODEL:IMAGE:ROOT:001",
+    fingerprint: "new-udrw-image-root-fingerprint-001",
     isInternalHostDevice: false,
+    deviceRole: "image-root",
+    parentIdentity: null,
+    sourceImageIdentity: imageIdentity,
+    sizeBytes: MAX_IMAGE_BYTES,
+  };
+  const imagePartition: SimulatedDevice = {
+    identity: "MODEL:IMAGE:PARTITION:001",
+    fingerprint: "new-udrw-image-partition-fingerprint-001",
+    isInternalHostDevice: false,
+    deviceRole: "partition",
+    parentIdentity: imageRoot.identity,
+    sourceImageIdentity: imageIdentity,
+    sizeBytes: MAX_NOMINAL_VOLUME_BYTES,
+  };
+  const apfsContainer: SimulatedDevice = {
+    identity: "MODEL:IMAGE:APFS-CONTAINER:001",
+    fingerprint: "new-udrw-image-apfs-container-fingerprint-001",
+    isInternalHostDevice: false,
+    deviceRole: "apfs-container",
+    parentIdentity: imagePartition.identity,
+    sourceImageIdentity: imageIdentity,
+    sizeBytes: MAX_NOMINAL_VOLUME_BYTES,
+  };
+  const apfsVolume: SimulatedDevice = {
+    identity: "MODEL:IMAGE:APFS-VOLUME:001",
+    fingerprint: "new-udrw-image-apfs-volume-fingerprint-001",
+    isInternalHostDevice: false,
+    deviceRole: "apfs-volume",
+    parentIdentity: apfsContainer.identity,
+    sourceImageIdentity: imageIdentity,
+    sizeBytes: MAX_NOMINAL_VOLUME_BYTES,
   };
   const hostDisk: SimulatedDevice = {
     identity: "/dev/disk0",
     fingerprint: "g1:/dev/disk0:physical-internal",
     isInternalHostDevice: true,
+    deviceRole: "host",
+    parentIdentity: null,
+    sourceImageIdentity: null,
+    sizeBytes: 500 * GIB,
+  };
+  const hostDataParent: SimulatedDevice = {
+    identity: "/dev/disk2",
+    fingerprint: "g1:/dev/disk2:physical-internal",
+    isInternalHostDevice: true,
+    deviceRole: "host",
+    parentIdentity: null,
+    sourceImageIdentity: null,
+    sizeBytes: 500 * GIB,
   };
 
   return {
@@ -174,12 +226,17 @@ export function makeMacSafePlan(): MacSafetyPlan {
     inventoryEvidence: { beforeMutationCaptured: true, afterPlanCaptured: true, crosscheck: "PASS" },
     positiveControl: "PASS",
     selection: "structured-attach-result",
-    image: { exactPath: target, format: "UDRW", sparse: false, returnedImageIdentity: "created-udrw-image-001" },
-    devicesBefore: [hostDisk, g1MacHostDataVolume],
-    devicesAfter: [hostDisk, g1MacHostDataVolume, newDevice],
+    image: { exactPath: target, format: "UDRW", sparse: false, returnedImageIdentity: imageIdentity, creationRecordIdentity },
+    devicesBefore: [{ ...hostDisk }, { ...hostDataParent }, { ...g1MacHostDataVolume }],
+    devicesAfter: [{ ...hostDisk }, { ...hostDataParent }, { ...g1MacHostDataVolume }, imageRoot, imagePartition, apfsContainer, apfsVolume],
     attachResults: [{
       recordIdentity: "structured-attach-result-001",
-      deviceIdentity: newDevice.identity,
+      imageIdentity,
+      creationRecordIdentity,
+      rootDeviceIdentity: imageRoot.identity,
+      deviceIdentities: [imageRoot.identity!, imagePartition.identity!, apfsContainer.identity!, apfsVolume.identity!],
+      mountedVolumeIdentity: apfsVolume.identity,
+      deviceIdentity: apfsVolume.identity,
       sourceImagePath: target,
       mountPoints: [mountPoint],
       fileSystem: "APFS",
@@ -190,24 +247,40 @@ export function makeMacSafePlan(): MacSafetyPlan {
   };
 }
 
-export function makeCleanupState(): CleanupState {
+export function makeCleanupState(): CleanupSession {
   const sandboxPath = "/tmp/zen-g2-s1/case-001";
-  return {
+  const start: CleanupStart = {
     platform: "macos",
-    phase: "MOUNTED",
     sandboxPath,
     imagePath: `${sandboxPath}/bounded.dmg`,
     mountPoint: `${sandboxPath}/mount`,
     deviceIdentity: "/dev/disk9s1",
+    imageIdentity: "created-udrw-image-001",
     ownerToken: "owned-case-001",
     observedOwnerToken: "owned-case-001",
     imageIsOwned: true,
     imageIsSymlinkOrReparsePoint: false,
     mountPointIsSymlinkOrReparsePoint: false,
-    unmountedProven: false,
-    detachedProven: false,
-    releaseProven: false,
     originalFailure: "simulated verification failure",
-    cleanupFailure: null,
   };
+  return createCleanupSession(start);
+}
+
+export function makeWindowsCleanupState(): CleanupSession {
+  const sandboxPath = "C:\\Temp\\zen-g2-s1\\case-001";
+  const start: CleanupStart = {
+    platform: "windows",
+    sandboxPath,
+    imagePath: `${sandboxPath}\\bounded.vhdx`,
+    mountPoint: `${sandboxPath}\\no-drive-letter-target`,
+    deviceIdentity: "returned-vhd-object-001",
+    imageIdentity: "created-vhdx-image-001",
+    ownerToken: "owned-case-001",
+    observedOwnerToken: "owned-case-001",
+    imageIsOwned: true,
+    imageIsSymlinkOrReparsePoint: false,
+    mountPointIsSymlinkOrReparsePoint: false,
+    originalFailure: "simulated verification failure",
+  };
+  return createCleanupSession(start);
 }

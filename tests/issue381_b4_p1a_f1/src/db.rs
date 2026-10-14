@@ -19,10 +19,26 @@ pub struct SlotManifest {
     pub sqlite_file_sha256: String,
     pub sqlite_file_bytes: u64,
     pub source_id: String,
+    pub root_revision: i64,
+    pub source_revision: i64,
     pub sealed_stage: String,
 }
 
-#[derive(Serialize, Clone, Debug)]
+pub struct ManifestExpectation<'a> {
+    pub format_version: u32,
+    pub slot_id: &'a str,
+    pub document_count: usize,
+    pub corpus_sha256: &'a str,
+    pub sqlite_file_sha256: &'a str,
+    pub sqlite_file_bytes: u64,
+    pub source_id: &'a str,
+    pub root_revision: i64,
+    pub source_revision: i64,
+    pub sealed_stage: &'a str,
+    pub manifest_sha256: &'a str,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct QueryRow {
     pub uid: String,
     pub score_bits: String,
@@ -184,13 +200,19 @@ pub fn create_slot(
         conn.query_row("SELECT sqlite_source_id()", [], |row| row.get(0))?
     };
     let manifest = SlotManifest {
-        format_version: 1,
+        format_version: 2,
         slot_id: slot_id.to_string(),
         document_count: docs.iter().filter(|doc| doc.effective).count(),
         corpus_sha256: crate::model::corpus_sha256(docs),
         sqlite_file_sha256,
         sqlite_file_bytes,
         source_id,
+        root_revision: 1,
+        source_revision: docs
+            .iter()
+            .map(|doc| i64::from(doc.observation_revision))
+            .max()
+            .unwrap_or(0),
         sealed_stage: "SEALED_UNPUBLISHED".to_string(),
     };
     let manifest_path = suffix(path, ".manifest.json");
@@ -295,6 +317,25 @@ pub fn query_rows(
     root: Option<&str>,
     limit: Option<i64>,
 ) -> rusqlite::Result<Vec<QueryRow>> {
+    query_rows_window(conn, query, root, limit.map(|limit| (limit, 0)))
+}
+
+pub fn query_rows_page(
+    conn: &Connection,
+    query: &str,
+    root: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> rusqlite::Result<Vec<QueryRow>> {
+    query_rows_window(conn, query, root, Some((limit, offset)))
+}
+
+fn query_rows_window(
+    conn: &Connection,
+    query: &str,
+    root: Option<&str>,
+    window: Option<(i64, i64)>,
+) -> rusqlite::Result<Vec<QueryRow>> {
     let mut sql = String::from(
         "SELECT d.uid,bm25(slot_fts,6.0,1.5),d.mtime,d.name,d.path \
          FROM slot_fts JOIN slot_docs d ON d.rowid=slot_fts.rowid \
@@ -306,15 +347,21 @@ pub fn query_rows(
         );
     }
     sql.push_str(" ORDER BY 2 ASC,d.mtime DESC,d.name COLLATE NOCASE ASC,d.uid ASC");
-    if limit.is_some() {
-        sql.push_str(" LIMIT ?3");
+    if let Some((_, _)) = window {
+        if root.is_some() {
+            sql.push_str(" LIMIT ?3 OFFSET ?4");
+        } else {
+            sql.push_str(" LIMIT ?2 OFFSET ?3");
+        }
     }
     let match_text = format!("\"{}\"", query.replace('"', ""));
     let mut statement = conn.prepare(&sql)?;
-    let mut rows = match (root, limit) {
-        (Some(root), Some(limit)) => statement.query(params![match_text, root, limit])?,
+    let mut rows = match (root, window) {
+        (Some(root), Some((limit, offset))) => {
+            statement.query(params![match_text, root, limit, offset])?
+        }
         (Some(root), None) => statement.query(params![match_text, root])?,
-        (None, Some(limit)) => statement.query(params![match_text, limit])?,
+        (None, Some((limit, offset))) => statement.query(params![match_text, limit, offset])?,
         (None, None) => statement.query(params![match_text])?,
     };
     let mut result = Vec::new();
@@ -331,17 +378,105 @@ pub fn query_rows(
     Ok(result)
 }
 
-pub fn verify_seal(slot: &BuiltSlot) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let bytes = std::fs::read(&slot.manifest_path)?;
+pub fn verify_manifest_file(
+    slot_path: &Path,
+    manifest_path: &Path,
+    expected: &ManifestExpectation<'_>,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(manifest_path)?;
     let manifest: SlotManifest = serde_json::from_slice(&bytes)?;
     let manifest_sha256 = sha256_bytes(&bytes);
-    let (actual_sha, actual_bytes) = file_sha256(&slot.path)?;
-    let digest_match = actual_sha == manifest.sqlite_file_sha256
-        && actual_sha == slot.manifest.sqlite_file_sha256
-        && actual_bytes == manifest.sqlite_file_bytes;
-    let conn = open_readonly(&slot.path)?;
+    if manifest.format_version != expected.format_version {
+        return Err(format!(
+            "manifest format version mismatch: {}",
+            manifest.format_version
+        )
+        .into());
+    }
+    if manifest.slot_id != expected.slot_id {
+        return Err(format!("manifest slot ID mismatch: {}", manifest.slot_id).into());
+    }
+    if manifest.document_count != expected.document_count {
+        return Err(format!(
+            "manifest document count mismatch: {}",
+            manifest.document_count
+        )
+        .into());
+    }
+    if manifest.corpus_sha256 != expected.corpus_sha256 {
+        return Err("manifest corpus digest mismatch".into());
+    }
+    if manifest.root_revision != expected.root_revision {
+        return Err(format!(
+            "manifest root revision mismatch: {}",
+            manifest.root_revision
+        )
+        .into());
+    }
+    if manifest.source_revision != expected.source_revision {
+        return Err(format!(
+            "manifest source revision mismatch: {}",
+            manifest.source_revision
+        )
+        .into());
+    }
+    if manifest.sealed_stage != expected.sealed_stage {
+        return Err(format!("manifest stage mismatch: {}", manifest.sealed_stage).into());
+    }
+    let (actual_sha, actual_bytes) = file_sha256(slot_path)?;
+    if manifest.sqlite_file_sha256 != actual_sha || expected.sqlite_file_sha256 != actual_sha {
+        return Err("manifest SQLite file hash mismatch".into());
+    }
+    if manifest.sqlite_file_bytes != actual_bytes || expected.sqlite_file_bytes != actual_bytes {
+        return Err(format!("manifest SQLite file length mismatch: {actual_bytes}").into());
+    }
+    let conn = open_readonly(slot_path)?;
     let integrity: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM slot_docs", [], |row| row.get(0))?;
+    let source_id: String = conn.query_row("SELECT sqlite_source_id()", [], |row| row.get(0))?;
+    if count != expected.document_count as i64
+        || manifest.source_id != source_id
+        || expected.source_id != source_id
+    {
+        return Err("manifest SQLite content count or source ID mismatch".into());
+    }
+    if integrity != "ok" {
+        return Err(format!("SQLite integrity check failed: {integrity}").into());
+    }
+    if manifest_sha256 != expected.manifest_sha256 {
+        return Err("manifest SHA-256 mismatch".into());
+    }
+    Ok(serde_json::json!({
+        "manifest_digest_matches": true,
+        "file_digest_matches": true,
+        "file_bytes": actual_bytes,
+        "integrity_check": integrity,
+        "reopened_readonly": true,
+        "document_count": count,
+        "manifest": manifest,
+        "manifest_sha256": manifest_sha256,
+        "file_sha256": actual_sha,
+        "root_revision_bound": expected.root_revision,
+        "source_revision_bound": expected.source_revision
+    }))
+}
+
+pub fn verify_seal(slot: &BuiltSlot) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let expectation = ManifestExpectation {
+        format_version: slot.manifest.format_version,
+        slot_id: &slot.manifest.slot_id,
+        document_count: slot.manifest.document_count,
+        corpus_sha256: &slot.manifest.corpus_sha256,
+        sqlite_file_sha256: &slot.manifest.sqlite_file_sha256,
+        sqlite_file_bytes: slot.manifest.sqlite_file_bytes,
+        source_id: &slot.manifest.source_id,
+        root_revision: slot.manifest.root_revision,
+        source_revision: slot.manifest.source_revision,
+        sealed_stage: &slot.manifest.sealed_stage,
+        manifest_sha256: &slot.manifest_sha256,
+    };
+    let mut details = verify_manifest_file(&slot.path, &slot.manifest_path, &expectation)?;
+    let conn = open_readonly(&slot.path)?;
     let readonly_write_rejected = conn
         .execute(
             "INSERT INTO slot_docs(uid,observation_revision,name,path,mtime,root_claims) \
@@ -349,22 +484,27 @@ pub fn verify_seal(slot: &BuiltSlot) -> Result<serde_json::Value, Box<dyn std::e
             [],
         )
         .is_err();
-    Ok(serde_json::json!({
-        "manifest_digest_matches": manifest_sha256 == slot.manifest_sha256,
-        "file_digest_matches": digest_match,
-        "file_bytes": actual_bytes,
-        "wal_bytes_after_seal": slot.wal_bytes_after_seal,
-        "integrity_check": integrity,
-        "reopened_readonly": true,
-        "readonly_write_rejected": readonly_write_rejected,
-        "document_count": count,
-        "manifest": manifest,
-        "manifest_sha256": manifest_sha256,
-        "file_sha256": actual_sha,
-        "checkpoint_ms": slot.checkpoint_ms,
-        "file_sync_ms": slot.file_sync_ms,
-        "directory_sync_ms": slot.directory_sync_ms
-    }))
+    let object = details
+        .as_object_mut()
+        .ok_or("manifest verification result is not an object")?;
+    object.insert(
+        "wal_bytes_after_seal".into(),
+        serde_json::json!(slot.wal_bytes_after_seal),
+    );
+    object.insert(
+        "readonly_write_rejected".into(),
+        serde_json::json!(readonly_write_rejected),
+    );
+    object.insert(
+        "checkpoint_ms".into(),
+        serde_json::json!(slot.checkpoint_ms),
+    );
+    object.insert("file_sync_ms".into(), serde_json::json!(slot.file_sync_ms));
+    object.insert(
+        "directory_sync_ms".into(),
+        serde_json::json!(slot.directory_sync_ms),
+    );
+    Ok(details)
 }
 
 pub fn create_authority_db(path: &Path, slot_id: &str, slot_sha256: &str) -> rusqlite::Result<()> {

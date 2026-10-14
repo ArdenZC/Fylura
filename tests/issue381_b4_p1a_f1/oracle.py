@@ -127,7 +127,14 @@ def check_query(record: dict[str, object]) -> dict[str, object]:
     calculated_corpus = corpus_digest(docs)
     query = str(details["query"])
     root = details["root_filter"]
-    expected = score_rows(docs, query, None if root is None else str(root))
+    expected_full = score_rows(docs, query, None if root is None else str(root))
+    page_limit_value = details.get("page_limit")
+    page_offset = int(details.get("page_offset") or 0)
+    if page_limit_value is None:
+        expected = expected_full
+    else:
+        page_limit = int(page_limit_value)
+        expected = expected_full[page_offset : page_offset + page_limit]
     actual = details["rows"]
     mismatches = []
     if len(expected) != len(actual):
@@ -143,7 +150,10 @@ def check_query(record: dict[str, object]) -> dict[str, object]:
                 break
     return {
         "record_type": "oracle_check",
-        "case_id": "P1A-T03",
+        "case_id": "R1-PAGINATION"
+        if record.get("record_type") == "query_page_snapshot"
+        else "P1A-T03",
+        "snapshot_kind": str(record.get("record_type")),
         "status": "PASS"
         if not mismatches and actual_corpus == calculated_corpus
         else "FAIL",
@@ -152,12 +162,14 @@ def check_query(record: dict[str, object]) -> dict[str, object]:
         "root_filter": root,
         "expected_rows": len(expected),
         "actual_rows": len(actual),
+        "page_limit": page_limit_value,
+        "page_offset": page_offset,
         "corpus_sha256_expected": calculated_corpus,
         "corpus_sha256_actual": actual_corpus,
-        "full_sorted_uid_sha256_expected": hashlib.sha256(
+        "page_or_full_order_uid_sha256_expected": hashlib.sha256(
             "\n".join(row["uid"] for row in expected).encode()
         ).hexdigest(),
-        "full_sorted_uid_sha256_actual": hashlib.sha256(
+        "page_or_full_order_uid_sha256_actual": hashlib.sha256(
             "\n".join(str(row["uid"]) for row in actual).encode()
         ).hexdigest(),
         "exact_float_bits_and_order": not mismatches,
@@ -172,10 +184,16 @@ def main() -> int:
     args = parser.parse_args()
     args.output_jsonl.parent.mkdir(parents=True, exist_ok=True)
     checks = []
+    full_snapshots = 0
+    page_snapshots = 0
     with open_jsonl(args.native_jsonl) as stream:
         for line in stream:
             record = json.loads(line)
             if record.get("record_type") == "query_snapshot":
+                full_snapshots += 1
+                checks.append(check_query(record))
+            elif record.get("record_type") == "query_page_snapshot":
+                page_snapshots += 1
                 checks.append(check_query(record))
     with args.output_jsonl.open("wt", encoding="utf-8", newline="\n") as output:
         for check in checks:
@@ -184,6 +202,8 @@ def main() -> int:
     summary = {
         "oracle": "independent Python fixture-string BM25; does not import or invoke SQLite",
         "query_snapshots_checked": len(checks),
+        "full_query_snapshots": full_snapshots,
+        "limited_page_snapshots": page_snapshots,
         "passed": len(checks) - len(failed),
         "failed": len(failed),
         "exact_float_bits": True,

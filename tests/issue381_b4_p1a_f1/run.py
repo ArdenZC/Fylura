@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "tests/issue381_b4_p1a_f1"
-EVIDENCE = ROOT / "docs/project/research/issue-381-b4-p1a/evidence/final"
+EVIDENCE = ROOT / "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1"
 RAW = EVIDENCE / "raw"
 RUNS: list[dict[str, object]] = []
 
@@ -99,9 +99,18 @@ def validate_matrix(native_path: Path, oracle_path: Path) -> dict[str, object]:
         for record in records
         if record.get("record_type") == "case_result"
     }
-    oracle_ok = len(oracle) == 12 and all(row.get("status") == "PASS" for row in oracle)
+    full_oracle_rows = [row for row in oracle if row.get("snapshot_kind") == "query_snapshot"]
+    page_oracle_rows = [row for row in oracle if row.get("snapshot_kind") == "query_page_snapshot"]
+    oracle_ok = (
+        len(full_oracle_rows) == 12
+        and len(page_oracle_rows) == 7
+        and len(oracle) == 19
+        and all(row.get("status") == "PASS" for row in oracle)
+    )
     oracle_summary = {
-        "query_snapshots": len(oracle),
+        "checked_records": len(oracle),
+        "full_query_snapshots": len(full_oracle_rows),
+        "limited_page_snapshots": len(page_oracle_rows),
         "passed": sum(row.get("status") == "PASS" for row in oracle),
         "failed": sum(row.get("status") != "PASS" for row in oracle),
         "exact_float_bits_and_full_sorted_rows": oracle_ok
@@ -141,19 +150,93 @@ def validate_matrix(native_path: Path, oracle_path: Path) -> dict[str, object]:
             }
         )
     all_satisfied = all(row["gate_satisfied"] for row in matrix)
+    remediation_expected = {
+        "R1-PAGINATION": "PASS",
+        "R1-CURSOR-MODEL": "EXPECTED_REJECTION",
+        "R2-PIN-FIRST": "PASS",
+        "R2-GC-FIRST": "EXPECTED_REJECTION",
+        "R2-RETIRE-BEFORE-OPEN": "PASS",
+        "R2-LIVE-READONLY-GC": "PASS",
+        "R2-OPEN-FAILURE-RELEASE": "EXPECTED_REJECTION",
+        "R2-LEASE-EXPIRY": "PASS",
+        "R2-PROCESS-RESTART": "PASS",
+        "R2-SLOT-ABA": "EXPECTED_REJECTION",
+        "R3-MANIFEST": "EXPECTED_REJECTION",
+    }
+    remediation_matrix = []
+    for case_id, expected_status in remediation_expected.items():
+        actual = str(cases.get(case_id, {}).get("status", "MISSING"))
+        remediation_matrix.append(
+            {
+                "case_id": case_id,
+                "expected_status": expected_status,
+                "actual_status": actual,
+                "gate_satisfied": actual == expected_status,
+                "details": cases.get(case_id, {}).get("details", {}),
+            }
+        )
+    remediation_complete = all(row["gate_satisfied"] for row in remediation_matrix)
     native_exit = next(
         (entry["exit_code"] for entry in RUNS if entry["name"] == "matrix-native"),
         None,
     )
-    outcome = "P1A_BLOCKED_ENVIRONMENT" if all_satisfied and cases.get("P1A-T10", {}).get("status") == "ENVIRONMENT_UNAVAILABLE" else "P1A_FAIL"
+    focused_exit = next(
+        (entry["exit_code"] for entry in RUNS if entry["name"] == "focused-remediation"),
+        None,
+    )
+    remediation_ok = all(row["gate_satisfied"] for row in remediation_matrix)
+    outcome = (
+        "P1A_BLOCKED_ENVIRONMENT"
+        if all_satisfied and remediation_ok and oracle_ok and native_exit == 0 and focused_exit == 0
+        and cases.get("P1A-T10", {}).get("status") == "ENVIRONMENT_UNAVAILABLE"
+        else "P1A_FAIL"
+    )
     return {
-        "matrix_version": "B4-P1A / 16 issue gates; T03 includes 12 independent query snapshots",
+        "matrix_version": "B4-P1A / 16 historic issue gates + 11 focused R1-R3 cases",
         "gates": matrix,
         "gate_count": len(matrix),
         "satisfied_gate_count": sum(row["gate_satisfied"] for row in matrix),
+        "remediation_cases": remediation_matrix,
+        "remediation_case_count": len(remediation_matrix),
+        "remediation_cases_satisfied": sum(row["gate_satisfied"] for row in remediation_matrix),
+        "harness_remediation_complete": remediation_complete,
         "independent_oracle": oracle_summary,
+        "historical_evidence_comparison": {
+            "oracle_checks": {
+                "previous": 12,
+                "remediation": len(oracle),
+                "change": len(oracle) - 12,
+                "reason": "retain all 12 full-result comparisons and add seven real LIMIT/OFFSET pages",
+            },
+            "pin_gc_case_records": {
+                "previous": 12,
+                "remediation": 8,
+                "change": -4,
+                "reason": "replace 12 repetitions of one pin-first order with eight named state/file assertions across both synchronized race orders and lifecycle boundaries",
+            },
+            "sqlite_lock_wait_samples": {
+                "previous": 800,
+                "remediation": 800,
+                "change": 0,
+                "reason": "unchanged eight-connection by 100-iteration contention matrix",
+            },
+            "performance_samples": {
+                "previous": 300,
+                "remediation": 300,
+                "change": 0,
+                "reason": "unchanged 100 samples at each of 0, 10k, and 100k synthetic documents",
+            },
+        },
         "native_exit_code": native_exit,
-        "all_declared_expectations_satisfied": all_satisfied and oracle_ok and native_exit == 0,
+        "focused_remediation_exit_code": focused_exit,
+        "all_declared_expectations_satisfied": all_satisfied and remediation_complete and oracle_ok and native_exit == 0 and focused_exit == 0,
+        "final_classifications": [
+            "P1A_HARNESS_REMEDIATION_COMPLETE"
+            if remediation_complete and oracle_ok and native_exit == 0 and focused_exit == 0
+            else "P1A_BLOCKED_TEST_REMEDIATION",
+            "P1A_BLOCKED_ENVIRONMENT" if cases.get("P1A-T10", {}).get("status") == "ENVIRONMENT_UNAVAILABLE" else "P1A_NATIVE_GATE_RESULT_MISSING",
+            "READY_FOR_OWNER_REREVIEW" if remediation_complete and all_satisfied and oracle_ok and native_exit == 0 and focused_exit == 0 else "NOT_READY_FOR_OWNER_REREVIEW",
+        ],
         "overall_decision": outcome,
         "native_gate": "BLOCKED: native Windows/macOS handle evidence unavailable on Linux executor",
         "power_loss_gate": "NOT_ESTABLISHED: process kill and fsync model evidence are not sudden power-loss evidence",
@@ -190,6 +273,27 @@ def main() -> int:
     build_ok = all(entry["exit_code"] == 0 for entry in RUNS)
     if build_ok and lock_parity["all_harness_package_versions_and_checksums_in_product_lock"]:
         binary = Path(env["CARGO_TARGET_DIR"]) / "release/issue381-b4-p1a-f1"
+        focused_result = subprocess.run(
+            [str(binary), "--remediation-only"], cwd=ROOT, env=env, capture_output=True, check=False
+        )
+        focused_stdout = RAW / "focused-remediation.stdout.jsonl"
+        focused_stdout.write_bytes(focused_result.stdout)
+        focused_stderr = RAW / "focused-remediation.stderr.txt"
+        focused_stderr.write_bytes(focused_result.stderr)
+        RUNS.append(
+            {
+                "name": "focused-remediation",
+                "argv": [str(binary), "--remediation-only"],
+                "cwd": str(ROOT),
+                "exit_code": focused_result.returncode,
+                "stdout_path": str(focused_stdout.relative_to(ROOT)),
+                "stdout_sha256": sha256(focused_stdout),
+                "stdout_bytes": focused_stdout.stat().st_size,
+                "stderr_path": str(focused_stderr.relative_to(ROOT)),
+                "stderr_sha256": sha256(focused_stderr),
+                "stderr_bytes": focused_stderr.stat().st_size,
+            }
+        )
         matrix_native = RAW / "matrix-native.stdout.jsonl.gz"
         native_result = subprocess.run(
             [str(binary), "--samples", "100"], cwd=ROOT, env=env, capture_output=True, check=False
@@ -281,6 +385,18 @@ def main() -> int:
         "executor_architecture": platform.machine(),
         "workspace_filesystem_type": fs_type,
         "lock_parity": lock_parity,
+        "source_file_sha256": {
+            str(path.relative_to(ROOT)): sha256(path)
+            for path in [
+                HARNESS / "src/db.rs",
+                HARNESS / "src/main.rs",
+                HARNESS / "src/model.rs",
+                HARNESS / "oracle.py",
+                HARNESS / "run.py",
+                HARNESS / "Cargo.toml",
+                HARNESS / "Cargo.lock",
+            ]
+        },
         "commands": RUNS,
         "native_gate": "ENVIRONMENT_UNAVAILABLE (requires hosted native Windows and macOS runs)",
         "power_loss_gate": "not established by process kill or fsync",
@@ -304,6 +420,11 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
+    manifest_path = EVIDENCE / "MANIFEST.sha256"
+    manifest_entries = []
+    for evidence_file in sorted(path for path in EVIDENCE.rglob("*") if path.is_file() and path != manifest_path):
+        manifest_entries.append(f"{sha256(evidence_file)}  {evidence_file.relative_to(ROOT)}")
+    manifest_path.write_text("\n".join(manifest_entries) + "\n", encoding="utf-8")
     return 0 if matrix.get("all_declared_expectations_satisfied") is True else 1
 
 

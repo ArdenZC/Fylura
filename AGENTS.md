@@ -33,6 +33,38 @@ is `docs/project/README.md`.
 | governance/process change | `docs/project/DEVELOPMENT_WORKFLOW.md` |
 | another named domain contract | that security, remediation, design or QA contract |
 
+## Default delivery mode — implement first, escalate only for credible risk
+
+**The default for a bounded feature or bug fix is working code delivered through
+one ordinary PR, not a research/audit program.** See the binding
+[delivery-first section](docs/project/DEVELOPMENT_WORKFLOW.md#delivery-first-operating-rule)
+and [ADR-0015](docs/project/DECISIONS/0015-delivery-first-engineering.md).
+
+- Write a short outcome, scope and acceptance note; inspect the nearest owners
+  and tests; let Codex Cloud implement code and focused checks immediately.
+  Do not demand a separate feasibility study, ADR, research branch or test
+  harness for routine changes with unchanged durable authority.
+- Prefer one coherent PR and one substantive review. Fix real, reproducible
+  defects in that PR; do not auto-create a new Issue, remediation PR, R2/R3
+  cycle or independent evidence archive for every review comment.
+- Use existing tests/CI and Git identity. **Manual SHA-256 catalogs, repeated
+  rehashes, duplicate CI reruns, per-check raw-log receipts and new safety
+  gates are exceptional**, justified by an actual identity/provenance,
+  release, migration or irreversible-mutation risk. They are not a default
+  definition of done.
+- A blocking finding names the exact credible harm, reproduction/evidence,
+  affected scope and smallest remedy. Isolate unrelated work and keep
+  delivering safely independent changes; do not global-NO-GO by association.
+- Measure useful merged functionality, elapsed delivery time and avoidable
+  rework. Reports, gate counts and research artifacts are not product output.
+- Never bypass an **existing required** CI/security gate, conceal an
+  unverified platform claim or loosen user-file mutation, permission,
+  schema/rollback or privacy protections for speed. Changing required
+  governance needs its owning approved process; deferred work stays honest.
+- Owner/ChatGPT owns product decisions, research and review; Codex Cloud
+  implements code; the Owner Windows machine is acceptance-only.
+  Never use Codex Review. Merges remain Owner decisions.
+
 ## Current truth and scope
 
 - `STATUS.md` is the project-level source for changing baseline, initiative,
@@ -150,6 +182,24 @@ For user-facing UI changes, use shared tokens/primitives/i18n and verify the
 applicable keyboard, focus, modal, screen-reader, reduced-motion, contrast,
 loading/failure and narrow-layout behavior. Static inspection alone is not
 accessibility or native acceptance.
+
+## Stop ongoing redundant verification
+
+These delivery rules also apply **mid-task**. For current F1/T10,
+native-probe, Index Scope or Global Index investigations: do not order more
+optional models, re-audits, manual hash receipts or CI reruns on unchanged
+sources just to reach a larger PASS count. See the
+[current-verification stop rule](docs/project/DEVELOPMENT_WORKFLOW.md#stop-ongoing-optional-verification-now-not-just-future-tasks).
+Use existing results honestly; retain real blocking required failures
+without expanding them to independent work.
+
+## Handoff brevity
+
+For an ordinary change, report **what the user can now do**, the PR/commit,
+focused tests and applicable CI result, and any concrete unresolved blocker.
+Omit exhaustive head/tree tables, every skipped conditional CI leg and
+historical evidence replay unless necessary for the exact claim. A successful
+source review is not a native or release result.
 
 ## Closeout
 

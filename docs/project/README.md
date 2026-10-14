@@ -30,7 +30,7 @@ only when the task touches their domain or an ambiguity requires them.
 | new initiative, cross-wave scope or product direction | [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md) plus [`ROADMAP.md`](ROADMAP.md) |
 | large responsibility expansion | [`CODE_MAINTAINABILITY.md`](CODE_MAINTAINABILITY.md) |
 | release or publication | release contracts and [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) |
-| governance/process change | [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) |
+| governance/process change | [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) (start with the [delivery-first operating rule](DEVELOPMENT_WORKFLOW.md#delivery-first-operating-rule)) and [ADR-0015](DECISIONS/0015-delivery-first-engineering.md) |
 | named security, remediation, design or QA contract | that contract |
 
 For rationale/history rather than current authorization, use `docs/project/research/`. In particular, [`research/file-library-preview/`](research/file-library-preview/) preserves the external-project research and reconstructed Round 1–4 synthesis behind the File Library 2.0 / Preview Platform architecture.

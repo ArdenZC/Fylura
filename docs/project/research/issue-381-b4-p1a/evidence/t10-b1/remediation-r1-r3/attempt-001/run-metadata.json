@@ -1,0 +1,123 @@
+{
+  "branch": "test/issue-381-b4-p1a-t10-b1-fault-model",
+  "claims": {
+    "physical_power_loss_tested": false,
+    "process_or_restart_snapshot_model_is_not_a_power_loss_test": true,
+    "real_enospc_tested": false,
+    "real_named_sqlite_vfs_callback_injection": true
+  },
+  "completion_status": "T10_B1_RECOVERY_MODEL_REMEDIATION_READY_FOR_OWNER_REREVIEW",
+  "evidence_version": "remediation-r1-r3/attempt-001",
+  "historic_sha256_manifest": {
+    "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/SHA256SUMS",
+    "sha256_after": "8008886239432ad26af702857417fdde9854f9669600b6531b8b9578d526ecfd",
+    "sha256_before": "8008886239432ad26af702857417fdde9854f9669600b6531b8b9578d526ecfd",
+    "unchanged": true
+  },
+  "owner_review": "https://github.com/ArdenZC/Zen-Canvas/issues/413#issuecomment-6165110762",
+  "runs": [
+    {
+      "case_result_status_counts": {
+        "PASS": 5
+      },
+      "command": "CARGO_HOME=/workspace/.cache/cargo RUSTC=/workspace/.cache/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rustc /workspace/.cache/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/cargo run --locked --offline --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml -- --b1-f0",
+      "exit_code": 0,
+      "exit_code_file": {
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-exit-code.txt",
+        "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+      },
+      "last_file_mtime_utc": "2026-10-14T09:33:38.274306+00:00",
+      "name": "f0",
+      "runner_result": {
+        "case_id": "B1-F0",
+        "details": {
+          "all_connections_and_handles_closed_before_unregister": true,
+          "failure_code": null,
+          "fts5_integrity_checked_after_each_fault": true,
+          "model_only": true,
+          "physical_power_loss_tested": false,
+          "real_enospc_tested": false,
+          "sqlite_faults": [
+            {
+              "operation": "xWrite",
+              "result_code": 13
+            },
+            {
+              "operation": "xSync",
+              "result_code": 1034
+            },
+            {
+              "operation": "xRead",
+              "result_code": 522
+            }
+          ]
+        },
+        "record_type": "run_result",
+        "status": "PASS"
+      },
+      "stderr": {
+        "bytes": 716,
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-stderr.txt",
+        "sha256": "00a8a2ddd53bcca1423a91428d0915fdbac18c01213096a5e6ece4a9ce21ed96"
+      },
+      "stdout": {
+        "bytes": 341944,
+        "jsonl_records": 822,
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-stdout.jsonl",
+        "sha256": "a9b7790c8051285f18b4d051ef49f8cfd444133b832c87781ab771db68cca807"
+      }
+    },
+    {
+      "case_result_status_counts": {
+        "ENVIRONMENT_UNAVAILABLE": 3,
+        "EXPECTED_REJECTION": 3,
+        "PASS": 26
+      },
+      "command": "CARGO_HOME=/workspace/.cache/cargo RUSTC=/workspace/.cache/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rustc /workspace/.cache/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/cargo run --locked --offline --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml -- --b1-matrix",
+      "exit_code": 0,
+      "exit_code_file": {
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-exit-code.txt",
+        "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+      },
+      "last_file_mtime_utc": "2026-10-14T09:33:51.006086+00:00",
+      "name": "matrix",
+      "runner_result": {
+        "case_id": "T10-B1-B01-B12",
+        "details": {
+          "all_connections_and_handles_closed_before_unregister": true,
+          "executable_cases_failed": false,
+          "failure_code": null,
+          "overall_native_gate_state": "BLOCKED_ENVIRONMENT",
+          "owner_review_ready": true,
+          "physical_power_loss_tested": false,
+          "real_enospc_tested": false,
+          "vfs_unregistered": true
+        },
+        "record_type": "run_result",
+        "status": "T10_B1_FAULT_MODEL_READY_FOR_OWNER_REVIEW"
+      },
+      "stderr": {
+        "bytes": 632,
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-stderr.txt",
+        "sha256": "eb648fbc448ffaec23ceeb22b9b1fc81f2e32a68082222dd5134894a55f101a3"
+      },
+      "stdout": {
+        "bytes": 3153701,
+        "jsonl_records": 7354,
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-stdout.jsonl",
+        "sha256": "40bf133df2aa2737881ac2fdb552f1e9f9cccd4b7fda7c617eb2bde80da4a3e1"
+      }
+    }
+  ],
+  "scope": [
+    "tests/issue381_b4_p1a_f1/**",
+    "docs/project/research/issue-381-b4-p1a/**"
+  ],
+  "starting_head": "e596a7bb03c24e5dd6dc1b1f6be3c8e7a205b8c0",
+  "starting_parent": "b9c44a0a05fc8dc34744563b43d88eeab7509b35",
+  "starting_tree": "698f5fbb96b8353577a2ff2d0a03d189eb4366cb",
+  "tested_source": {
+    "path": "tests/issue381_b4_p1a_f1/src/b1_vfs.rs",
+    "sha256": "412650af6333c94b50644d186d7f927a64d4ff300d1118a1a01a6660527241a7"
+  }
+}

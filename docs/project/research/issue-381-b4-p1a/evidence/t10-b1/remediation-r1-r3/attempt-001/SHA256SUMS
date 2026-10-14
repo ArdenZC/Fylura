@@ -1,0 +1,17 @@
+412650af6333c94b50644d186d7f927a64d4ff300d1118a1a01a6660527241a7  tests/issue381_b4_p1a_f1/src/b1_vfs.rs
+27761c5de347df37747b95de29a8656fb73856213e4ed5ca3e343c3ee4837dfa  docs/project/research/issue-381-b4-p1a/T10-B1-RECOVERY-REMEDIATION.md
+8008886239432ad26af702857417fdde9854f9669600b6531b8b9578d526ecfd  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/SHA256SUMS
+20ff89a03ce04efab472c863749a98c9b1a08ea092a3a18e0ca94a55f6bb52d1  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/stdout.jsonl
+76e2a445bc619ebe7c6dacec348d89bf33b00d5b77c8c6105035c1d1b6e47d23  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/stderr.txt
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/exit-code.txt
+3373bf740bbc5e19d77edb632f77affb0df566558040374365d4dcd3ac098d40  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/stdout.jsonl
+54e0d53041a81547b9a831118c42e15d11336db4c075ec7100c983d045d09d08  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/stderr.txt
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/exit-code.txt
+c3ce879a85bc385f642538115bb5ccfed49a345a1260bd2b05f37bc14a1ae07b  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/prerun-reference.json
+9d3a04d0afdcdd3c940d7c69fd31932d600edb4f5be749d488b82a82de822857  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/run-metadata.json
+a9b7790c8051285f18b4d051ef49f8cfd444133b832c87781ab771db68cca807  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-stdout.jsonl
+00a8a2ddd53bcca1423a91428d0915fdbac18c01213096a5e6ece4a9ce21ed96  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-stderr.txt
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-exit-code.txt
+40bf133df2aa2737881ac2fdb552f1e9f9cccd4b7fda7c617eb2bde80da4a3e1  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-stdout.jsonl
+eb648fbc448ffaec23ceeb22b9b1fc81f2e32a68082222dd5134894a55f101a3  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-stderr.txt
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-exit-code.txt

@@ -4,8 +4,8 @@
 
 use crate::db::{PRODUCT_BUSY_TIMEOUT_MS, PRODUCT_POOL_SIZE, configure_product_main};
 use rusqlite::ffi as sqlite;
-use rusqlite::{Connection, OpenFlags, params};
-use serde::Serialize;
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::Digest;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
@@ -1643,17 +1643,28 @@ fn create_pointer_db(
     vfs: &TestVfs,
     slot: &str,
     generation: i64,
+    epoch: i64,
     digest: &str,
+    manifest_sha256: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let connection = open_pointer_db(path, vfs)?;
     connection.execute_batch(
         "CREATE TABLE pointer(singleton INTEGER PRIMARY KEY CHECK(singleton=1),\
-         slot TEXT NOT NULL,generation INTEGER NOT NULL,digest TEXT NOT NULL);\
-         CREATE TABLE pointer_ops(op_id TEXT PRIMARY KEY,epoch INTEGER NOT NULL);",
+         slot TEXT NOT NULL,generation INTEGER NOT NULL,epoch INTEGER NOT NULL,\
+         digest TEXT NOT NULL,manifest_sha256 TEXT NOT NULL);\
+         CREATE TABLE pointer_ops(\
+           op_id TEXT PRIMARY KEY,expected_epoch INTEGER NOT NULL,\
+           target_slot TEXT NOT NULL,target_generation INTEGER NOT NULL,\
+           target_epoch INTEGER NOT NULL,target_digest TEXT NOT NULL,\
+           target_manifest_sha256 TEXT NOT NULL);\
+         CREATE TABLE user_facts(legacy_file_id TEXT NOT NULL,fact_key TEXT NOT NULL,\
+           fact_value TEXT NOT NULL,PRIMARY KEY(legacy_file_id,fact_key));\
+         INSERT INTO user_facts VALUES('legacy-file-001','tag','keep-me');\
+         INSERT INTO user_facts VALUES('legacy-file-001','note','retain historical fact');",
     )?;
     connection.execute(
-        "INSERT INTO pointer VALUES(1,?1,?2,?3)",
-        params![slot, generation, digest],
+        "INSERT INTO pointer VALUES(1,?1,?2,?3,?4,?5)",
+        params![slot, generation, epoch, digest, manifest_sha256],
     )?;
     drop(connection);
     Ok(())
@@ -1678,13 +1689,503 @@ fn add_generation_marker(
     Ok(())
 }
 
-fn pointer_state(path: &Path, vfs: &TestVfs) -> Result<(String, i64, String), rusqlite::Error> {
-    let connection = open_pointer_db(path, vfs)?;
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct PointerSnapshot {
+    slot: String,
+    generation: i64,
+    epoch: i64,
+    digest: String,
+    manifest_sha256: String,
+}
+
+fn open_vfs_readonly(path: &Path, vfs: &TestVfs) -> Result<Connection, rusqlite::Error> {
+    let connection = Connection::open_with_flags_and_vfs(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        vfs.name(),
+    )?;
+    connection.busy_timeout(Duration::from_millis(PRODUCT_BUSY_TIMEOUT_MS))?;
+    Ok(connection)
+}
+
+fn pointer_state(path: &Path, vfs: &TestVfs) -> Result<PointerSnapshot, rusqlite::Error> {
+    let connection = open_vfs_readonly(path, vfs)?;
     connection.query_row(
-        "SELECT slot,generation,digest FROM pointer WHERE singleton=1",
+        "SELECT slot,generation,epoch,digest,manifest_sha256 FROM pointer WHERE singleton=1",
         [],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| {
+            Ok(PointerSnapshot {
+                slot: row.get(0)?,
+                generation: row.get(1)?,
+                epoch: row.get(2)?,
+                digest: row.get(3)?,
+                manifest_sha256: row.get(4)?,
+            })
+        },
     )
+}
+
+// Test-only Manifest for the isolated B1 fixture DBs; it is not the product schema.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct FixtureManifest {
+    format_version: u32,
+    slot: String,
+    generation: i64,
+    sqlite_file_sha256: String,
+    sqlite_file_bytes: u64,
+    sqlite_source_id: String,
+    source_revision: i64,
+}
+
+fn fixture_file_digest(path: &Path) -> Result<(String, u64), Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(path)?;
+    Ok((
+        format!("{:x}", sha2::Sha256::digest(&bytes)),
+        bytes.len() as u64,
+    ))
+}
+
+fn fixture_source_id(path: &Path, vfs: &TestVfs) -> Result<String, rusqlite::Error> {
+    let connection = open_vfs_readonly(path, vfs)?;
+    connection.query_row("SELECT sqlite_source_id()", [], |row| row.get(0))
+}
+
+fn create_fixture_manifest(
+    database: &Path,
+    manifest_path: &Path,
+    slot: &str,
+    generation: i64,
+    source_revision: i64,
+    vfs: &TestVfs,
+) -> Result<(FixtureManifest, String), Box<dyn std::error::Error>> {
+    let (sqlite_file_sha256, sqlite_file_bytes) = fixture_file_digest(database)?;
+    let manifest = FixtureManifest {
+        format_version: 1,
+        slot: slot.to_string(),
+        generation,
+        sqlite_file_sha256,
+        sqlite_file_bytes,
+        sqlite_source_id: fixture_source_id(database, vfs)?,
+        source_revision,
+    };
+    let bytes = serde_json::to_vec(&manifest)?;
+    let manifest_sha256 = format!("{:x}", sha2::Sha256::digest(&bytes));
+    std::fs::write(manifest_path, bytes)?;
+    Ok((manifest, manifest_sha256))
+}
+
+fn validate_fixture_manifest(
+    database: &Path,
+    manifest_path: &Path,
+    authority_manifest_sha256: &str,
+    expected_slot: &str,
+    expected_generation: i64,
+    expected_file_sha256: &str,
+    expected_source_id: &str,
+    expected_source_revision: i64,
+    vfs: &TestVfs,
+) -> Value {
+    let mut reasons = Vec::<String>::new();
+    let mut checks = json!({
+        "database_path":database.display().to_string(),
+        "manifest_path":manifest_path.display().to_string(),
+        "authority_manifest_sha256":authority_manifest_sha256,
+        "expected_slot":expected_slot,
+        "expected_generation":expected_generation,
+        "expected_file_sha256":expected_file_sha256,
+        "expected_source_id":expected_source_id,
+        "expected_source_revision":expected_source_revision
+    });
+
+    let manifest_bytes = match std::fs::read(manifest_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            reasons.push("MANIFEST_MISSING".to_string());
+            Vec::new()
+        }
+        Err(error) => {
+            reasons.push(format!("MANIFEST_READ_ERROR:{error}"));
+            Vec::new()
+        }
+    };
+    if !manifest_bytes.is_empty() {
+        let actual_manifest_sha256 = format!("{:x}", sha2::Sha256::digest(&manifest_bytes));
+        checks["actual_manifest_sha256"] = json!(actual_manifest_sha256);
+        checks["manifest_digest_matches_authority"] =
+            json!(actual_manifest_sha256 == authority_manifest_sha256);
+        if actual_manifest_sha256 != authority_manifest_sha256 {
+            reasons.push("MANIFEST_DIGEST_MISMATCH".to_string());
+        }
+        match serde_json::from_slice::<FixtureManifest>(&manifest_bytes) {
+            Ok(manifest) => {
+                let identity_ok = manifest.format_version == 1
+                    && manifest.slot == expected_slot
+                    && manifest.generation == expected_generation
+                    && manifest.source_revision == expected_source_revision
+                    && manifest.sqlite_source_id == expected_source_id;
+                checks["manifest_identity"] = json!({
+                    "format_version":manifest.format_version,
+                    "slot":manifest.slot,
+                    "generation":manifest.generation,
+                    "source_id":manifest.sqlite_source_id,
+                    "source_revision":manifest.source_revision,
+                    "matches_expected":identity_ok
+                });
+                if !identity_ok {
+                    reasons.push("MANIFEST_IDENTITY_MISMATCH".to_string());
+                }
+                match fixture_file_digest(database) {
+                    Ok((actual_sha256, actual_bytes)) => {
+                        let digest_ok = actual_sha256 == expected_file_sha256
+                            && actual_sha256 == manifest.sqlite_file_sha256;
+                        let length_ok = actual_bytes == manifest.sqlite_file_bytes;
+                        checks["disk_file"] = json!({
+                            "exists":true,
+                            "sha256":actual_sha256,
+                            "bytes":actual_bytes,
+                            "digest_matches_authority_and_manifest":digest_ok,
+                            "length_matches_manifest":length_ok
+                        });
+                        if !digest_ok {
+                            reasons.push("DISK_DIGEST_MISMATCH".to_string());
+                        }
+                        if !length_ok {
+                            reasons.push("DISK_LENGTH_MISMATCH".to_string());
+                        }
+                    }
+                    Err(error) => {
+                        checks["disk_file"] =
+                            json!({"exists":database.exists(),"error":error.to_string()});
+                        reasons.push(if database.exists() {
+                            format!("DISK_READ_ERROR:{error}")
+                        } else {
+                            "SLOT_FILE_MISSING".to_string()
+                        });
+                    }
+                }
+                match open_vfs_readonly(database, vfs) {
+                    Ok(connection) => {
+                        let integrity = connection
+                            .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0));
+                        let actual_source_id =
+                            connection.query_row("SELECT sqlite_source_id()", [], |row| {
+                                row.get::<_, String>(0)
+                            });
+                        match integrity {
+                            Ok(result) => {
+                                checks["sqlite_integrity_check"] = json!(result);
+                                if result != "ok" {
+                                    reasons.push("SQLITE_INTEGRITY_REJECTED".to_string());
+                                }
+                            }
+                            Err(error) => {
+                                checks["sqlite_integrity_check"] =
+                                    json!({"error":error.to_string()});
+                                reasons.push(format!("SQLITE_INTEGRITY_REJECTED:{error}"));
+                            }
+                        }
+                        match actual_source_id {
+                            Ok(source_id) => {
+                                checks["disk_source_id"] = json!(source_id);
+                                if source_id != expected_source_id {
+                                    reasons.push("SQLITE_SOURCE_ID_MISMATCH".to_string());
+                                }
+                            }
+                            Err(error) => {
+                                reasons.push(format!("SQLITE_SOURCE_ID_READ_ERROR:{error}"))
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        checks["sqlite_open_readonly"] = json!({"error":error.to_string()});
+                        reasons.push(format!("SQLITE_INTEGRITY_REJECTED:{error}"));
+                    }
+                }
+            }
+            Err(error) => {
+                checks["manifest_parse_error"] = json!(error.to_string());
+                reasons.push("MANIFEST_INVALID_JSON".to_string());
+            }
+        }
+    }
+    reasons.sort();
+    reasons.dedup();
+    json!({"valid":reasons.is_empty(),"reasons":reasons,"checks":checks})
+}
+
+// Resolve only the generation named by the queried authority row; never repair or fall back.
+fn resolve_generation(
+    pointer_path: &Path,
+    e0_database: &Path,
+    e0_manifest: &Path,
+    e1_database: &Path,
+    e1_manifest: &Path,
+    expected_e0_digest: &str,
+    expected_e1_digest: &str,
+    expected_source_id: &str,
+    expected_source_revision: i64,
+    vfs: &TestVfs,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let pointer = pointer_state(pointer_path, vfs)?;
+    let (slot, generation, database, manifest_path, expected_digest) =
+        match (pointer.slot.as_str(), pointer.generation) {
+            ("E0", 0) => ("E0", 0, e0_database, e0_manifest, expected_e0_digest),
+            ("E1", 1) => ("E1", 1, e1_database, e1_manifest, expected_e1_digest),
+            _ => {
+                return Ok(json!({
+                    "decision":"UNAVAILABLE",
+                    "reason":"AUTHORITY_GENERATION_UNKNOWN",
+                    "pointer":pointer,
+                    "automatic_generation_substitution":false,
+                    "pointer_rewrite":false
+                }));
+            }
+        };
+    if pointer.epoch != generation || pointer.digest != expected_digest {
+        return Ok(json!({
+            "decision":"UNAVAILABLE",
+            "reason":"AUTHORITY_EPOCH_OR_DIGEST_MISMATCH",
+            "pointer":pointer,
+            "selected_slot":slot,
+            "automatic_generation_substitution":false,
+            "pointer_rewrite":false
+        }));
+    }
+    let validation = validate_fixture_manifest(
+        database,
+        manifest_path,
+        &pointer.manifest_sha256,
+        slot,
+        generation,
+        expected_digest,
+        expected_source_id,
+        expected_source_revision,
+        vfs,
+    );
+    let valid = validation["valid"] == true;
+    Ok(json!({
+        "decision":if valid {"VALIDATED_GENERATION"} else {"UNAVAILABLE"},
+        "reason":if valid {"MANIFEST_SLOT_AND_AUTHORITY_VALID"} else {"SELECTED_GENERATION_VALIDATION_FAILED"},
+        "selected_slot":slot,
+        "selected_generation":generation,
+        "pointer":pointer,
+        "validation":validation,
+        "automatic_generation_substitution":false,
+        "pointer_rewrite":false
+    }))
+}
+
+// Test-only publish guard shared by B01 and B03, including a valid-manifest control.
+fn publication_admission(
+    pointer_path: &Path,
+    candidate_database: &Path,
+    candidate_manifest: &Path,
+    expected_parent: &PointerSnapshot,
+    candidate_slot: &str,
+    candidate_generation: i64,
+    candidate_epoch: i64,
+    expected_candidate_digest: &str,
+    expected_candidate_manifest_sha256: &str,
+    expected_source_id: &str,
+    expected_source_revision: i64,
+    vfs: &TestVfs,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let observed_pointer = pointer_state(pointer_path, vfs)?;
+    if &observed_pointer != expected_parent
+        || candidate_generation != expected_parent.generation + 1
+        || candidate_epoch != expected_parent.epoch + 1
+    {
+        return Ok(json!({
+            "decision":"REJECTED",
+            "reason":"AUTHORITY_EPOCH_CAS_FAILED",
+            "observed_pointer":observed_pointer,
+            "expected_parent":expected_parent,
+            "candidate_slot":candidate_slot,
+            "candidate_generation":candidate_generation,
+            "candidate_epoch":candidate_epoch
+        }));
+    }
+    let validation = validate_fixture_manifest(
+        candidate_database,
+        candidate_manifest,
+        expected_candidate_manifest_sha256,
+        candidate_slot,
+        candidate_generation,
+        expected_candidate_digest,
+        expected_source_id,
+        expected_source_revision,
+        vfs,
+    );
+    let allowed = validation["valid"] == true;
+    Ok(json!({
+        "decision":if allowed {"ADMITTED"} else {"REJECTED"},
+        "reason":if allowed {"AUTHORITY_CAS_AND_MANIFEST_VALID"} else {"CANDIDATE_MANIFEST_OR_SLOT_INVALID"},
+        "observed_pointer":observed_pointer,
+        "expected_parent":expected_parent,
+        "candidate_slot":candidate_slot,
+        "candidate_generation":candidate_generation,
+        "candidate_epoch":candidate_epoch,
+        "candidate_manifest_validation":validation
+    }))
+}
+
+fn remove_sqlite_sidecars(path: &Path) {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let sidecar = PathBuf::from(format!("{}{}", path.display(), suffix));
+        let _ = std::fs::remove_file(sidecar);
+    }
+}
+
+fn user_facts_snapshot(path: &Path, vfs: &TestVfs) -> Result<Value, rusqlite::Error> {
+    let connection = open_vfs_readonly(path, vfs)?;
+    let mut statement = connection.prepare(
+        "SELECT legacy_file_id,fact_key,fact_value FROM user_facts ORDER BY legacy_file_id,fact_key",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    let facts = rows.collect::<Result<Vec<_>, _>>()?;
+    Ok(json!(facts))
+}
+
+fn pointer_operation_snapshot(path: &Path, vfs: &TestVfs) -> Result<Value, rusqlite::Error> {
+    let pointer = pointer_state(path, vfs)?;
+    let connection = open_vfs_readonly(path, vfs)?;
+    let mut statement = connection.prepare(
+        "SELECT op_id,expected_epoch,target_slot,target_generation,target_epoch,target_digest,\
+         target_manifest_sha256 FROM pointer_ops ORDER BY op_id",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?,
+        ))
+    })?;
+    let operations = rows.collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    drop(connection);
+    Ok(
+        json!({"pointer":pointer,"operations":operations,"user_facts":user_facts_snapshot(path,vfs)?}),
+    )
+}
+
+#[derive(Clone, Debug)]
+struct PublishOperation {
+    op_id: String,
+    expected_epoch: i64,
+    target_slot: String,
+    target_generation: i64,
+    target_digest: String,
+    target_manifest_sha256: String,
+}
+
+fn apply_publish_operation(
+    path: &Path,
+    vfs: &TestVfs,
+    operation: &PublishOperation,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut connection = open_pointer_db(path, vfs)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let existing = transaction
+        .query_row(
+            "SELECT expected_epoch,target_slot,target_generation,target_epoch,target_digest,\
+             target_manifest_sha256 FROM pointer_ops WHERE op_id=?1",
+            [&operation.op_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            },
+        )
+        .optional()?;
+    if let Some(existing) = existing {
+        let identical = existing
+            == (
+                operation.expected_epoch,
+                operation.target_slot.clone(),
+                operation.target_generation,
+                operation.expected_epoch + 1,
+                operation.target_digest.clone(),
+                operation.target_manifest_sha256.clone(),
+            );
+        transaction.rollback()?;
+        return Ok(json!({
+            "status":if identical {"ALREADY_APPLIED"} else {"REJECTED_OPERATION_ID_REUSE"},
+            "operation_id":operation.op_id,
+            "existing_operation_matches_replay":identical,
+            "sqlite_commit_executed":false
+        }));
+    }
+    let observed_epoch: i64 =
+        transaction.query_row("SELECT epoch FROM pointer WHERE singleton=1", [], |row| {
+            row.get(0)
+        })?;
+    if observed_epoch != operation.expected_epoch {
+        transaction.rollback()?;
+        return Ok(json!({
+            "status":"REJECTED_EPOCH_CAS",
+            "operation_id":operation.op_id,
+            "expected_epoch":operation.expected_epoch,
+            "observed_epoch":observed_epoch,
+            "sqlite_commit_executed":false
+        }));
+    }
+    let target_epoch = operation.expected_epoch + 1;
+    let changed = transaction.execute(
+        "UPDATE pointer SET slot=?1,generation=?2,epoch=?3,digest=?4,manifest_sha256=?5 \
+         WHERE singleton=1 AND epoch=?6",
+        params![
+            &operation.target_slot,
+            operation.target_generation,
+            target_epoch,
+            &operation.target_digest,
+            &operation.target_manifest_sha256,
+            operation.expected_epoch
+        ],
+    )?;
+    if changed != 1 {
+        transaction.rollback()?;
+        return Ok(
+            json!({"status":"REJECTED_EPOCH_CAS","changed_rows":changed,"sqlite_commit_executed":false}),
+        );
+    }
+    transaction.execute(
+        "INSERT INTO pointer_ops(op_id,expected_epoch,target_slot,target_generation,target_epoch,\
+         target_digest,target_manifest_sha256) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        params![
+            &operation.op_id,
+            operation.expected_epoch,
+            &operation.target_slot,
+            operation.target_generation,
+            target_epoch,
+            &operation.target_digest,
+            &operation.target_manifest_sha256
+        ],
+    )?;
+    transaction.commit()?;
+    Ok(json!({
+        "status":"APPLIED",
+        "operation_id":operation.op_id,
+        "expected_epoch":operation.expected_epoch,
+        "target_epoch":target_epoch,
+        "sqlite_commit_executed":true,
+        "sqlite_commit_primary_code":sqlite::SQLITE_OK,
+        "sqlite_commit_extended_code":sqlite::SQLITE_OK
+    }))
 }
 
 fn run_b01_partial_slot_page(
@@ -1695,20 +2196,31 @@ fn run_b01_partial_slot_page(
     let e0 = directory.join("b01-E0.sqlite");
     let e1 = directory.join("b01-E1-candidate.sqlite");
     let pointer_path = directory.join("b01-pointer.sqlite");
+    let e0_manifest = directory.join("b01-E0.manifest.json");
+    let e1_manifest = directory.join("b01-E1.manifest.json");
     create_seed(&e0, vfs)?;
     create_seed(&e1, vfs)?;
     add_generation_marker(&e1, vfs, "b01-E1")?;
-    let e0_before = file_hash_snapshot(&e0);
-    let e0_digest = e0_before["main"]["sha256"]
-        .as_str()
-        .ok_or("E0 hash missing")?
-        .to_string();
     {
         let connection = open_vfs_rw(&e1, vfs)?;
         connection.pragma_update(None, "journal_mode", "DELETE")?;
         connection.pragma_update(None, "synchronous", "FULL")?;
     }
-    create_pointer_db(&pointer_path, vfs, "E0", 0, &e0_digest)?;
+    let (e0_digest, _) = fixture_file_digest(&e0)?;
+    let (e1_expected_digest, _) = fixture_file_digest(&e1)?;
+    let expected_source_id = fixture_source_id(&e0, vfs)?;
+    let (_, e0_manifest_sha256) = create_fixture_manifest(&e0, &e0_manifest, "E0", 0, 1, vfs)?;
+    create_pointer_db(
+        &pointer_path,
+        vfs,
+        "E0",
+        0,
+        0,
+        &e0_digest,
+        &e0_manifest_sha256,
+    )?;
+    let expected_parent = pointer_state(&pointer_path, vfs)?;
+    let e0_before = file_hash_snapshot(&e0);
     let connection = open_vfs_rw(&e1, vfs)?;
     connection.busy_timeout(Duration::from_millis(PRODUCT_BUSY_TIMEOUT_MS))?;
     let journal_mode: String = connection.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
@@ -1741,9 +2253,49 @@ fn run_b01_partial_slot_page(
         .filter(|event| event.injection_id.as_deref() == Some(id))
         .collect::<Vec<_>>();
     let e0_after = file_hash_snapshot(&e0);
-    let e0_integrity = verify_db(&e0)?;
+    let e0_connection = open_vfs_readonly(&e0, vfs)?;
+    let e0_integrity: String =
+        e0_connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    drop(e0_connection);
     let pointer = pointer_state(&pointer_path, vfs)?;
     let candidate_reopen = verify_db(&e1);
+    let candidate_reopen_ok = candidate_reopen
+        .as_ref()
+        .is_ok_and(|result| result["integrity_check"] == "ok");
+    let (candidate_digest_after, _) = fixture_file_digest(&e1)?;
+    let recovery = resolve_generation(
+        &pointer_path,
+        &e0,
+        &e0_manifest,
+        &e1,
+        &e1_manifest,
+        &e0_digest,
+        &e1_expected_digest,
+        &expected_source_id,
+        1,
+        vfs,
+    )?;
+    let publish_admission = publication_admission(
+        &pointer_path,
+        &e1,
+        &e1_manifest,
+        &expected_parent,
+        "E1",
+        1,
+        1,
+        &candidate_digest_after,
+        "",
+        &expected_source_id,
+        1,
+        vfs,
+    )?;
+    let candidate_was_published = pointer.slot == "E1"
+        && pointer.generation == 1
+        && pointer.epoch == 1
+        && pointer.digest == candidate_digest_after
+        && recovery["decision"] == "VALIDATED_GENERATION"
+        && recovery["selected_slot"] == "E1";
+    let candidate_publish_allowed = publish_admission["decision"] == "ADMITTED";
     let expected_rc = i64::from(sqlite::SQLITE_IOERR_WRITE);
     let callback_ok = events.len() == 1
         && events[0].file_kind == FileKind::MainDb
@@ -1758,9 +2310,19 @@ fn run_b01_partial_slot_page(
         && sqlite_error_ok
         && journal_mode == "delete"
         && e0_unchanged
-        && e0_integrity["integrity_check"] == "ok"
-        && pointer.0 == "E0"
-        && pointer.1 == 0;
+        && e0_integrity == "ok"
+        && pointer.slot == "E0"
+        && pointer.generation == 0
+        && pointer.epoch == 0
+        && recovery["decision"] == "VALIDATED_GENERATION"
+        && recovery["selected_slot"] == "E0"
+        && publish_admission["decision"] == "REJECTED"
+        && !candidate_publish_allowed
+        && candidate_reopen_ok
+        && publish_admission["candidate_manifest_validation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.iter().any(|reason| reason == "MANIFEST_MISSING"))
+        && !candidate_was_published;
     let details = json!({
         "evidence_class":"ACTUAL_OS plus actual named-VFS xWrite; model publication authority",
         "fault_model_claim_only":true,
@@ -1770,10 +2332,13 @@ fn run_b01_partial_slot_page(
         "sqlite_rollback_result":rollback,
         "journal_mode":journal_mode,
         "E0_sha256_before_after":[e0_before,e0_after],
-        "E0_integrity_after_fault":e0_integrity["integrity_check"],
-        "publication_pointer_after_fault":{"slot":pointer.0,"generation":pointer.1,"digest":pointer.2},
+        "E0_integrity_after_fault":e0_integrity,
+        "publication_pointer_after_fault":pointer,
         "candidate_reopen_after_rollback":match candidate_reopen { Ok(v) => json!({"ok":true,"integrity":v["integrity_check"],"row_count":v["row_count"]}), Err(e) => json!({"ok":false,"error":e.to_string()}) },
-        "candidate_was_published":false,
+        "candidate_was_published":candidate_was_published,
+        "candidate_publish_allowed":candidate_publish_allowed,
+        "candidate_publish_admission":publish_admission,
+        "read_resolution_after_fault":recovery,
         "ok":safe
     });
     emit(
@@ -1898,19 +2463,22 @@ fn run_b03_incomplete_manifest(
     let e0 = directory.join("b03-E0.sqlite");
     let e1 = directory.join("b03-E1.sqlite");
     let pointer = directory.join("b03-pointer.sqlite");
+    let e0_manifest = directory.join("b03-E0.manifest.json");
+    let manifest = directory.join("b03-E1.manifest.json");
+    let staging = directory.join("b03-E1.manifest.tmp");
+    let positive_manifest = directory.join("b03-E1-positive.manifest.json");
     create_seed(&e0, vfs)?;
     create_seed(&e1, vfs)?;
     add_generation_marker(&e1, vfs, "b03-E1")?;
-    let e0_digest = sha256_file(&e0)["sha256"]
-        .as_str()
-        .ok_or("E0 SHA missing")?
-        .to_string();
-    create_pointer_db(&pointer, vfs, "E0", 0, &e0_digest)?;
-    let manifest = directory.join("b03-E1.manifest.json");
-    let staging = directory.join("b03-E1.manifest.tmp");
-    let full = serde_json::to_vec(
-        &json!({"slot":"E1","file_sha256":sha256_file(&e1)["sha256"],"complete":true}),
-    )?;
+    let (e0_digest, _) = fixture_file_digest(&e0)?;
+    let (e1_digest, _) = fixture_file_digest(&e1)?;
+    let expected_source_id = fixture_source_id(&e0, vfs)?;
+    let (_, e0_manifest_sha256) = create_fixture_manifest(&e0, &e0_manifest, "E0", 0, 1, vfs)?;
+    let (_, candidate_manifest_sha256) =
+        create_fixture_manifest(&e1, &positive_manifest, "E1", 1, 1, vfs)?;
+    let full = std::fs::read(&positive_manifest)?;
+    create_pointer_db(&pointer, vfs, "E0", 0, 0, &e0_digest, &e0_manifest_sha256)?;
+    let expected_parent = pointer_state(&pointer, vfs)?;
     let cut = (full.len() / 2).max(1);
     {
         use std::io::Write;
@@ -1918,22 +2486,90 @@ fn run_b03_incomplete_manifest(
         file.write_all(&full[..cut])?;
         file.sync_all()?;
     }
-    let pointer_state = pointer_state(&pointer, vfs)?;
+    let observed_pointer = pointer_state(&pointer, vfs)?;
     let staged = std::fs::read(&staging)?;
-    let e1_digest = sha256_file(&e1);
+    let stage_digest = format!("{:x}", sha2::Sha256::digest(&staged));
+    let candidate_digest = fixture_file_digest(&e1)?.0;
+    let recovery = resolve_generation(
+        &pointer,
+        &e0,
+        &e0_manifest,
+        &e1,
+        &manifest,
+        &e0_digest,
+        &e1_digest,
+        &expected_source_id,
+        1,
+        vfs,
+    )?;
+    let damaged_admission = publication_admission(
+        &pointer,
+        &e1,
+        &staging,
+        &expected_parent,
+        "E1",
+        1,
+        1,
+        &candidate_digest,
+        &candidate_manifest_sha256,
+        &expected_source_id,
+        1,
+        vfs,
+    )?;
+    let valid_admission = publication_admission(
+        &pointer,
+        &e1,
+        &positive_manifest,
+        &expected_parent,
+        "E1",
+        1,
+        1,
+        &candidate_digest,
+        &candidate_manifest_sha256,
+        &expected_source_id,
+        1,
+        vfs,
+    )?;
+    let candidate_publish_allowed = damaged_admission["decision"] == "ADMITTED";
+    let candidate_was_published = observed_pointer.slot == "E1"
+        && observed_pointer.generation == 1
+        && observed_pointer.epoch == 1
+        && observed_pointer.digest == candidate_digest
+        && recovery["decision"] == "VALIDATED_GENERATION"
+        && recovery["selected_slot"] == "E1";
     let safe = !manifest.exists()
         && staged.len() == cut
-        && pointer_state.0 == "E0"
-        && pointer_state.1 == 0
-        && e1_digest["sha256"].is_string();
+        && observed_pointer.slot == "E0"
+        && observed_pointer.generation == 0
+        && observed_pointer.epoch == 0
+        && recovery["decision"] == "VALIDATED_GENERATION"
+        && recovery["selected_slot"] == "E0"
+        && damaged_admission["decision"] == "REJECTED"
+        && damaged_admission["candidate_manifest_validation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| {
+                reasons
+                    .iter()
+                    .any(|reason| reason == "MANIFEST_DIGEST_MISMATCH")
+                    && reasons
+                        .iter()
+                        .any(|reason| reason == "MANIFEST_INVALID_JSON")
+            })
+        && valid_admission["decision"] == "ADMITTED"
+        && !candidate_publish_allowed
+        && !candidate_was_published;
     let details = json!({
         "evidence_class":"MODEL_ONLY; real temporary-file prefix write and fsync on current OS",
         "injection_point":"after manifest staging prefix is written; before atomic rename/publication",
-        "staging_manifest":{"path":staging.display().to_string(),"prefix_bytes":staged.len(),"expected_complete_bytes":full.len(),"sha256":format!("{:x}",sha2::Sha256::digest(&staged))},
+        "staging_manifest":{"path":staging.display().to_string(),"prefix_bytes":staged.len(),"expected_complete_bytes":full.len(),"sha256":stage_digest,"expected_manifest_sha256":candidate_manifest_sha256},
         "final_manifest_exists":manifest.exists(),
-        "candidate_E1_file_sha256":e1_digest,
-        "pointer_after_interruption":{"slot":pointer_state.0,"generation":pointer_state.1,"digest":pointer_state.2},
-        "candidate_publish_allowed":false,
+        "candidate_E1_file_sha256":candidate_digest,
+        "pointer_after_interruption":observed_pointer,
+        "candidate_publish_allowed":candidate_publish_allowed,
+        "candidate_publish_admission":damaged_admission,
+        "valid_manifest_positive_control":valid_admission,
+        "read_resolution_after_interruption":recovery,
+        "candidate_was_published":candidate_was_published,
         "real_process_crash_or_power_loss":false,
         "ok":safe
     });
@@ -2003,75 +2639,125 @@ fn run_b05_pointer_transactions(
     directory: &Path,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     let id = "B05-PUBLISH-POINTER-TRANSACTIONS";
-    let path = directory.join("b05-pointer.sqlite");
-    create_pointer_db(&path, vfs, "E0", 0, "digest-E0")?;
+    let path = directory.join("b05-ack-lost-pointer.sqlite");
+    let e0_digest = "sha256:model-E0";
+    let e0_manifest = "sha256:model-E0-manifest";
+    let e1_digest = "sha256:model-E1";
+    let e1_manifest = "sha256:model-E1-manifest";
+    create_pointer_db(&path, vfs, "E0", 0, 0, e0_digest, e0_manifest)?;
+    let user_facts_before = user_facts_snapshot(&path, vfs)?;
     let connection = open_pointer_db(&path, vfs)?;
     connection.execute_batch("BEGIN IMMEDIATE")?;
-    connection.execute("INSERT INTO pointer_ops VALUES('pre-commit',1)", [])?;
     connection.execute(
-        "UPDATE pointer SET slot='E1',generation=1,digest='digest-E1' WHERE singleton=1",
-        [],
+        "UPDATE pointer SET slot='E1',generation=1,epoch=1,digest=?1,manifest_sha256=?2 \
+         WHERE singleton=1 AND epoch=0",
+        params![e1_digest, e1_manifest],
+    )?;
+    connection.execute(
+        "INSERT INTO pointer_ops VALUES('pre-commit',0,'E1',1,1,?1,?2)",
+        params![e1_digest, e1_manifest],
     )?;
     connection.execute_batch("ROLLBACK")?;
-    let after_rollback = connection.query_row(
-        "SELECT slot,generation FROM pointer WHERE singleton=1",
-        [],
-        |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-    )?;
-    let pre_op_count: i64 = connection.query_row(
-        "SELECT count(*) FROM pointer_ops WHERE op_id='pre-commit'",
-        [],
-        |r| r.get(0),
-    )?;
-    connection.execute_batch("BEGIN IMMEDIATE")?;
-    connection.execute("INSERT INTO pointer_ops VALUES('ack-lost-op',1)", [])?;
-    connection.execute(
-        "UPDATE pointer SET slot='E1',generation=1,digest='digest-E1' WHERE singleton=1",
-        [],
-    )?;
-    connection.execute_batch("COMMIT")?;
-    // Model an acknowledgement lost after SQLite returned success. A replay sees
-    // the committed operation ID and an epoch-guarded compensation is a no-op.
-    let already_applied: i64 = connection.query_row(
-        "SELECT count(*) FROM pointer_ops WHERE op_id='ack-lost-op'",
-        [],
-        |r| r.get(0),
-    )?;
-    let replay_was_noop = already_applied == 1;
-    let stale_rollback_rows = connection.execute("UPDATE pointer SET slot='E0',generation=0,digest='digest-E0' WHERE singleton=1 AND generation=0", [])?;
-    let after_commit = connection.query_row(
-        "SELECT slot,generation,digest FROM pointer WHERE singleton=1",
-        [],
-        |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, String>(2)?,
-            ))
-        },
-    )?;
-    let op_count: i64 = connection.query_row(
-        "SELECT count(*) FROM pointer_ops WHERE op_id='ack-lost-op'",
-        [],
-        |r| r.get(0),
-    )?;
     drop(connection);
-    let recovered = pointer_state(&path, vfs)?;
-    let safe = after_rollback == ("E0".to_string(), 0)
-        && pre_op_count == 0
-        && replay_was_noop
-        && stale_rollback_rows == 0
-        && after_commit == ("E1".to_string(), 1, "digest-E1".to_string())
-        && op_count == 1
-        && recovered == after_commit;
+    let after_rollback = pointer_operation_snapshot(&path, vfs)?;
+    let operation = PublishOperation {
+        op_id: "ack-lost-op".to_string(),
+        expected_epoch: 0,
+        target_slot: "E1".to_string(),
+        target_generation: 1,
+        target_digest: e1_digest.to_string(),
+        target_manifest_sha256: e1_manifest.to_string(),
+    };
+    let first_apply = apply_publish_operation(&path, vfs, &operation)?;
+    let after_commit = pointer_operation_snapshot(&path, vfs)?;
+    let facts_after_commit = user_facts_snapshot(&path, vfs)?;
+    let replay = apply_publish_operation(&path, vfs, &operation)?;
+    let after_replay = pointer_operation_snapshot(&path, vfs)?;
+    let mut rebound_operation = operation.clone();
+    rebound_operation.target_digest = "sha256:rebound-target".to_string();
+    let operation_id_reuse = apply_publish_operation(&path, vfs, &rebound_operation)?;
+    let stale_operation = PublishOperation {
+        op_id: "stale-epoch-op".to_string(),
+        expected_epoch: 0,
+        target_slot: "E0".to_string(),
+        target_generation: 0,
+        target_digest: e0_digest.to_string(),
+        target_manifest_sha256: e0_manifest.to_string(),
+    };
+    let epoch_cas = apply_publish_operation(&path, vfs, &stale_operation)?;
+    let after_all_replays = pointer_operation_snapshot(&path, vfs)?;
+    let replay_user_facts = user_facts_snapshot(&path, vfs)?;
+
+    let restart_path = directory.join("b05-commit-lost-on-model-restart.sqlite");
+    let precommit_snapshot = directory.join("b05-precommit-durable-snapshot.sqlite");
+    create_pointer_db(&restart_path, vfs, "E0", 0, 0, e0_digest, e0_manifest)?;
+    let restart_user_facts_before = user_facts_snapshot(&restart_path, vfs)?;
+    std::fs::copy(&restart_path, &precommit_snapshot)?;
+    let restart_commit = apply_publish_operation(&restart_path, vfs, &operation)?;
+    let commit_seen_by_caller = restart_commit["status"] == "APPLIED"
+        && restart_commit["sqlite_commit_primary_code"] == sqlite::SQLITE_OK
+        && restart_commit["sqlite_commit_extended_code"] == sqlite::SQLITE_OK;
+    remove_sqlite_sidecars(&restart_path);
+    std::fs::remove_file(&restart_path)?;
+    std::fs::copy(&precommit_snapshot, &restart_path)?;
+    let after_simulated_restart = pointer_operation_snapshot(&restart_path, vfs)?;
+    let restart_user_facts_after = user_facts_snapshot(&restart_path, vfs)?;
+    let op_rows_after_restart = after_simulated_restart["operations"]
+        .as_array()
+        .map_or(0, Vec::len);
+
+    let safe = after_rollback["pointer"]["slot"] == "E0"
+        && after_rollback["pointer"]["epoch"] == 0
+        && after_rollback["operations"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+        && first_apply["status"] == "APPLIED"
+        && first_apply["sqlite_commit_primary_code"] == sqlite::SQLITE_OK
+        && replay["status"] == "ALREADY_APPLIED"
+        && replay["existing_operation_matches_replay"] == true
+        && after_commit == after_replay
+        && operation_id_reuse["status"] == "REJECTED_OPERATION_ID_REUSE"
+        && epoch_cas["status"] == "REJECTED_EPOCH_CAS"
+        && after_commit == after_all_replays
+        && after_all_replays["pointer"]["slot"] == "E1"
+        && after_all_replays["pointer"]["epoch"] == 1
+        && after_all_replays["operations"]
+            .as_array()
+            .is_some_and(|rows| rows.len() == 1)
+        && user_facts_before == facts_after_commit
+        && user_facts_before == replay_user_facts
+        && restart_user_facts_before == restart_user_facts_after
+        && commit_seen_by_caller
+        && after_simulated_restart["pointer"]["slot"] == "E0"
+        && after_simulated_restart["pointer"]["epoch"] == 0
+        && op_rows_after_restart == 0;
     let details = json!({
         "evidence_class":"MODEL_ONLY SQLite transactions through actual named VFS; no power-loss claim",
-        "pre_commit_transaction_rolled_back":{"pointer":after_rollback,"precommit_op_rows":pre_op_count},
-        "post_commit_pointer":after_commit,
-        "acknowledgement_lost_replay_was_idempotent":replay_was_noop,
-        "stale_epoch_compensation_changed_rows":stale_rollback_rows,
-        "durable_reopen_pointer":recovered,
-        "operation_id_rows_after_replay":op_count,
+        "pre_commit_transaction_rolled_back":{"snapshot":after_rollback},
+        "commit_succeeded_but_response_lost":{
+            "first_apply_result":first_apply,
+            "simulated_response_delivery":"DROPPED_AFTER_SQLITE_COMMIT_RETURNED_SQLITE_OK",
+            "actual_second_invocation":replay,
+            "state_after_first_commit":after_commit,
+            "state_after_replay":after_replay,
+            "state_idempotent":after_commit == after_replay,
+            "duplicate_operation_id_rebind_attempt":operation_id_reuse,
+            "stale_epoch_CAS_attempt":epoch_cas,
+            "state_after_negative_controls":after_all_replays,
+            "user_facts_before":user_facts_before,
+            "user_facts_after":replay_user_facts
+        },
+        "commit_reported_success_but_lost_in_simulated_restart":{
+            "commit_result":restart_commit,
+            "caller_observed_success":commit_seen_by_caller,
+            "recovery_model":"replace the post-commit temp database with a captured pre-commit snapshot",
+            "before_restart_model":restart_user_facts_before,
+            "after_restart_model":after_simulated_restart,
+            "user_facts_after":restart_user_facts_after,
+            "operation_rows_after_restart":op_rows_after_restart,
+            "physical_restart_or_power_loss_tested":false
+        },
+        "no_cross_file_ACID_or_power_loss_claim":true,
         "ok":safe
     });
     emit(
@@ -2090,68 +2776,145 @@ fn run_b06_e1_unavailable(
     vfs: &TestVfs,
     directory: &Path,
 ) -> Result<Value, Box<dyn std::error::Error>> {
-    let id = "B06-E1-MISSING-CORRUPT-UNAVAILABLE";
+    let id = "B06-EXECUTABLE-RECOVERY-DECISIONS";
+    let cases = [
+        "valid_e1",
+        "missing_e1",
+        "truncated_e1",
+        "digest_mismatch_e1",
+        "invalid_e0",
+    ];
     let mut generations = Vec::new();
-    for (case, corrupt) in [("missing", false), ("corrupt", true)] {
+    for case in cases {
         let e0 = directory.join(format!("b06-{case}-E0.sqlite"));
         let e1 = directory.join(format!("b06-{case}-E1.sqlite"));
         let pointer = directory.join(format!("b06-{case}-pointer.sqlite"));
+        let e0_manifest = directory.join(format!("b06-{case}-E0.manifest.json"));
+        let e1_manifest = directory.join(format!("b06-{case}-E1.manifest.json"));
         create_seed(&e0, vfs)?;
         create_seed(&e1, vfs)?;
+        add_generation_marker(&e0, vfs, &format!("b06-{case}-E0"))?;
         add_generation_marker(&e1, vfs, &format!("b06-{case}-E1"))?;
-        let e0_digest = sha256_file(&e0)["sha256"]
-            .as_str()
-            .ok_or("E0 SHA missing")?
-            .to_string();
-        let expected_e1 = sha256_file(&e1)["sha256"]
-            .as_str()
-            .ok_or("E1 SHA missing")?
-            .to_string();
-        create_pointer_db(&pointer, vfs, "E1", 1, &expected_e1)?;
-        if corrupt {
-            let file = std::fs::OpenOptions::new().write(true).open(&e1)?;
-            file.set_len(100)?;
-            file.sync_all()?;
-        } else {
-            std::fs::remove_file(&e1)?;
-        }
-        let current = pointer_state(&pointer, vfs)?;
-        let resolution = if !e1.exists() {
-            "UNAVAILABLE_MISSING"
-        } else {
-            match verify_db(&e1) {
-                Ok(check)
-                    if check["integrity_check"] == "ok"
-                        && sha256_file(&e1)["sha256"] == expected_e1 =>
-                {
-                    "AVAILABLE"
-                }
-                _ => "UNAVAILABLE_CORRUPT_OR_DIGEST_MISMATCH",
+        let (e0_digest, _) = fixture_file_digest(&e0)?;
+        let (e1_digest, _) = fixture_file_digest(&e1)?;
+        let expected_source_id = fixture_source_id(&e0, vfs)?;
+        let (_, e0_manifest_sha256) = create_fixture_manifest(&e0, &e0_manifest, "E0", 0, 1, vfs)?;
+        let (_, e1_manifest_sha256) = create_fixture_manifest(&e1, &e1_manifest, "E1", 1, 1, vfs)?;
+        let selected_e0 = case == "invalid_e0";
+        let (selected_slot, selected_generation, selected_digest, selected_manifest_sha256) =
+            if selected_e0 {
+                ("E0", 0, e0_digest.as_str(), e0_manifest_sha256.as_str())
+            } else {
+                ("E1", 1, e1_digest.as_str(), e1_manifest_sha256.as_str())
+            };
+        create_pointer_db(
+            &pointer,
+            vfs,
+            selected_slot,
+            selected_generation,
+            selected_generation,
+            selected_digest,
+            selected_manifest_sha256,
+        )?;
+        match case {
+            "missing_e1" => std::fs::remove_file(&e1)?,
+            "truncated_e1" => {
+                let file = std::fs::OpenOptions::new().write(true).open(&e1)?;
+                file.set_len(100)?;
+                file.sync_all()?;
             }
+            "digest_mismatch_e1" => {
+                let connection = open_vfs_rw(&e1, vfs)?;
+                connection.execute(
+                    "UPDATE docs SET payload=substr(payload,1,length(payload)-1)||'x' WHERE id=1",
+                    [],
+                )?;
+                drop(connection);
+            }
+            "invalid_e0" => {
+                let file = std::fs::OpenOptions::new().write(true).open(&e0)?;
+                file.set_len(100)?;
+                file.sync_all()?;
+            }
+            _ => {}
+        }
+        let before = json!({
+            "pointer":pointer_state(&pointer,vfs)?,
+            "E0":sha256_file(&e0),
+            "E1":sha256_file(&e1),
+            "E0_manifest":sha256_file(&e0_manifest),
+            "E1_manifest":sha256_file(&e1_manifest)
+        });
+        let resolution = resolve_generation(
+            &pointer,
+            &e0,
+            &e0_manifest,
+            &e1,
+            &e1_manifest,
+            &e0_digest,
+            &e1_digest,
+            &expected_source_id,
+            1,
+            vfs,
+        )?;
+        let after = json!({
+            "pointer":pointer_state(&pointer,vfs)?,
+            "E0":sha256_file(&e0),
+            "E1":sha256_file(&e1),
+            "E0_manifest":sha256_file(&e0_manifest),
+            "E1_manifest":sha256_file(&e1_manifest)
+        });
+        let expected_decision = if case == "valid_e1" {
+            "VALIDATED_GENERATION"
+        } else {
+            "UNAVAILABLE"
         };
-        let e0_after = sha256_file(&e0);
+        let state_unchanged = before == after;
         generations.push(json!({
-            "case":case,"pointer":{"slot":current.0,"generation":current.1,"digest":current.2},
-            "E1_path_exists":e1.exists(),"E1_resolution":resolution,"expected_E1_sha256":expected_e1,
-            "E0_sha256_before":e0_digest,"E0_sha256_after":e0_after["sha256"],
-            "fallback_to_mutable_physical_fts":false,"automatic_generation_substitution":false,
-            "read_decision":"UNAVAILABLE_READ_ONLY_RECONCILIATION"
+            "case":case,
+            "expected_decision":expected_decision,
+            "actual_resolution":resolution,
+            "state_before":before,
+            "state_after":after,
+            "resolver_did_not_mutate_files_or_authority":state_unchanged,
+            "E1_file_exists_after_resolution":e1.exists(),
+            "automatic_generation_substitution":resolution["automatic_generation_substitution"],
+            "pointer_rewrite":resolution["pointer_rewrite"]
         }));
     }
-    let safe = generations.iter().all(|g| {
-        g["pointer"]["slot"] == "E1"
-            && g["read_decision"] == "UNAVAILABLE_READ_ONLY_RECONCILIATION"
-            && g["fallback_to_mutable_physical_fts"] == false
-            && g["automatic_generation_substitution"] == false
-            && g["E0_sha256_before"] == g["E0_sha256_after"]
-    }) && generations[0]["E1_resolution"] == "UNAVAILABLE_MISSING"
-        && generations[1]["E1_resolution"] == "UNAVAILABLE_CORRUPT_OR_DIGEST_MISMATCH";
+    let safe = generations.iter().all(|case| {
+        case["actual_resolution"]["decision"] == case["expected_decision"]
+            && case["resolver_did_not_mutate_files_or_authority"] == true
+            && case["automatic_generation_substitution"] == false
+            && case["pointer_rewrite"] == false
+    }) && generations[0]["actual_resolution"]["selected_slot"] == "E1"
+        && generations[1]["actual_resolution"]["selected_slot"] == "E1"
+        && generations[1]["actual_resolution"]["validation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.iter().any(|reason| reason == "SLOT_FILE_MISSING"))
+        && generations[2]["actual_resolution"]["selected_slot"] == "E1"
+        && generations[2]["actual_resolution"]["validation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| {
+                reasons
+                    .iter()
+                    .any(|reason| reason == "DISK_DIGEST_MISMATCH")
+            })
+        && generations[3]["actual_resolution"]["selected_slot"] == "E1"
+        && generations[3]["actual_resolution"]["validation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| {
+                reasons
+                    .iter()
+                    .any(|reason| reason == "DISK_DIGEST_MISMATCH")
+            })
+        && generations[4]["actual_resolution"]["selected_slot"] == "E0";
     let details = json!({
-        "evidence_class":"MODEL_ONLY recovery decision; real Linux file removal/truncation and SQLite integrity/hash checks",
+        "evidence_class":"MODEL_ONLY test-only recovery resolver using actual pointer queries, actual manifests, read-only SQLite integrity checks and file digests",
+        "resolver_inputs":"authority pointer, expected E0/E1 SQLite digests, SQLite source ID, source revision, on-disk Manifest bytes and SQLite integrity",
         "cases":generations,
-        "E0_retained_and_unchanged":true,
-        "mutable_FTS_fallback":false,
-        "automatic_repair_or_pointer_rewrite":false,
+        "mutable_FTS_fallback":"not part of this resolver",
+        "automatic_repair_or_pointer_rewrite":"the resolver only returns a decision; it does not write the pointer or slot files",
         "ok":safe
     });
     emit(

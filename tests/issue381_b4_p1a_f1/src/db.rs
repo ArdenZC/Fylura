@@ -693,7 +693,11 @@ pub fn wal_bytes(path: &Path) -> u64 {
 }
 
 pub fn file_system_sync(path: &Path) -> std::io::Result<()> {
-    OpenOptions::new().write(true).open(path)?.sync_all()
+    if path.is_dir() {
+        std::fs::File::open(path)?.sync_all()
+    } else {
+        OpenOptions::new().write(true).open(path)?.sync_all()
+    }
 }
 
 pub fn update_doc_for_delta(

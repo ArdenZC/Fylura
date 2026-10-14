@@ -1,0 +1,153 @@
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling shlex v2.0.1
+   Compiling proc-macro2 v1.0.106
+   Compiling parking_lot_core v0.9.12
+   Compiling smallvec v1.15.2
+   Compiling find-msvc-tools v0.1.9
+   Compiling cc v1.2.64
+   Compiling pkg-config v0.3.33
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling getrandom v0.4.3
+   Compiling typenum v1.20.1
+   Compiling scopeguard v1.2.0
+   Compiling rand_core v0.10.1
+   Compiling vcpkg v0.2.15
+   Compiling libsqlite3-sys v0.37.0
+   Compiling lock_api v0.4.14
+   Compiling serde_core v1.0.228
+   Compiling cpufeatures v0.3.0
+   Compiling foldhash v0.2.0
+   Compiling hashbrown v0.16.1
+   Compiling chacha20 v0.10.0
+   Compiling parking_lot v0.12.5
+   Compiling zmij v1.0.21
+   Compiling scheduled-thread-pool v0.2.7
+   Compiling rand v0.10.1
+   Compiling hashlink v0.11.1
+   Compiling syn v2.0.118
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling serde_json v1.0.150
+   Compiling fallible-iterator v0.3.0
+   Compiling bitflags v2.13.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling serde v1.0.228
+   Compiling log v0.4.32
+   Compiling r2d2 v0.8.10
+   Compiling digest v0.10.7
+   Compiling serde_derive v1.0.228
+   Compiling rusqlite v0.39.0
+   Compiling uuid v1.23.3
+   Compiling memchr v2.8.2
+   Compiling cpufeatures v0.2.17
+   Compiling itoa v1.0.18
+   Compiling sha2 v0.10.9
+   Compiling r2d2_sqlite v0.34.0
+   Compiling issue381-b4-p1a-f1 v0.1.0 (/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1)
+error[E0428]: the name `vfs_x_open` is defined multiple times
+   --> src/b1_vfs.rs:911:1
+    |
+466 | / unsafe extern "C" fn vfs_x_open(
+467 | |     vfs: *mut sqlite::sqlite3_vfs,
+468 | |     filename: *const c_char,
+469 | |     file: *mut sqlite::sqlite3_file,
+...   |
+536 | |     sqlite::SQLITE_OK
+537 | | }
+    | |_- previous definition of the value `vfs_x_open` here
+...
+911 | / fn vfs_x_open(
+912 | |     vfs: *mut sqlite::sqlite3_vfs,
+913 | |     filename: *const c_char,
+914 | |     file: *mut sqlite::sqlite3_file,
+...   |
+984 | | }
+    | |_^ `vfs_x_open` redefined here
+    |
+    = note: `vfs_x_open` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `run_pool_smoke` is defined multiple times
+    --> src/b1_vfs.rs:1610:1
+     |
+1336 | fn run_pool_smoke(vfs: &TestVfs, path: &Path) -> Result<Value, Box<dyn std::error::Error>> {
+     | ------------------------------------------------------------------------------------------ previous definition of the value `run_pool_smoke` here
+...
+1610 | fn run_pool_smoke(vfs: &TestVfs, path: &Path) -> Result<Value, Box<dyn std::error::Error>> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `run_pool_smoke` redefined here
+     |
+     = note: `run_pool_smoke` must be defined only once in the value namespace of this module
+
+error[E0599]: no associated function or constant named `SQLITE_OPEN_READWRITE` found for struct `OpenFlags` in the current scope
+    --> src/b1_vfs.rs:1122:24
+     |
+1122 |             OpenFlags::SQLITE_OPEN_READWRITE
+     |                        ^^^^^^^^^^^^^^^^^^^^^ associated function or constant not found in `OpenFlags`
+     |
+help: there is an associated constant `SQLITE_OPEN_READ_WRITE` with a similar name
+     |
+1122 |             OpenFlags::SQLITE_OPEN_READ_WRITE
+     |                                        +
+
+error[E0599]: no associated function or constant named `SQLITE_OPEN_READWRITE` found for struct `OpenFlags` in the current scope
+    --> src/b1_vfs.rs:1143:20
+     |
+1143 |         OpenFlags::SQLITE_OPEN_READWRITE
+     |                    ^^^^^^^^^^^^^^^^^^^^^ associated function or constant not found in `OpenFlags`
+     |
+help: there is an associated constant `SQLITE_OPEN_READ_WRITE` with a similar name
+     |
+1143 |         OpenFlags::SQLITE_OPEN_READ_WRITE
+     |                                    +
+
+error[E0599]: no associated function or constant named `SQLITE_OPEN_READWRITE` found for struct `OpenFlags` in the current scope
+    --> src/b1_vfs.rs:1212:20
+     |
+1212 |         OpenFlags::SQLITE_OPEN_READWRITE | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+     |                    ^^^^^^^^^^^^^^^^^^^^^ associated function or constant not found in `OpenFlags`
+     |
+help: there is an associated constant `SQLITE_OPEN_READ_WRITE` with a similar name
+     |
+1212 |         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+     |                                    +
+
+error[E0308]: mismatched types
+    --> src/b1_vfs.rs:1805:35
+     |
+1783 |     let final_result = match (result, unregister) {
+     |                              -------------------- this expression has type `(Result<(), Box<dyn StdError>>, Result<(), std::string::String>)`
+...
+1805 |         (Err(error), _) | (_, Err(error)) => {
+     |              -----                ^^^^^ expected `Box<dyn Error>`, found `String`
+     |              |
+     |              first introduced with type `Box<dyn StdError>` here
+     |
+     = note: expected struct `Box<dyn StdError>`
+                found struct `std::string::String`
+     = note: in the same arm, a binding must have the same type in all alternatives
+
+warning: unnecessary `unsafe` block
+    --> src/b1_vfs.rs:1098:5
+     |
+1098 |     unsafe {
+     |     ^^^^^^ unnecessary `unsafe` block
+     |
+     = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> src/t10_native.rs:1288:9
+     |
+1288 |     let mut conn = open_connection(&pointer_path)?;
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+Some errors have detailed explanations: E0308, E0428, E0599.
+For more information about an error, try `rustc --explain E0308`.
+warning: `issue381-b4-p1a-f1` (bin "issue381-b4-p1a-f1") generated 2 warnings
+error: could not compile `issue381-b4-p1a-f1` (bin "issue381-b4-p1a-f1") due to 6 previous errors; 2 warnings emitted

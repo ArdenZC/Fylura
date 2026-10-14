@@ -1,0 +1,79 @@
+   Compiling issue381-b4-p1a-f1 v0.1.0 (/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1)
+warning: variable does not need to be mutable
+    --> src/b1_vfs.rs:1675:13
+     |
+1675 |         let mut connection = open_vfs_rw(&e1, vfs)?;
+     |             ----^^^^^^^^^^
+     |             |
+     |             help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> src/b1_vfs.rs:1680:9
+     |
+1680 |     let mut connection = open_vfs_rw(&e1, vfs)?;
+     |         ----^^^^^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/b1_vfs.rs:1975:9
+     |
+1975 |     let mut connection = open_pointer_db(&path, vfs)?;
+     |         ----^^^^^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/b1_vfs.rs:2151:17
+     |
+2151 |             let mut c = Connection::open(&control)?;
+     |                 ----^
+     |                 |
+     |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/b1_vfs.rs:2159:17
+     |
+2159 |             let mut c = Connection::open(&control)?;
+     |                 ----^
+     |                 |
+     |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/b1_vfs.rs:2170:17
+     |
+2170 |             let mut c = open_vfs_rw(&wrapped, vfs)?;
+     |                 ----^
+     |                 |
+     |                 help: remove this `mut`
+
+error[E0382]: use of moved value: `unregister`
+    --> src/b1_vfs.rs:2774:115
+     |
+2737 |     let unregister = if open_handles == 0 {
+     |         ---------- move occurs because `unregister` has type `Result<(), std::string::String>`, which does not implement the `Copy` trait
+...
+2745 |     match (matrix_result, unregister) {
+     |                           ---------- value moved here
+...
+2774 |                 json!({"error":error.to_string(),"open_handles_before_unregister":open_handles,"unregister_error":unregister.err()}),
+     |                                                                                                                   ^^^^^^^^^^ value used here after move
+     |
+help: consider cloning the value if the performance cost is acceptable
+     |
+2745 |     match (matrix_result, unregister.clone()) {
+     |                                     ++++++++
+
+warning: variable does not need to be mutable
+    --> src/t10_native.rs:1288:9
+     |
+1288 |     let mut conn = open_connection(&pointer_path)?;
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+
+For more information about this error, try `rustc --explain E0382`.
+warning: `issue381-b4-p1a-f1` (bin "issue381-b4-p1a-f1") generated 7 warnings
+error: could not compile `issue381-b4-p1a-f1` (bin "issue381-b4-p1a-f1") due to 1 previous error; 7 warnings emitted

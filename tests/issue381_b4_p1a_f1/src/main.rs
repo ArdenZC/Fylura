@@ -1,3 +1,4 @@
+mod b1_vfs;
 mod db;
 mod model;
 mod t10_native;
@@ -1619,7 +1620,7 @@ fn run_slot_id_aba() -> Result<bool, Box<dyn std::error::Error>> {
     Ok(passed)
 }
 
-fn test_pin_gc() -> Result<(), Box<dyn std::error::Error>> {
+fn test_pin_gc() -> Result<bool, Box<dyn std::error::Error>> {
     let pin_first = run_pin_first_gc()?;
     let gc_first = run_gc_first_pin()?;
     let (retire_before_open, live_handle_gc) = run_retire_before_open()?;
@@ -1662,7 +1663,11 @@ fn test_pin_gc() -> Result<(), Box<dyn std::error::Error>> {
             "prototype_boundary":"test-only BEGIN IMMEDIATE model; no product acceptance or concurrency safety claim"
         }),
     );
-    Ok(())
+    Ok(ok)
+}
+
+pub(crate) fn run_b1_gc_model() -> Result<bool, Box<dyn std::error::Error>> {
+    test_pin_gc()
 }
 
 fn percentile(mut values: Vec<f64>, p: usize) -> f64 {
@@ -2335,7 +2340,7 @@ fn pointer_corrupt_slot() -> Result<Value, Box<dyn std::error::Error>> {
     }))
 }
 
-fn test_crash_matrix() -> Result<(), Box<dyn std::error::Error>> {
+fn test_crash_matrix() -> Result<bool, Box<dyn std::error::Error>> {
     let stages = [
         "build",
         "close",
@@ -2381,7 +2386,11 @@ fn test_crash_matrix() -> Result<(), Box<dyn std::error::Error>> {
         "corrupt_slot_reconciliation":corrupt,"fallback_to_mutable_physical_fts":false,
         "destructive_repair":false}),
     );
-    Ok(())
+    Ok(safe && missing_ok && corrupt_ok && reconciliation_only)
+}
+
+pub(crate) fn run_b1_barrier_model() -> Result<bool, Box<dyn std::error::Error>> {
+    test_crash_matrix()
 }
 
 fn test_t10_unavailable() {
@@ -2562,6 +2571,12 @@ fn run_remediation_only() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     let args = std::env::args().collect::<Vec<_>>();
+    if args.get(1).map(String::as_str) == Some("--b1-matrix") {
+        std::process::exit(b1_vfs::run_matrix());
+    }
+    if args.get(1).map(String::as_str) == Some("--b1-f0") {
+        std::process::exit(b1_vfs::run_f0());
+    }
     if args.get(1).map(String::as_str) == Some("--t10-native") {
         std::process::exit(t10_native::run());
     }

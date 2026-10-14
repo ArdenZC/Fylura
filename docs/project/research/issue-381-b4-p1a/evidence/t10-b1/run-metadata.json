@@ -1,0 +1,41 @@
+{
+  "work_item": "Issue #413 T10-B1 isolated fault model",
+  "repository": "ArdenZC/Zen-Canvas",
+  "branch": "test/issue-381-b4-p1a-t10-b1-fault-model",
+  "frozen_start_head": "b9c44a0a05fc8dc34744563b43d88eeab7509b35",
+  "frozen_start_tree": "2becfa34995d1872df74115adc4c7c941b353334",
+  "tested_harness_source_tree": "618f77d196989163230642cd640a70a5d3bcca08",
+  "test_source_tree_scope": "frozen start tree plus the three staged tests/issue381_b4_p1a_f1 source files; evidence docs are not part of this source tree",
+  "f0_final_attempt": {
+    "path": "evidence/t10-b1/f0/attempt-005",
+    "command": "cargo run --locked --offline --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml -- --b1-f0",
+    "exit_code": 0,
+    "finished_utc": "2026-10-14T08:44:01Z"
+  },
+  "matrix_final_attempt": {
+    "path": "evidence/t10-b1/matrix/attempt-008",
+    "command": "cargo run --locked --offline --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml -- --b1-matrix",
+    "exit_code": 0,
+    "finished_utc": "2026-10-14T09:01:01Z",
+    "result": "T10_B1_FAULT_MODEL_READY_FOR_OWNER_REVIEW",
+    "native_and_real_enospc_gate_state": "BLOCKED_ENVIRONMENT"
+  },
+  "toolchain": {
+    "os": "Linux x86_64",
+    "kernel": "Linux 7c1507bfb8fd 6.18.44 #1 SMP Sat Sep 26 20:02:31 UTC 2026 x86_64 GNU/Linux",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "sqlite_version": "3.51.3",
+    "sqlite_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+    "parent_vfs": "unix, VFS version 3"
+  },
+  "sha256": {
+    "tests/issue381_b4_p1a_f1/src/b1_vfs.rs": "1486ec999abc102f3db165abd1ba2abb6c0f01bf82a036d9eb888c227ce0a451",
+    "tests/issue381_b4_p1a_f1/src/main.rs": "12b25a332b47f7dea320098b4981bf0cd19afdbabeb37a916ad4ae37ce628cfe",
+    "tests/issue381_b4_p1a_f1/src/db.rs": "1e72290e6617babbb21bafff73944c76136b589ac91eb439dbbfb08fcd40ff08",
+    "tests/issue381_b4_p1a_f1/Cargo.lock": "760a1670f886138af3fd4aceca099d3eef6754ca20bd1b083dc31e56db65c5e5",
+    "tests/issue381_b4_p1a_f1/target/debug/issue381-b4-p1a-f1": "064aee7d961ae70d3a462399e76d1f1c2d1a8eeab76fc6ca12f7c2c0ee21ff02"
+  },
+  "lock_files_changed": false,
+  "raw_attempt_policy": "Every F0 and matrix attempt, including failed builds and corrected runs, is retained under evidence/t10-b1/ with stdout, stderr, and exit code."
+}

@@ -2,6 +2,8 @@
 
 All results below come from the committed isolated harness, not from the application database. `EXPECTED_REJECTION` is the intended pass condition for negative designs. The complete machine-readable record, with details for every gate, is [evidence/final/test-matrix.json](evidence/final/test-matrix.json).
 
+The isolated T10-B1 SQLite VFS fault-injection continuation for Issue #413 is documented in [T10-B1-FAULT-MATRIX.md](T10-B1-FAULT-MATRIX.md), with complete raw logs and SHA-256 evidence under `evidence/t10-b1/`. It remains blocked on the Windows-native, real ENOSPC, and native handle gates recorded there.
+
 | Gate | Verification | Observed | Evidence |
 | --- | --- | --- | --- |
 | T01 | Bundled SQLite, FTS5, trigram capability, override variables | PASS — SQLite 3.51.3; FTS5/trigram available; no overrides | `matrix-native` source-info record; Cargo feature tree |

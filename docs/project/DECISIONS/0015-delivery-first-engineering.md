@@ -90,6 +90,19 @@ old item is revisited, update its **existing** discussion with an actual
 decision only if needed. The existing product-specific safety and required
 gate boundaries remain applicable to the features that rely on them.
 
+## Stop currently running optional validation loops
+
+Apply the decision to present work, not just new briefs: no further optional
+T10/F1 model-probe expansions, native B04 execution infrastructure, physical
+disk-full/power-loss scenarios (Owner-deferred), redundant test-only FTS
+evidence or rehash/R2 cycles without a **specific imminent production or
+release claim** they protect. Existing known failing performance or product
+safety evidence is retained and must not be relabelled green. Required
+CI continues unchanged; this change reduces **self-imposed additional**
+validation, not existing enforcement. Detailed per-track treatment is in
+the single operative workflow section:
+[stop ongoing optional verification](../DEVELOPMENT_WORKFLOW.md#stop-ongoing-optional-verification-now-not-just-future-tasks).
+
 ## Task trigger examples
 
 - Add a file note display/edit field reusing approved persistence: implement

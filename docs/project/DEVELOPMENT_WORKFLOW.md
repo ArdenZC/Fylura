@@ -66,6 +66,45 @@ remain unchanged; ADR-0004 and ADR-0007 retain their scope.
    independent ownership or parallel work genuinely warrants it. Do not
    make research completeness a substitute for product progress.
 
+### Stop ongoing optional verification now (not just future tasks)
+
+**Immediate action for current in-flight work:** stop commissioning optional
+test extensions, R2/R3 re-audits, manual file-hash campaigns, new failure
+models and extra native environments solely to increase the number of PASS
+claims. Preserve evidence already obtained; do not rerun it for reassurance.
+Any new check must name the **specific changed production code or critical
+risk decision** it will validate. Research completion is not a reason to
+start another research stage.
+
+**Current scope disposition (record of Owner direction, not a claim of PASS):**
+
+| Ongoing verification | Execute now? | Reuse / stopping point |
+| --- | --- | --- |
+| F1/T10 source and SQLite fault-model work (#406, #408, #413) | **No additional optional rounds** | Existing source-bound tested claims and defects remain; no new R4/matrix expansion or repeat hash/CI runs for unchanged inputs |
+| NTFS B04 probe (#411, #412) | **No** | R1 source accepted; real native execution `DEFERRED_ENVIRONMENT`, directory durability remains `UNPROVEN` |
+| Real ENOSPC / physical power-loss (#414) | **No** | Owner explicitly deferred; `NOT_TESTED`, not `PASS` |
+| Giant Managed Scan blocked candidate (#383) | **No more proof-only iterations** | Its known 100k writer-liveness failure remains real; don't merge or waive. Deliver a narrower corrective production change with a focused reproduction instead |
+| Global Index IPC/busy (#380, #398) | **Stop spawning new standalone diagnostic matrices** | Reuse observed failure evidence; focus on the smallest complete source-owner fix and relevant regression. Don't claim a partial IPC fix resolves unmodified coordinator/state defects |
+| macOS Tahoe (#270) and memory growth (#353) research | **Only when a concrete fix/release decision requires it** | Keep genuine native/release blockers explicit, but don't invent new exploratory campaigns merely to close a documentation row |
+
+**Minimum verification for active production changes:** during coding run
+targeted tests for the actual changed behavior; when ready, run the existing
+routed required CI on the stable PR candidate. Fix any **actual failing
+required** check and validate again after the fix. No extra owner-ordered
+full-suite rerun, second cross-platform campaign, synthetic disk-fault
+probe, manual hashes or second reviewer unless a new code change or a
+credible missed harm makes that necessary. Existing CI may automatically
+run after pushes; do not skip or falsify its required checks.
+
+**Stop decision:** if the next proposed validation would not change
+a specific merge/safety decision, **do not run it**. Record an unverified
+limitation in the existing thread if relevant, and switch the available
+capacity to a user-visible fix. Required native/release qualification
+stays required **for the release/product claim to which it applies**, not
+for independent unrelated work. This amendment does not authorize
+merging #383/#398/#408, switching F1 production reads, or relaxing a
+required gate.
+
 ### Apply this to the existing open backlog immediately
 
 **This rule applies to already-open Issues, Draft PRs and research branches on

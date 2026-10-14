@@ -183,6 +183,16 @@ applicable keyboard, focus, modal, screen-reader, reduced-motion, contrast,
 loading/failure and narrow-layout behavior. Static inspection alone is not
 accessibility or native acceptance.
 
+## Stop ongoing redundant verification
+
+These delivery rules also apply **mid-task**. For current F1/T10,
+native-probe, Index Scope or Global Index investigations: do not order more
+optional models, re-audits, manual hash receipts or CI reruns on unchanged
+sources just to reach a larger PASS count. See the
+[current-verification stop rule](docs/project/DEVELOPMENT_WORKFLOW.md#stop-ongoing-optional-verification-now-not-just-future-tasks).
+Use existing results honestly; retain real blocking required failures
+without expanding them to independent work.
+
 ## Handoff brevity
 
 For an ordinary change, report **what the user can now do**, the PR/commit,

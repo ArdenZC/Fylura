@@ -85,6 +85,10 @@ impl GlobalIndexProvider for ProbeProvider {
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         self.inner.shutdown()
     }
+
+    fn defers_active_status_until_admission(&self) -> bool {
+        self.inner.defers_active_status_until_admission()
+    }
 }
 struct PauseSink<'a> {
     sink: &'a mut dyn GlobalIndexSink,

@@ -59,6 +59,191 @@ impl GlobalIndexProvider for RecoveryOutcomeProvider {
     }
 }
 
+#[derive(Clone, Copy)]
+enum DeferredAdmissionRejection {
+    Busy,
+    Missing,
+    UnknownAfterAdmission,
+}
+
+struct AdmissionContractProvider {
+    source: GlobalSourceDescriptor,
+    rejection: DeferredAdmissionRejection,
+}
+
+impl AdmissionContractProvider {
+    fn reject(
+        &self,
+        sink: &mut dyn GlobalIndexSink,
+    ) -> Result<(), GlobalIndexError> {
+        match self.rejection {
+            DeferredAdmissionRejection::Busy => Err(GlobalIndexError::ServiceBusy),
+            DeferredAdmissionRejection::Missing => Err(GlobalIndexError::ServiceAdmissionMissing(
+                "legacy v3 service".to_string(),
+            )),
+            DeferredAdmissionRejection::UnknownAfterAdmission => {
+                sink.set_source_state(
+                    &self.source.volume.id,
+                    INDEX_STATUS_SYNCING,
+                    None,
+                )?;
+                Err(GlobalIndexError::ServiceOutcomeUnknown(
+                    "malformed success response".to_string(),
+                ))
+            }
+        }
+    }
+}
+
+impl GlobalIndexProvider for AdmissionContractProvider {
+    fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+        Ok(vec![self.source.clone()])
+    }
+
+    fn start_initial_index(
+        &self,
+        _: &GlobalSourceDescriptor,
+        sink: &mut dyn GlobalIndexSink,
+        _: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        self.reject(sink)
+    }
+
+    fn resume_incremental_sync(
+        &self,
+        _: &GlobalSourceDescriptor,
+        sink: &mut dyn GlobalIndexSink,
+        _: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        self.reject(sink)
+    }
+
+    fn pause(&self) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+
+    fn status(&self) -> Result<String, GlobalIndexError> {
+        Ok("test".to_string())
+    }
+
+    fn shutdown(&self) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+
+    fn defers_active_status_until_admission(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn service_busy_before_admission_preserves_a_valid_durable_source_status() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open isolated admission database");
+    let source = diagnostic_source("deferred-busy", INDEX_STATUS_READY, Some(1));
+    db.upsert_global_volume(&source.volume)
+        .expect("seed prior ready source state");
+    let before = db
+        .get_global_volume("deferred-busy")
+        .expect("read seeded source")
+        .expect("seeded source exists");
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    run_index_cycle(
+        &AdmissionContractProvider {
+            source,
+            rejection: DeferredAdmissionRejection::Busy,
+        },
+        &db,
+        &cancel,
+        &GlobalIndexWakeSlot::default(),
+    )
+    .expect("busy admission is a bounded request rejection");
+
+    let after = db
+        .get_global_volume("deferred-busy")
+        .expect("read source after busy rejection")
+        .expect("source remains present");
+    assert_eq!(after.index_status, before.index_status);
+    assert_eq!(after.last_error, before.last_error);
+    assert_eq!(after.last_full_index_at, before.last_full_index_at);
+    assert_eq!(
+        after.last_incremental_sync_at,
+        before.last_incremental_sync_at
+    );
+}
+
+#[test]
+fn legacy_service_missing_admission_preserves_prior_source_health_and_timestamps() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open isolated admission database");
+    let source = diagnostic_source("legacy-v3", INDEX_STATUS_READY, Some(77));
+    db.upsert_global_volume(&source.volume)
+        .expect("seed prior ready source state");
+    let before = db
+        .get_global_volume("legacy-v3")
+        .expect("read seeded source")
+        .expect("seeded source exists");
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    run_index_cycle(
+        &AdmissionContractProvider {
+            source,
+            rejection: DeferredAdmissionRejection::Missing,
+        },
+        &db,
+        &cancel,
+        &GlobalIndexWakeSlot::default(),
+    )
+    .expect("legacy peer is refused without mutating desktop source state");
+
+    let after = db
+        .get_global_volume("legacy-v3")
+        .expect("read source after missing admission");
+    let after = after.expect("source remains present");
+    assert_eq!(after.index_status, before.index_status);
+    assert_eq!(after.last_error, before.last_error);
+    assert_eq!(after.last_full_index_at, before.last_full_index_at);
+    assert_eq!(after.last_incremental_sync_at, before.last_incremental_sync_at);
+}
+
+#[test]
+fn incomplete_success_outcome_never_advances_ready_status_or_completion_timestamps() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open isolated incomplete-success database");
+    let source = diagnostic_source("incomplete-success", INDEX_STATUS_READY, Some(77));
+    db.upsert_global_volume(&source.volume)
+        .expect("seed prior ready source state");
+    let before = db
+        .get_global_volume("incomplete-success")
+        .expect("read seeded source")
+        .expect("seeded source exists");
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    run_index_cycle(
+        &AdmissionContractProvider {
+            source,
+            rejection: DeferredAdmissionRejection::UnknownAfterAdmission,
+        },
+        &db,
+        &cancel,
+        &GlobalIndexWakeSlot::default(),
+    )
+    .expect("unknown service outcome is recorded on the durable source");
+
+    let after = db
+        .get_global_volume("incomplete-success")
+        .expect("read source after incomplete success");
+    let after = after.expect("source remains present");
+    assert_eq!(after.index_status, INDEX_STATUS_ERROR);
+    assert_ne!(after.index_status, INDEX_STATUS_READY);
+    assert!(after
+        .last_error
+        .as_deref()
+        .is_some_and(|error| error.contains("malformed success response")));
+    assert_eq!(after.last_full_index_at, before.last_full_index_at);
+    assert_eq!(after.last_incremental_sync_at, before.last_incremental_sync_at);
+}
+
 #[test]
 fn typed_recovery_survives_cycle_and_next_admitted_rebuild_reaches_ready() {
     for outcome in 0..4 {
@@ -246,10 +431,7 @@ struct OperationGate {
 impl MultiVolumeDiagnosticProvider {
     fn new(
         sources: Vec<GlobalSourceDescriptor>,
-        outcomes: std::collections::HashMap<
-            String,
-            std::collections::VecDeque<DiagnosticOutcome>,
-        >,
+        outcomes: std::collections::HashMap<String, std::collections::VecDeque<DiagnosticOutcome>>,
         operation_signal: Option<std::sync::mpsc::SyncSender<(String, &'static str)>>,
         operation_gate: Option<OperationGate>,
     ) -> Self {
@@ -307,7 +489,9 @@ impl MultiVolumeDiagnosticProvider {
                     INDEX_STATUS_PERMISSION_REQUIRED,
                     Some("source_access_denied"),
                 )?;
-                Err(GlobalIndexError::Provider("source_access_denied".to_string()))
+                Err(GlobalIndexError::Provider(
+                    "source_access_denied".to_string(),
+                ))
             }
         }
     }
@@ -374,11 +558,7 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     let source_a = diagnostic_source("source-a", INDEX_STATUS_READY, Some(1));
     let mut source_b = diagnostic_source("source-b", INDEX_STATUS_ERROR, Some(1));
     source_b.volume.last_error = Some("previous_service_busy".to_string());
-    let mut source_c = diagnostic_source(
-        "source-c",
-        INDEX_STATUS_PERMISSION_REQUIRED,
-        Some(1),
-    );
+    let mut source_c = diagnostic_source("source-c", INDEX_STATUS_PERMISSION_REQUIRED, Some(1));
     source_c.volume.last_error = Some("source_access_denied".to_string());
     let sources = vec![source_a, source_b, source_c];
     for source in &sources {
@@ -507,8 +687,7 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
         .as_deref()
         .is_some_and(|error| error.contains(SERVICE_BUSY_MESSAGE)));
     assert_eq!(
-        source_c.index_status,
-        INDEX_STATUS_PERMISSION_REQUIRED,
+        source_c.index_status, INDEX_STATUS_PERMISSION_REQUIRED,
         "a genuine source error keeps its typed source state"
     );
     assert_eq!(provider.operation_count("source-a"), 1);
@@ -721,15 +900,21 @@ fn repeated_same_source_lifecycle_requests_are_serialized_and_rebuild_wakes_coal
         .recv_timeout(std::time::Duration::from_secs(3))
         .expect("initial Start request enters provider");
 
-    coordinator.start().expect("repeat Start while operation is active");
-    coordinator.resume().expect("Resume while operation is active");
+    coordinator
+        .start()
+        .expect("repeat Start while operation is active");
+    coordinator
+        .resume()
+        .expect("Resume while operation is active");
     coordinator
         .rebuild(Some(source.volume.id.clone()))
         .expect("first rebuild request while operation is active");
     coordinator
         .rebuild(Some(source.volume.id.clone()))
         .expect("duplicate rebuild request while operation is active");
-    release_tx.send(()).expect("release in-flight Start request");
+    release_tx
+        .send(())
+        .expect("release in-flight Start request");
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     while provider.operation_log().len() < 2 && std::time::Instant::now() < deadline {
@@ -772,7 +957,9 @@ fn repeated_same_source_lifecycle_requests_are_serialized_and_rebuild_wakes_coal
     });
     evidence.emit();
 
-    coordinator.shutdown().expect("shutdown lifecycle coordinator");
+    coordinator
+        .shutdown()
+        .expect("shutdown lifecycle coordinator");
     shutdown_guard.active = false;
     drop(coordinator);
     drop(db);

@@ -21,6 +21,16 @@ pub enum GlobalIndexError {
     Database(#[from] DbError),
     #[error("provider error: {0}")]
     Provider(String),
+    #[error("Windows index service rejected the request because it is busy")]
+    ServiceBusy,
+    #[error("Windows index service did not provide a trusted admission event: {0}")]
+    ServiceAdmissionMissing(String),
+    #[error("SQLite is busy or locked while applying a Windows index event: {0}")]
+    DatabaseBusy(String),
+    #[error("Windows index service outcome is unknown: {0}")]
+    ServiceOutcomeUnknown(String),
+    #[error("Windows index service requires permission: {0}")]
+    PermissionRequired(String),
     #[error("rebuild required: {0}")]
     RebuildRequired(String),
     #[error("Windows I/O failed (Win32 error {0})")]
@@ -89,6 +99,12 @@ pub trait GlobalIndexProvider: Send + Sync {
     }
     fn status(&self) -> Result<String, GlobalIndexError>;
     fn shutdown(&self) -> Result<(), GlobalIndexError>;
+
+    /// Providers with an explicit remote admission handshake can delay the
+    /// durable active status until that handshake has been accepted.
+    fn defers_active_status_until_admission(&self) -> bool {
+        false
+    }
 
     /// Cheap topology-only discovery used by Windows' low-frequency source
     /// availability safety audit. It must not start indexing work.
@@ -542,24 +558,26 @@ fn run_index_cycle(
         source.volume.last_incremental_sync_at = volume.last_incremental_sync_at;
         source.volume.entry_count = volume.entry_count;
         source.volume.created_at = volume.created_at;
-        db.update_global_volume_state(
-            &volume.id,
-            if volume.last_full_index_at.is_some()
-                && !source_reappeared
-                && volume.index_status != INDEX_STATUS_REBUILD_REQUIRED
-            {
-                INDEX_STATUS_SYNCING
-            } else {
-                INDEX_STATUS_INDEXING
-            },
-            (volume.index_status == INDEX_STATUS_PERMISSION_REQUIRED)
-                .then_some(volume.last_error.as_deref())
-                .flatten(),
-            None,
-            None,
-            None,
-            None,
-        )?;
+        if !provider.defers_active_status_until_admission() {
+            db.update_global_volume_state(
+                &volume.id,
+                if volume.last_full_index_at.is_some()
+                    && !source_reappeared
+                    && volume.index_status != INDEX_STATUS_REBUILD_REQUIRED
+                {
+                    INDEX_STATUS_SYNCING
+                } else {
+                    INDEX_STATUS_INDEXING
+                },
+                (volume.index_status == INDEX_STATUS_PERMISSION_REQUIRED)
+                    .then_some(volume.last_error.as_deref())
+                    .flatten(),
+                None,
+                None,
+                None,
+                None,
+            )?;
+        }
         let is_rebuild = volume.index_status == INDEX_STATUS_REBUILD_REQUIRED;
         let is_initial = volume.last_full_index_at.is_none() || source_reappeared;
         let use_background_admission =
@@ -620,6 +638,19 @@ fn run_index_cycle(
                     None,
                 )?;
                 break;
+            }
+            Err(GlobalIndexError::ServiceBusy) => {
+                // Admission was rejected before the Windows provider changed
+                // durable source state. Preserve the prior valid state rather
+                // than turning request contention into a source failure.
+                super::qa_trace::record("global_index_service_busy_rejected");
+            }
+            Err(GlobalIndexError::ServiceAdmissionMissing(_)) => {
+                // A legacy v3 service can execute no desktop-side writes before its
+                // first operation event is rejected for missing Admission. Preserve
+                // the prior durable source state while refusing this incompatible
+                // peer; the caller must not retry through Direct fallback.
+                super::qa_trace::record("global_index_service_admission_missing");
             }
             Err(GlobalIndexError::RebuildRequired(message)) => {
                 db.update_global_volume_state(

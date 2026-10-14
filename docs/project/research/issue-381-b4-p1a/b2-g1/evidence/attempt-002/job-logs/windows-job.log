@@ -1,0 +1,435 @@
+﻿2026-10-14T12:12:04.3055459Z Current runner version: '2.337.0'
+2026-10-14T12:12:04.3076531Z ##[group]Runner Image Provisioner
+2026-10-14T12:12:04.3077231Z Hosted Compute Agent
+2026-10-14T12:12:04.3077655Z Version: 20260901.588
+2026-10-14T12:12:04.3078119Z Commit: f88ec8081b781fac6c440065ac7ff9e710ce3d0b
+2026-10-14T12:12:04.3078605Z Build Date: 2026-09-01T19:56:44Z
+2026-10-14T12:12:04.3079111Z Worker ID: {c6e03d09-a1a9-4a64-a154-6d88be16775d}
+2026-10-14T12:12:04.3079622Z Azure Region: centralus
+2026-10-14T12:12:04.3080038Z ##[endgroup]
+2026-10-14T12:12:04.3080969Z ##[group]Operating System
+2026-10-14T12:12:04.3081405Z Microsoft Windows Server 2025
+2026-10-14T12:12:04.3081966Z 10.0.26100
+2026-10-14T12:12:04.3082405Z Datacenter
+2026-10-14T12:12:04.3082852Z ##[endgroup]
+2026-10-14T12:12:04.3083296Z ##[group]Runner Image
+2026-10-14T12:12:04.3083816Z Image: windows-2025-vs2026
+2026-10-14T12:12:04.3084315Z Version: 20260925.250.1
+2026-10-14T12:12:04.3085463Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20260925.250/images/windows/Windows2025-VS2026-Readme.md
+2026-10-14T12:12:04.3087149Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20260925.250
+2026-10-14T12:12:04.3087839Z ##[endgroup]
+2026-10-14T12:12:04.3088632Z ##[group]GITHUB_TOKEN Permissions
+2026-10-14T12:12:04.3090311Z Contents: read
+2026-10-14T12:12:04.3090761Z Metadata: read
+2026-10-14T12:12:04.3091144Z ##[endgroup]
+2026-10-14T12:12:04.3092646Z Secret source: Actions
+2026-10-14T12:12:04.3093351Z Cache mode: write
+2026-10-14T12:12:04.3093835Z Prepare workflow directory
+2026-10-14T12:12:04.3353943Z Prepare all required actions
+2026-10-14T12:12:04.3397341Z Getting action download info
+2026-10-14T12:12:04.5688061Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-10-14T12:12:04.6619703Z Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+2026-10-14T12:12:04.8292257Z Complete job name: read-only inventory (windows-latest)
+2026-10-14T12:12:04.9524189Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-10-14T12:12:04.9525534Z with:
+2026-10-14T12:12:04.9526023Z   ref: 5ccea76349aa5da2e31b9cb2203c2366d3d263ac
+2026-10-14T12:12:04.9526508Z   persist-credentials: false
+2026-10-14T12:12:04.9526888Z   fetch-depth: 1
+2026-10-14T12:12:04.9527269Z   repository: ArdenZC/Zen-Canvas
+2026-10-14T12:12:04.9530219Z   token: ***
+2026-10-14T12:12:04.9530587Z   ssh-strict: true
+2026-10-14T12:12:04.9530945Z   ssh-user: git
+2026-10-14T12:12:04.9531300Z   clean: true
+2026-10-14T12:12:04.9531685Z   sparse-checkout-cone-mode: true
+2026-10-14T12:12:04.9532126Z   fetch-tags: false
+2026-10-14T12:12:04.9532524Z   show-progress: true
+2026-10-14T12:12:04.9532883Z   lfs: false
+2026-10-14T12:12:04.9533216Z   submodules: false
+2026-10-14T12:12:04.9533600Z   set-safe-directory: true
+2026-10-14T12:12:04.9533997Z   allow-unsafe-pr-checkout: false
+2026-10-14T12:12:04.9534626Z ##[endgroup]
+2026-10-14T12:12:05.0732025Z Syncing repository: ArdenZC/Zen-Canvas
+2026-10-14T12:12:05.0733391Z ##[group]Getting Git version info
+2026-10-14T12:12:05.0733843Z Working directory is 'D:\a\Zen-Canvas\Zen-Canvas'
+2026-10-14T12:12:05.1942657Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-14T12:12:05.5538190Z git version 2.55.0.windows.5
+2026-10-14T12:12:05.5580872Z ##[endgroup]
+2026-10-14T12:12:05.5598325Z Temporarily overriding HOME='D:\a\_temp\6b28ee10-ab59-4f23-9485-8527447f4839' before making global git config changes
+2026-10-14T12:12:05.5599607Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-14T12:12:05.5606615Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\Zen-Canvas\Zen-Canvas
+2026-10-14T12:12:05.6200993Z Deleting the contents of 'D:\a\Zen-Canvas\Zen-Canvas'
+2026-10-14T12:12:05.6205166Z ##[group]Determining repository object format
+2026-10-14T12:12:05.6207941Z ##[endgroup]
+2026-10-14T12:12:05.6208942Z ##[group]Initializing the repository
+2026-10-14T12:12:05.6214260Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\Zen-Canvas\Zen-Canvas
+2026-10-14T12:12:05.6959222Z Initialized empty Git repository in D:/a/Zen-Canvas/Zen-Canvas/.git/
+2026-10-14T12:12:05.6999754Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/ArdenZC/Zen-Canvas
+2026-10-14T12:12:05.7563574Z ##[endgroup]
+2026-10-14T12:12:05.7564379Z ##[group]Disabling automatic garbage collection
+2026-10-14T12:12:05.7571596Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-10-14T12:12:05.7812755Z ##[endgroup]
+2026-10-14T12:12:05.7813826Z ##[group]Setting up auth
+2026-10-14T12:12:05.7814596Z Removing SSH command configuration
+2026-10-14T12:12:05.7820259Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-14T12:12:05.8047063Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-14T12:12:07.1650370Z Removing HTTP extra header
+2026-10-14T12:12:07.1665214Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-14T12:12:07.1891941Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-14T12:12:07.6080229Z Removing includeIf entries pointing to credentials config files
+2026-10-14T12:12:07.6088315Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-14T12:12:07.6307852Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-14T12:12:08.0210599Z [command]"C:\Program Files\Git\bin\git.exe" config --file D:\a\_temp\git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-10-14T12:12:08.0463174Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/Zen-Canvas/Zen-Canvas/.git.path D:\a\_temp\git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config
+2026-10-14T12:12:08.0681013Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/Zen-Canvas/Zen-Canvas/.git/worktrees/*.path D:\a\_temp\git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config
+2026-10-14T12:12:08.0955034Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config
+2026-10-14T12:12:08.1179274Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config
+2026-10-14T12:12:08.1392653Z ##[endgroup]
+2026-10-14T12:12:08.1393215Z ##[group]Fetching the repository
+2026-10-14T12:12:08.1401972Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 5ccea76349aa5da2e31b9cb2203c2366d3d263ac
+2026-10-14T12:12:10.3556124Z From https://github.com/ArdenZC/Zen-Canvas
+2026-10-14T12:12:10.3556889Z  * branch            5ccea76349aa5da2e31b9cb2203c2366d3d263ac -> FETCH_HEAD
+2026-10-14T12:12:10.3603624Z [command]"C:\Program Files\Git\bin\git.exe" rev-parse --verify --quiet 5ccea76349aa5da2e31b9cb2203c2366d3d263ac^{object}
+2026-10-14T12:12:10.3821332Z 5ccea76349aa5da2e31b9cb2203c2366d3d263ac
+2026-10-14T12:12:10.3850328Z ##[endgroup]
+2026-10-14T12:12:10.3850986Z ##[group]Determining the checkout info
+2026-10-14T12:12:10.3851639Z ##[endgroup]
+2026-10-14T12:12:10.3858324Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-10-14T12:12:10.4188698Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-10-14T12:12:10.4406903Z ##[group]Checking out the ref
+2026-10-14T12:12:10.4414032Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force 5ccea76349aa5da2e31b9cb2203c2366d3d263ac
+2026-10-14T12:12:10.9686089Z Note: switching to '5ccea76349aa5da2e31b9cb2203c2366d3d263ac'.
+2026-10-14T12:12:10.9686654Z 
+2026-10-14T12:12:10.9686904Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-10-14T12:12:10.9687500Z changes and commit them, and you can discard any commits you make in this
+2026-10-14T12:12:10.9688000Z state without impacting any branches by switching back to a branch.
+2026-10-14T12:12:10.9688321Z 
+2026-10-14T12:12:10.9688586Z If you want to create a new branch to retain commits you create, you may
+2026-10-14T12:12:10.9689070Z do so (now or later) by using -c with the switch command. Example:
+2026-10-14T12:12:10.9689412Z 
+2026-10-14T12:12:10.9689619Z   git switch -c <new-branch-name>
+2026-10-14T12:12:10.9689816Z 
+2026-10-14T12:12:10.9690043Z Or undo this operation with:
+2026-10-14T12:12:10.9690213Z 
+2026-10-14T12:12:10.9690363Z   git switch -
+2026-10-14T12:12:10.9690531Z 
+2026-10-14T12:12:10.9690816Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-10-14T12:12:10.9691134Z 
+2026-10-14T12:12:10.9691408Z HEAD is now at 5ccea76 research: preserve Issue 414 G1 attempt 001 evidence
+2026-10-14T12:12:10.9827825Z ##[endgroup]
+2026-10-14T12:12:11.0197769Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-10-14T12:12:11.0404517Z 5ccea76349aa5da2e31b9cb2203c2366d3d263ac
+2026-10-14T12:12:11.0440433Z ##[group]Removing auth
+2026-10-14T12:12:11.0440897Z Removing SSH command configuration
+2026-10-14T12:12:11.0447824Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-14T12:12:11.0674700Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-14T12:12:11.5150642Z Removing HTTP extra header
+2026-10-14T12:12:11.5158314Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-14T12:12:11.5391340Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-14T12:12:11.9413843Z Removing includeIf entries pointing to credentials config files
+2026-10-14T12:12:11.9421784Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-14T12:12:11.9617146Z includeif.gitdir:D:/a/Zen-Canvas/Zen-Canvas/.git.path
+2026-10-14T12:12:11.9617891Z includeif.gitdir:D:/a/Zen-Canvas/Zen-Canvas/.git/worktrees/*.path
+2026-10-14T12:12:11.9618395Z includeif.gitdir:/github/workspace/.git.path
+2026-10-14T12:12:11.9618819Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-14T12:12:11.9656630Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/Zen-Canvas/Zen-Canvas/.git.path
+2026-10-14T12:12:11.9884852Z D:\a\_temp\git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config
+2026-10-14T12:12:11.9925864Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/Zen-Canvas/Zen-Canvas/.git.path D\:\\a\\_temp\\git\-credentials\-f92c19a0\-eb42\-4308\-a183\-8eedd88dee2b\.config
+2026-10-14T12:12:12.0156253Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/Zen-Canvas/Zen-Canvas/.git/worktrees/*.path
+2026-10-14T12:12:12.0347311Z D:\a\_temp\git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config
+2026-10-14T12:12:12.0382508Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/Zen-Canvas/Zen-Canvas/.git/worktrees/*.path D\:\\a\\_temp\\git\-credentials\-f92c19a0\-eb42\-4308\-a183\-8eedd88dee2b\.config
+2026-10-14T12:12:12.0604144Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-10-14T12:12:12.0787708Z /github/runner_temp/git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config
+2026-10-14T12:12:12.0824348Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-f92c19a0\-eb42\-4308\-a183\-8eedd88dee2b\.config
+2026-10-14T12:12:12.1045201Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-14T12:12:12.1228127Z /github/runner_temp/git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config
+2026-10-14T12:12:12.1259587Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-f92c19a0\-eb42\-4308\-a183\-8eedd88dee2b\.config
+2026-10-14T12:12:12.1483367Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-14T12:12:12.5596785Z Removing credentials config 'D:\a\_temp\git-credentials-f92c19a0-eb42-4308-a183-8eedd88dee2b.config'
+2026-10-14T12:12:12.5609781Z ##[endgroup]
+2026-10-14T12:12:12.5934201Z ##[group]Run $ErrorActionPreference = 'Stop'
+2026-10-14T12:12:12.5935409Z [36;1m$ErrorActionPreference = 'Stop'[0m
+2026-10-14T12:12:12.5935780Z [36;1m$reportRoot = Join-Path $env:RUNNER_TEMP 'issue-414-b2-g1'[0m
+2026-10-14T12:12:12.5936238Z [36;1mNew-Item -ItemType Directory -Force -Path $reportRoot | Out-Null[0m
+2026-10-14T12:12:12.5936609Z [36;1m$script:probeResults = @()[0m
+2026-10-14T12:12:12.5936899Z [36;1m[0m
+2026-10-14T12:12:12.5937123Z [36;1mfunction Invoke-Probe {[0m
+2026-10-14T12:12:12.5937389Z [36;1m  param([0m
+2026-10-14T12:12:12.5937602Z [36;1m    [string]$Name,[0m
+2026-10-14T12:12:12.5937881Z [36;1m    [scriptblock]$Action,[0m
+2026-10-14T12:12:12.5938144Z [36;1m    [bool]$Required = $false[0m
+2026-10-14T12:12:12.5938433Z [36;1m  )[0m
+2026-10-14T12:12:12.5938702Z [36;1m  $stdoutPath = Join-Path $reportRoot "$Name.stdout.txt"[0m
+2026-10-14T12:12:12.5939052Z [36;1m  $stderrPath = Join-Path $reportRoot "$Name.stderr.txt"[0m
+2026-10-14T12:12:12.5939517Z [36;1m  $exitPath = Join-Path $reportRoot "$Name.exit-code.txt"[0m
+2026-10-14T12:12:12.5939815Z [36;1m  $code = 0[0m
+2026-10-14T12:12:12.5940057Z [36;1m  try {[0m
+2026-10-14T12:12:12.5940286Z [36;1m    $global:LASTEXITCODE = 0[0m
+2026-10-14T12:12:12.5940561Z [36;1m    & $Action 1> $stdoutPath 2> $stderrPath[0m
+2026-10-14T12:12:12.5940857Z [36;1m    $succeeded = $?[0m
+2026-10-14T12:12:12.5941136Z [36;1m    $code = [int]$global:LASTEXITCODE[0m
+2026-10-14T12:12:12.5941492Z [36;1m    if (($code -eq 0) -and (-not $succeeded)) { $code = 1 }[0m
+2026-10-14T12:12:12.5941794Z [36;1m  } catch {[0m
+2026-10-14T12:12:12.5942133Z [36;1m    $_ | Format-List * -Force | Out-String | Set-Content -LiteralPath $stderrPath -Encoding utf8[0m
+2026-10-14T12:12:12.5942541Z [36;1m    $code = 1[0m
+2026-10-14T12:12:12.5942770Z [36;1m  }[0m
+2026-10-14T12:12:12.5943063Z [36;1m  [string]$code | Set-Content -LiteralPath $exitPath -Encoding ascii[0m
+2026-10-14T12:12:12.5943441Z [36;1m  $script:probeResults += [pscustomobject]@{[0m
+2026-10-14T12:12:12.5943791Z [36;1m    name = $Name[0m
+2026-10-14T12:12:12.5944038Z [36;1m    required = $Required[0m
+2026-10-14T12:12:12.5944295Z [36;1m    exit_code = $code[0m
+2026-10-14T12:12:12.5944640Z [36;1m    stdout = [IO.Path]::GetFileName($stdoutPath)[0m
+2026-10-14T12:12:12.5944980Z [36;1m    stderr = [IO.Path]::GetFileName($stderrPath)[0m
+2026-10-14T12:12:12.5945492Z [36;1m    exit_file = [IO.Path]::GetFileName($exitPath)[0m
+2026-10-14T12:12:12.5945786Z [36;1m  }[0m
+2026-10-14T12:12:12.5945999Z [36;1m}[0m
+2026-10-14T12:12:12.5946243Z [36;1m[0m
+2026-10-14T12:12:12.5946552Z [36;1mInvoke-Probe -Name 'windows-source-provenance' -Required $true -Action {[0m
+2026-10-14T12:12:12.5946913Z [36;1m  $head = (& git rev-parse HEAD).Trim()[0m
+2026-10-14T12:12:12.5947262Z [36;1m  if ($LASTEXITCODE -ne 0) { throw 'git rev-parse HEAD failed' }[0m
+2026-10-14T12:12:12.5947613Z [36;1m  $tree = (& git rev-parse 'HEAD^{tree}').Trim()[0m
+2026-10-14T12:12:12.5947945Z [36;1m  if ($LASTEXITCODE -ne 0) { throw 'git rev-parse HEAD^{tree} failed' }[0m
+2026-10-14T12:12:12.5948305Z [36;1m  $dirty = (& git status --porcelain)[0m
+2026-10-14T12:12:12.5948665Z [36;1m  if ($LASTEXITCODE -ne 0) { throw 'git status --porcelain failed' }[0m
+2026-10-14T12:12:12.5949121Z [36;1m  if ($head -ne $env:EXPECTED_SHA) { throw "HEAD does not match expected source SHA: $head" }[0m
+2026-10-14T12:12:12.5949609Z [36;1m  if (-not [string]::IsNullOrWhiteSpace(($dirty -join ''))) { throw 'checkout is not clean' }[0m
+2026-10-14T12:12:12.5950000Z [36;1m  [pscustomobject]@{[0m
+2026-10-14T12:12:12.5950327Z [36;1m    source_sha = $env:EXPECTED_SHA[0m
+2026-10-14T12:12:12.5950587Z [36;1m    head = $head[0m
+2026-10-14T12:12:12.5950811Z [36;1m    tree = $tree[0m
+2026-10-14T12:12:12.5951081Z [36;1m    worktree_clean = $true[0m
+2026-10-14T12:12:12.5951330Z [36;1m    run_id = $env:GITHUB_RUN_ID[0m
+2026-10-14T12:12:12.5953089Z [36;1m    run_attempt = $env:GITHUB_RUN_ATTEMPT[0m
+2026-10-14T12:12:12.5953405Z [36;1m  } | ConvertTo-Json -Compress[0m
+2026-10-14T12:12:12.5953667Z [36;1m}[0m
+2026-10-14T12:12:12.5953858Z [36;1m[0m
+2026-10-14T12:12:12.5954527Z [36;1mInvoke-Probe -Name 'windows-runner-os-build-arch-image' -Required $true -Action {[0m
+2026-10-14T12:12:12.5954999Z [36;1m  $os = Get-CimInstance -ClassName Win32_OperatingSystem[0m
+2026-10-14T12:12:12.5955435Z [36;1m  if (-not $os) { throw 'Win32_OperatingSystem query returned no row' }[0m
+2026-10-14T12:12:12.5955775Z [36;1m  [pscustomobject]@{[0m
+2026-10-14T12:12:12.5956034Z [36;1m    runner_os = $env:RUNNER_OS[0m
+2026-10-14T12:12:12.5956301Z [36;1m    runner_arch = $env:RUNNER_ARCH[0m
+2026-10-14T12:12:12.5956587Z [36;1m    image_os = $env:ImageOS[0m
+2026-10-14T12:12:12.5956851Z [36;1m    image_version = $env:ImageVersion[0m
+2026-10-14T12:12:12.5957114Z [36;1m    caption = $os.Caption[0m
+2026-10-14T12:12:12.5957373Z [36;1m    version = $os.Version[0m
+2026-10-14T12:12:12.5957660Z [36;1m    build_number = $os.BuildNumber[0m
+2026-10-14T12:12:12.5957959Z [36;1m    os_architecture = $os.OSArchitecture[0m
+2026-10-14T12:12:12.5958285Z [36;1m    powershell = $PSVersionTable.PSVersion.ToString()[0m
+2026-10-14T12:12:12.5958588Z [36;1m  } | ConvertTo-Json -Compress[0m
+2026-10-14T12:12:12.5958853Z [36;1m}[0m
+2026-10-14T12:12:12.5959051Z [36;1m[0m
+2026-10-14T12:12:12.5959373Z [36;1mInvoke-Probe -Name 'windows-identity-privileges' -Required $true -Action {[0m
+2026-10-14T12:12:12.5959736Z [36;1m  & whoami.exe /all[0m
+2026-10-14T12:12:12.5960087Z [36;1m  if ($LASTEXITCODE -ne 0) { throw "whoami /all exited $LASTEXITCODE" }[0m
+2026-10-14T12:12:12.5960426Z [36;1m}[0m
+2026-10-14T12:12:12.5960672Z [36;1m[0m
+2026-10-14T12:12:12.5960993Z [36;1mInvoke-Probe -Name 'windows-host-storage-free-space' -Required $true -Action {[0m
+2026-10-14T12:12:12.5961464Z [36;1m  $drives = @(Get-CimInstance -ClassName Win32_LogicalDisk -Filter 'DriveType=3' |[0m
+2026-10-14T12:12:12.5961862Z [36;1m    Select-Object @{Name='drive';Expression={$_.DeviceID}},[0m
+2026-10-14T12:12:12.5962243Z [36;1m                  @{Name='filesystem';Expression={$_.FileSystem}},[0m
+2026-10-14T12:12:12.5962625Z [36;1m                  @{Name='size_bytes';Expression={[int64]$_.Size}},[0m
+2026-10-14T12:12:12.5962979Z [36;1m                  @{Name='free_bytes';Expression={[int64]$_.FreeSpace}})[0m
+2026-10-14T12:12:12.5963780Z [36;1m  if ($drives.Count -eq 0) { throw 'No fixed host volumes were returned' }[0m
+2026-10-14T12:12:12.5964123Z [36;1m  $drives | ConvertTo-Json -Compress[0m
+2026-10-14T12:12:12.5964405Z [36;1m}[0m
+2026-10-14T12:12:12.5964606Z [36;1m[0m
+2026-10-14T12:12:12.5964911Z [36;1mInvoke-Probe -Name 'windows-runner-temp-path-acl' -Required $true -Action {[0m
+2026-10-14T12:12:12.5965355Z [36;1m  $item = Get-Item -LiteralPath $env:RUNNER_TEMP -ErrorAction Stop[0m
+2026-10-14T12:12:12.5965763Z [36;1m  $acl = Get-Acl -LiteralPath $env:RUNNER_TEMP -ErrorAction Stop[0m
+2026-10-14T12:12:12.5966101Z [36;1m  [pscustomobject]@{[0m
+2026-10-14T12:12:12.5966361Z [36;1m    runner_temp = $item.FullName[0m
+2026-10-14T12:12:12.5966657Z [36;1m    full_path = [IO.Path]::GetFullPath($env:RUNNER_TEMP)[0m
+2026-10-14T12:12:12.5967009Z [36;1m    path_root = [IO.Path]::GetPathRoot($env:RUNNER_TEMP)[0m
+2026-10-14T12:12:12.5967371Z [36;1m    item_type = if ($item.PSIsContainer) { 'directory' } else { 'file' }[0m
+2026-10-14T12:12:12.5967788Z [36;1m    attributes = $item.Attributes.ToString()[0m
+2026-10-14T12:12:12.5968067Z [36;1m    acl_owner = $acl.Owner[0m
+2026-10-14T12:12:12.5968348Z [36;1m    access_rules = @($acl.Access | ForEach-Object {[0m
+2026-10-14T12:12:12.5968660Z [36;1m      [pscustomobject]@{[0m
+2026-10-14T12:12:12.5968945Z [36;1m        identity = $_.IdentityReference.Value[0m
+2026-10-14T12:12:12.5969262Z [36;1m        rights = $_.FileSystemRights.ToString()[0m
+2026-10-14T12:12:12.5970011Z [36;1m        access = $_.AccessControlType.ToString()[0m
+2026-10-14T12:12:12.5970315Z [36;1m        inherited = [bool]$_.IsInherited[0m
+2026-10-14T12:12:12.5970604Z [36;1m      }[0m
+2026-10-14T12:12:12.5970826Z [36;1m    })[0m
+2026-10-14T12:12:12.5971106Z [36;1m  } | ConvertTo-Json -Depth 6 -Compress[0m
+2026-10-14T12:12:12.5971369Z [36;1m}[0m
+2026-10-14T12:12:12.5971559Z [36;1m[0m
+2026-10-14T12:12:12.5971863Z [36;1mInvoke-Probe -Name 'windows-runner-temp-volume-query' -Action {[0m
+2026-10-14T12:12:12.5972280Z [36;1m  $command = Get-Command Get-Volume -ErrorAction SilentlyContinue[0m
+2026-10-14T12:12:12.5972653Z [36;1m  if (-not $command) {[0m
+2026-10-14T12:12:12.5973080Z [36;1m    [pscustomobject]@{ query_available = $false; reason = 'Get-Volume cmdlet not found' } | ConvertTo-Json -Compress[0m
+2026-10-14T12:12:12.5973475Z [36;1m    return[0m
+2026-10-14T12:12:12.5973951Z [36;1m  }[0m
+2026-10-14T12:12:12.5974210Z [36;1m  $driveRoot = [IO.Path]::GetPathRoot($env:RUNNER_TEMP)[0m
+2026-10-14T12:12:12.5975035Z [36;1m  $driveLetter = $driveRoot.TrimEnd([char]92).Substring(0, 1)[0m
+2026-10-14T12:12:12.5975443Z [36;1m  $volumes = @(Get-Volume -DriveLetter $driveLetter -ErrorAction Stop |[0m
+2026-10-14T12:12:12.5975892Z [36;1m    Select-Object DriveLetter, FileSystem, FileSystemLabel, DriveType,[0m
+2026-10-14T12:12:12.5976273Z [36;1m                  HealthStatus, OperationalStatus,[0m
+2026-10-14T12:12:12.5976606Z [36;1m                  @{Name='size_bytes';Expression={[int64]$_.Size}},[0m
+2026-10-14T12:12:12.5976958Z [36;1m                  @{Name='free_bytes';Expression={[int64]$_.SizeRemaining}})[0m
+2026-10-14T12:12:12.5977421Z [36;1m  if ($volumes.Count -eq 0) { throw "Get-Volume returned no volume for RUNNER_TEMP drive $driveLetter" }[0m
+2026-10-14T12:12:12.5977951Z [36;1m  [pscustomobject]@{ query_available = $true; volumes = $volumes } | ConvertTo-Json -Depth 6 -Compress[0m
+2026-10-14T12:12:12.5978375Z [36;1m}[0m
+2026-10-14T12:12:12.5978561Z [36;1m[0m
+2026-10-14T12:12:12.5978866Z [36;1mInvoke-Probe -Name 'windows-read-only-device-volume-inventory' -Action {[0m
+2026-10-14T12:12:12.5979300Z [36;1m  $getDisk = Get-Command Get-Disk -ErrorAction SilentlyContinue[0m
+2026-10-14T12:12:12.5979685Z [36;1m  $getVolume = Get-Command Get-Volume -ErrorAction SilentlyContinue[0m
+2026-10-14T12:12:12.5980036Z [36;1m  if (-not $getDisk -or -not $getVolume) {[0m
+2026-10-14T12:12:12.5980311Z [36;1m    [pscustomobject]@{[0m
+2026-10-14T12:12:12.5980712Z [36;1m      query_available = $false[0m
+2026-10-14T12:12:12.5980984Z [36;1m      missing = @([0m
+2026-10-14T12:12:12.5981252Z [36;1m        if (-not $getDisk) { 'Get-Disk' }[0m
+2026-10-14T12:12:12.5981589Z [36;1m        if (-not $getVolume) { 'Get-Volume' }[0m
+2026-10-14T12:12:12.5981851Z [36;1m      )[0m
+2026-10-14T12:12:12.5982073Z [36;1m    } | ConvertTo-Json -Compress[0m
+2026-10-14T12:12:12.5982341Z [36;1m    return[0m
+2026-10-14T12:12:12.5982554Z [36;1m  }[0m
+2026-10-14T12:12:12.5982919Z [36;1m  $disks = @(Get-Disk -ErrorAction Stop | Select-Object Number, FriendlyName, BusType,[0m
+2026-10-14T12:12:12.5983385Z [36;1m    OperationalStatus, HealthStatus, PartitionStyle, IsBoot, IsSystem, IsReadOnly,[0m
+2026-10-14T12:12:12.5983770Z [36;1m    @{Name='size_bytes';Expression={[int64]$_.Size}})[0m
+2026-10-14T12:12:12.5984187Z [36;1m  $volumes = @(Get-Volume -ErrorAction Stop | Select-Object DriveLetter, FileSystem,[0m
+2026-10-14T12:12:12.5984594Z [36;1m    DriveType, HealthStatus, OperationalStatus,[0m
+2026-10-14T12:12:12.5984901Z [36;1m    @{Name='size_bytes';Expression={[int64]$_.Size}},[0m
+2026-10-14T12:12:12.5985255Z [36;1m    @{Name='free_bytes';Expression={[int64]$_.SizeRemaining}})[0m
+2026-10-14T12:12:12.5985677Z [36;1m  [pscustomobject]@{ query_available = $true; disks = $disks; volumes = $volumes } |[0m
+2026-10-14T12:12:12.5986078Z [36;1m    ConvertTo-Json -Depth 6 -Compress[0m
+2026-10-14T12:12:12.5986338Z [36;1m}[0m
+2026-10-14T12:12:12.5986523Z [36;1m[0m
+2026-10-14T12:12:12.5986929Z [36;1mInvoke-Probe -Name 'windows-virtual-disk-tool-availability' -Action {[0m
+2026-10-14T12:12:12.5987398Z [36;1m  $module = @(Get-Module -ListAvailable Hyper-V | Select-Object -First 1 Name, Version)[0m
+2026-10-14T12:12:12.5987799Z [36;1m  $names = @('New-VHD', 'Mount-VHD', 'Get-VHD')[0m
+2026-10-14T12:12:12.5988151Z [36;1m  $commands = foreach ($name in $names) {[0m
+2026-10-14T12:12:12.5988481Z [36;1m    $found = Get-Command $name -ErrorAction SilentlyContinue[0m
+2026-10-14T12:12:12.5988864Z [36;1m    [pscustomobject]@{ name = $name; available = [bool]$found }[0m
+2026-10-14T12:12:12.5989173Z [36;1m  }[0m
+2026-10-14T12:12:12.5989397Z [36;1m  [pscustomobject]@{[0m
+2026-10-14T12:12:12.5989650Z [36;1m    hyper_v_module = $module[0m
+2026-10-14T12:12:12.5989890Z [36;1m    commands = @($commands)[0m
+2026-10-14T12:12:12.5990267Z [36;1m    diskpart_path = [bool](Get-Command diskpart.exe -ErrorAction SilentlyContinue)[0m
+2026-10-14T12:12:12.5990818Z [36;1m  } | ConvertTo-Json -Depth 5 -Compress[0m
+2026-10-14T12:12:12.5991154Z [36;1m}[0m
+2026-10-14T12:12:12.5991416Z [36;1m[0m
+2026-10-14T12:12:12.5991794Z [36;1mInvoke-Probe -Name 'windows-diskpart-help-query' -Action {[0m
+2026-10-14T12:12:12.5992574Z [36;1m  $command = Get-Command diskpart.exe -ErrorAction SilentlyContinue[0m
+2026-10-14T12:12:12.5992907Z [36;1m  if (-not $command) {[0m
+2026-10-14T12:12:12.5993298Z [36;1m    [pscustomobject]@{ available = $false; reason = 'diskpart.exe not found' } | ConvertTo-Json -Compress[0m
+2026-10-14T12:12:12.5993748Z [36;1m    return[0m
+2026-10-14T12:12:12.5993955Z [36;1m  }[0m
+2026-10-14T12:12:12.5994193Z [36;1m  & $command.Source /?[0m
+2026-10-14T12:12:12.5994426Z [36;1m}[0m
+2026-10-14T12:12:12.5994611Z [36;1m[0m
+2026-10-14T12:12:12.5994969Z [36;1m$requiredFailures = @($script:probeResults | Where-Object { $_.required -and $_.exit_code -ne 0 })[0m
+2026-10-14T12:12:12.5995508Z [36;1m$optionalFailures = @($script:probeResults | Where-Object { -not $_.required -and $_.exit_code -ne 0 })[0m
+2026-10-14T12:12:12.5995906Z [36;1m$reasons = @()[0m
+2026-10-14T12:12:12.5996214Z [36;1m$classification = 'CAPABILITY_PRESENT_UNVALIDATED'[0m
+2026-10-14T12:12:12.5996522Z [36;1mif ($requiredFailures.Count -gt 0) {[0m
+2026-10-14T12:12:12.5996809Z [36;1m  $classification = 'FAIL'[0m
+2026-10-14T12:12:12.5997239Z [36;1m  $reasons += 'One or more required read-only metadata probes failed; inspect probe-index.json and raw exit files.'[0m
+2026-10-14T12:12:12.5997799Z [36;1m}[0m
+2026-10-14T12:12:12.5998029Z [36;1mif ($optionalFailures.Count -gt 0) {[0m
+2026-10-14T12:12:12.5998378Z [36;1m  if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }[0m
+2026-10-14T12:12:12.5998779Z [36;1m  foreach ($probe in $optionalFailures) {[0m
+2026-10-14T12:12:12.5999234Z [36;1m    $reasons += "Optional metadata probe $($probe.name) exited $($probe.exit_code); see its raw stdout/stderr."[0m
+2026-10-14T12:12:12.5999637Z [36;1m  }[0m
+2026-10-14T12:12:12.5999843Z [36;1m}[0m
+2026-10-14T12:12:12.6000037Z [36;1m$volumeData = $null[0m
+2026-10-14T12:12:12.6000563Z [36;1mtry { $volumeData = Get-Content -Raw -LiteralPath (Join-Path $reportRoot 'windows-runner-temp-volume-query.stdout.txt') | ConvertFrom-Json } catch {}[0m
+2026-10-14T12:12:12.6001215Z [36;1mif (-not $volumeData -or -not $volumeData.query_available -or -not $volumeData.volumes) {[0m
+2026-10-14T12:12:12.6001729Z [36;1m  if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }[0m
+2026-10-14T12:12:12.6002171Z [36;1m  $reasons += 'RUNNER_TEMP filesystem volume metadata could not be queried.'[0m
+2026-10-14T12:12:12.6002623Z [36;1m} elseif (@($volumeData.volumes | Where-Object { $_.FileSystem -ne 'NTFS' }).Count -gt 0) {[0m
+2026-10-14T12:12:12.6003147Z [36;1m  if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }[0m
+2026-10-14T12:12:12.6003533Z [36;1m  $reasons += 'RUNNER_TEMP is not on an NTFS volume.'[0m
+2026-10-14T12:12:12.6003889Z [36;1m}[0m
+2026-10-14T12:12:12.6004106Z [36;1m$drives = @()[0m
+2026-10-14T12:12:12.6004617Z [36;1mtry { $drives = @(Get-Content -Raw -LiteralPath (Join-Path $reportRoot 'windows-host-storage-free-space.stdout.txt') | ConvertFrom-Json) } catch {}[0m
+2026-10-14T12:12:12.6005226Z [36;1m$tempRoot = [IO.Path]::GetPathRoot($env:RUNNER_TEMP).TrimEnd([char]92)[0m
+2026-10-14T12:12:12.6005664Z [36;1m$tempDrive = @($drives | Where-Object { $_.drive -eq $tempRoot } | Select-Object -First 1)[0m
+2026-10-14T12:12:12.6006100Z [36;1mif ($tempDrive.Count -eq 0 -or $null -eq $tempDrive[0].free_bytes) {[0m
+2026-10-14T12:12:12.6006535Z [36;1m  if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }[0m
+2026-10-14T12:12:12.6006959Z [36;1m  $reasons += 'Host free capacity for the RUNNER_TEMP volume is unknown.'[0m
+2026-10-14T12:12:12.6007381Z [36;1m} elseif ([int64]$tempDrive[0].free_bytes -lt 4294967296) {[0m
+2026-10-14T12:12:12.6007773Z [36;1m  if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }[0m
+2026-10-14T12:12:12.6008205Z [36;1m  $reasons += 'RUNNER_TEMP host volume has less than the 4 GiB G2 admission floor.'[0m
+2026-10-14T12:12:12.6008561Z [36;1m}[0m
+2026-10-14T12:12:12.6008769Z [36;1m$volumeTools = $null[0m
+2026-10-14T12:12:12.6009306Z [36;1mtry { $volumeTools = Get-Content -Raw -LiteralPath (Join-Path $reportRoot 'windows-virtual-disk-tool-availability.stdout.txt') | ConvertFrom-Json } catch {}[0m
+2026-10-14T12:12:12.6009901Z [36;1m$diskpartAvailable = $false[0m
+2026-10-14T12:12:12.6010231Z [36;1mif ($volumeTools) { $diskpartAvailable = [bool]$volumeTools.diskpart_path }[0m
+2026-10-14T12:12:12.6010597Z [36;1m$hyperVAvailable = $false[0m
+2026-10-14T12:12:12.6010851Z [36;1mif ($volumeTools) {[0m
+2026-10-14T12:12:12.6011223Z [36;1m  $hyperVAvailable = @($volumeTools.commands | Where-Object { -not $_.available }).Count -eq 0[0m
+2026-10-14T12:12:12.6011597Z [36;1m}[0m
+2026-10-14T12:12:12.6011845Z [36;1mif (-not $diskpartAvailable -and -not $hyperVAvailable) {[0m
+2026-10-14T12:12:12.6012650Z [36;1m  if ($classification -ne 'FAIL') { $classification = 'ENVIRONMENT_UNAVAILABLE' }[0m
+2026-10-14T12:12:12.6013155Z [36;1m  $reasons += 'Neither DiskPart nor the Hyper-V VHD cmdlet set is available for later G2 investigation.'[0m
+2026-10-14T12:12:12.6013550Z [36;1m}[0m
+2026-10-14T12:12:12.6013760Z [36;1m$summary = [ordered]@{[0m
+2026-10-14T12:12:12.6014104Z [36;1m  platform = 'windows'[0m
+2026-10-14T12:12:12.6014376Z [36;1m  source_sha = $env:EXPECTED_SHA[0m
+2026-10-14T12:12:12.6014645Z [36;1m  run_id = $env:GITHUB_RUN_ID[0m
+2026-10-14T12:12:12.6014910Z [36;1m  run_attempt = $env:GITHUB_RUN_ATTEMPT[0m
+2026-10-14T12:12:12.6015253Z [36;1m  runner_name = $env:RUNNER_NAME[0m
+2026-10-14T12:12:12.6015499Z [36;1m  image_os = $env:ImageOS[0m
+2026-10-14T12:12:12.6015779Z [36;1m  image_version = $env:ImageVersion[0m
+2026-10-14T12:12:12.6016062Z [36;1m  classification = $classification[0m
+2026-10-14T12:12:12.6016373Z [36;1m  reasons = $reasons[0m
+2026-10-14T12:12:12.6016642Z [36;1m  no_disk_mutation_performed = $true[0m
+2026-10-14T12:12:12.6016940Z [36;1m  g1_scope = 'read-only hosted environment inventory'[0m
+2026-10-14T12:12:12.6017428Z [36;1m  interpretation = 'CAPABILITY_PRESENT_UNVALIDATED does not prove that creating or attaching a bounded VHD will work.'[0m
+2026-10-14T12:12:12.6017849Z [36;1m}[0m
+2026-10-14T12:12:12.6018232Z [36;1m$summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportRoot 'summary.json') -Encoding utf8[0m
+2026-10-14T12:12:12.6018930Z [36;1m$script:probeResults | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportRoot 'probe-index.json') -Encoding utf8[0m
+2026-10-14T12:12:12.6019467Z [36;1m$files = @(Get-ChildItem -LiteralPath $reportRoot -File -Recurse |[0m
+2026-10-14T12:12:12.6019884Z [36;1m  Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object FullName)[0m
+2026-10-14T12:12:12.6020650Z [36;1m$hashLines = foreach ($file in $files) {[0m
+2026-10-14T12:12:12.6021057Z [36;1m  $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()[0m
+2026-10-14T12:12:12.6021456Z [36;1m  "$hash  $($file.Name)"[0m
+2026-10-14T12:12:12.6021695Z [36;1m}[0m
+2026-10-14T12:12:12.6022088Z [36;1m$hashLines | Set-Content -LiteralPath (Join-Path $reportRoot 'SHA256SUMS.txt') -Encoding ascii[0m
+2026-10-14T12:12:12.6022507Z [36;1mif ($classification -eq 'FAIL') { exit 1 }[0m
+2026-10-14T12:12:12.6022767Z [36;1mexit 0[0m
+2026-10-14T12:12:12.6515249Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-14T12:12:12.6515578Z env:
+2026-10-14T12:12:12.6515858Z   EXPECTED_SHA: 5ccea76349aa5da2e31b9cb2203c2366d3d263ac
+2026-10-14T12:12:12.6516148Z ##[endgroup]
+2026-10-14T12:12:16.8226619Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-10-14T12:12:16.8227118Z with:
+2026-10-14T12:12:16.8227397Z   name: issue-414-b2-g1-windows-latest-38562031226-1
+2026-10-14T12:12:16.8227816Z   path: D:\a\_temp/issue-414-b2-g1/
+2026-10-14T12:12:16.8228117Z   if-no-files-found: error
+2026-10-14T12:12:16.8228382Z   retention-days: 30
+2026-10-14T12:12:16.8228643Z   compression-level: 9
+2026-10-14T12:12:16.8228892Z   overwrite: false
+2026-10-14T12:12:16.8229188Z   include-hidden-files: false
+2026-10-14T12:12:16.8229452Z   archive: true
+2026-10-14T12:12:16.8229674Z ##[endgroup]
+2026-10-14T12:12:16.9828798Z With the provided path, there will be 30 files uploaded
+2026-10-14T12:12:16.9833263Z Artifact name is valid!
+2026-10-14T12:12:16.9834196Z Root directory input is valid!
+2026-10-14T12:12:17.2481119Z Uploading artifact: issue-414-b2-g1-windows-latest-38562031226-1.zip
+2026-10-14T12:12:17.2520986Z Beginning upload of artifact content to blob storage
+2026-10-14T12:12:17.4645687Z Uploaded bytes 9673
+2026-10-14T12:12:17.5050425Z Finished uploading artifact content to blob storage!
+2026-10-14T12:12:17.5052156Z SHA256 digest of uploaded artifact is 135a8ba5d716ffd1321fa44286063ef839b47b1dc8bc8bde260b4889480d391b
+2026-10-14T12:12:17.5052949Z Finalizing artifact upload
+2026-10-14T12:12:17.8167055Z Artifact issue-414-b2-g1-windows-latest-38562031226-1 successfully finalized. Artifact ID 11893365960
+2026-10-14T12:12:17.8168833Z Artifact issue-414-b2-g1-windows-latest-38562031226-1 has been successfully uploaded! Final size is 9673 bytes. Artifact ID is 11893365960
+2026-10-14T12:12:17.8176932Z Artifact download URL: https://github.com/ArdenZC/Zen-Canvas/actions/runs/38562031226/artifacts/11893365960
+2026-10-14T12:12:17.8537465Z Post job cleanup.
+2026-10-14T12:12:18.0141866Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-14T12:12:18.0389342Z git version 2.55.0.windows.5
+2026-10-14T12:12:18.0444084Z Temporarily overriding HOME='D:\a\_temp\9eb86289-3146-4413-b594-20f68133a9d8' before making global git config changes
+2026-10-14T12:12:18.0445233Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-14T12:12:18.0453608Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\Zen-Canvas\Zen-Canvas
+2026-10-14T12:12:18.0711985Z Removing SSH command configuration
+2026-10-14T12:12:18.0720984Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-14T12:12:18.1020725Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-14T12:12:18.5591331Z Removing HTTP extra header
+2026-10-14T12:12:18.5603273Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-14T12:12:18.5846798Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-14T12:12:19.0327495Z Removing includeIf entries pointing to credentials config files
+2026-10-14T12:12:19.0337369Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-14T12:12:19.0577501Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-14T12:12:19.5068497Z Cleaning up orphan processes
+2026-10-14T12:12:19.5439003Z Terminate orphan process: pid (10132) (vdsldr)

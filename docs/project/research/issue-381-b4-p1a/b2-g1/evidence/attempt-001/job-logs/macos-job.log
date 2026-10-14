@@ -1,0 +1,399 @@
+﻿2026-10-14T12:03:55.8812630Z Current runner version: '2.337.0'
+2026-10-14T12:03:55.8856400Z ##[group]Runner Image Provisioner
+2026-10-14T12:03:55.8857900Z Hosted Compute Agent
+2026-10-14T12:03:55.8858860Z Version: 20260828.587
+2026-10-14T12:03:55.8859960Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-10-14T12:03:55.8861230Z Build Date: 2026-08-28T16:44:25Z
+2026-10-14T12:03:55.8862420Z Worker ID: {c3ee207f-1d4e-4b3b-a49c-31cde542c81d}
+2026-10-14T12:03:55.8863640Z Azure Region: westus
+2026-10-14T12:03:55.8864620Z ##[endgroup]
+2026-10-14T12:03:55.8867210Z ##[group]Operating System
+2026-10-14T12:03:55.8868250Z macOS
+2026-10-14T12:03:55.8869110Z 26.6.2
+2026-10-14T12:03:55.8869960Z 25G83
+2026-10-14T12:03:55.8870840Z ##[endgroup]
+2026-10-14T12:03:55.8872900Z ##[group]Runner Image
+2026-10-14T12:03:55.8873610Z Image: macos-26-arm64
+2026-10-14T12:03:55.8874020Z Version: 20260907.0351.1
+2026-10-14T12:03:55.8875810Z Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20260907.0351/images/macos/macos-26-arm64-Readme.md
+2026-10-14T12:03:55.8877000Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20260907.0351
+2026-10-14T12:03:55.8877880Z ##[endgroup]
+2026-10-14T12:03:55.8878810Z ##[group]GITHUB_TOKEN Permissions
+2026-10-14T12:03:55.8881380Z Contents: read
+2026-10-14T12:03:55.8881820Z Metadata: read
+2026-10-14T12:03:55.8882210Z ##[endgroup]
+2026-10-14T12:03:55.8884940Z Secret source: Actions
+2026-10-14T12:03:55.8885800Z Cache mode: write
+2026-10-14T12:03:55.8886850Z Prepare workflow directory
+2026-10-14T12:03:55.9232760Z Prepare all required actions
+2026-10-14T12:03:55.9276060Z Getting action download info
+2026-10-14T12:03:56.2206730Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-10-14T12:03:56.5538050Z Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+2026-10-14T12:03:56.7080210Z Complete job name: read-only inventory (macos-latest)
+2026-10-14T12:03:56.7863500Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-10-14T12:03:56.7864460Z with:
+2026-10-14T12:03:56.7864860Z   ref: 6f64227cc9569abd501d14904ec775998510f2dc
+2026-10-14T12:03:56.7865340Z   persist-credentials: false
+2026-10-14T12:03:56.7865740Z   fetch-depth: 1
+2026-10-14T12:03:56.7866120Z   repository: ArdenZC/Zen-Canvas
+2026-10-14T12:03:56.7869020Z   token: ***
+2026-10-14T12:03:56.7869360Z   ssh-strict: true
+2026-10-14T12:03:56.7869720Z   ssh-user: git
+2026-10-14T12:03:56.7870060Z   clean: true
+2026-10-14T12:03:56.7870450Z   sparse-checkout-cone-mode: true
+2026-10-14T12:03:56.7870880Z   fetch-tags: false
+2026-10-14T12:03:56.7871250Z   show-progress: true
+2026-10-14T12:03:56.7871630Z   lfs: false
+2026-10-14T12:03:56.7871970Z   submodules: false
+2026-10-14T12:03:56.7872340Z   set-safe-directory: true
+2026-10-14T12:03:56.7872750Z   allow-unsafe-pr-checkout: false
+2026-10-14T12:03:56.7873350Z ##[endgroup]
+2026-10-14T12:03:57.1865120Z Syncing repository: ArdenZC/Zen-Canvas
+2026-10-14T12:03:57.1867400Z ##[group]Getting Git version info
+2026-10-14T12:03:57.1868070Z Working directory is '/Users/runner/work/Zen-Canvas/Zen-Canvas'
+2026-10-14T12:03:57.1869260Z [command]/opt/homebrew/bin/git version
+2026-10-14T12:03:57.2568010Z git version 2.55.0
+2026-10-14T12:03:57.2589130Z ##[endgroup]
+2026-10-14T12:03:57.2602350Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/9c0f2117-16a7-41c1-a9e5-4ff60a2ffcd4/.gitconfig'
+2026-10-14T12:03:57.2613990Z Temporarily overriding HOME='/Users/runner/work/_temp/9c0f2117-16a7-41c1-a9e5-4ff60a2ffcd4' before making global git config changes
+2026-10-14T12:03:57.2619590Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-14T12:03:57.2624520Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/Zen-Canvas/Zen-Canvas
+2026-10-14T12:03:57.2774390Z Deleting the contents of '/Users/runner/work/Zen-Canvas/Zen-Canvas'
+2026-10-14T12:03:57.2795750Z ##[group]Determining repository object format
+2026-10-14T12:03:57.2797120Z ##[endgroup]
+2026-10-14T12:03:57.2801640Z ##[group]Initializing the repository
+2026-10-14T12:03:57.2805080Z [command]/opt/homebrew/bin/git init /Users/runner/work/Zen-Canvas/Zen-Canvas
+2026-10-14T12:03:57.3554850Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-14T12:03:57.3579700Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-14T12:03:57.3589920Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-14T12:03:57.3595000Z hint: call:
+2026-10-14T12:03:57.3595760Z hint:
+2026-10-14T12:03:57.3596860Z hint: 	git config --global init.defaultBranch <name>
+2026-10-14T12:03:57.3598140Z hint:
+2026-10-14T12:03:57.3598910Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-14T12:03:57.3602460Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-14T12:03:57.3604900Z hint:
+2026-10-14T12:03:57.3605410Z hint: 	git branch -m <name>
+2026-10-14T12:03:57.3605970Z hint:
+2026-10-14T12:03:57.3606820Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-14T12:03:57.3610150Z Initialized empty Git repository in /Users/runner/work/Zen-Canvas/Zen-Canvas/.git/
+2026-10-14T12:03:57.3612670Z [command]/opt/homebrew/bin/git remote add origin https://github.com/ArdenZC/Zen-Canvas
+2026-10-14T12:03:57.3683620Z ##[endgroup]
+2026-10-14T12:03:57.3685820Z ##[group]Disabling automatic garbage collection
+2026-10-14T12:03:57.3690120Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-14T12:03:57.3791470Z ##[endgroup]
+2026-10-14T12:03:57.3794770Z ##[group]Setting up auth
+2026-10-14T12:03:57.3795470Z Removing SSH command configuration
+2026-10-14T12:03:57.3797010Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-14T12:03:57.3888410Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-14T12:03:57.5389500Z Removing HTTP extra header
+2026-10-14T12:03:57.5411340Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-14T12:03:57.5521860Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-14T12:03:57.6963420Z Removing includeIf entries pointing to credentials config files
+2026-10-14T12:03:57.7068420Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-14T12:03:57.7378160Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-14T12:03:57.8900540Z [command]/opt/homebrew/bin/git config --file /Users/runner/work/_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-14T12:03:57.9124940Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/Users/runner/work/Zen-Canvas/Zen-Canvas/.git.path /Users/runner/work/_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config
+2026-10-14T12:03:57.9155700Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/Users/runner/work/Zen-Canvas/Zen-Canvas/.git/worktrees/*.path /Users/runner/work/_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config
+2026-10-14T12:03:57.9219800Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config
+2026-10-14T12:03:57.9267260Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config
+2026-10-14T12:03:57.9278160Z ##[endgroup]
+2026-10-14T12:03:57.9280690Z ##[group]Fetching the repository
+2026-10-14T12:03:57.9285590Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 6f64227cc9569abd501d14904ec775998510f2dc
+2026-10-14T12:03:59.6248500Z From https://github.com/ArdenZC/Zen-Canvas
+2026-10-14T12:03:59.6256550Z  * branch            6f64227cc9569abd501d14904ec775998510f2dc -> FETCH_HEAD
+2026-10-14T12:03:59.6264440Z [command]/opt/homebrew/bin/git rev-parse --verify --quiet 6f64227cc9569abd501d14904ec775998510f2dc^{object}
+2026-10-14T12:03:59.6349390Z 6f64227cc9569abd501d14904ec775998510f2dc
+2026-10-14T12:03:59.6356930Z ##[endgroup]
+2026-10-14T12:03:59.6357550Z ##[group]Determining the checkout info
+2026-10-14T12:03:59.6358140Z ##[endgroup]
+2026-10-14T12:03:59.6365950Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-14T12:03:59.6471600Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-14T12:03:59.6584390Z ##[group]Checking out the ref
+2026-10-14T12:03:59.6586500Z [command]/opt/homebrew/bin/git checkout --progress --force 6f64227cc9569abd501d14904ec775998510f2dc
+2026-10-14T12:04:00.3263380Z HEAD is now at 6f64227 research: add Issue 414 G1 hosted read-only preflight
+2026-10-14T12:04:00.3287090Z ##[endgroup]
+2026-10-14T12:04:00.3512210Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-14T12:04:00.3607180Z 6f64227cc9569abd501d14904ec775998510f2dc
+2026-10-14T12:04:00.3620070Z ##[group]Removing auth
+2026-10-14T12:04:00.3621410Z Removing SSH command configuration
+2026-10-14T12:04:00.3623050Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-14T12:04:00.3738960Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-14T12:04:00.6330470Z Removing HTTP extra header
+2026-10-14T12:04:00.6334670Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-14T12:04:00.6392150Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-14T12:04:00.9007680Z Removing includeIf entries pointing to credentials config files
+2026-10-14T12:04:00.9108780Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-14T12:04:00.9211020Z includeif.gitdir:/Users/runner/work/Zen-Canvas/Zen-Canvas/.git.path
+2026-10-14T12:04:00.9312900Z includeif.gitdir:/Users/runner/work/Zen-Canvas/Zen-Canvas/.git/worktrees/*.path
+2026-10-14T12:04:00.9412770Z includeif.gitdir:/github/workspace/.git.path
+2026-10-14T12:04:00.9512080Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-14T12:04:00.9684190Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/Users/runner/work/Zen-Canvas/Zen-Canvas/.git.path
+2026-10-14T12:04:00.9691360Z /Users/runner/work/_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config
+2026-10-14T12:04:00.9695830Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/Users/runner/work/Zen-Canvas/Zen-Canvas/.git.path \/Users\/runner\/work\/_temp\/git\-credentials\-076b4c27\-0f3b\-4679\-b018\-0bc3daed4013\.config
+2026-10-14T12:04:00.9700470Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/Users/runner/work/Zen-Canvas/Zen-Canvas/.git/worktrees/*.path
+2026-10-14T12:04:00.9702570Z /Users/runner/work/_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config
+2026-10-14T12:04:00.9706520Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/Users/runner/work/Zen-Canvas/Zen-Canvas/.git/worktrees/*.path \/Users\/runner\/work\/_temp\/git\-credentials\-076b4c27\-0f3b\-4679\-b018\-0bc3daed4013\.config
+2026-10-14T12:04:00.9711280Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-10-14T12:04:00.9712200Z /github/runner_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config
+2026-10-14T12:04:00.9713760Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-076b4c27\-0f3b\-4679\-b018\-0bc3daed4013\.config
+2026-10-14T12:04:00.9765990Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-14T12:04:00.9898720Z /github/runner_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config
+2026-10-14T12:04:00.9922910Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-076b4c27\-0f3b\-4679\-b018\-0bc3daed4013\.config
+2026-10-14T12:04:01.0022490Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-14T12:04:01.1704520Z Removing credentials config '/Users/runner/work/_temp/git-credentials-076b4c27-0f3b-4679-b018-0bc3daed4013.config'
+2026-10-14T12:04:01.1706480Z ##[endgroup]
+2026-10-14T12:04:01.2058810Z ##[group]Run set +e
+2026-10-14T12:04:01.2060950Z [36;1mset +e[0m
+2026-10-14T12:04:01.2061770Z [36;1mreport_root="${RUNNER_TEMP}/issue-414-b2-g1"[0m
+2026-10-14T12:04:01.2062690Z [36;1mmkdir -p "$report_root"[0m
+2026-10-14T12:04:01.2063290Z [36;1mif [ "$?" -ne 0 ]; then[0m
+2026-10-14T12:04:01.2064470Z [36;1m  printf '%s\n' 'cannot create bounded report directory under RUNNER_TEMP' >&2[0m
+2026-10-14T12:04:01.2065460Z [36;1m  exit 1[0m
+2026-10-14T12:04:01.2066240Z [36;1mfi[0m
+2026-10-14T12:04:01.2066470Z [36;1mrequired_failure=0[0m
+2026-10-14T12:04:01.2066860Z [36;1mprobe_index="$report_root/probe-index.tsv"[0m
+2026-10-14T12:04:01.2067340Z [36;1mprintf '%s\t%s\t%s\t%s\t%s\t%s\n' name required exit_code stdout stderr exit_file > "$probe_index"[0m
+2026-10-14T12:04:01.2067840Z [36;1m[0m
+2026-10-14T12:04:01.2068010Z [36;1mrun_probe() {[0m
+2026-10-14T12:04:01.2068250Z [36;1m  name="$1"[0m
+2026-10-14T12:04:01.2068430Z [36;1m  required="$2"[0m
+2026-10-14T12:04:01.2068810Z [36;1m  shift 2[0m
+2026-10-14T12:04:01.2069130Z [36;1m  stdout_file="$report_root/$name.stdout.txt"[0m
+2026-10-14T12:04:01.2069480Z [36;1m  stderr_file="$report_root/$name.stderr.txt"[0m
+2026-10-14T12:04:01.2069860Z [36;1m  exit_file="$report_root/$name.exit-code.txt"[0m
+2026-10-14T12:04:01.2070180Z [36;1m  "$@" > "$stdout_file" 2> "$stderr_file"[0m
+2026-10-14T12:04:01.2070530Z [36;1m  status=$?[0m
+2026-10-14T12:04:01.2070740Z [36;1m  printf '%s\n' "$status" > "$exit_file"[0m
+2026-10-14T12:04:01.2071490Z [36;1m  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$required" "$status" "$(basename "$stdout_file")" "$(basename "$stderr_file")" "$(basename "$exit_file")" >> "$probe_index"[0m
+2026-10-14T12:04:01.2072210Z [36;1m  if [ "$required" = 'true' ] && [ "$status" -ne 0 ]; then required_failure=1; fi[0m
+2026-10-14T12:04:01.2072590Z [36;1m}[0m
+2026-10-14T12:04:01.2072740Z [36;1m[0m
+2026-10-14T12:04:01.2072900Z [36;1mprobe_source_provenance() {[0m
+2026-10-14T12:04:01.2073200Z [36;1m  head_sha="$(git rev-parse HEAD)" || return $?[0m
+2026-10-14T12:04:01.2073530Z [36;1m  tree_sha="$(git rev-parse 'HEAD^{tree}')" || return $?[0m
+2026-10-14T12:04:01.2073980Z [36;1m  dirty="$(git status --porcelain)" || return $?[0m
+2026-10-14T12:04:01.2074300Z [36;1m  if [ "$head_sha" != "$EXPECTED_SHA" ]; then[0m
+2026-10-14T12:04:01.2074920Z [36;1m    printf 'HEAD mismatch expected=%s actual=%s\n' "$EXPECTED_SHA" "$head_sha" >&2[0m
+2026-10-14T12:04:01.2075350Z [36;1m    return 1[0m
+2026-10-14T12:04:01.2075530Z [36;1m  fi[0m
+2026-10-14T12:04:01.2075690Z [36;1m  if [ -n "$dirty" ]; then[0m
+2026-10-14T12:04:01.2075970Z [36;1m    printf '%s\n' 'checkout is not clean' >&2[0m
+2026-10-14T12:04:01.2076210Z [36;1m    return 1[0m
+2026-10-14T12:04:01.2076380Z [36;1m  fi[0m
+2026-10-14T12:04:01.2077350Z [36;1m  printf 'source_sha=%s\nhead=%s\ntree=%s\nworktree_clean=true\nrun_id=%s\nrun_attempt=%s\n' "$EXPECTED_SHA" "$head_sha" "$tree_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"[0m
+2026-10-14T12:04:01.2077970Z [36;1m}[0m
+2026-10-14T12:04:01.2078130Z [36;1mprobe_runner_os() {[0m
+2026-10-14T12:04:01.2078780Z [36;1m  printf 'runner_os=%s\nrunner_arch=%s\nimage_os=%s\nimage_version=%s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion"[0m
+2026-10-14T12:04:01.2079240Z [36;1m  sw_vers || return $?[0m
+2026-10-14T12:04:01.2095030Z [36;1m  uname -a || return $?[0m
+2026-10-14T12:04:01.2095280Z [36;1m}[0m
+2026-10-14T12:04:01.2095580Z [36;1mprobe_identity_privileges() {[0m
+2026-10-14T12:04:01.2096070Z [36;1m  id || return $?[0m
+2026-10-14T12:04:01.2096340Z [36;1m  groups || return $?[0m
+2026-10-14T12:04:01.2096820Z [36;1m  stat -f 'runner_temp_owner=%Su runner_temp_group=%Sg runner_temp_mode=%Lp runner_temp_fs=%T' "$RUNNER_TEMP"[0m
+2026-10-14T12:04:01.2097280Z [36;1m}[0m
+2026-10-14T12:04:01.2097480Z [36;1mprobe_host_storage() {[0m
+2026-10-14T12:04:01.2097880Z [36;1m  printf '%s\n' 'host_capacity_for_root_and_RUNNER_TEMP (df -kP):'[0m
+2026-10-14T12:04:01.2099130Z [36;1m  df -kP / "$RUNNER_TEMP" || return $?[0m
+2026-10-14T12:04:01.2099570Z [36;1m  printf '%s\n' 'RUNNER_TEMP filesystem_type available_blocks block_size:'[0m
+2026-10-14T12:04:01.2100060Z [36;1m  stat -f '%T %a %S' "$RUNNER_TEMP" || return $?[0m
+2026-10-14T12:04:01.2100420Z [36;1m}[0m
+2026-10-14T12:04:01.2100620Z [36;1mprobe_temp_path() {[0m
+2026-10-14T12:04:01.2101040Z [36;1m  printf 'runner_temp=%s\nrunner_workspace=%s\n' "$RUNNER_TEMP" "$GITHUB_WORKSPACE"[0m
+2026-10-14T12:04:01.2101410Z [36;1m  cd "$RUNNER_TEMP" || return $?[0m
+2026-10-14T12:04:01.2101800Z [36;1m  printf 'runner_temp_realpath=%s\n' "$(pwd -P)"[0m
+2026-10-14T12:04:01.2102160Z [36;1m  ls -lde "$RUNNER_TEMP" || return $?[0m
+2026-10-14T12:04:01.2102640Z [36;1m  stat -f 'filesystem_type=%T owner=%Su group=%Sg mode=%Lp' "$RUNNER_TEMP" || return $?[0m
+2026-10-14T12:04:01.2103070Z [36;1m}[0m
+2026-10-14T12:04:01.2103380Z [36;1mprobe_tool_availability() {[0m
+2026-10-14T12:04:01.2103770Z [36;1m  for tool in hdiutil diskutil stat df shasum; do[0m
+2026-10-14T12:04:01.2104130Z [36;1m    if tool_path="$(command -v "$tool" 2>/dev/null)"; then[0m
+2026-10-14T12:04:01.2104590Z [36;1m      printf '%s=available:%s\n' "$tool" "$tool_path"[0m
+2026-10-14T12:04:01.2104960Z [36;1m    else[0m
+2026-10-14T12:04:01.2105210Z [36;1m      printf '%s=missing\n' "$tool"[0m
+2026-10-14T12:04:01.2105480Z [36;1m    fi[0m
+2026-10-14T12:04:01.2105700Z [36;1m  done[0m
+2026-10-14T12:04:01.2105890Z [36;1m}[0m
+2026-10-14T12:04:01.2106130Z [36;1mprobe_hdiutil_help() {[0m
+2026-10-14T12:04:01.2106540Z [36;1m  if ! command -v hdiutil >/dev/null 2>&1; then[0m
+2026-10-14T12:04:01.2106930Z [36;1m    printf '%s\n' 'available=false reason=hdiutil-not-found'[0m
+2026-10-14T12:04:01.2107240Z [36;1m    return 0[0m
+2026-10-14T12:04:01.2107430Z [36;1m  fi[0m
+2026-10-14T12:04:01.2107680Z [36;1m  hdiutil help[0m
+2026-10-14T12:04:01.2107910Z [36;1m}[0m
+2026-10-14T12:04:01.2108210Z [36;1mprobe_diskutil_help() {[0m
+2026-10-14T12:04:01.2108480Z [36;1m  if ! command -v diskutil >/dev/null 2>&1; then[0m
+2026-10-14T12:04:01.2108830Z [36;1m    printf '%s\n' 'available=false reason=diskutil-not-found'[0m
+2026-10-14T12:04:01.2109210Z [36;1m    return 0[0m
+2026-10-14T12:04:01.2109440Z [36;1m  fi[0m
+2026-10-14T12:04:01.2109590Z [36;1m  diskutil help[0m
+2026-10-14T12:04:01.2109890Z [36;1m}[0m
+2026-10-14T12:04:01.2110090Z [36;1mprobe_current_devices() {[0m
+2026-10-14T12:04:01.2110530Z [36;1m  if ! command -v diskutil >/dev/null 2>&1; then[0m
+2026-10-14T12:04:01.2110990Z [36;1m    printf '%s\n' 'query_available=false reason=diskutil-not-found'[0m
+2026-10-14T12:04:01.2111460Z [36;1m    return 0[0m
+2026-10-14T12:04:01.2111760Z [36;1m  fi[0m
+2026-10-14T12:04:01.2112070Z [36;1m  printf '%s\n' 'read-only diskutil list:'[0m
+2026-10-14T12:04:01.2112730Z [36;1m  diskutil list || return $?[0m
+2026-10-14T12:04:01.2113020Z [36;1m  printf '\n%s\n' 'read-only diskutil info for RUNNER_TEMP volume:'[0m
+2026-10-14T12:04:01.2113470Z [36;1m  diskutil info "$RUNNER_TEMP" | awk -F ':' '[0m
+2026-10-14T12:04:01.2114100Z [36;1m    /Device Identifier|Volume Name|Mount Point|File System Personality|Type \(Bundle\)|Owners|Total Size|Volume Free Space|Container Total Space|Container Free Space/ {[0m
+2026-10-14T12:04:01.2114730Z [36;1m      print $1 ":" $2[0m
+2026-10-14T12:04:01.2114970Z [36;1m    }'[0m
+2026-10-14T12:04:01.2115190Z [36;1m  query_status=${PIPESTATUS[0]}[0m
+2026-10-14T12:04:01.2115560Z [36;1m  if [ "$query_status" -ne 0 ]; then return "$query_status"; fi[0m
+2026-10-14T12:04:01.2115830Z [36;1m}[0m
+2026-10-14T12:04:01.2116100Z [36;1m[0m
+2026-10-14T12:04:01.2116330Z [36;1mrun_probe macos-source-provenance true probe_source_provenance[0m
+2026-10-14T12:04:01.2116880Z [36;1mrun_probe macos-runner-os-build-arch-image true probe_runner_os[0m
+2026-10-14T12:04:01.2117380Z [36;1mrun_probe macos-identity-permission-hints true probe_identity_privileges[0m
+2026-10-14T12:04:01.2117930Z [36;1mrun_probe macos-host-storage-free-space true probe_host_storage[0m
+2026-10-14T12:04:01.2118730Z [36;1mrun_probe macos-runner-temp-path-filesystem true probe_temp_path[0m
+2026-10-14T12:04:01.2119230Z [36;1mrun_probe macos-read-only-tool-availability false probe_tool_availability[0m
+2026-10-14T12:04:01.2119660Z [36;1mrun_probe macos-hdiutil-help-query false probe_hdiutil_help[0m
+2026-10-14T12:04:01.2120100Z [36;1mrun_probe macos-diskutil-help-query false probe_diskutil_help[0m
+2026-10-14T12:04:01.2120590Z [36;1mrun_probe macos-read-only-device-volume-inventory false probe_current_devices[0m
+2026-10-14T12:04:01.2120980Z [36;1m[0m
+2026-10-14T12:04:01.2121350Z [36;1mread -r storage_type free_blocks block_size < <(tail -n 1 "$report_root/macos-host-storage-free-space.stdout.txt")[0m
+2026-10-14T12:04:01.2121970Z [36;1mif [[ "$free_blocks" =~ ^[0-9]+$ && "$block_size" =~ ^[0-9]+$ ]]; then[0m
+2026-10-14T12:04:01.2122310Z [36;1m  free_bytes=$((free_blocks * block_size))[0m
+2026-10-14T12:04:01.2122530Z [36;1melse[0m
+2026-10-14T12:04:01.2122670Z [36;1m  free_bytes=''[0m
+2026-10-14T12:04:01.2122830Z [36;1mfi[0m
+2026-10-14T12:04:01.2123220Z [36;1mfs_type="$(sed -n 's/^filesystem_type=\([^ ]*\) .*/\1/p' "$report_root/macos-runner-temp-path-filesystem.stdout.txt" | tail -n 1)"[0m
+2026-10-14T12:04:01.2124010Z [36;1mhdiutil_path="$(sed -n 's/^hdiutil=available://p' "$report_root/macos-read-only-tool-availability.stdout.txt" | head -n 1)"[0m
+2026-10-14T12:04:01.2124790Z [36;1mdiskutil_path="$(sed -n 's/^diskutil=available://p' "$report_root/macos-read-only-tool-availability.stdout.txt" | head -n 1)"[0m
+2026-10-14T12:04:01.2125310Z [36;1mclassification='CAPABILITY_PRESENT_UNVALIDATED'[0m
+2026-10-14T12:04:01.2125560Z [36;1mreasons=''[0m
+2026-10-14T12:04:01.2125740Z [36;1mif [ "$required_failure" -ne 0 ]; then[0m
+2026-10-14T12:04:01.2125970Z [36;1m  classification='FAIL'[0m
+2026-10-14T12:04:01.2126380Z [36;1m  reasons='One or more required read-only metadata probes failed; inspect probe-index.tsv and raw exit files.'[0m
+2026-10-14T12:04:01.2127100Z [36;1mfi[0m
+2026-10-14T12:04:01.2127420Z [36;1moptional_failures="$(awk -F '\t' 'NR > 1 && $2 == "false" && $3 != "0" { printf "%s:%s ", $1, $3 }' "$probe_index")"[0m
+2026-10-14T12:04:01.2127830Z [36;1mif [ -n "$optional_failures" ]; then[0m
+2026-10-14T12:04:01.2128250Z [36;1m  if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi[0m
+2026-10-14T12:04:01.2128710Z [36;1m  reasons="$reasons; optional metadata probes failed: $optional_failures"[0m
+2026-10-14T12:04:01.2129020Z [36;1mfi[0m
+2026-10-14T12:04:01.2129210Z [36;1mif [ -z "$free_bytes" ] || [ -z "$fs_type" ]; then[0m
+2026-10-14T12:04:01.2129590Z [36;1m  if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi[0m
+2026-10-14T12:04:01.2130060Z [36;1m  reasons="$reasons; RUNNER_TEMP filesystem type or host free capacity is unknown."[0m
+2026-10-14T12:04:01.2130680Z [36;1melif [ "$free_bytes" -lt 4294967296 ]; then[0m
+2026-10-14T12:04:01.2131040Z [36;1m  if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi[0m
+2026-10-14T12:04:01.2131520Z [36;1m  reasons="$reasons; RUNNER_TEMP host volume has less than the 4 GiB G2 admission floor."[0m
+2026-10-14T12:04:01.2131870Z [36;1mfi[0m
+2026-10-14T12:04:01.2132020Z [36;1mif [ "$fs_type" != 'apfs' ]; then[0m
+2026-10-14T12:04:01.2132360Z [36;1m  if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi[0m
+2026-10-14T12:04:01.2132770Z [36;1m  reasons="$reasons; RUNNER_TEMP host filesystem is not APFS."[0m
+2026-10-14T12:04:01.2133070Z [36;1mfi[0m
+2026-10-14T12:04:01.2133310Z [36;1mif [ -z "$hdiutil_path" ] || [ -z "$diskutil_path" ]; then[0m
+2026-10-14T12:04:01.2133730Z [36;1m  if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi[0m
+2026-10-14T12:04:01.2134140Z [36;1m  reasons="$reasons; hdiutil or diskutil is unavailable."[0m
+2026-10-14T12:04:01.2134390Z [36;1mfi[0m
+2026-10-14T12:04:01.2134570Z [36;1mcat > "$report_root/summary.txt" <<SUMMARY[0m
+2026-10-14T12:04:01.2134970Z [36;1mplatform=macOS[0m
+2026-10-14T12:04:01.2135150Z [36;1msource_sha=$EXPECTED_SHA[0m
+2026-10-14T12:04:01.2135350Z [36;1mrun_id=$GITHUB_RUN_ID[0m
+2026-10-14T12:04:01.2135550Z [36;1mrun_attempt=$GITHUB_RUN_ATTEMPT[0m
+2026-10-14T12:04:01.2135790Z [36;1mrunner_name=$RUNNER_NAME[0m
+2026-10-14T12:04:01.2136030Z [36;1mrunner_arch=$RUNNER_ARCH[0m
+2026-10-14T12:04:01.2136240Z [36;1mimage_os=$ImageOS[0m
+2026-10-14T12:04:01.2136420Z [36;1mimage_version=$ImageVersion[0m
+2026-10-14T12:04:01.2136630Z [36;1mrunner_temp_filesystem=$fs_type[0m
+2026-10-14T12:04:01.2136850Z [36;1mrunner_temp_free_bytes=$free_bytes[0m
+2026-10-14T12:04:01.2137080Z [36;1mclassification=$classification[0m
+2026-10-14T12:04:01.2137280Z [36;1mreasons=$reasons[0m
+2026-10-14T12:04:01.2137470Z [36;1mno_disk_mutation_performed=true[0m
+2026-10-14T12:04:01.2137730Z [36;1mg1_scope=read-only hosted environment inventory[0m
+2026-10-14T12:04:01.2138230Z [36;1minterpretation=CAPABILITY_PRESENT_UNVALIDATED does not prove that creating or attaching a bounded APFS image will work.[0m
+2026-10-14T12:04:01.2138750Z [36;1mSUMMARY[0m
+2026-10-14T12:04:01.2138940Z [36;1mhash_file="$report_root/SHA256SUMS.txt"[0m
+2026-10-14T12:04:01.2139160Z [36;1m([0m
+2026-10-14T12:04:01.2139300Z [36;1m  cd "$report_root" || exit 1[0m
+2026-10-14T12:04:01.2139610Z [36;1m  find . -type f ! -name 'SHA256SUMS.txt' | LC_ALL=C sort > hash-inputs.txt[0m
+2026-10-14T12:04:01.2139900Z [36;1m)[0m
+2026-10-14T12:04:01.2140030Z [36;1mhash_status=0[0m
+2026-10-14T12:04:01.2140200Z [36;1mwhile IFS= read -r file; do[0m
+2026-10-14T12:04:01.2140420Z [36;1m  shasum -a 256 "$file" || hash_status=1[0m
+2026-10-14T12:04:01.2140700Z [36;1mdone < "$report_root/hash-inputs.txt" > "$hash_file"[0m
+2026-10-14T12:04:01.2140970Z [36;1mif [ "$hash_status" -ne 0 ]; then[0m
+2026-10-14T12:04:01.2141240Z [36;1m  printf '%s\n' 'SHA-256 manifest generation failed' >&2[0m
+2026-10-14T12:04:01.2141500Z [36;1m  exit 1[0m
+2026-10-14T12:04:01.2141640Z [36;1mfi[0m
+2026-10-14T12:04:01.2141830Z [36;1mif [ "$classification" = 'FAIL' ]; then exit 1; fi[0m
+2026-10-14T12:04:01.2207320Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-14T12:04:01.2207660Z env:
+2026-10-14T12:04:01.2208170Z   EXPECTED_SHA: 6f64227cc9569abd501d14904ec775998510f2dc
+2026-10-14T12:04:01.2208420Z ##[endgroup]
+2026-10-14T12:04:02.0115460Z shasum: ./hash-inputs.txt: No such file or directory
+2026-10-14T12:04:02.0360330Z shasum: ./macos-diskutil-help-query.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.0668370Z shasum: ./macos-diskutil-help-query.stderr.txt: No such file or directory
+2026-10-14T12:04:02.0969460Z shasum: ./macos-diskutil-help-query.stdout.txt: No such file or directory
+2026-10-14T12:04:02.1235210Z shasum: ./macos-hdiutil-help-query.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.1514270Z shasum: ./macos-hdiutil-help-query.stderr.txt: No such file or directory
+2026-10-14T12:04:02.1824330Z shasum: ./macos-hdiutil-help-query.stdout.txt: No such file or directory
+2026-10-14T12:04:02.2126640Z shasum: ./macos-host-storage-free-space.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.2431750Z shasum: ./macos-host-storage-free-space.stderr.txt: No such file or directory
+2026-10-14T12:04:02.2735260Z shasum: ./macos-host-storage-free-space.stdout.txt: No such file or directory
+2026-10-14T12:04:02.2938340Z shasum: ./macos-identity-permission-hints.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.3141400Z shasum: ./macos-identity-permission-hints.stderr.txt: No such file or directory
+2026-10-14T12:04:02.3343690Z shasum: ./macos-identity-permission-hints.stdout.txt: No such file or directory
+2026-10-14T12:04:02.3648290Z shasum: ./macos-read-only-device-volume-inventory.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.3853630Z shasum: ./macos-read-only-device-volume-inventory.stderr.txt: No such file or directory
+2026-10-14T12:04:02.4157150Z shasum: ./macos-read-only-device-volume-inventory.stdout.txt: No such file or directory
+2026-10-14T12:04:02.4418330Z shasum: ./macos-read-only-tool-availability.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.4661200Z shasum: ./macos-read-only-tool-availability.stderr.txt: No such file or directory
+2026-10-14T12:04:02.4971200Z shasum: ./macos-read-only-tool-availability.stdout.txt: No such file or directory
+2026-10-14T12:04:02.5256120Z shasum: ./macos-runner-os-build-arch-image.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.5501960Z shasum: ./macos-runner-os-build-arch-image.stderr.txt: No such file or directory
+2026-10-14T12:04:02.5714000Z shasum: ./macos-runner-os-build-arch-image.stdout.txt: No such file or directory
+2026-10-14T12:04:02.5952840Z shasum: ./macos-runner-temp-path-filesystem.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.6355390Z shasum: ./macos-runner-temp-path-filesystem.stderr.txt: No such file or directory
+2026-10-14T12:04:02.6557120Z shasum: ./macos-runner-temp-path-filesystem.stdout.txt: No such file or directory
+2026-10-14T12:04:02.6859260Z shasum: ./macos-source-provenance.exit-code.txt: No such file or directory
+2026-10-14T12:04:02.7160460Z shasum: ./macos-source-provenance.stderr.txt: No such file or directory
+2026-10-14T12:04:02.7468950Z shasum: ./macos-source-provenance.stdout.txt: No such file or directory
+2026-10-14T12:04:02.7874370Z shasum: ./probe-index.tsv: No such file or directory
+2026-10-14T12:04:02.8059490Z shasum: ./summary.txt: No such file or directory
+2026-10-14T12:04:02.8064660Z SHA-256 manifest generation failed
+2026-10-14T12:04:02.8088860Z ##[error]Process completed with exit code 1.
+2026-10-14T12:04:02.8283290Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-10-14T12:04:02.8283700Z with:
+2026-10-14T12:04:02.8283890Z   name: issue-414-b2-g1-macos-latest-38561024108-1
+2026-10-14T12:04:02.8284200Z   path: /Users/runner/work/_temp/issue-414-b2-g1/
+2026-10-14T12:04:02.8284450Z   if-no-files-found: error
+2026-10-14T12:04:02.8284630Z   retention-days: 30
+2026-10-14T12:04:02.8284810Z   compression-level: 9
+2026-10-14T12:04:02.8284980Z   overwrite: false
+2026-10-14T12:04:02.8285200Z   include-hidden-files: false
+2026-10-14T12:04:02.8285430Z   archive: true
+2026-10-14T12:04:02.8285600Z ##[endgroup]
+2026-10-14T12:04:03.0243470Z With the provided path, there will be 31 files uploaded
+2026-10-14T12:04:03.0247860Z Artifact name is valid!
+2026-10-14T12:04:03.0248520Z Root directory input is valid!
+2026-10-14T12:04:03.3546600Z Uploading artifact: issue-414-b2-g1-macos-latest-38561024108-1.zip
+2026-10-14T12:04:03.3578340Z Beginning upload of artifact content to blob storage
+2026-10-14T12:04:03.5801260Z Uploaded bytes 8566
+2026-10-14T12:04:03.6303350Z Finished uploading artifact content to blob storage!
+2026-10-14T12:04:03.6404680Z SHA256 digest of uploaded artifact is 18d2785bd3e9c899344dc9a1319d1a4eeaf10766e13fbc0900d3495ef47c1695
+2026-10-14T12:04:03.6510630Z Finalizing artifact upload
+2026-10-14T12:04:04.0128700Z Artifact issue-414-b2-g1-macos-latest-38561024108-1 successfully finalized. Artifact ID 11892270373
+2026-10-14T12:04:04.0132340Z Artifact issue-414-b2-g1-macos-latest-38561024108-1 has been successfully uploaded! Final size is 8566 bytes. Artifact ID is 11892270373
+2026-10-14T12:04:04.0139960Z Artifact download URL: https://github.com/ArdenZC/Zen-Canvas/actions/runs/38561024108/artifacts/11892270373
+2026-10-14T12:04:04.0353450Z Post job cleanup.
+2026-10-14T12:04:04.1706920Z [command]/opt/homebrew/bin/git version
+2026-10-14T12:04:04.2384690Z git version 2.55.0
+2026-10-14T12:04:04.2825990Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/d2053475-3e9d-4ac7-819f-3c3ad9250910/.gitconfig'
+2026-10-14T12:04:04.2988580Z Temporarily overriding HOME='/Users/runner/work/_temp/d2053475-3e9d-4ac7-819f-3c3ad9250910' before making global git config changes
+2026-10-14T12:04:04.3030020Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-14T12:04:04.3211880Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/Zen-Canvas/Zen-Canvas
+2026-10-14T12:04:04.3911770Z Removing SSH command configuration
+2026-10-14T12:04:04.4013410Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-14T12:04:04.4252870Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-14T12:04:04.5087960Z Removing HTTP extra header
+2026-10-14T12:04:04.5088720Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-14T12:04:04.5218330Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-14T12:04:04.6280540Z Removing includeIf entries pointing to credentials config files
+2026-10-14T12:04:04.6285130Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-14T12:04:04.6359360Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-14T12:04:04.8339300Z Cleaning up orphan processes

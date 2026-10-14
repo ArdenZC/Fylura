@@ -10,20 +10,21 @@ The external-project evidence and reconstructed Round 1–4 synthesis behind thi
 
 ## 1. Product north star
 
-Zen Canvas is a calm, local-first, safety-oriented **file lifecycle / file-governance workspace**.
+Zen Canvas is a calm, local-first, safety-oriented **everyday file manager with file-lifecycle and optional AI intelligence**. Its long-horizon goal is to be the user's preferred daily Windows/macOS file-management workspace for supported tasks, not to forcibly replace an operating-system shell.
 
 Its job is to help users:
 
 - find and understand files quickly;
-- work with a managed File Library when they want semantic organization and durable knowledge;
-- browse ordinary filesystem locations without forcing them to abandon Finder/Explorer habits;
+- work in **one File Library module** for both managed files and ordinary filesystem directories;
+- navigate, search, preview, select, copy/move, compare and manage files efficiently, even when AI is disabled;
+- use optional semantic organization and durable knowledge when a file is admitted to the managed Library;
 - preview content quickly and safely;
 - organize, deduplicate, clean up and recover files with explicit user control;
 - preserve platform-native expectations on macOS and Windows.
 
 Zen Canvas is **not** intended to become:
 
-- a Finder/Explorer replacement that forces a new filesystem interaction model;
+- an unsafe or compulsory Finder/Explorer system-shell replacement (ordinary daily-use substitution is the goal; system-level default takeover is optional and separate);
 - a cloud drive;
 - a general document editor or media suite;
 - a universal OCR toolbox;
@@ -33,9 +34,26 @@ Zen Canvas is **not** intended to become:
 - a second operating-system search engine;
 - a feature bundle that hides platform limitations behind false parity.
 
-The product should add value around the user's existing filesystem rather than demand that users migrate all habits into Zen.
+The product should make normal file management good enough to become a daily default while preserving access to the real filesystem, platform expectations and the user's ability to keep using Finder/Explorer. No system-level interception or migration is needed to achieve this.
 
 ### 1.1 2026 product-direction refinement
+
+**2026-10-15 Owner direction — Pulse × Oil Find × AI-only integration:**
+Pulse informs complete file-manager workflows; Oil Find informs responsive
+search and low-value indexing scope; the existing Zen semantic pipeline
+provides optional AI suggestions; Zen Core owns safe deterministic
+operations. **All ordinary file-management features belong to the single
+File Library module**, not a new File Manager/Files Workspace route. This
+direction refines the intended product breadth but does not imply that
+unimplemented features exist today or launch a new production initiative.
+
+The daily manager must work without an API key, offline model or AI
+analysis. Existing AI-only Organize/eligible Cleanup semantic constraints
+remain active when those specific AI workflows are requested. Index source
+coverage, content permission and AI admission remain distinct; do not
+blindly persist or analyze every system/dependency file.
+
+
 
 The owner direction now refines that north star further:
 
@@ -73,7 +91,29 @@ AI may propose meaning and plans. Existing deterministic safety, policy, preview
 
 ## 2. File Library 2.0 product model
 
-File Library 2.0 is one product surface with two first-class working modes that share the same higher-level workspace shell.
+File Library 2.0 is **the single top-level daily file-management product**
+and has two first-class working modes that share the same higher-level
+workspace shell. The user-facing Chinese module is **文件库**; the existing
+`Files` route/`FileLibraryWorkspace` and internal source folder names
+can be preserved to avoid unnecessary migration. New file-manager
+functionality **extends this module** and must not introduce a separate
+sidebar-level manager, Basket, Compare or transfer product.
+
+**Target integrated features** (not current implementation claims):
+folder navigation, breadcrumbs, tabs, list/grid/sorting, later split
+panes, normal user-controlled copy/cut/paste/move/rename, drag/drop,
+operation progress/conflicts, cross-folder File Basket, folder/file
+comparison, preview, labels, notes, favorites and Inspector. Other
+top-level areas remain for their specialized purposes: cross-app Global
+Search, semantic Organize, Storage Cleanup, History/Restore, Automation
+and Settings.
+
+Underneath this single experience, **Library remains managed and Browse
+remains ephemeral**. Panes/Basket are references and UI intents, not new
+indexes, durable file truth or execution permission. Mutation continues
+through the existing authoritative Operation Preview, identity
+revalidation, journal and recovery chain. Managed notes/tags do not
+silently attach to arbitrary unmanaged Browse paths.
 
 ### 2.1 Library Mode
 
@@ -121,6 +161,32 @@ macOS users should encounter Finder-like concepts where appropriate; Windows use
 The product should feel native to each platform without pretending the platforms are identical. Platform capability, permission, provider, volume and native-preview differences must remain explicit.
 
 Intel macOS is outside the current supported macOS target; Apple Silicon is the supported macOS architecture for this plan.
+
+### 2.5 Fast delivery slices for the next File Library expansion
+
+This is **future product sequencing**, not an implementation authorization
+or a precondition for unrelated active fixes.
+
+1. **U1 daily browsing polish:** existing File Library shell, truthful
+   Browse/Library handoff, current-folder navigation, sorting, list/grid,
+   selection and one coherent tab implementation; use existing UI/backend.
+2. **U2 workspace actions:** deliver dual panes, a virtual File Basket and
+   safe manual Copy/Move/Compare in small usable slices. No new executor.
+3. **U3 search and index scope:** make Search→File Library handoff feel native;
+   add high-value query/pinyin or coverage controls only when supported by
+   existing source and measured need. Low-value indexing and AI admission
+   remain distinct policies.
+4. **U4 metadata/preview:** enrich the same File Library Inspector with
+   notes/favorites and extend valuable preview formats incrementally.
+5. **Parallel AI experience:** optional selected-file/contextual semantics,
+   reusing current SemanticAssessment/Managed Scope, AI consent and queue
+   contracts; no per-file model call merely for browsing.
+
+Ship one small user-visible behavior per coherent PR, with focused
+regression coverage and the existing required CI. Do not resurrect
+F1/T10 optional fault-verification campaigns as a prerequisite for
+ordinary File Library work. The independent safety obligations of real
+user-file mutations and destructive migrations remain in force.
 
 ## 3. Core architecture invariants
 

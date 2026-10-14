@@ -1,0 +1,6 @@
+host_capacity_for_root_and_RUNNER_TEMP (df -kP):
+Filesystem     1024-blocks      Used Available Capacity  Mounted on
+/dev/disk2s1s1   335032320  12342820  98906112    12%    /
+/dev/disk2s5     335032320 215346504  98906112    69%    /System/Volumes/Data
+RUNNER_TEMP filesystem_type available_blocks block_size:
+/ 1791979435 

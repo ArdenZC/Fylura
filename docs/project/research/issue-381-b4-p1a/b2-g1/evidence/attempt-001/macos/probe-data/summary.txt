@@ -1,0 +1,15 @@
+platform=macOS
+source_sha=6f64227cc9569abd501d14904ec775998510f2dc
+run_id=38561024108
+run_attempt=1
+runner_name=GitHub Actions 1000028245
+runner_arch=ARM64
+image_os=macos26
+image_version=20260907.0351.1
+runner_temp_filesystem=/
+runner_temp_free_bytes=
+classification=FAIL
+reasons=One or more required read-only metadata probes failed; inspect probe-index.tsv and raw exit files.; optional metadata probes failed: macos-diskutil-help-query:1 macos-read-only-device-volume-inventory:1 ; RUNNER_TEMP filesystem type or host free capacity is unknown.; RUNNER_TEMP host filesystem is not APFS.
+no_disk_mutation_performed=true
+g1_scope=read-only hosted environment inventory
+interpretation=CAPABILITY_PRESENT_UNVALIDATED does not prove that creating or attaching a bounded APFS image will work.

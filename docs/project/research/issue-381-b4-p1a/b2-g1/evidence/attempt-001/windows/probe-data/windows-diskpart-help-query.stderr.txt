@@ -1,0 +1,15 @@
+
+PSMessageDetails      : 
+Exception             : System.Management.Automation.RuntimeException: diskpart help exited 999999999
+TargetObject          : diskpart help exited 999999999
+CategoryInfo          : OperationStopped: (diskpart help exited 999999999:String) [], RuntimeException
+FullyQualifiedErrorId : diskpart help exited 999999999
+ErrorDetails          : 
+InvocationInfo        : System.Management.Automation.InvocationInfo
+ScriptStackTrace      : at <ScriptBlock>, D:\a\_temp\897907a0-1f7f-426e-ae1f-84d228e09e6c.ps1: line 171
+                        at Invoke-Probe, D:\a\_temp\897907a0-1f7f-426e-ae1f-84d228e09e6c.ps1: line 19
+                        at <ScriptBlock>, D:\a\_temp\897907a0-1f7f-426e-ae1f-84d228e09e6c.ps1: line 164
+                        at <ScriptBlock>, <No file>: line 1
+PipelineIterationInfo : {}
+
+

@@ -204,7 +204,6 @@ jobs:
               return
             }
             & $command.Source /?
-            if ($LASTEXITCODE -ne 0) { throw "diskpart help exited $LASTEXITCODE" }
           }
 
           $requiredFailures = @($script:probeResults | Where-Object { $_.required -and $_.exit_code -ne 0 })
@@ -277,6 +276,7 @@ jobs:
           }
           $hashLines | Set-Content -LiteralPath (Join-Path $reportRoot 'SHA256SUMS.txt') -Encoding ascii
           if ($classification -eq 'FAIL') { exit 1 }
+          exit 0
 
       - name: macOS read-only inventory
         if: runner.os == 'macOS'
@@ -331,20 +331,25 @@ jobs:
           probe_identity_privileges() {
             id || return $?
             groups || return $?
-            stat -f 'runner_temp_owner=%Su runner_temp_group=%Sg runner_temp_mode=%Lp runner_temp_fs=%T' "$RUNNER_TEMP"
+            stat -f 'runner_temp_owner=%Su runner_temp_group=%Sg runner_temp_mode=%Lp' "$RUNNER_TEMP"
           }
           probe_host_storage() {
             printf '%s\n' 'host_capacity_for_root_and_RUNNER_TEMP (df -kP):'
-            df -kP / "$RUNNER_TEMP" || return $?
-            printf '%s\n' 'RUNNER_TEMP filesystem_type available_blocks block_size:'
-            stat -f '%T %a %S' "$RUNNER_TEMP" || return $?
+            df_output="$(df -kP / "$RUNNER_TEMP")" || return $?
+            printf '%s\n' "$df_output"
+            free_kb="$(printf '%s\n' "$df_output" | awk 'END { print $4 }')"
+            if ! [[ "$free_kb" =~ ^[0-9]+$ ]]; then
+              printf 'could not parse RUNNER_TEMP available space from df: %s\n' "$free_kb" >&2
+              return 1
+            fi
+            printf 'runner_temp_free_bytes=%s\n' "$((free_kb * 1024))"
           }
           probe_temp_path() {
             printf 'runner_temp=%s\nrunner_workspace=%s\n' "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
             cd "$RUNNER_TEMP" || return $?
             printf 'runner_temp_realpath=%s\n' "$(pwd -P)"
             ls -lde "$RUNNER_TEMP" || return $?
-            stat -f 'filesystem_type=%T owner=%Su group=%Sg mode=%Lp' "$RUNNER_TEMP" || return $?
+            stat -f 'runner_temp_owner=%Su group=%Sg mode=%Lp' "$RUNNER_TEMP" || return $?
           }
           probe_tool_availability() {
             for tool in hdiutil diskutil stat df shasum; do
@@ -367,7 +372,7 @@ jobs:
               printf '%s\n' 'available=false reason=diskutil-not-found'
               return 0
             fi
-            diskutil help
+            diskutil
           }
           probe_current_devices() {
             if ! command -v diskutil >/dev/null 2>&1; then
@@ -376,8 +381,16 @@ jobs:
             fi
             printf '%s\n' 'read-only diskutil list:'
             diskutil list || return $?
-            printf '\n%s\n' 'read-only diskutil info for RUNNER_TEMP volume:'
-            diskutil info "$RUNNER_TEMP" | awk -F ':' '
+            df_output="$(df -kP "$RUNNER_TEMP")" || return $?
+            printf '\n%s\n' 'read-only df mapping for RUNNER_TEMP:'
+            printf '%s\n' "$df_output"
+            device="$(printf '%s\n' "$df_output" | awk 'END { print $1 }')"
+            if [[ "$device" != /dev/* ]]; then
+              printf 'df did not return an unambiguous device for RUNNER_TEMP: %s\n' "$device" >&2
+              return 1
+            fi
+            printf '\nread-only diskutil info for RUNNER_TEMP device %s:\n' "$device"
+            diskutil info "$device" | awk -F ':' '
               /Device Identifier|Volume Name|Mount Point|File System Personality|Type \(Bundle\)|Owners|Total Size|Volume Free Space|Container Total Space|Container Free Space/ {
                 print $1 ":" $2
               }'
@@ -395,13 +408,9 @@ jobs:
           run_probe macos-diskutil-help-query false probe_diskutil_help
           run_probe macos-read-only-device-volume-inventory false probe_current_devices
 
-          read -r storage_type free_blocks block_size < <(tail -n 1 "$report_root/macos-host-storage-free-space.stdout.txt")
-          if [[ "$free_blocks" =~ ^[0-9]+$ && "$block_size" =~ ^[0-9]+$ ]]; then
-            free_bytes=$((free_blocks * block_size))
-          else
-            free_bytes=''
-          fi
-          fs_type="$(sed -n 's/^filesystem_type=\([^ ]*\) .*/\1/p' "$report_root/macos-runner-temp-path-filesystem.stdout.txt" | tail -n 1)"
+          free_bytes="$(sed -n 's/^runner_temp_free_bytes=//p' "$report_root/macos-host-storage-free-space.stdout.txt" | tail -n 1)"
+          fs_type="$(awk -F ':' '/File System Personality/ { sub(/^[[:space:]]*/, "", $2); print $2 }' "$report_root/macos-read-only-device-volume-inventory.stdout.txt" | tail -n 1)"
+          fs_type_lower="$(printf '%s' "$fs_type" | tr '[:upper:]' '[:lower:]')"
           hdiutil_path="$(sed -n 's/^hdiutil=available://p' "$report_root/macos-read-only-tool-availability.stdout.txt" | head -n 1)"
           diskutil_path="$(sed -n 's/^diskutil=available://p' "$report_root/macos-read-only-tool-availability.stdout.txt" | head -n 1)"
           classification='CAPABILITY_PRESENT_UNVALIDATED'
@@ -422,7 +431,7 @@ jobs:
             if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi
             reasons="$reasons; RUNNER_TEMP host volume has less than the 4 GiB G2 admission floor."
           fi
-          if [ "$fs_type" != 'apfs' ]; then
+          if [ "$fs_type_lower" != 'apfs' ]; then
             if [ "$classification" != 'FAIL' ]; then classification='ENVIRONMENT_UNAVAILABLE'; fi
             reasons="$reasons; RUNNER_TEMP host filesystem is not APFS."
           fi
@@ -450,12 +459,12 @@ jobs:
           hash_file="$report_root/SHA256SUMS.txt"
           (
             cd "$report_root" || exit 1
-            find . -type f ! -name 'SHA256SUMS.txt' | LC_ALL=C sort > hash-inputs.txt
+            find . -type f ! -name 'SHA256SUMS.txt' | LC_ALL=C sort > hash-inputs.txt || exit 1
+            while IFS= read -r file; do
+              shasum -a 256 "$file" || exit 1
+            done < hash-inputs.txt > SHA256SUMS.txt
           )
-          hash_status=0
-          while IFS= read -r file; do
-            shasum -a 256 "$file" || hash_status=1
-          done < "$report_root/hash-inputs.txt" > "$hash_file"
+          hash_status=$?
           if [ "$hash_status" -ne 0 ]; then
             printf '%s\n' 'SHA-256 manifest generation failed' >&2
             exit 1

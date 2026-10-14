@@ -1,0 +1,74 @@
+[
+  {
+    "name": "windows-source-provenance",
+    "required": true,
+    "exit_code": 0,
+    "stdout": "windows-source-provenance.stdout.txt",
+    "stderr": "windows-source-provenance.stderr.txt",
+    "exit_file": "windows-source-provenance.exit-code.txt"
+  },
+  {
+    "name": "windows-runner-os-build-arch-image",
+    "required": true,
+    "exit_code": 0,
+    "stdout": "windows-runner-os-build-arch-image.stdout.txt",
+    "stderr": "windows-runner-os-build-arch-image.stderr.txt",
+    "exit_file": "windows-runner-os-build-arch-image.exit-code.txt"
+  },
+  {
+    "name": "windows-identity-privileges",
+    "required": true,
+    "exit_code": 0,
+    "stdout": "windows-identity-privileges.stdout.txt",
+    "stderr": "windows-identity-privileges.stderr.txt",
+    "exit_file": "windows-identity-privileges.exit-code.txt"
+  },
+  {
+    "name": "windows-host-storage-free-space",
+    "required": true,
+    "exit_code": 0,
+    "stdout": "windows-host-storage-free-space.stdout.txt",
+    "stderr": "windows-host-storage-free-space.stderr.txt",
+    "exit_file": "windows-host-storage-free-space.exit-code.txt"
+  },
+  {
+    "name": "windows-runner-temp-path-acl",
+    "required": true,
+    "exit_code": 0,
+    "stdout": "windows-runner-temp-path-acl.stdout.txt",
+    "stderr": "windows-runner-temp-path-acl.stderr.txt",
+    "exit_file": "windows-runner-temp-path-acl.exit-code.txt"
+  },
+  {
+    "name": "windows-runner-temp-volume-query",
+    "required": false,
+    "exit_code": 0,
+    "stdout": "windows-runner-temp-volume-query.stdout.txt",
+    "stderr": "windows-runner-temp-volume-query.stderr.txt",
+    "exit_file": "windows-runner-temp-volume-query.exit-code.txt"
+  },
+  {
+    "name": "windows-read-only-device-volume-inventory",
+    "required": false,
+    "exit_code": 0,
+    "stdout": "windows-read-only-device-volume-inventory.stdout.txt",
+    "stderr": "windows-read-only-device-volume-inventory.stderr.txt",
+    "exit_file": "windows-read-only-device-volume-inventory.exit-code.txt"
+  },
+  {
+    "name": "windows-virtual-disk-tool-availability",
+    "required": false,
+    "exit_code": 0,
+    "stdout": "windows-virtual-disk-tool-availability.stdout.txt",
+    "stderr": "windows-virtual-disk-tool-availability.stderr.txt",
+    "exit_file": "windows-virtual-disk-tool-availability.exit-code.txt"
+  },
+  {
+    "name": "windows-diskpart-help-query",
+    "required": false,
+    "exit_code": 1,
+    "stdout": "windows-diskpart-help-query.stdout.txt",
+    "stderr": "windows-diskpart-help-query.stderr.txt",
+    "exit_file": "windows-diskpart-help-query.exit-code.txt"
+  }
+]

@@ -1,0 +1,5 @@
+hdiutil=available:/usr/bin/hdiutil
+diskutil=available:/usr/sbin/diskutil
+stat=available:/usr/bin/stat
+df=available:/bin/df
+shasum=available:/opt/homebrew/bin/shasum

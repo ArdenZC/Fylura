@@ -1,0 +1,46 @@
+{
+  "branch": "research/issue-414-b2-g1-hosted-preflight",
+  "run_id": 38561024108,
+  "run_attempt": 1,
+  "event": "push",
+  "run_url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38561024108",
+  "source_sha": "6f64227cc9569abd501d14904ec775998510f2dc",
+  "source_tree": "481f08cfc0b13a4d19d69633f20b1ad97c0af24a",
+  "workflow_path": ".github/workflows/issue-414-b2-g1-hosted-preflight.yml",
+  "jobs": [
+    {
+      "platform": "macos-latest",
+      "job_id": 115841826521,
+      "conclusion": "failure",
+      "step": "macOS read-only inventory",
+      "step_conclusion": "failure",
+      "artifact_id": 11892270373,
+      "artifact_name": "issue-414-b2-g1-macos-latest-38561024108-1",
+      "artifact_bytes": 8566,
+      "github_artifact_digest": "sha256:18d2785bd3e9c899344dc9a1319d1a4eeaf10766e13fbc0900d3495ef47c1695"
+    },
+    {
+      "platform": "windows-latest",
+      "job_id": 115841827504,
+      "conclusion": "failure",
+      "step": "Windows read-only inventory",
+      "step_conclusion": "failure",
+      "artifact_id": 11891609431,
+      "artifact_name": "issue-414-b2-g1-windows-latest-38561024108-1",
+      "artifact_bytes": 10018,
+      "github_artifact_digest": "sha256:8f97542310c1a132c91aa0c89b521f855d3e41f8889c7d8952defaed630f3645"
+    }
+  ],
+  "classification": "FAIL",
+  "macos_required_probe": "macos-host-storage-free-space exit 1; BSD stat rejected %S, leaving free-space blocksize unknown; the source marked the platform FAIL",
+  "macos_optional_probe_failures": [
+    "diskutil help returned 1 because 'help' is not a recognized verb",
+    "diskutil info against RUNNER_TEMP directory returned 1: Could not find disk: /Users/runner/work/_temp"
+  ],
+  "macos_manifest": "SHA256SUMS.txt uploaded empty because the script hashed relative paths from the wrong current directory",
+  "windows_required_probe_failures": [],
+  "windows_optional_probe": "diskpart /? printed valid usage text but PowerShell observed LASTEXITCODE=999999999 and converted it to an exception; platform artifact records the wrapper exit as 1",
+  "windows_runner_metadata": "Windows Server 2025 build 26100, x64, image win25-vs2026 20260925.250.1; RUNNER_TEMP is D: NTFS with 157761323008 bytes free; Hyper-V New-VHD/Mount-VHD/Get-VHD commands reported available",
+  "macos_runner_metadata": "macOS 26.6.2 build 25G83, ARM64, image macos-26-arm64 20260907.0351.1; df reported 98906112 KiB available on root and Data volumes; APFS mapping was not successfully classified by attempt 001",
+  "mutating_disk_operations": "none; source commands only queried metadata/help and wrote report artifacts under RUNNER_TEMP"
+}

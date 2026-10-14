@@ -1,0 +1,2950 @@
+{
+  "evidence_version": "remediation-r4/attempt-002",
+  "owner_review": "https://github.com/ArdenZC/Zen-Canvas/issues/413#issuecomment-6166755250",
+  "branch": "test/issue-381-b4-p1a-t10-b1-fault-model",
+  "starting_head": "76f00475899fea1b037c5975130d28913b77f741",
+  "starting_tree": "4611e23b0dacae3971e6fe73ed3a37cd31535c00",
+  "source": {
+    "path": "tests/issue381_b4_p1a_f1/src/b1_vfs.rs",
+    "sha256": "9e07db0610b9badb1f267ee90f7366586ec0cada46e8c26438a3903a0ac57e8d"
+  },
+  "scope": [
+    "tests/issue381_b4_p1a_f1/**",
+    "docs/project/research/issue-381-b4-p1a/**"
+  ],
+  "runs": [
+    {
+      "name": "f0",
+      "command": "CARGO_HOME=/workspace/.cache/cargo RUSTC=/workspace/.cache/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rustc /workspace/.cache/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/cargo run --locked --offline --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml -- --b1-f0",
+      "exit_code": 0,
+      "stdout": {
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r4/attempt-002/f0-stdout.jsonl",
+        "sha256": "a0b7d65b1488f63b9c207b2c49dab037297907472b3350e8f5bf22423f2a6801",
+        "bytes": 341944,
+        "jsonl_records": 822
+      },
+      "stderr": {
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r4/attempt-002/f0-stderr.txt",
+        "sha256": "5cef32ac082b4b46ef99b6a66ccc043744b198f133e4f76c5109782542e95bf3",
+        "bytes": 716
+      },
+      "runner_result": {
+        "case_id": "B1-F0",
+        "details": {
+          "all_connections_and_handles_closed_before_unregister": true,
+          "failure_code": null,
+          "fts5_integrity_checked_after_each_fault": true,
+          "model_only": true,
+          "physical_power_loss_tested": false,
+          "real_enospc_tested": false,
+          "sqlite_faults": [
+            {
+              "operation": "xWrite",
+              "result_code": 13
+            },
+            {
+              "operation": "xSync",
+              "result_code": 1034
+            },
+            {
+              "operation": "xRead",
+              "result_code": 522
+            }
+          ]
+        },
+        "record_type": "run_result",
+        "status": "PASS"
+      }
+    },
+    {
+      "name": "matrix",
+      "command": "CARGO_HOME=/workspace/.cache/cargo RUSTC=/workspace/.cache/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rustc /workspace/.cache/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/cargo run --locked --offline --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml -- --b1-matrix",
+      "exit_code": 0,
+      "stdout": {
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r4/attempt-002/matrix-stdout.jsonl",
+        "sha256": "acbd877cf479917c96c4ce8bac202ab9411bab811f4c46f8b8862b203dfdfa9f",
+        "bytes": 3478817,
+        "jsonl_records": 8087
+      },
+      "stderr": {
+        "path": "docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r4/attempt-002/matrix-stderr.txt",
+        "sha256": "e91d9e14dd7a65e4a1bded4378aa5d7ba019560db43500497fd5660a8403693e",
+        "bytes": 632
+      },
+      "case_result_status_counts": {
+        "PASS": 26,
+        "ENVIRONMENT_UNAVAILABLE": 3,
+        "EXPECTED_REJECTION": 3
+      },
+      "matrix_summary": {
+        "case_id": "T10-B1-B01-B12",
+        "details": {
+          "all_executable_cases_passed": true,
+          "case_results": [
+            {
+              "case_id": "B01",
+              "details": {
+                "E0_integrity_after_fault": "ok",
+                "E0_sha256_before_after": [
+                  {
+                    "journal": {
+                      "path": "b01-E0.sqlite-journal",
+                      "unavailable": "No such file or directory (os error 2)"
+                    },
+                    "main": {
+                      "bytes": 139264,
+                      "path": "b01-E0.sqlite",
+                      "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                    },
+                    "shm": {
+                      "bytes": 32768,
+                      "path": "b01-E0.sqlite-shm",
+                      "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+                    },
+                    "wal": {
+                      "bytes": 0,
+                      "path": "b01-E0.sqlite-wal",
+                      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    }
+                  },
+                  {
+                    "journal": {
+                      "path": "b01-E0.sqlite-journal",
+                      "unavailable": "No such file or directory (os error 2)"
+                    },
+                    "main": {
+                      "bytes": 139264,
+                      "path": "b01-E0.sqlite",
+                      "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                    },
+                    "shm": {
+                      "bytes": 32768,
+                      "path": "b01-E0.sqlite-shm",
+                      "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+                    },
+                    "wal": {
+                      "bytes": 0,
+                      "path": "b01-E0.sqlite-wal",
+                      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    }
+                  }
+                ],
+                "actual_injection_events": [
+                  {
+                    "file_kind": "MAIN_DB",
+                    "injected": true,
+                    "injection_id": "B01-PARTIAL-SLOT-PAGE",
+                    "offset": 0,
+                    "open_flags": 262,
+                    "operation": "xWrite",
+                    "path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b01-E1-candidate.sqlite",
+                    "prefix_bytes": 256,
+                    "requested_bytes": 4096,
+                    "result_code": 778,
+                    "sequence": 1372,
+                    "zero_fill_bytes": null,
+                    "zero_fill_verified": null
+                  }
+                ],
+                "candidate_publish_admission": {
+                  "candidate_epoch": 1,
+                  "candidate_generation": 1,
+                  "candidate_manifest_validation": {
+                    "checks": {
+                      "authority_manifest_sha256": "",
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b01-E1-candidate.sqlite",
+                      "expected_file_sha256": "68e05d389d7896936e0a3a62f0385997690960663371b8207d34e95997c176cb",
+                      "expected_generation": 1,
+                      "expected_slot": "E1",
+                      "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_source_revision": 1,
+                      "manifest_bytes": 0,
+                      "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b01-E1.manifest.json",
+                      "manifest_read_ok": false
+                    },
+                    "reasons": [
+                      "MANIFEST_MISSING"
+                    ],
+                    "valid": false
+                  },
+                  "candidate_slot": "E1",
+                  "decision": "REJECTED",
+                  "expected_parent": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "observed_pointer": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "reason": "CANDIDATE_MANIFEST_OR_SLOT_INVALID"
+                },
+                "candidate_publish_allowed": false,
+                "candidate_reopen_after_rollback": {
+                  "integrity": "ok",
+                  "ok": true,
+                  "row_count": 17
+                },
+                "candidate_was_published": false,
+                "evidence_class": "ACTUAL_OS plus actual named-VFS xWrite; model publication authority",
+                "failure_injection_location": {
+                  "callback": "xWrite",
+                  "file_kind": "MAIN_DB",
+                  "path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b01-E1-candidate.sqlite",
+                  "prefix_bytes": 256,
+                  "returned_extended_code": 778
+                },
+                "fault_model_claim_only": true,
+                "journal_mode": "delete",
+                "ok": true,
+                "publication_pointer_after_fault": {
+                  "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                  "epoch": 0,
+                  "generation": 0,
+                  "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                  "slot": "E0"
+                },
+                "read_resolution_after_fault": {
+                  "automatic_generation_substitution": false,
+                  "decision": "VALIDATED_GENERATION",
+                  "pointer": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "pointer_rewrite": false,
+                  "reason": "MANIFEST_SLOT_AND_AUTHORITY_VALID",
+                  "selected_generation": 0,
+                  "selected_slot": "E0",
+                  "validation": {
+                    "checks": {
+                      "actual_manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                      "authority_manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b01-E0.sqlite",
+                      "disk_file": {
+                        "bytes": 139264,
+                        "digest_matches_authority_and_manifest": true,
+                        "exists": true,
+                        "length_matches_manifest": true,
+                        "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                      },
+                      "disk_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_file_sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                      "expected_generation": 0,
+                      "expected_slot": "E0",
+                      "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_source_revision": 1,
+                      "manifest_bytes": 288,
+                      "manifest_digest_matches_authority": true,
+                      "manifest_identity": {
+                        "format_version": 1,
+                        "generation": 0,
+                        "matches_expected": true,
+                        "slot": "E0",
+                        "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                        "source_revision": 1
+                      },
+                      "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b01-E0.manifest.json",
+                      "manifest_read_ok": true,
+                      "sqlite_integrity_check": "ok"
+                    },
+                    "reasons": [],
+                    "valid": true
+                  }
+                },
+                "sqlite_commit_result": {
+                  "debug": "SqliteFailure(Error { code: SystemIoFailure, extended_code: 778 }, Some(\"disk I/O error\"))",
+                  "error": "disk I/O error",
+                  "extended_code": 778,
+                  "extended_code_name": "SQLITE_IOERR_WRITE",
+                  "ok": false,
+                  "primary_code": 778,
+                  "primary_code_name": "SQLITE_IOERR_WRITE"
+                },
+                "sqlite_rollback_result": {
+                  "ok": true,
+                  "skipped": "SQLite returned to autocommit after COMMIT"
+                }
+              },
+              "status": "PASS"
+            },
+            {
+              "case_id": "B02",
+              "details": {
+                "WAL_and_sidecar_state_after_close": {
+                  "journal": {
+                    "path": "b02-wal.sqlite-journal",
+                    "unavailable": "No such file or directory (os error 2)"
+                  },
+                  "main": {
+                    "bytes": 143360,
+                    "path": "b02-wal.sqlite",
+                    "sha256": "b75b46239efa629c306f8cd319571f2f7eb0474bd9277e62da7db36bdbd154c7"
+                  },
+                  "shm": {
+                    "path": "b02-wal.sqlite-shm",
+                    "unavailable": "No such file or directory (os error 2)"
+                  },
+                  "wal": {
+                    "path": "b02-wal.sqlite-wal",
+                    "unavailable": "No such file or directory (os error 2)"
+                  }
+                },
+                "actual_injection_events": [
+                  {
+                    "file_kind": "WAL",
+                    "injected": true,
+                    "injection_id": "B02-WAL-CHECKPOINT-TRUNCATE",
+                    "offset": null,
+                    "open_flags": 524294,
+                    "operation": "xTruncate",
+                    "path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b02-wal.sqlite-wal",
+                    "prefix_bytes": null,
+                    "requested_bytes": 0,
+                    "result_code": 1546,
+                    "sequence": 1746,
+                    "zero_fill_bytes": null,
+                    "zero_fill_verified": null
+                  }
+                ],
+                "checkpoint_result": {
+                  "error": "disk I/O error",
+                  "extended_code": 1546,
+                  "extended_code_name": "SQLITE_IOERR_TRUNCATE",
+                  "ok": false,
+                  "primary_code": 1546,
+                  "primary_code_name": "SQLITE_IOERR_TRUNCATE"
+                },
+                "commit_result": {
+                  "error": null,
+                  "extended_code": null,
+                  "ok": true,
+                  "primary_code": null
+                },
+                "committed_row_count_after_recovery": 1,
+                "evidence_class": "ACTUAL_OS and actual named-VFS callbacks; model recovery check",
+                "fault_model_claim_only": true,
+                "fresh_default_vfs_recovery": {
+                  "fts5_integrity_check": "PASS",
+                  "injected_row_count": 0,
+                  "integrity_check": "ok",
+                  "journal_mode": "wal",
+                  "payload_bytes": 102304,
+                  "row_count": 17,
+                  "rows": [
+                    [
+                      "b02-committed",
+                      "wal checkpoint boundary",
+                      "/synthetic/b02.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-00",
+                      "baseline-reference document-00 signal",
+                      "/synthetic/f0/00.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-01",
+                      "baseline-reference document-01 signal",
+                      "/synthetic/f0/01.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-02",
+                      "baseline-reference document-02 signal",
+                      "/synthetic/f0/02.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-03",
+                      "baseline-reference document-03 signal",
+                      "/synthetic/f0/03.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-04",
+                      "baseline-reference document-04 signal",
+                      "/synthetic/f0/04.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-05",
+                      "baseline-reference document-05 signal",
+                      "/synthetic/f0/05.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-06",
+                      "baseline-reference document-06 signal",
+                      "/synthetic/f0/06.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-07",
+                      "baseline-reference document-07 signal",
+                      "/synthetic/f0/07.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-08",
+                      "baseline-reference document-08 signal",
+                      "/synthetic/f0/08.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-09",
+                      "baseline-reference document-09 signal",
+                      "/synthetic/f0/09.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-10",
+                      "baseline-reference document-10 signal",
+                      "/synthetic/f0/10.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-11",
+                      "baseline-reference document-11 signal",
+                      "/synthetic/f0/11.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-12",
+                      "baseline-reference document-12 signal",
+                      "/synthetic/f0/12.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-13",
+                      "baseline-reference document-13 signal",
+                      "/synthetic/f0/13.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-14",
+                      "baseline-reference document-14 signal",
+                      "/synthetic/f0/14.txt"
+                    ],
+                    [
+                      "issue381-b1-f0-seed-20261014-15",
+                      "baseline-reference document-15 signal",
+                      "/synthetic/f0/15.txt"
+                    ]
+                  ]
+                },
+                "injection_location": {
+                  "callback": "xTruncate",
+                  "file_kind": "WAL",
+                  "returned_extended_code": 1546,
+                  "target_size": 0
+                },
+                "integrity_check_while_connection_open": "ok",
+                "ok": true,
+                "wal_bytes_before_checkpoint": 41232
+              },
+              "status": "PASS"
+            },
+            {
+              "case_id": "B03",
+              "details": {
+                "authority_E0_user_facts_and_manifest_unchanged_after_zero_byte_rejection": true,
+                "candidate_E1_file_sha256": "a78c71aeecb4b6f1f50d25b86140e9510e0782b88e0576fa9be558af312ae0cc",
+                "candidate_publish_admission": {
+                  "candidate_epoch": 1,
+                  "candidate_generation": 1,
+                  "candidate_manifest_validation": {
+                    "checks": {
+                      "actual_manifest_sha256": "4c8d7cd34ba7d7cb55d27985a43e83d4da7c4646092508ccbf97dc0ea311f5e3",
+                      "authority_manifest_sha256": "f1b4b79dd33193e9c956d38dc900ab48ee85e6b2630d4b9bb8e75871a87fba83",
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E1.sqlite",
+                      "expected_file_sha256": "a78c71aeecb4b6f1f50d25b86140e9510e0782b88e0576fa9be558af312ae0cc",
+                      "expected_generation": 1,
+                      "expected_slot": "E1",
+                      "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_source_revision": 1,
+                      "manifest_bytes": 144,
+                      "manifest_digest_matches_authority": false,
+                      "manifest_parse_error": "EOF while parsing a string at line 1 column 144",
+                      "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E1.manifest.tmp",
+                      "manifest_read_ok": true
+                    },
+                    "reasons": [
+                      "MANIFEST_DIGEST_MISMATCH",
+                      "MANIFEST_INVALID_JSON"
+                    ],
+                    "valid": false
+                  },
+                  "candidate_slot": "E1",
+                  "decision": "REJECTED",
+                  "expected_parent": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "observed_pointer": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "reason": "CANDIDATE_MANIFEST_OR_SLOT_INVALID"
+                },
+                "candidate_publish_allowed": false,
+                "candidate_was_published": false,
+                "evidence_class": "MODEL_ONLY; real temporary-file prefix write and fsync on current OS",
+                "final_manifest_exists": false,
+                "injection_point": "after manifest staging prefix is written; before atomic rename/publication",
+                "ok": true,
+                "pointer_after_interruption": {
+                  "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                  "epoch": 0,
+                  "generation": 0,
+                  "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                  "slot": "E0"
+                },
+                "read_resolution_after_interruption": {
+                  "automatic_generation_substitution": false,
+                  "decision": "VALIDATED_GENERATION",
+                  "pointer": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "pointer_rewrite": false,
+                  "reason": "MANIFEST_SLOT_AND_AUTHORITY_VALID",
+                  "selected_generation": 0,
+                  "selected_slot": "E0",
+                  "validation": {
+                    "checks": {
+                      "actual_manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                      "authority_manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E0.sqlite",
+                      "disk_file": {
+                        "bytes": 139264,
+                        "digest_matches_authority_and_manifest": true,
+                        "exists": true,
+                        "length_matches_manifest": true,
+                        "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                      },
+                      "disk_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_file_sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                      "expected_generation": 0,
+                      "expected_slot": "E0",
+                      "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_source_revision": 1,
+                      "manifest_bytes": 288,
+                      "manifest_digest_matches_authority": true,
+                      "manifest_identity": {
+                        "format_version": 1,
+                        "generation": 0,
+                        "matches_expected": true,
+                        "slot": "E0",
+                        "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                        "source_revision": 1
+                      },
+                      "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E0.manifest.json",
+                      "manifest_read_ok": true,
+                      "sqlite_integrity_check": "ok"
+                    },
+                    "reasons": [],
+                    "valid": true
+                  }
+                },
+                "real_process_crash_or_power_loss": false,
+                "staging_manifest": {
+                  "expected_complete_bytes": 288,
+                  "expected_manifest_sha256": "f1b4b79dd33193e9c956d38dc900ab48ee85e6b2630d4b9bb8e75871a87fba83",
+                  "path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E1.manifest.tmp",
+                  "prefix_bytes": 144,
+                  "sha256": "4c8d7cd34ba7d7cb55d27985a43e83d4da7c4646092508ccbf97dc0ea311f5e3"
+                },
+                "valid_manifest_positive_control": {
+                  "candidate_epoch": 1,
+                  "candidate_generation": 1,
+                  "candidate_manifest_validation": {
+                    "checks": {
+                      "actual_manifest_sha256": "f1b4b79dd33193e9c956d38dc900ab48ee85e6b2630d4b9bb8e75871a87fba83",
+                      "authority_manifest_sha256": "f1b4b79dd33193e9c956d38dc900ab48ee85e6b2630d4b9bb8e75871a87fba83",
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E1.sqlite",
+                      "disk_file": {
+                        "bytes": 139264,
+                        "digest_matches_authority_and_manifest": true,
+                        "exists": true,
+                        "length_matches_manifest": true,
+                        "sha256": "a78c71aeecb4b6f1f50d25b86140e9510e0782b88e0576fa9be558af312ae0cc"
+                      },
+                      "disk_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_file_sha256": "a78c71aeecb4b6f1f50d25b86140e9510e0782b88e0576fa9be558af312ae0cc",
+                      "expected_generation": 1,
+                      "expected_slot": "E1",
+                      "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_source_revision": 1,
+                      "manifest_bytes": 288,
+                      "manifest_digest_matches_authority": true,
+                      "manifest_identity": {
+                        "format_version": 1,
+                        "generation": 1,
+                        "matches_expected": true,
+                        "slot": "E1",
+                        "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                        "source_revision": 1
+                      },
+                      "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E1-positive.manifest.json",
+                      "manifest_read_ok": true,
+                      "sqlite_integrity_check": "ok"
+                    },
+                    "reasons": [],
+                    "valid": true
+                  },
+                  "candidate_slot": "E1",
+                  "decision": "ADMITTED",
+                  "expected_parent": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "observed_pointer": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "reason": "AUTHORITY_CAS_AND_MANIFEST_VALID"
+                },
+                "zero_byte_candidate_publish_allowed": false,
+                "zero_byte_candidate_was_published": false,
+                "zero_byte_manifest_admission": {
+                  "candidate_epoch": 1,
+                  "candidate_generation": 1,
+                  "candidate_manifest_validation": {
+                    "checks": {
+                      "actual_manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                      "authority_manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E1.sqlite",
+                      "expected_file_sha256": "a78c71aeecb4b6f1f50d25b86140e9510e0782b88e0576fa9be558af312ae0cc",
+                      "expected_generation": 1,
+                      "expected_slot": "E1",
+                      "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                      "expected_source_revision": 1,
+                      "manifest_bytes": 0,
+                      "manifest_digest_matches_authority": true,
+                      "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E1-empty.manifest.json",
+                      "manifest_read_ok": true
+                    },
+                    "reasons": [
+                      "MANIFEST_EMPTY"
+                    ],
+                    "valid": false
+                  },
+                  "candidate_slot": "E1",
+                  "decision": "REJECTED",
+                  "expected_parent": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "observed_pointer": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "reason": "CANDIDATE_MANIFEST_OR_SLOT_INVALID"
+                },
+                "zero_byte_manifest_expected_authority_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "zero_byte_manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b03-E1-empty.manifest.json",
+                "zero_byte_manifest_state_after": {
+                  "E0": {
+                    "journal": {
+                      "path": "b03-E0.sqlite-journal",
+                      "unavailable": "No such file or directory (os error 2)"
+                    },
+                    "main": {
+                      "bytes": 139264,
+                      "path": "b03-E0.sqlite",
+                      "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                    },
+                    "shm": {
+                      "bytes": 32768,
+                      "path": "b03-E0.sqlite-shm",
+                      "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+                    },
+                    "wal": {
+                      "bytes": 0,
+                      "path": "b03-E0.sqlite-wal",
+                      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    }
+                  },
+                  "authority": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "candidate_E1": {
+                    "journal": {
+                      "path": "b03-E1.sqlite-journal",
+                      "unavailable": "No such file or directory (os error 2)"
+                    },
+                    "main": {
+                      "bytes": 139264,
+                      "path": "b03-E1.sqlite",
+                      "sha256": "a78c71aeecb4b6f1f50d25b86140e9510e0782b88e0576fa9be558af312ae0cc"
+                    },
+                    "shm": {
+                      "bytes": 32768,
+                      "path": "b03-E1.sqlite-shm",
+                      "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+                    },
+                    "wal": {
+                      "bytes": 0,
+                      "path": "b03-E1.sqlite-wal",
+                      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    }
+                  },
+                  "manifest": {
+                    "bytes": 0,
+                    "path": "b03-E1-empty.manifest.json",
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  },
+                  "user_facts": [
+                    [
+                      "legacy-file-001",
+                      "note",
+                      "retain historical fact"
+                    ],
+                    [
+                      "legacy-file-001",
+                      "tag",
+                      "keep-me"
+                    ]
+                  ]
+                },
+                "zero_byte_manifest_state_before": {
+                  "E0": {
+                    "journal": {
+                      "path": "b03-E0.sqlite-journal",
+                      "unavailable": "No such file or directory (os error 2)"
+                    },
+                    "main": {
+                      "bytes": 139264,
+                      "path": "b03-E0.sqlite",
+                      "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                    },
+                    "shm": {
+                      "bytes": 32768,
+                      "path": "b03-E0.sqlite-shm",
+                      "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+                    },
+                    "wal": {
+                      "bytes": 0,
+                      "path": "b03-E0.sqlite-wal",
+                      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    }
+                  },
+                  "authority": {
+                    "digest": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b",
+                    "epoch": 0,
+                    "generation": 0,
+                    "manifest_sha256": "069a50c719cb2a71c76aa6c6d797da54f1c71eadbeaf90b99170d9a2474aa393",
+                    "slot": "E0"
+                  },
+                  "candidate_E1": {
+                    "journal": {
+                      "path": "b03-E1.sqlite-journal",
+                      "unavailable": "No such file or directory (os error 2)"
+                    },
+                    "main": {
+                      "bytes": 139264,
+                      "path": "b03-E1.sqlite",
+                      "sha256": "a78c71aeecb4b6f1f50d25b86140e9510e0782b88e0576fa9be558af312ae0cc"
+                    },
+                    "shm": {
+                      "bytes": 32768,
+                      "path": "b03-E1.sqlite-shm",
+                      "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+                    },
+                    "wal": {
+                      "bytes": 0,
+                      "path": "b03-E1.sqlite-wal",
+                      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    }
+                  },
+                  "manifest": {
+                    "bytes": 0,
+                    "path": "b03-E1-empty.manifest.json",
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  },
+                  "user_facts": [
+                    [
+                      "legacy-file-001",
+                      "note",
+                      "retain historical fact"
+                    ],
+                    [
+                      "legacy-file-001",
+                      "tag",
+                      "keep-me"
+                    ]
+                  ]
+                }
+              },
+              "status": "PASS"
+            },
+            {
+              "case_id": "B04",
+              "details": {
+                "evidence_class": "ACTUAL_OS for Linux rename/directory sync; NOT_TESTED for Windows OS error 5",
+                "final_manifest_sha256": "a610bfb6e6232c5edfdc47b1347889d0a974314c5a05330dee4b75fa72f88fa8",
+                "linux_atomic_rename_completed": true,
+                "linux_directory_sync": {
+                  "os": "linux",
+                  "outcome": "SYNCED"
+                },
+                "ok": true,
+                "reason": "Current executor is Linux; the Windows OS 5 path requires native Windows handle/share semantics.",
+                "windows_native_handle_close_rename_retry_semantics": "ENVIRONMENT_UNAVAILABLE",
+                "windows_sharing_or_access_denied_os5_injection_attempted": false
+              },
+              "status": "ENVIRONMENT_UNAVAILABLE"
+            },
+            {
+              "case_id": "B05",
+              "details": {
+                "commit_reported_success_but_lost_in_simulated_restart": {
+                  "after_restart_model": {
+                    "operations": [],
+                    "pointer": {
+                      "digest": "sha256:model-E0",
+                      "epoch": 0,
+                      "generation": 0,
+                      "manifest_sha256": "sha256:model-E0-manifest",
+                      "slot": "E0"
+                    },
+                    "user_facts": [
+                      [
+                        "legacy-file-001",
+                        "note",
+                        "retain historical fact"
+                      ],
+                      [
+                        "legacy-file-001",
+                        "tag",
+                        "keep-me"
+                      ]
+                    ]
+                  },
+                  "before_restart_model": [
+                    [
+                      "legacy-file-001",
+                      "note",
+                      "retain historical fact"
+                    ],
+                    [
+                      "legacy-file-001",
+                      "tag",
+                      "keep-me"
+                    ]
+                  ],
+                  "caller_observed_success": true,
+                  "commit_result": {
+                    "expected_epoch": 0,
+                    "operation_id": "ack-lost-op",
+                    "sqlite_commit_executed": true,
+                    "sqlite_commit_extended_code": 0,
+                    "sqlite_commit_primary_code": 0,
+                    "status": "APPLIED",
+                    "target_epoch": 1
+                  },
+                  "operation_rows_after_restart": 0,
+                  "physical_restart_or_power_loss_tested": false,
+                  "recovery_model": "replace the post-commit temp database with a captured pre-commit snapshot",
+                  "user_facts_after": [
+                    [
+                      "legacy-file-001",
+                      "note",
+                      "retain historical fact"
+                    ],
+                    [
+                      "legacy-file-001",
+                      "tag",
+                      "keep-me"
+                    ]
+                  ]
+                },
+                "commit_succeeded_but_response_lost": {
+                  "actual_second_invocation": {
+                    "existing_operation_matches_replay": true,
+                    "operation_id": "ack-lost-op",
+                    "sqlite_commit_executed": false,
+                    "status": "ALREADY_APPLIED"
+                  },
+                  "duplicate_operation_id_rebind_attempt": {
+                    "existing_operation_matches_replay": false,
+                    "operation_id": "ack-lost-op",
+                    "sqlite_commit_executed": false,
+                    "status": "REJECTED_OPERATION_ID_REUSE"
+                  },
+                  "first_apply_result": {
+                    "expected_epoch": 0,
+                    "operation_id": "ack-lost-op",
+                    "sqlite_commit_executed": true,
+                    "sqlite_commit_extended_code": 0,
+                    "sqlite_commit_primary_code": 0,
+                    "status": "APPLIED",
+                    "target_epoch": 1
+                  },
+                  "simulated_response_delivery": "DROPPED_AFTER_SQLITE_COMMIT_RETURNED_SQLITE_OK",
+                  "stale_epoch_CAS_attempt": {
+                    "expected_epoch": 0,
+                    "observed_epoch": 1,
+                    "operation_id": "stale-epoch-op",
+                    "sqlite_commit_executed": false,
+                    "status": "REJECTED_EPOCH_CAS"
+                  },
+                  "state_after_first_commit": {
+                    "operations": [
+                      [
+                        "ack-lost-op",
+                        0,
+                        "E1",
+                        1,
+                        1,
+                        "sha256:model-E1",
+                        "sha256:model-E1-manifest"
+                      ]
+                    ],
+                    "pointer": {
+                      "digest": "sha256:model-E1",
+                      "epoch": 1,
+                      "generation": 1,
+                      "manifest_sha256": "sha256:model-E1-manifest",
+                      "slot": "E1"
+                    },
+                    "user_facts": [
+                      [
+                        "legacy-file-001",
+                        "note",
+                        "retain historical fact"
+                      ],
+                      [
+                        "legacy-file-001",
+                        "tag",
+                        "keep-me"
+                      ]
+                    ]
+                  },
+                  "state_after_negative_controls": {
+                    "operations": [
+                      [
+                        "ack-lost-op",
+                        0,
+                        "E1",
+                        1,
+                        1,
+                        "sha256:model-E1",
+                        "sha256:model-E1-manifest"
+                      ]
+                    ],
+                    "pointer": {
+                      "digest": "sha256:model-E1",
+                      "epoch": 1,
+                      "generation": 1,
+                      "manifest_sha256": "sha256:model-E1-manifest",
+                      "slot": "E1"
+                    },
+                    "user_facts": [
+                      [
+                        "legacy-file-001",
+                        "note",
+                        "retain historical fact"
+                      ],
+                      [
+                        "legacy-file-001",
+                        "tag",
+                        "keep-me"
+                      ]
+                    ]
+                  },
+                  "state_after_replay": {
+                    "operations": [
+                      [
+                        "ack-lost-op",
+                        0,
+                        "E1",
+                        1,
+                        1,
+                        "sha256:model-E1",
+                        "sha256:model-E1-manifest"
+                      ]
+                    ],
+                    "pointer": {
+                      "digest": "sha256:model-E1",
+                      "epoch": 1,
+                      "generation": 1,
+                      "manifest_sha256": "sha256:model-E1-manifest",
+                      "slot": "E1"
+                    },
+                    "user_facts": [
+                      [
+                        "legacy-file-001",
+                        "note",
+                        "retain historical fact"
+                      ],
+                      [
+                        "legacy-file-001",
+                        "tag",
+                        "keep-me"
+                      ]
+                    ]
+                  },
+                  "state_idempotent": true,
+                  "user_facts_after": [
+                    [
+                      "legacy-file-001",
+                      "note",
+                      "retain historical fact"
+                    ],
+                    [
+                      "legacy-file-001",
+                      "tag",
+                      "keep-me"
+                    ]
+                  ],
+                  "user_facts_before": [
+                    [
+                      "legacy-file-001",
+                      "note",
+                      "retain historical fact"
+                    ],
+                    [
+                      "legacy-file-001",
+                      "tag",
+                      "keep-me"
+                    ]
+                  ]
+                },
+                "evidence_class": "MODEL_ONLY SQLite transactions through actual named VFS; no power-loss claim",
+                "no_cross_file_ACID_or_power_loss_claim": true,
+                "ok": true,
+                "pre_commit_transaction_rolled_back": {
+                  "snapshot": {
+                    "operations": [],
+                    "pointer": {
+                      "digest": "sha256:model-E0",
+                      "epoch": 0,
+                      "generation": 0,
+                      "manifest_sha256": "sha256:model-E0-manifest",
+                      "slot": "E0"
+                    },
+                    "user_facts": [
+                      [
+                        "legacy-file-001",
+                        "note",
+                        "retain historical fact"
+                      ],
+                      [
+                        "legacy-file-001",
+                        "tag",
+                        "keep-me"
+                      ]
+                    ]
+                  }
+                }
+              },
+              "status": "PASS"
+            },
+            {
+              "case_id": "B06",
+              "details": {
+                "automatic_repair_or_pointer_rewrite": "the resolver only returns a decision; it does not write the pointer or slot files",
+                "cases": [
+                  {
+                    "E1_file_exists_after_resolution": true,
+                    "E1_manifest_bytes_after_resolution": 288,
+                    "E1_manifest_exists_after_resolution": true,
+                    "actual_resolution": {
+                      "automatic_generation_substitution": false,
+                      "decision": "VALIDATED_GENERATION",
+                      "pointer": {
+                        "digest": "093bbb8839d39b516af57013fdd5034ea14027d473695406d0d0460f21afcf1b",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "eca97dc02b3a02d4cdde7bf448965c8089641a1c91c75743156b6f39a2bd76e2",
+                        "slot": "E1"
+                      },
+                      "pointer_rewrite": false,
+                      "reason": "MANIFEST_SLOT_AND_AUTHORITY_VALID",
+                      "selected_generation": 1,
+                      "selected_slot": "E1",
+                      "validation": {
+                        "checks": {
+                          "actual_manifest_sha256": "eca97dc02b3a02d4cdde7bf448965c8089641a1c91c75743156b6f39a2bd76e2",
+                          "authority_manifest_sha256": "eca97dc02b3a02d4cdde7bf448965c8089641a1c91c75743156b6f39a2bd76e2",
+                          "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-valid_e1-E1.sqlite",
+                          "disk_file": {
+                            "bytes": 139264,
+                            "digest_matches_authority_and_manifest": true,
+                            "exists": true,
+                            "length_matches_manifest": true,
+                            "sha256": "093bbb8839d39b516af57013fdd5034ea14027d473695406d0d0460f21afcf1b"
+                          },
+                          "disk_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                          "expected_file_sha256": "093bbb8839d39b516af57013fdd5034ea14027d473695406d0d0460f21afcf1b",
+                          "expected_generation": 1,
+                          "expected_slot": "E1",
+                          "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                          "expected_source_revision": 1,
+                          "manifest_bytes": 288,
+                          "manifest_digest_matches_authority": true,
+                          "manifest_identity": {
+                            "format_version": 1,
+                            "generation": 1,
+                            "matches_expected": true,
+                            "slot": "E1",
+                            "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                            "source_revision": 1
+                          },
+                          "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-valid_e1-E1.manifest.json",
+                          "manifest_read_ok": true,
+                          "sqlite_integrity_check": "ok"
+                        },
+                        "reasons": [],
+                        "valid": true
+                      }
+                    },
+                    "automatic_generation_substitution": false,
+                    "case": "valid_e1",
+                    "expected_decision": "VALIDATED_GENERATION",
+                    "pointer_rewrite": false,
+                    "resolver_did_not_mutate_files_or_authority": true,
+                    "state_after": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-valid_e1-E0.sqlite",
+                        "sha256": "c368faa08ffa09da933db269dfda5b3cef40f265447561036e0f1c02d4b7bd49"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-valid_e1-E0.manifest.json",
+                        "sha256": "c5343db362a64e1d8e8b7f4d20a6055c8f00a0083645c6c0591cb192a2f33bf6"
+                      },
+                      "E1": {
+                        "bytes": 139264,
+                        "path": "b06-valid_e1-E1.sqlite",
+                        "sha256": "093bbb8839d39b516af57013fdd5034ea14027d473695406d0d0460f21afcf1b"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-valid_e1-E1.manifest.json",
+                        "sha256": "eca97dc02b3a02d4cdde7bf448965c8089641a1c91c75743156b6f39a2bd76e2"
+                      },
+                      "pointer": {
+                        "digest": "093bbb8839d39b516af57013fdd5034ea14027d473695406d0d0460f21afcf1b",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "eca97dc02b3a02d4cdde7bf448965c8089641a1c91c75743156b6f39a2bd76e2",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    },
+                    "state_before": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-valid_e1-E0.sqlite",
+                        "sha256": "c368faa08ffa09da933db269dfda5b3cef40f265447561036e0f1c02d4b7bd49"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-valid_e1-E0.manifest.json",
+                        "sha256": "c5343db362a64e1d8e8b7f4d20a6055c8f00a0083645c6c0591cb192a2f33bf6"
+                      },
+                      "E1": {
+                        "bytes": 139264,
+                        "path": "b06-valid_e1-E1.sqlite",
+                        "sha256": "093bbb8839d39b516af57013fdd5034ea14027d473695406d0d0460f21afcf1b"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-valid_e1-E1.manifest.json",
+                        "sha256": "eca97dc02b3a02d4cdde7bf448965c8089641a1c91c75743156b6f39a2bd76e2"
+                      },
+                      "pointer": {
+                        "digest": "093bbb8839d39b516af57013fdd5034ea14027d473695406d0d0460f21afcf1b",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "eca97dc02b3a02d4cdde7bf448965c8089641a1c91c75743156b6f39a2bd76e2",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "E1_file_exists_after_resolution": true,
+                    "E1_manifest_bytes_after_resolution": 0,
+                    "E1_manifest_exists_after_resolution": true,
+                    "actual_resolution": {
+                      "automatic_generation_substitution": false,
+                      "decision": "UNAVAILABLE",
+                      "pointer": {
+                        "digest": "ee37e66fb1e0559cf2a57ddda86139fd932df66e1514b9c0d1efbc0df389a85c",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                        "slot": "E1"
+                      },
+                      "pointer_rewrite": false,
+                      "reason": "SELECTED_GENERATION_VALIDATION_FAILED",
+                      "selected_generation": 1,
+                      "selected_slot": "E1",
+                      "validation": {
+                        "checks": {
+                          "actual_manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                          "authority_manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                          "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-empty_manifest_e1-E1.sqlite",
+                          "expected_file_sha256": "ee37e66fb1e0559cf2a57ddda86139fd932df66e1514b9c0d1efbc0df389a85c",
+                          "expected_generation": 1,
+                          "expected_slot": "E1",
+                          "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                          "expected_source_revision": 1,
+                          "manifest_bytes": 0,
+                          "manifest_digest_matches_authority": true,
+                          "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-empty_manifest_e1-E1.manifest.json",
+                          "manifest_read_ok": true
+                        },
+                        "reasons": [
+                          "MANIFEST_EMPTY"
+                        ],
+                        "valid": false
+                      }
+                    },
+                    "automatic_generation_substitution": false,
+                    "case": "empty_manifest_e1",
+                    "expected_decision": "UNAVAILABLE",
+                    "pointer_rewrite": false,
+                    "resolver_did_not_mutate_files_or_authority": true,
+                    "state_after": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-empty_manifest_e1-E0.sqlite",
+                        "sha256": "093004d685f38cec5b4364d836a87febaa5dc669bc5a359893ab6a426aa82697"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-empty_manifest_e1-E0.manifest.json",
+                        "sha256": "9a33dd5b9e50e7bb2d2b946a76cf4050f5b555eb54c22eb1343928551b28cc3e"
+                      },
+                      "E1": {
+                        "bytes": 139264,
+                        "path": "b06-empty_manifest_e1-E1.sqlite",
+                        "sha256": "ee37e66fb1e0559cf2a57ddda86139fd932df66e1514b9c0d1efbc0df389a85c"
+                      },
+                      "E1_manifest": {
+                        "bytes": 0,
+                        "path": "b06-empty_manifest_e1-E1.manifest.json",
+                        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                      },
+                      "pointer": {
+                        "digest": "ee37e66fb1e0559cf2a57ddda86139fd932df66e1514b9c0d1efbc0df389a85c",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    },
+                    "state_before": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-empty_manifest_e1-E0.sqlite",
+                        "sha256": "093004d685f38cec5b4364d836a87febaa5dc669bc5a359893ab6a426aa82697"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-empty_manifest_e1-E0.manifest.json",
+                        "sha256": "9a33dd5b9e50e7bb2d2b946a76cf4050f5b555eb54c22eb1343928551b28cc3e"
+                      },
+                      "E1": {
+                        "bytes": 139264,
+                        "path": "b06-empty_manifest_e1-E1.sqlite",
+                        "sha256": "ee37e66fb1e0559cf2a57ddda86139fd932df66e1514b9c0d1efbc0df389a85c"
+                      },
+                      "E1_manifest": {
+                        "bytes": 0,
+                        "path": "b06-empty_manifest_e1-E1.manifest.json",
+                        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                      },
+                      "pointer": {
+                        "digest": "ee37e66fb1e0559cf2a57ddda86139fd932df66e1514b9c0d1efbc0df389a85c",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "E1_file_exists_after_resolution": false,
+                    "E1_manifest_bytes_after_resolution": 288,
+                    "E1_manifest_exists_after_resolution": true,
+                    "actual_resolution": {
+                      "automatic_generation_substitution": false,
+                      "decision": "UNAVAILABLE",
+                      "pointer": {
+                        "digest": "6a61fbd2dcb6724327d60acf63bbafa1a4eb76bf01261a484ee948bb011ca266",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "d67dc94504ee383deba34b72e202b946765fc4654dccd60b99c8e54956885245",
+                        "slot": "E1"
+                      },
+                      "pointer_rewrite": false,
+                      "reason": "SELECTED_GENERATION_VALIDATION_FAILED",
+                      "selected_generation": 1,
+                      "selected_slot": "E1",
+                      "validation": {
+                        "checks": {
+                          "actual_manifest_sha256": "d67dc94504ee383deba34b72e202b946765fc4654dccd60b99c8e54956885245",
+                          "authority_manifest_sha256": "d67dc94504ee383deba34b72e202b946765fc4654dccd60b99c8e54956885245",
+                          "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-missing_e1-E1.sqlite",
+                          "disk_file": {
+                            "error": "No such file or directory (os error 2)",
+                            "exists": false
+                          },
+                          "expected_file_sha256": "6a61fbd2dcb6724327d60acf63bbafa1a4eb76bf01261a484ee948bb011ca266",
+                          "expected_generation": 1,
+                          "expected_slot": "E1",
+                          "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                          "expected_source_revision": 1,
+                          "manifest_bytes": 288,
+                          "manifest_digest_matches_authority": true,
+                          "manifest_identity": {
+                            "format_version": 1,
+                            "generation": 1,
+                            "matches_expected": true,
+                            "slot": "E1",
+                            "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                            "source_revision": 1
+                          },
+                          "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-missing_e1-E1.manifest.json",
+                          "manifest_read_ok": true,
+                          "sqlite_open_readonly": {
+                            "error": "unable to open database file: /tmp/issue381-b1-f0-8806-1791976556810653168/b06-missing_e1-E1.sqlite"
+                          }
+                        },
+                        "reasons": [
+                          "SLOT_FILE_MISSING",
+                          "SQLITE_INTEGRITY_REJECTED:unable to open database file: /tmp/issue381-b1-f0-8806-1791976556810653168/b06-missing_e1-E1.sqlite"
+                        ],
+                        "valid": false
+                      }
+                    },
+                    "automatic_generation_substitution": false,
+                    "case": "missing_e1",
+                    "expected_decision": "UNAVAILABLE",
+                    "pointer_rewrite": false,
+                    "resolver_did_not_mutate_files_or_authority": true,
+                    "state_after": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-missing_e1-E0.sqlite",
+                        "sha256": "1d4a302ee3ef5d1874ab1697fe990cb57be34d3d242c2373af84582be4059700"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-missing_e1-E0.manifest.json",
+                        "sha256": "26a5c55e4de1d976bf5158734c8a52666c467210fe24393a6bd45992e1127484"
+                      },
+                      "E1": {
+                        "path": "b06-missing_e1-E1.sqlite",
+                        "unavailable": "No such file or directory (os error 2)"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-missing_e1-E1.manifest.json",
+                        "sha256": "d67dc94504ee383deba34b72e202b946765fc4654dccd60b99c8e54956885245"
+                      },
+                      "pointer": {
+                        "digest": "6a61fbd2dcb6724327d60acf63bbafa1a4eb76bf01261a484ee948bb011ca266",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "d67dc94504ee383deba34b72e202b946765fc4654dccd60b99c8e54956885245",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    },
+                    "state_before": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-missing_e1-E0.sqlite",
+                        "sha256": "1d4a302ee3ef5d1874ab1697fe990cb57be34d3d242c2373af84582be4059700"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-missing_e1-E0.manifest.json",
+                        "sha256": "26a5c55e4de1d976bf5158734c8a52666c467210fe24393a6bd45992e1127484"
+                      },
+                      "E1": {
+                        "path": "b06-missing_e1-E1.sqlite",
+                        "unavailable": "No such file or directory (os error 2)"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-missing_e1-E1.manifest.json",
+                        "sha256": "d67dc94504ee383deba34b72e202b946765fc4654dccd60b99c8e54956885245"
+                      },
+                      "pointer": {
+                        "digest": "6a61fbd2dcb6724327d60acf63bbafa1a4eb76bf01261a484ee948bb011ca266",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "d67dc94504ee383deba34b72e202b946765fc4654dccd60b99c8e54956885245",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "E1_file_exists_after_resolution": true,
+                    "E1_manifest_bytes_after_resolution": 288,
+                    "E1_manifest_exists_after_resolution": true,
+                    "actual_resolution": {
+                      "automatic_generation_substitution": false,
+                      "decision": "UNAVAILABLE",
+                      "pointer": {
+                        "digest": "b1bf6ae27512f33b0feac3ebe10c333d2977232fb41325d274f138563ce28079",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "7dfdff6cd27685e9054ff8896e979b2885b3877b329f81f5e8666a7d104d225c",
+                        "slot": "E1"
+                      },
+                      "pointer_rewrite": false,
+                      "reason": "SELECTED_GENERATION_VALIDATION_FAILED",
+                      "selected_generation": 1,
+                      "selected_slot": "E1",
+                      "validation": {
+                        "checks": {
+                          "actual_manifest_sha256": "7dfdff6cd27685e9054ff8896e979b2885b3877b329f81f5e8666a7d104d225c",
+                          "authority_manifest_sha256": "7dfdff6cd27685e9054ff8896e979b2885b3877b329f81f5e8666a7d104d225c",
+                          "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-truncated_e1-E1.sqlite",
+                          "disk_file": {
+                            "bytes": 100,
+                            "digest_matches_authority_and_manifest": false,
+                            "exists": true,
+                            "length_matches_manifest": false,
+                            "sha256": "8be3330a2c08bd6ca0fa360cc9d275591543c6928380ec4399d7736703aa9836"
+                          },
+                          "expected_file_sha256": "b1bf6ae27512f33b0feac3ebe10c333d2977232fb41325d274f138563ce28079",
+                          "expected_generation": 1,
+                          "expected_slot": "E1",
+                          "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                          "expected_source_revision": 1,
+                          "manifest_bytes": 288,
+                          "manifest_digest_matches_authority": true,
+                          "manifest_identity": {
+                            "format_version": 1,
+                            "generation": 1,
+                            "matches_expected": true,
+                            "slot": "E1",
+                            "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                            "source_revision": 1
+                          },
+                          "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-truncated_e1-E1.manifest.json",
+                          "manifest_read_ok": true,
+                          "sqlite_integrity_check": {
+                            "error": "database disk image is malformed"
+                          }
+                        },
+                        "reasons": [
+                          "DISK_DIGEST_MISMATCH",
+                          "DISK_LENGTH_MISMATCH",
+                          "SQLITE_INTEGRITY_REJECTED:database disk image is malformed",
+                          "SQLITE_SOURCE_ID_READ_ERROR:database disk image is malformed"
+                        ],
+                        "valid": false
+                      }
+                    },
+                    "automatic_generation_substitution": false,
+                    "case": "truncated_e1",
+                    "expected_decision": "UNAVAILABLE",
+                    "pointer_rewrite": false,
+                    "resolver_did_not_mutate_files_or_authority": true,
+                    "state_after": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-truncated_e1-E0.sqlite",
+                        "sha256": "f92944a35ef55fcf35ce60f121733bafef1dc52a6e27c71fe2d6a83f14e383c5"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-truncated_e1-E0.manifest.json",
+                        "sha256": "b36fa264eb59e93dd06989fa9d7183ffec62d6143430c4a96b07ece68d40ec86"
+                      },
+                      "E1": {
+                        "bytes": 100,
+                        "path": "b06-truncated_e1-E1.sqlite",
+                        "sha256": "8be3330a2c08bd6ca0fa360cc9d275591543c6928380ec4399d7736703aa9836"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-truncated_e1-E1.manifest.json",
+                        "sha256": "7dfdff6cd27685e9054ff8896e979b2885b3877b329f81f5e8666a7d104d225c"
+                      },
+                      "pointer": {
+                        "digest": "b1bf6ae27512f33b0feac3ebe10c333d2977232fb41325d274f138563ce28079",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "7dfdff6cd27685e9054ff8896e979b2885b3877b329f81f5e8666a7d104d225c",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    },
+                    "state_before": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-truncated_e1-E0.sqlite",
+                        "sha256": "f92944a35ef55fcf35ce60f121733bafef1dc52a6e27c71fe2d6a83f14e383c5"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-truncated_e1-E0.manifest.json",
+                        "sha256": "b36fa264eb59e93dd06989fa9d7183ffec62d6143430c4a96b07ece68d40ec86"
+                      },
+                      "E1": {
+                        "bytes": 100,
+                        "path": "b06-truncated_e1-E1.sqlite",
+                        "sha256": "8be3330a2c08bd6ca0fa360cc9d275591543c6928380ec4399d7736703aa9836"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-truncated_e1-E1.manifest.json",
+                        "sha256": "7dfdff6cd27685e9054ff8896e979b2885b3877b329f81f5e8666a7d104d225c"
+                      },
+                      "pointer": {
+                        "digest": "b1bf6ae27512f33b0feac3ebe10c333d2977232fb41325d274f138563ce28079",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "7dfdff6cd27685e9054ff8896e979b2885b3877b329f81f5e8666a7d104d225c",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "E1_file_exists_after_resolution": true,
+                    "E1_manifest_bytes_after_resolution": 288,
+                    "E1_manifest_exists_after_resolution": true,
+                    "actual_resolution": {
+                      "automatic_generation_substitution": false,
+                      "decision": "UNAVAILABLE",
+                      "pointer": {
+                        "digest": "34491e687abd2d56a2b2e6a147d3664e911eccc4ea11a5a310cf2dff4d574219",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "197abb8dc7d8c82c441daec2e95c516f24c0a6de428a1a57b04c2638432bd9a1",
+                        "slot": "E1"
+                      },
+                      "pointer_rewrite": false,
+                      "reason": "SELECTED_GENERATION_VALIDATION_FAILED",
+                      "selected_generation": 1,
+                      "selected_slot": "E1",
+                      "validation": {
+                        "checks": {
+                          "actual_manifest_sha256": "197abb8dc7d8c82c441daec2e95c516f24c0a6de428a1a57b04c2638432bd9a1",
+                          "authority_manifest_sha256": "197abb8dc7d8c82c441daec2e95c516f24c0a6de428a1a57b04c2638432bd9a1",
+                          "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-digest_mismatch_e1-E1.sqlite",
+                          "disk_file": {
+                            "bytes": 139264,
+                            "digest_matches_authority_and_manifest": false,
+                            "exists": true,
+                            "length_matches_manifest": true,
+                            "sha256": "06fe4652a802e97577b9a7c4114ff13a4122b43565cbef865201341228bbc1f0"
+                          },
+                          "disk_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                          "expected_file_sha256": "34491e687abd2d56a2b2e6a147d3664e911eccc4ea11a5a310cf2dff4d574219",
+                          "expected_generation": 1,
+                          "expected_slot": "E1",
+                          "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                          "expected_source_revision": 1,
+                          "manifest_bytes": 288,
+                          "manifest_digest_matches_authority": true,
+                          "manifest_identity": {
+                            "format_version": 1,
+                            "generation": 1,
+                            "matches_expected": true,
+                            "slot": "E1",
+                            "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                            "source_revision": 1
+                          },
+                          "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-digest_mismatch_e1-E1.manifest.json",
+                          "manifest_read_ok": true,
+                          "sqlite_integrity_check": "ok"
+                        },
+                        "reasons": [
+                          "DISK_DIGEST_MISMATCH"
+                        ],
+                        "valid": false
+                      }
+                    },
+                    "automatic_generation_substitution": false,
+                    "case": "digest_mismatch_e1",
+                    "expected_decision": "UNAVAILABLE",
+                    "pointer_rewrite": false,
+                    "resolver_did_not_mutate_files_or_authority": true,
+                    "state_after": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-digest_mismatch_e1-E0.sqlite",
+                        "sha256": "191f9e540a7ef2f906a5cc10d3e0b483adc2cc3023dc1b08d5458ed267f07044"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-digest_mismatch_e1-E0.manifest.json",
+                        "sha256": "93f9306692f1c7b559fa24491ffd78ff99a680a1a721e76f023c23bead915c71"
+                      },
+                      "E1": {
+                        "bytes": 139264,
+                        "path": "b06-digest_mismatch_e1-E1.sqlite",
+                        "sha256": "06fe4652a802e97577b9a7c4114ff13a4122b43565cbef865201341228bbc1f0"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-digest_mismatch_e1-E1.manifest.json",
+                        "sha256": "197abb8dc7d8c82c441daec2e95c516f24c0a6de428a1a57b04c2638432bd9a1"
+                      },
+                      "pointer": {
+                        "digest": "34491e687abd2d56a2b2e6a147d3664e911eccc4ea11a5a310cf2dff4d574219",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "197abb8dc7d8c82c441daec2e95c516f24c0a6de428a1a57b04c2638432bd9a1",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    },
+                    "state_before": {
+                      "E0": {
+                        "bytes": 139264,
+                        "path": "b06-digest_mismatch_e1-E0.sqlite",
+                        "sha256": "191f9e540a7ef2f906a5cc10d3e0b483adc2cc3023dc1b08d5458ed267f07044"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-digest_mismatch_e1-E0.manifest.json",
+                        "sha256": "93f9306692f1c7b559fa24491ffd78ff99a680a1a721e76f023c23bead915c71"
+                      },
+                      "E1": {
+                        "bytes": 139264,
+                        "path": "b06-digest_mismatch_e1-E1.sqlite",
+                        "sha256": "06fe4652a802e97577b9a7c4114ff13a4122b43565cbef865201341228bbc1f0"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-digest_mismatch_e1-E1.manifest.json",
+                        "sha256": "197abb8dc7d8c82c441daec2e95c516f24c0a6de428a1a57b04c2638432bd9a1"
+                      },
+                      "pointer": {
+                        "digest": "34491e687abd2d56a2b2e6a147d3664e911eccc4ea11a5a310cf2dff4d574219",
+                        "epoch": 1,
+                        "generation": 1,
+                        "manifest_sha256": "197abb8dc7d8c82c441daec2e95c516f24c0a6de428a1a57b04c2638432bd9a1",
+                        "slot": "E1"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "E1_file_exists_after_resolution": true,
+                    "E1_manifest_bytes_after_resolution": 288,
+                    "E1_manifest_exists_after_resolution": true,
+                    "actual_resolution": {
+                      "automatic_generation_substitution": false,
+                      "decision": "UNAVAILABLE",
+                      "pointer": {
+                        "digest": "7c0379cc481aa70657eff4462e7c83caf683016ed4da4fd4cb245c8341471b2e",
+                        "epoch": 0,
+                        "generation": 0,
+                        "manifest_sha256": "708649dc9d14c01680c2761120b7fbbb421469a44bd15b07c6a3c8c01cfe0bd0",
+                        "slot": "E0"
+                      },
+                      "pointer_rewrite": false,
+                      "reason": "SELECTED_GENERATION_VALIDATION_FAILED",
+                      "selected_generation": 0,
+                      "selected_slot": "E0",
+                      "validation": {
+                        "checks": {
+                          "actual_manifest_sha256": "708649dc9d14c01680c2761120b7fbbb421469a44bd15b07c6a3c8c01cfe0bd0",
+                          "authority_manifest_sha256": "708649dc9d14c01680c2761120b7fbbb421469a44bd15b07c6a3c8c01cfe0bd0",
+                          "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-invalid_e0-E0.sqlite",
+                          "disk_file": {
+                            "bytes": 100,
+                            "digest_matches_authority_and_manifest": false,
+                            "exists": true,
+                            "length_matches_manifest": false,
+                            "sha256": "8be3330a2c08bd6ca0fa360cc9d275591543c6928380ec4399d7736703aa9836"
+                          },
+                          "expected_file_sha256": "7c0379cc481aa70657eff4462e7c83caf683016ed4da4fd4cb245c8341471b2e",
+                          "expected_generation": 0,
+                          "expected_slot": "E0",
+                          "expected_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                          "expected_source_revision": 1,
+                          "manifest_bytes": 288,
+                          "manifest_digest_matches_authority": true,
+                          "manifest_identity": {
+                            "format_version": 1,
+                            "generation": 0,
+                            "matches_expected": true,
+                            "slot": "E0",
+                            "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+                            "source_revision": 1
+                          },
+                          "manifest_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b06-invalid_e0-E0.manifest.json",
+                          "manifest_read_ok": true,
+                          "sqlite_integrity_check": {
+                            "error": "database disk image is malformed"
+                          }
+                        },
+                        "reasons": [
+                          "DISK_DIGEST_MISMATCH",
+                          "DISK_LENGTH_MISMATCH",
+                          "SQLITE_INTEGRITY_REJECTED:database disk image is malformed",
+                          "SQLITE_SOURCE_ID_READ_ERROR:database disk image is malformed"
+                        ],
+                        "valid": false
+                      }
+                    },
+                    "automatic_generation_substitution": false,
+                    "case": "invalid_e0",
+                    "expected_decision": "UNAVAILABLE",
+                    "pointer_rewrite": false,
+                    "resolver_did_not_mutate_files_or_authority": true,
+                    "state_after": {
+                      "E0": {
+                        "bytes": 100,
+                        "path": "b06-invalid_e0-E0.sqlite",
+                        "sha256": "8be3330a2c08bd6ca0fa360cc9d275591543c6928380ec4399d7736703aa9836"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-invalid_e0-E0.manifest.json",
+                        "sha256": "708649dc9d14c01680c2761120b7fbbb421469a44bd15b07c6a3c8c01cfe0bd0"
+                      },
+                      "E1": {
+                        "bytes": 139264,
+                        "path": "b06-invalid_e0-E1.sqlite",
+                        "sha256": "38ce3a7854ffd5ddc7995057111dd6f5b3ac4dda3f88bea8f6ae400422e25ff9"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-invalid_e0-E1.manifest.json",
+                        "sha256": "80e281c95472db3bd2d34394406dec7927d1c38d3f8b8f017f9715b3095d0250"
+                      },
+                      "pointer": {
+                        "digest": "7c0379cc481aa70657eff4462e7c83caf683016ed4da4fd4cb245c8341471b2e",
+                        "epoch": 0,
+                        "generation": 0,
+                        "manifest_sha256": "708649dc9d14c01680c2761120b7fbbb421469a44bd15b07c6a3c8c01cfe0bd0",
+                        "slot": "E0"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    },
+                    "state_before": {
+                      "E0": {
+                        "bytes": 100,
+                        "path": "b06-invalid_e0-E0.sqlite",
+                        "sha256": "8be3330a2c08bd6ca0fa360cc9d275591543c6928380ec4399d7736703aa9836"
+                      },
+                      "E0_manifest": {
+                        "bytes": 288,
+                        "path": "b06-invalid_e0-E0.manifest.json",
+                        "sha256": "708649dc9d14c01680c2761120b7fbbb421469a44bd15b07c6a3c8c01cfe0bd0"
+                      },
+                      "E1": {
+                        "bytes": 139264,
+                        "path": "b06-invalid_e0-E1.sqlite",
+                        "sha256": "38ce3a7854ffd5ddc7995057111dd6f5b3ac4dda3f88bea8f6ae400422e25ff9"
+                      },
+                      "E1_manifest": {
+                        "bytes": 288,
+                        "path": "b06-invalid_e0-E1.manifest.json",
+                        "sha256": "80e281c95472db3bd2d34394406dec7927d1c38d3f8b8f017f9715b3095d0250"
+                      },
+                      "pointer": {
+                        "digest": "7c0379cc481aa70657eff4462e7c83caf683016ed4da4fd4cb245c8341471b2e",
+                        "epoch": 0,
+                        "generation": 0,
+                        "manifest_sha256": "708649dc9d14c01680c2761120b7fbbb421469a44bd15b07c6a3c8c01cfe0bd0",
+                        "slot": "E0"
+                      },
+                      "user_facts": [
+                        [
+                          "legacy-file-001",
+                          "note",
+                          "retain historical fact"
+                        ],
+                        [
+                          "legacy-file-001",
+                          "tag",
+                          "keep-me"
+                        ]
+                      ]
+                    }
+                  }
+                ],
+                "evidence_class": "MODEL_ONLY test-only recovery resolver using actual pointer queries, actual manifests, read-only SQLite integrity checks and file digests",
+                "mutable_FTS_fallback": "not part of this resolver",
+                "ok": true,
+                "resolver_inputs": "authority pointer, expected E0/E1 SQLite digests, SQLite source ID, source revision, on-disk Manifest bytes and SQLite integrity"
+              },
+              "status": "PASS"
+            },
+            {
+              "case_id": "B07",
+              "details": {
+                "covered": "pin-first, GC-first late-pin rejection, live-handle pin, failed-open release, expiry, child-process exit/reopen, generation ABA, idempotent GC and pool settings",
+                "evidence_class": "MODEL_ONLY existing P1A-T05 generation lease/GC prototype",
+                "ok": true,
+                "reused_test_case": "P1A-T05"
+              },
+              "status": "PASS"
+            },
+            {
+              "case_id": "B08",
+              "details": {
+                "evidence_class": "ACTUAL_OS; actual SQLite xWrite/xSync/xRead/xTruncate callbacks",
+                "model_only_claim_boundary": "No claim of real media exhaustion, power loss, or torn hardware writes.",
+                "ok": true,
+                "subcases": [
+                  {
+                    "case_id": "B08-SQLITE-FULL",
+                    "details": {
+                      "actual_injection_events": [
+                        {
+                          "file_kind": "WAL",
+                          "injected": true,
+                          "injection_id": "B08-SQLITE-FULL",
+                          "offset": 0,
+                          "open_flags": 524294,
+                          "operation": "xWrite",
+                          "path": "/tmp/issue381-b1-f0-8806-1791976556810653168/B08-SQLITE-FULL.sqlite-wal",
+                          "prefix_bytes": 0,
+                          "requested_bytes": 32,
+                          "result_code": 13,
+                          "sequence": 6925,
+                          "zero_fill_bytes": null,
+                          "zero_fill_verified": null
+                        }
+                      ],
+                      "actual_partial_prefix_verified": true,
+                      "after_file_hashes": {
+                        "journal": {
+                          "path": "B08-SQLITE-FULL.sqlite-journal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "main": {
+                          "bytes": 139264,
+                          "path": "B08-SQLITE-FULL.sqlite",
+                          "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                        },
+                        "shm": {
+                          "path": "B08-SQLITE-FULL.sqlite-shm",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "wal": {
+                          "path": "B08-SQLITE-FULL.sqlite-wal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        }
+                      },
+                      "before_file_hashes": {
+                        "journal": {
+                          "path": "B08-SQLITE-FULL.sqlite-journal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "main": {
+                          "bytes": 139264,
+                          "path": "B08-SQLITE-FULL.sqlite",
+                          "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                        },
+                        "shm": {
+                          "path": "B08-SQLITE-FULL.sqlite-shm",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "wal": {
+                          "path": "B08-SQLITE-FULL.sqlite-wal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        }
+                      },
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/B08-SQLITE-FULL.sqlite",
+                      "expected_sqlite_extended_code": 13,
+                      "fault_model_claim_only": true,
+                      "fresh_default_vfs_reopen": {
+                        "fts5_integrity_check": "PASS",
+                        "injected_row_count": 0,
+                        "integrity_check": "ok",
+                        "journal_mode": "wal",
+                        "payload_bytes": 96160,
+                        "row_count": 16,
+                        "rows": [
+                          [
+                            "issue381-b1-f0-seed-20261014-00",
+                            "baseline-reference document-00 signal",
+                            "/synthetic/f0/00.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-01",
+                            "baseline-reference document-01 signal",
+                            "/synthetic/f0/01.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-02",
+                            "baseline-reference document-02 signal",
+                            "/synthetic/f0/02.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-03",
+                            "baseline-reference document-03 signal",
+                            "/synthetic/f0/03.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-04",
+                            "baseline-reference document-04 signal",
+                            "/synthetic/f0/04.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-05",
+                            "baseline-reference document-05 signal",
+                            "/synthetic/f0/05.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-06",
+                            "baseline-reference document-06 signal",
+                            "/synthetic/f0/06.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-07",
+                            "baseline-reference document-07 signal",
+                            "/synthetic/f0/07.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-08",
+                            "baseline-reference document-08 signal",
+                            "/synthetic/f0/08.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-09",
+                            "baseline-reference document-09 signal",
+                            "/synthetic/f0/09.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-10",
+                            "baseline-reference document-10 signal",
+                            "/synthetic/f0/10.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-11",
+                            "baseline-reference document-11 signal",
+                            "/synthetic/f0/11.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-12",
+                            "baseline-reference document-12 signal",
+                            "/synthetic/f0/12.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-13",
+                            "baseline-reference document-13 signal",
+                            "/synthetic/f0/13.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-14",
+                            "baseline-reference document-14 signal",
+                            "/synthetic/f0/14.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-15",
+                            "baseline-reference document-15 signal",
+                            "/synthetic/f0/15.txt"
+                          ]
+                        ]
+                      },
+                      "injection_id": "B08-SQLITE-FULL",
+                      "injection_occurrence": 1,
+                      "injection_reached": true,
+                      "no_phantom_commit": true,
+                      "no_phantom_commit_required": true,
+                      "ok": true,
+                      "requested_partial_prefix_bytes": null,
+                      "seed": "issue381-b1-f0-seed-20261014",
+                      "source": "actual named sqlite3_vfs xWrite/xSync callback",
+                      "sqlite_commit_result": {
+                        "debug": "SqliteFailure(Error { code: DiskFull, extended_code: 13 }, Some(\"database or disk is full\"))",
+                        "error": "database or disk is full",
+                        "extended_code": 13,
+                        "extended_code_name": "SQLITE_FULL",
+                        "ok": false,
+                        "primary_code": 13,
+                        "primary_code_name": "SQLITE_FULL"
+                      },
+                      "sqlite_rollback_result": {
+                        "ok": true,
+                        "skipped": "SQLite returned to autocommit after COMMIT"
+                      },
+                      "target_callback": "xWrite",
+                      "target_file_kind": "WAL"
+                    },
+                    "status": "PASS"
+                  },
+                  {
+                    "case_id": "B08-WAL-PARTIAL-IOERR-WRITE",
+                    "details": {
+                      "actual_injection_events": [
+                        {
+                          "file_kind": "WAL",
+                          "injected": true,
+                          "injection_id": "B08-WAL-PARTIAL-IOERR-WRITE",
+                          "offset": 56,
+                          "open_flags": 524294,
+                          "operation": "xWrite",
+                          "path": "/tmp/issue381-b1-f0-8806-1791976556810653168/B08-WAL-PARTIAL-IOERR-WRITE.sqlite-wal",
+                          "prefix_bytes": 128,
+                          "requested_bytes": 4096,
+                          "result_code": 778,
+                          "sequence": 7124,
+                          "zero_fill_bytes": null,
+                          "zero_fill_verified": null
+                        }
+                      ],
+                      "actual_partial_prefix_verified": true,
+                      "after_file_hashes": {
+                        "journal": {
+                          "path": "B08-WAL-PARTIAL-IOERR-WRITE.sqlite-journal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "main": {
+                          "bytes": 139264,
+                          "path": "B08-WAL-PARTIAL-IOERR-WRITE.sqlite",
+                          "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                        },
+                        "shm": {
+                          "path": "B08-WAL-PARTIAL-IOERR-WRITE.sqlite-shm",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "wal": {
+                          "path": "B08-WAL-PARTIAL-IOERR-WRITE.sqlite-wal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        }
+                      },
+                      "before_file_hashes": {
+                        "journal": {
+                          "path": "B08-WAL-PARTIAL-IOERR-WRITE.sqlite-journal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "main": {
+                          "bytes": 139264,
+                          "path": "B08-WAL-PARTIAL-IOERR-WRITE.sqlite",
+                          "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                        },
+                        "shm": {
+                          "path": "B08-WAL-PARTIAL-IOERR-WRITE.sqlite-shm",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "wal": {
+                          "path": "B08-WAL-PARTIAL-IOERR-WRITE.sqlite-wal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        }
+                      },
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/B08-WAL-PARTIAL-IOERR-WRITE.sqlite",
+                      "expected_sqlite_extended_code": 778,
+                      "fault_model_claim_only": true,
+                      "fresh_default_vfs_reopen": {
+                        "fts5_integrity_check": "PASS",
+                        "injected_row_count": 0,
+                        "integrity_check": "ok",
+                        "journal_mode": "wal",
+                        "payload_bytes": 96160,
+                        "row_count": 16,
+                        "rows": [
+                          [
+                            "issue381-b1-f0-seed-20261014-00",
+                            "baseline-reference document-00 signal",
+                            "/synthetic/f0/00.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-01",
+                            "baseline-reference document-01 signal",
+                            "/synthetic/f0/01.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-02",
+                            "baseline-reference document-02 signal",
+                            "/synthetic/f0/02.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-03",
+                            "baseline-reference document-03 signal",
+                            "/synthetic/f0/03.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-04",
+                            "baseline-reference document-04 signal",
+                            "/synthetic/f0/04.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-05",
+                            "baseline-reference document-05 signal",
+                            "/synthetic/f0/05.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-06",
+                            "baseline-reference document-06 signal",
+                            "/synthetic/f0/06.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-07",
+                            "baseline-reference document-07 signal",
+                            "/synthetic/f0/07.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-08",
+                            "baseline-reference document-08 signal",
+                            "/synthetic/f0/08.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-09",
+                            "baseline-reference document-09 signal",
+                            "/synthetic/f0/09.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-10",
+                            "baseline-reference document-10 signal",
+                            "/synthetic/f0/10.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-11",
+                            "baseline-reference document-11 signal",
+                            "/synthetic/f0/11.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-12",
+                            "baseline-reference document-12 signal",
+                            "/synthetic/f0/12.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-13",
+                            "baseline-reference document-13 signal",
+                            "/synthetic/f0/13.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-14",
+                            "baseline-reference document-14 signal",
+                            "/synthetic/f0/14.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-15",
+                            "baseline-reference document-15 signal",
+                            "/synthetic/f0/15.txt"
+                          ]
+                        ]
+                      },
+                      "injection_id": "B08-WAL-PARTIAL-IOERR-WRITE",
+                      "injection_occurrence": 3,
+                      "injection_reached": true,
+                      "no_phantom_commit": true,
+                      "no_phantom_commit_required": true,
+                      "ok": true,
+                      "requested_partial_prefix_bytes": 128,
+                      "seed": "issue381-b1-f0-seed-20261014",
+                      "source": "actual named sqlite3_vfs xWrite/xSync callback",
+                      "sqlite_commit_result": {
+                        "debug": "SqliteFailure(Error { code: SystemIoFailure, extended_code: 778 }, Some(\"disk I/O error\"))",
+                        "error": "disk I/O error",
+                        "extended_code": 778,
+                        "extended_code_name": "SQLITE_IOERR_WRITE",
+                        "ok": false,
+                        "primary_code": 778,
+                        "primary_code_name": "SQLITE_IOERR_WRITE"
+                      },
+                      "sqlite_rollback_result": {
+                        "ok": true,
+                        "skipped": "SQLite returned to autocommit after COMMIT"
+                      },
+                      "target_callback": "xWrite",
+                      "target_file_kind": "WAL"
+                    },
+                    "status": "PASS"
+                  },
+                  {
+                    "case_id": "B08-IOERR-FSYNC",
+                    "details": {
+                      "actual_injection_events": [
+                        {
+                          "file_kind": "WAL",
+                          "injected": true,
+                          "injection_id": "B08-IOERR-FSYNC",
+                          "offset": null,
+                          "open_flags": 524294,
+                          "operation": "xSync",
+                          "path": "/tmp/issue381-b1-f0-8806-1791976556810653168/B08-IOERR-FSYNC.sqlite-wal",
+                          "prefix_bytes": null,
+                          "requested_bytes": 2,
+                          "result_code": 1034,
+                          "sequence": 7321,
+                          "zero_fill_bytes": null,
+                          "zero_fill_verified": null
+                        }
+                      ],
+                      "actual_partial_prefix_verified": true,
+                      "after_file_hashes": {
+                        "journal": {
+                          "path": "B08-IOERR-FSYNC.sqlite-journal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "main": {
+                          "bytes": 139264,
+                          "path": "B08-IOERR-FSYNC.sqlite",
+                          "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                        },
+                        "shm": {
+                          "path": "B08-IOERR-FSYNC.sqlite-shm",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "wal": {
+                          "path": "B08-IOERR-FSYNC.sqlite-wal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        }
+                      },
+                      "before_file_hashes": {
+                        "journal": {
+                          "path": "B08-IOERR-FSYNC.sqlite-journal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "main": {
+                          "bytes": 139264,
+                          "path": "B08-IOERR-FSYNC.sqlite",
+                          "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                        },
+                        "shm": {
+                          "path": "B08-IOERR-FSYNC.sqlite-shm",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "wal": {
+                          "path": "B08-IOERR-FSYNC.sqlite-wal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        }
+                      },
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/B08-IOERR-FSYNC.sqlite",
+                      "expected_sqlite_extended_code": 1034,
+                      "fault_model_claim_only": true,
+                      "fresh_default_vfs_reopen": {
+                        "fts5_integrity_check": "PASS",
+                        "injected_row_count": 0,
+                        "integrity_check": "ok",
+                        "journal_mode": "wal",
+                        "payload_bytes": 96160,
+                        "row_count": 16,
+                        "rows": [
+                          [
+                            "issue381-b1-f0-seed-20261014-00",
+                            "baseline-reference document-00 signal",
+                            "/synthetic/f0/00.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-01",
+                            "baseline-reference document-01 signal",
+                            "/synthetic/f0/01.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-02",
+                            "baseline-reference document-02 signal",
+                            "/synthetic/f0/02.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-03",
+                            "baseline-reference document-03 signal",
+                            "/synthetic/f0/03.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-04",
+                            "baseline-reference document-04 signal",
+                            "/synthetic/f0/04.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-05",
+                            "baseline-reference document-05 signal",
+                            "/synthetic/f0/05.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-06",
+                            "baseline-reference document-06 signal",
+                            "/synthetic/f0/06.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-07",
+                            "baseline-reference document-07 signal",
+                            "/synthetic/f0/07.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-08",
+                            "baseline-reference document-08 signal",
+                            "/synthetic/f0/08.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-09",
+                            "baseline-reference document-09 signal",
+                            "/synthetic/f0/09.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-10",
+                            "baseline-reference document-10 signal",
+                            "/synthetic/f0/10.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-11",
+                            "baseline-reference document-11 signal",
+                            "/synthetic/f0/11.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-12",
+                            "baseline-reference document-12 signal",
+                            "/synthetic/f0/12.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-13",
+                            "baseline-reference document-13 signal",
+                            "/synthetic/f0/13.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-14",
+                            "baseline-reference document-14 signal",
+                            "/synthetic/f0/14.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-15",
+                            "baseline-reference document-15 signal",
+                            "/synthetic/f0/15.txt"
+                          ]
+                        ]
+                      },
+                      "injection_id": "B08-IOERR-FSYNC",
+                      "injection_occurrence": 1,
+                      "injection_reached": true,
+                      "no_phantom_commit": true,
+                      "no_phantom_commit_required": false,
+                      "ok": true,
+                      "requested_partial_prefix_bytes": null,
+                      "seed": "issue381-b1-f0-seed-20261014",
+                      "source": "actual named sqlite3_vfs xWrite/xSync callback",
+                      "sqlite_commit_result": {
+                        "debug": "SqliteFailure(Error { code: SystemIoFailure, extended_code: 1034 }, Some(\"disk I/O error\"))",
+                        "error": "disk I/O error",
+                        "extended_code": 1034,
+                        "extended_code_name": "SQLITE_IOERR_FSYNC",
+                        "ok": false,
+                        "primary_code": 1034,
+                        "primary_code_name": "SQLITE_IOERR_FSYNC"
+                      },
+                      "sqlite_rollback_result": {
+                        "ok": true,
+                        "skipped": "SQLite returned to autocommit after COMMIT"
+                      },
+                      "target_callback": "xSync",
+                      "target_file_kind": "WAL"
+                    },
+                    "status": "PASS"
+                  },
+                  {
+                    "case_id": "B08-SHORT-READ",
+                    "details": {
+                      "actual_injection_events": [
+                        {
+                          "file_kind": "MAIN_DB",
+                          "injected": true,
+                          "injection_id": "B08-SHORT-READ",
+                          "offset": 4096,
+                          "open_flags": 262,
+                          "operation": "xRead",
+                          "path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b08-short-read.sqlite",
+                          "prefix_bytes": 2048,
+                          "requested_bytes": 4096,
+                          "result_code": 522,
+                          "sequence": 7509,
+                          "zero_fill_bytes": 2048,
+                          "zero_fill_verified": true
+                        }
+                      ],
+                      "after_file_hashes": {
+                        "journal": {
+                          "path": "b08-short-read.sqlite-journal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "main": {
+                          "bytes": 139264,
+                          "path": "b08-short-read.sqlite",
+                          "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                        },
+                        "shm": {
+                          "path": "b08-short-read.sqlite-shm",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "wal": {
+                          "path": "b08-short-read.sqlite-wal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        }
+                      },
+                      "before_default_vfs_reopen": {
+                        "fts5_integrity_check": "PASS",
+                        "injected_row_count": 0,
+                        "integrity_check": "ok",
+                        "journal_mode": "wal",
+                        "payload_bytes": 96160,
+                        "row_count": 16,
+                        "rows": [
+                          [
+                            "issue381-b1-f0-seed-20261014-00",
+                            "baseline-reference document-00 signal",
+                            "/synthetic/f0/00.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-01",
+                            "baseline-reference document-01 signal",
+                            "/synthetic/f0/01.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-02",
+                            "baseline-reference document-02 signal",
+                            "/synthetic/f0/02.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-03",
+                            "baseline-reference document-03 signal",
+                            "/synthetic/f0/03.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-04",
+                            "baseline-reference document-04 signal",
+                            "/synthetic/f0/04.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-05",
+                            "baseline-reference document-05 signal",
+                            "/synthetic/f0/05.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-06",
+                            "baseline-reference document-06 signal",
+                            "/synthetic/f0/06.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-07",
+                            "baseline-reference document-07 signal",
+                            "/synthetic/f0/07.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-08",
+                            "baseline-reference document-08 signal",
+                            "/synthetic/f0/08.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-09",
+                            "baseline-reference document-09 signal",
+                            "/synthetic/f0/09.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-10",
+                            "baseline-reference document-10 signal",
+                            "/synthetic/f0/10.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-11",
+                            "baseline-reference document-11 signal",
+                            "/synthetic/f0/11.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-12",
+                            "baseline-reference document-12 signal",
+                            "/synthetic/f0/12.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-13",
+                            "baseline-reference document-13 signal",
+                            "/synthetic/f0/13.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-14",
+                            "baseline-reference document-14 signal",
+                            "/synthetic/f0/14.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-15",
+                            "baseline-reference document-15 signal",
+                            "/synthetic/f0/15.txt"
+                          ]
+                        ]
+                      },
+                      "before_file_hashes": {
+                        "journal": {
+                          "path": "b08-short-read.sqlite-journal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "main": {
+                          "bytes": 139264,
+                          "path": "b08-short-read.sqlite",
+                          "sha256": "d694a9d8c0871708bb82e9b67bc1109752f6988d59c294d6d3bd7214af8bd64b"
+                        },
+                        "shm": {
+                          "path": "b08-short-read.sqlite-shm",
+                          "unavailable": "No such file or directory (os error 2)"
+                        },
+                        "wal": {
+                          "path": "b08-short-read.sqlite-wal",
+                          "unavailable": "No such file or directory (os error 2)"
+                        }
+                      },
+                      "database_path": "/tmp/issue381-b1-f0-8806-1791976556810653168/b08-short-read.sqlite",
+                      "fault_model_claim_only": true,
+                      "fresh_default_vfs_reopen": {
+                        "fts5_integrity_check": "PASS",
+                        "injected_row_count": 0,
+                        "integrity_check": "ok",
+                        "journal_mode": "wal",
+                        "payload_bytes": 96160,
+                        "row_count": 16,
+                        "rows": [
+                          [
+                            "issue381-b1-f0-seed-20261014-00",
+                            "baseline-reference document-00 signal",
+                            "/synthetic/f0/00.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-01",
+                            "baseline-reference document-01 signal",
+                            "/synthetic/f0/01.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-02",
+                            "baseline-reference document-02 signal",
+                            "/synthetic/f0/02.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-03",
+                            "baseline-reference document-03 signal",
+                            "/synthetic/f0/03.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-04",
+                            "baseline-reference document-04 signal",
+                            "/synthetic/f0/04.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-05",
+                            "baseline-reference document-05 signal",
+                            "/synthetic/f0/05.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-06",
+                            "baseline-reference document-06 signal",
+                            "/synthetic/f0/06.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-07",
+                            "baseline-reference document-07 signal",
+                            "/synthetic/f0/07.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-08",
+                            "baseline-reference document-08 signal",
+                            "/synthetic/f0/08.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-09",
+                            "baseline-reference document-09 signal",
+                            "/synthetic/f0/09.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-10",
+                            "baseline-reference document-10 signal",
+                            "/synthetic/f0/10.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-11",
+                            "baseline-reference document-11 signal",
+                            "/synthetic/f0/11.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-12",
+                            "baseline-reference document-12 signal",
+                            "/synthetic/f0/12.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-13",
+                            "baseline-reference document-13 signal",
+                            "/synthetic/f0/13.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-14",
+                            "baseline-reference document-14 signal",
+                            "/synthetic/f0/14.txt"
+                          ],
+                          [
+                            "issue381-b1-f0-seed-20261014-15",
+                            "baseline-reference document-15 signal",
+                            "/synthetic/f0/15.txt"
+                          ]
+                        ]
+                      },
+                      "injection_id": "B08-SHORT-READ",
+                      "injection_occurrence": 1,
+                      "injection_reached": true,
+                      "mmap_size_for_injection_connection": 0,
+                      "ok": true,
+                      "seed": "issue381-b1-f0-seed-20261014",
+                      "short_read_buffer_zero_fill_verified_inside_callback": true,
+                      "source": "actual named sqlite3_vfs xRead callback",
+                      "sqlite_query_result": {
+                        "debug": "SqliteFailure(Error { code: DatabaseCorrupt, extended_code: 11 }, Some(\"database disk image is malformed\"))",
+                        "error": "database disk image is malformed",
+                        "extended_code": 11,
+                        "extended_code_name": "SQLITE_CORRUPT",
+                        "ok": false,
+                        "primary_code": 11,
+                        "primary_code_name": "SQLITE_CORRUPT",
+                        "value": null
+                      },
+                      "sqlite_statement_failed_as_expected": true,
+                      "sqlite_translated_short_read_to_database_error": true,
+                      "vfs_returned_expected_extended_code": 522
+                    },
+                    "status": "PASS"
+                  }
+                ],
+                "wal_truncate_boundary_fault_injected_in": "B02-WAL-CHECKPOINT-TRUNCATE",
+                "wal_truncate_callback_observed": true
+              },
+              "status": "PASS"
+            },
+            {
+              "case_id": "B09",
+              "details": {
+                "barriers": "build, close, sync, seal, pointer before/after commit, GC before/after unlink; missing/corrupt target reconciliation",
+                "evidence_class": "MODEL_ONLY Linux child-process kill at deterministic barriers",
+                "ok": true,
+                "physical_power_loss_tested": false,
+                "reused_test_case": "P1A-T08 and P1A-T11"
+              },
+              "status": "PASS"
+            },
+            {
+              "case_id": "B10",
+              "details": {
+                "evidence_class": "NOT_TESTED",
+                "real_bounded_enospc_attempted": false,
+                "safe_alternative": "Actual SQLite SQLITE_FULL VFS return code is covered by B1-F0 and B08; it does not model real ENOSPC.",
+                "separate_quota_or_mount_approval_obtained": false,
+                "status_reason": "ENVIRONMENT_UNAVAILABLE"
+              },
+              "status": "ENVIRONMENT_UNAVAILABLE"
+            },
+            {
+              "case_id": "B11",
+              "details": {
+                "evidence_class": "NOT_TESTED",
+                "executor_os": "linux",
+                "existing_t10_a_gate": "P1A-T10 remains ENVIRONMENT_UNAVAILABLE on this Linux executor; see T10-A-HOSTED-NATIVE-RESEARCH.md and preserved parent matrix evidence.",
+                "native_macos_file_handle_behavior_tested": false,
+                "native_windows_share_flags_permissions_and_av_contention_tested": false,
+                "status_reason": "ENVIRONMENT_UNAVAILABLE"
+              },
+              "status": "ENVIRONMENT_UNAVAILABLE"
+            },
+            {
+              "case_id": "B12",
+              "details": {
+                "additional_temp_bytes_approx": 0,
+                "default_vfs_latency_ms": {
+                  "p50": 0.139529,
+                  "p95": 0.35013299999999997,
+                  "samples": [
+                    0.172706,
+                    0.139373,
+                    0.142905,
+                    0.140198,
+                    0.130586,
+                    0.12903799999999999,
+                    0.19372399999999998,
+                    0.12960200000000002,
+                    0.213093,
+                    0.125834,
+                    0.12102600000000001,
+                    0.139529,
+                    0.146392,
+                    0.142367,
+                    0.125855,
+                    0.167067,
+                    0.119991,
+                    0.37485399999999997,
+                    0.13427799999999998,
+                    0.12415000000000001,
+                    0.35013299999999997,
+                    0.137238,
+                    0.135737,
+                    0.19589499999999999,
+                    0.121354,
+                    0.16873300000000002,
+                    0.176263,
+                    0.124524,
+                    0.168117,
+                    0.156007
+                  ]
+                },
+                "evidence_class": "ACTUAL_OS micro-observation with named VFS and default VFS controls",
+                "measured_db_file_bytes_sum": 491520,
+                "named_vfs_callback_counts": {
+                  "xOpen": 60,
+                  "xRead": 150,
+                  "xSync": 120,
+                  "xWrite": 120
+                },
+                "named_vfs_latency_ms": {
+                  "p50": 0.159249,
+                  "p95": 0.37661599999999995,
+                  "samples": [
+                    0.184632,
+                    0.159249,
+                    0.161441,
+                    0.152808,
+                    0.155692,
+                    0.221248,
+                    0.156612,
+                    0.153407,
+                    0.203431,
+                    0.147808,
+                    0.37661599999999995,
+                    0.15837800000000002,
+                    0.158014,
+                    0.331294,
+                    0.153291,
+                    0.160905,
+                    0.143171,
+                    0.173969,
+                    0.196643,
+                    0.230368,
+                    0.167346,
+                    0.187131,
+                    0.158303,
+                    0.157658,
+                    0.14462899999999998,
+                    0.427433,
+                    0.16314800000000002,
+                    0.145486,
+                    0.14571199999999998,
+                    0.206477
+                  ]
+                },
+                "ok": true,
+                "paired_delta_ms": {
+                  "p50": 0.02096200000000001,
+                  "p95": 0.25558999999999993,
+                  "samples": [
+                    0.011925999999999992,
+                    0.019876000000000005,
+                    0.018535999999999997,
+                    0.01261000000000001,
+                    0.02510599999999999,
+                    0.09221000000000001,
+                    -0.03711199999999998,
+                    0.023804999999999965,
+                    -0.009662000000000004,
+                    0.021973999999999994,
+                    0.25558999999999993,
+                    0.018849000000000032,
+                    0.011621999999999993,
+                    0.18892699999999998,
+                    0.027436000000000016,
+                    -0.006162000000000001,
+                    0.023179999999999992,
+                    -0.20088499999999995,
+                    0.06236500000000003,
+                    0.10621799999999998,
+                    -0.18278699999999998,
+                    0.04989299999999999,
+                    0.022566000000000003,
+                    -0.03823699999999999,
+                    0.023274999999999976,
+                    0.2587,
+                    -0.013114999999999988,
+                    0.02096200000000001,
+                    -0.022405000000000008,
+                    0.05046999999999999
+                  ]
+                },
+                "real_storage_pressure_or_product_latency_claim": false,
+                "sample_count": 30,
+                "sample_definition": "paired disposable SQLite WAL database, one BEGIN/INSERT/COMMIT each, synchronous=FULL; includes open/SQL/close elapsed time",
+                "temporary_tree_bytes_after_samples": 491520
+              },
+              "status": "PASS"
+            }
+          ],
+          "environment_unavailable_cases": [
+            "B04",
+            "B10",
+            "B11"
+          ],
+          "model_test_scope": "isolated synthetic fixtures and SQLite VFS return-code injection",
+          "native_and_real_enospc_gate_state": "BLOCKED_ENVIRONMENT",
+          "power_loss_proven": false,
+          "real_media_enospc_proven": false
+        },
+        "record_type": "matrix_summary",
+        "status": "READY_FOR_OWNER_REVIEW"
+      },
+      "runner_result": {
+        "case_id": "T10-B1-B01-B12",
+        "details": {
+          "all_connections_and_handles_closed_before_unregister": true,
+          "executable_cases_failed": false,
+          "failure_code": null,
+          "overall_native_gate_state": "BLOCKED_ENVIRONMENT",
+          "owner_review_ready": true,
+          "physical_power_loss_tested": false,
+          "real_enospc_tested": false,
+          "vfs_unregistered": true
+        },
+        "record_type": "run_result",
+        "status": "T10_B1_FAULT_MODEL_READY_FOR_OWNER_REVIEW"
+      }
+    }
+  ],
+  "claims": {
+    "physical_power_loss_tested": false,
+    "real_enospc_tested": false,
+    "model_is_test_only": true
+  },
+  "preliminary_only": false
+}

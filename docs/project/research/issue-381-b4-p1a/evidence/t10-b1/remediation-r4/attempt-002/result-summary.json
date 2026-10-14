@@ -1,0 +1,122 @@
+{
+  "attempt": "remediation-r4/attempt-002",
+  "starting_head": "76f00475899fea1b037c5975130d28913b77f741",
+  "final_source_sha256": "9e07db0610b9badb1f267ee90f7366586ec0cada46e8c26438a3903a0ac57e8d",
+  "f0": {
+    "exit_code": 0,
+    "record_count": 822,
+    "run_result": "PASS",
+    "cases": [
+      {
+        "case_id": "B1-F0-SQLITE_FULL",
+        "status": "PASS",
+        "ok": true,
+        "callback": "xWrite",
+        "file_kind": "WAL",
+        "vfs_result_code": 13,
+        "requested_bytes": 32,
+        "prefix_bytes": 0,
+        "zero_fill_bytes": null,
+        "zero_fill_verified": null,
+        "sqlite_result_code": 13,
+        "sqlite_result_name": "SQLITE_FULL",
+        "fresh_integrity_check": "ok",
+        "fresh_fts5_integrity_check": "PASS",
+        "fresh_row_count": 16
+      },
+      {
+        "case_id": "B1-F0-IOERR_FSYNC",
+        "status": "PASS",
+        "ok": true,
+        "callback": "xSync",
+        "file_kind": "WAL",
+        "vfs_result_code": 1034,
+        "requested_bytes": 2,
+        "prefix_bytes": null,
+        "zero_fill_bytes": null,
+        "zero_fill_verified": null,
+        "sqlite_result_code": 1034,
+        "sqlite_result_name": "SQLITE_IOERR_FSYNC",
+        "fresh_integrity_check": "ok",
+        "fresh_fts5_integrity_check": "PASS",
+        "fresh_row_count": 16
+      },
+      {
+        "case_id": "B1-F0-SHORT_READ",
+        "status": "PASS",
+        "ok": true,
+        "callback": "xRead",
+        "file_kind": "MAIN_DB",
+        "vfs_result_code": 522,
+        "requested_bytes": 4096,
+        "prefix_bytes": 2048,
+        "zero_fill_bytes": 2048,
+        "zero_fill_verified": true,
+        "sqlite_result_code": 11,
+        "sqlite_result_name": "SQLITE_CORRUPT",
+        "fresh_integrity_check": "ok",
+        "fresh_fts5_integrity_check": "PASS",
+        "fresh_row_count": 16
+      }
+    ],
+    "model_only": true,
+    "real_enospc_tested": false,
+    "physical_power_loss_tested": false
+  },
+  "matrix": {
+    "exit_code": 0,
+    "record_count": 8087,
+    "case_result_count": 32,
+    "status_counts": {
+      "PASS": 26,
+      "ENVIRONMENT_UNAVAILABLE": 3,
+      "EXPECTED_REJECTION": 3
+    },
+    "summary_status": "READY_FOR_OWNER_REVIEW",
+    "run_result_status": "T10_B1_FAULT_MODEL_READY_FOR_OWNER_REVIEW",
+    "native_gate_state": "BLOCKED_ENVIRONMENT",
+    "environment_unavailable_cases": [
+      "B04",
+      "B10",
+      "B11"
+    ],
+    "physical_power_loss_tested": false,
+    "real_enospc_tested": false
+  },
+  "b03_zero_byte_manifest": {
+    "test_status": "PASS",
+    "decision": "REJECTED",
+    "manifest_bytes": 0,
+    "actual_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "authority_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "digest_matches_authority": true,
+    "reasons": [
+      "MANIFEST_EMPTY"
+    ],
+    "state_unchanged": true,
+    "valid_manifest_positive_control": "ADMITTED",
+    "truncated_manifest_decision": "REJECTED"
+  },
+  "b06_zero_byte_manifest": {
+    "test_status": "PASS",
+    "decision": "UNAVAILABLE",
+    "selected_slot": "E1",
+    "manifest_bytes": 0,
+    "actual_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "authority_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "digest_matches_authority": true,
+    "reasons": [
+      "MANIFEST_EMPTY"
+    ],
+    "state_unchanged": true,
+    "automatic_generation_substitution": false,
+    "pointer_rewrite": false,
+    "valid_e1_positive_control": "VALIDATED_GENERATION",
+    "other_negative_cases_preserved": [
+      "missing_e1",
+      "truncated_e1",
+      "digest_mismatch_e1",
+      "invalid_e0"
+    ]
+  }
+}

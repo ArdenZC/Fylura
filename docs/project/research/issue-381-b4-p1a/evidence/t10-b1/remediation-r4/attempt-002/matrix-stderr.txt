@@ -1,0 +1,13 @@
+warning: variable does not need to be mutable
+    --> src/t10_native.rs:1288:9
+     |
+1288 |     let mut conn = open_connection(&pointer_path)?;
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `issue381-b4-p1a-f1` (bin "issue381-b4-p1a-f1") generated 1 warning (run `cargo fix --bin "issue381-b4-p1a-f1" -p issue381-b4-p1a-f1` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `tests/issue381_b4_p1a_f1/target/debug/issue381-b4-p1a-f1 --b1-matrix`

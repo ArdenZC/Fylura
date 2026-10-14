@@ -1,0 +1,13 @@
+{
+  "review_contract": "https://github.com/ArdenZC/Zen-Canvas/issues/413#issuecomment-6166755250",
+  "branch": "test/issue-381-b4-p1a-t10-b1-fault-model",
+  "starting_head": "76f00475899fea1b037c5975130d28913b77f741",
+  "starting_tree": "4611e23b0dacae3971e6fe73ed3a37cd31535c00",
+  "remote_branch_head_before_work": "76f00475899fea1b037c5975130d28913b77f741",
+  "refinement_from_attempt_001": "Bind the B03 candidate digest and B06 authority pointer digest to SHA-256(empty), then require rejection solely for MANIFEST_EMPTY.",
+  "attempt_001_preliminary_source_sha256": "3a34b2a9ed070dee71bd9aa6a4cbfe84f812318562fe702495271cb60dc2df2d",
+  "historical_r1_r3_sha256sums_sha256": "42be8b09518a7caa9ae851c43e1c0d85ce3753ffbd536ae80bf42683032474ab",
+  "original_t10_b1_sha256sums_sha256": "8008886239432ad26af702857417fdde9854f9669600b6531b8b9578d526ecfd",
+  "historical_r1_r3_source_snapshot": "../attempt-001/r1-r3-base-b1_vfs.rs",
+  "scope": "tests/issue381_b4_p1a_f1/** and docs/project/research/issue-381-b4-p1a/**"
+}

@@ -1797,18 +1797,20 @@ fn validate_fixture_manifest(
         "expected_source_revision":expected_source_revision
     });
 
-    let manifest_bytes = match std::fs::read(manifest_path) {
-        Ok(bytes) => bytes,
+    let (manifest_bytes, manifest_read_ok) = match std::fs::read(manifest_path) {
+        Ok(bytes) => (bytes, true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             reasons.push("MANIFEST_MISSING".to_string());
-            Vec::new()
+            (Vec::new(), false)
         }
         Err(error) => {
             reasons.push(format!("MANIFEST_READ_ERROR:{error}"));
-            Vec::new()
+            (Vec::new(), false)
         }
     };
-    if !manifest_bytes.is_empty() {
+    checks["manifest_read_ok"] = json!(manifest_read_ok);
+    checks["manifest_bytes"] = json!(manifest_bytes.len());
+    if manifest_read_ok {
         let actual_manifest_sha256 = format!("{:x}", sha2::Sha256::digest(&manifest_bytes));
         checks["actual_manifest_sha256"] = json!(actual_manifest_sha256);
         checks["manifest_digest_matches_authority"] =
@@ -1816,95 +1818,102 @@ fn validate_fixture_manifest(
         if actual_manifest_sha256 != authority_manifest_sha256 {
             reasons.push("MANIFEST_DIGEST_MISMATCH".to_string());
         }
-        match serde_json::from_slice::<FixtureManifest>(&manifest_bytes) {
-            Ok(manifest) => {
-                let identity_ok = manifest.format_version == 1
-                    && manifest.slot == expected_slot
-                    && manifest.generation == expected_generation
-                    && manifest.source_revision == expected_source_revision
-                    && manifest.sqlite_source_id == expected_source_id;
-                checks["manifest_identity"] = json!({
-                    "format_version":manifest.format_version,
-                    "slot":manifest.slot,
-                    "generation":manifest.generation,
-                    "source_id":manifest.sqlite_source_id,
-                    "source_revision":manifest.source_revision,
-                    "matches_expected":identity_ok
-                });
-                if !identity_ok {
-                    reasons.push("MANIFEST_IDENTITY_MISMATCH".to_string());
-                }
-                match fixture_file_digest(database) {
-                    Ok((actual_sha256, actual_bytes)) => {
-                        let digest_ok = actual_sha256 == expected_file_sha256
-                            && actual_sha256 == manifest.sqlite_file_sha256;
-                        let length_ok = actual_bytes == manifest.sqlite_file_bytes;
-                        checks["disk_file"] = json!({
-                            "exists":true,
-                            "sha256":actual_sha256,
-                            "bytes":actual_bytes,
-                            "digest_matches_authority_and_manifest":digest_ok,
-                            "length_matches_manifest":length_ok
-                        });
-                        if !digest_ok {
-                            reasons.push("DISK_DIGEST_MISMATCH".to_string());
-                        }
-                        if !length_ok {
-                            reasons.push("DISK_LENGTH_MISMATCH".to_string());
-                        }
+        if manifest_bytes.is_empty() {
+            // An existing zero-byte Manifest is invalid, even when its empty-file digest matches the authority.
+            reasons.push("MANIFEST_EMPTY".to_string());
+        } else {
+            match serde_json::from_slice::<FixtureManifest>(&manifest_bytes) {
+                Ok(manifest) => {
+                    let identity_ok = manifest.format_version == 1
+                        && manifest.slot == expected_slot
+                        && manifest.generation == expected_generation
+                        && manifest.source_revision == expected_source_revision
+                        && manifest.sqlite_source_id == expected_source_id;
+                    checks["manifest_identity"] = json!({
+                        "format_version":manifest.format_version,
+                        "slot":manifest.slot,
+                        "generation":manifest.generation,
+                        "source_id":manifest.sqlite_source_id,
+                        "source_revision":manifest.source_revision,
+                        "matches_expected":identity_ok
+                    });
+                    if !identity_ok {
+                        reasons.push("MANIFEST_IDENTITY_MISMATCH".to_string());
                     }
-                    Err(error) => {
-                        checks["disk_file"] =
-                            json!({"exists":database.exists(),"error":error.to_string()});
-                        reasons.push(if database.exists() {
-                            format!("DISK_READ_ERROR:{error}")
-                        } else {
-                            "SLOT_FILE_MISSING".to_string()
-                        });
-                    }
-                }
-                match open_vfs_readonly(database, vfs) {
-                    Ok(connection) => {
-                        let integrity = connection
-                            .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0));
-                        let actual_source_id =
-                            connection.query_row("SELECT sqlite_source_id()", [], |row| {
-                                row.get::<_, String>(0)
+                    match fixture_file_digest(database) {
+                        Ok((actual_sha256, actual_bytes)) => {
+                            let digest_ok = actual_sha256 == expected_file_sha256
+                                && actual_sha256 == manifest.sqlite_file_sha256;
+                            let length_ok = actual_bytes == manifest.sqlite_file_bytes;
+                            checks["disk_file"] = json!({
+                                "exists":true,
+                                "sha256":actual_sha256,
+                                "bytes":actual_bytes,
+                                "digest_matches_authority_and_manifest":digest_ok,
+                                "length_matches_manifest":length_ok
                             });
-                        match integrity {
-                            Ok(result) => {
-                                checks["sqlite_integrity_check"] = json!(result);
-                                if result != "ok" {
-                                    reasons.push("SQLITE_INTEGRITY_REJECTED".to_string());
-                                }
+                            if !digest_ok {
+                                reasons.push("DISK_DIGEST_MISMATCH".to_string());
                             }
-                            Err(error) => {
-                                checks["sqlite_integrity_check"] =
-                                    json!({"error":error.to_string()});
-                                reasons.push(format!("SQLITE_INTEGRITY_REJECTED:{error}"));
+                            if !length_ok {
+                                reasons.push("DISK_LENGTH_MISMATCH".to_string());
                             }
                         }
-                        match actual_source_id {
-                            Ok(source_id) => {
-                                checks["disk_source_id"] = json!(source_id);
-                                if source_id != expected_source_id {
-                                    reasons.push("SQLITE_SOURCE_ID_MISMATCH".to_string());
-                                }
-                            }
-                            Err(error) => {
-                                reasons.push(format!("SQLITE_SOURCE_ID_READ_ERROR:{error}"))
-                            }
+                        Err(error) => {
+                            checks["disk_file"] =
+                                json!({"exists":database.exists(),"error":error.to_string()});
+                            reasons.push(if database.exists() {
+                                format!("DISK_READ_ERROR:{error}")
+                            } else {
+                                "SLOT_FILE_MISSING".to_string()
+                            });
                         }
                     }
-                    Err(error) => {
-                        checks["sqlite_open_readonly"] = json!({"error":error.to_string()});
-                        reasons.push(format!("SQLITE_INTEGRITY_REJECTED:{error}"));
+                    match open_vfs_readonly(database, vfs) {
+                        Ok(connection) => {
+                            let integrity =
+                                connection.query_row("PRAGMA integrity_check", [], |row| {
+                                    row.get::<_, String>(0)
+                                });
+                            let actual_source_id =
+                                connection.query_row("SELECT sqlite_source_id()", [], |row| {
+                                    row.get::<_, String>(0)
+                                });
+                            match integrity {
+                                Ok(result) => {
+                                    checks["sqlite_integrity_check"] = json!(result);
+                                    if result != "ok" {
+                                        reasons.push("SQLITE_INTEGRITY_REJECTED".to_string());
+                                    }
+                                }
+                                Err(error) => {
+                                    checks["sqlite_integrity_check"] =
+                                        json!({"error":error.to_string()});
+                                    reasons.push(format!("SQLITE_INTEGRITY_REJECTED:{error}"));
+                                }
+                            }
+                            match actual_source_id {
+                                Ok(source_id) => {
+                                    checks["disk_source_id"] = json!(source_id);
+                                    if source_id != expected_source_id {
+                                        reasons.push("SQLITE_SOURCE_ID_MISMATCH".to_string());
+                                    }
+                                }
+                                Err(error) => {
+                                    reasons.push(format!("SQLITE_SOURCE_ID_READ_ERROR:{error}"))
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            checks["sqlite_open_readonly"] = json!({"error":error.to_string()});
+                            reasons.push(format!("SQLITE_INTEGRITY_REJECTED:{error}"));
+                        }
                     }
                 }
-            }
-            Err(error) => {
-                checks["manifest_parse_error"] = json!(error.to_string());
-                reasons.push("MANIFEST_INVALID_JSON".to_string());
+                Err(error) => {
+                    checks["manifest_parse_error"] = json!(error.to_string());
+                    reasons.push("MANIFEST_INVALID_JSON".to_string());
+                }
             }
         }
     }
@@ -2467,6 +2476,7 @@ fn run_b03_incomplete_manifest(
     let manifest = directory.join("b03-E1.manifest.json");
     let staging = directory.join("b03-E1.manifest.tmp");
     let positive_manifest = directory.join("b03-E1-positive.manifest.json");
+    let empty_manifest = directory.join("b03-E1-empty.manifest.json");
     create_seed(&e0, vfs)?;
     create_seed(&e1, vfs)?;
     add_generation_marker(&e1, vfs, "b03-E1")?;
@@ -2476,6 +2486,8 @@ fn run_b03_incomplete_manifest(
     let (_, e0_manifest_sha256) = create_fixture_manifest(&e0, &e0_manifest, "E0", 0, 1, vfs)?;
     let (_, candidate_manifest_sha256) =
         create_fixture_manifest(&e1, &positive_manifest, "E1", 1, 1, vfs)?;
+    std::fs::File::create(&empty_manifest)?;
+    let empty_manifest_sha256 = fixture_file_digest(&empty_manifest)?.0;
     let full = std::fs::read(&positive_manifest)?;
     create_pointer_db(&pointer, vfs, "E0", 0, 0, &e0_digest, &e0_manifest_sha256)?;
     let expected_parent = pointer_state(&pointer, vfs)?;
@@ -2530,6 +2542,38 @@ fn run_b03_incomplete_manifest(
         1,
         vfs,
     )?;
+    let empty_manifest_state_before = json!({
+        "authority":pointer_state(&pointer,vfs)?,
+        "E0":file_hash_snapshot(&e0),
+        "user_facts":user_facts_snapshot(&pointer,vfs)?,
+        "manifest":sha256_file(&empty_manifest),
+        "candidate_E1":file_hash_snapshot(&e1)
+    });
+    let empty_manifest_admission = publication_admission(
+        &pointer,
+        &e1,
+        &empty_manifest,
+        &expected_parent,
+        "E1",
+        1,
+        1,
+        &candidate_digest,
+        &empty_manifest_sha256,
+        &expected_source_id,
+        1,
+        vfs,
+    )?;
+    let empty_manifest_state_after = json!({
+        "authority":pointer_state(&pointer,vfs)?,
+        "E0":file_hash_snapshot(&e0),
+        "user_facts":user_facts_snapshot(&pointer,vfs)?,
+        "manifest":sha256_file(&empty_manifest),
+        "candidate_E1":file_hash_snapshot(&e1)
+    });
+    let empty_manifest_state_unchanged = empty_manifest_state_before == empty_manifest_state_after;
+    let empty_manifest_publish_allowed = empty_manifest_admission["decision"] == "ADMITTED";
+    let empty_manifest_candidate_was_published = empty_manifest_publish_allowed
+        && empty_manifest_state_after["authority"] != empty_manifest_state_before["authority"];
     let candidate_publish_allowed = damaged_admission["decision"] == "ADMITTED";
     let candidate_was_published = observed_pointer.slot == "E1"
         && observed_pointer.generation == 1
@@ -2556,6 +2600,16 @@ fn run_b03_incomplete_manifest(
                         .any(|reason| reason == "MANIFEST_INVALID_JSON")
             })
         && valid_admission["decision"] == "ADMITTED"
+        && empty_manifest_admission["decision"] == "REJECTED"
+        && empty_manifest_admission["candidate_manifest_validation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.len() == 1 && reasons[0] == "MANIFEST_EMPTY")
+        && empty_manifest_admission["candidate_manifest_validation"]["checks"]["manifest_digest_matches_authority"]
+            == true
+        && empty_manifest_state_before["manifest"]["bytes"] == 0
+        && empty_manifest_state_unchanged
+        && !empty_manifest_publish_allowed
+        && !empty_manifest_candidate_was_published
         && !candidate_publish_allowed
         && !candidate_was_published;
     let details = json!({
@@ -2568,6 +2622,14 @@ fn run_b03_incomplete_manifest(
         "candidate_publish_allowed":candidate_publish_allowed,
         "candidate_publish_admission":damaged_admission,
         "valid_manifest_positive_control":valid_admission,
+        "zero_byte_manifest_path":empty_manifest.display().to_string(),
+        "zero_byte_manifest_admission":empty_manifest_admission,
+        "zero_byte_manifest_expected_authority_sha256":empty_manifest_sha256,
+        "zero_byte_candidate_publish_allowed":empty_manifest_publish_allowed,
+        "zero_byte_candidate_was_published":empty_manifest_candidate_was_published,
+        "zero_byte_manifest_state_before":empty_manifest_state_before,
+        "zero_byte_manifest_state_after":empty_manifest_state_after,
+        "authority_E0_user_facts_and_manifest_unchanged_after_zero_byte_rejection":empty_manifest_state_unchanged,
         "read_resolution_after_interruption":recovery,
         "candidate_was_published":candidate_was_published,
         "real_process_crash_or_power_loss":false,
@@ -2779,6 +2841,7 @@ fn run_b06_e1_unavailable(
     let id = "B06-EXECUTABLE-RECOVERY-DECISIONS";
     let cases = [
         "valid_e1",
+        "empty_manifest_e1",
         "missing_e1",
         "truncated_e1",
         "digest_mismatch_e1",
@@ -2801,9 +2864,12 @@ fn run_b06_e1_unavailable(
         let (_, e0_manifest_sha256) = create_fixture_manifest(&e0, &e0_manifest, "E0", 0, 1, vfs)?;
         let (_, e1_manifest_sha256) = create_fixture_manifest(&e1, &e1_manifest, "E1", 1, 1, vfs)?;
         let selected_e0 = case == "invalid_e0";
+        let empty_manifest_sha256 = format!("{:x}", sha2::Sha256::digest([]));
         let (selected_slot, selected_generation, selected_digest, selected_manifest_sha256) =
             if selected_e0 {
                 ("E0", 0, e0_digest.as_str(), e0_manifest_sha256.as_str())
+            } else if case == "empty_manifest_e1" {
+                ("E1", 1, e1_digest.as_str(), empty_manifest_sha256.as_str())
             } else {
                 ("E1", 1, e1_digest.as_str(), e1_manifest_sha256.as_str())
             };
@@ -2821,6 +2887,11 @@ fn run_b06_e1_unavailable(
             "truncated_e1" => {
                 let file = std::fs::OpenOptions::new().write(true).open(&e1)?;
                 file.set_len(100)?;
+                file.sync_all()?;
+            }
+            "empty_manifest_e1" => {
+                let file = std::fs::OpenOptions::new().write(true).open(&e1_manifest)?;
+                file.set_len(0)?;
                 file.sync_all()?;
             }
             "digest_mismatch_e1" => {
@@ -2843,7 +2914,8 @@ fn run_b06_e1_unavailable(
             "E0":sha256_file(&e0),
             "E1":sha256_file(&e1),
             "E0_manifest":sha256_file(&e0_manifest),
-            "E1_manifest":sha256_file(&e1_manifest)
+            "E1_manifest":sha256_file(&e1_manifest),
+            "user_facts":user_facts_snapshot(&pointer,vfs)?
         });
         let resolution = resolve_generation(
             &pointer,
@@ -2862,7 +2934,8 @@ fn run_b06_e1_unavailable(
             "E0":sha256_file(&e0),
             "E1":sha256_file(&e1),
             "E0_manifest":sha256_file(&e0_manifest),
-            "E1_manifest":sha256_file(&e1_manifest)
+            "E1_manifest":sha256_file(&e1_manifest),
+            "user_facts":user_facts_snapshot(&pointer,vfs)?
         });
         let expected_decision = if case == "valid_e1" {
             "VALIDATED_GENERATION"
@@ -2878,6 +2951,8 @@ fn run_b06_e1_unavailable(
             "state_after":after,
             "resolver_did_not_mutate_files_or_authority":state_unchanged,
             "E1_file_exists_after_resolution":e1.exists(),
+        "E1_manifest_exists_after_resolution":e1_manifest.exists(),
+        "E1_manifest_bytes_after_resolution":std::fs::metadata(&e1_manifest).ok().map(|metadata| metadata.len()),
             "automatic_generation_substitution":resolution["automatic_generation_substitution"],
             "pointer_rewrite":resolution["pointer_rewrite"]
         }));
@@ -2891,15 +2966,16 @@ fn run_b06_e1_unavailable(
         && generations[1]["actual_resolution"]["selected_slot"] == "E1"
         && generations[1]["actual_resolution"]["validation"]["reasons"]
             .as_array()
-            .is_some_and(|reasons| reasons.iter().any(|reason| reason == "SLOT_FILE_MISSING"))
+            .is_some_and(|reasons| reasons.len() == 1 && reasons[0] == "MANIFEST_EMPTY")
+        && generations[1]["actual_resolution"]["validation"]["checks"]["manifest_digest_matches_authority"]
+            == true
+        && generations[1]["actual_resolution"]["validation"]["checks"]["manifest_bytes"] == 0
+        && generations[1]["E1_manifest_exists_after_resolution"] == true
+        && generations[1]["E1_manifest_bytes_after_resolution"] == 0
         && generations[2]["actual_resolution"]["selected_slot"] == "E1"
         && generations[2]["actual_resolution"]["validation"]["reasons"]
             .as_array()
-            .is_some_and(|reasons| {
-                reasons
-                    .iter()
-                    .any(|reason| reason == "DISK_DIGEST_MISMATCH")
-            })
+            .is_some_and(|reasons| reasons.iter().any(|reason| reason == "SLOT_FILE_MISSING"))
         && generations[3]["actual_resolution"]["selected_slot"] == "E1"
         && generations[3]["actual_resolution"]["validation"]["reasons"]
             .as_array()
@@ -2908,7 +2984,15 @@ fn run_b06_e1_unavailable(
                     .iter()
                     .any(|reason| reason == "DISK_DIGEST_MISMATCH")
             })
-        && generations[4]["actual_resolution"]["selected_slot"] == "E0";
+        && generations[4]["actual_resolution"]["selected_slot"] == "E1"
+        && generations[4]["actual_resolution"]["validation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| {
+                reasons
+                    .iter()
+                    .any(|reason| reason == "DISK_DIGEST_MISMATCH")
+            })
+        && generations[5]["actual_resolution"]["selected_slot"] == "E0";
     let details = json!({
         "evidence_class":"MODEL_ONLY test-only recovery resolver using actual pointer queries, actual manifests, read-only SQLite integrity checks and file digests",
         "resolver_inputs":"authority pointer, expected E0/E1 SQLite digests, SQLite source ID, source revision, on-disk Manifest bytes and SQLite integrity",

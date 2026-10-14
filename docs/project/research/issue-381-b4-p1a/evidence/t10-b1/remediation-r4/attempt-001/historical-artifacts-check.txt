@@ -1,0 +1,74 @@
+R1-R3 remediation attempt-001 SHA256SUMS: all historical entries except the live source path were checked. The immutable base-source snapshot matches the recorded source digest.
+docs/project/research/issue-381-b4-p1a/T10-B1-RECOVERY-REMEDIATION.md: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/SHA256SUMS: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/prerun-reference.json: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/run-metadata.json: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/f0-exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/matrix-exit-code.txt: OK
+
+Original T10-B1 SHA256SUMS: historical entries other than the advanced live source and regenerated ignored binary were checked.
+docs/project/research/issue-381-b4-p1a/MATRIX.md: OK
+docs/project/research/issue-381-b4-p1a/T10-B1-FAULT-MATRIX.md: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-001/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-001/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-001/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-002/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-002/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-002/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-003/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-003/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-003/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-004/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-004/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-004/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/f0/attempt-005/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-001/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-001/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-001/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-002/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-002/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-002/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-003/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-003/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-003/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-004/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-004/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-004/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-005/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-005/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-005/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-006/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-006/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-006/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-007/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-007/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-007/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/exit-code.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/stderr.txt: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/matrix/attempt-008/stdout.jsonl: OK
+docs/project/research/issue-381-b4-p1a/evidence/t10-b1/run-metadata.json: OK
+tests/issue381_b4_p1a_f1/Cargo.lock: OK
+tests/issue381_b4_p1a_f1/src/db.rs: OK
+tests/issue381_b4_p1a_f1/src/main.rs: OK
+
+Recorded historical source snapshot and unchanged manifest objects:
+412650af6333c94b50644d186d7f927a64d4ff300d1118a1a01a6660527241a7  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r4/attempt-001/r1-r3-base-b1_vfs.rs
+42be8b09518a7caa9ae851c43e1c0d85ce3753ffbd536ae80bf42683032474ab  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r1-r3/attempt-001/SHA256SUMS
+8008886239432ad26af702857417fdde9854f9669600b6531b8b9578d526ecfd  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/SHA256SUMS
+
+Original pre-R1-R3 source snapshot from reviewed parent e596a7bb03c24e5dd6dc1b1f6be3c8e7a205b8c0 and regenerated Cargo binary after final R4 execution:
+1486ec999abc102f3db165abd1ba2abb6c0f01bf82a036d9eb888c227ce0a451  docs/project/research/issue-381-b4-p1a/evidence/t10-b1/remediation-r4/attempt-001/t10-pre-r1-r3-b1_vfs.rs
+9e07db0610b9badb1f267ee90f7366586ec0cada46e8c26438a3903a0ac57e8d  tests/issue381_b4_p1a_f1/src/b1_vfs.rs (current R4 source)
+e7bf6d81dcb4a3b8134a30f90ec3b5dbff32efc77bca6b89107aed8962f52e4f  tests/issue381_b4_p1a_f1/target/debug/issue381-b4-p1a-f1 (ignored generated executable; original manifest expected 064aee7d961ae70d3a462399e76d1f1c2d1a8eeab76fc6ca12f7c2c0ee21ff02)

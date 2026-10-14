@@ -3,12 +3,51 @@ import { describe, expect, it } from "vitest";
 
 const read = (path: string) => readFileSync(path, "utf8");
 
+const DEDUPE_SCHEMA_MINIMUM_VERSION = 29;
+const ANALYSIS_SCHEMA_MINIMUM_VERSION = 30;
+
+const readSchemaVersionAtLeast = (
+  schema: string,
+  minimum: number,
+  feature: string
+): number => {
+  const declarations = [
+    ...schema.matchAll(
+      /^[ \t]*pub\(crate\)[ \t]+const[ \t]+CURRENT_SCHEMA_VERSION:[ \t]*i32[ \t]*=[ \t]*([^;\r\n]*)[ \t]*;[ \t]*$/gm
+    )
+  ];
+  if (declarations.length !== 1) {
+    throw new Error("Expected exactly one CURRENT_SCHEMA_VERSION i32 declaration");
+  }
+
+  const literal = declarations[0]?.[1];
+  if (literal === undefined || !/^[+-]?\d(?:_?\d)*$/.test(literal)) {
+    throw new Error("CURRENT_SCHEMA_VERSION must be an integer literal");
+  }
+
+  const version = Number(literal.replaceAll("_", ""));
+  if (
+    !Number.isSafeInteger(version) ||
+    version < -2_147_483_648 ||
+    version > 2_147_483_647
+  ) {
+    throw new Error("CURRENT_SCHEMA_VERSION must fit in an i32");
+  }
+  if (version < minimum) {
+    throw new Error(`${feature} requires schema version ${minimum} or later`);
+  }
+
+  return version;
+};
+
 describe("Task 02 durable dedupe contract", () => {
   it("keeps the durable schema authoritative for fingerprints and duplicate membership", () => {
     const schema = read("src-tauri/src/db/schema.rs");
     const queries = read("src-tauri/src/db/queries/dedupe/mod.rs");
 
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 37");
+    expect(
+      readSchemaVersionAtLeast(schema, DEDUPE_SCHEMA_MINIMUM_VERSION, "Dedupe")
+    ).toBeGreaterThanOrEqual(DEDUPE_SCHEMA_MINIMUM_VERSION);
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS file_fingerprints");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS dedupe_runs");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS duplicate_groups");
@@ -77,6 +116,33 @@ describe("Task 02 durable dedupe contract", () => {
       expect(matrix).toContain(`| \`${command}\` |`);
     }
   });
+
+  it("preserves the dedupe migration floor and accepts later schema versions", () => {
+    const schemaWithVersion = (version: string) =>
+      `pub(crate) const CURRENT_SCHEMA_VERSION: i32 = ${version};`;
+
+    expect(
+      readSchemaVersionAtLeast(schemaWithVersion("39"), DEDUPE_SCHEMA_MINIMUM_VERSION, "Dedupe")
+    ).toBe(39);
+    expect(() =>
+      readSchemaVersionAtLeast(schemaWithVersion("28"), DEDUPE_SCHEMA_MINIMUM_VERSION, "Dedupe")
+    ).toThrow(/schema version 29 or later/);
+    expect(() => readSchemaVersionAtLeast("", DEDUPE_SCHEMA_MINIMUM_VERSION, "Dedupe")).toThrow(
+      /exactly one/
+    );
+    expect(() =>
+      readSchemaVersionAtLeast(
+        `${schemaWithVersion("38")}\n${schemaWithVersion("39")}`,
+        DEDUPE_SCHEMA_MINIMUM_VERSION,
+        "Dedupe"
+      )
+    ).toThrow(/exactly one/);
+    for (const invalid of ["not-a-number", "2147483648", "-2147483649"]) {
+      expect(() =>
+        readSchemaVersionAtLeast(schemaWithVersion(invalid), DEDUPE_SCHEMA_MINIMUM_VERSION, "Dedupe")
+      ).toThrow();
+    }
+  });
 });
 
 describe("Task 03 durable analysis contract", () => {
@@ -85,7 +151,9 @@ describe("Task 03 durable analysis contract", () => {
     const analysis = read("src-tauri/src/analysis.rs");
     const queries = read("src-tauri/src/db/queries/analysis/mod.rs");
 
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 37");
+    expect(
+      readSchemaVersionAtLeast(schema, ANALYSIS_SCHEMA_MINIMUM_VERSION, "Analysis")
+    ).toBeGreaterThanOrEqual(ANALYSIS_SCHEMA_MINIMUM_VERSION);
     for (const table of [
       "analysis_runs",
       "analysis_run_detectors",
@@ -179,5 +247,32 @@ describe("Task 03 durable analysis contract", () => {
     expect(view).not.toContain("useStorageCleanupStore");
     expect(view).not.toContain("StorageAnalysis");
     expect(view).toContain("setAnalysisFindingDecision");
+  });
+
+  it("preserves the analysis migration floor and accepts later schema versions", () => {
+    const schemaWithVersion = (version: string) =>
+      `pub(crate) const CURRENT_SCHEMA_VERSION: i32 = ${version};`;
+
+    expect(
+      readSchemaVersionAtLeast(schemaWithVersion("39"), ANALYSIS_SCHEMA_MINIMUM_VERSION, "Analysis")
+    ).toBe(39);
+    expect(() =>
+      readSchemaVersionAtLeast(schemaWithVersion("29"), ANALYSIS_SCHEMA_MINIMUM_VERSION, "Analysis")
+    ).toThrow(/schema version 30 or later/);
+    expect(() => readSchemaVersionAtLeast("", ANALYSIS_SCHEMA_MINIMUM_VERSION, "Analysis")).toThrow(
+      /exactly one/
+    );
+    expect(() =>
+      readSchemaVersionAtLeast(
+        `${schemaWithVersion("38")}\n${schemaWithVersion("39")}`,
+        ANALYSIS_SCHEMA_MINIMUM_VERSION,
+        "Analysis"
+      )
+    ).toThrow(/exactly one/);
+    for (const invalid of ["not-a-number", "2147483648", "-2147483649"]) {
+      expect(() =>
+        readSchemaVersionAtLeast(schemaWithVersion(invalid), ANALYSIS_SCHEMA_MINIMUM_VERSION, "Analysis")
+      ).toThrow();
+    }
   });
 });

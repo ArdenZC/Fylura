@@ -133,7 +133,8 @@ jobs:
               *) printf 'source path outside authorized research scope: %s\n' "$path" >&2; exit 1 ;;
             esac
           done < "$evidence_root/changed-paths.txt"
-          filesystem="$(diskutil info "$RUNNER_TEMP" 2>/dev/null | awk -F': *' '$1 ~ /File System Personality/ { print $2; exit }' || true)"
+          filesystem_device="$(df -P "$RUNNER_TEMP" | awk 'END { print $1 }')"
+          filesystem="$(diskutil info "$filesystem_device" 2>/dev/null | awk -F': *' '$1 ~ /File System Personality/ { print $2; exit }' || true)"
           if [ -z "$filesystem" ]; then filesystem='unreported'; fi
           rustc_version="$(rustc --version)"
           cargo_version="$(cargo --version)"

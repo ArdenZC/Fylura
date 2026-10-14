@@ -3,11 +3,11 @@
 
 use crate::db::{
     DirectorySyncAttempt, ManifestExpectation, PRODUCT_BUSY_TIMEOUT_MS, PRODUCT_POOL_SIZE,
-    create_native_test_slot, file_sha256, open_connection, open_product_pool, pool_get,
+    create_native_test_slot, open_connection, open_product_pool, pool_get,
     open_readonly, query_pool_settings, query_rows, read_only_slot_tx, sha256_bytes, suffix,
     verify_manifest_file, verify_seal,
 };
-use crate::model::{Document, documents};
+use crate::model::{Document, documents, file_sha256};
 use rusqlite::{Connection, TransactionBehavior, params};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -294,7 +294,7 @@ fn fixture(temp: &TempRoot, suffix_name: &str, docs: &[Document]) -> T10Result<N
     let e0 = create_native_test_slot(&e0_path, &slot_id, docs)?;
     let e1 = create_native_test_slot(&e1_path, &format!("E1-{suffix_name}"), docs)?;
     let authority_path = temp.path(&format!("{suffix_name}-authority.sqlite"));
-    let mut authority = open_connection(&authority_path)?;
+    let authority = open_connection(&authority_path)?;
     authority.pragma_update(None, "journal_mode", "WAL")?;
     authority.pragma_update(None, "synchronous", "NORMAL")?;
     authority.busy_timeout(Duration::from_millis(PRODUCT_BUSY_TIMEOUT_MS))?;
@@ -644,6 +644,21 @@ fn child_hold_lease(args: &[String]) -> T10Result<()> {
     Ok(())
 }
 
+static PIN_BUSY_HANDLER_ANNOUNCED: AtomicBool = AtomicBool::new(false);
+
+fn pin_wait_busy_handler(count: i32) -> bool {
+    if !PIN_BUSY_HANDLER_ANNOUNCED.swap(true, Ordering::SeqCst) {
+        println!("T10_PIN_LOCK_WAIT");
+        let _ = io::stdout().flush();
+    }
+    if count < 500 {
+        thread::sleep(Duration::from_millis(10));
+        true
+    } else {
+        false
+    }
+}
+
 fn child_late_pin(args: &[String]) -> T10Result<()> {
     if args.len() != 5 {
         return Err("late-pin child argument count".into());
@@ -655,20 +670,8 @@ fn child_late_pin(args: &[String]) -> T10Result<()> {
     let nonce = &args[4];
     let pid = std::process::id();
     let mut conn = Connection::open(authority_path)?;
-    let mut announced = false;
-    conn.busy_handler(Some(move |count| {
-        if !announced {
-            announced = true;
-            println!("T10_PIN_LOCK_WAIT");
-            let _ = io::stdout().flush();
-        }
-        if count < 500 {
-            thread::sleep(Duration::from_millis(10));
-            true
-        } else {
-            false
-        }
-    }))?;
+    PIN_BUSY_HANDLER_ANNOUNCED.store(false, Ordering::SeqCst);
+    conn.busy_handler(Some(pin_wait_busy_handler))?;
     println!("T10_PIN_ATTEMPTING {}", pid);
     io::stdout().flush()?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -918,7 +921,7 @@ fn spawn_hold_lease(
         &lease_id,
         &nonce,
     ]);
-    let mut child = ChildGuard::spawn(&args)?;
+    let child = ChildGuard::spawn(&args)?;
     let pid = child.id();
     let registered = child.read_line()?;
     let parts = registered.split_whitespace().collect::<Vec<_>>();
@@ -1111,7 +1114,7 @@ fn t10_04() -> T10Result<CaseReport> {
     let pin_result_line = child.read_line()?;
     let pin_result = parse_protocol_json(&pin_result_line, "T10_PIN_RESULT ")?;
     let child_status = wait_bounded(&mut child.child, Duration::from_secs(15))?;
-    let mut reopened = open_connection(&fixture.authority_path)?;
+    let reopened = open_connection(&fixture.authority_path)?;
     let lease_rows: i64 = reopened.query_row(
         "SELECT COUNT(*) FROM t10_leases WHERE lease_id=?1",
         [&lease_id],

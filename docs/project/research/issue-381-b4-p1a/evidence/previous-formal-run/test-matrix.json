@@ -1,0 +1,773 @@
+{
+  "all_declared_expectations_satisfied": true,
+  "gate_count": 16,
+  "gates": [
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T01",
+      "details": {
+        "bundled": true,
+        "fts5_compile_option": 1,
+        "libsqlite3_sys": "0.37.0",
+        "r2d2_sqlite": "0.34.0",
+        "rusqlite": "0.39.0",
+        "sqlite_source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+        "sqlite_system_override_variables": [],
+        "sqlite_version": "3.51.3",
+        "trigram_query_count": 1
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T02",
+      "details": {
+        "fixture_only": true,
+        "sizes": [
+          0,
+          10000,
+          100000
+        ],
+        "uid_dedup_and_root_claims": true
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T03-short-query",
+      "details": {
+        "legacy_literal_like_short_match_count": 1800,
+        "legacy_rank": 1000000.0,
+        "library_trigram_short_match_count": 0,
+        "semantics_are_distinct": true,
+        "wildcard_text_escaped_match_count": 0
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T04",
+      "details": {
+        "authority_after_simulated_publish": [
+          "E1",
+          2,
+          2
+        ],
+        "authority_before": [
+          "E0",
+          1,
+          1
+        ],
+        "current_e1_candidate_after_publish": [
+          "source-000002"
+        ],
+        "e0_and_e1_text": {
+          "e0_name": "common e0marker frozen name",
+          "e0_path": "/synthetic/E0/old-location.txt",
+          "e1_name": "common e1marker replacement name",
+          "e1_path": "/synthetic/E1/new-location.txt"
+        },
+        "e0_fresh_before_publish": [
+          "source-000002"
+        ],
+        "e0_held_before_publish": [
+          "source-000002"
+        ],
+        "e0_rank_unchanged": true,
+        "e1_candidate": [
+          "source-000002"
+        ],
+        "held_e0_after_simulated_publish": [
+          "source-000002"
+        ],
+        "held_e0_rank_bits_before_after": [
+          "c027e30b7eeb5e39",
+          "c027e30b7eeb5e39"
+        ],
+        "old_cursor_rejected_after_revision_change": true
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T05",
+      "details": {
+        "authority_barrier": "SQLite BEGIN IMMEDIATE test-only prototype; no product safety claim",
+        "busy_timeout_ms": 5000,
+        "expired_lease_recovery_gc": [
+          true,
+          "REMOVED_OUTSIDE_AUTHORITY_TX"
+        ],
+        "expired_lease_replayed": false,
+        "gc_after_failed_open": [
+          true,
+          "REMOVED_OUTSIDE_AUTHORITY_TX"
+        ],
+        "gc_after_handle_close": [
+          true,
+          "REMOVED_OUTSIDE_AUTHORITY_TX"
+        ],
+        "gc_before_late_pin_rejected": true,
+        "gc_while_live_pin": [
+          false,
+          "LIVE_PIN"
+        ],
+        "held_read_tx_rows": 900,
+        "live_lease_count": 1,
+        "open_failure_lease_released": true,
+        "per_reader_begin_immediate_cost_ms": [
+          0.040901,
+          0.037165000000000004,
+          0.036844,
+          0.061982,
+          0.038327,
+          0.037226,
+          0.032978999999999994,
+          0.037585,
+          0.038627,
+          0.035803,
+          0.035302,
+          0.039487999999999995
+        ],
+        "pin_gc_interleavings": [
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 0,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 1,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 2,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 3,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 4,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 5,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 6,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 7,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 8,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 9,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 10,
+            "slot_readable": true
+          },
+          {
+            "gc_observed_lease": 1,
+            "passed": true,
+            "pin_registered_before_gc": true,
+            "round": 11,
+            "slot_readable": true
+          }
+        ],
+        "pool_max_size": 8,
+        "registered_real_readonly_handle": true,
+        "registered_then_open_failed": true,
+        "release_succeeded": true
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T06",
+      "details": {
+        "8_connection_competing_begin_immediate_costs": {
+          "nearest_rank_p50_ms": 0.076814,
+          "nearest_rank_p95_ms": 3.2487649999999997,
+          "nearest_rank_p99_ms": 8.363235999999999,
+          "samples": 800
+        },
+        "SQLITE_BUSY_5_at_unchanged_5000ms": true,
+        "busy_timeout_ms": 5000,
+        "cancel_writer_sqlite_extended_code": 5,
+        "cancel_writer_wait_ms": 5007.699304,
+        "journal_mode": "wal",
+        "partial_write_rows": 0,
+        "pool_max_size": 8,
+        "reader_lock_interpretation": "measured serialized-write cost; BEGIN IMMEDIATE per request remains unapproved for product",
+        "simultaneous_connections": 8,
+        "synchronous": 1
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T07",
+      "details": {
+        "final_file_hash_after_checkpoint_close": "33954cb67171bd12a634cde9f32a8b9da88b65518ed81978abd3c91a9f9dc01b",
+        "seal_verification": {
+          "checkpoint_ms": 0.119757,
+          "directory_sync_ms": 0.001152,
+          "document_count": 450,
+          "file_bytes": 327680,
+          "file_digest_matches": true,
+          "file_sha256": "33954cb67171bd12a634cde9f32a8b9da88b65518ed81978abd3c91a9f9dc01b",
+          "file_sync_ms": 0.003205,
+          "integrity_check": "ok",
+          "manifest": {
+            "corpus_sha256": "19b9602bae00bfca4df69f59a870cb1d058ccf4b7b6e8068021927bea4db3146",
+            "document_count": 450,
+            "format_version": 1,
+            "sealed_stage": "SEALED_UNPUBLISHED",
+            "slot_id": "SEALED",
+            "source_id": "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618",
+            "sqlite_file_bytes": 327680,
+            "sqlite_file_sha256": "33954cb67171bd12a634cde9f32a8b9da88b65518ed81978abd3c91a9f9dc01b"
+          },
+          "manifest_digest_matches": true,
+          "manifest_sha256": "b47cc599dfb9ab9016040a1cf41357a8e71565bcc02bfbcb2f0f4f9993796cea",
+          "readonly_write_rejected": true,
+          "reopened_readonly": true,
+          "wal_bytes_after_seal": 0
+        },
+        "tampered_file_sha256": "1e1f468fc618236937621deea19a7c1061afc49b7bd7e1afd2f67a678413dbb8",
+        "tampered_manifest_rejected": true,
+        "truncated_db_digest_rejected": true,
+        "truncated_db_integrity_rejected": true,
+        "wal_bytes_after_seal": 0
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T08",
+      "details": {
+        "barrier_results": [
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": false,
+            "candidate_integrity_ok": false,
+            "candidate_manifest_digest_valid": false,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "build",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": false,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "close",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": false,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "sync",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": true,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "seal",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": true,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "pointer-pre-commit",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E1",
+              2,
+              2
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": true,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E1",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "pointer-post-commit",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": true,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "gc-pre-unlink",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": false,
+            "candidate_integrity_ok": false,
+            "candidate_manifest_digest_valid": false,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "gc-post-unlink",
+            "user_fact_rows": 2
+          }
+        ],
+        "fsync_power_loss_claim": "MODEL_ONLY",
+        "process_kill": "Linux child-process kill; not sudden power loss"
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T09",
+      "details": {
+        "authority_unchanged": true,
+        "disk_full": "MODEL_ONLY injected capacity failure",
+        "interrupted_backup_digest_rejected": true,
+        "old_slot_retained": true,
+        "partial_write_manifest_absent": true,
+        "real_disk_full_or_power_loss_test": false,
+        "user_fact_sha_before_after": [
+          "afbf23dc85f371354742aa715a5a477953bb0ad4a4f7010b1925227b184c3217",
+          "afbf23dc85f371354742aa715a5a477953bb0ad4a4f7010b1925227b184c3217"
+        ]
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "ENVIRONMENT_UNAVAILABLE",
+      "case_id": "P1A-T10",
+      "details": {
+        "executor_os": "linux",
+        "hosted_macos_real_handle_test": false,
+        "hosted_windows_real_handle_test": false,
+        "reason": "Linux executor; unchanged CI routing does not run this isolated harness on native Windows/macOS",
+        "required_state": "P1A_NATIVE_GATE_BLOCKED"
+      },
+      "expected_status": "ENVIRONMENT_UNAVAILABLE",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T11",
+      "details": {
+        "corrupt_slot_reconciliation": {
+          "decision": "READ_ONLY_RECONCILIATION",
+          "destructive_repair": false,
+          "digest_rejected": true,
+          "fallback_to_mutable_physical_fts": false,
+          "integrity_rejected": true
+        },
+        "destructive_repair": false,
+        "fallback_to_mutable_physical_fts": false,
+        "missing_slot_reconciliation": {
+          "authority_pointer_still_E0": true,
+          "decision": "READ_ONLY_RECONCILIATION",
+          "destructive_repair": false,
+          "fallback_to_mutable_physical_fts": false,
+          "slot_file_missing": true
+        },
+        "two_file_pointer_slot_crash_matrix": [
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": false,
+            "candidate_integrity_ok": false,
+            "candidate_manifest_digest_valid": false,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "build",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": false,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "close",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": false,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "sync",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": true,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "seal",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": true,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "pointer-pre-commit",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E1",
+              2,
+              2
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": true,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E1",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "pointer-post-commit",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": true,
+            "candidate_integrity_ok": true,
+            "candidate_manifest_digest_valid": true,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "gc-pre-unlink",
+            "user_fact_rows": 2
+          },
+          {
+            "authority_after_recovery": [
+              "E0",
+              1,
+              1
+            ],
+            "candidate_exists": false,
+            "candidate_integrity_ok": false,
+            "candidate_manifest_digest_valid": false,
+            "child_exit_code": null,
+            "child_stderr": "",
+            "expected_authority": "E0",
+            "killed_at_barrier": true,
+            "no_partial_or_mixed_authority": true,
+            "partial_build_transaction_rolled_back": true,
+            "recovery_expectation_satisfied": true,
+            "referenced_slot_hash_matches": true,
+            "stage": "gc-post-unlink",
+            "user_fact_rows": 2
+          }
+        ]
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "PASS",
+      "case_id": "P1A-T12",
+      "details": {
+        "host_specific_performance_claim": "Linux disposable fixture only",
+        "percentile_method": "nearest rank",
+        "raw_sample_count": 300,
+        "samples_per_size": 100,
+        "sizes": [
+          0,
+          10000,
+          100000
+        ],
+        "unmeasured_500k_or_1m_claims": false
+      },
+      "expected_status": "PASS",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "EXPECTED_REJECTION",
+      "case_id": "P1A-N01",
+      "details": {
+        "f0_all_physical_bm25_rank_differs": true,
+        "f0_filter_after_top2_result_count": 0,
+        "f1_effective_result_count": 4500,
+        "negative_design_accepted": false,
+        "post_limit_underfill_observed": true
+      },
+      "expected_status": "EXPECTED_REJECTION",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "EXPECTED_REJECTION",
+      "case_id": "P1A-N02",
+      "details": {
+        "fallback_to_mutable_physical_fts": false,
+        "fresh_f2_guard_rejects": true,
+        "immutable_f1_e0_candidate_retained": true,
+        "physical_e1_revision": 2,
+        "published_e0_revision": 1,
+        "unguarded_f2_e0_candidate_count": 0
+      },
+      "expected_status": "EXPECTED_REJECTION",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "EXPECTED_REJECTION",
+      "case_id": "P1A-N03",
+      "details": {
+        "inherited_fact_count": 0,
+        "new_uid_action_authority": 0,
+        "old_facts_before_after": [
+          2,
+          2
+        ],
+        "path_identity_promotion": false,
+        "same_path_new_uid": "new-uid"
+      },
+      "expected_status": "EXPECTED_REJECTION",
+      "gate_satisfied": true
+    },
+    {
+      "actual_status": "EXPECTED_REJECTION",
+      "case_id": "P1A-N04",
+      "details": {
+        "double_gc_accepted": false,
+        "forged_root_revision_rejected": true,
+        "manifest_replay_rejected": true,
+        "replayed_cursor_rejected": true,
+        "slot_id_reuse_rejected": true,
+        "stale_cas_rows_changed": 0,
+        "tampered_cursor_rejected": true
+      },
+      "expected_status": "EXPECTED_REJECTION",
+      "gate_satisfied": true
+    }
+  ],
+  "independent_oracle": {
+    "exact_float_bits_and_full_sorted_rows": true,
+    "failed": 0,
+    "oracle_exit_code": 0,
+    "passed": 12,
+    "query_snapshots": 12,
+    "summary_stdout": "{\"exact_float_bits\": true, \"failed\": 0, \"oracle\": \"independent Python fixture-string BM25; does not import or invoke SQLite\", \"passed\": 12, \"query_snapshots_checked\": 12}"
+  },
+  "matrix_version": "B4-P1A / 16 issue gates; T03 includes 12 independent query snapshots",
+  "native_exit_code": 0,
+  "native_gate": "BLOCKED: native Windows/macOS handle evidence unavailable on Linux executor",
+  "overall_decision": "P1A_BLOCKED_ENVIRONMENT",
+  "power_loss_gate": "NOT_ESTABLISHED: process kill and fsync model evidence are not sudden power-loss evidence",
+  "satisfied_gate_count": 16
+}

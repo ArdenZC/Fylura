@@ -1,0 +1,3 @@
+# Development smoke evidence
+
+These are the two original `--samples 0` development smoke attempts. The JSONL stdout streams are preserved losslessly with deterministic gzip; both compressed and uncompressed SHA-256 digests are recorded in `manifest.json`. The smoke run intentionally reports `P1A-T12 FAIL` because it used zero performance samples. The first stream predates the later T05/T08/T11 hardening; the second stream validates that hardening. These were produced before the source harness was committed and are explicitly development-only, not part of the final gate result. The final formal run is under `../final/` and is bound to a committed source HEAD.

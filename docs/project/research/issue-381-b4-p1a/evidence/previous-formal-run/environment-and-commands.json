@@ -1,0 +1,148 @@
+{
+  "base_commit": "ab3915e3cdcc7c729317498b3b97501862832a91",
+  "branch": "test/issue-381-b4-p1a-f1-lifecycle",
+  "commands": [
+    {
+      "argv": [
+        "rustc",
+        "--version",
+        "--verbose"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "rustc-version",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/rustc-version.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 196,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/rustc-version.stdout",
+      "stdout_sha256": "b2bdf493bcf6d1dc55181a0efc2774b6d9cf7bf5c8dcc5bed592c994b2ad38c4"
+    },
+    {
+      "argv": [
+        "cargo",
+        "--version"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "cargo-version",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/cargo-version.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 36,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/cargo-version.stdout",
+      "stdout_sha256": "1aedaa9cce116919d39b1eb303a58865771582bc24fc259aa8e26cb212e0f59e"
+    },
+    {
+      "argv": [
+        "cargo",
+        "tree",
+        "-e",
+        "features",
+        "--locked",
+        "--manifest-path",
+        "/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1/Cargo.toml"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "cargo-tree-features",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/cargo-tree-features.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 12386,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/cargo-tree-features.stdout",
+      "stdout_sha256": "9438528cdf1132c052a84f7cade9605085afcc00c6eada10b8648e5ed4019b12"
+    },
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1/Cargo.toml"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "cargo-fmt-check",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/cargo-fmt-check.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 0,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/cargo-fmt-check.stdout",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "--manifest-path",
+        "/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1/Cargo.toml"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "cargo-build-release",
+      "stderr_bytes": 62,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/cargo-build-release.stderr",
+      "stderr_sha256": "9576f1f7e73fc2bb1ec2336aae60cb485c591eadc60a1b998573411c34057e08",
+      "stdout_bytes": 0,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/cargo-build-release.stdout",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "/tmp/issue381-b4-p1a-target/release/issue381-b4-p1a-f1",
+        "--samples",
+        "100"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "matrix-native",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/matrix-native.stderr.txt",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 2154443,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/matrix-native.stdout.jsonl.gz",
+      "stdout_sha256": "38aa2f0905973b66f3c0b6a9a780c5ca47f54c70f29415d9918296bfbfa43ea0",
+      "stdout_uncompressed_bytes": 23283020,
+      "stdout_uncompressed_sha256": "a27c5b699643945ef33debf055d90a124ba594a60365cbd9cd36bdc27eefc3e5"
+    },
+    {
+      "argv": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1/oracle.py",
+        "/workspace/Zen-Canvas/docs/project/research/issue-381-b4-p1a/evidence/final/raw/matrix-native.stdout.jsonl.gz",
+        "/workspace/Zen-Canvas/docs/project/research/issue-381-b4-p1a/evidence/final/raw/matrix-oracle-checks.jsonl"
+      ],
+      "checks_bytes": 7398,
+      "checks_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/matrix-oracle-checks.jsonl",
+      "checks_sha256": "02a80e80112a354a6352d8d0ad7479fbd41100d662b956c5f478d3a9f4110175",
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "matrix-oracle",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/matrix-oracle.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 171,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/final/raw/matrix-oracle.stdout",
+      "stdout_sha256": "b42291eebd61584d5e256f0fb7e46957d66383a18a5850369d33c04edf467969"
+    }
+  ],
+  "executor_architecture": "x86_64",
+  "executor_kernel": "6.18.44",
+  "executor_os": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "lock_parity": {
+    "all_harness_package_versions_and_checksums_in_product_lock": true,
+    "harness_registry_package_count": 69,
+    "mismatches": [],
+    "product_registry_package_count": 588
+  },
+  "native_gate": "ENVIRONMENT_UNAVAILABLE (requires hosted native Windows and macOS runs)",
+  "power_loss_gate": "not established by process kill or fsync",
+  "recorded_at_utc": "2026-10-14T04:07:42.545861+00:00",
+  "repository": "ArdenZC/Zen-Canvas",
+  "source_head": "535979d117343ea22a853bf13b1e836d1e0d0ac9",
+  "source_tree": "083ba9ead54e1bcb08597a6a211d2fb33fbd130d",
+  "workspace_filesystem_type": "overlayfs"
+}

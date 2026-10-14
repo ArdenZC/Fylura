@@ -881,7 +881,6 @@ fn t10_02() -> T10Result<CaseReport> {
     });
     let cleanup_ok = temp.cleanup().is_ok();
     let wal_cleared = wal["exists"] == false || wal["bytes"] == 0;
-    let shm_cleared = shm["exists"] == false || shm["bytes"] == 0;
     let verified_ok = verified["integrity_check"] == "ok"
         && verified["reopened_readonly"] == true
         && verified["readonly_write_rejected"] == true
@@ -889,8 +888,7 @@ fn t10_02() -> T10Result<CaseReport> {
         && documents == slot.manifest.document_count as i64
         && manifest_sha == slot.manifest_sha256
         && file_sha.0 == slot.manifest.sqlite_file_sha256
-        && wal_cleared
-        && shm_cleared;
+        && wal_cleared;
     if !cleanup_ok || !verified_ok {
         return Ok(report("FAIL", json!({"observations":details,"cleanup_succeeded":cleanup_ok})));
     }

@@ -1,0 +1,9 @@
+d14db249420ea43bcdf5082b87aa92ecc1d2e4d51673660f8b9941db1da61d80  tests/issue381_b4_p1a_g2_s1/staticSafetyModel.ts
+7dc86c6f663d1dcf9aeb0fb55e9ac7dc7181588648744e233e678184883e7949  tests/issue381_b4_p1a_g2_s1/fixtures.ts
+379d2ca686323d0f37f5fbb0c3ad23df62def0725ed42a27ca0c8f1772e90ac7  tests/issue381_b4_p1a_g2_s1/staticSafetyModel.test.ts
+15194f7b43042f230ee5e21626895a3dab82f6a82d4e0a36a228e65ce8356724  docs/project/research/issue-381-b4-p1a/b2-g2-s1/STATIC-SAFETY-MODEL.md
+dfaccf815ad3c3a534e5da783c00dcecc683d67597fd1402b07c02c618ca345f  docs/project/research/issue-381-b4-p1a/b2-g2-s1/SOURCE-CHECK.md
+5aef1ae49fcd0bba3175da9e0a5c284bb80e4d3983e03254013b78ebb724c52d  docs/project/research/issue-381-b4-p1a/b2-g2-s1/TEST-MATRIX.md
+6d6e629e89a1df5e4f8c8839b955965f462f91fc55a0931087ffc41889b93134  docs/project/research/issue-381-b4-p1a/b2-g2-s1/evidence/attempt-001/RESULT.md
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/project/research/issue-381-b4-p1a/b2-g2-s1/evidence/attempt-001/typecheck.log
+b91ab33cb5fce5243ec70f56d50e6520f5d9a4b732355c583709ddcaeeccde53  docs/project/research/issue-381-b4-p1a/b2-g2-s1/evidence/attempt-001/vitest.log

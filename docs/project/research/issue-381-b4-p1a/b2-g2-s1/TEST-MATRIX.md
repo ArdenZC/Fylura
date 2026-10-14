@@ -1,0 +1,14 @@
+# G2-S1 static model test matrix
+
+All cases are Vitest in-process tests over newly constructed plain objects. Each rejection asserts that the result is not `DRY_RUN_SAFE` and that its emitted intent list is empty. No case calls a platform disk API or executes a command.
+
+| Group | Positive / negative cases |
+| --- | --- |
+| Positive controls | Valid bounded Windows VHDX lifecycle; valid macOS UDRW/APFS lifecycle; plan objects remain unchanged; intent order and exact object binding; every intent is `NEVER_EXECUTED`; no physical-pass claim. |
+| Common preflight/path/sizing (30 parameterized cases) | Source SHA mismatch; existing target; root/sandbox/target/mount-point symlink or reparse points; path escape; owner-token mismatch; non-unique sandbox; dynamic allocation; sparse allocation; unbounded growth; source partition import; physical-device target; nominal volume >256 MiB; image cap >320 MiB; observed image > cap; host-delta cap >320 MiB; observed host delta > cap; overstated free-space report; pre/post host fingerprint TOCTOU; failed document crosscheck; missing baseline inventory; missing post-plan inventory; implicit-default, disk-number, friendly-name, drive-letter, and broad selectors; drive-letter assignment. |
+| Environment / evidence outcomes | Unknown backing, unknown pre-space, unknown independent post cap; pre-space below 4 GiB; post independent cap below 4 GiB; missing positive control; failed positive control (`FAIL`). |
+| Windows identity and stage binding | G1 disk 0 system/boot fingerprint; G1 disk 1 data fingerprint; missing baseline/post inventory identity; missing VHD returned identity; missing disk identity; two new returned disks; initialization by disk number; non-RAW target; wrong disk size; boot target; partition bound to other disk; format bound to other partition; wrong filesystem. |
+| macOS identity and mount proof (17 cases) | G1 `/dev/disk2s5` Data/APFS host fingerprint; attach result naming existing G1 host device; missing returned identity; double mount; multiple attach results; backing origin mismatch; mount point outside sandbox; mount-point reparse path; guessed/broad/implicit device selectors; non-empty mount point; wrong filesystem; wrong image format/path; sparse image; global erase/partition intent. |
+| Cleanup state machine | macOS unmount → detach exact device → prove absence → remove exact owned image; unproven release blocks removal and retains original failure; Windows detach uses returned VHD object without drive-letter selection; failed unmount; forced detach; wrong resource identity; ownership/path/symlink failures; forged `RELEASE_VERIFIED` phase without proof. |
+
+The final run receipt records the exact runner, test file, result count, timing, and output hash. The test suite has no platform branch that invokes the named PowerShell, Hyper-V, DiskPart, `hdiutil`, or `diskutil` tools.

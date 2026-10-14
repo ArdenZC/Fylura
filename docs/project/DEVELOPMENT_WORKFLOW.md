@@ -66,6 +66,46 @@ remain unchanged; ADR-0004 and ADR-0007 retain their scope.
    independent ownership or parallel work genuinely warrants it. Do not
    make research completeness a substitute for product progress.
 
+### Apply this to the existing open backlog immediately
+
+**This rule applies to already-open Issues, Draft PRs and research branches on
+the day it merges, not only to future tasks.** Before continuing an old thread,
+ask whether the next action will deliver a user-facing improvement, repair a
+reproduced defect, or answer an imminent irreversible-safety decision.
+
+- **Resume active delivery:** choose the smallest independent user defect/fix
+  that can be tested against current `master`. Reuse earlier research and
+  targeted regressions; do not inherit old approval ladders by default.
+- **Park finished research:** once source/model evidence is sufficient for
+  its original bounded question, stop extending it. Keep linked evidence and
+  record `research complete / product not implemented` if that distinction
+  matters. An unmerged test-only PR is not product progress.
+- **Stop duplicating obsolete drafts:** historical designs superseded by a
+  merged implementation (or a newer decision) should not be rebased only to
+  make their old CI green. Preserve valuable findings as historical references;
+  **review before closing** so no unique code or unresolved security bug is
+  lost. Do not auto-merge stale, large experimental PRs.
+- **Localize blocked claims:** a blocked Windows directory-sync/power-loss
+  qualification is not a global ban on ordinary Files UI, metadata notes or
+  narrow safe scan filtering. Still refuse any product path that actually
+  relies on the unproved durability guarantee.
+- **No one-time cleanup bureaucracy:** do not launch a dedicated audit project,
+  parallel backlog ledger, hundreds of archival comments, one more safety
+  harness or mandatory bulk review to enact this. Triage as each already-open
+  item is touched and place the decision in its existing thread.
+- **Limit simultaneous active implementation by capacity, not a new quota:**
+  prioritize one user-visible change and one clearly reproduced defect; add a
+  foundational task only where its dependency is real. Paused work consumes no
+  new Codex/CI cycles until activated for a specific purpose.
+
+**Current observed examples (illustrative, not an authorization to close or
+merge):** `#408` is extensive **test-only** F1 work; `#383` is a blocked
+oversized production attempt and not a safe direct merge; `#411` B04 native
+probe remains unexecuted while its source work is accepted; `#414` real
+ENOSPC and physical power-loss work is deferred by Owner. Re-evaluate on
+current GitHub facts before acting on any of these. Do not touch live product
+code or existing required checks in a backlog-cleanup step.
+
 ### Handoff, limits and measurements
 
 - Codex Cloud owns implementation and tests; Owner/ChatGPT owns research,

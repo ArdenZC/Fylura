@@ -68,6 +68,28 @@ decision and what everyday review evidence is sufficient.
    and reviews; Codex Cloud implements code/tests; the Windows native host
    remains acceptance-only; no Codex Review; merge stays an Owner decision.
 
+## Immediate application to the current project backlog
+
+This decision is **retroactive to work that remains open when merged**.
+Already-open research/test PRs do not become product prerequisites by mere
+age or accumulated audit reports. Classify the **next action**, not the
+history: ship a bounded feature/fix; resolve a credible direct safety
+dependency; or park evidence without further work. Existing Issue/PR
+records and accepted test results remain accessible.
+
+For example, do not keep expanding the already source-accepted but
+environment-blocked T10-B04 study unless a specific near-term production
+decision depends on it. Do not attempt to merge a historically blocked
+large production candidate such as #383 merely to reduce the open-PR count;
+instead define the smallest safe user-facing correction against current
+master. And do not merge #408 test-only research as if it activated F1.
+
+No blanket deletion, auto-close, automatic Draft-PR merge, source rewrite,
+CI bypass, or new compulsory backlog-audit project is authorized. When an
+old item is revisited, update its **existing** discussion with an actual
+decision only if needed. The existing product-specific safety and required
+gate boundaries remain applicable to the features that rely on them.
+
 ## Task trigger examples
 
 - Add a file note display/edit field reusing approved persistence: implement

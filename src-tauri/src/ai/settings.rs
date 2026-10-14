@@ -21,8 +21,13 @@ use crate::{
 };
 
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const AI_CREDENTIAL_SERVICE: &str = "com.startlan.zencanvas";
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const AI_CREDENTIAL_USER: &str = "ai-api-key";
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM: &str =
+    "system_credential_store_unsupported_platform";
 static AI_SETTINGS_SAVE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -599,11 +604,13 @@ impl CredentialStore for InMemoryCredentialStore {
     }
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn credential_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
         .map_err(|error| format!("failed to open system credential store: {error}"))
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn profile_credential_entry(profile_id: &str) -> Result<keyring::Entry, String> {
     if !is_valid_profile_id(profile_id) {
         return Err("AI custom provider profile ID is invalid.".to_string());
@@ -615,6 +622,7 @@ fn profile_credential_entry(profile_id: &str) -> Result<keyring::Entry, String> 
     .map_err(|error| format!("failed to open custom provider credential store: {error}"))
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 impl CredentialStore for SystemCredentialStore {
     fn set(&self, value: &str) -> Result<(), String> {
         credential_entry()?
@@ -658,6 +666,33 @@ impl CredentialStore for SystemCredentialStore {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(error) => Err(format!("failed to delete custom provider API key: {error}")),
         }
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+impl CredentialStore for SystemCredentialStore {
+    fn set(&self, _value: &str) -> Result<(), String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn get(&self) -> Result<Option<String>, String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn delete(&self) -> Result<(), String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn set_profile(&self, _profile_id: &str, _value: &str) -> Result<(), String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn get_profile(&self, _profile_id: &str) -> Result<Option<String>, String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn delete_profile(&self, _profile_id: &str) -> Result<(), String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
     }
 }
 
@@ -1149,6 +1184,47 @@ mod validation_tests {
         thread,
         time::Duration,
     };
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[test]
+    fn system_credential_store_fails_closed_on_unsupported_platforms() {
+        let store = SystemCredentialStore;
+
+        assert_eq!(
+            store.get().expect_err("system credential reads must fail"),
+            SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM
+        );
+        assert_eq!(
+            store
+                .set("test-api-key")
+                .expect_err("system credential writes must fail"),
+            SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM
+        );
+        assert_eq!(
+            store
+                .delete()
+                .expect_err("system credential deletes must fail"),
+            SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM
+        );
+        assert_eq!(
+            store
+                .get_profile("test-profile")
+                .expect_err("custom provider credential reads must fail"),
+            SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM
+        );
+        assert_eq!(
+            store
+                .set_profile("test-profile", "test-api-key")
+                .expect_err("custom provider credential writes must fail"),
+            SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM
+        );
+        assert_eq!(
+            store
+                .delete_profile("test-profile")
+                .expect_err("custom provider credential deletes must fail"),
+            SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM
+        );
+    }
 
     #[test]
     fn public_ai_settings_reports_configuration_without_exposing_the_key() {

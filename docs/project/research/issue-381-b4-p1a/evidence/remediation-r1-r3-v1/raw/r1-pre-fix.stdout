@@ -1,0 +1,1 @@
+EXPECTED_ORIGINAL_FAILURE query_rows(root=None, limit=Some(1)): Wrong number of parameters passed to query. Got 2, needed 3

@@ -414,7 +414,17 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
             let error = error.to_string();
             return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
         }
-        let summary = self.stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+        #[cfg(feature = "native-qa")]
+        super::qa_trace::record("spotlight_initial_query_started");
+        let collection = self.stream_spotlight_entries(sink, &source.volume.id, cancel);
+        #[cfg(feature = "native-qa")]
+        match &collection {
+            Ok(_) => super::qa_trace::record("spotlight_initial_query_completed"),
+            Err(error) => {
+                super::qa_trace::record_error("spotlight_initial_query", &error.to_string())
+            }
+        }
+        let summary = collection?;
         Self::record_collection_state(sink, &source.volume.id, summary)?;
         self.baseline_established.store(true, Ordering::Release);
         Ok(())

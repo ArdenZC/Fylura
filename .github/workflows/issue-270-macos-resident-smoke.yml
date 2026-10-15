@@ -99,6 +99,7 @@ jobs:
 
           evidence = json.loads(Path('.performance-artifacts/issue-270/macos-resident.json').read_text())
           startup_log = evidence.get('stderr', evidence.get('startupLog', ''))
+          trace = evidence.get('coordinatorTrace') or {}
           summary = {
               'sourceHead': evidence.get('sourceHead'),
               'qualificationExitCode': int(os.environ['QUALIFICATION_EXIT_CODE']),
@@ -107,6 +108,15 @@ jobs:
               'classification': evidence.get('classification'),
               'failure': evidence.get('failure'),
               'startupCheckpoints': evidence.get('startupCheckpoints'),
+              'coordinatorDiagnosis': evidence.get('coordinatorDiagnosis'),
+              'coordinatorTrace': {
+                  key: trace.get(key) for key in (
+                      'present', 'eventCount', 'eventCounts', 'lastEvent',
+                      'eventsRetained', 'eventsDropped', 'errorsDropped',
+                      'truncated', 'readError')
+              },
+              'sourceStatus': evidence.get('sourceStatus'),
+              'preIdleSampleCount': len(evidence.get('preIdleSamples', [])),
               'sampleCount': len(evidence.get('samples', [])),
               'coordinatorCycleDelta': evidence.get('coordinatorCycleDelta'),
               'coordinatorWaitDelta': evidence.get('coordinatorWaitDelta'),

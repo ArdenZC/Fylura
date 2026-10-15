@@ -85,28 +85,26 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .performance-artifacts/issue-270
+          qualification_status=0
           python3 scripts/qualifyMacosResident.py \
             'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' \
-            '.performance-artifacts/issue-270/macos-resident.json'
+            '.performance-artifacts/issue-270/macos-resident.json' || qualification_status=$?
+          export QUALIFICATION_EXIT_CODE="$qualification_status"
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path
+          import sys
 
           evidence = json.loads(Path('.performance-artifacts/issue-270/macos-resident.json').read_text())
-          required = {
-              'sourceHead': os.environ['EXPECTED_SOURCE_SHA'],
-              'classification': 'HARD PASS / OBSERVATIONAL MEMORY',
-          }
-          for key, value in required.items():
-              if evidence.get(key) != value:
-                  raise SystemExit(f'{key} mismatch: {evidence.get(key)!r}')
-          if 'tray_ready' not in evidence.get('startupCheckpoints', []):
-              raise SystemExit('background process did not reach tray_ready')
+          startup_log = evidence.get('stderr', evidence.get('startupLog', ''))
           summary = {
+              'sourceHead': evidence.get('sourceHead'),
+              'qualificationExitCode': int(os.environ['QUALIFICATION_EXIT_CODE']),
               'runner': evidence.get('runner'),
               'architecture': evidence.get('architecture'),
               'classification': evidence.get('classification'),
+              'failure': evidence.get('failure'),
               'startupCheckpoints': evidence.get('startupCheckpoints'),
               'sampleCount': len(evidence.get('samples', [])),
               'coordinatorCycleDelta': evidence.get('coordinatorCycleDelta'),
@@ -114,4 +112,14 @@ jobs:
               'cleanup': evidence.get('cleanup'),
           }
           print(json.dumps(summary, indent=2))
+          if evidence.get('sourceHead') != os.environ['EXPECTED_SOURCE_SHA']:
+              raise SystemExit('exact source SHA mismatch')
+          if evidence.get('classification') != 'HARD PASS / OBSERVATIONAL MEMORY':
+              print('--- background startup stderr ---')
+              print(startup_log, file=sys.stdout, end='' if startup_log.endswith('\n') else '\n')
+              raise SystemExit('resident qualification failed')
+          if int(os.environ['QUALIFICATION_EXIT_CODE']) != 0:
+              raise SystemExit('resident qualification exited nonzero')
+          if 'tray_ready' not in evidence.get('startupCheckpoints', []):
+              raise SystemExit('background process did not reach tray_ready')
           PY

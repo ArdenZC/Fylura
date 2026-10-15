@@ -69,6 +69,11 @@ jobs:
           cache-targets: true
           cache-on-failure: true
 
+      - name: Test macOS FSEvents coordinator wake behavior
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --features native-qa --locked
+          global_index::macos::fsevents::tests:: -- --nocapture --test-threads=1
+
       - name: Build native QA app bundle
         shell: bash
         run: |

@@ -237,8 +237,6 @@ def coordinator_diagnosis(trace_snapshot, errors, stderr_lines, process_alive):
         diagnosis = 'coordinator_worker_failed'
     elif coordinator_panicked:
         diagnosis = 'coordinator_worker_panicked'
-    elif source_errors:
-        diagnosis = 'global_index_source_failed'
     elif process_alive is None:
         diagnosis = 'probe_not_started'
     elif not process_alive:
@@ -252,10 +250,12 @@ def coordinator_diagnosis(trace_snapshot, errors, stderr_lines, process_alive):
     elif (counts.get('spotlight_initial_query_started', 0)
           and not counts.get('spotlight_initial_query_completed', 0)):
         diagnosis = 'initial_spotlight_query_incomplete'
-    elif cycles == 0:
-        diagnosis = 'coordinator_cycle_not_started'
     elif wakes >= 2 or cycles >= 4:
         diagnosis = 'repeated_coordinator_wakes'
+    elif source_errors:
+        diagnosis = 'global_index_source_failed'
+    elif cycles == 0:
+        diagnosis = 'coordinator_cycle_not_started'
     elif waits == 0:
         diagnosis = 'coordinator_cycle_active_without_wait'
     else:

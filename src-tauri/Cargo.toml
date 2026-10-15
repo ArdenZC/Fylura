@@ -95,7 +95,6 @@ windows-sys = { version = "0.61.2", features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
-dispatch2 = "0.3.1"
 fsevent-sys = "4.1.0"
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
 objc2 = "0.6.4"

@@ -14,7 +14,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, LogicalSize, Size, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    App, Emitter, LogicalSize, Size, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 #[cfg(feature = "desktop-runtime")]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -1520,24 +1520,22 @@ fn create_search_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindow<
 }
 
 #[cfg(feature = "desktop-runtime")]
-pub fn setup_global_search_shortcut<R: Runtime>(
-    app: &AppHandle<R>,
-    accelerator: &str,
-) -> Result<(), String> {
-    app.plugin(
-        tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(move |app, _shortcut, event| {
-                if event.state() == ShortcutState::Pressed {
-                    if let Err(error) = toggle_search_window(app) {
-                        eprintln!("Toggle search window from global shortcut failed: {error}");
+pub fn setup_global_search_shortcut(app: &mut App, accelerator: &str) -> Result<(), String> {
+    app.handle()
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(move |app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        if let Err(error) = toggle_search_window(app) {
+                            eprintln!("Toggle search window from global shortcut failed: {error}");
+                        }
                     }
-                }
-            })
-            .build(),
-    )
-    .map_err(|error| error.to_string())?;
+                })
+                .build(),
+        )
+        .map_err(|error| error.to_string())?;
     let status_state = app.state::<GlobalHotkeyStatusState>();
-    let status = register_global_search_shortcut(app, &status_state, accelerator);
+    let status = register_global_search_shortcut(app.handle(), &status_state, accelerator);
     if status.registered {
         Ok(())
     } else {
@@ -1928,7 +1926,7 @@ fn require_search_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), St
 }
 
 #[cfg(feature = "desktop-runtime")]
-pub fn setup_tray<R: Runtime, M: Manager<R>>(app: &M) -> tauri::Result<()> {
+pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
     let show_item = MenuItem::with_id(
         app,
         TRAY_SHOW_MAIN_WINDOW_ID,
@@ -1937,8 +1935,16 @@ pub fn setup_tray<R: Runtime, M: Manager<R>>(app: &M) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let quit_item = MenuItem::with_id(app, TRAY_QUIT_APP_ID, "退出", true, None::<&str>)?;
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint=tray_menu_items_ready");
+
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint=tray_menu_ready");
+
     let icon = Image::from_bytes(TRAY_ICON_BYTES)?;
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint=tray_icon_decoded");
 
     TrayIconBuilder::new()
         .icon(icon)
@@ -1967,6 +1973,9 @@ pub fn setup_tray<R: Runtime, M: Manager<R>>(app: &M) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint=tray_icon_built");
+
     Ok(())
 }
 

@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/issue-270-macos-resident-smoke.yml'
       - 'scripts/qualifyMacosResident.py'
+      - 'scripts/diagnoseMacosStartup.py'
       - 'src-tauri/src/main.rs'
       - 'src-tauri/src/app_control.rs'
       - 'src-tauri/Cargo.toml'
@@ -80,6 +81,36 @@ jobs:
           printf '{"mainBinaryName":"zen-canvas"}\n' > "$task_config"
           npx tauri build --features "desktop-runtime,native-qa" --bundles app --config "$task_config" -- --locked
 
+      - name: Capture one bounded Objective-C startup exception
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .performance-artifacts/issue-270
+          python3 scripts/diagnoseMacosStartup.py \
+            'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' \
+            '.performance-artifacts/issue-270/macos-startup-lldb.json'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          evidence = json.loads(Path('.performance-artifacts/issue-270/macos-startup-lldb.json').read_text())
+          print(json.dumps({
+              'sourceHead': evidence.get('sourceHead'),
+              'runner': evidence.get('runner'),
+              'architecture': evidence.get('architecture'),
+              'classification': evidence.get('classification'),
+              'reason': evidence.get('reason'),
+              'startupCheckpoints': evidence.get('startupCheckpoints'),
+              'objcExceptionNames': evidence.get('objcExceptionNames'),
+              'objcExceptionReasons': evidence.get('objcExceptionReasons'),
+              'objcThreadIds': evidence.get('objcThreadIds'),
+              'fatalThreadId': evidence.get('fatalThreadId'),
+              'sigabrtObserved': evidence.get('sigabrtObserved'),
+              'sameThreadAsFatalStop': evidence.get('sameThreadAsFatalStop'),
+              'cleanup': evidence.get('cleanup'),
+          }, indent=2))
+          PY
+
       - name: Qualify the exact background resident process
         shell: bash
         run: |
@@ -123,3 +154,12 @@ jobs:
           if 'tray_ready' not in evidence.get('startupCheckpoints', []):
               raise SystemExit('background process did not reach tray_ready')
           PY
+
+      - name: Preserve macOS startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-270-macos-startup-${{ github.event.pull_request.head.sha }}
+          path: .performance-artifacts/issue-270/
+          if-no-files-found: warn
+          retention-days: 7

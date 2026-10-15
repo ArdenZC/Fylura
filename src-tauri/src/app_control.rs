@@ -14,7 +14,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, Emitter, LogicalSize, Size, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    Emitter, LogicalSize, Size, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 #[cfg(feature = "desktop-runtime")]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -1520,22 +1520,24 @@ fn create_search_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindow<
 }
 
 #[cfg(feature = "desktop-runtime")]
-pub fn setup_global_search_shortcut(app: &mut App, accelerator: &str) -> Result<(), String> {
-    app.handle()
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |app, _shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
-                        if let Err(error) = toggle_search_window(app) {
-                            eprintln!("Toggle search window from global shortcut failed: {error}");
-                        }
+pub fn setup_global_search_shortcut<R: Runtime>(
+    app: &AppHandle<R>,
+    accelerator: &str,
+) -> Result<(), String> {
+    app.plugin(
+        tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(move |app, _shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
+                    if let Err(error) = toggle_search_window(app) {
+                        eprintln!("Toggle search window from global shortcut failed: {error}");
                     }
-                })
-                .build(),
-        )
-        .map_err(|error| error.to_string())?;
+                }
+            })
+            .build(),
+    )
+    .map_err(|error| error.to_string())?;
     let status_state = app.state::<GlobalHotkeyStatusState>();
-    let status = register_global_search_shortcut(app.handle(), &status_state, accelerator);
+    let status = register_global_search_shortcut(app, &status_state, accelerator);
     if status.registered {
         Ok(())
     } else {

@@ -27,6 +27,271 @@ fn qualification_startup_checkpoint(name: &str) {
     let _ = name;
 }
 
+fn setup_runtime(app: &tauri::AppHandle, background_launch: bool) -> tauri::Result<()> {
+    qualification_startup_checkpoint("tauri_setup_entered");
+    let db = open_database(app).map_err(io::Error::other)?;
+    qualification_startup_checkpoint("database_ready");
+    db.recover_dedupe_runs().map_err(io::Error::other)?;
+    db.recover_analysis_runs().map_err(io::Error::other)?;
+    db.recover_content_runs().map_err(io::Error::other)?;
+    if let Err(error) = db.prune_content_artifacts() {
+        eprintln!("Content retention prune skipped: {error}");
+    }
+    if let Err(error) = db.prune_analysis_artifacts() {
+        eprintln!("Analysis retention prune skipped: {error}");
+    }
+    if let Err(error) = db.prune_dedupe_artifacts() {
+        eprintln!("Dedupe retention prune skipped: {error}");
+    }
+    zen_canvas_tauri::scanner::recover_scan_state(&db).map_err(io::Error::other)?;
+    zen_canvas_tauri::file_ops::reconcile_pending_operation_journal(&db)
+        .map_err(io::Error::other)?;
+    db.recover_organization_plans().map_err(io::Error::other)?;
+    db.recover_rule_proposals().map_err(io::Error::other)?;
+    zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
+        .map_err(io::Error::other)?;
+    app.manage(db.clone());
+    app.manage(zen_canvas_tauri::content::ContentRunManager::default());
+    let thumbnail_cache_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(io::Error::other)?
+        .join("quick-look");
+    app.manage(
+        zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService::new(
+            thumbnail_cache_dir,
+        ),
+    );
+    let workspace_thumbnail_cache_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(io::Error::other)?
+        .join("file-workspace-thumbnails");
+    let workspace_native_preview_root = app
+        .path()
+        .app_data_dir()
+        .map_err(io::Error::other)?
+        .join("file-workspace-native-preview");
+    let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntimeOwner::new(
+        db.clone(),
+        app.state::<zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService>()
+            .inner()
+            .clone(),
+        workspace_thumbnail_cache_dir,
+        workspace_native_preview_root,
+    );
+    app.manage(workspace_runtime);
+    let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
+    app.manage(global_index_coordinator.clone());
+    if let Err(error) = global_index_coordinator.start() {
+        eprintln!("Global index startup failed (non-fatal): {error}");
+    }
+    let managed_ai_worker = ManagedAiWorker::start(db.clone());
+    app.manage(managed_ai_worker);
+    app.manage(ScanJobManager::default());
+    let dedupe_jobs = DedupeJobManager::default();
+    app.manage(dedupe_jobs.clone());
+    app.manage(zen_canvas_tauri::analysis::AnalysisRunManager::default());
+    if let Err(error) = zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
+        app.clone(),
+        db.clone(),
+        dedupe_jobs,
+    ) {
+        eprintln!("Dedupe dispatch recovery failed (non-fatal): {error}");
+    }
+    app.manage(OperationCancellationToken::default());
+    app.manage(AIClassificationCancellationToken::default());
+    app.manage(FileWatcherManager::default());
+    app.manage(zen_canvas_tauri::storage_analyzer::CleanupRestoreState::default());
+    app.manage(zen_canvas_tauri::app_control::GlobalHotkeyStatusState::default());
+    app.manage(zen_canvas_tauri::app_control::SearchWindowLifecycleState::default());
+    app.manage(zen_canvas_tauri::app_control::MainWindowReadinessState::default());
+    app.manage(zen_canvas_tauri::app_control::MainWindowLifecycleState::default());
+    app.manage(zen_canvas_tauri::app_control::MainWindowSessionState::default());
+    qualification_startup_checkpoint("core_runtime_owners_ready");
+    zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
+    qualification_startup_checkpoint("tray_ready");
+    let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
+    let launch_at_login = app.autolaunch();
+    let app_settings = match settings::sync_launch_at_login_from_system(
+        &db,
+        &app_settings,
+        &*launch_at_login,
+    ) {
+        Ok(synced_settings) => synced_settings,
+        Err(error) => {
+            eprintln!("Launch at login sync failed (non-fatal): {error}");
+            app_settings
+        }
+    };
+    qualification_startup_checkpoint("autostart_sync_complete");
+    db.prune_operation_logs(app_settings.restore_retention_days)
+        .map_err(io::Error::other)?;
+    if let Err(error) = db.prune_organization_plans() {
+        eprintln!("Organization plan retention prune skipped: {error}");
+    }
+    if let Err(error) = db.prune_rule_proposals() {
+        eprintln!("Rule proposal retention prune skipped: {error}");
+    }
+    app.manage(RuleProposalGenerationManager::default());
+    if let Err(error) = zen_canvas_tauri::app_control::setup_global_search_shortcut(
+        app,
+        &app_settings.search_hotkey,
+    ) {
+        eprintln!("Global search hotkey setup failed (non-fatal): {error}");
+    }
+    qualification_startup_checkpoint("hotkey_setup_complete");
+    db.sync_file_library_watcher_roots(&app_settings.default_scan_folders)
+        .map_err(io::Error::other)?;
+    let watcher_manager = app.state::<FileWatcherManager>();
+    if zen_canvas_tauri::watcher::backend_watcher_reconciliation_enabled() {
+        if let Err(error) = zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
+            app.clone(),
+            db.clone(),
+        ) {
+            eprintln!("Watcher reconciliation recovery failed (non-fatal): {error}");
+        }
+    }
+    if let Err(error) = reload_file_watcher_for_settings(
+        app.clone(),
+        &watcher_manager,
+        &db,
+        app.state::<ScanJobManager>().inner(),
+        app.state::<DedupeJobManager>().inner(),
+        &app_settings,
+    ) {
+        eprintln!("File watcher init failed (non-fatal): {error}");
+    }
+    qualification_startup_checkpoint("watcher_setup_complete");
+
+    let automation_app = app.clone();
+    let automation = zen_canvas_tauri::db::AutomationTriggerCoordinator::start(
+        db.clone(),
+        move || { let _ = automation_app.emit("automation-updated", ()); },
+    ).map_err(io::Error::other)?;
+    app.manage(automation);
+    let lifecycle_coordinator = global_index_coordinator.clone();
+    let lifecycle_app = app.clone();
+    let lifecycle_db = db.clone();
+    let lifecycle =
+        zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController::start(
+            move |event| {
+                use zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleEvent;
+
+                let app_handle = lifecycle_app.clone();
+                let db = lifecycle_db.clone();
+                match event {
+                    MacLifecycleEvent::ResourcePolicyChanged => {
+                        zen_canvas_tauri::scheduler::WorkScheduler::global()
+                            .notify_resource_policy_changed();
+                        Ok(())
+                    }
+                    MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
+                        app_handle
+                            .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                            .pause();
+                        lifecycle_coordinator
+                            .pause()
+                            .map_err(|error| error.to_string())?;
+                        let watcher = app_handle.state::<FileWatcherManager>();
+                        suspend_file_watcher_for_lifecycle(
+                            app_handle.clone(),
+                            watcher.inner(),
+                            &db,
+                            app_handle.state::<ScanJobManager>().inner(),
+                            app_handle.state::<DedupeJobManager>().inner(),
+                        )?;
+                        app_handle.state::<ScanJobManager>().cancel_all();
+                        app_handle.state::<DedupeJobManager>().cancel_all();
+                        app_handle
+                            .state::<zen_canvas_tauri::analysis::AnalysisRunManager>()
+                            .cancel_all();
+                        app_handle
+                            .state::<OperationCancellationToken>()
+                            .cancel_for_lifecycle();
+                        app_handle
+                            .state::<AIClassificationCancellationToken>()
+                            .cancel_for_lifecycle();
+                        app_handle
+                            .state::<zen_canvas_tauri::storage_analyzer::CleanupRestoreState>()
+                            .cancel_for_lifecycle()?;
+                        db.recover_dedupe_runs().map_err(|error| error.to_string())?;
+                        db.recover_analysis_runs().map_err(|error| error.to_string())?;
+                        db.recover_content_runs().map_err(|error| error.to_string())?;
+                        zen_canvas_tauri::scanner::recover_scan_state(&db)
+                            .map_err(|error| error.to_string())?;
+                        Ok(())
+                    }
+                    MacLifecycleEvent::DidWake
+                    | MacLifecycleEvent::DidMount
+                    | MacLifecycleEvent::DidUnmount
+                    | MacLifecycleEvent::VolumeChanged => {
+                        app_handle
+                            .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                            .pause();
+                        db.recover_dedupe_runs().map_err(|error| error.to_string())?;
+                        db.recover_analysis_runs().map_err(|error| error.to_string())?;
+                        db.recover_content_runs().map_err(|error| error.to_string())?;
+                        zen_canvas_tauri::scanner::recover_scan_state(&db)
+                            .map_err(|error| error.to_string())?;
+                        zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
+                            app_handle.clone(),
+                            db.clone(),
+                        )?;
+                        let settings = settings::get_app_settings(&db)
+                            .map_err(|error| error.to_string())?;
+                        reload_file_watcher_for_settings(
+                            app_handle.clone(),
+                            app_handle.state::<FileWatcherManager>().inner(),
+                            &db,
+                            app_handle.state::<ScanJobManager>().inner(),
+                            app_handle.state::<DedupeJobManager>().inner(),
+                            &settings,
+                        )?;
+                        zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
+                            app_handle.clone(),
+                            db,
+                            app_handle.state::<DedupeJobManager>().inner().clone(),
+                        )
+                        .map_err(|error| error.to_string())?;
+                        lifecycle_coordinator
+                            .resume()
+                            .map_err(|error| error.to_string())?;
+                        app_handle
+                            .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                            .resume();
+                        Ok(())
+                    }
+                }
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    qualification_startup_checkpoint("mac_lifecycle_ready");
+    #[cfg(target_os = "macos")]
+    zen_canvas_tauri::scheduler::WorkScheduler::global()
+        .set_native_policy_notifications_available(true);
+    app.manage(lifecycle);
+    #[cfg(all(target_os = "windows", feature = "native-qa"))]
+    zen_canvas_tauri::native_resident_lifecycle_qa::install(app).map_err(io::Error::other)?;
+    if !background_launch {
+        zen_canvas_tauri::app_control::show_main_window(app)
+            .map_err(io::Error::other)?;
+    }
+    eprintln!(
+        "ui_runtime startup_mode={} webview_count={} labels={}",
+        if background_launch { "background" } else { "manual" },
+        app.webview_windows().len(),
+        app.webview_windows()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    qualification_startup_checkpoint("setup_complete");
+    Ok(())
+}
+
 fn main() {
     qualification_startup_checkpoint("process_main_entered");
     let launch_args = std::env::args().collect::<Vec<_>>();
@@ -102,288 +367,24 @@ fn main() {
             Some(vec!["--background"]),
         ))
         .setup(move |app| {
-            qualification_startup_checkpoint("tauri_setup_entered");
-            let db = open_database(app.handle()).map_err(io::Error::other)?;
-            qualification_startup_checkpoint("database_ready");
-            db.recover_dedupe_runs().map_err(io::Error::other)?;
-            db.recover_analysis_runs().map_err(io::Error::other)?;
-            db.recover_content_runs().map_err(io::Error::other)?;
-            if let Err(error) = db.prune_content_artifacts() {
-                eprintln!("Content retention prune skipped: {error}");
-            }
-            if let Err(error) = db.prune_analysis_artifacts() {
-                eprintln!("Analysis retention prune skipped: {error}");
-            }
-            if let Err(error) = db.prune_dedupe_artifacts() {
-                eprintln!("Dedupe retention prune skipped: {error}");
-            }
-            zen_canvas_tauri::scanner::recover_scan_state(&db).map_err(io::Error::other)?;
-            zen_canvas_tauri::file_ops::reconcile_pending_operation_journal(&db)
-                .map_err(io::Error::other)?;
-            db.recover_organization_plans().map_err(io::Error::other)?;
-            db.recover_rule_proposals().map_err(io::Error::other)?;
-            zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
-                .map_err(io::Error::other)?;
-            app.manage(db.clone());
-            app.manage(zen_canvas_tauri::content::ContentRunManager::default());
-            let thumbnail_cache_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(io::Error::other)?
-                .join("quick-look");
-            app.manage(
-                zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService::new(
-                    thumbnail_cache_dir,
-                ),
-            );
-            let workspace_thumbnail_cache_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(io::Error::other)?
-                .join("file-workspace-thumbnails");
-            let workspace_native_preview_root = app
-                .path()
-                .app_data_dir()
-                .map_err(io::Error::other)?
-                .join("file-workspace-native-preview");
-            let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntimeOwner::new(
-                db.clone(),
-                app.state::<zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService>()
-                    .inner()
-                    .clone(),
-                workspace_thumbnail_cache_dir,
-                workspace_native_preview_root,
-            );
-            app.manage(workspace_runtime);
-            let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
-            app.manage(global_index_coordinator.clone());
-            if let Err(error) = global_index_coordinator.start() {
-                eprintln!("Global index startup failed (non-fatal): {error}");
-            }
-            let managed_ai_worker = ManagedAiWorker::start(db.clone());
-            app.manage(managed_ai_worker);
-            app.manage(ScanJobManager::default());
-            let dedupe_jobs = DedupeJobManager::default();
-            app.manage(dedupe_jobs.clone());
-            app.manage(zen_canvas_tauri::analysis::AnalysisRunManager::default());
-            if let Err(error) = zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
-                app.handle().clone(),
-                db.clone(),
-                dedupe_jobs,
-            ) {
-                eprintln!("Dedupe dispatch recovery failed (non-fatal): {error}");
-            }
-            app.manage(OperationCancellationToken::default());
-            app.manage(AIClassificationCancellationToken::default());
-            app.manage(FileWatcherManager::default());
-            app.manage(zen_canvas_tauri::storage_analyzer::CleanupRestoreState::default());
-            app.manage(zen_canvas_tauri::app_control::GlobalHotkeyStatusState::default());
-            app.manage(zen_canvas_tauri::app_control::SearchWindowLifecycleState::default());
-            app.manage(zen_canvas_tauri::app_control::MainWindowReadinessState::default());
-            app.manage(zen_canvas_tauri::app_control::MainWindowLifecycleState::default());
-            app.manage(zen_canvas_tauri::app_control::MainWindowSessionState::default());
-            qualification_startup_checkpoint("core_runtime_owners_ready");
+            let app_handle = app.handle().clone();
             #[cfg(target_os = "macos")]
             {
-                // Tauri's run_on_main_thread executes inline when setup is already
-                // on the main thread. Dispatch asynchronously so NSStatusItem
-                // creation happens after applicationDidFinishLaunching returns.
-                let tray_app = app.handle().clone();
-                let tray_task_app = tray_app.clone();
+                // Tauri's Ready callback runs inside applicationDidFinishLaunching.
+                // Defer Zen's native startup as one main-queue task so AppKit,
+                // Spotlight and tray initialization happen after that callback returns.
                 dispatch2::DispatchQueue::main().exec_async(move || {
-                    if let Err(error) = zen_canvas_tauri::app_control::setup_tray(&tray_task_app) {
-                        eprintln!("Tray initialization failed: {error}");
-                        tray_task_app.exit(1);
-                        return;
+                    if let Err(error) = setup_runtime(&app_handle, background_launch) {
+                        eprintln!("Application startup failed: {error}");
+                        app_handle.exit(1);
                     }
-                    qualification_startup_checkpoint("tray_ready");
                 });
+                Ok(())
             }
             #[cfg(not(target_os = "macos"))]
             {
-                zen_canvas_tauri::app_control::setup_tray(&*app)
-                    .map_err(io::Error::other)?;
-                qualification_startup_checkpoint("tray_ready");
+                setup_runtime(&app_handle, background_launch)
             }
-            let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
-            let launch_at_login = app.autolaunch();
-            let app_settings = match settings::sync_launch_at_login_from_system(
-                &db,
-                &app_settings,
-                &*launch_at_login,
-            ) {
-                Ok(synced_settings) => synced_settings,
-                Err(error) => {
-                    eprintln!("Launch at login sync failed (non-fatal): {error}");
-                    app_settings
-                }
-            };
-            qualification_startup_checkpoint("autostart_sync_complete");
-            db.prune_operation_logs(app_settings.restore_retention_days)
-                .map_err(io::Error::other)?;
-            if let Err(error) = db.prune_organization_plans() {
-                eprintln!("Organization plan retention prune skipped: {error}");
-            }
-            if let Err(error) = db.prune_rule_proposals() {
-                eprintln!("Rule proposal retention prune skipped: {error}");
-            }
-            app.manage(RuleProposalGenerationManager::default());
-            if let Err(error) = zen_canvas_tauri::app_control::setup_global_search_shortcut(
-                app,
-                &app_settings.search_hotkey,
-            ) {
-                eprintln!("Global search hotkey setup failed (non-fatal): {error}");
-            }
-            qualification_startup_checkpoint("hotkey_setup_complete");
-            db.sync_file_library_watcher_roots(&app_settings.default_scan_folders)
-                .map_err(io::Error::other)?;
-            let watcher_manager = app.state::<FileWatcherManager>();
-            if zen_canvas_tauri::watcher::backend_watcher_reconciliation_enabled() {
-                if let Err(error) = zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
-                    app.handle().clone(),
-                    db.clone(),
-                ) {
-                    eprintln!("Watcher reconciliation recovery failed (non-fatal): {error}");
-                }
-            }
-            if let Err(error) = reload_file_watcher_for_settings(
-                app.handle().clone(),
-                &watcher_manager,
-                &db,
-                app.state::<ScanJobManager>().inner(),
-                app.state::<DedupeJobManager>().inner(),
-                &app_settings,
-            ) {
-                eprintln!("File watcher init failed (non-fatal): {error}");
-            }
-            qualification_startup_checkpoint("watcher_setup_complete");
-
-            let automation_app = app.handle().clone();
-            let automation = zen_canvas_tauri::db::AutomationTriggerCoordinator::start(
-                db.clone(),
-                move || { let _ = automation_app.emit("automation-updated", ()); },
-            ).map_err(io::Error::other)?;
-            app.manage(automation);
-            let lifecycle_coordinator = global_index_coordinator.clone();
-            let lifecycle_app = app.handle().clone();
-            let lifecycle_db = db.clone();
-            let lifecycle =
-                zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController::start(
-                    move |event| {
-                        use zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleEvent;
-
-                        let app_handle = lifecycle_app.clone();
-                        let db = lifecycle_db.clone();
-                        match event {
-                            MacLifecycleEvent::ResourcePolicyChanged => {
-                                zen_canvas_tauri::scheduler::WorkScheduler::global()
-                                    .notify_resource_policy_changed();
-                                Ok(())
-                            }
-                            MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
-                                app_handle
-                                    .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
-                                    .pause();
-                                lifecycle_coordinator
-                                    .pause()
-                                    .map_err(|error| error.to_string())?;
-                                let watcher = app_handle.state::<FileWatcherManager>();
-                                suspend_file_watcher_for_lifecycle(
-                                    app_handle.clone(),
-                                    watcher.inner(),
-                                    &db,
-                                    app_handle.state::<ScanJobManager>().inner(),
-                                    app_handle.state::<DedupeJobManager>().inner(),
-                                )?;
-                                app_handle.state::<ScanJobManager>().cancel_all();
-                                app_handle.state::<DedupeJobManager>().cancel_all();
-                                app_handle
-                                    .state::<zen_canvas_tauri::analysis::AnalysisRunManager>()
-                                    .cancel_all();
-                                app_handle
-                                    .state::<OperationCancellationToken>()
-                                    .cancel_for_lifecycle();
-                                app_handle
-                                    .state::<AIClassificationCancellationToken>()
-                                    .cancel_for_lifecycle();
-                                app_handle
-                                    .state::<zen_canvas_tauri::storage_analyzer::CleanupRestoreState>()
-                                    .cancel_for_lifecycle()?;
-                                db.recover_dedupe_runs().map_err(|error| error.to_string())?;
-                                db.recover_analysis_runs().map_err(|error| error.to_string())?;
-                                db.recover_content_runs().map_err(|error| error.to_string())?;
-                                zen_canvas_tauri::scanner::recover_scan_state(&db)
-                                    .map_err(|error| error.to_string())?;
-                                Ok(())
-                            }
-                            MacLifecycleEvent::DidWake
-                            | MacLifecycleEvent::DidMount
-                            | MacLifecycleEvent::DidUnmount
-                            | MacLifecycleEvent::VolumeChanged => {
-                                app_handle
-                                    .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
-                                    .pause();
-                                db.recover_dedupe_runs().map_err(|error| error.to_string())?;
-                                db.recover_analysis_runs().map_err(|error| error.to_string())?;
-                                db.recover_content_runs().map_err(|error| error.to_string())?;
-                                zen_canvas_tauri::scanner::recover_scan_state(&db)
-                                    .map_err(|error| error.to_string())?;
-                                zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
-                                    app_handle.clone(),
-                                    db.clone(),
-                                )?;
-                                let settings = settings::get_app_settings(&db)
-                                    .map_err(|error| error.to_string())?;
-                                reload_file_watcher_for_settings(
-                                    app_handle.clone(),
-                                    app_handle.state::<FileWatcherManager>().inner(),
-                                    &db,
-                                    app_handle.state::<ScanJobManager>().inner(),
-                                    app_handle.state::<DedupeJobManager>().inner(),
-                                    &settings,
-                                )?;
-                                zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
-                                    app_handle.clone(),
-                                    db,
-                                    app_handle.state::<DedupeJobManager>().inner().clone(),
-                                )
-                                .map_err(|error| error.to_string())?;
-                                lifecycle_coordinator
-                                    .resume()
-                                    .map_err(|error| error.to_string())?;
-                                app_handle
-                                    .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
-                                    .resume();
-                                Ok(())
-                            }
-                        }
-                    },
-                )
-                .map_err(|error| error.to_string())?;
-            #[cfg(target_os = "macos")]
-            qualification_startup_checkpoint("mac_lifecycle_ready");
-            #[cfg(target_os = "macos")]
-            zen_canvas_tauri::scheduler::WorkScheduler::global()
-                .set_native_policy_notifications_available(true);
-            app.manage(lifecycle);
-            #[cfg(all(target_os = "windows", feature = "native-qa"))]
-            zen_canvas_tauri::native_resident_lifecycle_qa::install(app.handle()).map_err(io::Error::other)?;
-            if !background_launch {
-                zen_canvas_tauri::app_control::show_main_window(app.handle())
-                    .map_err(io::Error::other)?;
-            }
-            eprintln!(
-                "ui_runtime startup_mode={} webview_count={} labels={}",
-                if background_launch { "background" } else { "manual" },
-                app.webview_windows().len(),
-                app.webview_windows()
-                    .keys()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-            qualification_startup_checkpoint("setup_complete");
-            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             zen_canvas_tauri::db::init_db,

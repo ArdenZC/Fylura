@@ -175,6 +175,18 @@ pub struct WindowsGlobalIndexProvider {
     test_watcher_start_count: std::sync::atomic::AtomicUsize,
 }
 
+#[cfg(feature = "native-qa")]
+pub(crate) enum PauseObservation<'a> {
+    Request {
+        protocol_version: u16,
+        request_id: &'a str,
+    },
+    Response(&'a IndexServiceResponse),
+    TransportError {
+        kind: &'static str,
+    },
+}
+
 impl WindowsGlobalIndexProvider {
     pub fn new() -> Self {
         Self::with_wake(
@@ -357,6 +369,61 @@ impl WindowsGlobalIndexProvider {
 
     fn service_response_error(response: &IndexServiceResponse) -> GlobalIndexError {
         service_errors::decode(response)
+    }
+
+    fn pause_with_observer(
+        &self,
+        #[cfg(feature = "native-qa")] mut observe: impl FnMut(PauseObservation<'_>),
+    ) -> Result<(), GlobalIndexError> {
+        self.clear_native_change_watchers();
+        let request = IndexServiceRequest::new(IndexServiceCommand::Pause, None);
+        #[cfg(feature = "native-qa")]
+        observe(PauseObservation::Request {
+            protocol_version: request.protocol_version,
+            request_id: &request.request_id,
+        });
+        match service::call_index_service_admitted(&request, |_| {
+            Err(service::IndexServiceCallError::Protocol(
+                "unexpected control event".into(),
+            ))
+        }) {
+            Ok(response) => {
+                #[cfg(feature = "native-qa")]
+                observe(PauseObservation::Response(&response));
+                if response.ok {
+                    self.service_connected();
+                    Ok(())
+                } else {
+                    Err(Self::service_response_error(&response))
+                }
+            }
+            Err(error) => {
+                #[cfg(feature = "native-qa")]
+                let kind = match &error {
+                    service::IndexServiceCallError::NotSent(_) => "not_sent",
+                    service::IndexServiceCallError::Protocol(_) => "protocol",
+                    service::IndexServiceCallError::UnknownOutcome(_) => "unknown_outcome",
+                    service::IndexServiceCallError::Sink(_) => "sink",
+                };
+                #[cfg(feature = "native-qa")]
+                observe(PauseObservation::TransportError { kind });
+                match error {
+                    service::IndexServiceCallError::NotSent(_) => {
+                        self.service_failed();
+                        self.direct.pause()
+                    }
+                    error => Err(error.into_global()),
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "native-qa")]
+    pub(crate) fn pause_for_native_qa(
+        &self,
+        observe: impl FnMut(PauseObservation<'_>),
+    ) -> Result<(), GlobalIndexError> {
+        self.pause_with_observer(observe)
     }
 
     fn source_request(
@@ -631,23 +698,13 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
     }
 
     fn pause(&self) -> Result<(), GlobalIndexError> {
-        self.clear_native_change_watchers();
-        let request = IndexServiceRequest::new(IndexServiceCommand::Pause, None);
-        match service::call_index_service_admitted(&request, |_| {
-            Err(service::IndexServiceCallError::Protocol(
-                "unexpected control event".into(),
-            ))
-        }) {
-            Ok(response) if response.ok => {
-                self.service_connected();
-                Ok(())
-            }
-            Ok(response) => Err(Self::service_response_error(&response)),
-            Err(service::IndexServiceCallError::NotSent(_)) => {
-                self.service_failed();
-                self.direct.pause()
-            }
-            Err(error) => Err(error.into_global()),
+        #[cfg(feature = "native-qa")]
+        {
+            self.pause_with_observer(|_| {})
+        }
+        #[cfg(not(feature = "native-qa"))]
+        {
+            self.pause_with_observer()
         }
     }
 
@@ -706,9 +763,11 @@ mod tests {
     use super::*;
     use crate::global_index::models::{
         GlobalEntry, GlobalEntryInput, GlobalVolume, INDEX_STATUS_PERMISSION_REQUIRED,
-        INDEX_STATUS_READY, INDEX_STATUS_SYNCING,
+        INDEX_STATUS_READY, INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_SYNCING,
     };
     use std::collections::VecDeque;
+    use std::sync::mpsc::{self, Sender};
+    use std::thread::JoinHandle;
 
     struct ScriptedServiceIo {
         frames: VecDeque<service::IndexServiceFrame>,
@@ -767,10 +826,12 @@ mod tests {
     enum CoordinatorReply {
         ServiceBusy,
         Complete,
+        CompleteWithEntries,
         PermissionFailure,
         UnknownAfterAdmission,
         NotSent,
         SqliteBusy(PathBuf),
+        SqliteBusyAfterAdmission(PathBuf),
     }
 
     type CoordinatorReplyMap = std::collections::HashMap<String, VecDeque<CoordinatorReply>>;
@@ -828,6 +889,10 @@ mod tests {
             let source_admission = || IndexServiceEvent::Sources {
                 sources: vec![request.source.clone().expect("index source")],
             };
+            let full = !matches!(
+                &request.command,
+                IndexServiceCommand::ResumeIncrementalSync { .. }
+            );
             let terminal =
                 |ok, error_code: Option<&str>, message: Option<&str>, status: Option<&str>| {
                     service::IndexServiceFrame::Response {
@@ -861,6 +926,28 @@ mod tests {
                     }));
                     frames.push_back(terminal(true, None, None, Some("ready")));
                 }
+                CoordinatorReply::CompleteWithEntries
+                | CoordinatorReply::SqliteBusyAfterAdmission(_) => {
+                    frames.push_back(frame_event(source_admission()));
+                    frames.push_back(frame_event(IndexServiceEvent::SourceProvider {
+                        volume_id: source.volume.id.clone(),
+                        provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+                    }));
+                    if full {
+                        frames.push_back(frame_event(IndexServiceEvent::VolumeEntriesStale {
+                            volume_id: source.volume.id.clone(),
+                        }));
+                    }
+                    frames.push_back(frame_event(IndexServiceEvent::Entries {
+                        entries: vec![coordinator_test_entry(&source.volume.id)],
+                    }));
+                    frames.push_back(frame_event(IndexServiceEvent::Checkpoint {
+                        volume_id: source.volume.id.clone(),
+                        journal_id: Some("42".into()),
+                        journal_cursor: Some("43".into()),
+                    }));
+                    frames.push_back(terminal(true, None, None, Some("ready")));
+                }
                 CoordinatorReply::PermissionFailure => {
                     frames.push_back(frame_event(source_admission()));
                     frames.push_back(terminal(
@@ -882,7 +969,13 @@ mod tests {
                     CoordinatorReply::SqliteBusy(path) => Some(path.clone()),
                     _ => None,
                 },
+                busy_after_admission_path: match &reply {
+                    CoordinatorReply::SqliteBusyAfterAdmission(path) => Some(path.clone()),
+                    _ => None,
+                },
                 lock_holder: None,
+                lock_release: None,
+                lock_thread: None,
             };
             let result =
                 self.windows
@@ -890,6 +983,7 @@ mod tests {
                         self.counters.direct_calls.fetch_add(1, Ordering::AcqRel);
                         Ok(())
                     });
+            io.release_writer_lock();
             match &result {
                 Err(GlobalIndexError::ServiceBusy(_)) => {
                     self.counters.service_busy.store(true, Ordering::Release)
@@ -909,7 +1003,60 @@ mod tests {
         frames: VecDeque<service::IndexServiceFrame>,
         request_not_sent: bool,
         busy_database_path: Option<PathBuf>,
+        busy_after_admission_path: Option<PathBuf>,
         lock_holder: Option<rusqlite::Connection>,
+        lock_release: Option<Sender<()>>,
+        lock_thread: Option<JoinHandle<Result<(), String>>>,
+    }
+
+    impl CoordinatorCycleIo {
+        fn start_writer_lock(&mut self, path: PathBuf) {
+            let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<(), String>>(1);
+            let (release_tx, release_rx) = mpsc::channel();
+            let lock_thread = std::thread::spawn(move || {
+                let connection = match rusqlite::Connection::open(path) {
+                    Ok(connection) => connection,
+                    Err(error) => {
+                        let message = error.to_string();
+                        let _ = ready_tx.send(Err(message.clone()));
+                        return Err(message);
+                    }
+                };
+                if let Err(error) = connection.execute_batch("BEGIN IMMEDIATE") {
+                    let message = error.to_string();
+                    let _ = ready_tx.send(Err(message.clone()));
+                    return Err(message);
+                }
+                ready_tx.send(Ok(())).map_err(|error| error.to_string())?;
+                release_rx.recv().map_err(|error| error.to_string())?;
+                connection
+                    .execute_batch("ROLLBACK")
+                    .map_err(|error| error.to_string())
+            });
+            match ready_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                Ok(Ok(())) => {
+                    self.lock_release = Some(release_tx);
+                    self.lock_thread = Some(lock_thread);
+                }
+                Ok(Err(error)) => panic!("failed to hold post-admission writer lock: {error}"),
+                Err(error) => panic!("post-admission writer did not reach barrier: {error}"),
+            }
+        }
+
+        fn release_writer_lock(&mut self) {
+            if let Some(release) = self.lock_release.take() {
+                let _ = release.send(());
+            }
+            if let Some(lock_thread) = self.lock_thread.take() {
+                lock_thread
+                    .join()
+                    .expect("post-admission SQLite lock holder should not panic")
+                    .expect("post-admission SQLite lock holder should roll back cleanly");
+            }
+            if let Some(connection) = self.lock_holder.take() {
+                let _ = connection.execute_batch("ROLLBACK;");
+            }
+        }
     }
 
     impl service::IndexServiceIo for CoordinatorCycleIo {
@@ -935,6 +1082,17 @@ mod tests {
         fn read_frame(
             &mut self,
         ) -> Result<service::IndexServiceFrame, service::IndexServiceCallError> {
+            if matches!(
+                self.frames.front(),
+                Some(service::IndexServiceFrame::Event {
+                    event: IndexServiceEvent::Entries { .. },
+                    ..
+                })
+            ) {
+                if let Some(path) = self.busy_after_admission_path.take() {
+                    self.start_writer_lock(path);
+                }
+            }
             self.frames.pop_front().ok_or_else(|| {
                 service::IndexServiceCallError::UnknownOutcome("scripted stream ended".into())
             })
@@ -950,9 +1108,7 @@ mod tests {
 
     impl Drop for CoordinatorCycleIo {
         fn drop(&mut self) {
-            if let Some(connection) = self.lock_holder.take() {
-                let _ = connection.execute_batch("ROLLBACK;");
-            }
+            self.release_writer_lock();
         }
     }
 
@@ -1372,6 +1528,119 @@ mod tests {
         assert_eq!(recovered.index_status, INDEX_STATUS_READY);
         assert_eq!(recovered.journal_cursor.as_deref(), Some("43"));
         assert_eq!(counters.requests.load(Ordering::Acquire), 2);
+    }
+
+    #[test]
+    fn issue328_admitted_sqlite_busy_fails_closed_and_rebuilds_on_a_new_service_event() {
+        let path = CoordinatorDatabasePath::new("admitted-sqlite-busy");
+        let db = crate::db::Database::open(&path.0).expect("open coordinator test database");
+        db.set_test_busy_timeout_for_all_connections(5_000, std::time::Duration::from_millis(250))
+            .expect("use a bounded test-only lock wait");
+        let failed_source = coordinator_source("volume-a");
+        let healthy_source = coordinator_source("volume-b");
+        seed_coordinator_source(&db, &failed_source);
+        seed_coordinator_source(&db, &healthy_source);
+        assert!(db
+            .request_global_index_rebuild(&failed_source.volume.id)
+            .expect("persist rebuild intent before starting the operation"));
+        let failed_before = db
+            .get_global_volume(&failed_source.volume.id)
+            .unwrap()
+            .unwrap();
+        let counters = std::sync::Arc::new(CoordinatorCycleCounters::default());
+        let provider = WindowsCoordinatorTestProvider::new(
+            vec![failed_source.clone(), healthy_source.clone()],
+            coordinator_reply_script(
+                &[failed_source.clone(), healthy_source.clone()],
+                vec![
+                    (
+                        failed_source.volume.id.clone(),
+                        vec![
+                            CoordinatorReply::SqliteBusyAfterAdmission(path.0.clone()),
+                            CoordinatorReply::CompleteWithEntries,
+                        ],
+                    ),
+                    (
+                        healthy_source.volume.id.clone(),
+                        vec![CoordinatorReply::Complete, CoordinatorReply::Complete],
+                    ),
+                ],
+            ),
+            counters.clone(),
+        );
+        provider.windows.service_connected();
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let wake = GlobalIndexWakeSlot::default();
+
+        crate::global_index::coordinator::run_index_cycle_for_test(&provider, &db, &cancel, &wake)
+            .expect("the admitted SQLite failure is committed as source-local error state");
+
+        let failed_after = db
+            .get_global_volume(&failed_source.volume.id)
+            .unwrap()
+            .unwrap();
+        let failed_operation = db
+            .global_index_operation_state(&failed_source.volume.id)
+            .unwrap()
+            .unwrap();
+        let healthy_after = db
+            .get_global_volume(&healthy_source.volume.id)
+            .unwrap()
+            .unwrap();
+        let healthy_operation = db
+            .global_index_operation_state(&healthy_source.volume.id)
+            .unwrap()
+            .unwrap();
+        assert!(counters.sqlite_busy.load(Ordering::Acquire));
+        assert!(!counters.service_busy.load(Ordering::Acquire));
+        assert_eq!(counters.direct_calls.load(Ordering::Acquire), 0);
+        assert!(provider.windows.service_available.load(Ordering::Acquire));
+        assert_eq!(counters.requests.load(Ordering::Acquire), 2);
+        assert_eq!(
+            failed_after.index_status,
+            crate::global_index::models::INDEX_STATUS_ERROR
+        );
+        assert!(failed_after.last_error.is_some());
+        assert_eq!(failed_after.journal_id, failed_before.journal_id);
+        assert_eq!(failed_after.journal_cursor, failed_before.journal_cursor);
+        assert_eq!(
+            failed_after.last_full_index_at,
+            failed_before.last_full_index_at
+        );
+        assert_eq!(
+            failed_after.last_incremental_sync_at,
+            failed_before.last_incremental_sync_at
+        );
+        assert_eq!(entry_stale_flag(&db, &failed_source.volume.id), 1);
+        assert_eq!(failed_operation.revision, 1);
+        assert_eq!(failed_operation.owner_id, None);
+        assert_eq!(failed_operation.operation_state, None);
+        assert!(failed_operation.rebuild_pending());
+        assert_eq!(healthy_after.index_status, INDEX_STATUS_READY);
+        assert_eq!(healthy_after.journal_cursor.as_deref(), Some("43"));
+        assert_eq!(entry_stale_flag(&db, &healthy_source.volume.id), 0);
+        assert_eq!(healthy_operation.revision, 1);
+        assert_eq!(healthy_operation.owner_id, None);
+
+        wake.notify(GlobalIndexWakeReason::ExplicitCommand);
+        crate::global_index::coordinator::run_index_cycle_for_test(&provider, &db, &cancel, &wake)
+            .expect("a fresh Service admission safely reconciles the failed rebuild");
+        let recovered = db
+            .get_global_volume(&failed_source.volume.id)
+            .unwrap()
+            .unwrap();
+        let recovered_operation = db
+            .global_index_operation_state(&failed_source.volume.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(counters.requests.load(Ordering::Acquire), 4);
+        assert_eq!(counters.direct_calls.load(Ordering::Acquire), 0);
+        assert_eq!(recovered.index_status, INDEX_STATUS_READY);
+        assert_eq!(recovered.journal_cursor.as_deref(), Some("43"));
+        assert_eq!(entry_stale_flag(&db, &failed_source.volume.id), 0);
+        assert_eq!(recovered_operation.revision, 2);
+        assert_eq!(recovered_operation.owner_id, None);
+        assert!(!recovered_operation.rebuild_pending());
     }
 
     #[derive(Default)]

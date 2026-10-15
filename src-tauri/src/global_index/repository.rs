@@ -808,7 +808,12 @@ impl Database {
             return Ok(0);
         }
         let mut conn = self.conn()?;
-        let transaction = conn.transaction()?;
+        // Reserve the WAL writer before reading owner/scope policy state. A
+        // DEFERRED read transaction can hold an obsolete snapshot and fail
+        // with SQLITE_BUSY_SNAPSHOT when this batch later upgrades to write.
+        // This is scoped to the batch's existing atomic unit, with no
+        // filesystem/process/network work under the writer reservation.
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(owner) = owner {
             if entries
                 .iter()

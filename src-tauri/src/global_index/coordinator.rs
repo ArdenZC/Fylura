@@ -549,7 +549,30 @@ fn run_index(
             // catch-up-to-idle boundary.
             let _ = wake.wait(&cancel, Some(Duration::ZERO));
             super::qa_trace::record("coordinator_cycle");
-            previous_topology = Some(run_index_cycle(provider.as_ref(), &db, &cancel, &wake)?);
+            let mut cycle_topology = previous_topology.clone();
+            match run_index_cycle_with_topology(
+                provider.as_ref(),
+                &db,
+                &cancel,
+                &wake,
+                &mut cycle_topology,
+            ) {
+                Ok(topology) => {
+                    previous_topology = Some(topology);
+                }
+                Err(error) if sqlite_contention_kind(&error).is_some() => {
+                    let kind = sqlite_contention_kind(&error).expect("matched SQLite contention");
+                    eprintln!(
+                        "Global Index cycle deferred after SQLite {kind:?}; no immediate retry scheduled: {error}"
+                    );
+                    // Keep the topology snapshot collected before the failed
+                    // database write. It prevents an unchanged topology audit
+                    // from replaying this cycle, while still allowing a later
+                    // topology change to wake one owner-fenced cycle.
+                    previous_topology = cycle_topology;
+                }
+                Err(error) => return Err(error),
+            }
             if cancel.load(Ordering::Acquire) {
                 break;
             }
@@ -557,7 +580,9 @@ fn run_index(
 
         super::qa_trace::record("coordinator_wait");
         match wake.wait(&cancel, provider.topology_audit_interval()) {
-            GlobalIndexWaitResult::Notified(_) => run_cycle = true,
+            GlobalIndexWaitResult::Notified(_) => {
+                run_cycle = true;
+            }
             GlobalIndexWaitResult::Cancelled | GlobalIndexWaitResult::Shutdown => break,
             GlobalIndexWaitResult::TimedOut => match provider.audit_source_topology() {
                 Ok(Some(discovered)) => {
@@ -595,14 +620,27 @@ pub(crate) fn run_service_recovery_qa_cycle(
 
 type SourceTopologySignature = Vec<(String, String, String, String, String, String, bool)>;
 
+#[cfg(any(test, all(windows, feature = "native-qa")))]
 fn run_index_cycle(
     provider: &dyn GlobalIndexProvider,
     db: &Database,
     cancel: &Arc<AtomicBool>,
     wake: &GlobalIndexWakeSlot,
 ) -> Result<SourceTopologySignature, GlobalIndexError> {
+    let mut discovered_topology = None;
+    run_index_cycle_with_topology(provider, db, cancel, wake, &mut discovered_topology)
+}
+
+fn run_index_cycle_with_topology(
+    provider: &dyn GlobalIndexProvider,
+    db: &Database,
+    cancel: &Arc<AtomicBool>,
+    wake: &GlobalIndexWakeSlot,
+    discovered_topology: &mut Option<SourceTopologySignature>,
+) -> Result<SourceTopologySignature, GlobalIndexError> {
     let discovered = provider.discover_sources()?;
     let topology = topology_signature(&discovered);
+    *discovered_topology = Some(topology.clone());
     for source in &discovered {
         let existing = db.get_global_volume(&source.volume.id)?;
         let legacy_recursive_fallback_needs_rebuild = existing.as_ref().is_some_and(|current| {
@@ -873,6 +911,33 @@ fn source_error_status(error: &GlobalIndexError) -> &'static str {
         GlobalIndexError::PermissionRequired(_) => INDEX_STATUS_PERMISSION_REQUIRED,
         GlobalIndexError::WindowsIo(5 | 1314) => INDEX_STATUS_PERMISSION_REQUIRED,
         _ => INDEX_STATUS_ERROR,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SqliteContentionKind {
+    Busy,
+    BusySnapshot,
+    Locked,
+}
+
+/// Classify only real SQLite result codes. Provider diagnostics, Service
+/// request contention, and transport/protocol errors remain separate classes.
+pub(crate) fn sqlite_contention_kind(error: &GlobalIndexError) -> Option<SqliteContentionKind> {
+    let GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _))) =
+        error
+    else {
+        return None;
+    };
+
+    if code.extended_code == rusqlite::ffi::SQLITE_BUSY_SNAPSHOT {
+        Some(SqliteContentionKind::BusySnapshot)
+    } else if code.code == rusqlite::ErrorCode::DatabaseBusy {
+        Some(SqliteContentionKind::Busy)
+    } else if code.code == rusqlite::ErrorCode::DatabaseLocked {
+        Some(SqliteContentionKind::Locked)
+    } else {
+        None
     }
 }
 

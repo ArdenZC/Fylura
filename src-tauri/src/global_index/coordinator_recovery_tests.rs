@@ -1,3 +1,311 @@
+struct BusyCycleWorkerProvider {
+    source: GlobalSourceDescriptor,
+    discoveries: AtomicUsize,
+    operations: AtomicUsize,
+    discovered: SyncSender<usize>,
+}
+
+impl GlobalIndexProvider for BusyCycleWorkerProvider {
+    fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+        let count = self.discoveries.fetch_add(1, Ordering::AcqRel) + 1;
+        let _ = self.discovered.send(count);
+        Ok(vec![self.source.clone()])
+    }
+
+    fn start_initial_index(
+        &self,
+        _source: &GlobalSourceDescriptor,
+        _sink: &mut dyn GlobalIndexSink,
+        _cancel: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        unreachable!("fixture source has an existing full-index baseline")
+    }
+
+    fn resume_incremental_sync(
+        &self,
+        source: &GlobalSourceDescriptor,
+        sink: &mut dyn GlobalIndexSink,
+        _cancel: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        self.operations.fetch_add(1, Ordering::AcqRel);
+        sink.checkpoint(&source.volume.id, Some("journal"), Some("43"))
+    }
+
+    fn pause(&self) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+
+    fn status(&self) -> Result<String, GlobalIndexError> {
+        Ok("test".into())
+    }
+
+    fn shutdown(&self) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn transient_sqlite_busy_keeps_coordinator_alive_until_a_new_wake() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open isolated coordinator test database");
+    let source = diagnostic_source("source-worker-busy", INDEX_STATUS_READY, Some(1));
+    db.upsert_global_volume(&source.volume)
+        .expect("seed source before locking the database");
+    db.set_test_busy_timeout_for_all_connections(
+        5_000,
+        std::time::Duration::from_millis(20),
+    )
+    .expect("bound only this test's lock wait");
+    let blocker = rusqlite::Connection::open(&path.0).expect("open external writer");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("hold the database writer reservation");
+
+    let (discovered_tx, discovered_rx) = sync_channel(4);
+    let provider = Arc::new(BusyCycleWorkerProvider {
+        source: source.clone(),
+        discoveries: AtomicUsize::new(0),
+        operations: AtomicUsize::new(0),
+        discovered: discovered_tx,
+    });
+    let cancel = Arc::new(AtomicBool::new(false));
+    let wake = Arc::new(GlobalIndexWakeSlot::default());
+    let worker = {
+        let db = db.clone();
+        let provider = provider.clone();
+        let cancel = cancel.clone();
+        let wake = wake.clone();
+        thread::spawn(move || run_index(provider, db, cancel, wake))
+    };
+
+    assert_eq!(
+        discovered_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("first startup discovery"),
+        1
+    );
+    wait_for_idle_wait(&wake, 0);
+    assert!(!worker.is_finished(), "SQLite BUSY must not end the worker");
+    assert_eq!(provider.operations.load(Ordering::Acquire), 0);
+    assert!(matches!(
+        discovered_rx.recv_timeout(std::time::Duration::from_millis(100)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+    ));
+
+    blocker
+        .execute_batch("ROLLBACK")
+        .expect("release database writer reservation");
+    let prior_waits = wake.snapshot().blocked_waits;
+    wake.notify(GlobalIndexWakeReason::ExplicitCommand);
+    assert_eq!(
+        discovered_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("explicit event starts one new cycle"),
+        2
+    );
+    wait_for_idle_wait(&wake, prior_waits);
+    assert_eq!(provider.discoveries.load(Ordering::Acquire), 2);
+    assert_eq!(provider.operations.load(Ordering::Acquire), 1);
+
+    cancel.store(true, Ordering::Release);
+    wake.shutdown();
+    worker
+        .join()
+        .expect("join coordinator worker")
+        .expect("worker shuts down after the event-driven recovery");
+    let recovered = db
+        .get_global_volume(&source.volume.id)
+        .expect("read recovered source")
+        .expect("source remains present");
+    assert_eq!(recovered.index_status, INDEX_STATUS_READY);
+    assert_eq!(recovered.journal_cursor.as_deref(), Some("43"));
+    let operation = db
+        .global_index_operation_state(&source.volume.id)
+        .expect("read recovered operation")
+        .expect("source operation remains present");
+    assert_eq!(operation.revision, 1);
+    assert_eq!(operation.owner_id, None);
+}
+
+struct BusyTopologyAuditProvider {
+    initial_source: GlobalSourceDescriptor,
+    added_source: GlobalSourceDescriptor,
+    discoveries: AtomicUsize,
+    audits: AtomicUsize,
+    indexed_sources: AtomicUsize,
+    discovered: SyncSender<(usize, Vec<String>)>,
+    audited: SyncSender<(usize, Vec<String>)>,
+}
+
+impl GlobalIndexProvider for BusyTopologyAuditProvider {
+    fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+        let count = self.discoveries.fetch_add(1, Ordering::AcqRel) + 1;
+        let sources = if count == 1 {
+            vec![self.initial_source.clone()]
+        } else {
+            vec![self.initial_source.clone(), self.added_source.clone()]
+        };
+        let ids = sources
+            .iter()
+            .map(|source| source.volume.id.clone())
+            .collect();
+        let _ = self.discovered.send((count, ids));
+        Ok(sources)
+    }
+
+    fn start_initial_index(
+        &self,
+        _source: &GlobalSourceDescriptor,
+        _sink: &mut dyn GlobalIndexSink,
+        _cancel: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        self.indexed_sources.fetch_add(1, Ordering::AcqRel);
+        Ok(())
+    }
+
+    fn resume_incremental_sync(
+        &self,
+        _source: &GlobalSourceDescriptor,
+        _sink: &mut dyn GlobalIndexSink,
+        _cancel: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        self.indexed_sources.fetch_add(1, Ordering::AcqRel);
+        Ok(())
+    }
+
+    fn pause(&self) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+
+    fn status(&self) -> Result<String, GlobalIndexError> {
+        Ok("test".into())
+    }
+
+    fn shutdown(&self) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+
+    fn audit_source_topology(
+        &self,
+    ) -> Result<Option<Vec<GlobalSourceDescriptor>>, GlobalIndexError> {
+        let count = self.audits.fetch_add(1, Ordering::AcqRel) + 1;
+        let sources = if count == 1 {
+            vec![self.initial_source.clone()]
+        } else {
+            vec![self.initial_source.clone(), self.added_source.clone()]
+        };
+        let ids = sources
+            .iter()
+            .map(|source| source.volume.id.clone())
+            .collect();
+        let _ = self.audited.send((count, ids));
+        Ok(Some(sources))
+    }
+
+    fn topology_audit_interval(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_millis(100))
+    }
+}
+
+#[test]
+fn sqlite_busy_keeps_low_frequency_topology_audit_without_command_retry() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open topology-audit test database");
+    let initial = diagnostic_source("source-topology-initial", INDEX_STATUS_READY, None);
+    let added = diagnostic_source("source-topology-added", INDEX_STATUS_READY, None);
+    db.upsert_global_volume(&initial.volume)
+        .expect("seed initial source before locking database");
+    db.set_test_busy_timeout_for_all_connections(
+        5_000,
+        std::time::Duration::from_millis(20),
+    )
+    .expect("bound only this test's lock wait");
+    let blocker = rusqlite::Connection::open(&path.0).expect("open external writer");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("hold database writer reservation");
+
+    let (discovered_tx, discovered_rx) = sync_channel(4);
+    let (audited_tx, audited_rx) = sync_channel(4);
+    let provider = Arc::new(BusyTopologyAuditProvider {
+        initial_source: initial.clone(),
+        added_source: added.clone(),
+        discoveries: AtomicUsize::new(0),
+        audits: AtomicUsize::new(0),
+        indexed_sources: AtomicUsize::new(0),
+        discovered: discovered_tx,
+        audited: audited_tx,
+    });
+    let cancel = Arc::new(AtomicBool::new(false));
+    let wake = Arc::new(GlobalIndexWakeSlot::default());
+    let worker = {
+        let db = db.clone();
+        let provider = provider.clone();
+        let cancel = cancel.clone();
+        let wake = wake.clone();
+        thread::spawn(move || run_index(provider, db, cancel, wake))
+    };
+
+    assert_eq!(
+        discovered_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("startup source discovery"),
+        (1, vec![initial.volume.id.clone()])
+    );
+    assert_eq!(
+        audited_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("low-frequency audit runs after SQLite BUSY"),
+        (1, vec![initial.volume.id.clone()]),
+        "unchanged topology must not replay the failed indexing cycle"
+    );
+    assert_eq!(provider.discoveries.load(Ordering::Acquire), 1);
+    assert_eq!(provider.indexed_sources.load(Ordering::Acquire), 0);
+    assert_eq!(
+        wake.snapshot().notifications,
+        0,
+        "unchanged topology must not enqueue an indexing wake"
+    );
+
+    blocker
+        .execute_batch("ROLLBACK")
+        .expect("release writer without notifying the coordinator");
+    assert_eq!(
+        audited_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("next low-frequency audit observes topology change"),
+        (2, vec![initial.volume.id.clone(), added.volume.id.clone()])
+    );
+    assert_eq!(
+        discovered_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("topology change starts one cycle without an explicit command"),
+        (2, vec![initial.volume.id.clone(), added.volume.id.clone()])
+    );
+    let before_completion_wait = wake.snapshot().blocked_waits;
+    wait_for_idle_wait(&wake, before_completion_wait);
+    assert_eq!(provider.discoveries.load(Ordering::Acquire), 2);
+    assert_eq!(provider.indexed_sources.load(Ordering::Acquire), 2);
+    assert_eq!(provider.audits.load(Ordering::Acquire), 2);
+    assert_eq!(
+        wake.snapshot().notifications,
+        1,
+        "only the detected topology change wakes the follow-up cycle"
+    );
+    let indexed_added_source = db
+        .get_global_volume(&added.volume.id)
+        .expect("read topology-added source")
+        .expect("topology-added source was persisted");
+    assert_eq!(indexed_added_source.index_status, INDEX_STATUS_READY);
+
+    cancel.store(true, Ordering::Release);
+    wake.shutdown();
+    worker
+        .join()
+        .expect("join topology-audit worker")
+        .expect("topology-audit worker exits cleanly");
+}
+
 struct RecoveryOutcomeProvider {
     source: GlobalSourceDescriptor,
     outcome: u8,

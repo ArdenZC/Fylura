@@ -27,7 +27,10 @@ fn qualification_startup_checkpoint(name: &str) {
     let _ = name;
 }
 
-fn setup_runtime(app: &tauri::AppHandle, background_launch: bool) -> tauri::Result<()> {
+fn setup_runtime(
+    app: &tauri::AppHandle,
+    background_launch: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     qualification_startup_checkpoint("tauri_setup_entered");
     let db = open_database(app).map_err(io::Error::other)?;
     qualification_startup_checkpoint("database_ready");

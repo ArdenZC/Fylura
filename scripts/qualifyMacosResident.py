@@ -249,11 +249,11 @@ def coordinator_diagnosis(trace_snapshot, errors, stderr_lines, process_alive):
         diagnosis = 'qa_trace_read_failed'
     elif not trace_snapshot.get('present') or trace_snapshot.get('eventCount', 0) == 0:
         diagnosis = 'qa_trace_missing'
-    elif cycles == 0:
-        diagnosis = 'coordinator_cycle_not_started'
     elif (counts.get('spotlight_initial_query_started', 0)
           and not counts.get('spotlight_initial_query_completed', 0)):
         diagnosis = 'initial_spotlight_query_incomplete'
+    elif cycles == 0:
+        diagnosis = 'coordinator_cycle_not_started'
     elif wakes >= 2 or cycles >= 4:
         diagnosis = 'repeated_coordinator_wakes'
     elif waits == 0:

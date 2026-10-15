@@ -1250,6 +1250,7 @@ fn process_liveness_precheck_runs_without_an_immediate_writer_lock() {
     );
 
     let owner_id = volume.id.clone();
+    let process_probe_closure_db = process_probe_db.clone();
     let recovered = db
         .claim_global_index_operation_with_process_check_for_test(
             &volume,
@@ -1259,7 +1260,7 @@ fn process_liveness_precheck_runs_without_an_immediate_writer_lock() {
             move |_, _| {
                 // A second connection must be able to obtain and commit an
                 // IMMEDIATE write while the process check is running.
-                let mut conn = process_probe_db.conn().expect("probe connection");
+                let mut conn = process_probe_closure_db.conn().expect("probe connection");
                 let transaction = conn
                     .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
                     .expect("process check runs outside the claim writer reservation");

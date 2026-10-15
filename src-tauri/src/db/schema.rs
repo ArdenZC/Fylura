@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 38;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 39;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -887,6 +887,23 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
                 migrate_library_identity_foundation(conn)?;
             }
             set_schema_version(conn, 38)?;
+        }
+        if version < 39 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE global_volumes ADD COLUMN operation_revision INTEGER NOT NULL DEFAULT 0 CHECK (operation_revision >= 0);",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_owner_id TEXT;",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_owner_pid INTEGER;",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_owner_started_at INTEGER;",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_owner_route TEXT CHECK (operation_owner_route IS NULL OR operation_owner_route IN ('coordinator', 'service', 'direct'));",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_kind TEXT CHECK (operation_kind IS NULL OR operation_kind IN ('initial', 'incremental', 'rebuild'));",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_state TEXT CHECK (operation_state IS NULL OR operation_state IN ('running', 'unknown'));",
+                    "ALTER TABLE global_volumes ADD COLUMN rebuild_intent_revision INTEGER NOT NULL DEFAULT 0 CHECK (rebuild_intent_revision >= 0);",
+                    "ALTER TABLE global_volumes ADD COLUMN rebuild_completed_revision INTEGER NOT NULL DEFAULT 0 CHECK (rebuild_completed_revision >= 0);",
+                ],
+            )?;
+            set_schema_version(conn, 39)?;
         }
         Ok(())
     })

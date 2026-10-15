@@ -269,6 +269,26 @@ impl MultiVolumeDiagnosticProvider {
         operation: &'static str,
     ) -> Result<(), GlobalIndexError> {
         let source_id = source.volume.id.clone();
+        let outcome = self
+            .outcomes
+            .lock()
+            .expect("diagnostic outcomes")
+            .get_mut(&source_id)
+            .and_then(std::collections::VecDeque::pop_front)
+            .unwrap_or(DiagnosticOutcome::Success);
+        if !matches!(outcome, DiagnosticOutcome::ServiceBusy) {
+            let kind = match operation {
+                "start_initial_index" => SourceOperationKind::Initial,
+                "rebuild" => SourceOperationKind::Rebuild,
+                _ => SourceOperationKind::Incremental,
+            };
+            sink.admit_source_operation(
+                &source.volume,
+                &uuid::Uuid::new_v4().to_string(),
+                kind,
+                SourceOperationRoute::Service,
+            )?;
+        }
         self.operations
             .lock()
             .expect("diagnostic operation log")
@@ -288,18 +308,10 @@ impl MultiVolumeDiagnosticProvider {
                     .expect("multi-volume test releases the active source");
             }
         }
-        let outcome = self
-            .outcomes
-            .lock()
-            .expect("diagnostic outcomes")
-            .get_mut(&source_id)
-            .and_then(std::collections::VecDeque::pop_front)
-            .unwrap_or(DiagnosticOutcome::Success);
-
         match outcome {
             DiagnosticOutcome::Success => Ok(()),
             DiagnosticOutcome::ServiceBusy => {
-                Err(GlobalIndexError::Provider(SERVICE_BUSY_MESSAGE.to_string()))
+                Err(GlobalIndexError::ServiceBusy(SERVICE_BUSY_MESSAGE.to_string()))
             }
             DiagnosticOutcome::PermissionDenied => {
                 sink.set_source_state(
@@ -323,6 +335,10 @@ impl MultiVolumeDiagnosticProvider {
 }
 
 impl GlobalIndexProvider for MultiVolumeDiagnosticProvider {
+    fn has_external_source_operation_admission(&self) -> bool {
+        true
+    }
+
     fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
         Ok(self.sources.clone())
     }
@@ -438,7 +454,13 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     let active_source = db.get_global_volume("source-a").unwrap().unwrap();
     let prior_busy_source = db.get_global_volume("source-b").unwrap().unwrap();
     let prior_permission_source = db.get_global_volume("source-c").unwrap().unwrap();
-    assert_eq!(active_source.index_status, INDEX_STATUS_SYNCING);
+    assert_eq!(active_source.index_status, INDEX_STATUS_READY);
+    let active_operation = db
+        .global_index_operation_state("source-a")
+        .unwrap()
+        .unwrap();
+    assert_eq!(active_operation.operation_state.as_deref(), Some("running"));
+    assert!(active_operation.owner_id.is_some());
     assert_eq!(prior_busy_source.index_status, INDEX_STATUS_ERROR);
     assert_eq!(
         prior_busy_source.last_error.as_deref(),
@@ -455,8 +477,8 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     let active_aggregate = db.global_index_status().expect("active aggregate status");
     assert_eq!(active_aggregate.status, INDEX_STATUS_ERROR);
     assert_eq!(active_aggregate.indexed_volumes, 3);
-    assert_eq!(active_aggregate.ready_volumes, 0);
-    assert_eq!(active_aggregate.pending_volumes, 1);
+    assert_eq!(active_aggregate.ready_volumes, 1);
+    assert_eq!(active_aggregate.pending_volumes, 0);
     assert_eq!(active_aggregate.total_entries, 0);
     assert!(!active_aggregate.collection_complete);
 
@@ -502,10 +524,7 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     let source_c = db.get_global_volume("source-c").unwrap().unwrap();
     assert_eq!(source_a.index_status, INDEX_STATUS_READY);
     assert_eq!(source_b.index_status, INDEX_STATUS_ERROR);
-    assert!(source_b
-        .last_error
-        .as_deref()
-        .is_some_and(|error| error.contains(SERVICE_BUSY_MESSAGE)));
+    assert_eq!(source_b.last_error.as_deref(), Some("previous_service_busy"));
     assert_eq!(
         source_c.index_status,
         INDEX_STATUS_PERMISSION_REQUIRED,
@@ -824,7 +843,7 @@ fn busy_source_waits_for_a_new_wake_before_an_explicit_retry() {
             .unwrap()
             .unwrap()
             .index_status,
-        INDEX_STATUS_ERROR
+        INDEX_STATUS_READY
     );
 
     let prior_blocked_waits = wake.snapshot().blocked_waits;
@@ -849,4 +868,83 @@ fn busy_source_waits_for_a_new_wake_before_an_explicit_retry() {
 
     drop(db);
     drop(path);
+}
+
+#[test]
+fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open completion contention database");
+    let source = diagnostic_source("source-finish-busy", INDEX_STATUS_READY, Some(1));
+    db.upsert_global_volume(&source.volume)
+        .expect("seed source health");
+    db.set_test_busy_timeout_for_all_connections(
+        5_000,
+        std::time::Duration::from_millis(20),
+    )
+    .expect("bound lock wait for this contention regression");
+
+    let mut sink = DatabaseIndexSink {
+        db: db.clone(),
+        owners: HashMap::new(),
+    };
+    sink.admit_source_operation(
+        &source.volume,
+        "service-operation-with-contended-completion",
+        SourceOperationKind::Incremental,
+        SourceOperationRoute::Service,
+    )
+    .expect("persist service admission before provider effects");
+
+    let blocker = rusqlite::Connection::open(&path.0).expect("open SQLite writer contender");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("hold the SQLite writer lock");
+    let result = sink.finish_source_operation(
+        &source.volume.id,
+        INDEX_STATUS_READY,
+        None,
+        None,
+        Some(2),
+        false,
+    );
+    assert!(matches!(
+        result,
+        Err(GlobalIndexError::Database(DbError::Sqlite(
+            rusqlite::Error::SqliteFailure(error, _)
+        ))) if error.code == rusqlite::ErrorCode::DatabaseBusy
+    ));
+    drop(sink);
+    blocker
+        .execute_batch("ROLLBACK")
+        .expect("release the SQLite writer lock");
+
+    let before_retry = db
+        .get_global_volume(&source.volume.id)
+        .expect("read committed health after lock release")
+        .expect("source remains present");
+    assert_eq!(before_retry.index_status, INDEX_STATUS_READY);
+    assert_eq!(before_retry.last_error, None);
+
+    let mut retry_sink = DatabaseIndexSink {
+        db: db.clone(),
+        owners: HashMap::new(),
+    };
+    retry_sink
+        .admit_source_operation(
+            &source.volume,
+            "service-operation-after-contended-completion",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Service,
+        )
+        .expect("a fresh admitted service operation reconciles the old owner");
+    retry_sink
+        .finish_source_operation(
+            &source.volume.id,
+            INDEX_STATUS_READY,
+            None,
+            None,
+            Some(3),
+            false,
+        )
+        .expect("successful follow-up completion commits source health");
 }

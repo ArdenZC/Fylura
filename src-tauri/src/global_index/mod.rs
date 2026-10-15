@@ -16,7 +16,10 @@ pub mod macos;
 pub mod windows;
 
 pub use commands::*;
-pub use coordinator::{GlobalIndexCoordinator, GlobalIndexProvider, GlobalIndexSink};
+pub use coordinator::{
+    GlobalIndexCoordinator, GlobalIndexProvider, GlobalIndexSink, SourceOperationKind,
+    SourceOperationRoute,
+};
 pub use managed_worker::ManagedAiWorker;
 pub use models::*;
 pub(crate) use repository::enqueue_managed_ai_for_library_files;

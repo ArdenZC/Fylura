@@ -1,5 +1,6 @@
 use super::*;
 use crate::db::Database;
+use crate::global_index::repository::{SourceOperationKind, SourceOperationRoute};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -132,7 +133,7 @@ fn migration_creates_global_and_managed_domains_separately() {
     let version: i32 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version");
-    assert_eq!(version, 38);
+    assert_eq!(version, 39);
     drop(conn);
     drop(db);
     let _ = std::fs::remove_file(path);
@@ -915,6 +916,272 @@ fn global_index_batch_wakes_only_for_new_or_reactivated_eligible_work() {
 
     drop(db);
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn rebuild_intent_coalesces_without_changing_committed_source_health_or_entries() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open rebuild-intent database");
+    let mut volume = test_volume();
+    volume.index_status = INDEX_STATUS_READY.to_string();
+    volume.journal_id = Some("journal-7".into());
+    volume.journal_cursor = Some("cursor-42".into());
+    volume.last_full_index_at = Some(100);
+    volume.last_incremental_sync_at = Some(200);
+    volume.entry_count = 1;
+    db.upsert_global_volume(&volume).expect("seed source");
+    let entry = test_entry(r"C:\Global\kept.txt", "kept.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+        .expect("seed active global entry");
+    let before = db.get_global_volume(&volume.id).unwrap().unwrap();
+
+    assert!(db.request_global_index_rebuild(&volume.id).unwrap());
+    assert!(db.request_global_index_rebuild(&volume.id).unwrap());
+
+    let after = db.get_global_volume(&volume.id).unwrap().unwrap();
+    let operation = db
+        .global_index_operation_state(&volume.id)
+        .unwrap()
+        .unwrap();
+    let stale: i64 = db
+        .conn()
+        .unwrap()
+        .query_row(
+            "SELECT is_stale FROM global_entries WHERE id = ?1",
+            [entry.entry_id()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(operation.rebuild_intent_revision, 1);
+    assert_eq!(operation.rebuild_completed_revision, 0);
+    assert!(operation.rebuild_pending());
+    assert_eq!(after.index_status, before.index_status);
+    assert_eq!(after.last_error, before.last_error);
+    assert_eq!(after.journal_id, before.journal_id);
+    assert_eq!(after.journal_cursor, before.journal_cursor);
+    assert_eq!(after.last_full_index_at, before.last_full_index_at);
+    assert_eq!(
+        after.last_incremental_sync_at,
+        before.last_incremental_sync_at
+    );
+    assert_eq!(after.entry_count, before.entry_count);
+    assert_eq!(stale, 0);
+}
+
+#[test]
+fn source_revision_fences_late_stale_and_checkpoint_writes_after_disable() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open source-revision database");
+    let mut volume = test_volume();
+    volume.index_status = INDEX_STATUS_READY.to_string();
+    db.upsert_global_volume(&volume).expect("seed source");
+    let entry = test_entry(r"C:\Global\late.txt", "late.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+        .expect("seed active global entry");
+    let owner = db
+        .claim_global_index_operation(
+            &volume,
+            "service-operation-before-disable",
+            SourceOperationKind::Rebuild,
+            SourceOperationRoute::Service,
+        )
+        .unwrap()
+        .expect("admit source operation");
+
+    db.set_global_volume_enabled(&volume.id, false)
+        .expect("disable source and invalidate old owner");
+    db.forget_local_global_index_operation(&owner);
+
+    assert!(!db
+        .update_global_volume_checkpoint_owned(&owner, Some("late-journal"), Some("late-cursor"))
+        .unwrap());
+    assert!(db
+        .mark_global_entries_stale_for_volume_owned(&owner)
+        .is_err());
+    assert!(db
+        .upsert_global_entries_batch_owned(
+            &[test_entry(
+                r"C:\Global\late-write.txt",
+                "late-write.txt",
+                false,
+            )],
+            &owner
+        )
+        .is_err());
+
+    let current = db.get_global_volume(&volume.id).unwrap().unwrap();
+    let operation = db
+        .global_index_operation_state(&volume.id)
+        .unwrap()
+        .unwrap();
+    let stale: i64 = db
+        .conn()
+        .unwrap()
+        .query_row(
+            "SELECT is_stale FROM global_entries WHERE id = ?1",
+            [entry.entry_id()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(!current.enabled);
+    assert_eq!(current.journal_id, None);
+    assert_eq!(current.journal_cursor, None);
+    assert!(operation.revision > owner.revision);
+    assert_eq!(operation.owner_id, None);
+    assert_eq!(stale, 0);
+}
+
+#[test]
+fn unknown_service_owner_cannot_be_replayed_by_direct_after_restart() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open operation-recovery database");
+    let mut volume = test_volume();
+    volume.index_status = INDEX_STATUS_READY.to_string();
+    db.upsert_global_volume(&volume).expect("seed source");
+    let admitted = db
+        .claim_global_index_operation(
+            &volume,
+            "admitted-service-request",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Service,
+        )
+        .unwrap()
+        .expect("claim admitted Service request");
+    assert!(db.mark_global_index_operation_unknown(&admitted).unwrap());
+
+    let direct_replay = db
+        .claim_global_index_operation(
+            &volume,
+            "direct-replay-after-restart",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Direct,
+        )
+        .unwrap();
+    let unknown_state = db
+        .global_index_operation_state(&volume.id)
+        .unwrap()
+        .unwrap();
+    assert!(direct_replay.is_none());
+    assert_eq!(
+        unknown_state.owner_id.as_deref(),
+        Some("admitted-service-request")
+    );
+    assert_eq!(unknown_state.operation_state.as_deref(), Some("unknown"));
+
+    let reconciled = db
+        .claim_global_index_operation(
+            &volume,
+            "newly-admitted-service-request",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Service,
+        )
+        .unwrap()
+        .expect("a new Service admission reconciles the previous unknown owner");
+    assert!(reconciled.revision > admitted.revision);
+    assert!(db
+        .finish_global_index_operation(
+            &reconciled,
+            INDEX_STATUS_READY,
+            None,
+            None,
+            Some(300),
+            false
+        )
+        .unwrap());
+    let completed = db
+        .global_index_operation_state(&volume.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(completed.owner_id, None);
+    assert_eq!(completed.operation_state, None);
+}
+
+#[test]
+fn abandoned_direct_owner_is_recovered_when_its_process_is_gone() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open orphan-owner database");
+    let volume = test_volume();
+    db.upsert_global_volume(&volume).expect("seed source");
+    db.conn()
+        .unwrap()
+        .execute(
+            r#"
+            UPDATE global_volumes
+            SET operation_revision = 1,
+                operation_owner_id = 'crashed-direct-operation',
+                operation_owner_pid = ?2,
+                operation_owner_started_at = 1,
+                operation_owner_route = 'direct',
+                operation_kind = 'incremental',
+                operation_state = 'running'
+            WHERE id = ?1
+            "#,
+            rusqlite::params![volume.id, i64::from(u32::MAX)],
+        )
+        .expect("persist process owner left by a terminated Direct run");
+
+    let replacement = db
+        .claim_global_index_operation(
+            &volume,
+            "replacement-direct-operation",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Direct,
+        )
+        .unwrap()
+        .expect("a new Direct operation recovers an owner whose process exited");
+    assert_eq!(replacement.revision, 2);
+    assert!(db
+        .finish_global_index_operation(
+            &replacement,
+            INDEX_STATUS_READY,
+            None,
+            None,
+            Some(300),
+            false,
+        )
+        .unwrap());
+}
+
+#[test]
+fn source_operation_claims_are_independent_per_volume() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open independent-owner database");
+    let first = test_volume();
+    let mut second = test_volume();
+    second.id = "gv_second".into();
+    second.stable_volume_id = "second-volume".into();
+    db.upsert_global_volume(&first).expect("seed first source");
+    db.upsert_global_volume(&second)
+        .expect("seed second source");
+
+    let first_owner = db
+        .claim_global_index_operation(
+            &first,
+            "first-source-operation",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Service,
+        )
+        .unwrap()
+        .expect("claim first source");
+    let second_owner = db
+        .claim_global_index_operation(
+            &second,
+            "second-source-operation",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Service,
+        )
+        .unwrap()
+        .expect("independent source can be admitted concurrently");
+    assert_ne!(first_owner.volume_id, second_owner.volume_id);
+    assert!(db
+        .claim_global_index_operation(
+            &first,
+            "competing-first-source-operation",
+            SourceOperationKind::Rebuild,
+            SourceOperationRoute::Service,
+        )
+        .unwrap()
+        .is_none());
 }
 
 #[test]

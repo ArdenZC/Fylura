@@ -1,4 +1,6 @@
 use super::models::*;
+use super::repository::SourceOperationOwner;
+pub use super::repository::{SourceOperationKind, SourceOperationRoute};
 use super::wake::{GlobalIndexWaitResult, GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use crate::db::{Database, DbError};
 use crate::file_workspace::WorkClass;
@@ -23,6 +25,8 @@ pub enum GlobalIndexError {
     Provider(String),
     #[error("service request busy: {0}")]
     ServiceBusy(String),
+    #[error("source operation is already owned: {0}")]
+    SourceBusy(String),
     #[error("permission required: {0}")]
     PermissionRequired(String),
     #[error("invalid service protocol: {0}")]
@@ -38,6 +42,32 @@ pub enum GlobalIndexError {
 }
 
 pub trait GlobalIndexSink: Send {
+    fn admit_source_operation(
+        &mut self,
+        _source: &GlobalVolume,
+        _operation_id: &str,
+        _kind: SourceOperationKind,
+        _route: SourceOperationRoute,
+    ) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+    fn source_operation_admitted(&self, _volume_id: &str) -> bool {
+        false
+    }
+    fn mark_source_operation_unknown(&mut self, _volume_id: &str) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+    fn finish_source_operation(
+        &mut self,
+        volume_id: &str,
+        status: &str,
+        error: Option<&str>,
+        _full_index_at: Option<i64>,
+        _incremental_sync_at: Option<i64>,
+        _complete_rebuild_intent: bool,
+    ) -> Result<(), GlobalIndexError> {
+        self.set_source_state(volume_id, status, error)
+    }
     fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError>;
     fn mark_entry_stale(&mut self, entry_id: &str) -> Result<(), GlobalIndexError>;
     fn checkpoint(
@@ -113,6 +143,11 @@ pub trait GlobalIndexProvider: Send + Sync {
     /// Providers can mark pending reconciliation as heavy before it enters
     /// the shared resource admission path.
     fn requires_background_admission(&self, _source: &GlobalSourceDescriptor) -> bool {
+        false
+    }
+    /// Windows owns admission in its IPC/direct route. Other providers are
+    /// admitted by the Coordinator after its existing scheduler lease.
+    fn has_external_source_operation_admission(&self) -> bool {
         false
     }
 
@@ -224,41 +259,17 @@ impl GlobalIndexCoordinator {
     }
 
     pub fn rebuild(&self, source_id: Option<String>) -> Result<(), GlobalIndexError> {
-        let discovered = self.provider.discover_sources()?;
-        let discovered_by_id = discovered
-            .into_iter()
-            .map(|source| (source.volume.id.clone(), source.volume.provider))
-            .collect::<HashMap<_, _>>();
         if let Some(id) = source_id {
-            if let Some(provider) = discovered_by_id.get(&id) {
-                self.db.update_global_volume_provider(&id, provider)?;
+            if !self.db.request_global_index_rebuild(&id)? {
+                return Err(GlobalIndexError::Provider(
+                    "rebuild source is missing or disabled".into(),
+                ));
             }
-            self.db.update_global_volume_state(
-                &id,
-                INDEX_STATUS_REBUILD_REQUIRED,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )?;
-            self.db.mark_global_entries_stale_for_volume(&id)?;
         } else {
             for volume in self.db.list_global_volumes()? {
-                if let Some(provider) = discovered_by_id.get(&volume.id) {
-                    self.db
-                        .update_global_volume_provider(&volume.id, provider)?;
+                if volume.enabled {
+                    self.db.request_global_index_rebuild(&volume.id)?;
                 }
-                self.db.update_global_volume_state(
-                    &volume.id,
-                    INDEX_STATUS_REBUILD_REQUIRED,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )?;
-                self.db.mark_global_entries_stale_for_volume(&volume.id)?;
             }
         }
         self.start()
@@ -306,17 +317,132 @@ impl GlobalIndexCoordinator {
 
 struct DatabaseIndexSink {
     db: Database,
+    owners: HashMap<String, SourceOperationOwner>,
+}
+
+impl DatabaseIndexSink {
+    fn owner(&self, volume_id: &str) -> Result<&SourceOperationOwner, GlobalIndexError> {
+        self.owners.get(volume_id).ok_or_else(|| {
+            GlobalIndexError::ServiceProtocol(format!(
+                "source write before operation admission: {volume_id}"
+            ))
+        })
+    }
+
+    fn map_owned_write_error(error: DbError) -> GlobalIndexError {
+        match error {
+            DbError::Validation(message)
+                if message == "global_index_operation_owner_lost"
+                    || message == "global_index_operation_foreign_volume_write" =>
+            {
+                GlobalIndexError::ServiceOutcomeUnknown(message)
+            }
+            other => GlobalIndexError::Database(other),
+        }
+    }
+
+    fn only_owner(&self) -> Result<&SourceOperationOwner, GlobalIndexError> {
+        if self.owners.len() != 1 {
+            return Err(GlobalIndexError::ServiceProtocol(
+                "source write does not have exactly one admitted owner".into(),
+            ));
+        }
+        self.owners.values().next().ok_or_else(|| {
+            GlobalIndexError::ServiceProtocol("source write before operation admission".into())
+        })
+    }
+}
+
+impl Drop for DatabaseIndexSink {
+    fn drop(&mut self) {
+        for owner in self.owners.values() {
+            self.db.forget_local_global_index_operation(owner);
+        }
+    }
 }
 
 impl GlobalIndexSink for DatabaseIndexSink {
+    fn admit_source_operation(
+        &mut self,
+        source: &GlobalVolume,
+        operation_id: &str,
+        kind: SourceOperationKind,
+        route: SourceOperationRoute,
+    ) -> Result<(), GlobalIndexError> {
+        let Some(owner) =
+            self.db
+                .claim_global_index_operation(source, operation_id, kind, route)?
+        else {
+            return Err(GlobalIndexError::SourceBusy(format!(
+                "source {} changed, is disabled, or has another active owner",
+                source.id
+            )));
+        };
+        self.owners.insert(source.id.clone(), owner);
+        Ok(())
+    }
+
+    fn source_operation_admitted(&self, volume_id: &str) -> bool {
+        self.owners.contains_key(volume_id)
+    }
+
+    fn mark_source_operation_unknown(&mut self, volume_id: &str) -> Result<(), GlobalIndexError> {
+        if let Some(owner) = self.owners.get(volume_id).cloned() {
+            let _ = self.db.mark_global_index_operation_unknown(&owner)?;
+            self.owners.remove(volume_id);
+            self.db.forget_local_global_index_operation(&owner);
+        }
+        Ok(())
+    }
+
+    fn finish_source_operation(
+        &mut self,
+        volume_id: &str,
+        status: &str,
+        error: Option<&str>,
+        full_index_at: Option<i64>,
+        incremental_sync_at: Option<i64>,
+        complete_rebuild_intent: bool,
+    ) -> Result<(), GlobalIndexError> {
+        let Some(owner) = self.owners.get(volume_id).cloned() else {
+            return Err(GlobalIndexError::ServiceProtocol(format!(
+                "source completion without operation admission: {volume_id}"
+            )));
+        };
+        let completed = self.db.finish_global_index_operation(
+            &owner,
+            status,
+            error,
+            full_index_at,
+            incremental_sync_at,
+            complete_rebuild_intent,
+        )?;
+        self.owners.remove(volume_id);
+        self.db.forget_local_global_index_operation(&owner);
+        if completed {
+            Ok(())
+        } else {
+            Err(GlobalIndexError::ServiceOutcomeUnknown(
+                "source operation ownership changed before completion".into(),
+            ))
+        }
+    }
+
     fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError> {
+        if entries.is_empty() {
+            return Ok(0);
+        }
+        let owner = self.owner(&entries[0].volume_id)?;
         self.db
-            .upsert_global_entries_batch(entries)
-            .map_err(GlobalIndexError::from)
+            .upsert_global_entries_batch_owned(entries, owner)
+            .map_err(Self::map_owned_write_error)
     }
 
     fn mark_entry_stale(&mut self, entry_id: &str) -> Result<(), GlobalIndexError> {
-        self.db.mark_global_entry_stale(entry_id)?;
+        let owner = self.only_owner()?;
+        self.db
+            .mark_global_entry_stale_owned(entry_id, owner)
+            .map_err(Self::map_owned_write_error)?;
         Ok(())
     }
 
@@ -326,15 +452,15 @@ impl GlobalIndexSink for DatabaseIndexSink {
         journal_id: Option<&str>,
         journal_cursor: Option<&str>,
     ) -> Result<(), GlobalIndexError> {
-        self.db.update_global_volume_state(
-            volume_id,
-            INDEX_STATUS_SYNCING,
-            None,
-            journal_id,
-            journal_cursor,
-            None,
-            None,
-        )?;
+        let owner = self.owner(volume_id)?;
+        if !self
+            .db
+            .update_global_volume_checkpoint_owned(owner, journal_id, journal_cursor)?
+        {
+            return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                "source checkpoint rejected by owner revision".into(),
+            ));
+        }
         Ok(())
     }
 
@@ -344,8 +470,15 @@ impl GlobalIndexSink for DatabaseIndexSink {
         status: &str,
         error: Option<&str>,
     ) -> Result<(), GlobalIndexError> {
-        self.db
-            .update_global_volume_state(volume_id, status, error, None, None, None, None)?;
+        let owner = self.owner(volume_id)?;
+        if !self
+            .db
+            .update_global_volume_state_owned(owner, status, error)?
+        {
+            return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                "source state rejected by owner revision".into(),
+            ));
+        }
         Ok(())
     }
 
@@ -354,9 +487,16 @@ impl GlobalIndexSink for DatabaseIndexSink {
         volume_id: &str,
         provider: &str,
     ) -> Result<(), GlobalIndexError> {
-        self.db
-            .update_global_volume_provider(volume_id, provider)
-            .map_err(GlobalIndexError::from)
+        let owner = self.owner(volume_id)?;
+        if !self
+            .db
+            .update_global_volume_provider_owned(owner, provider)?
+        {
+            return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                "source provider rejected by owner revision".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn resolve_parent_path(
@@ -385,7 +525,10 @@ impl GlobalIndexSink for DatabaseIndexSink {
     }
 
     fn mark_volume_entries_stale(&mut self, volume_id: &str) -> Result<(), GlobalIndexError> {
-        self.db.mark_global_entries_stale_for_volume(volume_id)?;
+        let owner = self.owner(volume_id)?;
+        self.db
+            .mark_global_entries_stale_for_volume_owned(owner)
+            .map_err(Self::map_owned_write_error)?;
         Ok(())
     }
 }
@@ -472,14 +615,10 @@ fn run_index_cycle(
                 .as_ref()
                 .and_then(|current| current.last_error.as_deref())
                 .unwrap_or("legacy recursive fallback requires native MFT rebuild");
-            db.update_global_volume_state(
+            db.update_global_volume_state_if_unowned(
                 &source.volume.id,
                 INDEX_STATUS_REBUILD_REQUIRED,
                 Some(error),
-                None,
-                None,
-                None,
-                None,
             )?;
         }
         if source.volume.provider == PROVIDER_WINDOWS_UNSUPPORTED {
@@ -493,14 +632,10 @@ fn run_index_cycle(
                 current.index_status != INDEX_STATUS_UNAVAILABLE
                     || current.last_error.as_deref() != Some(message)
             }) {
-                db.update_global_volume_state(
+                db.update_global_volume_state_if_unowned(
                     &source.volume.id,
                     INDEX_STATUS_UNAVAILABLE,
                     Some(message),
-                    None,
-                    None,
-                    None,
-                    None,
                 )?;
             }
         }
@@ -510,7 +645,10 @@ fn run_index_cycle(
         .map(|source| (source.volume.id.clone(), source))
         .collect::<HashMap<_, _>>();
     let volumes = db.list_global_volumes()?;
-    let mut sink = DatabaseIndexSink { db: db.clone() };
+    let mut sink = DatabaseIndexSink {
+        db: db.clone(),
+        owners: HashMap::new(),
+    };
     for volume in volumes {
         if cancel.load(Ordering::Acquire) {
             break;
@@ -522,16 +660,11 @@ fn run_index_cycle(
             if volume.index_status != INDEX_STATUS_UNAVAILABLE
                 || volume.last_error.as_deref() != Some("global_index_source_unavailable")
             {
-                db.update_global_volume_state(
+                db.update_global_volume_state_if_unowned(
                     &volume.id,
                     INDEX_STATUS_UNAVAILABLE,
                     Some("global_index_source_unavailable"),
-                    None,
-                    None,
-                    None,
-                    None,
                 )?;
-                db.mark_global_entries_stale_for_volume(&volume.id)?;
             }
             continue;
         };
@@ -550,54 +683,67 @@ fn run_index_cycle(
         source.volume.last_incremental_sync_at = volume.last_incremental_sync_at;
         source.volume.entry_count = volume.entry_count;
         source.volume.created_at = volume.created_at;
-        db.update_global_volume_state(
-            &volume.id,
-            if volume.last_full_index_at.is_some()
-                && !source_reappeared
-                && volume.index_status != INDEX_STATUS_REBUILD_REQUIRED
-            {
-                INDEX_STATUS_SYNCING
-            } else {
-                INDEX_STATUS_INDEXING
-            },
-            (volume.index_status == INDEX_STATUS_PERMISSION_REQUIRED)
-                .then_some(volume.last_error.as_deref())
-                .flatten(),
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let is_rebuild = volume.index_status == INDEX_STATUS_REBUILD_REQUIRED;
+        let operation_state = db
+            .global_index_operation_state(&volume.id)?
+            .ok_or_else(|| GlobalIndexError::Provider("source operation state missing".into()))?;
+        let is_rebuild = operation_state.rebuild_pending()
+            || volume.index_status == INDEX_STATUS_REBUILD_REQUIRED;
         let is_initial = volume.last_full_index_at.is_none() || source_reappeared;
+        let operation_kind = if is_rebuild {
+            SourceOperationKind::Rebuild
+        } else if is_initial {
+            SourceOperationKind::Initial
+        } else {
+            SourceOperationKind::Incremental
+        };
         let use_background_admission =
             is_rebuild || is_initial || provider.requires_background_admission(&source);
         let result = if use_background_admission {
             run_with_background_admission(
-                provider, &source, &mut sink, cancel, is_initial, is_rebuild,
+                provider,
+                &source,
+                &mut sink,
+                cancel,
+                is_initial,
+                is_rebuild,
+                operation_kind,
             )
         } else {
-            run_provider_operation(provider, &source, &mut sink, cancel, is_initial, is_rebuild)
+            match admit_coordinator_operation(provider, &source, &mut sink, operation_kind) {
+                Ok(()) => run_provider_operation(
+                    provider, &source, &mut sink, cancel, is_initial, is_rebuild,
+                ),
+                Err(error) => Err(error),
+            }
         };
+        if !sink.source_operation_admitted(&volume.id) {
+            match result {
+                Err(GlobalIndexError::Paused) if cancel.load(Ordering::Acquire) => break,
+                // A busy/rejected/unknown request has no source owner. Its
+                // durable health, checkpoint and timestamps remain untouched.
+                _ => continue,
+            }
+        }
         match result {
             Ok(()) => {
                 let now = unix_now();
-                let current = db.get_global_volume(&volume.id).ok().flatten();
-                let degraded_status = current
-                    .as_ref()
-                    .map(|current| current.index_status.as_str())
+                let current = db.get_global_volume(&volume.id)?;
+                let current_status = current.as_ref().map(|source| source.index_status.as_str());
+                let operation_reported_degraded = current_status
                     .filter(|status| is_degraded_index_status(status))
-                    .or_else(|| {
-                        is_persistent_degraded_index_status(&volume.index_status)
-                            .then_some(volume.index_status.as_str())
-                    });
+                    .filter(|status| Some(*status) != Some(volume.index_status.as_str()));
+                let prior_degraded = (!source_reappeared
+                    && !(is_rebuild && volume.index_status == INDEX_STATUS_REBUILD_REQUIRED)
+                    && is_persistent_degraded_index_status(&volume.index_status))
+                .then_some(volume.index_status.as_str());
+                let degraded_status = operation_reported_degraded.or(prior_degraded);
                 let preserved_error = degraded_status.and_then(|_| {
                     current
                         .as_ref()
                         .and_then(|current| current.last_error.as_deref())
                         .or(volume.last_error.as_deref())
                 });
-                db.update_global_volume_state(
+                sink.finish_source_operation(
                     &volume.id,
                     if cancel.load(Ordering::Acquire) {
                         INDEX_STATUS_PAUSED
@@ -607,70 +753,83 @@ fn run_index_cycle(
                         INDEX_STATUS_READY
                     },
                     preserved_error,
-                    None,
-                    None,
                     if volume.last_full_index_at.is_some() && !source_reappeared && !is_rebuild {
                         None
                     } else {
                         Some(now)
                     },
                     Some(now),
+                    is_rebuild && !cancel.load(Ordering::Acquire),
                 )?;
             }
             Err(GlobalIndexError::Paused) => {
-                db.update_global_volume_state(
+                sink.finish_source_operation(
                     &volume.id,
                     INDEX_STATUS_PAUSED,
                     None,
                     None,
                     None,
-                    None,
-                    None,
+                    false,
                 )?;
                 break;
             }
             Err(GlobalIndexError::RebuildRequired(message)) => {
-                db.update_global_volume_state(
+                sink.finish_source_operation(
                     &volume.id,
                     INDEX_STATUS_REBUILD_REQUIRED,
                     Some(&message),
                     None,
                     None,
-                    None,
-                    None,
+                    false,
                 )?;
                 if !is_rebuild {
                     wake.notify(GlobalIndexWakeReason::RecoveryRequired);
                 }
             }
+            Err(GlobalIndexError::ServiceBusy(_) | GlobalIndexError::SourceBusy(_)) => {
+                sink.mark_source_operation_unknown(&volume.id)?;
+            }
+            Err(
+                GlobalIndexError::ServiceProtocol(_) | GlobalIndexError::ServiceOutcomeUnknown(_),
+            ) => {
+                sink.mark_source_operation_unknown(&volume.id)?;
+            }
             Err(error) => {
-                let current_status = db
-                    .get_global_volume(&volume.id)
-                    .ok()
-                    .flatten()
-                    .map(|current| current.index_status);
+                let current = db.get_global_volume(&volume.id)?;
+                let current_status = current
+                    .as_ref()
+                    .map(|current| current.index_status.as_str());
                 let was_rebuild_required = volume.index_status == INDEX_STATUS_REBUILD_REQUIRED;
-                let preserved_status = current_status
-                    .as_deref()
-                    .filter(|status| is_degraded_index_status(status));
-                db.update_global_volume_state(
+                let preserved_status =
+                    current_status.filter(|status| is_degraded_index_status(status));
+                let status = preserved_status
+                    .map(str::to_string)
+                    .unwrap_or_else(|| source_error_status(&error).to_string());
+                sink.finish_source_operation(
                     &volume.id,
-                    preserved_status.unwrap_or(INDEX_STATUS_ERROR),
+                    &status,
                     Some(&error.to_string()),
                     None,
                     None,
-                    None,
-                    None,
+                    false,
                 )?;
-                if !was_rebuild_required
-                    && current_status.as_deref() == Some(INDEX_STATUS_REBUILD_REQUIRED)
-                {
+                if !was_rebuild_required && current_status == Some(INDEX_STATUS_REBUILD_REQUIRED) {
                     wake.notify(GlobalIndexWakeReason::RecoveryRequired);
                 }
             }
         }
     }
     Ok(topology)
+}
+
+#[cfg(all(test, target_os = "windows"))]
+pub(crate) fn run_index_cycle_for_test(
+    provider: &dyn GlobalIndexProvider,
+    db: &Database,
+    cancel: &Arc<AtomicBool>,
+    wake: &GlobalIndexWakeSlot,
+) -> Result<(), GlobalIndexError> {
+    run_index_cycle(provider, db, cancel, wake).map(|_| ())
 }
 
 fn run_provider_operation(
@@ -690,6 +849,33 @@ fn run_provider_operation(
     }
 }
 
+fn admit_coordinator_operation(
+    provider: &dyn GlobalIndexProvider,
+    source: &GlobalSourceDescriptor,
+    sink: &mut dyn GlobalIndexSink,
+    kind: SourceOperationKind,
+) -> Result<(), GlobalIndexError> {
+    if provider.has_external_source_operation_admission() {
+        return Ok(());
+    }
+    sink.admit_source_operation(
+        &source.volume,
+        &uuid::Uuid::new_v4().to_string(),
+        kind,
+        SourceOperationRoute::Coordinator,
+    )
+}
+
+fn source_error_status(error: &GlobalIndexError) -> &'static str {
+    match error {
+        GlobalIndexError::Paused => INDEX_STATUS_PAUSED,
+        GlobalIndexError::RebuildRequired(_) => INDEX_STATUS_REBUILD_REQUIRED,
+        GlobalIndexError::PermissionRequired(_) => INDEX_STATUS_PERMISSION_REQUIRED,
+        GlobalIndexError::WindowsIo(5 | 1314) => INDEX_STATUS_PERMISSION_REQUIRED,
+        _ => INDEX_STATUS_ERROR,
+    }
+}
+
 fn run_with_background_admission(
     provider: &dyn GlobalIndexProvider,
     source: &GlobalSourceDescriptor,
@@ -697,6 +883,7 @@ fn run_with_background_admission(
     cancel: &Arc<AtomicBool>,
     initial: bool,
     rebuild: bool,
+    operation_kind: SourceOperationKind,
 ) -> Result<(), GlobalIndexError> {
     let request = WorkRequest::new(
         format!("global-index:{}", source.volume.id),
@@ -719,6 +906,7 @@ fn run_with_background_admission(
     if rebuild {
         super::qa_trace::record("windows_recovery_rebuild_admitted");
     }
+    admit_coordinator_operation(provider, source, sink, operation_kind)?;
     let _qos = scope_thread_qos(WorkClass::Background);
     run_provider_operation(provider, source, sink, cancel, initial, rebuild)
 }

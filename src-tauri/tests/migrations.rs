@@ -10,6 +10,7 @@ use zen_canvas_tauri::db::{
     FileQuerySpecV2, LibrarySelectionV1, MutateFileUserTagsRequest, UserTagMutationOperation,
 };
 use zen_canvas_tauri::file_ops::OperationLogDto;
+use zen_canvas_tauri::global_index::{GlobalEntryInput, GlobalVolume, PROVIDER_WINDOWS_MFT_USN};
 
 static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -619,7 +620,7 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema 35 version");
-    assert_eq!(version, 38);
+    assert_eq!(version, 39);
     assert!(column_names(&conn, "cleanup_trash_items")
         .contains(&"source_platform_volume_id".to_string()));
 
@@ -833,7 +834,7 @@ fn schema_34_cleanup_identity_migration_rolls_back_column_and_rows_together() {
 }
 
 #[test]
-fn schema_38_reopen_is_idempotent_and_future_schema_39_is_rejected() {
+fn schema_39_reopen_is_idempotent_and_future_schema_40_is_rejected() {
     let path = test_db_path("td014-idempotent");
     downgrade_current_fixture_to_schema_34(&path);
     let db = Database::open(&path).expect("migrate schema 34 fixture to schema 35");
@@ -846,7 +847,7 @@ fn schema_38_reopen_is_idempotent_and_future_schema_39_is_rejected() {
     let second = Connection::open(&path).expect("reopen migrated schema 35 fixture");
     assert_eq!(cleanup_identity_snapshot(&second), before);
     second
-        .execute_batch("PRAGMA user_version = 39;")
+        .execute_batch("PRAGMA user_version = 40;")
         .expect("set future schema version");
     drop(second);
     let error = match Database::open(&path) {
@@ -889,7 +890,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 38);
+    assert_eq!(version, 39);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -957,7 +958,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 38);
+        assert_eq!(migrated_version, 39);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -1197,7 +1198,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        38
+        39
     );
     assert_schema_23_journal_columns(&conn);
 
@@ -1270,15 +1271,15 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
 #[test]
 fn p0_t01_fresh_and_repeated_open_create_only_dormant_identity_foundation() {
     let path = test_db_path("p0-t01-fresh");
-    let db = Database::open(&path).expect("create fresh schema 38 database");
+    let db = Database::open(&path).expect("create fresh schema 39 database");
     db.init().expect("repeat initialization is idempotent");
     drop(db);
 
-    let conn = Connection::open(&path).expect("inspect fresh schema 38 database");
+    let conn = Connection::open(&path).expect("inspect fresh schema 39 database");
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 38);
+    assert_eq!(version, 39);
     let tables: Vec<String> = {
         let mut statement = conn
             .prepare(
@@ -1383,7 +1384,8 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     drop(conn);
 
     let started = Instant::now();
-    let migrated = Database::open(&path).expect("migrate schema 37 fixture to schema 38");
+    let migrated =
+        Database::open(&path).expect("migrate schema 37 fixture through schema 38 to 39");
     let migration_elapsed = started.elapsed();
     drop(migrated);
 
@@ -1391,7 +1393,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read migrated version");
-    assert_eq!(version, 38);
+    assert_eq!(version, 39);
     for (table, expected) in before_rows {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");
     }
@@ -1480,13 +1482,13 @@ fn p0_t03_schema_36_migrates_to_38_without_rewriting_files() {
     .expect("construct schema 36 automation tables");
     drop(conn);
 
-    let db = Database::open(&path).expect("migrate schema 36 through 37 to 38");
+    let db = Database::open(&path).expect("migrate schema 36 through 38 to 39");
     drop(db);
     let conn = Connection::open(&path).expect("inspect migrated schema 36 fixture");
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated version"),
-        38
+        39
     );
     assert_eq!(table_snapshot(&conn, "files"), before_file);
     assert_eq!(fts_rows_matching(&conn, "v36preserved"), before_fts);
@@ -1641,6 +1643,118 @@ fn p0_r1_schema_38_reopen_rejects_case_changed_check_without_mutation() {
         before_authority
     );
     assert_eq!(fts_rows_matching(&conn, "migrationtoken"), before_fts);
+}
+
+#[test]
+fn schema_38_to_39_adds_operation_fencing_without_changing_global_index_data() {
+    let path = test_db_path("schema38-to-39-global-index");
+    let db = Database::open(&path).expect("create schema 39 fixture");
+    let volume = GlobalVolume {
+        id: "schema39-volume".into(),
+        platform: "windows".into(),
+        stable_volume_id: "schema39-stable-volume".into(),
+        display_name: "C:".into(),
+        mount_path: "C:\\".into(),
+        filesystem_type: "ntfs".into(),
+        drive_kind: "fixed".into(),
+        enabled: true,
+        provider: PROVIDER_WINDOWS_MFT_USN.into(),
+        index_status: "discovered".into(),
+        last_error: None,
+        journal_id: None,
+        journal_cursor: None,
+        last_full_index_at: None,
+        last_incremental_sync_at: None,
+        entry_count: 0,
+        created_at: 1,
+        updated_at: 1,
+    };
+    db.upsert_global_volume(&volume).expect("seed volume");
+    db.update_global_volume_state(
+        &volume.id,
+        "rebuild_required",
+        Some("journal identity changed"),
+        Some("journal-17"),
+        Some("cursor-93"),
+        Some(101),
+        Some(202),
+    )
+    .expect("seed committed source health and checkpoint");
+    db.upsert_global_entries_batch(&[GlobalEntryInput {
+        volume_id: volume.id.clone(),
+        platform_file_id: "file-17".into(),
+        parent_platform_file_id: "root".into(),
+        name: "preserved.txt".into(),
+        path: "C:\\preserved.txt".into(),
+        extension: "txt".into(),
+        is_directory: false,
+        size: 42,
+        created_at_fs: Some(3),
+        modified_at_fs: Some(5),
+        file_attributes: 0,
+        is_hidden: false,
+        is_system: false,
+        source_provider: PROVIDER_WINDOWS_MFT_USN.into(),
+        last_seen_at: 7,
+    }])
+    .expect("seed active Global Search entry");
+    drop(db);
+
+    let conn = Connection::open(&path).expect("open schema 39 database as schema 38");
+    conn.execute_batch(
+        r#"
+        ALTER TABLE global_volumes DROP COLUMN rebuild_completed_revision;
+        ALTER TABLE global_volumes DROP COLUMN rebuild_intent_revision;
+        ALTER TABLE global_volumes DROP COLUMN operation_state;
+        ALTER TABLE global_volumes DROP COLUMN operation_kind;
+        ALTER TABLE global_volumes DROP COLUMN operation_owner_route;
+        ALTER TABLE global_volumes DROP COLUMN operation_owner_started_at;
+        ALTER TABLE global_volumes DROP COLUMN operation_owner_pid;
+        ALTER TABLE global_volumes DROP COLUMN operation_owner_id;
+        ALTER TABLE global_volumes DROP COLUMN operation_revision;
+        PRAGMA user_version = 38;
+        "#,
+    )
+    .expect("construct pre-migration schema 38 fixture");
+    drop(conn);
+
+    let migrated = Database::open(&path).expect("migrate schema 38 to schema 39");
+    let stored = migrated
+        .get_global_volume(&volume.id)
+        .expect("read migrated volume")
+        .expect("volume survives migration");
+    assert_eq!(stored.index_status, "rebuild_required");
+    assert_eq!(
+        stored.last_error.as_deref(),
+        Some("journal identity changed")
+    );
+    assert_eq!(stored.journal_id.as_deref(), Some("journal-17"));
+    assert_eq!(stored.journal_cursor.as_deref(), Some("cursor-93"));
+    assert_eq!(stored.last_full_index_at, Some(101));
+    assert_eq!(stored.last_incremental_sync_at, Some(202));
+    drop(migrated);
+    let conn = Connection::open(&path).expect("inspect migrated entry and version");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("read migrated schema version");
+    let entry: (String, i64) = conn
+        .query_row(
+            "SELECT name, is_stale FROM global_entries WHERE volume_id = ?1",
+            [&volume.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read preserved Global Search entry");
+    let operation: (i64, i64, i64) = conn
+        .query_row(
+            "SELECT operation_revision, rebuild_intent_revision, rebuild_completed_revision \
+             FROM global_volumes WHERE id = ?1",
+            [&volume.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("read default operation state");
+    assert_eq!(version, 39);
+    assert_eq!(entry, ("preserved.txt".into(), 0));
+    assert_eq!(operation, (0, 0, 0));
 }
 
 #[test]

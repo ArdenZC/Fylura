@@ -356,6 +356,25 @@ impl<'a> IndexServiceAdmission<'a> {
             {
                 return Err(Self::reject("invalid or duplicate admission"));
             }
+            let kind = match &self.request.command {
+                IndexServiceCommand::StartInitialIndex { .. } => {
+                    crate::global_index::repository::SourceOperationKind::Initial
+                }
+                IndexServiceCommand::ResumeIncrementalSync { .. } => {
+                    crate::global_index::repository::SourceOperationKind::Incremental
+                }
+                IndexServiceCommand::Rebuild { .. } => {
+                    crate::global_index::repository::SourceOperationKind::Rebuild
+                }
+                _ => return Err(Self::reject("admission for a non-index command")),
+            };
+            sink.admit_source_operation(
+                source,
+                &self.request.request_id,
+                kind,
+                crate::global_index::repository::SourceOperationRoute::Service,
+            )
+            .map_err(IndexServiceCallError::Sink)?;
             self.admitted = true;
             return Ok(None);
         }

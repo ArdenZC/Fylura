@@ -1,8 +1,72 @@
 use super::models::*;
 use crate::db::{Database, DbError};
-use rusqlite::{params, OptionalExtension, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use serde::Serialize;
-use std::path::Path;
+use std::{
+    collections::HashSet,
+    path::Path,
+    sync::{Mutex, OnceLock},
+};
+
+static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceOperationKind {
+    Initial,
+    Incremental,
+    Rebuild,
+}
+
+impl SourceOperationKind {
+    fn as_db_value(self) -> &'static str {
+        match self {
+            Self::Initial => "initial",
+            Self::Incremental => "incremental",
+            Self::Rebuild => "rebuild",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceOperationRoute {
+    Coordinator,
+    Service,
+    Direct,
+}
+
+impl SourceOperationRoute {
+    fn as_db_value(self) -> &'static str {
+        match self {
+            Self::Coordinator => "coordinator",
+            Self::Service => "service",
+            Self::Direct => "direct",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SourceOperationOwner {
+    pub volume_id: String,
+    pub revision: i64,
+    pub operation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SourceOperationState {
+    pub revision: i64,
+    pub owner_id: Option<String>,
+    pub operation_state: Option<String>,
+    pub operation_route: Option<String>,
+    pub operation_kind: Option<String>,
+    pub rebuild_intent_revision: i64,
+    pub rebuild_completed_revision: i64,
+}
+
+impl SourceOperationState {
+    pub fn rebuild_pending(&self) -> bool {
+        self.rebuild_intent_revision > self.rebuild_completed_revision
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct GlobalSearchSnapshot {
@@ -144,6 +208,55 @@ impl Database {
                 filesystem_type = excluded.filesystem_type,
                 drive_kind = excluded.drive_kind,
                 provider = excluded.provider,
+                operation_revision = operation_revision + CASE WHEN
+                    platform IS NOT excluded.platform OR
+                    mount_path IS NOT excluded.mount_path OR
+                    filesystem_type IS NOT excluded.filesystem_type OR
+                    drive_kind IS NOT excluded.drive_kind OR
+                    provider IS NOT excluded.provider
+                    THEN 1 ELSE 0 END,
+                operation_owner_id = CASE WHEN
+                    platform IS NOT excluded.platform OR
+                    mount_path IS NOT excluded.mount_path OR
+                    filesystem_type IS NOT excluded.filesystem_type OR
+                    drive_kind IS NOT excluded.drive_kind OR
+                    provider IS NOT excluded.provider
+                    THEN NULL ELSE operation_owner_id END,
+                operation_owner_pid = CASE WHEN
+                    platform IS NOT excluded.platform OR
+                    mount_path IS NOT excluded.mount_path OR
+                    filesystem_type IS NOT excluded.filesystem_type OR
+                    drive_kind IS NOT excluded.drive_kind OR
+                    provider IS NOT excluded.provider
+                    THEN NULL ELSE operation_owner_pid END,
+                operation_owner_started_at = CASE WHEN
+                    platform IS NOT excluded.platform OR
+                    mount_path IS NOT excluded.mount_path OR
+                    filesystem_type IS NOT excluded.filesystem_type OR
+                    drive_kind IS NOT excluded.drive_kind OR
+                    provider IS NOT excluded.provider
+                    THEN NULL ELSE operation_owner_started_at END,
+                operation_owner_route = CASE WHEN
+                    platform IS NOT excluded.platform OR
+                    mount_path IS NOT excluded.mount_path OR
+                    filesystem_type IS NOT excluded.filesystem_type OR
+                    drive_kind IS NOT excluded.drive_kind OR
+                    provider IS NOT excluded.provider
+                    THEN NULL ELSE operation_owner_route END,
+                operation_kind = CASE WHEN
+                    platform IS NOT excluded.platform OR
+                    mount_path IS NOT excluded.mount_path OR
+                    filesystem_type IS NOT excluded.filesystem_type OR
+                    drive_kind IS NOT excluded.drive_kind OR
+                    provider IS NOT excluded.provider
+                    THEN NULL ELSE operation_kind END,
+                operation_state = CASE WHEN
+                    platform IS NOT excluded.platform OR
+                    mount_path IS NOT excluded.mount_path OR
+                    filesystem_type IS NOT excluded.filesystem_type OR
+                    drive_kind IS NOT excluded.drive_kind OR
+                    provider IS NOT excluded.provider
+                    THEN NULL ELSE operation_state END,
                 updated_at = excluded.updated_at
             "#,
             params![
@@ -203,6 +316,332 @@ impl Database {
         .map_err(DbError::from)
     }
 
+    pub(crate) fn global_index_operation_state(
+        &self,
+        id: &str,
+    ) -> Result<Option<SourceOperationState>, DbError> {
+        let conn = self.conn()?;
+        conn.query_row(
+            r#"
+            SELECT operation_revision, operation_owner_id, operation_state,
+                   operation_owner_route, operation_kind,
+                   rebuild_intent_revision, rebuild_completed_revision
+            FROM global_volumes WHERE id = ?1
+            "#,
+            params![id],
+            |row| {
+                Ok(SourceOperationState {
+                    revision: row.get(0)?,
+                    owner_id: row.get(1)?,
+                    operation_state: row.get(2)?,
+                    operation_route: row.get(3)?,
+                    operation_kind: row.get(4)?,
+                    rebuild_intent_revision: row.get(5)?,
+                    rebuild_completed_revision: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(DbError::from)
+    }
+
+    /// Persist a coalesced rebuild request without changing committed source health
+    /// or the active index. The intent is cleared only by a successful owned rebuild.
+    pub(crate) fn request_global_index_rebuild(&self, id: &str) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET rebuild_intent_revision = CASE
+                    WHEN rebuild_intent_revision = rebuild_completed_revision
+                    THEN rebuild_intent_revision + 1
+                    ELSE rebuild_intent_revision
+                END
+            WHERE id = ?1 AND enabled = 1
+            "#,
+            params![id],
+        )?;
+        Ok(changed == 1)
+    }
+
+    /// Claim one source only after the caller has real operation admission.
+    /// The revision fences every later provider write and terminal result.
+    pub(crate) fn claim_global_index_operation(
+        &self,
+        volume: &GlobalVolume,
+        operation_id: &str,
+        kind: SourceOperationKind,
+        route: SourceOperationRoute,
+    ) -> Result<Option<SourceOperationOwner>, DbError> {
+        let (owner_pid, owner_started_at) = current_process_identity()?;
+        let mut conn = self.conn()?;
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = transaction
+            .query_row(
+                r#"
+                SELECT operation_revision, operation_owner_id, operation_owner_pid,
+                       operation_owner_started_at, operation_owner_route, operation_state
+                FROM global_volumes
+                WHERE id = ?1 AND stable_volume_id = ?2 AND provider = ?3 AND enabled = 1
+                "#,
+                params![volume.id, volume.stable_volume_id, volume.provider],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((
+            revision,
+            existing_id,
+            existing_pid,
+            existing_started_at,
+            existing_route,
+            existing_state,
+        )) = current
+        else {
+            transaction.commit()?;
+            return Ok(None);
+        };
+
+        let active_operations = LOCAL_GLOBAL_INDEX_OPERATIONS
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(existing_id) = existing_id.as_deref() {
+            let locally_active = active_operations.contains(existing_id);
+            let unresolved_service_owner = existing_route.as_deref() == Some("service")
+                && matches!(existing_state.as_deref(), Some("running" | "unknown"));
+            // A Direct request cannot prove that a previously admitted Service
+            // operation stopped, especially after the client process restarts.
+            // Only a new Service admission (which holds the host's busy
+            // reservation) may reconcile that durable owner.
+            if unresolved_service_owner && route != SourceOperationRoute::Service {
+                transaction.commit()?;
+                return Ok(None);
+            }
+            let same_process =
+                existing_pid == Some(owner_pid) && existing_started_at == Some(owner_started_at);
+            let owner_alive = if same_process {
+                locally_active
+            } else if let (Some(pid), Some(started_at)) = (existing_pid, existing_started_at) {
+                process_instance_is_alive(pid, started_at).unwrap_or(true)
+            } else {
+                true
+            };
+            let admitted_service_recovery = route == SourceOperationRoute::Service
+                && existing_route.as_deref() == Some("service")
+                && !locally_active;
+            if locally_active || (owner_alive && !admitted_service_recovery) {
+                transaction.commit()?;
+                return Ok(None);
+            }
+        }
+        drop(active_operations);
+
+        let next_revision = revision.checked_add(1).ok_or_else(|| {
+            DbError::Validation("global_index_operation_revision_exhausted".into())
+        })?;
+        let changed = transaction.execute(
+            r#"
+            UPDATE global_volumes
+            SET operation_revision = ?4,
+                operation_owner_id = ?5,
+                operation_owner_pid = ?6,
+                operation_owner_started_at = ?7,
+                operation_owner_route = ?8,
+                operation_kind = ?9,
+                operation_state = 'running'
+            WHERE id = ?1 AND stable_volume_id = ?2 AND provider = ?3
+              AND enabled = 1 AND operation_revision = ?10
+            "#,
+            params![
+                volume.id,
+                volume.stable_volume_id,
+                volume.provider,
+                next_revision,
+                operation_id,
+                owner_pid,
+                owner_started_at,
+                route.as_db_value(),
+                kind.as_db_value(),
+                revision,
+            ],
+        )?;
+        if changed != 1 {
+            transaction.commit()?;
+            return Ok(None);
+        }
+        LOCAL_GLOBAL_INDEX_OPERATIONS
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(operation_id.to_string());
+        if let Err(error) = transaction.commit() {
+            unregister_local_global_index_operation(operation_id);
+            return Err(DbError::from(error));
+        }
+        Ok(Some(SourceOperationOwner {
+            volume_id: volume.id.clone(),
+            revision: next_revision,
+            operation_id: operation_id.to_string(),
+        }))
+    }
+
+    pub(crate) fn mark_global_index_operation_unknown(
+        &self,
+        owner: &SourceOperationOwner,
+    ) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes SET operation_state = 'unknown'
+            WHERE id = ?1 AND operation_revision = ?2
+              AND operation_owner_id = ?3 AND operation_state = 'running'
+            "#,
+            params![owner.volume_id, owner.revision, owner.operation_id],
+        )?;
+        if changed == 1 {
+            unregister_local_global_index_operation(&owner.operation_id);
+        }
+        Ok(changed == 1)
+    }
+
+    pub(crate) fn forget_local_global_index_operation(&self, owner: &SourceOperationOwner) {
+        unregister_local_global_index_operation(&owner.operation_id);
+    }
+
+    pub(crate) fn finish_global_index_operation(
+        &self,
+        owner: &SourceOperationOwner,
+        status: &str,
+        error: Option<&str>,
+        full_index_at: Option<i64>,
+        incremental_sync_at: Option<i64>,
+        complete_rebuild_intent: bool,
+    ) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET index_status = ?4,
+                last_error = ?5,
+                last_full_index_at = COALESCE(?6, last_full_index_at),
+                last_incremental_sync_at = COALESCE(?7, last_incremental_sync_at),
+                rebuild_completed_revision = CASE WHEN ?8 = 1
+                    THEN rebuild_intent_revision ELSE rebuild_completed_revision END,
+                operation_owner_id = NULL,
+                operation_owner_pid = NULL,
+                operation_owner_started_at = NULL,
+                operation_owner_route = NULL,
+                operation_kind = NULL,
+                operation_state = NULL,
+                updated_at = ?9
+            WHERE id = ?1 AND operation_revision = ?2
+              AND operation_owner_id = ?3 AND operation_state = 'running'
+            "#,
+            params![
+                owner.volume_id,
+                owner.revision,
+                owner.operation_id,
+                status,
+                error,
+                full_index_at,
+                incremental_sync_at,
+                bool_to_i64(complete_rebuild_intent),
+                unix_now(),
+            ],
+        )?;
+        if changed == 1 {
+            unregister_local_global_index_operation(&owner.operation_id);
+        }
+        Ok(changed == 1)
+    }
+
+    pub(crate) fn update_global_volume_checkpoint_owned(
+        &self,
+        owner: &SourceOperationOwner,
+        journal_id: Option<&str>,
+        journal_cursor: Option<&str>,
+    ) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET journal_id = COALESCE(?4, journal_id),
+                journal_cursor = COALESCE(?5, journal_cursor),
+                updated_at = ?6
+            WHERE id = ?1 AND operation_revision = ?2
+              AND operation_owner_id = ?3 AND operation_state = 'running' AND enabled = 1
+            "#,
+            params![
+                owner.volume_id,
+                owner.revision,
+                owner.operation_id,
+                journal_id,
+                journal_cursor,
+                unix_now(),
+            ],
+        )?;
+        Ok(changed == 1)
+    }
+
+    pub(crate) fn update_global_volume_state_owned(
+        &self,
+        owner: &SourceOperationOwner,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET index_status = ?4, last_error = ?5, updated_at = ?6
+            WHERE id = ?1 AND operation_revision = ?2
+              AND operation_owner_id = ?3 AND operation_state = 'running' AND enabled = 1
+            "#,
+            params![
+                owner.volume_id,
+                owner.revision,
+                owner.operation_id,
+                status,
+                error,
+                unix_now(),
+            ],
+        )?;
+        Ok(changed == 1)
+    }
+
+    pub(crate) fn update_global_volume_provider_owned(
+        &self,
+        owner: &SourceOperationOwner,
+        provider: &str,
+    ) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET provider = ?4, updated_at = ?5
+            WHERE id = ?1 AND operation_revision = ?2
+              AND operation_owner_id = ?3 AND operation_state = 'running' AND enabled = 1
+            "#,
+            params![
+                owner.volume_id,
+                owner.revision,
+                owner.operation_id,
+                provider,
+                unix_now(),
+            ],
+        )?;
+        Ok(changed == 1)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn update_global_volume_state(
         &self,
@@ -241,10 +680,40 @@ impl Database {
         Ok(())
     }
 
+    pub(crate) fn update_global_volume_state_if_unowned(
+        &self,
+        id: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET index_status = ?2, last_error = ?3, updated_at = ?4
+            WHERE id = ?1 AND operation_owner_id IS NULL
+            "#,
+            params![id, status, error, unix_now()],
+        )?;
+        Ok(changed == 1)
+    }
+
     pub fn set_global_volume_enabled(&self, id: &str, enabled: bool) -> Result<(), DbError> {
         let conn = self.conn()?;
         conn.execute(
-            "UPDATE global_volumes SET enabled = ?2, updated_at = ?3 WHERE id = ?1",
+            r#"
+            UPDATE global_volumes
+            SET enabled = ?2,
+                operation_revision = operation_revision + CASE WHEN enabled != ?2 THEN 1 ELSE 0 END,
+                operation_owner_id = CASE WHEN enabled != ?2 THEN NULL ELSE operation_owner_id END,
+                operation_owner_pid = CASE WHEN enabled != ?2 THEN NULL ELSE operation_owner_pid END,
+                operation_owner_started_at = CASE WHEN enabled != ?2 THEN NULL ELSE operation_owner_started_at END,
+                operation_owner_route = CASE WHEN enabled != ?2 THEN NULL ELSE operation_owner_route END,
+                operation_kind = CASE WHEN enabled != ?2 THEN NULL ELSE operation_kind END,
+                operation_state = CASE WHEN enabled != ?2 THEN NULL ELSE operation_state END,
+                updated_at = ?3
+            WHERE id = ?1
+            "#,
             params![id, bool_to_i64(enabled), unix_now()],
         )?;
         Ok(())
@@ -263,11 +732,38 @@ impl Database {
         &self,
         entries: &[GlobalEntryInput],
     ) -> Result<usize, DbError> {
+        self.upsert_global_entries_batch_inner(entries, None)
+    }
+
+    pub(crate) fn upsert_global_entries_batch_owned(
+        &self,
+        entries: &[GlobalEntryInput],
+        owner: &SourceOperationOwner,
+    ) -> Result<usize, DbError> {
+        self.upsert_global_entries_batch_inner(entries, Some(owner))
+    }
+
+    fn upsert_global_entries_batch_inner(
+        &self,
+        entries: &[GlobalEntryInput],
+        owner: Option<&SourceOperationOwner>,
+    ) -> Result<usize, DbError> {
         if entries.is_empty() {
             return Ok(0);
         }
         let mut conn = self.conn()?;
         let transaction = conn.transaction()?;
+        if let Some(owner) = owner {
+            if entries
+                .iter()
+                .any(|entry| entry.volume_id != owner.volume_id)
+            {
+                return Err(DbError::Validation(
+                    "global_index_operation_foreign_volume_write".into(),
+                ));
+            }
+            ensure_source_operation_owner_tx(&transaction, owner)?;
+        }
         let scope_policies = load_enabled_scope_policies(&transaction)?;
         let mut count = 0;
         let mut has_eligible_pending_work = false;
@@ -339,56 +835,107 @@ impl Database {
     }
 
     pub fn mark_global_entries_stale_for_volume(&self, volume_id: &str) -> Result<usize, DbError> {
-        let conn = self.conn()?;
-        let changed = conn.execute(
+        self.mark_global_entries_stale_for_volume_inner(volume_id, None)
+    }
+
+    pub(crate) fn mark_global_entries_stale_for_volume_owned(
+        &self,
+        owner: &SourceOperationOwner,
+    ) -> Result<usize, DbError> {
+        self.mark_global_entries_stale_for_volume_inner(&owner.volume_id, Some(owner))
+    }
+
+    fn mark_global_entries_stale_for_volume_inner(
+        &self,
+        volume_id: &str,
+        owner: Option<&SourceOperationOwner>,
+    ) -> Result<usize, DbError> {
+        let mut conn = self.conn()?;
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(owner) = owner {
+            ensure_source_operation_owner_tx(&transaction, owner)?;
+        }
+        let now = unix_now();
+        let changed = transaction.execute(
             "UPDATE global_entries SET is_stale = 1 WHERE volume_id = ?1 AND is_stale = 0",
             params![volume_id],
         )?;
-        conn.execute(
+        transaction.execute(
             "UPDATE managed_entries SET enabled = 0, updated_at = ?2 WHERE global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?1)",
-            params![volume_id, unix_now()],
+            params![volume_id, now],
         )?;
-        conn.execute(
+        transaction.execute(
             "UPDATE ai_jobs SET status = 'stale', completed_at = ?2, last_error = 'global_entry_stale' WHERE global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?1) AND status IN ('pending', 'running')",
-            params![volume_id, unix_now()],
+            params![volume_id, now],
         )?;
-        conn.execute(
+        transaction.execute(
             "UPDATE ai_job_items SET status = 'stale', updated_at = ?2, last_error = 'global_entry_stale' WHERE global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?1) AND status IN ('pending', 'running')",
-            params![volume_id, unix_now()],
+            params![volume_id, now],
         )?;
-        conn.execute(
+        transaction.execute(
             "UPDATE ai_analysis_state SET status = 'stale', last_error = 'global_entry_stale', updated_at = ?2 WHERE global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?1)",
-            params![volume_id, unix_now()],
+            params![volume_id, now],
         )?;
-        conn.execute(
+        transaction.execute(
             "UPDATE global_volumes SET entry_count = 0, updated_at = ?2 WHERE id = ?1",
-            params![volume_id, unix_now()],
+            params![volume_id, now],
         )?;
+        transaction.commit()?;
         Ok(changed)
     }
 
     pub fn mark_global_entry_stale(&self, entry_id: &str) -> Result<bool, DbError> {
-        let conn = self.conn()?;
-        let changed = conn.execute(
-            "UPDATE global_entries SET is_stale = 1 WHERE id = ?1 AND is_stale = 0",
-            params![entry_id],
+        self.mark_global_entry_stale_inner(entry_id, None)
+    }
+
+    pub(crate) fn mark_global_entry_stale_owned(
+        &self,
+        entry_id: &str,
+        owner: &SourceOperationOwner,
+    ) -> Result<bool, DbError> {
+        self.mark_global_entry_stale_inner(entry_id, Some(owner))
+    }
+
+    fn mark_global_entry_stale_inner(
+        &self,
+        entry_id: &str,
+        owner: Option<&SourceOperationOwner>,
+    ) -> Result<bool, DbError> {
+        let mut conn = self.conn()?;
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(owner) = owner {
+            ensure_source_operation_owner_tx(&transaction, owner)?;
+        }
+        let now = unix_now();
+        let changed = if let Some(owner) = owner {
+            transaction.execute(
+                "UPDATE global_entries SET is_stale = 1 WHERE id = ?1 AND volume_id = ?2 AND is_stale = 0",
+                params![entry_id, owner.volume_id],
+            )?
+        } else {
+            transaction.execute(
+                "UPDATE global_entries SET is_stale = 1 WHERE id = ?1 AND is_stale = 0",
+                params![entry_id],
+            )?
+        };
+        let volume_guard = owner.map(|owner| owner.volume_id.as_str());
+        transaction.execute(
+            "UPDATE managed_entries SET enabled = 0, updated_at = ?2 WHERE global_entry_id = ?1 AND (?3 IS NULL OR global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?3))",
+            params![entry_id, now, volume_guard],
         )?;
-        conn.execute(
-            "UPDATE managed_entries SET enabled = 0, updated_at = ?2 WHERE global_entry_id = ?1",
-            params![entry_id, unix_now()],
+        transaction.execute(
+            "UPDATE ai_jobs SET status = 'stale', completed_at = ?2, last_error = 'global_entry_stale' WHERE global_entry_id = ?1 AND (?3 IS NULL OR global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?3)) AND status IN ('pending', 'running')",
+            params![entry_id, now, volume_guard],
         )?;
-        conn.execute(
-            "UPDATE ai_jobs SET status = 'stale', completed_at = ?2, last_error = 'global_entry_stale' WHERE global_entry_id = ?1 AND status IN ('pending', 'running')",
-            params![entry_id, unix_now()],
+        transaction.execute(
+            "UPDATE ai_job_items SET status = 'stale', updated_at = ?2, last_error = 'global_entry_stale' WHERE global_entry_id = ?1 AND (?3 IS NULL OR global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?3)) AND status IN ('pending', 'running')",
+            params![entry_id, now, volume_guard],
         )?;
-        conn.execute(
-            "UPDATE ai_job_items SET status = 'stale', updated_at = ?2, last_error = 'global_entry_stale' WHERE global_entry_id = ?1 AND status IN ('pending', 'running')",
-            params![entry_id, unix_now()],
+        transaction.execute(
+            "UPDATE ai_analysis_state SET status = 'stale', last_error = 'global_entry_stale', updated_at = ?2 WHERE global_entry_id = ?1 AND (?3 IS NULL OR global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?3))",
+            params![entry_id, now, volume_guard],
         )?;
-        conn.execute(
-            "UPDATE ai_analysis_state SET status = 'stale', last_error = 'global_entry_stale', updated_at = ?2 WHERE global_entry_id = ?1",
-            params![entry_id, unix_now()],
-        )?;
+        transaction.commit()?;
         Ok(changed > 0)
     }
 
@@ -1101,6 +1648,68 @@ fn map_global_volume(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalVolume> 
         created_at: row.get(16)?,
         updated_at: row.get(17)?,
     })
+}
+
+fn ensure_source_operation_owner_tx(
+    transaction: &Transaction<'_>,
+    owner: &SourceOperationOwner,
+) -> Result<(), DbError> {
+    let owns_source = transaction.query_row(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM global_volumes
+            WHERE id = ?1 AND operation_revision = ?2
+              AND operation_owner_id = ?3 AND operation_state = 'running'
+              AND enabled = 1
+        )
+        "#,
+        params![owner.volume_id, owner.revision, owner.operation_id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if owns_source {
+        Ok(())
+    } else {
+        Err(DbError::Validation(
+            "global_index_operation_owner_lost".into(),
+        ))
+    }
+}
+
+fn current_process_identity() -> Result<(i64, i64), DbError> {
+    let process_id = std::process::id();
+    let started_at = process_start_time(process_id)
+        .ok_or_else(|| DbError::Validation("global_index_process_identity_unavailable".into()))?;
+    Ok((i64::from(process_id), started_at))
+}
+
+fn process_instance_is_alive(process_id: i64, started_at: i64) -> Option<bool> {
+    let process_id = u32::try_from(process_id).ok()?;
+    let pid = sysinfo::Pid::from_u32(process_id);
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+    Some(
+        system
+            .process(pid)
+            .is_some_and(|process| process.start_time() as i64 == started_at),
+    )
+}
+
+fn process_start_time(process_id: u32) -> Option<i64> {
+    let pid = sysinfo::Pid::from_u32(process_id);
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+    system
+        .process(pid)
+        .map(|process| process.start_time() as i64)
+}
+
+fn unregister_local_global_index_operation(operation_id: &str) {
+    if let Some(active) = LOCAL_GLOBAL_INDEX_OPERATIONS.get() {
+        active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(operation_id);
+    }
 }
 
 fn map_global_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalEntry> {

@@ -48,7 +48,7 @@ fn schema_migration_adds_classification_status_and_preserves_existing_state() {
         )
         .expect("cleanup trash tables");
 
-    assert_eq!(version, 38);
+    assert_eq!(version, 39);
     assert_eq!(cleanup_table_count, 2);
     assert_eq!(status_type, "TEXT");
     assert_eq!(status_notnull, 1);

@@ -379,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            38
+            39
         );
         assert_eq!(
             conn.query_row(
@@ -465,12 +465,12 @@
     }
 
     #[test]
-    fn database_rejects_schema_39_as_a_future_version() {
+    fn database_rejects_schema_40_as_a_future_version() {
         let path = test_db_path();
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 39;")
+        conn.execute_batch("PRAGMA user_version = 40;")
             .expect("set future version");
         drop(conn);
 
@@ -523,7 +523,7 @@
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("schema version");
-        assert_eq!(version, 38);
+        assert_eq!(version, 39);
         for table in [
             "user_tags",
             "file_user_tags",
@@ -616,7 +616,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("schema version"),
-            38
+            39
         );
         for table in ["organization_plans", "organization_plan_items"] {
             assert_eq!(
@@ -756,7 +756,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("schema version"),
-            38
+            39
         );
         assert_eq!(
             conn.query_row(
@@ -1017,7 +1017,7 @@
             )
             .expect("dedupe backfill count");
 
-        assert_eq!(version, 38);
+        assert_eq!(version, 39);
         assert_eq!(ledger_tables, 4);
         assert_eq!(watcher_defaults, (0, 0));
         assert_eq!(rule_recovery_required, 0);

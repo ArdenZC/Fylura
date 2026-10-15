@@ -19,6 +19,15 @@ pub(crate) struct SourceObservationOutcome {
     pub changed: bool,
 }
 
+pub(crate) struct SourceObservationContext<'a> {
+    pub root_id: &'a str,
+    pub root_epoch: i64,
+    pub owner_kind: &'a str,
+    pub owner_revision: i64,
+    pub legacy_row_exists: bool,
+    pub observed_at: i64,
+}
+
 #[derive(Debug)]
 struct PhysicalClaim {
     platform: String,
@@ -101,15 +110,18 @@ pub(crate) fn managed_root_ids_for_path_tx(
 
 pub(crate) fn observe_source_for_root_tx(
     tx: &Transaction<'_>,
-    root_id: &str,
-    root_epoch: i64,
-    owner_kind: &str,
-    owner_revision: i64,
     file: &InsertFileRequest,
     physical: Option<&PhysicalFileIdentity>,
-    legacy_row_exists: bool,
-    observed_at: i64,
+    context: SourceObservationContext<'_>,
 ) -> Result<SourceObservationOutcome, DbError> {
+    let SourceObservationContext {
+        root_id,
+        root_epoch,
+        owner_kind,
+        owner_revision,
+        legacy_row_exists,
+        observed_at,
+    } = context;
     let physical_claim = physical.and_then(physical_claim);
     let (root_prior_uid, root_prior_state) = tx
         .query_row(
@@ -201,9 +213,9 @@ pub(crate) fn observe_source_for_root_tx(
     let block_legacy_row = verification_state != "verified"
         || (legacy_row_exists && (identity_changed || !attribution_matches));
 
-    let inherited_legacy_id = if attribution_matches {
-        Some(file.id.as_str())
-    } else if !legacy_row_exists && verification_state == "verified" {
+    let inherited_legacy_id = if attribution_matches
+        || (!legacy_row_exists && verification_state == "verified")
+    {
         Some(file.id.as_str())
     } else {
         None
@@ -891,14 +903,16 @@ mod tests {
             .expect("advance unverified root epoch");
         let unavailable = observe_source_for_root_tx(
             &tx,
-            "unverified-root",
-            root_epoch,
-            "scan",
-            1,
             &file_request("/managed/identity.txt"),
             None,
-            true,
-            10,
+            SourceObservationContext {
+                root_id: "unverified-root",
+                root_epoch,
+                owner_kind: "scan",
+                owner_revision: 1,
+                legacy_row_exists: true,
+                observed_at: 10,
+            },
         )
         .expect("write unverified source observation");
         assert!(unavailable.block_legacy_row);
@@ -914,14 +928,16 @@ mod tests {
             .expect("advance repeated unverified root epoch");
         let retry = observe_source_for_root_tx(
             &tx,
-            "unverified-root",
-            retry_epoch,
-            "watcher",
-            2,
             &file_request("/managed/identity.txt"),
             None,
-            true,
-            11,
+            SourceObservationContext {
+                root_id: "unverified-root",
+                root_epoch: retry_epoch,
+                owner_kind: "watcher",
+                owner_revision: 2,
+                legacy_row_exists: true,
+                observed_at: 11,
+            },
         )
         .expect("retain unresolved identity handle");
         assert_eq!(retry.source_uid, unavailable.source_uid);
@@ -951,28 +967,32 @@ mod tests {
             .expect("advance initial conflict epoch");
         let first = observe_source_for_root_tx(
             &tx,
-            "conflict-root",
-            first_epoch,
-            "scan",
-            1,
             &file_request("/managed/identity.txt"),
             Some(&physical_identity(100)),
-            false,
-            20,
+            SourceObservationContext {
+                root_id: "conflict-root",
+                root_epoch: first_epoch,
+                owner_kind: "scan",
+                owner_revision: 1,
+                legacy_row_exists: false,
+                observed_at: 20,
+            },
         )
         .expect("write initial verified identity");
         let replacement_epoch = advance_root_epoch_tx(&tx, "conflict-root", "watcher", 2, 21)
             .expect("advance reused identity epoch");
         let replacement = observe_source_for_root_tx(
             &tx,
-            "conflict-root",
-            replacement_epoch,
-            "watcher",
-            2,
             &file_request("/managed/identity.txt"),
             Some(&physical_identity(200)),
-            true,
-            21,
+            SourceObservationContext {
+                root_id: "conflict-root",
+                root_epoch: replacement_epoch,
+                owner_kind: "watcher",
+                owner_revision: 2,
+                legacy_row_exists: true,
+                observed_at: 21,
+            },
         )
         .expect("reject recycled native object id");
         assert!(replacement.block_legacy_row);
@@ -999,14 +1019,16 @@ mod tests {
             .expect("advance unavailable retry epoch");
         let unavailable_retry = observe_source_for_root_tx(
             &tx,
-            "conflict-root",
-            unavailable_retry_epoch,
-            "watcher",
-            3,
             &file_request("/managed/identity.txt"),
             None,
-            true,
-            22,
+            SourceObservationContext {
+                root_id: "conflict-root",
+                root_epoch: unavailable_retry_epoch,
+                owner_kind: "watcher",
+                owner_revision: 3,
+                legacy_row_exists: true,
+                observed_at: 22,
+            },
         )
         .expect("retain conflicted identity when native identity is unavailable");
         assert_eq!(unavailable_retry.source_uid, replacement.source_uid);

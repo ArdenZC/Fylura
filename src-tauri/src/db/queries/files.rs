@@ -3,7 +3,7 @@ use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_tr
 use super::library::{current_library_revision, selection_where, LibrarySelectionV1};
 use super::library_identity::{
     advance_root_epoch_tx, managed_root_ids_for_path_tx, mark_root_path_absent_tx,
-    observe_source_for_root_tx, verify_legacy_source_identity_tx,
+    observe_source_for_root_tx, verify_legacy_source_identity_tx, SourceObservationContext,
 };
 use super::*;
 use crate::file_naming::{
@@ -505,14 +505,16 @@ impl Database {
             let root_epoch = root_epochs[&root_id].0;
             let outcome = observe_source_for_root_tx(
                 &tx,
-                &root_id,
-                root_epoch,
-                "restore",
-                owner_revision,
                 &restore_observation,
                 physical.as_ref(),
-                current_id.is_some(),
-                restored_at,
+                SourceObservationContext {
+                    root_id: &root_id,
+                    root_epoch,
+                    owner_kind: "restore",
+                    owner_revision,
+                    legacy_row_exists: current_id.is_some(),
+                    observed_at: restored_at,
+                },
             )?;
             if outcome.block_legacy_row
                 || prior_source_uid
@@ -1006,7 +1008,7 @@ impl Database {
         let source_tracking_required = !old_claim_roots.is_empty() || !target_roots.is_empty();
         for root_id in &old_claim_roots {
             let owner_revision =
-                fence_source_root_for_user_mutation_tx(&tx, &root_id, last_seen_at)?;
+                fence_source_root_for_user_mutation_tx(&tx, root_id, last_seen_at)?;
             let epoch =
                 advance_root_epoch_tx(&tx, root_id, "operation", owner_revision, last_seen_at)?;
             root_epochs.insert(root_id.clone(), (epoch, owner_revision));
@@ -1049,14 +1051,16 @@ impl Database {
             let root_epoch = root_epochs[&root_id].0;
             let outcome = observe_source_for_root_tx(
                 &tx,
-                &root_id,
-                root_epoch,
-                "operation",
-                owner_revision,
                 &observation,
                 physical.as_ref(),
-                true,
-                last_seen_at,
+                SourceObservationContext {
+                    root_id: &root_id,
+                    root_epoch,
+                    owner_kind: "operation",
+                    owner_revision,
+                    legacy_row_exists: true,
+                    observed_at: last_seen_at,
+                },
             )?;
             source_write_blocked |= outcome.block_legacy_row
                 || verified_source_uid.as_deref() != Some(outcome.source_uid.as_str());

@@ -3,7 +3,7 @@ use super::analysis::{bump_dedupe_authority_tx, invalidate_analysis_findings_for
 use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
 use super::library_identity::{
     advance_root_epoch_tx, mark_root_path_absent_tx, observe_source_for_root_tx,
-    reconcile_root_membership_tx,
+    reconcile_root_membership_tx, SourceObservationContext,
 };
 use super::*;
 use crate::ids::new_job_id;
@@ -3018,14 +3018,16 @@ fn upsert_file_rows_tx(
             crate::fs_safety::capture_source_object_identity(std::path::Path::new(&file.path)).ok();
         let source = observe_source_for_root_tx(
             tx,
-            root_id,
-            root_epoch,
-            owner_kind,
-            owner_revision,
             file,
             physical.as_ref(),
-            previous.is_some(),
-            observed_at,
+            SourceObservationContext {
+                root_id,
+                root_epoch,
+                owner_kind,
+                owner_revision,
+                legacy_row_exists: previous.is_some(),
+                observed_at,
+            },
         )?;
         if source.block_legacy_row {
             let stale_changed = tx.execute(

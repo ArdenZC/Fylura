@@ -40,34 +40,51 @@ def unavailable(reason, output, identity=None, raw_output=''):
 LLDB_CALLBACK = r'''import lldb
 
 
-def _command(label, command, include_value=False):
-    print("ZC_LLDB_COMMAND_BEGIN=" + label)
-    result = lldb.SBCommandReturnObject()
+def _thread_summary(thread, prefix):
+    print("{}INDEX={} ID={} NAME={!r} QUEUE={!r}".format(
+        prefix, thread.GetIndexID(), thread.GetThreadID(),
+        thread.GetName() or "", thread.GetQueueName() or ""))
+
+
+def _backtrace(thread, prefix):
+    for index in range(thread.GetNumFrames()):
+        frame = thread.GetFrameAtIndex(index)
+        if not frame.IsValid():
+            continue
+        function_name = frame.GetFunctionName() or ""
+        symbol = frame.GetSymbol()
+        symbol_name = symbol.GetName() if symbol.IsValid() else ""
+        print("{}FRAME={} PC=0x{:x} FUNCTION={!r} SYMBOL={!r}".format(
+            prefix, index, frame.GetPC(), function_name, symbol_name))
+
+
+def _objc_expression(frame, label, expression):
+    marker = "ZC_OBJC_" + label.upper()
+    print(marker + "_BEGIN")
     try:
-        lldb.debugger.GetCommandInterpreter().HandleCommand(command, result)
-        output = result.GetOutput() or ""
-        error = result.GetError() or ""
-        if include_value:
-            marker = "ZC_OBJC_" + label.upper()
-            print(marker + "_BEGIN")
-            if output:
-                print(output, end="" if output.endswith("\n") else "\n")
-            if error:
-                print("LLDB_ERROR: " + error,
-                      end="" if error.endswith("\n") else "\n")
+        options = lldb.SBExpressionOptions()
+        options.SetLanguage(lldb.eLanguageTypeObjC)
+        options.SetTimeoutInMicroSeconds(5000000)
+        options.SetIgnoreBreakpoints(True)
+        options.SetUnwindOnError(True)
+        value = frame.EvaluateExpression(expression, options)
+        error = value.GetError()
+        if error.Fail():
+            print("LLDB_EXPRESSION_ERROR: " + (error.GetCString() or "unknown error"))
             print(marker + "_END")
-        else:
-            if output:
-                print(output, end="" if output.endswith("\n") else "\n")
-            if error:
-                print("LLDB_ERROR: " + error,
-                      end="" if error.endswith("\n") else "\n")
-        print("ZC_LLDB_COMMAND_SUCCEEDED=" + label + ":" +
-              ("1" if result.Succeeded() else "0"))
-        return result.Succeeded() and not error
+            return False
+        description = value.GetObjectDescription()
+        if not description:
+            description = value.GetSummary() or value.GetValue()
+        if description:
+            print(description)
+            print(marker + "_END")
+            return True
+        print("LLDB_EXPRESSION_ERROR: expression returned no printable value")
     except Exception as error:
-        print("ZC_LLDB_COMMAND_EXCEPTION=" + label + ":" + repr(error))
-        return False
+        print("LLDB_EXPRESSION_ERROR: " + repr(error))
+    print(marker + "_END")
+    return False
 
 
 def capture_objc_exception(frame, bp_loc, internal_dict):
@@ -86,25 +103,35 @@ def capture_objc_exception(frame, bp_loc, internal_dict):
     capture_index = internal_dict.get("zc_objc_capture_count", 0) + 1
     internal_dict["zc_objc_capture_count"] = capture_index
     print("ZC_OBJC_ENTRY_CONFIRMED index={}".format(capture_index))
+    print("ZC_OBJC_CAPTURE_START index={}".format(capture_index))
     print("ZC_OBJC_THREAD_ID={}".format(thread.GetThreadID()))
+    print("ZC_OBJC_THREAD_NAME={}".format(thread.GetName() or ""))
+    _thread_summary(thread, "ZC_OBJC_THREAD_")
     print("ZC_OBJC_FRAME_ID={} FUNCTION={!r} SYMBOL={!r} PC=0x{:x}".format(
         frame.GetFrameID(), function_name, symbol_name, frame.GetPC()))
 
-    commands_ok = []
-    commands_ok.append(_command(
-        "select_objc_thread", "thread select {}".format(thread.GetIndexID())))
-    commands_ok.append(_command("select_objc_entry_frame", "frame select 0"))
-    commands_ok.append(_command("thread_info", "thread info"))
-    commands_ok.append(_command("frame_info", "frame info"))
-    commands_ok.append(_command("register_x0", "register read x0"))
-    commands_ok.append(_command("exception_object", "po $arg1"))
-    name_ok = _command("exception_name", "po [$arg1 name]", include_value=True)
-    reason_ok = _command("exception_reason", "po [$arg1 reason]", include_value=True)
-    commands_ok.append(_command("objc_backtrace", "thread backtrace all"))
-    if name_ok and reason_ok and all(commands_ok):
+    x0 = frame.FindRegister("x0")
+    if not x0.IsValid():
+        print("ZC_OBJC_X0_ERROR: x0 register is unavailable")
+        print("ZC_OBJC_EVALUATION_FAILED index={}".format(capture_index))
+        _backtrace(thread, "ZC_OBJC_BACKTRACE_")
+        print("ZC_OBJC_CAPTURE_END index={}".format(capture_index))
+        return False
+    exception_address = x0.GetValueAsUnsigned(0)
+    print("ZC_OBJC_X0=0x{:x}".format(exception_address))
+    object_expression = "(id)0x{:x}".format(exception_address)
+    object_ok = _objc_expression(
+        frame, "exception_object", object_expression)
+    name_ok = _objc_expression(
+        frame, "exception_name", "[{} name]".format(object_expression))
+    reason_ok = _objc_expression(
+        frame, "exception_reason", "[{} reason]".format(object_expression))
+    _backtrace(thread, "ZC_OBJC_BACKTRACE_")
+    if object_ok and name_ok and reason_ok:
         print("ZC_OBJC_EVALUATION_SUCCEEDED index={}".format(capture_index))
     else:
         print("ZC_OBJC_EVALUATION_FAILED index={}".format(capture_index))
+    print("ZC_OBJC_CAPTURE_END index={}".format(capture_index))
     return False
 
 
@@ -113,11 +140,29 @@ def capture_rust_foreign_exception(frame, bp_loc, internal_dict):
     function_name = frame.GetFunctionName() or ""
     symbol = frame.GetSymbol()
     symbol_name = symbol.GetName() if symbol.IsValid() else ""
-    print("ZC_FOREIGN_EXCEPTION_THREAD_ID={}".format(thread.GetThreadID()))
     print("ZC_FOREIGN_EXCEPTION_FRAME={!r} {!r}".format(
         function_name, symbol_name))
-    _command("foreign_thread_info", "thread info")
-    _command("foreign_backtrace", "thread backtrace all")
+    print("ZC_FOREIGN_EXCEPTION_THREAD_ID={}".format(thread.GetThreadID()))
+    _thread_summary(thread, "ZC_FOREIGN_EXCEPTION_THREAD_")
+    _backtrace(thread, "ZC_FOREIGN_EXCEPTION_BACKTRACE_")
+    return False
+
+
+def capture_pthread_kill(frame, bp_loc, internal_dict):
+    function_name = frame.GetFunctionName() or ""
+    symbol = frame.GetSymbol()
+    symbol_name = symbol.GetName() if symbol.IsValid() else ""
+    if "__pthread_kill" not in function_name and "__pthread_kill" not in symbol_name:
+        return False
+    signal_register = frame.FindRegister("x1")
+    signal_number = signal_register.GetValueAsUnsigned(0) if signal_register.IsValid() else 0
+    if signal_number != 6:
+        return False
+    thread = frame.GetThread()
+    print("ZC_SIGABRT_THREAD_ID={}".format(thread.GetThreadID()))
+    print("ZC_SIGABRT_THREAD_NAME={!r}".format(thread.GetName() or ""))
+    print("ZC_SIGABRT_THREAD_INDEX={}".format(thread.GetIndexID()))
+    _backtrace(thread, "ZC_SIGABRT_BACKTRACE_")
     return False
 '''
 
@@ -132,6 +177,36 @@ def _captured_values(raw, marker):
         value, remainder = remainder.split(end, 1)
         values.append(value.strip())
     return values
+
+
+def _line_value(raw, marker):
+    for line in raw.splitlines():
+        if line.startswith(marker):
+            return line.split('=', 1)[1].strip()
+    return None
+
+
+def _exception_records(raw):
+    records = []
+    for capture in raw.split('ZC_OBJC_CAPTURE_START index=')[1:]:
+        if 'ZC_OBJC_CAPTURE_END' not in capture:
+            continue
+        section = capture.split('ZC_OBJC_CAPTURE_END', 1)[0]
+        index = section.splitlines()[0].strip()
+        names = _captured_values(section, 'ZC_OBJC_EXCEPTION_NAME')
+        reasons = _captured_values(section, 'ZC_OBJC_EXCEPTION_REASON')
+        records.append({
+            'index': index,
+            'threadId': _line_value(section, 'ZC_OBJC_THREAD_ID='),
+            'threadName': _line_value(section, 'ZC_OBJC_THREAD_NAME='),
+            'x0': _line_value(section, 'ZC_OBJC_X0='),
+            'name': names[0] if names else None,
+            'reason': reasons[0] if reasons else None,
+            'evaluationSucceeded': (
+                'ZC_OBJC_EVALUATION_SUCCEEDED index={}'.format(index) in section),
+            'backtraceCaptured': 'ZC_OBJC_BACKTRACE_FRAME=' in section,
+        })
+    return records
 
 
 def main():
@@ -178,7 +253,8 @@ def main():
         'lldbPath': lldb,
         'startedAt': now(),
         'timeoutSeconds': 90,
-        'breakpoints': ['objc_exception_throw', '__rust_foreign_exception'],
+        'breakpoints': [
+            'objc_exception_throw', '__rust_foreign_exception', '__pthread_kill'],
         'cleanup': {},
     }
     debugger = None
@@ -193,16 +269,11 @@ def main():
             '-o', 'breakpoint command add -F zc_lldb_callback.capture_objc_exception 1',
             '-o', 'breakpoint set --name __rust_foreign_exception',
             '-o', 'breakpoint command add -F zc_lldb_callback.capture_rust_foreign_exception 2',
+            '-o', 'breakpoint set --name __pthread_kill',
+            '-o', 'breakpoint command add -F zc_lldb_callback.capture_pthread_kill 3',
             '-o', 'process handle SIGABRT --notify true --stop true --pass false',
             '-o', 'settings set target.run-args -- --background',
             '-o', 'run',
-            '-o', 'script print("ZC_FINAL_THREAD_ID=" + str(lldb.debugger.GetSelectedTarget().GetProcess().GetSelectedThread().GetThreadID()))',
-            '-o', 'thread info',
-            '-o', 'frame info',
-            '-o', 'thread backtrace all',
-            '-o', 'process status',
-            '-o', 'process kill',
-            '-o', 'quit',
         ]
         debugger = subprocess.Popen(command, env=env, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True,
@@ -226,39 +297,44 @@ def main():
         ]
         evidence['objcExceptionEntryCount'] = raw.count(
             'ZC_OBJC_ENTRY_CONFIRMED index=')
+        exception_records = _exception_records(raw)
+        evidence['objcExceptions'] = exception_records
         evidence['objcThreadIds'] = [
-            line.split('=', 1)[1].strip()
-            for line in raw.splitlines()
-            if line.startswith('ZC_OBJC_THREAD_ID=')
-        ]
-        evidence['objcExceptionNames'] = _captured_values(
-            raw, 'ZC_OBJC_EXCEPTION_NAME')
-        evidence['objcExceptionReasons'] = _captured_values(
-            raw, 'ZC_OBJC_EXCEPTION_REASON')
-        evidence['objcEvaluationSucceeded'] = (
-            'ZC_OBJC_EVALUATION_SUCCEEDED' in raw and
-            'ZC_OBJC_EVALUATION_FAILED' not in raw)
+            record['threadId'] for record in exception_records
+            if record['threadId'] is not None]
+        evidence['objcThreadNames'] = [
+            record['threadName'] for record in exception_records
+            if record['threadName'] is not None]
+        evidence['objcExceptionNames'] = [
+            record['name'] for record in exception_records
+            if record['name'] is not None]
+        evidence['objcExceptionReasons'] = [
+            record['reason'] for record in exception_records
+            if record['reason'] is not None]
         foreign_threads = [
             line.split('=', 1)[1].strip()
             for line in raw.splitlines()
             if line.startswith('ZC_FOREIGN_EXCEPTION_THREAD_ID=')
         ]
         evidence['foreignExceptionThreadIds'] = foreign_threads
-        final_threads = [
-            line.split('=', 1)[1].strip()
-            for line in raw.splitlines()
-            if line.startswith('ZC_FINAL_THREAD_ID=')
-        ]
-        evidence['fatalThreadId'] = final_threads[-1] if final_threads else None
+        evidence['fatalThreadId'] = _line_value(raw, 'ZC_SIGABRT_THREAD_ID=')
+        evidence['fatalThreadName'] = _line_value(raw, 'ZC_SIGABRT_THREAD_NAME=')
         evidence['sigabrtObserved'] = 'stop reason = signal SIGABRT' in raw
         evidence['foreignExceptionObserved'] = bool(foreign_threads)
         fatal_thread = evidence['fatalThreadId']
+        correlated_exceptions = [
+            record for record in exception_records
+            if fatal_thread and record['threadId'] == fatal_thread]
         evidence['sameThreadAsFatalStop'] = bool(
-            fatal_thread and fatal_thread in evidence['objcThreadIds'] and
+            correlated_exceptions and
             evidence['sigabrtObserved'])
+        evidence['objcEvaluationSucceeded'] = any(
+            record['evaluationSucceeded'] for record in exception_records)
+        evidence['fatalExceptionDetailsCaptured'] = any(
+            record['evaluationSucceeded'] for record in correlated_exceptions)
         evidence['backtraceCaptured'] = (
             evidence['objcExceptionEntryCount'] > 0 and
-            'frame #0:' in raw)
+            any(record['backtraceCaptured'] for record in exception_records))
         if evidence['objcExceptionEntryCount'] == 0:
             evidence['reason'] = (
                 'LLDB did not confirm the objc_exception_throw entry frame')
@@ -266,12 +342,15 @@ def main():
             evidence['reason'] = (
                 'Objective-C exception expressions failed; see rawOutput')
         elif not evidence['sigabrtObserved']:
+            evidence['classification'] = 'DIAGNOSTIC AVAILABLE'
             evidence['reason'] = (
-                'exception captured but a subsequent SIGABRT was not observed')
+                'Objective-C exception details were captured, but no SIGABRT '
+                'stop was observed')
         elif not evidence['sameThreadAsFatalStop']:
+            evidence['classification'] = 'DIAGNOSTIC AVAILABLE'
             evidence['reason'] = (
-                'captured Objective-C exception was not correlated to the '
-                'SIGABRT thread')
+                'Objective-C exception details were captured, but the fatal '
+                'thread correlation was not established')
         else:
             evidence['classification'] = 'DIAGNOSTIC AVAILABLE'
             evidence['reason'] = (

@@ -104,9 +104,12 @@ jobs:
               'objcExceptionNames': evidence.get('objcExceptionNames'),
               'objcExceptionReasons': evidence.get('objcExceptionReasons'),
               'objcThreadIds': evidence.get('objcThreadIds'),
+              'objcThreadNames': evidence.get('objcThreadNames'),
               'fatalThreadId': evidence.get('fatalThreadId'),
+              'fatalThreadName': evidence.get('fatalThreadName'),
               'sigabrtObserved': evidence.get('sigabrtObserved'),
               'sameThreadAsFatalStop': evidence.get('sameThreadAsFatalStop'),
+              'fatalExceptionDetailsCaptured': evidence.get('fatalExceptionDetailsCaptured'),
               'cleanup': evidence.get('cleanup'),
           }, indent=2))
           PY

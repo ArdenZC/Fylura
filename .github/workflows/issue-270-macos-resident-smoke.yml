@@ -8,7 +8,12 @@ on:
       - 'scripts/qualifyMacosResident.py'
       - 'src-tauri/src/main.rs'
       - 'src-tauri/src/app_control.rs'
+      - 'src-tauri/src/global_index/coordinator.rs'
+      - 'src-tauri/src/global_index/wake.rs'
+      - 'src-tauri/src/global_index/macos/fsevents.rs'
+      - 'src-tauri/src/global_index/macos/mod.rs'
       - 'src-tauri/src/global_index/macos/spotlight.rs'
+      - 'src-tauri/src/global_index/qa_trace.rs'
       - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
   workflow_dispatch:

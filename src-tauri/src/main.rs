@@ -183,8 +183,32 @@ fn main() {
             app.manage(zen_canvas_tauri::app_control::MainWindowLifecycleState::default());
             app.manage(zen_canvas_tauri::app_control::MainWindowSessionState::default());
             qualification_startup_checkpoint("core_runtime_owners_ready");
-            zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
-            qualification_startup_checkpoint("tray_ready");
+            #[cfg(target_os = "macos")]
+            {
+                // Tauri invokes setup while macOS is still finishing launch. Queue
+                // NSStatusItem creation for the next main-loop turn, after that
+                // Objective-C launch callback has returned.
+                let tray_app = app.handle().clone();
+                let tray_task_app = tray_app.clone();
+                tray_app
+                    .run_on_main_thread(move || {
+                        if let Err(error) =
+                            zen_canvas_tauri::app_control::setup_tray(&tray_task_app)
+                        {
+                            eprintln!("Tray initialization failed: {error}");
+                            tray_task_app.exit(1);
+                            return;
+                        }
+                        qualification_startup_checkpoint("tray_ready");
+                    })
+                    .map_err(io::Error::other)?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                zen_canvas_tauri::app_control::setup_tray(&*app)
+                    .map_err(io::Error::other)?;
+                qualification_startup_checkpoint("tray_ready");
+            }
             let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
             let launch_at_login = app.autolaunch();
             let app_settings = match settings::sync_launch_at_login_from_system(

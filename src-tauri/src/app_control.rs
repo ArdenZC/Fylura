@@ -1926,7 +1926,7 @@ fn require_search_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), St
 }
 
 #[cfg(feature = "desktop-runtime")]
-pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
+pub fn setup_tray<R: Runtime, M: Manager<R>>(app: &M) -> tauri::Result<()> {
     let show_item = MenuItem::with_id(
         app,
         TRAY_SHOW_MAIN_WINDOW_ID,

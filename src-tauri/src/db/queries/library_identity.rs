@@ -122,7 +122,7 @@ pub(crate) fn observe_source_for_root_tx(
                 WHEN 'unverified' THEN 1
                 WHEN 'conflicted' THEN 2
                 ELSE 3
-            END, root_epoch DESC
+            END, root_epoch DESC, rowid DESC
             LIMIT 1
             "#,
             params![root_id, file.path],

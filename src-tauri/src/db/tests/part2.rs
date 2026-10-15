@@ -926,6 +926,7 @@
             ],
         )
         .expect("inject legacy invalid values");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch("DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 19;")
             .expect("downgrade enum migration fixture");
         drop(conn);

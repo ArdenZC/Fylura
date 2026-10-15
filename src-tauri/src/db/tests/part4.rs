@@ -8,7 +8,7 @@ fn schema_30_creates_analysis_ledger_without_fabricated_history() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version");
-    assert_eq!(version, 39);
+    assert_eq!(version, 40);
     for table in [
         "dedupe_authority_state",
         "analysis_runs",
@@ -91,6 +91,7 @@ fn schema_33_to_34_creates_content_ledger_without_rewriting_core_tables() {
     drop(db);
 
     let conn = Connection::open(&path).expect("open schema 33 fixture");
+    crate::db::drop_source_writer_schema_for_test(&conn);
     conn.execute_batch(
         r#"
         DROP TRIGGER IF EXISTS content_artifacts_file_changed;
@@ -110,7 +111,7 @@ fn schema_33_to_34_creates_content_ledger_without_rewriting_core_tables() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("schema version"),
-        39
+        40
     );
     for table in [
         "content_scope_policies",
@@ -168,6 +169,7 @@ fn schema_33_to_34_conflict_rolls_back_content_ledger_atomically() {
     let db = Database::open(&path).expect("open current database");
     drop(db);
     let conn = Connection::open(&path).expect("open schema 33 conflict fixture");
+    crate::db::drop_source_writer_schema_for_test(&conn);
     conn.execute_batch(
         r#"
         DROP TRIGGER IF EXISTS content_artifacts_file_changed;
@@ -216,6 +218,7 @@ fn schema_29_to_30_conflict_rolls_back_analysis_migration_atomically() {
     let db = Database::open(&path).expect("create schema 30 fixture");
     drop(db);
     let conn = Connection::open(&path).expect("open fixture");
+    crate::db::drop_source_writer_schema_for_test(&conn);
     conn.execute_batch(
         r#"
         DROP TABLE analysis_finding_evidence;

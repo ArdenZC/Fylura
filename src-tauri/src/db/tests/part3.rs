@@ -298,23 +298,17 @@
             .expect("managed retained restore root")
             .id;
 
-        let metadata = fs::metadata(&source).expect("read retained source metadata");
-        db.insert_file(InsertFileRequest {
-            id: source_path.clone(),
-            path: source_path.clone(),
-            name: "retained-before.txt".to_string(),
-            extension: "txt".to_string(),
-            size: metadata.len() as i64,
-            mtime: metadata
-                .modified()
-                .expect("read retained source mtime")
-                .duration_since(UNIX_EPOCH)
-                .expect("retained source mtime epoch")
-                .as_secs() as i64,
-            ctime: 0,
-            is_dir: false,
-            state_code: 0,
-        })
+        let initial_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin retained source watcher revision")
+            .expect("enabled retained source root")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &root_id,
+            initial_revision,
+            std::slice::from_ref(&source_path),
+            &std::collections::HashSet::new(),
+        )
         .expect("publish retained source identity");
         let original_uid: String = Connection::open(db.path())
             .expect("open retained source identity database")

@@ -150,7 +150,6 @@ impl Database {
             "#,
             )?;
 
-            let mut root_epochs = HashMap::<String, (i64, i64)>::new();
             for file in files {
                 let previous = tx
                     .query_row(
@@ -167,53 +166,6 @@ impl Database {
                         },
                     )
                     .optional()?;
-                let roots = managed_root_ids_for_path_tx(&tx, &file.path)?;
-                let physical = if roots.is_empty() {
-                    None
-                } else {
-                    crate::fs_safety::capture_source_object_identity(Path::new(&file.path)).ok()
-                };
-                let mut block_legacy_row = false;
-                for (root_id, _root_revision) in roots {
-                    let root_epoch = if let Some((epoch, _)) = root_epochs.get(&root_id) {
-                        *epoch
-                    } else {
-                        let owner_revision =
-                            fence_source_root_for_user_mutation_tx(&tx, &root_id, last_seen_at)?;
-                        let epoch = advance_root_epoch_tx(
-                            &tx,
-                            &root_id,
-                            "operation",
-                            owner_revision,
-                            last_seen_at,
-                        )?;
-                        root_epochs.insert(root_id.clone(), (epoch, owner_revision));
-                        epoch
-                    };
-                    let owner_revision = root_epochs[&root_id].1;
-                    let outcome = observe_source_for_root_tx(
-                        &tx,
-                        &root_id,
-                        root_epoch,
-                        "operation",
-                        owner_revision,
-                        file,
-                        physical.as_ref(),
-                        previous.is_some(),
-                        last_seen_at,
-                    )?;
-                    block_legacy_row |= outcome.block_legacy_row;
-                }
-                if block_legacy_row {
-                    let changed = tx.execute(
-                        "UPDATE files SET is_stale = 1 WHERE id = ?1 AND is_stale = 0",
-                        params![file.id],
-                    )?;
-                    if changed > 0 {
-                        invalidate_file_in_transaction(&tx, &file.id, "stale")?;
-                    }
-                    continue;
-                }
                 let file_type = infer_file_type(&file.extension, file.is_dir);
                 stmt.execute(params![
                     file.id,

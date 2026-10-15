@@ -3275,6 +3275,7 @@ mod issue381_b4_p0_tests {
     }
 
     fn remove_identity_foundation(conn: &Connection, version: i32) {
+        crate::db::drop_source_writer_schema_for_test(conn);
         conn.execute_batch(&format!(
             "DROP TABLE IF EXISTS library_source_observations;
              DROP TABLE IF EXISTS library_legacy_attributions;

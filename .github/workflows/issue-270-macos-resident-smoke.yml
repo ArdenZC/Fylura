@@ -6,9 +6,9 @@ on:
     paths:
       - '.github/workflows/issue-270-macos-resident-smoke.yml'
       - 'scripts/qualifyMacosResident.py'
-      - 'scripts/diagnoseMacosStartup.py'
       - 'src-tauri/src/main.rs'
       - 'src-tauri/src/app_control.rs'
+      - 'src-tauri/src/global_index/macos/spotlight.rs'
       - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
 
@@ -80,39 +80,6 @@ jobs:
           trap 'rm -f "$task_config"' EXIT
           printf '{"mainBinaryName":"zen-canvas"}\n' > "$task_config"
           npx tauri build --features "desktop-runtime,native-qa" --bundles app --config "$task_config" -- --locked
-
-      - name: Capture one bounded Objective-C startup exception
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .performance-artifacts/issue-270
-          python3 scripts/diagnoseMacosStartup.py \
-            'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' \
-            '.performance-artifacts/issue-270/macos-startup-lldb.json'
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          evidence = json.loads(Path('.performance-artifacts/issue-270/macos-startup-lldb.json').read_text())
-          print(json.dumps({
-              'sourceHead': evidence.get('sourceHead'),
-              'runner': evidence.get('runner'),
-              'architecture': evidence.get('architecture'),
-              'classification': evidence.get('classification'),
-              'reason': evidence.get('reason'),
-              'startupCheckpoints': evidence.get('startupCheckpoints'),
-              'objcExceptionNames': evidence.get('objcExceptionNames'),
-              'objcExceptionReasons': evidence.get('objcExceptionReasons'),
-              'objcThreadIds': evidence.get('objcThreadIds'),
-              'objcThreadNames': evidence.get('objcThreadNames'),
-              'fatalThreadId': evidence.get('fatalThreadId'),
-              'fatalThreadName': evidence.get('fatalThreadName'),
-              'sigabrtObserved': evidence.get('sigabrtObserved'),
-              'sameThreadAsFatalStop': evidence.get('sameThreadAsFatalStop'),
-              'fatalExceptionDetailsCaptured': evidence.get('fatalExceptionDetailsCaptured'),
-              'cleanup': evidence.get('cleanup'),
-          }, indent=2))
-          PY
 
       - name: Qualify the exact background resident process
         shell: bash

@@ -175,6 +175,7 @@ pub struct WindowsGlobalIndexProvider {
     test_watcher_start_count: std::sync::atomic::AtomicUsize,
 }
 
+#[cfg(feature = "native-qa")]
 pub(crate) enum PauseObservation<'a> {
     Request {
         protocol_version: u16,
@@ -372,10 +373,11 @@ impl WindowsGlobalIndexProvider {
 
     fn pause_with_observer(
         &self,
-        mut observe: impl FnMut(PauseObservation<'_>),
+        #[cfg(feature = "native-qa")] mut observe: impl FnMut(PauseObservation<'_>),
     ) -> Result<(), GlobalIndexError> {
         self.clear_native_change_watchers();
         let request = IndexServiceRequest::new(IndexServiceCommand::Pause, None);
+        #[cfg(feature = "native-qa")]
         observe(PauseObservation::Request {
             protocol_version: request.protocol_version,
             request_id: &request.request_id,
@@ -386,6 +388,7 @@ impl WindowsGlobalIndexProvider {
             ))
         }) {
             Ok(response) => {
+                #[cfg(feature = "native-qa")]
                 observe(PauseObservation::Response(&response));
                 if response.ok {
                     self.service_connected();
@@ -395,12 +398,14 @@ impl WindowsGlobalIndexProvider {
                 }
             }
             Err(error) => {
+                #[cfg(feature = "native-qa")]
                 let kind = match &error {
                     service::IndexServiceCallError::NotSent(_) => "not_sent",
                     service::IndexServiceCallError::Protocol(_) => "protocol",
                     service::IndexServiceCallError::UnknownOutcome(_) => "unknown_outcome",
                     service::IndexServiceCallError::Sink(_) => "sink",
                 };
+                #[cfg(feature = "native-qa")]
                 observe(PauseObservation::TransportError { kind });
                 match error {
                     service::IndexServiceCallError::NotSent(_) => {
@@ -693,7 +698,14 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
     }
 
     fn pause(&self) -> Result<(), GlobalIndexError> {
-        self.pause_with_observer(|_| {})
+        #[cfg(feature = "native-qa")]
+        {
+            self.pause_with_observer(|_| {})
+        }
+        #[cfg(not(feature = "native-qa"))]
+        {
+            self.pause_with_observer()
+        }
     }
 
     fn status(&self) -> Result<String, GlobalIndexError> {

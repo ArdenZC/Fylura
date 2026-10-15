@@ -437,18 +437,27 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }));
     let paused_result = db.get_global_volume(&source.id);
     let owner_after_cycle_result = db.global_index_operation_state(&source.id);
-    let events = provider.events_snapshot();
     let actual_source = paused_result
         .as_ref()
         .ok()
         .and_then(|source| source.as_ref());
     let actual_index_status = actual_source.map(|source| source.index_status.as_str());
     let actual_last_error = actual_source.and_then(|source| source.last_error.as_deref());
+    let source_state_read_error = paused_result.as_ref().err().map(|_| "database_error");
     let actual_outcome = provider.outcome();
     let owner_after_cycle = match owner_after_cycle_result.as_ref() {
         Ok(owner) => operation_state_value(owner.as_ref()),
         Err(_) => serde_json::json!({"read_error": "database_error"}),
     };
+    provider.record_event(serde_json::json!({
+        "event": "durable_source_state_observed_after_cycle",
+        "source_present": actual_source.is_some(),
+        "source_state_read_error": source_state_read_error,
+        "index_status": actual_index_status,
+        "last_error": actual_last_error,
+        "source_operation": owner_after_cycle.clone(),
+    }));
+    let events = provider.events_snapshot();
     let pause_request = first_event(&events, "typed_pause_request");
     let pause_response = first_event(&events, "typed_pause_response");
     let pause_diagnostic = serde_json::json!({
@@ -457,6 +466,8 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         "provider_outcome": actual_outcome,
         "cycle_succeeded": first_cycle_result.is_ok(),
         "service_available": provider.inner.service_available.load(Ordering::Acquire),
+        "source_state_read_error": source_state_read_error,
+        "source_present": actual_source.is_some(),
         "source_operation_before_cycle": operation_state_value(owner_before_cycle.as_ref()),
         "source_operation_after_cycle": owner_after_cycle,
         "pause_request": pause_request,

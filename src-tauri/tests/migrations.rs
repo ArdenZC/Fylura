@@ -1611,6 +1611,8 @@ fn p0_r1_schema_38_reopen_rejects_case_changed_check_without_mutation() {
         .expect("remove source table for DDL-only fixture change");
     conn.execute_batch(&changed_source_sql)
         .expect("install CHECK with case-sensitive semantic change");
+    conn.execute_batch("PRAGMA user_version = 38;")
+        .expect("reopen malformed schema 38 fixture");
     let before_schema = full_schema_snapshot(&conn);
     let before_files = table_snapshot(&conn, "files");
     let before_tags = table_snapshot(&conn, "user_tags");

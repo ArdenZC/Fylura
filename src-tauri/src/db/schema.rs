@@ -205,6 +205,13 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
     with_migration_transaction(conn, |conn| {
         let library_identity_schema_installed = if version < 38 {
             ensure_library_identity_schema_names_available(conn)?
+        } else if version == 38 {
+            // Schema 38 already required the complete Library identity
+            // foundation. Keep validating it before the 38 -> 39 migration;
+            // otherwise a version bump would silently admit malformed 38
+            // databases that were rejected when 38 was current.
+            validate_library_identity_schema(conn)?;
+            true
         } else {
             false
         };

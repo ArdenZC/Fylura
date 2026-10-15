@@ -94,6 +94,40 @@ struct PauseSink<'a> {
     provider: &'a ProbeProvider,
 }
 impl GlobalIndexSink for PauseSink<'_> {
+    fn admit_source_operation(
+        &mut self,
+        source: &GlobalVolume,
+        operation_id: &str,
+        kind: crate::global_index::SourceOperationKind,
+        route: crate::global_index::SourceOperationRoute,
+    ) -> Result<(), GlobalIndexError> {
+        self.sink
+            .admit_source_operation(source, operation_id, kind, route)
+    }
+    fn source_operation_admitted(&self, volume_id: &str) -> bool {
+        self.sink.source_operation_admitted(volume_id)
+    }
+    fn mark_source_operation_unknown(&mut self, volume_id: &str) -> Result<(), GlobalIndexError> {
+        self.sink.mark_source_operation_unknown(volume_id)
+    }
+    fn finish_source_operation(
+        &mut self,
+        volume_id: &str,
+        status: &str,
+        error: Option<&str>,
+        full_index_at: Option<i64>,
+        incremental_sync_at: Option<i64>,
+        complete_rebuild_intent: bool,
+    ) -> Result<(), GlobalIndexError> {
+        self.sink.finish_source_operation(
+            volume_id,
+            status,
+            error,
+            full_index_at,
+            incremental_sync_at,
+            complete_rebuild_intent,
+        )
+    }
     fn set_source_provider(&mut self, id: &str, provider: &str) -> Result<(), GlobalIndexError> {
         self.sink.set_source_provider(id, provider)?;
         // Pause after the real service begins streaming, before its MFT read.

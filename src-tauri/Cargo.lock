@@ -6070,6 +6070,7 @@ dependencies = [
  "block2",
  "csv",
  "dirs 5.0.1",
+ "dispatch2",
  "flate2",
  "fsevent-sys",
  "image",

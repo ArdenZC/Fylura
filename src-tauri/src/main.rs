@@ -185,23 +185,19 @@ fn main() {
             qualification_startup_checkpoint("core_runtime_owners_ready");
             #[cfg(target_os = "macos")]
             {
-                // Tauri invokes setup while macOS is still finishing launch. Queue
-                // NSStatusItem creation for the next main-loop turn, after that
-                // Objective-C launch callback has returned.
+                // Tauri's run_on_main_thread executes inline when setup is already
+                // on the main thread. Dispatch asynchronously so NSStatusItem
+                // creation happens after applicationDidFinishLaunching returns.
                 let tray_app = app.handle().clone();
                 let tray_task_app = tray_app.clone();
-                tray_app
-                    .run_on_main_thread(move || {
-                        if let Err(error) =
-                            zen_canvas_tauri::app_control::setup_tray(&tray_task_app)
-                        {
-                            eprintln!("Tray initialization failed: {error}");
-                            tray_task_app.exit(1);
-                            return;
-                        }
-                        qualification_startup_checkpoint("tray_ready");
-                    })
-                    .map_err(io::Error::other)?;
+                dispatch2::DispatchQueue::main().exec_async(move || {
+                    if let Err(error) = zen_canvas_tauri::app_control::setup_tray(&tray_task_app) {
+                        eprintln!("Tray initialization failed: {error}");
+                        tray_task_app.exit(1);
+                        return;
+                    }
+                    qualification_startup_checkpoint("tray_ready");
+                });
             }
             #[cfg(not(target_os = "macos"))]
             {

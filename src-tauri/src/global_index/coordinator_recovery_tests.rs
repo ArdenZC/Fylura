@@ -1,3 +1,132 @@
+struct BusyCycleWorkerProvider {
+    source: GlobalSourceDescriptor,
+    discoveries: AtomicUsize,
+    operations: AtomicUsize,
+    discovered: SyncSender<usize>,
+}
+
+impl GlobalIndexProvider for BusyCycleWorkerProvider {
+    fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+        let count = self.discoveries.fetch_add(1, Ordering::AcqRel) + 1;
+        let _ = self.discovered.send(count);
+        Ok(vec![self.source.clone()])
+    }
+
+    fn start_initial_index(
+        &self,
+        _source: &GlobalSourceDescriptor,
+        _sink: &mut dyn GlobalIndexSink,
+        _cancel: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        unreachable!("fixture source has an existing full-index baseline")
+    }
+
+    fn resume_incremental_sync(
+        &self,
+        source: &GlobalSourceDescriptor,
+        sink: &mut dyn GlobalIndexSink,
+        _cancel: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        self.operations.fetch_add(1, Ordering::AcqRel);
+        sink.checkpoint(&source.volume.id, Some("journal"), Some("43"))
+    }
+
+    fn pause(&self) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+
+    fn status(&self) -> Result<String, GlobalIndexError> {
+        Ok("test".into())
+    }
+
+    fn shutdown(&self) -> Result<(), GlobalIndexError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn transient_sqlite_busy_keeps_coordinator_alive_until_a_new_wake() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open isolated coordinator test database");
+    let source = diagnostic_source("source-worker-busy", INDEX_STATUS_READY, Some(1));
+    db.upsert_global_volume(&source.volume)
+        .expect("seed source before locking the database");
+    db.set_test_busy_timeout_for_all_connections(
+        5_000,
+        std::time::Duration::from_millis(20),
+    )
+    .expect("bound only this test's lock wait");
+    let blocker = rusqlite::Connection::open(&path.0).expect("open external writer");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("hold the database writer reservation");
+
+    let (discovered_tx, discovered_rx) = sync_channel(4);
+    let provider = Arc::new(BusyCycleWorkerProvider {
+        source: source.clone(),
+        discoveries: AtomicUsize::new(0),
+        operations: AtomicUsize::new(0),
+        discovered: discovered_tx,
+    });
+    let cancel = Arc::new(AtomicBool::new(false));
+    let wake = Arc::new(GlobalIndexWakeSlot::default());
+    let worker = {
+        let db = db.clone();
+        let provider = provider.clone();
+        let cancel = cancel.clone();
+        let wake = wake.clone();
+        thread::spawn(move || run_index(provider, db, cancel, wake))
+    };
+
+    assert_eq!(
+        discovered_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("first startup discovery"),
+        1
+    );
+    wait_for_idle_wait(&wake, 0);
+    assert!(!worker.is_finished(), "SQLite BUSY must not end the worker");
+    assert_eq!(provider.operations.load(Ordering::Acquire), 0);
+    assert!(matches!(
+        discovered_rx.recv_timeout(std::time::Duration::from_millis(100)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+    ));
+
+    blocker
+        .execute_batch("ROLLBACK")
+        .expect("release database writer reservation");
+    let prior_waits = wake.snapshot().blocked_waits;
+    wake.notify(GlobalIndexWakeReason::ExplicitCommand);
+    assert_eq!(
+        discovered_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .expect("explicit event starts one new cycle"),
+        2
+    );
+    wait_for_idle_wait(&wake, prior_waits);
+    assert_eq!(provider.discoveries.load(Ordering::Acquire), 2);
+    assert_eq!(provider.operations.load(Ordering::Acquire), 1);
+
+    cancel.store(true, Ordering::Release);
+    wake.shutdown();
+    worker
+        .join()
+        .expect("join coordinator worker")
+        .expect("worker shuts down after the event-driven recovery");
+    let recovered = db
+        .get_global_volume(&source.volume.id)
+        .expect("read recovered source")
+        .expect("source remains present");
+    assert_eq!(recovered.index_status, INDEX_STATUS_READY);
+    assert_eq!(recovered.journal_cursor.as_deref(), Some("43"));
+    let operation = db
+        .global_index_operation_state(&source.volume.id)
+        .expect("read recovered operation")
+        .expect("source operation remains present");
+    assert_eq!(operation.revision, 1);
+    assert_eq!(operation.owner_id, None);
+}
+
 struct RecoveryOutcomeProvider {
     source: GlobalSourceDescriptor,
     outcome: u8,

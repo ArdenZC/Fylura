@@ -541,6 +541,7 @@ fn run_index(
 ) -> Result<(), GlobalIndexError> {
     let mut previous_topology = None;
     let mut run_cycle = true;
+    let mut wait_for_event_after_sqlite_contention = false;
     while !cancel.load(Ordering::Acquire) {
         if run_cycle {
             // Consume a command/start signal before beginning its immediate
@@ -549,15 +550,39 @@ fn run_index(
             // catch-up-to-idle boundary.
             let _ = wake.wait(&cancel, Some(Duration::ZERO));
             super::qa_trace::record("coordinator_cycle");
-            previous_topology = Some(run_index_cycle(provider.as_ref(), &db, &cancel, &wake)?);
+            match run_index_cycle(provider.as_ref(), &db, &cancel, &wake) {
+                Ok(topology) => {
+                    previous_topology = Some(topology);
+                    wait_for_event_after_sqlite_contention = false;
+                }
+                Err(error) if sqlite_contention_kind(&error).is_some() => {
+                    let kind = sqlite_contention_kind(&error).expect("matched SQLite contention");
+                    eprintln!(
+                        "Global Index cycle deferred until its next event after SQLite {kind:?}: {error}"
+                    );
+                    // Do not spin or create a retry loop when a lock remains
+                    // held. The next existing command/lifecycle/source event
+                    // may start a fresh, owner-fenced operation.
+                    wait_for_event_after_sqlite_contention = true;
+                }
+                Err(error) => return Err(error),
+            }
             if cancel.load(Ordering::Acquire) {
                 break;
             }
         }
 
         super::qa_trace::record("coordinator_wait");
-        match wake.wait(&cancel, provider.topology_audit_interval()) {
-            GlobalIndexWaitResult::Notified(_) => run_cycle = true,
+        let timeout = if wait_for_event_after_sqlite_contention {
+            None
+        } else {
+            provider.topology_audit_interval()
+        };
+        match wake.wait(&cancel, timeout) {
+            GlobalIndexWaitResult::Notified(_) => {
+                run_cycle = true;
+                wait_for_event_after_sqlite_contention = false;
+            }
             GlobalIndexWaitResult::Cancelled | GlobalIndexWaitResult::Shutdown => break,
             GlobalIndexWaitResult::TimedOut => match provider.audit_source_topology() {
                 Ok(Some(discovered)) => {
@@ -873,6 +898,33 @@ fn source_error_status(error: &GlobalIndexError) -> &'static str {
         GlobalIndexError::PermissionRequired(_) => INDEX_STATUS_PERMISSION_REQUIRED,
         GlobalIndexError::WindowsIo(5 | 1314) => INDEX_STATUS_PERMISSION_REQUIRED,
         _ => INDEX_STATUS_ERROR,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SqliteContentionKind {
+    Busy,
+    BusySnapshot,
+    Locked,
+}
+
+/// Classify only real SQLite result codes. Provider diagnostics, Service
+/// request contention, and transport/protocol errors remain separate classes.
+pub(crate) fn sqlite_contention_kind(error: &GlobalIndexError) -> Option<SqliteContentionKind> {
+    let GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _))) =
+        error
+    else {
+        return None;
+    };
+
+    if code.extended_code == rusqlite::ffi::SQLITE_BUSY_SNAPSHOT {
+        Some(SqliteContentionKind::BusySnapshot)
+    } else if code.code == rusqlite::ErrorCode::DatabaseBusy {
+        Some(SqliteContentionKind::Busy)
+    } else if code.code == rusqlite::ErrorCode::DatabaseLocked {
+        Some(SqliteContentionKind::Locked)
+    } else {
+        None
     }
 }
 

@@ -454,7 +454,7 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     let active_source = db.get_global_volume("source-a").unwrap().unwrap();
     let prior_busy_source = db.get_global_volume("source-b").unwrap().unwrap();
     let prior_permission_source = db.get_global_volume("source-c").unwrap().unwrap();
-    assert_eq!(active_source.index_status, INDEX_STATUS_READY);
+    assert_eq!(active_source.index_status, INDEX_STATUS_SYNCING);
     let active_operation = db
         .global_index_operation_state("source-a")
         .unwrap()
@@ -477,8 +477,8 @@ fn multivolume_busy_and_source_failures_keep_independent_durable_statuses() {
     let active_aggregate = db.global_index_status().expect("active aggregate status");
     assert_eq!(active_aggregate.status, INDEX_STATUS_ERROR);
     assert_eq!(active_aggregate.indexed_volumes, 3);
-    assert_eq!(active_aggregate.ready_volumes, 1);
-    assert_eq!(active_aggregate.pending_volumes, 0);
+    assert_eq!(active_aggregate.ready_volumes, 0);
+    assert_eq!(active_aggregate.pending_volumes, 1);
     assert_eq!(active_aggregate.total_entries, 0);
     assert!(!active_aggregate.collection_complete);
 
@@ -922,7 +922,7 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
         .get_global_volume(&source.volume.id)
         .expect("read committed health after lock release")
         .expect("source remains present");
-    assert_eq!(before_retry.index_status, INDEX_STATUS_READY);
+    assert_eq!(before_retry.index_status, INDEX_STATUS_SYNCING);
     assert_eq!(before_retry.last_error, None);
 
     let mut retry_sink = DatabaseIndexSink {
@@ -947,4 +947,11 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
             false,
         )
         .expect("successful follow-up completion commits source health");
+    assert_eq!(
+        db.get_global_volume(&source.volume.id)
+            .expect("read completed source")
+            .expect("source remains present")
+            .index_status,
+        INDEX_STATUS_READY
+    );
 }

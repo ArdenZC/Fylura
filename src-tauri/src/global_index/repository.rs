@@ -25,6 +25,13 @@ impl SourceOperationKind {
             Self::Rebuild => "rebuild",
         }
     }
+
+    fn admitted_status(self) -> &'static str {
+        match self {
+            Self::Initial | Self::Rebuild => INDEX_STATUS_INDEXING,
+            Self::Incremental => INDEX_STATUS_SYNCING,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -457,7 +464,10 @@ impl Database {
                 operation_owner_started_at = ?7,
                 operation_owner_route = ?8,
                 operation_kind = ?9,
-                operation_state = 'running'
+                operation_state = 'running',
+                index_status = ?11,
+                last_error = CASE WHEN index_status = ?12 THEN last_error ELSE NULL END,
+                updated_at = ?13
             WHERE id = ?1 AND stable_volume_id = ?2 AND provider = ?3
               AND enabled = 1 AND operation_revision = ?10
             "#,
@@ -472,6 +482,9 @@ impl Database {
                 route.as_db_value(),
                 kind.as_db_value(),
                 revision,
+                kind.admitted_status(),
+                INDEX_STATUS_PERMISSION_REQUIRED,
+                unix_now(),
             ],
         )?;
         if changed != 1 {

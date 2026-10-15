@@ -12,7 +12,7 @@ pub const ROOT_PATH: &str = "/task05/benchmark-library";
 pub const TAG_A: &str = "task05-benchmark-tag-a";
 pub const TAG_B: &str = "task05-benchmark-tag-b";
 pub const FIXTURE_FORMAT_VERSION: i64 = 1;
-pub const FIXTURE_SCHEMA_VERSION: i64 = 38;
+pub const FIXTURE_SCHEMA_VERSION: i64 = 39;
 
 pub fn fixture_root() -> Option<PathBuf> {
     std::env::var_os("ZC_PERF_FIXTURE_ROOT").map(PathBuf::from)

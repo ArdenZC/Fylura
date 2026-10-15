@@ -1532,9 +1532,8 @@ mod tests {
         coordinator
             .rebuild(Some("gv_control_test".to_string()))
             .expect("request immediate rebuild");
-        // Rebuild performs one synchronous discovery to refresh provider
-        // ownership, then the explicit wake causes an immediate worker cycle.
-        wait_for_discoveries(&provider.discoveries, prior_discoveries + 2);
+        // Rebuild persists intent, then the explicit wake causes one worker cycle.
+        wait_for_discoveries(&provider.discoveries, prior_discoveries + 1);
         wait_for_idle_wait(&wake, prior_idle_waits);
         assert_eq!(provider.rebuild_runs.load(Ordering::Acquire), 1);
         assert_eq!(

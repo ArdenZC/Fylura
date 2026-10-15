@@ -80,39 +80,6 @@ struct GlobalIndexOperationClaimSnapshot {
     operation_state: Option<String>,
 }
 
-struct LocalGlobalIndexOperationRegistration {
-    operation_id: String,
-    keep_on_drop: bool,
-}
-
-impl LocalGlobalIndexOperationRegistration {
-    fn try_register(operation_id: &str) -> Option<Self> {
-        let mut active_operations = LOCAL_GLOBAL_INDEX_OPERATIONS
-            .get_or_init(|| Mutex::new(HashSet::new()))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !active_operations.insert(operation_id.to_string()) {
-            return None;
-        }
-        Some(Self {
-            operation_id: operation_id.to_string(),
-            keep_on_drop: false,
-        })
-    }
-
-    fn keep_after_commit(mut self) {
-        self.keep_on_drop = true;
-    }
-}
-
-impl Drop for LocalGlobalIndexOperationRegistration {
-    fn drop(&mut self) {
-        if !self.keep_on_drop {
-            unregister_local_global_index_operation(&self.operation_id);
-        }
-    }
-}
-
 impl SourceOperationState {
     pub fn rebuild_pending(&self) -> bool {
         self.rebuild_intent_revision > self.rebuild_completed_revision
@@ -478,17 +445,25 @@ impl Database {
             return Ok(None);
         };
 
-        let active_operations = LOCAL_GLOBAL_INDEX_OPERATIONS
-            .get_or_init(|| Mutex::new(HashSet::new()))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        if active_operations.contains(operation_id)
+        let (existing_owner_locally_active, requested_id_locally_active) = {
+            let active_operations = LOCAL_GLOBAL_INDEX_OPERATIONS
+                .get_or_init(|| Mutex::new(HashSet::new()))
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            (
+                precheck_snapshot
+                    .owner_id
+                    .as_ref()
+                    .is_some_and(|owner_id| active_operations.contains(owner_id)),
+                active_operations.contains(operation_id),
+            )
+        };
+        if requested_id_locally_active
             || !global_index_operation_snapshot_allows_claim(
                 &precheck_snapshot,
                 owner_pid,
                 owner_started_at,
-                &active_operations,
+                existing_owner_locally_active,
                 route,
                 &mut process_is_alive,
             )
@@ -560,13 +535,14 @@ impl Database {
             transaction.rollback()?;
             return Ok(None);
         }
-        let Some(registration) = LocalGlobalIndexOperationRegistration::try_register(operation_id)
-        else {
+        if !register_local_global_index_operation(operation_id) {
             transaction.rollback()?;
             return Ok(None);
-        };
-        transaction.commit()?;
-        registration.keep_after_commit();
+        }
+        if let Err(error) = transaction.commit() {
+            unregister_local_global_index_operation(operation_id);
+            return Err(DbError::from(error));
+        }
         Ok(Some(SourceOperationOwner {
             volume_id: volume.id.clone(),
             revision: next_revision,
@@ -1795,11 +1771,11 @@ fn global_index_operation_snapshot_allows_claim(
     snapshot: &GlobalIndexOperationClaimSnapshot,
     current_pid: i64,
     current_started_at: i64,
-    active_operations: &HashSet<String>,
+    existing_owner_locally_active: bool,
     route: SourceOperationRoute,
     process_is_alive: &mut impl FnMut(i64, i64) -> Option<bool>,
 ) -> bool {
-    let Some(owner_id) = snapshot.owner_id.as_deref() else {
+    if snapshot.owner_id.is_none() {
         // An ownerless row should not retain fragments of a previous owner.
         // Treat inconsistent durable state as ambiguous instead of reclaiming it.
         return snapshot.owner_pid.is_none()
@@ -1807,9 +1783,9 @@ fn global_index_operation_snapshot_allows_claim(
             && snapshot.owner_route.is_none()
             && snapshot.operation_kind.is_none()
             && snapshot.operation_state.is_none();
-    };
+    }
 
-    if active_operations.contains(owner_id) {
+    if existing_owner_locally_active {
         return false;
     }
 
@@ -1897,6 +1873,14 @@ fn unregister_local_global_index_operation(operation_id: &str) {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(operation_id);
     }
+}
+
+fn register_local_global_index_operation(operation_id: &str) -> bool {
+    LOCAL_GLOBAL_INDEX_OPERATIONS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(operation_id.to_string())
 }
 
 fn map_global_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalEntry> {

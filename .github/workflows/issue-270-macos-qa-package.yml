@@ -136,7 +136,9 @@ jobs:
           artifact="$EVIDENCE_ROOT/artifact"
           product="product-source"
           app="$product/src-tauri/target/release/bundle/macos/Zen Canvas.app"
-          executable="$app/Contents/MacOS/zen-canvas"
+          executable=""
+          executable_name=""
+          executable_relative_path=""
           zip_name="ZenCanvas-issue-270-d5fdd65-macos26-arm64.app.zip"
           zip_path="$artifact/$zip_name"
           failure_reason=""
@@ -187,24 +189,34 @@ jobs:
           fi
 
           if [ "$tauri_build_exit" = 0 ]; then
-            if [ ! -d "$app" ] || [ ! -x "$executable" ]; then
+            if [ ! -d "$app" ]; then
               app_validation=failed
-              failure_reason="expected Zen Canvas.app or arm64 main executable is missing"
+              failure_reason="Tauri reported a bundle but Zen Canvas.app is missing at the expected output path"
             else
-              arch_output="$(lipo -archs "$executable" 2>&1)"
-              arch_exit=$?
-              printf '%s\n' "$arch_output" > "$evidence/executable-architectures.txt"
-              architecture="$arch_output"
-              normalized_arches=" ${arch_output//,/ } "
-              case "$normalized_arches" in
-                *" arm64 "*) arm64_present=true ;;
-                *) arm64_present=false ;;
-              esac
-              if [ "$arch_exit" -ne 0 ] || [ "$arm64_present" != true ]; then
+              executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2> "$evidence/cfbundle-executable-error.txt")"
+              plist_exit=$?
+              executable_relative_path="Contents/MacOS/$executable_name"
+              executable="$app/$executable_relative_path"
+              printf 'CFBundleExecutable=%s\npath=%s\n' "$executable_name" "$executable_relative_path" > "$evidence/executable-identity.txt"
+              if [ "$plist_exit" -ne 0 ] || [ -z "$executable_name" ] || [[ "$executable_name" == */* ]] || [ ! -x "$executable" ]; then
                 app_validation=failed
-                failure_reason="main executable does not report the arm64 architecture"
+                failure_reason="CFBundleExecutable could not be resolved to an executable inside Zen Canvas.app"
               else
-                app_validation=passed
+                arch_output="$(lipo -archs "$executable" 2>&1)"
+                arch_exit=$?
+                printf '%s\n' "$arch_output" > "$evidence/executable-architectures.txt"
+                architecture="$arch_output"
+                normalized_arches=" ${arch_output//,/ } "
+                case "$normalized_arches" in
+                  *" arm64 "*) arm64_present=true ;;
+                  *) arm64_present=false ;;
+                esac
+                if [ "$arch_exit" -ne 0 ] || [ "$arm64_present" != true ]; then
+                  app_validation=failed
+                  failure_reason="CFBundleExecutable '$executable_name' does not report the arm64 architecture"
+                else
+                  app_validation=passed
+                fi
               fi
             fi
           fi
@@ -289,6 +301,8 @@ jobs:
           export APP_VALIDATION="$app_validation"
           export ZIP_VALIDATION="$zip_validation"
           export EXECUTABLE_ARCHITECTURES="$architecture"
+          export EXECUTABLE_NAME="$executable_name"
+          export EXECUTABLE_RELATIVE_PATH="$executable_relative_path"
           export EXECUTABLE_SHA256="$executable_sha256"
           export PACKAGE_FILENAME="$zip_name"
           export PACKAGE_SHA256="$archive_sha256"
@@ -378,6 +392,8 @@ jobs:
                   "appValidation": os.environ["APP_VALIDATION"],
                   "zipValidation": os.environ["ZIP_VALIDATION"],
                   "mainExecutableArchitectures": os.environ["EXECUTABLE_ARCHITECTURES"],
+                  "mainExecutableName": os.environ["EXECUTABLE_NAME"] or None,
+                  "mainExecutablePath": os.environ["EXECUTABLE_RELATIVE_PATH"] or None,
                   "mainExecutableSha256": os.environ["EXECUTABLE_SHA256"] or None,
                   "appContentManifest": "app-content-manifest.json",
                   "appContentManifestSha256": os.environ["APP_CONTENT_MANIFEST_SHA256"] or None,

@@ -131,9 +131,10 @@ jobs:
           SERVER_URL: ${{ github.server_url }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           evidence="$EVIDENCE_ROOT/evidence"
           artifact="$EVIDENCE_ROOT/artifact"
+          trap 'status=$?; trap - ERR; printf "unhandled build-step failure at line %s (exit %s)\n" "$LINENO" "$status" >> "$evidence/script-abort.txt"; exit "$status"' ERR
           product="$GITHUB_WORKSPACE/product-source"
           app="$product/src-tauri/target/release/bundle/macos/Zen Canvas.app"
           executable=""
@@ -193,8 +194,11 @@ jobs:
               app_validation=failed
               failure_reason="Tauri reported a bundle but Zen Canvas.app is missing at the expected output path"
             else
-              executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2> "$evidence/cfbundle-executable-error.txt")"
-              plist_exit=$?
+              if executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2> "$evidence/cfbundle-executable-error.txt")"; then
+                plist_exit=0
+              else
+                plist_exit=$?
+              fi
               executable_relative_path="Contents/MacOS/$executable_name"
               executable="$app/$executable_relative_path"
               printf 'CFBundleExecutable=%s\npath=%s\n' "$executable_name" "$executable_relative_path" > "$evidence/executable-identity.txt"
@@ -202,8 +206,11 @@ jobs:
                 app_validation=failed
                 failure_reason="CFBundleExecutable could not be resolved to an executable inside Zen Canvas.app"
               else
-                arch_output="$(lipo -archs "$executable" 2>&1)"
-                arch_exit=$?
+                if arch_output="$(lipo -archs "$executable" 2>&1)"; then
+                  arch_exit=0
+                else
+                  arch_exit=$?
+                fi
                 printf '%s\n' "$arch_output" > "$evidence/executable-architectures.txt"
                 architecture="$arch_output"
                 normalized_arches=" ${arch_output//,/ } "
@@ -222,7 +229,7 @@ jobs:
           fi
 
           if [ "$app_validation" = passed ]; then
-            python3 - "$app" "$artifact/app-content-manifest.json" <<'PY'
+            if python3 - "$app" "$artifact/app-content-manifest.json" > "$evidence/app-content-manifest.log" 2>&1 <<'PY'
           import hashlib
           import json
           import os
@@ -255,22 +262,39 @@ jobs:
               json.dump({"root": "Zen Canvas.app", "entries": entries}, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
               stream.write("\n")
           PY
-            manifest_exit=$?
+            then
+              manifest_exit=0
+            else
+              manifest_exit=$?
+              cat "$evidence/app-content-manifest.log" >&2
+            fi
             if [ "$manifest_exit" -ne 0 ]; then
               app_validation=failed
-              failure_reason="could not generate deterministic app-content manifest"
+              failure_reason="could not generate deterministic app-content manifest (exit $manifest_exit)"
             else
               app_content_sha256="$(shasum -a 256 "$artifact/app-content-manifest.json" | awk '{print $1}')"
               executable_sha256="$(shasum -a 256 "$executable" | awk '{print $1}')"
 
-              codesign -dv --verbose=4 "$app" > "$artifact/codesign-display.txt" 2>&1
-              codesign_display_exit=$?
-              codesign --verify --deep --strict --verbose=2 "$app" > "$artifact/codesign-verify.txt" 2>&1
-              codesign_verify_exit=$?
-              spctl --assess --type execute --verbose=4 "$app" > "$artifact/spctl-assess.txt" 2>&1
-              spctl_assess_exit=$?
-              xcrun stapler validate -v "$app" > "$artifact/stapler-validate.txt" 2>&1
-              stapler_validate_exit=$?
+              if codesign -dv --verbose=4 "$app" > "$artifact/codesign-display.txt" 2>&1; then
+                codesign_display_exit=0
+              else
+                codesign_display_exit=$?
+              fi
+              if codesign --verify --deep --strict --verbose=2 "$app" > "$artifact/codesign-verify.txt" 2>&1; then
+                codesign_verify_exit=0
+              else
+                codesign_verify_exit=$?
+              fi
+              if spctl --assess --type execute --verbose=4 "$app" > "$artifact/spctl-assess.txt" 2>&1; then
+                spctl_assess_exit=0
+              else
+                spctl_assess_exit=$?
+              fi
+              if xcrun stapler validate -v "$app" > "$artifact/stapler-validate.txt" 2>&1; then
+                stapler_validate_exit=0
+              else
+                stapler_validate_exit=$?
+              fi
 
               if ditto -c -k --sequesterRsrc --keepParent "$app" "$zip_path" > "$evidence/ditto.log" 2>&1; then
                 if unzip -t "$zip_path" > "$evidence/zip-validation.txt" 2>&1; then

@@ -123,6 +123,10 @@ extern "C" fn fsevent_callback(
         false
     };
     if recorded && needs_full_reconcile {
+        #[cfg(feature = "native-qa")]
+        super::super::qa_trace::record(&format!(
+            "provider_change_source\tfsevents_reconcile\tevents={num_events}"
+        ));
         info.wake.notify(GlobalIndexWakeReason::ProviderChange);
     }
 }

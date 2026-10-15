@@ -45,6 +45,8 @@ pub(super) fn record_async_watcher_error(
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     pending.last_error = Some(error.into());
     drop(pending);
+    #[cfg(feature = "native-qa")]
+    super::qa_trace::record("provider_change_source\tasync_watcher_error\tcount=1");
     wake.notify(GlobalIndexWakeReason::ProviderChange);
 }
 

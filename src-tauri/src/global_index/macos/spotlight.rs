@@ -218,6 +218,7 @@ fn run_update_watcher(
         let mut entries = Vec::new();
         let mut stale_entry_ids = Vec::new();
         let mut full_reconcile = false;
+        let added_start = entries.len();
         collect_update_items(
             typed_info,
             unsafe { NSMetadataQueryUpdateAddedItemsKey },
@@ -228,6 +229,8 @@ fn run_update_watcher(
             &mut full_reconcile,
             false,
         );
+        let added_count = entries.len() - added_start;
+        let changed_start = entries.len();
         collect_update_items(
             typed_info,
             unsafe { NSMetadataQueryUpdateChangedItemsKey },
@@ -238,6 +241,8 @@ fn run_update_watcher(
             &mut full_reconcile,
             false,
         );
+        let changed_count = entries.len() - changed_start;
+        let removed_start = stale_entry_ids.len();
         collect_update_items(
             typed_info,
             unsafe { NSMetadataQueryUpdateRemovedItemsKey },
@@ -248,11 +253,17 @@ fn run_update_watcher(
             &mut full_reconcile,
             true,
         );
+        let removed_count = stale_entry_ids.len() - removed_start;
         if entries.is_empty() && stale_entry_ids.is_empty() && !full_reconcile {
             return;
         }
         if let Ok(mut pending) = pending_for_block.lock() {
             pending.append_incremental(entries, stale_entry_ids, full_reconcile);
+            #[cfg(feature = "native-qa")]
+            super::super::qa_trace::record(&format!(
+                "provider_change_source\tspotlight_incremental\tadded={added_count}\tchanged={changed_count}\tremoved={removed_count}\treconcile={}",
+                u8::from(full_reconcile)
+            ));
             wake_for_block.notify(GlobalIndexWakeReason::ProviderChange);
         }
     });

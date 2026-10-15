@@ -85,6 +85,9 @@ impl GlobalIndexProvider for ProbeProvider {
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         self.inner.shutdown()
     }
+    fn has_external_source_operation_admission(&self) -> bool {
+        self.inner.has_external_source_operation_admission()
+    }
 }
 struct PauseSink<'a> {
     sink: &'a mut dyn GlobalIndexSink,

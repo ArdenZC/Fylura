@@ -2,6 +2,181 @@
 
 This workflow is the default engineering operating model for new work after G1. A narrower security/task contract may add stricter gates; it may not weaken these rules silently.
 
+## Delivery-first operating rule
+
+**Primary objective: ship observable user value without losing data or violating
+existing security/CI rules.** Engineering effort must not be measured by number
+of gates, reports, passes, branches, SHA receipts or tokens consumed. The normal
+path for an already-scoped, reversible feature or bug fix is:
+
+```text
+small user outcome + acceptance criteria
+→ Codex Cloud implements focused change and regression test
+→ existing applicable CI
+→ one substantive Owner review (fix concrete defects in same PR)
+→ Owner merge → verify user-facing behavior
+```
+
+This **does not** make Research, Architecture Freeze and extra review mandatory
+stages for ordinary work. Use them only when the triggering uncertainty changes
+durable authority, product meaning, user data, platform safety, permissions,
+release guarantees or an irreversible operation.
+
+### Change classification: choose the lightest sufficient proof
+
+| Work | Default path | Extra evidence only if ... |
+| --- | --- | --- |
+| UI, wording, layout, file details, bounded reversible behavior | implement directly; focused unit/UI check + existing routed CI; single review | actual permission/authority changes or an observed accessibility/native bug |
+| Scoped scan/search/index correctness, query/performance fix | implement directly once current owner and invariants are known; regression and relevant measured benchmark + applicable CI | it mutates durable user facts, changes filesystem safety, performs migration, or changes accepted rank/cursor semantics |
+| Persistence or file mutation affecting real user data | verify backup/rollback/identity and the relevant native or integration boundary; peer/Owner safety review | further fault/native proof is needed for a credible irreversible-loss mechanism |
+| Schema migration, auto-delete, privilege expansion, release, unsafe native disk operations | scoped design and explicit Owner authorization before execution; applicable mandatory security/native/recovery checks | governed by the existing strict contract, never silently relaxed |
+
+Risk classification is **claim- and impact-specific, not a license to classify
+production changes as docs-only**. Existing CI routing and required checks
+remain unchanged; ADR-0004 and ADR-0007 retain their scope.
+
+### Prevent defensive work from spawning more defensive work
+
+1. Each new research spike, bespoke harness, evidence package, manual hash
+   catalog, standalone Issue or extra validation run must answer a **specific
+   unresolved decision** that blocks the current change. State what outcome
+   would change the next action. If none, do not create it.
+2. On a normal PR, review once for intended behavior, regression coverage,
+   affected authority/security, and applicable CI. Ask for an R1 correction
+   **only on a concrete reproducible defect or meaningful unverified claim**.
+   Do not automatically request a second independent review, a new PR, or
+   R2/R3/R4 labels. Recheck only changed logic and relevant tests.
+3. Do not require a new immutable SHA256 manifest or raw-log archive for an
+   ordinary Git-hosted code/doc edit. Git diffs, commit SHA, PR and existing
+   CI are the normal evidence. Artifact identity, binary release, native
+   qualification, regulated/audited proofs and irreversible migrations may
+   legitimately need richer receipts; explain why before collecting them.
+4. Do not rerun an unchanged broad CI matrix solely because a document,
+   review comment or unrelated branch changed. Existing required CI may run
+   automatically; do not disable it. Never manufacture a current-head pass
+   from an older commit or equate conditional skip with executed coverage.
+5. Avoid multi-step approval ladders for independently safe work. A blocker
+   must identify **protected invariant → plausible harm → evidence → exact
+   blocked scope → minimal remedy or bounded deferral**. Unknown exotic
+   scenarios can be tracked as `NOT_TESTED` without blocking unrelated
+   features. A deferred **required release** test still blocks that release
+   claim; it does not magically pass.
+6. Prefer repair in the existing feature PR and a single decision thread.
+   Use a distinct research branch or Issue only when reproducibility,
+   independent ownership or parallel work genuinely warrants it. Do not
+   make research completeness a substitute for product progress.
+
+### Stop ongoing optional verification now (not just future tasks)
+
+**Immediate action for current in-flight work:** stop commissioning optional
+test extensions, R2/R3 re-audits, manual file-hash campaigns, new failure
+models and extra native environments solely to increase the number of PASS
+claims. Preserve evidence already obtained; do not rerun it for reassurance.
+Any new check must name the **specific changed production code or critical
+risk decision** it will validate. Research completion is not a reason to
+start another research stage.
+
+**Current scope disposition (record of Owner direction, not a claim of PASS):**
+
+| Ongoing verification | Execute now? | Reuse / stopping point |
+| --- | --- | --- |
+| F1/T10 source and SQLite fault-model work (#406, #408, #413) | **No additional optional rounds** | Existing source-bound tested claims and defects remain; no new R4/matrix expansion or repeat hash/CI runs for unchanged inputs |
+| NTFS B04 probe (#411, #412) | **No** | R1 source accepted; real native execution `DEFERRED_ENVIRONMENT`, directory durability remains `UNPROVEN` |
+| Real ENOSPC / physical power-loss (#414) | **No** | Owner explicitly deferred; `NOT_TESTED`, not `PASS` |
+| Giant Managed Scan blocked candidate (#383) | **No more proof-only iterations** | Its known 100k writer-liveness failure remains real; don't merge or waive. Deliver a narrower corrective production change with a focused reproduction instead |
+| Global Index IPC/busy (#380, #398) | **Stop spawning new standalone diagnostic matrices** | Reuse observed failure evidence; focus on the smallest complete source-owner fix and relevant regression. Don't claim a partial IPC fix resolves unmodified coordinator/state defects |
+| macOS Tahoe (#270) and memory growth (#353) research | **Only when a concrete fix/release decision requires it** | Keep genuine native/release blockers explicit, but don't invent new exploratory campaigns merely to close a documentation row |
+
+**Minimum verification for active production changes:** during coding run
+targeted tests for the actual changed behavior; when ready, run the existing
+routed required CI on the stable PR candidate. Fix any **actual failing
+required** check and validate again after the fix. No extra owner-ordered
+full-suite rerun, second cross-platform campaign, synthetic disk-fault
+probe, manual hashes or second reviewer unless a new code change or a
+credible missed harm makes that necessary. Existing CI may automatically
+run after pushes; do not skip or falsify its required checks.
+
+**Stop decision:** if the next proposed validation would not change
+a specific merge/safety decision, **do not run it**. Record an unverified
+limitation in the existing thread if relevant, and switch the available
+capacity to a user-visible fix. Required native/release qualification
+stays required **for the release/product claim to which it applies**, not
+for independent unrelated work. This amendment does not authorize
+merging #383/#398/#408, switching F1 production reads, or relaxing a
+required gate.
+
+### Apply this to the existing open backlog immediately
+
+**This rule applies to already-open Issues, Draft PRs and research branches on
+the day it merges, not only to future tasks.** Before continuing an old thread,
+ask whether the next action will deliver a user-facing improvement, repair a
+reproduced defect, or answer an imminent irreversible-safety decision.
+
+- **Resume active delivery:** choose the smallest independent user defect/fix
+  that can be tested against current `master`. Reuse earlier research and
+  targeted regressions; do not inherit old approval ladders by default.
+- **Park finished research:** once source/model evidence is sufficient for
+  its original bounded question, stop extending it. Keep linked evidence and
+  record `research complete / product not implemented` if that distinction
+  matters. An unmerged test-only PR is not product progress.
+- **Stop duplicating obsolete drafts:** historical designs superseded by a
+  merged implementation (or a newer decision) should not be rebased only to
+  make their old CI green. Preserve valuable findings as historical references;
+  **review before closing** so no unique code or unresolved security bug is
+  lost. Do not auto-merge stale, large experimental PRs.
+- **Localize blocked claims:** a blocked Windows directory-sync/power-loss
+  qualification is not a global ban on ordinary Files UI, metadata notes or
+  narrow safe scan filtering. Still refuse any product path that actually
+  relies on the unproved durability guarantee.
+- **No one-time cleanup bureaucracy:** do not launch a dedicated audit project,
+  parallel backlog ledger, hundreds of archival comments, one more safety
+  harness or mandatory bulk review to enact this. Triage as each already-open
+  item is touched and place the decision in its existing thread.
+- **Limit simultaneous active implementation by capacity, not a new quota:**
+  prioritize one user-visible change and one clearly reproduced defect; add a
+  foundational task only where its dependency is real. Paused work consumes no
+  new Codex/CI cycles until activated for a specific purpose.
+
+**Current observed examples (illustrative, not an authorization to close or
+merge):** `#408` is extensive **test-only** F1 work; `#383` is a blocked
+oversized production attempt and not a safe direct merge; `#411` B04 native
+probe remains unexecuted while its source work is accepted; `#414` real
+ENOSPC and physical power-loss work is deferred by Owner. Re-evaluate on
+current GitHub facts before acting on any of these. Do not touch live product
+code or existing required checks in a backlog-cleanup step.
+
+### Handoff, limits and measurements
+
+- Codex Cloud owns implementation and tests; Owner/ChatGPT owns research,
+  product scope, review and merge decision. The Windows workstation performs
+  user-approved native **acceptance only**. No Codex Review.
+- An ordinary task brief fits in a short goal, allowed scope, 2–5 observable
+  acceptance examples, necessary invariants and test command/CI expectation.
+  Link existing contracts rather than restating pages of frozen hashes.
+- An ordinary review result answers: **what changed for users; what actually
+  passed; what still blocks this PR**. Provide a PR link and compact exception
+  details. Elaborate raw logs and tree/hash tables only for a disputed,
+  high-risk or explicitly required identity claim.
+- When a task is drifting into repeated audit cycles without user value,
+  compare the expected cost of further research to the credible failure it
+  protects against; either fix the concrete defect, reduce scope, or park
+  it with a truthful limitation and work on a safe independent feature.
+- In a lightweight weekly product review, track **user-visible changes merged,
+  elapsed issue-to-merge time, reopened/regressed changes and blocked waiting
+  time**. These are local proxies, not DORA deployment-frequency claims:
+  `merge` is not `release`. Review the balance of throughput and defects;
+  never reward PR count or token reduction at the expense of correctness.
+  Avoid creating a second persistent metrics ledger solely to measure this.
+- Initial operating target: reserve the *majority* of time for implementation
+  and user-facing validation; spend materially less on writing review
+  artifacts. This is a direction, **not a rigid percentage gate**.
+
+**Safety floor:** keep all authoritative filesystem confirmation, identity,
+journal/recovery, consent/privacy, schema compatibility/rollback, required CI
+and platform/release proof. Bypassing an existing gate needs an approved change
+to its owner; it is not allowed by this delivery-first rule. See
+[ADR-0015](DECISIONS/0015-delivery-first-engineering.md).
+
 ## Master-plan alignment gate
 
 The Master Development Plan is the long-horizon direction, not a default task
@@ -55,15 +230,16 @@ For substantial new subsystems and Codex/agent taskbooks, include maintainabilit
 
 ## Initiative lifecycle
 
+**The full lifecycle below applies to cross-cutting or high-risk
+initiatives—not every small bug fix or UI enhancement.** Ordinary bounded,
+reversible implementation follows the short delivery-first path above.
+
 ```text
-Research
-→ Spec
-→ Architecture Freeze
-→ Wave/Track
-→ PR
-→ Review
-→ Integration Gate
-→ Closeout
+Research (when needed)
+→ Spec (lightweight by default)
+→ Architecture Freeze (only when triggered)
+→ Wave/Track (only for larger initiatives)
+→ PR → Review → applicable Integration Gate → Closeout
 ```
 
 The stages have distinct purposes:
@@ -77,7 +253,7 @@ The stages have distinct purposes:
 - **Integration Gate** verifies the applicable checks and current-truth updates at the exact head before merge.
 - **Closeout** records the merge result, deferred work, local test-artifact cleanup and branch/content-equivalence cleanup.
 
-Do not begin production implementation from an informal idea when the change moves architecture authority, schema, platform safety, user-file mutation or product ownership. Write the initiative/spec first.
+Do not begin production implementation from an informal idea when the change moves architecture authority, schema, platform safety, user-file mutation or product ownership. Write the initiative/spec first. **Do not apply that prerequisite to ordinary fixes that preserve those boundaries.**
 
 ## One coherent branch per initiative
 
@@ -253,6 +429,7 @@ Earlier evidence may remain semantically informative during development when the
 
 ## Pull request policy
 
+- An ordinary PR needs one substantive code review. A reviewer may request specific corrections, but further independent audit rounds require a concrete new defect, changed risk or required gate, not a default R2/R3 ritual.
 - Prefer one PR for one coherent initiative or review fix.
 - Broad initiatives start as Draft unless the scope explicitly says otherwise.
 - PR descriptions state scope, authority changes, module/responsibility changes, risk, verification and known unverified areas.

@@ -72,14 +72,15 @@ fn setup_runtime(app: &tauri::AppHandle, background_launch: bool) -> tauri::Resu
         .app_data_dir()
         .map_err(io::Error::other)?
         .join("file-workspace-native-preview");
-    let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntimeOwner::new(
-        db.clone(),
-        app.state::<zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService>()
-            .inner()
-            .clone(),
-        workspace_thumbnail_cache_dir,
-        workspace_native_preview_root,
-    );
+    let workspace_runtime =
+        zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntimeOwner::new(
+            db.clone(),
+            app.state::<zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService>()
+                .inner()
+                .clone(),
+            workspace_thumbnail_cache_dir,
+            workspace_native_preview_root,
+        );
     app.manage(workspace_runtime);
     let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
     app.manage(global_index_coordinator.clone());
@@ -113,17 +114,14 @@ fn setup_runtime(app: &tauri::AppHandle, background_launch: bool) -> tauri::Resu
     qualification_startup_checkpoint("tray_ready");
     let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
     let launch_at_login = app.autolaunch();
-    let app_settings = match settings::sync_launch_at_login_from_system(
-        &db,
-        &app_settings,
-        &*launch_at_login,
-    ) {
-        Ok(synced_settings) => synced_settings,
-        Err(error) => {
-            eprintln!("Launch at login sync failed (non-fatal): {error}");
-            app_settings
-        }
-    };
+    let app_settings =
+        match settings::sync_launch_at_login_from_system(&db, &app_settings, &*launch_at_login) {
+            Ok(synced_settings) => synced_settings,
+            Err(error) => {
+                eprintln!("Launch at login sync failed (non-fatal): {error}");
+                app_settings
+            }
+        };
     qualification_startup_checkpoint("autostart_sync_complete");
     db.prune_operation_logs(app_settings.restore_retention_days)
         .map_err(io::Error::other)?;
@@ -145,10 +143,9 @@ fn setup_runtime(app: &tauri::AppHandle, background_launch: bool) -> tauri::Resu
         .map_err(io::Error::other)?;
     let watcher_manager = app.state::<FileWatcherManager>();
     if zen_canvas_tauri::watcher::backend_watcher_reconciliation_enabled() {
-        if let Err(error) = zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
-            app.clone(),
-            db.clone(),
-        ) {
+        if let Err(error) =
+            zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(app.clone(), db.clone())
+        {
             eprintln!("Watcher reconciliation recovery failed (non-fatal): {error}");
         }
     }
@@ -165,106 +162,111 @@ fn setup_runtime(app: &tauri::AppHandle, background_launch: bool) -> tauri::Resu
     qualification_startup_checkpoint("watcher_setup_complete");
 
     let automation_app = app.clone();
-    let automation = zen_canvas_tauri::db::AutomationTriggerCoordinator::start(
-        db.clone(),
-        move || { let _ = automation_app.emit("automation-updated", ()); },
-    ).map_err(io::Error::other)?;
+    let automation =
+        zen_canvas_tauri::db::AutomationTriggerCoordinator::start(db.clone(), move || {
+            let _ = automation_app.emit("automation-updated", ());
+        })
+        .map_err(io::Error::other)?;
     app.manage(automation);
     let lifecycle_coordinator = global_index_coordinator.clone();
     let lifecycle_app = app.clone();
     let lifecycle_db = db.clone();
     let lifecycle =
-        zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController::start(
-            move |event| {
-                use zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleEvent;
+        zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleController::start(move |event| {
+            use zen_canvas_tauri::platform::macos::lifecycle::MacLifecycleEvent;
 
-                let app_handle = lifecycle_app.clone();
-                let db = lifecycle_db.clone();
-                match event {
-                    MacLifecycleEvent::ResourcePolicyChanged => {
-                        zen_canvas_tauri::scheduler::WorkScheduler::global()
-                            .notify_resource_policy_changed();
-                        Ok(())
-                    }
-                    MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
-                        app_handle
-                            .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
-                            .pause();
-                        lifecycle_coordinator
-                            .pause()
-                            .map_err(|error| error.to_string())?;
-                        let watcher = app_handle.state::<FileWatcherManager>();
-                        suspend_file_watcher_for_lifecycle(
-                            app_handle.clone(),
-                            watcher.inner(),
-                            &db,
-                            app_handle.state::<ScanJobManager>().inner(),
-                            app_handle.state::<DedupeJobManager>().inner(),
-                        )?;
-                        app_handle.state::<ScanJobManager>().cancel_all();
-                        app_handle.state::<DedupeJobManager>().cancel_all();
-                        app_handle
-                            .state::<zen_canvas_tauri::analysis::AnalysisRunManager>()
-                            .cancel_all();
-                        app_handle
-                            .state::<OperationCancellationToken>()
-                            .cancel_for_lifecycle();
-                        app_handle
-                            .state::<AIClassificationCancellationToken>()
-                            .cancel_for_lifecycle();
-                        app_handle
-                            .state::<zen_canvas_tauri::storage_analyzer::CleanupRestoreState>()
-                            .cancel_for_lifecycle()?;
-                        db.recover_dedupe_runs().map_err(|error| error.to_string())?;
-                        db.recover_analysis_runs().map_err(|error| error.to_string())?;
-                        db.recover_content_runs().map_err(|error| error.to_string())?;
-                        zen_canvas_tauri::scanner::recover_scan_state(&db)
-                            .map_err(|error| error.to_string())?;
-                        Ok(())
-                    }
-                    MacLifecycleEvent::DidWake
-                    | MacLifecycleEvent::DidMount
-                    | MacLifecycleEvent::DidUnmount
-                    | MacLifecycleEvent::VolumeChanged => {
-                        app_handle
-                            .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
-                            .pause();
-                        db.recover_dedupe_runs().map_err(|error| error.to_string())?;
-                        db.recover_analysis_runs().map_err(|error| error.to_string())?;
-                        db.recover_content_runs().map_err(|error| error.to_string())?;
-                        zen_canvas_tauri::scanner::recover_scan_state(&db)
-                            .map_err(|error| error.to_string())?;
-                        zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
-                            app_handle.clone(),
-                            db.clone(),
-                        )?;
-                        let settings = settings::get_app_settings(&db)
-                            .map_err(|error| error.to_string())?;
-                        reload_file_watcher_for_settings(
-                            app_handle.clone(),
-                            app_handle.state::<FileWatcherManager>().inner(),
-                            &db,
-                            app_handle.state::<ScanJobManager>().inner(),
-                            app_handle.state::<DedupeJobManager>().inner(),
-                            &settings,
-                        )?;
-                        zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
-                            app_handle.clone(),
-                            db,
-                            app_handle.state::<DedupeJobManager>().inner().clone(),
-                        )
-                        .map_err(|error| error.to_string())?;
-                        lifecycle_coordinator
-                            .resume()
-                            .map_err(|error| error.to_string())?;
-                        app_handle
-                            .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
-                            .resume();
-                        Ok(())
-                    }
+            let app_handle = lifecycle_app.clone();
+            let db = lifecycle_db.clone();
+            match event {
+                MacLifecycleEvent::ResourcePolicyChanged => {
+                    zen_canvas_tauri::scheduler::WorkScheduler::global()
+                        .notify_resource_policy_changed();
+                    Ok(())
                 }
-            },
-        )
+                MacLifecycleEvent::WillSleep | MacLifecycleEvent::WillUnmount => {
+                    app_handle
+                        .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                        .pause();
+                    lifecycle_coordinator
+                        .pause()
+                        .map_err(|error| error.to_string())?;
+                    let watcher = app_handle.state::<FileWatcherManager>();
+                    suspend_file_watcher_for_lifecycle(
+                        app_handle.clone(),
+                        watcher.inner(),
+                        &db,
+                        app_handle.state::<ScanJobManager>().inner(),
+                        app_handle.state::<DedupeJobManager>().inner(),
+                    )?;
+                    app_handle.state::<ScanJobManager>().cancel_all();
+                    app_handle.state::<DedupeJobManager>().cancel_all();
+                    app_handle
+                        .state::<zen_canvas_tauri::analysis::AnalysisRunManager>()
+                        .cancel_all();
+                    app_handle
+                        .state::<OperationCancellationToken>()
+                        .cancel_for_lifecycle();
+                    app_handle
+                        .state::<AIClassificationCancellationToken>()
+                        .cancel_for_lifecycle();
+                    app_handle
+                        .state::<zen_canvas_tauri::storage_analyzer::CleanupRestoreState>()
+                        .cancel_for_lifecycle()?;
+                    db.recover_dedupe_runs()
+                        .map_err(|error| error.to_string())?;
+                    db.recover_analysis_runs()
+                        .map_err(|error| error.to_string())?;
+                    db.recover_content_runs()
+                        .map_err(|error| error.to_string())?;
+                    zen_canvas_tauri::scanner::recover_scan_state(&db)
+                        .map_err(|error| error.to_string())?;
+                    Ok(())
+                }
+                MacLifecycleEvent::DidWake
+                | MacLifecycleEvent::DidMount
+                | MacLifecycleEvent::DidUnmount
+                | MacLifecycleEvent::VolumeChanged => {
+                    app_handle
+                        .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                        .pause();
+                    db.recover_dedupe_runs()
+                        .map_err(|error| error.to_string())?;
+                    db.recover_analysis_runs()
+                        .map_err(|error| error.to_string())?;
+                    db.recover_content_runs()
+                        .map_err(|error| error.to_string())?;
+                    zen_canvas_tauri::scanner::recover_scan_state(&db)
+                        .map_err(|error| error.to_string())?;
+                    zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
+                        app_handle.clone(),
+                        db.clone(),
+                    )?;
+                    let settings =
+                        settings::get_app_settings(&db).map_err(|error| error.to_string())?;
+                    reload_file_watcher_for_settings(
+                        app_handle.clone(),
+                        app_handle.state::<FileWatcherManager>().inner(),
+                        &db,
+                        app_handle.state::<ScanJobManager>().inner(),
+                        app_handle.state::<DedupeJobManager>().inner(),
+                        &settings,
+                    )?;
+                    zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
+                        app_handle.clone(),
+                        db,
+                        app_handle.state::<DedupeJobManager>().inner().clone(),
+                    )
+                    .map_err(|error| error.to_string())?;
+                    lifecycle_coordinator
+                        .resume()
+                        .map_err(|error| error.to_string())?;
+                    app_handle
+                        .state::<zen_canvas_tauri::db::AutomationTriggerCoordinator>()
+                        .resume();
+                    Ok(())
+                }
+            }
+        })
         .map_err(|error| error.to_string())?;
     #[cfg(target_os = "macos")]
     qualification_startup_checkpoint("mac_lifecycle_ready");
@@ -275,12 +277,15 @@ fn setup_runtime(app: &tauri::AppHandle, background_launch: bool) -> tauri::Resu
     #[cfg(all(target_os = "windows", feature = "native-qa"))]
     zen_canvas_tauri::native_resident_lifecycle_qa::install(app).map_err(io::Error::other)?;
     if !background_launch {
-        zen_canvas_tauri::app_control::show_main_window(app)
-            .map_err(io::Error::other)?;
+        zen_canvas_tauri::app_control::show_main_window(app).map_err(io::Error::other)?;
     }
     eprintln!(
         "ui_runtime startup_mode={} webview_count={} labels={}",
-        if background_launch { "background" } else { "manual" },
+        if background_launch {
+            "background"
+        } else {
+            "manual"
+        },
         app.webview_windows().len(),
         app.webview_windows()
             .keys()

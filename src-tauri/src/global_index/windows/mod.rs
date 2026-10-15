@@ -175,6 +175,17 @@ pub struct WindowsGlobalIndexProvider {
     test_watcher_start_count: std::sync::atomic::AtomicUsize,
 }
 
+pub(crate) enum PauseObservation<'a> {
+    Request {
+        protocol_version: u16,
+        request_id: &'a str,
+    },
+    Response(&'a IndexServiceResponse),
+    TransportError {
+        kind: &'static str,
+    },
+}
+
 impl WindowsGlobalIndexProvider {
     pub fn new() -> Self {
         Self::with_wake(
@@ -357,6 +368,57 @@ impl WindowsGlobalIndexProvider {
 
     fn service_response_error(response: &IndexServiceResponse) -> GlobalIndexError {
         service_errors::decode(response)
+    }
+
+    fn pause_with_observer(
+        &self,
+        mut observe: impl FnMut(PauseObservation<'_>),
+    ) -> Result<(), GlobalIndexError> {
+        self.clear_native_change_watchers();
+        let request = IndexServiceRequest::new(IndexServiceCommand::Pause, None);
+        observe(PauseObservation::Request {
+            protocol_version: request.protocol_version,
+            request_id: &request.request_id,
+        });
+        match service::call_index_service_admitted(&request, |_| {
+            Err(service::IndexServiceCallError::Protocol(
+                "unexpected control event".into(),
+            ))
+        }) {
+            Ok(response) => {
+                observe(PauseObservation::Response(&response));
+                if response.ok {
+                    self.service_connected();
+                    Ok(())
+                } else {
+                    Err(Self::service_response_error(&response))
+                }
+            }
+            Err(error) => {
+                let kind = match &error {
+                    service::IndexServiceCallError::NotSent(_) => "not_sent",
+                    service::IndexServiceCallError::Protocol(_) => "protocol",
+                    service::IndexServiceCallError::UnknownOutcome(_) => "unknown_outcome",
+                    service::IndexServiceCallError::Sink(_) => "sink",
+                };
+                observe(PauseObservation::TransportError { kind });
+                match error {
+                    service::IndexServiceCallError::NotSent(_) => {
+                        self.service_failed();
+                        self.direct.pause()
+                    }
+                    error => Err(error.into_global()),
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "native-qa")]
+    pub(crate) fn pause_for_native_qa(
+        &self,
+        observe: impl FnMut(PauseObservation<'_>),
+    ) -> Result<(), GlobalIndexError> {
+        self.pause_with_observer(observe)
     }
 
     fn source_request(
@@ -631,24 +693,7 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
     }
 
     fn pause(&self) -> Result<(), GlobalIndexError> {
-        self.clear_native_change_watchers();
-        let request = IndexServiceRequest::new(IndexServiceCommand::Pause, None);
-        match service::call_index_service_admitted(&request, |_| {
-            Err(service::IndexServiceCallError::Protocol(
-                "unexpected control event".into(),
-            ))
-        }) {
-            Ok(response) if response.ok => {
-                self.service_connected();
-                Ok(())
-            }
-            Ok(response) => Err(Self::service_response_error(&response)),
-            Err(service::IndexServiceCallError::NotSent(_)) => {
-                self.service_failed();
-                self.direct.pause()
-            }
-            Err(error) => Err(error.into_global()),
-        }
+        self.pause_with_observer(|_| {})
     }
 
     fn status(&self) -> Result<String, GlobalIndexError> {

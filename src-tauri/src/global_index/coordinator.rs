@@ -541,7 +541,6 @@ fn run_index(
 ) -> Result<(), GlobalIndexError> {
     let mut previous_topology = None;
     let mut run_cycle = true;
-    let mut wait_for_event_after_sqlite_contention = false;
     while !cancel.load(Ordering::Acquire) {
         if run_cycle {
             // Consume a command/start signal before beginning its immediate
@@ -550,20 +549,27 @@ fn run_index(
             // catch-up-to-idle boundary.
             let _ = wake.wait(&cancel, Some(Duration::ZERO));
             super::qa_trace::record("coordinator_cycle");
-            match run_index_cycle(provider.as_ref(), &db, &cancel, &wake) {
+            let mut cycle_topology = previous_topology.clone();
+            match run_index_cycle_with_topology(
+                provider.as_ref(),
+                &db,
+                &cancel,
+                &wake,
+                &mut cycle_topology,
+            ) {
                 Ok(topology) => {
                     previous_topology = Some(topology);
-                    wait_for_event_after_sqlite_contention = false;
                 }
                 Err(error) if sqlite_contention_kind(&error).is_some() => {
                     let kind = sqlite_contention_kind(&error).expect("matched SQLite contention");
                     eprintln!(
-                        "Global Index cycle deferred until its next event after SQLite {kind:?}: {error}"
+                        "Global Index cycle deferred after SQLite {kind:?}; no immediate retry scheduled: {error}"
                     );
-                    // Do not spin or create a retry loop when a lock remains
-                    // held. The next existing command/lifecycle/source event
-                    // may start a fresh, owner-fenced operation.
-                    wait_for_event_after_sqlite_contention = true;
+                    // Keep the topology snapshot collected before the failed
+                    // database write. It prevents an unchanged topology audit
+                    // from replaying this cycle, while still allowing a later
+                    // topology change to wake one owner-fenced cycle.
+                    previous_topology = cycle_topology;
                 }
                 Err(error) => return Err(error),
             }
@@ -573,15 +579,9 @@ fn run_index(
         }
 
         super::qa_trace::record("coordinator_wait");
-        let timeout = if wait_for_event_after_sqlite_contention {
-            None
-        } else {
-            provider.topology_audit_interval()
-        };
-        match wake.wait(&cancel, timeout) {
+        match wake.wait(&cancel, provider.topology_audit_interval()) {
             GlobalIndexWaitResult::Notified(_) => {
                 run_cycle = true;
-                wait_for_event_after_sqlite_contention = false;
             }
             GlobalIndexWaitResult::Cancelled | GlobalIndexWaitResult::Shutdown => break,
             GlobalIndexWaitResult::TimedOut => match provider.audit_source_topology() {
@@ -620,14 +620,27 @@ pub(crate) fn run_service_recovery_qa_cycle(
 
 type SourceTopologySignature = Vec<(String, String, String, String, String, String, bool)>;
 
+#[cfg(any(test, all(windows, feature = "native-qa")))]
 fn run_index_cycle(
     provider: &dyn GlobalIndexProvider,
     db: &Database,
     cancel: &Arc<AtomicBool>,
     wake: &GlobalIndexWakeSlot,
 ) -> Result<SourceTopologySignature, GlobalIndexError> {
+    let mut discovered_topology = None;
+    run_index_cycle_with_topology(provider, db, cancel, wake, &mut discovered_topology)
+}
+
+fn run_index_cycle_with_topology(
+    provider: &dyn GlobalIndexProvider,
+    db: &Database,
+    cancel: &Arc<AtomicBool>,
+    wake: &GlobalIndexWakeSlot,
+    discovered_topology: &mut Option<SourceTopologySignature>,
+) -> Result<SourceTopologySignature, GlobalIndexError> {
     let discovered = provider.discover_sources()?;
     let topology = topology_signature(&discovered);
+    *discovered_topology = Some(topology.clone());
     for source in &discovered {
         let existing = db.get_global_volume(&source.volume.id)?;
         let legacy_recursive_fallback_needs_rebuild = existing.as_ref().is_some_and(|current| {

@@ -5,6 +5,7 @@ use crate::global_index::coordinator::{
     run_service_recovery_qa_cycle, GlobalIndexError, GlobalIndexProvider, GlobalIndexSink,
 };
 use crate::global_index::models::*;
+use crate::global_index::windows::PauseObservation;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -13,19 +14,69 @@ use std::sync::{
 
 struct ProbeProvider {
     inner: WindowsGlobalIndexProvider,
+    database: Database,
     source_id: String,
     pause_once: AtomicBool,
     outcome: Mutex<&'static str>,
     rebuilds: AtomicUsize,
+    events: Mutex<Vec<serde_json::Value>>,
 }
 impl ProbeProvider {
+    fn record_event(&self, mut event: serde_json::Value) {
+        let sequence = self
+            .events
+            .lock()
+            .map(|events| events.len() + 1)
+            .unwrap_or(0);
+        if let Some(object) = event.as_object_mut() {
+            object.insert("sequence".into(), serde_json::json!(sequence));
+        }
+        if let Ok(mut events) = self.events.lock() {
+            events.push(event);
+        }
+    }
+
+    fn operation_state_snapshot(&self) -> serde_json::Value {
+        match self.database.global_index_operation_state(&self.source_id) {
+            Ok(state) => operation_state_value(state.as_ref()),
+            Err(_) => serde_json::json!({"read_error": "database_error"}),
+        }
+    }
+
+    fn record_operation_state(&self, event: &'static str) {
+        self.record_event(serde_json::json!({
+            "event": event,
+            "source_operation": self.operation_state_snapshot(),
+        }));
+    }
+
+    fn events_snapshot(&self) -> Vec<serde_json::Value> {
+        self.events
+            .lock()
+            .map(|events| events.clone())
+            .unwrap_or_default()
+    }
+
+    fn outcome(&self) -> &'static str {
+        self.outcome
+            .lock()
+            .map(|outcome| *outcome)
+            .unwrap_or("unavailable")
+    }
+
     fn record(&self, result: Result<(), GlobalIndexError>) -> Result<(), GlobalIndexError> {
-        *self.outcome.lock().unwrap() = match &result {
+        let outcome = match &result {
             Ok(()) => "ready",
             Err(GlobalIndexError::Paused) => "paused",
             Err(GlobalIndexError::RebuildRequired(_)) => "rebuild_required",
             _ => "failure",
         };
+        *self.outcome.lock().unwrap() = outcome;
+        self.record_event(serde_json::json!({
+            "event": "provider_operation_result",
+            "outcome": outcome,
+            "service_available": self.inner.service_available.load(Ordering::Acquire),
+        }));
         if !self.inner.service_available.load(Ordering::Acquire) {
             return Err(GlobalIndexError::Provider(
                 "QA refuses direct-provider fallback".into(),
@@ -33,6 +84,39 @@ impl ProbeProvider {
         }
         result
     }
+}
+
+fn operation_state_value(
+    state: Option<&crate::global_index::repository::SourceOperationState>,
+) -> serde_json::Value {
+    match state {
+        Some(state) => serde_json::json!({
+            "revision": state.revision,
+            "owner_id": state.owner_id,
+            "operation_state": state.operation_state,
+            "operation_route": state.operation_route,
+            "operation_kind": state.operation_kind,
+            "rebuild_intent_revision": state.rebuild_intent_revision,
+            "rebuild_completed_revision": state.rebuild_completed_revision,
+        }),
+        None => serde_json::json!({"present": false}),
+    }
+}
+
+fn first_event(events: &[serde_json::Value], name: &str) -> serde_json::Value {
+    events
+        .iter()
+        .find(|event| event.get("event").and_then(|event| event.as_str()) == Some(name))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn write_report(
+    report: &std::path::Path,
+    value: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::write(report, serde_json::to_vec_pretty(value)?)?;
+    Ok(())
 }
 impl GlobalIndexProvider for ProbeProvider {
     fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
@@ -101,14 +185,44 @@ impl GlobalIndexSink for PauseSink<'_> {
         kind: crate::global_index::SourceOperationKind,
         route: crate::global_index::SourceOperationRoute,
     ) -> Result<(), GlobalIndexError> {
-        self.sink
-            .admit_source_operation(source, operation_id, kind, route)
+        self.provider.record_event(serde_json::json!({
+            "event": "source_operation_admission_started",
+            "source_id": source.id,
+            "operation_id": operation_id,
+            "kind": format!("{kind:?}"),
+            "route": format!("{route:?}"),
+        }));
+        let result = self
+            .sink
+            .admit_source_operation(source, operation_id, kind, route);
+        self.provider.record_event(serde_json::json!({
+            "event": "source_operation_admission_result",
+            "source_id": source.id,
+            "committed": result.is_ok(),
+        }));
+        result?;
+        self.provider
+            .record_operation_state("source_operation_admission_committed");
+        Ok(())
     }
     fn source_operation_admitted(&self, volume_id: &str) -> bool {
         self.sink.source_operation_admitted(volume_id)
     }
     fn mark_source_operation_unknown(&mut self, volume_id: &str) -> Result<(), GlobalIndexError> {
-        self.sink.mark_source_operation_unknown(volume_id)
+        self.provider.record_event(serde_json::json!({
+            "event": "source_operation_unknown_started",
+            "source_id": volume_id,
+        }));
+        let result = self.sink.mark_source_operation_unknown(volume_id);
+        self.provider.record_event(serde_json::json!({
+            "event": "source_operation_unknown_result",
+            "source_id": volume_id,
+            "committed": result.is_ok(),
+        }));
+        result?;
+        self.provider
+            .record_operation_state("source_operation_unknown_committed");
+        Ok(())
     }
     fn finish_source_operation(
         &mut self,
@@ -119,20 +233,82 @@ impl GlobalIndexSink for PauseSink<'_> {
         incremental_sync_at: Option<i64>,
         complete_rebuild_intent: bool,
     ) -> Result<(), GlobalIndexError> {
-        self.sink.finish_source_operation(
+        self.provider.record_event(serde_json::json!({
+            "event": "source_operation_finish_started",
+            "source_id": volume_id,
+            "status": status,
+            "last_error": error,
+            "complete_rebuild_intent": complete_rebuild_intent,
+        }));
+        let result = self.sink.finish_source_operation(
             volume_id,
             status,
             error,
             full_index_at,
             incremental_sync_at,
             complete_rebuild_intent,
-        )
+        );
+        self.provider.record_event(serde_json::json!({
+            "event": "source_operation_finish_result",
+            "source_id": volume_id,
+            "committed": result.is_ok(),
+        }));
+        result?;
+        self.provider
+            .record_operation_state("source_operation_finish_committed");
+        Ok(())
     }
     fn set_source_provider(&mut self, id: &str, provider: &str) -> Result<(), GlobalIndexError> {
-        self.sink.set_source_provider(id, provider)?;
-        // Pause after the real service begins streaming, before its MFT read.
+        self.provider.record_event(serde_json::json!({
+            "event": "source_provider_write_started",
+            "source_id": id,
+            "provider": provider,
+        }));
+        let result = self.sink.set_source_provider(id, provider);
+        self.provider.record_event(serde_json::json!({
+            "event": "source_provider_write_result",
+            "source_id": id,
+            "committed": result.is_ok(),
+        }));
+        result?;
+        // Trigger the same typed Pause command used by the installed client.
         if self.provider.pause_once.swap(false, Ordering::AcqRel) {
-            self.provider.inner.pause()?;
+            self.provider.record_event(serde_json::json!({
+                "event": "pause_callback_started",
+                "source_id": id,
+            }));
+            let result = self.provider.inner.pause_for_native_qa(|observation| {
+                let event = match observation {
+                    PauseObservation::Request {
+                        protocol_version,
+                        request_id,
+                    } => serde_json::json!({
+                        "event": "typed_pause_request",
+                        "command": "pause",
+                        "protocol_version": protocol_version,
+                        "request_id": request_id,
+                    }),
+                    PauseObservation::Response(response) => serde_json::json!({
+                        "event": "typed_pause_response",
+                        "protocol_version": response.protocol_version,
+                        "request_id": response.request_id,
+                        "ok": response.ok,
+                        "status": response.status,
+                        "error_code": response.error_code,
+                        "message_omitted": response.message.is_some(),
+                    }),
+                    PauseObservation::TransportError { kind } => serde_json::json!({
+                        "event": "typed_pause_transport_error",
+                        "kind": kind,
+                    }),
+                };
+                self.provider.record_event(event);
+            });
+            self.provider.record_event(serde_json::json!({
+                "event": "pause_callback_result",
+                "succeeded": result.is_ok(),
+            }));
+            result?;
         }
         Ok(())
     }
@@ -148,7 +324,19 @@ impl GlobalIndexSink for PauseSink<'_> {
         journal_id: Option<&str>,
         journal_cursor: Option<&str>,
     ) -> Result<(), GlobalIndexError> {
-        self.sink.checkpoint(volume_id, journal_id, journal_cursor)
+        self.provider.record_event(serde_json::json!({
+            "event": "checkpoint_write_started",
+            "source_id": volume_id,
+            "journal_id": journal_id,
+            "journal_cursor": journal_cursor,
+        }));
+        let result = self.sink.checkpoint(volume_id, journal_id, journal_cursor);
+        self.provider.record_event(serde_json::json!({
+            "event": "checkpoint_write_result",
+            "source_id": volume_id,
+            "committed": result.is_ok(),
+        }));
+        result
     }
     fn set_source_state(
         &mut self,
@@ -156,7 +344,22 @@ impl GlobalIndexSink for PauseSink<'_> {
         status: &str,
         error: Option<&str>,
     ) -> Result<(), GlobalIndexError> {
-        self.sink.set_source_state(volume_id, status, error)
+        self.provider.record_event(serde_json::json!({
+            "event": "source_state_write_started",
+            "source_id": volume_id,
+            "status": status,
+            "last_error": error,
+        }));
+        let result = self.sink.set_source_state(volume_id, status, error);
+        self.provider.record_event(serde_json::json!({
+            "event": "source_state_write_result",
+            "source_id": volume_id,
+            "committed": result.is_ok(),
+        }));
+        result?;
+        self.provider
+            .record_operation_state("source_state_write_committed");
+        Ok(())
     }
     fn resolve_parent_path(
         &mut self,
@@ -213,18 +416,87 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             std::sync::Arc::new(crate::global_index::wake::GlobalIndexWakeSlot::default()),
             root.join("zen-canvas.sqlite3"),
         ),
+        database: db.clone(),
         source_id: source.id.clone(),
         pause_once: AtomicBool::new(true),
         outcome: Mutex::new("none"),
         rebuilds: AtomicUsize::new(0),
+        events: Mutex::new(Vec::new()),
     };
-    run_service_recovery_qa_cycle(&provider, &db)?;
-    let paused = db.get_global_volume(&source.id)?.ok_or("source absent")?;
+    let owner_before_cycle = db.global_index_operation_state(&source.id)?;
+    provider.record_event(serde_json::json!({
+        "event": "pause_recovery_cycle_started",
+        "durable_index_status": source.index_status,
+        "durable_last_error": source.last_error,
+        "source_operation": operation_state_value(owner_before_cycle.as_ref()),
+    }));
+    let first_cycle_result = run_service_recovery_qa_cycle(&provider, &db);
+    provider.record_event(serde_json::json!({
+        "event": "pause_recovery_cycle_returned",
+        "succeeded": first_cycle_result.is_ok(),
+    }));
+    let paused_result = db.get_global_volume(&source.id);
+    let owner_after_cycle_result = db.global_index_operation_state(&source.id);
+    let events = provider.events_snapshot();
+    let actual_source = paused_result
+        .as_ref()
+        .ok()
+        .and_then(|source| source.as_ref());
+    let actual_index_status = actual_source.map(|source| source.index_status.as_str());
+    let actual_last_error = actual_source.and_then(|source| source.last_error.as_deref());
+    let actual_outcome = provider.outcome();
+    let owner_after_cycle = match owner_after_cycle_result.as_ref() {
+        Ok(owner) => operation_state_value(owner.as_ref()),
+        Err(_) => serde_json::json!({"read_error": "database_error"}),
+    };
+    let pause_request = first_event(&events, "typed_pause_request");
+    let pause_response = first_event(&events, "typed_pause_response");
+    let pause_diagnostic = serde_json::json!({
+        "index_status": actual_index_status,
+        "last_error": actual_last_error,
+        "provider_outcome": actual_outcome,
+        "cycle_succeeded": first_cycle_result.is_ok(),
+        "service_available": provider.inner.service_available.load(Ordering::Acquire),
+        "source_operation_before_cycle": operation_state_value(owner_before_cycle.as_ref()),
+        "source_operation_after_cycle": owner_after_cycle,
+        "pause_request": pause_request,
+        "pause_response": pause_response,
+        "source_state_commit_order": events,
+        "strict_assertions": {
+            "index_status_is_paused": actual_index_status == Some(INDEX_STATUS_PAUSED),
+            "last_error_is_null": actual_last_error.is_none(),
+            "provider_outcome_is_paused": actual_outcome == "paused",
+        },
+    });
+    let partial_report = serde_json::json!({
+        "protocol": 3,
+        "directFallbackAllowed": false,
+        "pausedViaPipe": pause_response.get("ok").and_then(|value| value.as_bool()).unwrap_or(false),
+        "pauseDiagnostic": pause_diagnostic,
+    });
+    write_report(&report, &partial_report)?;
+    if let Err(error) = first_cycle_result {
+        return Err(
+            format!("Pause recovery cycle failed after diagnostic capture: {error}").into(),
+        );
+    }
+    let paused = paused_result?.ok_or("source absent")?;
+    let owner_after_cycle = owner_after_cycle_result?;
+    let provider_outcome = provider.outcome();
     if paused.index_status != INDEX_STATUS_PAUSED
         || paused.last_error.is_some()
-        || *provider.outcome.lock().unwrap() != "paused"
+        || provider_outcome != "paused"
     {
-        return Err("typed pipe Pause / durable paused assertion failed".into());
+        return Err(format!(
+            "typed pipe Pause / durable paused assertion failed: index_status={}, last_error={:?}, provider_outcome={}, owner_revision={}, owner_id={:?}, operation_state={:?}",
+            paused.index_status,
+            paused.last_error,
+            provider_outcome,
+            owner_after_cycle.revision,
+            owner_after_cycle.owner_id,
+            owner_after_cycle.operation_state,
+        )
+        .into());
     }
     // Controlled metadata fixture only: no journal/volume manipulation.
     db.update_global_volume_state(
@@ -265,7 +537,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         report,
         serde_json::to_vec_pretty(
-            &serde_json::json!({"protocol":3,"directFallbackAllowed":false,"pausedViaPipe":true,"rebuildRequiredViaPipe":true,"firstCycleStatus":required.index_status,"nextAdmittedRebuildCount":1,"finalStatus":rebuilt.index_status,"lastFullIndexAt":rebuilt.last_full_index_at,"seededJournalId":"18446744073709551615","seededCursor":"9223372036854775807","automaticUserFileMutationAuthorityAdded":0}),
+            &serde_json::json!({"protocol":3,"directFallbackAllowed":false,"pausedViaPipe":true,"rebuildRequiredViaPipe":true,"firstCycleStatus":required.index_status,"nextAdmittedRebuildCount":1,"finalStatus":rebuilt.index_status,"lastFullIndexAt":rebuilt.last_full_index_at,"seededJournalId":"18446744073709551615","seededCursor":"9223372036854775807","automaticUserFileMutationAuthorityAdded":0,"pauseDiagnostic":pause_diagnostic}),
         )?,
     )?;
     Ok(())

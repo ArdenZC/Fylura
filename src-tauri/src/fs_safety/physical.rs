@@ -32,6 +32,10 @@ impl PhysicalPlatform {
 pub struct PhysicalFileIdentity {
     pub size: u64,
     pub modified_ns: Option<i64>,
+    /// Stable creation/birth time where the platform exposes it. This is not
+    /// a content timestamp; it prevents a recycled inode/file index from
+    /// silently inheriting an earlier source lineage.
+    pub created_ns: Option<i64>,
     pub platform_kind: PhysicalPlatform,
     pub platform_volume_id: Option<String>,
     pub platform_file_id: Option<String>,
@@ -54,6 +58,22 @@ pub enum PhysicalIdentityError {
 pub fn capture_physical_identity(
     path: &Path,
 ) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {
+    capture_identity(path, false)
+}
+
+/// Captures a native object identity for a regular file or directory without
+/// following symlinks/reparse points. Managed Scan includes directories in
+/// its path model, so their native identity must be proven by the same rule.
+pub fn capture_source_object_identity(
+    path: &Path,
+) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {
+    capture_identity(path, true)
+}
+
+fn capture_identity(
+    path: &Path,
+    allow_directory: bool,
+) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             PhysicalIdentityError::Missing
@@ -64,12 +84,13 @@ pub fn capture_physical_identity(
     if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
         return Err(PhysicalIdentityError::UnsupportedLink);
     }
-    if !metadata.is_file() {
+    if !metadata.is_file() && !(allow_directory && metadata.is_dir()) {
         return Err(PhysicalIdentityError::UnsupportedType);
     }
 
     let size = metadata.len();
     let modified_ns = modified_ns(&metadata);
+    let created_ns = created_ns(&metadata);
     let (platform_kind, volume_id, file_id, link_count) = platform_identity(path, &metadata);
     let physical_key = match (&volume_id, &file_id) {
         (Some(volume), Some(file)) => Some(format!(
@@ -84,12 +105,22 @@ pub fn capture_physical_identity(
     Ok(PhysicalFileIdentity {
         size,
         modified_ns,
+        created_ns,
         platform_kind,
         platform_volume_id: volume_id,
         platform_file_id: file_id,
         physical_key,
         link_count,
     })
+}
+
+fn created_ns(metadata: &fs::Metadata) -> Option<i64> {
+    metadata
+        .created()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|duration| i128::try_from(duration.as_nanos()).ok())
+        .and_then(|value| i64::try_from(value).ok())
 }
 
 fn stable_identity_component(value: &str) -> String {

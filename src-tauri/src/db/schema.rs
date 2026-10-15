@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 39;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 40;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -109,6 +109,64 @@ CREATE TABLE library_generation_authority (
 );
 "#;
 
+const CREATE_LIBRARY_ROOT_EPOCH_STATE: &str = r#"
+CREATE TABLE library_root_epoch_state (
+  root_id TEXT PRIMARY KEY NOT NULL,
+  epoch INTEGER NOT NULL DEFAULT 0 CHECK (epoch >= 0),
+  last_owner_kind TEXT NOT NULL CHECK (
+    last_owner_kind IN ('scan','watcher','operation','restore')
+  ),
+  last_owner_revision INTEGER NOT NULL DEFAULT 0 CHECK (last_owner_revision >= 0),
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (root_id) REFERENCES scan_roots(id) ON DELETE RESTRICT
+);
+"#;
+
+const CREATE_LIBRARY_SOURCE_ROOT_CLAIMS: &str = r#"
+CREATE TABLE library_source_root_claims (
+  root_id TEXT NOT NULL,
+  source_uid TEXT NOT NULL,
+  observed_path TEXT NOT NULL,
+  root_epoch INTEGER NOT NULL CHECK (root_epoch >= 1),
+  owner_kind TEXT NOT NULL CHECK (
+    owner_kind IN ('scan','watcher','operation','restore')
+  ),
+  owner_revision INTEGER NOT NULL CHECK (owner_revision >= 0),
+  observation_revision INTEGER NOT NULL CHECK (observation_revision >= 1),
+  claim_state TEXT NOT NULL CHECK (
+    claim_state IN ('present','absent','unverified','conflicted')
+  ),
+  observed_at INTEGER NOT NULL,
+  PRIMARY KEY (root_id, source_uid, observed_path),
+  FOREIGN KEY (root_id) REFERENCES scan_roots(id) ON DELETE RESTRICT,
+  FOREIGN KEY (source_uid) REFERENCES library_source_incarnations(source_uid)
+    ON DELETE RESTRICT
+);
+"#;
+
+const CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_SOURCE_INDEX: &str = r#"
+CREATE INDEX idx_library_source_root_claims_source_state
+  ON library_source_root_claims(source_uid, claim_state, root_epoch);
+"#;
+
+const CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_ROOT_PATH_INDEX: &str = r#"
+CREATE INDEX idx_library_source_root_claims_root_path
+  ON library_source_root_claims(root_id, observed_path, claim_state, root_epoch DESC);
+"#;
+
+const CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_PATH_STATE_INDEX: &str = r#"
+CREATE INDEX idx_library_source_root_claims_path_state
+  ON library_source_root_claims(observed_path, claim_state, root_id, root_epoch);
+"#;
+
+const CREATE_LIBRARY_SOURCE_PHYSICAL_UNIQUE_INDEX: &str = r#"
+CREATE UNIQUE INDEX idx_library_source_physical_verified
+  ON library_source_incarnations(
+    physical_platform, physical_volume_id, physical_object_id, verification_digest
+  )
+  WHERE verification_state = 'verified';
+"#;
+
 const LIBRARY_IDENTITY_SCHEMA_OBJECTS: &[(&str, &str, &str)] = &[
     (
         "table",
@@ -188,6 +246,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
     }
     if version == CURRENT_SCHEMA_VERSION {
         validate_library_identity_schema(conn)?;
+        validate_library_source_writer_schema(conn)?;
         ensure_global_index_schema(conn)?;
         ensure_global_index_hardening(conn)?;
         ensure_journal_state_triggers(conn)?;
@@ -912,8 +971,75 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             )?;
             set_schema_version(conn, 39)?;
         }
+        if version < 40 {
+            ensure_library_source_writer_schema(conn)?;
+            set_schema_version(conn, 40)?;
+        }
         Ok(())
     })
+}
+
+fn ensure_library_source_writer_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(CREATE_LIBRARY_ROOT_EPOCH_STATE)?;
+    conn.execute_batch(CREATE_LIBRARY_SOURCE_ROOT_CLAIMS)?;
+    conn.execute_batch(CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_SOURCE_INDEX)?;
+    conn.execute_batch(CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_ROOT_PATH_INDEX)?;
+    conn.execute_batch(CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_PATH_STATE_INDEX)?;
+    conn.execute_batch(CREATE_LIBRARY_SOURCE_PHYSICAL_UNIQUE_INDEX)?;
+    Ok(())
+}
+
+fn validate_library_source_writer_schema(conn: &Connection) -> Result<(), DbError> {
+    for (object_type, name, expected_sql) in [
+        (
+            "table",
+            "library_root_epoch_state",
+            CREATE_LIBRARY_ROOT_EPOCH_STATE,
+        ),
+        (
+            "table",
+            "library_source_root_claims",
+            CREATE_LIBRARY_SOURCE_ROOT_CLAIMS,
+        ),
+        (
+            "index",
+            "idx_library_source_root_claims_source_state",
+            CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_SOURCE_INDEX,
+        ),
+        (
+            "index",
+            "idx_library_source_root_claims_root_path",
+            CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_ROOT_PATH_INDEX,
+        ),
+        (
+            "index",
+            "idx_library_source_root_claims_path_state",
+            CREATE_LIBRARY_SOURCE_ROOT_CLAIMS_PATH_STATE_INDEX,
+        ),
+        (
+            "index",
+            "idx_library_source_physical_verified",
+            CREATE_LIBRARY_SOURCE_PHYSICAL_UNIQUE_INDEX,
+        ),
+    ] {
+        let actual_sql: Option<String> = conn
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = ?1 AND name = ?2",
+                params![object_type, name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if !actual_sql
+            .as_deref()
+            .map(schema_sql_signature)
+            .is_some_and(|actual| actual == schema_sql_signature(expected_sql))
+        {
+            return Err(DbError::Validation(format!(
+                "library_schema40_source_writer_conflict: {name}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn with_migration_transaction(

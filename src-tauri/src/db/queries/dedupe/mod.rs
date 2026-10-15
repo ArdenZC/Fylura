@@ -1831,6 +1831,7 @@ mod tests {
                 &PhysicalFileIdentity {
                     size: 4,
                     modified_ns: None,
+                    created_ns: None,
                     platform_kind: crate::fs_safety::PhysicalPlatform::Other,
                     platform_volume_id: None,
                     platform_file_id: None,
@@ -1863,6 +1864,7 @@ mod tests {
         let new_volume = PhysicalFileIdentity {
             size: 4,
             modified_ns: Some(11),
+            created_ns: None,
             platform_kind: crate::fs_safety::PhysicalPlatform::Unix,
             platform_volume_id: Some("new-volume".into()),
             platform_file_id: Some("1".into()),
@@ -1923,6 +1925,7 @@ mod tests {
         let identity = PhysicalFileIdentity {
             size: 4,
             modified_ns: Some(22),
+            created_ns: None,
             platform_kind: crate::fs_safety::PhysicalPlatform::Unix,
             platform_volume_id: Some("cas-volume".into()),
             platform_file_id: Some("cas-file".into()),
@@ -2295,6 +2298,7 @@ mod tests {
             &PhysicalFileIdentity {
                 size: 4,
                 modified_ns: Some(22),
+                created_ns: None,
                 platform_kind: crate::fs_safety::PhysicalPlatform::Other,
                 platform_volume_id: None,
                 platform_file_id: None,

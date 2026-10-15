@@ -271,6 +271,144 @@
     }
 
     #[test]
+    fn retained_restore_keeps_source_uid_and_user_tag_on_the_same_object() {
+        let db = Database::open(test_db_path()).expect("open retained restore database");
+        let root = test_dir();
+        let source = root.join("retained-before.txt");
+        let target = root.join("retained-after.txt");
+        fs::write(&source, "retained source payload").expect("write retained source");
+        let source_path = normalized_test_path(&source);
+        let target_path = normalized_test_path(&target);
+        let mut settings = crate::settings::get_app_settings(&db).expect("read app settings");
+        settings.default_scan_folders = vec![crate::settings::ScanRootSetting {
+            id: "retained-restore-root".to_string(),
+            path: normalized_test_path(&root),
+            label: "Retained restore root".to_string(),
+            enabled: true,
+            created_at: "2026-10-15T00:00:00.000Z".to_string(),
+        }];
+        crate::settings::save_app_settings(&db, &settings).expect("save retained restore root");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("sync retained restore root");
+        let root_id = db
+            .list_watcher_root_configs()
+            .expect("list retained restore roots")
+            .into_iter()
+            .find(|config| config.path == normalized_test_path(&root))
+            .expect("managed retained restore root")
+            .id;
+
+        let metadata = fs::metadata(&source).expect("read retained source metadata");
+        db.insert_file(InsertFileRequest {
+            id: source_path.clone(),
+            path: source_path.clone(),
+            name: "retained-before.txt".to_string(),
+            extension: "txt".to_string(),
+            size: metadata.len() as i64,
+            mtime: metadata
+                .modified()
+                .expect("read retained source mtime")
+                .duration_since(UNIX_EPOCH)
+                .expect("retained source mtime epoch")
+                .as_secs() as i64,
+            ctime: 0,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("publish retained source identity");
+        let original_uid: String = Connection::open(db.path())
+            .expect("open retained source identity database")
+            .query_row(
+                "SELECT source_uid FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2 AND claim_state = 'present'",
+                params![root_id, source_path],
+                |row| row.get(0),
+            )
+            .expect("read retained source uid");
+        let tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "Retained restore tag".to_string(),
+                color_token: "green".to_string(),
+            })
+            .expect("create retained restore tag");
+        db.mutate_file_user_tags(MutateFileUserTagsRequest {
+            selection: LibrarySelectionV1::Explicit {
+                file_ids: vec![source_path.clone()],
+            },
+            tag_ids: vec![tag.id.clone()],
+            operation: UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("tag retained source");
+
+        let identity = crate::file_ops::file_identity_fingerprint(&source)
+            .expect("capture retained source identity");
+        fs::rename(&source, &target).expect("move source into operation target");
+        assert!(db
+            .update_file_after_successful_operation(
+                &source_path,
+                &source_path,
+                &target_path,
+                "retained-after.txt",
+            )
+            .expect("publish operation move")
+        );
+        let mut log = operation_log(
+            "log-retained-restore",
+            "batch-retained-restore",
+            "success",
+        );
+        log.source_path = source_path.clone();
+        log.target_path = target_path.clone();
+        log.path_before = source_path.clone();
+        log.path_after = target_path.clone();
+        log.name_before = "retained-before.txt".to_string();
+        log.name_after = "retained-after.txt".to_string();
+        log.new_name = log.name_after.clone();
+        log.source_size = Some(identity.size);
+        log.source_modified_ns = identity.modified_ns.map(|value| value.to_string());
+        log.source_platform_file_id = identity.platform_file_id;
+        log.source_platform_volume_id = identity.platform_volume_id;
+        log.source_quick_hash = identity.quick_hash;
+        log.source_full_hash = identity.full_hash;
+        db.save_operation_logs(&log.batch_id, std::slice::from_ref(&log))
+            .expect("save retained restore operation journal");
+
+        fs::rename(&target, &source).expect("restore the same physical source");
+        log.restore_status = "restored".to_string();
+        log.restore_phase = "completed".to_string();
+        log.restored_at = Some("1900000000123".to_string());
+        db.finalize_successful_operation_restore(&log)
+            .expect("finalize retained source restore");
+
+        let conn = Connection::open(db.path()).expect("inspect retained restore state");
+        let (restored_uid, claim_state): (String, String) = conn
+            .query_row(
+                "SELECT claim.source_uid, claim.claim_state FROM library_source_root_claims AS claim WHERE claim.root_id = ?1 AND claim.observed_path = ?2 ORDER BY claim.root_epoch DESC LIMIT 1",
+                params![root_id, source_path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read restored root claim");
+        let restored_tags: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![source_path, tag.id],
+                |row| row.get(0),
+            )
+            .expect("count restored user tags");
+        let restored_file: (String, i64) = conn
+            .query_row(
+                "SELECT id, is_stale FROM files WHERE path = ?1",
+                params![source_path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read restored file row");
+        assert_eq!(restored_uid, original_uid);
+        assert_eq!(claim_state, "present");
+        assert_eq!(restored_tags, 1);
+        assert_eq!(restored_file, (source_path, 0));
+    }
+
+    #[test]
     fn replacement_restore_finalization_reconciles_both_indexed_objects() {
         let db = Database::open(test_db_path()).expect("open replacement restore database");
         let root = test_dir();

@@ -134,7 +134,7 @@ jobs:
           set -uo pipefail
           evidence="$EVIDENCE_ROOT/evidence"
           artifact="$EVIDENCE_ROOT/artifact"
-          product="product-source"
+          product="$GITHUB_WORKSPACE/product-source"
           app="$product/src-tauri/target/release/bundle/macos/Zen Canvas.app"
           executable=""
           executable_name=""

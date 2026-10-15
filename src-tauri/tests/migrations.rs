@@ -1079,6 +1079,7 @@ fn performance_100k_files_schema_28_to_29_and_wal_reader() {
         .expect("seed migration file");
     }
     tx.commit().expect("commit 100k file fixture");
+    drop_source_writer_schema(&conn);
     conn.execute_batch(
         r#"
         DROP VIEW active_duplicate_membership;
@@ -1144,6 +1145,7 @@ fn performance_100k_files_schema_29_to_30_analysis_and_wal_reader() {
         .expect("seed analysis migration file");
     }
     tx.commit().expect("commit 100k analysis migration files");
+    drop_source_writer_schema(&conn);
     conn.execute_batch(
         r#"
         DROP TABLE analysis_finding_evidence;

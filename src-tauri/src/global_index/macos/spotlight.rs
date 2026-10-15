@@ -29,9 +29,9 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
-// NSMetadataQuery rejects the constant `TRUEPREDICATE` predicate. This
-// metadata query string matches every indexed item that has a file name.
-const SPOTLIGHT_MATCH_ALL_QUERY: &str = "kMDItemFSName LIKE '*'";
+// Spotlight metadata query strings use `==` with glob wildcards; `LIKE` is
+// NSPredicate syntax. This matches every indexed item that has a file name.
+const SPOTLIGHT_MATCH_ALL_QUERY: &str = "kMDItemFSName == \"*\"";
 
 pub(super) struct SpotlightWatcherHandle {
     stopped: Arc<AtomicBool>,

@@ -213,13 +213,12 @@ pub(crate) fn observe_source_for_root_tx(
     let block_legacy_row = verification_state != "verified"
         || (legacy_row_exists && (identity_changed || !attribution_matches));
 
-    let inherited_legacy_id = if attribution_matches
-        || (!legacy_row_exists && verification_state == "verified")
-    {
-        Some(file.id.as_str())
-    } else {
-        None
-    };
+    let inherited_legacy_id =
+        if attribution_matches || (!legacy_row_exists && verification_state == "verified") {
+            Some(file.id.as_str())
+        } else {
+            None
+        };
     let observation_digest = observation_digest(file, physical_claim.as_ref(), verification_state)?;
     let previous_observation = tx
         .query_row(

@@ -11,13 +11,14 @@ on:
       - 'src-tauri/src/global_index/macos/spotlight.rs'
       - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+  EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   CARGO_BUILD_JOBS: 2
   MACOSX_DEPLOYMENT_TARGET: '13.0'
 
@@ -30,8 +31,8 @@ jobs:
       - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -139,7 +140,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: issue-270-macos-startup-${{ github.event.pull_request.head.sha }}
+          name: issue-270-macos-startup-${{ github.event.pull_request.head.sha || github.sha }}
           path: .performance-artifacts/issue-270/
           if-no-files-found: warn
           retention-days: 7

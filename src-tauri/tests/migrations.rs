@@ -59,6 +59,17 @@ fn identity_foundation_object_names() -> [&'static str; 8] {
     ]
 }
 
+fn source_writer_object_names() -> [&'static str; 6] {
+    [
+        "library_source_root_claims",
+        "library_root_epoch_state",
+        "idx_library_source_physical_verified",
+        "idx_library_source_root_claims_path_state",
+        "idx_library_source_root_claims_root_path",
+        "idx_library_source_root_claims_source_state",
+    ]
+}
+
 fn drop_source_writer_schema(conn: &Connection) {
     conn.execute_batch(
         "DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
@@ -147,9 +158,12 @@ fn full_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Optio
 
 fn legacy_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Option<String>)> {
     let p0_names = identity_foundation_object_names();
+    let source_writer_names = source_writer_object_names();
     full_schema_snapshot(conn)
         .into_iter()
-        .filter(|(_, name, _, _)| !p0_names.contains(&name.as_str()))
+        .filter(|(_, name, _, _)| {
+            !p0_names.contains(&name.as_str()) && !source_writer_names.contains(&name.as_str())
+        })
         .collect()
 }
 
@@ -1032,6 +1046,7 @@ fn schema_20_normalizes_invalid_historical_rule_domains_in_transaction() {
     .expect("seed invalid rule domains");
     conn.execute_batch("DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 19;")
         .expect("downgrade enum fixture");
+    drop_identity_foundation(&conn, 19);
     drop(conn);
 
     Database::open(&path).expect("run enum migration");
@@ -2169,14 +2184,6 @@ fn p0_t09_file_library_search_tags_scan_upsert_and_restore_keep_legacy_authority
     };
     let normalized_file_path = original_path.to_string_lossy().replace('\\', "/");
     let conn = Connection::open(&path).expect("open root fixture");
-    conn.execute(
-        "INSERT INTO scan_roots (
-             id, normalized_path, display_name, source_kind, enabled, health_status,
-             current_generation, needs_reconciliation, created_at, updated_at
-         ) VALUES ('p0-t09-root', ?1, 'P0 test root', 'file_library', 1, 'healthy', 1, 0, 1, 1)",
-        [&normalized_root],
-    )
-    .expect("register File Library root");
     let file_id: String = conn
         .query_row(
             "SELECT id FROM files WHERE path = ?1",
@@ -2192,24 +2199,6 @@ fn p0_t09_file_library_search_tags_scan_upsert_and_restore_keep_legacy_authority
             .len(),
         1
     );
-    let file_library = db
-        .query_file_library_v2(FileQueryRequestV2 {
-            version: 2,
-            request_id: "p0-t09-list".to_string(),
-            query: FileQuerySpecV2 {
-                scope: FileLibraryScopeV2::Roots {
-                    scan_root_ids: vec!["p0-t09-root".to_string()],
-                },
-                text: Some("legacysearchtoken".to_string()),
-                filters: FileQueryFiltersV2::default(),
-                sort: Default::default(),
-            },
-            page_size: 10,
-            cursor: None,
-        })
-        .expect("list through File Library V2");
-    assert_eq!(file_library.files.len(), 1);
-    assert_eq!(file_library.files[0].id, file_id);
 
     let tag = db
         .create_user_tag(CreateUserTagRequest {
@@ -2283,6 +2272,34 @@ fn p0_t09_file_library_search_tags_scan_upsert_and_restore_keep_legacy_authority
             restore_claim_full_hash: None,
         })
         .expect("restore legacy indexed file"));
+    let conn = Connection::open(&path).expect("open root fixture");
+    conn.execute(
+        "INSERT INTO scan_roots (
+             id, normalized_path, display_name, source_kind, enabled, health_status,
+             current_generation, needs_reconciliation, created_at, updated_at
+         ) VALUES ('p0-t09-root', ?1, 'P0 test root', 'file_library', 1, 'healthy', 1, 0, 1, 1)",
+        [&normalized_root],
+    )
+    .expect("register File Library root");
+    drop(conn);
+    let file_library = db
+        .query_file_library_v2(FileQueryRequestV2 {
+            version: 2,
+            request_id: "p0-t09-list".to_string(),
+            query: FileQuerySpecV2 {
+                scope: FileLibraryScopeV2::Roots {
+                    scan_root_ids: vec!["p0-t09-root".to_string()],
+                },
+                text: Some("legacysearchtoken".to_string()),
+                filters: FileQueryFiltersV2::default(),
+                sort: Default::default(),
+            },
+            page_size: 10,
+            cursor: None,
+        })
+        .expect("list through File Library V2");
+    assert_eq!(file_library.files.len(), 1);
+    assert_eq!(file_library.files[0].id, file_id);
     assert_eq!(
         db.search_files("legacysearchtoken", Some(10))
             .expect("search after restore")

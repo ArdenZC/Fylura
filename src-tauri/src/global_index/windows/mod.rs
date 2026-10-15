@@ -704,7 +704,10 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
+    use crate::global_index::models::{
+        GlobalEntry, GlobalEntryInput, GlobalVolume, INDEX_STATUS_PERMISSION_REQUIRED,
+        INDEX_STATUS_READY,
+    };
     use std::collections::VecDeque;
 
     struct ScriptedServiceIo {

@@ -488,7 +488,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         || provider_outcome != "paused"
     {
         return Err(format!(
-            "typed pipe Pause / durable paused assertion failed: index_status={}, last_error={:?}, provider_outcome={}, owner_revision={}, owner_id={:?}, operation_state={:?}",
+            "typed pipe Pause / durable paused assertion failed: index_status={}, last_error={:?}, provider_outcome={}, owner_revision={:?}, owner_id={:?}, operation_state={:?}",
             paused.index_status,
             paused.last_error,
             provider_outcome,

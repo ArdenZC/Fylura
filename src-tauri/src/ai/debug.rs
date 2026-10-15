@@ -722,11 +722,24 @@ mod tests {
 
     #[test]
     fn test_database_paths_are_unique_for_parallel_same_clock_allocations() {
-        let paths = (0..64)
-            .map(|_| std::thread::spawn(|| test_db_path_with_nonce(1)))
+        const WORKER_COUNT: usize = 64;
+        let start = std::sync::Arc::new(std::sync::Barrier::new(WORKER_COUNT + 1));
+        let handles = (0..WORKER_COUNT)
+            .map(|_| {
+                let start = std::sync::Arc::clone(&start);
+                std::thread::spawn(move || {
+                    start.wait();
+                    test_db_path_with_nonce(1)
+                })
+            })
+            .collect::<Vec<_>>();
+
+        start.wait();
+        let paths = handles
+            .into_iter()
             .map(|handle| handle.join().expect("join path generator"))
             .collect::<std::collections::HashSet<_>>();
 
-        assert_eq!(paths.len(), 64);
+        assert_eq!(paths.len(), WORKER_COUNT);
     }
 }

@@ -288,7 +288,7 @@ fn global_search_name_prefix_cte_matches_legacy_product_path() {
     db.mark_global_entry_stale(&stale.entry_id())
         .expect("exclude stale high-ranked name-prefix candidate");
 
-    let mut conn = db
+    let conn = db
         .conn()
         .expect("borrow name-prefix equivalence connection");
     conn.execute(

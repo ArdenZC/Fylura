@@ -412,8 +412,11 @@ mod tests {
     use std::{
         cell::RefCell,
         path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    static TEST_DB_PATH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     thread_local! {
         static TEST_CREDENTIALS: RefCell<InMemoryCredentialStore> =
@@ -706,6 +709,24 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        std::env::temp_dir().join(format!("zen-canvas-ai-debug-test-{nonce}.sqlite3"))
+        test_db_path_with_nonce(nonce)
+    }
+
+    fn test_db_path_with_nonce(nonce: u128) -> PathBuf {
+        let counter = TEST_DB_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "zen-canvas-ai-debug-test-{}-{nonce}-{counter}.sqlite3",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn test_database_paths_are_unique_for_parallel_same_clock_allocations() {
+        let paths = (0..64)
+            .map(|_| std::thread::spawn(|| test_db_path_with_nonce(1)))
+            .map(|handle| handle.join().expect("join path generator"))
+            .collect::<std::collections::HashSet<_>>();
+
+        assert_eq!(paths.len(), 64);
     }
 }

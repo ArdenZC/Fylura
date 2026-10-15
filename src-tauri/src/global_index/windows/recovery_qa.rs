@@ -492,9 +492,13 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             paused.index_status,
             paused.last_error,
             provider_outcome,
-            owner_after_cycle.revision,
-            owner_after_cycle.owner_id,
-            owner_after_cycle.operation_state,
+            owner_after_cycle.as_ref().map(|state| state.revision),
+            owner_after_cycle
+                .as_ref()
+                .and_then(|state| state.owner_id.as_deref()),
+            owner_after_cycle
+                .as_ref()
+                .and_then(|state| state.operation_state.as_deref()),
         )
         .into());
     }

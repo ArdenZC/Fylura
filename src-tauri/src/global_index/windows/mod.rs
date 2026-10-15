@@ -14,6 +14,7 @@ use crate::global_index::models::{
     PROVIDER_WINDOWS_MFT_USN,
 };
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
+use crate::global_index::{SourceOperationKind, SourceOperationRoute};
 use service::{IndexServiceCommand, IndexServiceEvent, IndexServiceRequest, IndexServiceResponse};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

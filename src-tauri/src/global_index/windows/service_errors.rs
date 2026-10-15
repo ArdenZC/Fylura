@@ -12,7 +12,9 @@ pub(super) fn classify(error: &GlobalIndexError) -> (String, &'static str) {
         GlobalIndexError::RebuildRequired(_) => {
             ("index_rebuild_required", INDEX_STATUS_REBUILD_REQUIRED)
         }
-        GlobalIndexError::ServiceBusy(_) => ("index_service_busy", INDEX_STATUS_ERROR),
+        GlobalIndexError::ServiceBusy(_) | GlobalIndexError::SourceBusy(_) => {
+            ("index_service_busy", INDEX_STATUS_ERROR)
+        }
         GlobalIndexError::PermissionRequired(_) => (
             "index_permission_required",
             INDEX_STATUS_PERMISSION_REQUIRED,

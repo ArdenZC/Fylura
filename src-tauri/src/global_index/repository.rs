@@ -1,6 +1,6 @@
 use super::models::*;
 use crate::db::{Database, DbError};
-use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::Serialize;
 use std::{
     collections::HashSet,
@@ -67,6 +67,50 @@ pub(crate) struct SourceOperationState {
     pub operation_kind: Option<String>,
     pub rebuild_intent_revision: i64,
     pub rebuild_completed_revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GlobalIndexOperationClaimSnapshot {
+    revision: i64,
+    owner_id: Option<String>,
+    owner_pid: Option<i64>,
+    owner_started_at: Option<i64>,
+    owner_route: Option<String>,
+    operation_kind: Option<String>,
+    operation_state: Option<String>,
+}
+
+struct LocalGlobalIndexOperationRegistration {
+    operation_id: String,
+    keep_on_drop: bool,
+}
+
+impl LocalGlobalIndexOperationRegistration {
+    fn try_register(operation_id: &str) -> Option<Self> {
+        let mut active_operations = LOCAL_GLOBAL_INDEX_OPERATIONS
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !active_operations.insert(operation_id.to_string()) {
+            return None;
+        }
+        Some(Self {
+            operation_id: operation_id.to_string(),
+            keep_on_drop: false,
+        })
+    }
+
+    fn keep_after_commit(mut self) {
+        self.keep_on_drop = true;
+    }
+}
+
+impl Drop for LocalGlobalIndexOperationRegistration {
+    fn drop(&mut self) {
+        if !self.keep_on_drop {
+            unregister_local_global_index_operation(&self.operation_id);
+        }
+    }
 }
 
 impl SourceOperationState {
@@ -380,79 +424,87 @@ impl Database {
         kind: SourceOperationKind,
         route: SourceOperationRoute,
     ) -> Result<Option<SourceOperationOwner>, DbError> {
+        self.claim_global_index_operation_with_process_check(
+            volume,
+            operation_id,
+            kind,
+            route,
+            process_instance_is_alive,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn claim_global_index_operation_with_process_check_for_test<F>(
+        &self,
+        volume: &GlobalVolume,
+        operation_id: &str,
+        kind: SourceOperationKind,
+        route: SourceOperationRoute,
+        process_is_alive: F,
+    ) -> Result<Option<SourceOperationOwner>, DbError>
+    where
+        F: FnMut(i64, i64) -> Option<bool>,
+    {
+        self.claim_global_index_operation_with_process_check(
+            volume,
+            operation_id,
+            kind,
+            route,
+            process_is_alive,
+        )
+    }
+
+    fn claim_global_index_operation_with_process_check<F>(
+        &self,
+        volume: &GlobalVolume,
+        operation_id: &str,
+        kind: SourceOperationKind,
+        route: SourceOperationRoute,
+        mut process_is_alive: F,
+    ) -> Result<Option<SourceOperationOwner>, DbError>
+    where
+        F: FnMut(i64, i64) -> Option<bool>,
+    {
         let (owner_pid, owner_started_at) = current_process_identity()?;
-        let mut conn = self.conn()?;
-        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current = transaction
-            .query_row(
-                r#"
-                SELECT operation_revision, operation_owner_id, operation_owner_pid,
-                       operation_owner_started_at, operation_owner_route, operation_state
-                FROM global_volumes
-                WHERE id = ?1 AND stable_volume_id = ?2 AND provider = ?3 AND enabled = 1
-                "#,
-                params![volume.id, volume.stable_volume_id, volume.provider],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<i64>>(2)?,
-                        row.get::<_, Option<i64>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((
-            revision,
-            existing_id,
-            existing_pid,
-            existing_started_at,
-            existing_route,
-            existing_state,
-        )) = current
-        else {
-            transaction.commit()?;
+
+        // Keep both the pooled connection and its read statement out of the OS
+        // process lookup below. The lookup may refresh system process state and
+        // must not run while SQLite's IMMEDIATE writer reservation is held.
+        let precheck_snapshot = {
+            let conn = self.conn()?;
+            query_global_index_operation_claim_snapshot(&conn, volume)?
+        };
+        let Some(precheck_snapshot) = precheck_snapshot else {
             return Ok(None);
         };
 
         let active_operations = LOCAL_GLOBAL_INDEX_OPERATIONS
             .get_or_init(|| Mutex::new(HashSet::new()))
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(existing_id) = existing_id.as_deref() {
-            let locally_active = active_operations.contains(existing_id);
-            let unresolved_service_owner = existing_route.as_deref() == Some("service")
-                && matches!(existing_state.as_deref(), Some("running" | "unknown"));
-            // A Direct request cannot prove that a previously admitted Service
-            // operation stopped, especially after the client process restarts.
-            // Only a new Service admission (which holds the host's busy
-            // reservation) may reconcile that durable owner.
-            if unresolved_service_owner && route != SourceOperationRoute::Service {
-                transaction.commit()?;
-                return Ok(None);
-            }
-            let same_process =
-                existing_pid == Some(owner_pid) && existing_started_at == Some(owner_started_at);
-            let owner_alive = if same_process {
-                locally_active
-            } else if let (Some(pid), Some(started_at)) = (existing_pid, existing_started_at) {
-                process_instance_is_alive(pid, started_at).unwrap_or(true)
-            } else {
-                true
-            };
-            let admitted_service_recovery = route == SourceOperationRoute::Service
-                && existing_route.as_deref() == Some("service")
-                && !locally_active;
-            if locally_active || (owner_alive && !admitted_service_recovery) {
-                transaction.commit()?;
-                return Ok(None);
-            }
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if active_operations.contains(operation_id)
+            || !global_index_operation_snapshot_allows_claim(
+                &precheck_snapshot,
+                owner_pid,
+                owner_started_at,
+                &active_operations,
+                route,
+                &mut process_is_alive,
+            )
+        {
+            return Ok(None);
         }
-        drop(active_operations);
 
-        let next_revision = revision.checked_add(1).ok_or_else(|| {
+        let mut conn = self.conn()?;
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current_snapshot = query_global_index_operation_claim_snapshot(&transaction, volume)?;
+        if current_snapshot.as_ref() != Some(&precheck_snapshot) {
+            transaction.rollback()?;
+            return Ok(None);
+        }
+
+        let next_revision = precheck_snapshot.revision.checked_add(1).ok_or_else(|| {
             DbError::Validation("global_index_operation_revision_exhausted".into())
         })?;
         let changed = transaction.execute(
@@ -470,6 +522,17 @@ impl Database {
                 updated_at = ?13
             WHERE id = ?1 AND stable_volume_id = ?2 AND provider = ?3
               AND enabled = 1 AND operation_revision = ?10
+              AND operation_owner_id IS ?14
+              AND operation_owner_pid IS ?15
+              AND operation_owner_started_at IS ?16
+              AND operation_owner_route IS ?17
+              AND operation_kind IS ?18
+              AND operation_state IS ?19
+              AND NOT EXISTS (
+                  SELECT 1 FROM global_volumes AS other_owner
+                  WHERE other_owner.id <> ?1
+                    AND other_owner.operation_owner_id = ?5
+              )
             "#,
             params![
                 volume.id,
@@ -481,25 +544,29 @@ impl Database {
                 owner_started_at,
                 route.as_db_value(),
                 kind.as_db_value(),
-                revision,
+                precheck_snapshot.revision,
                 kind.admitted_status(),
                 INDEX_STATUS_PERMISSION_REQUIRED,
                 unix_now(),
+                precheck_snapshot.owner_id,
+                precheck_snapshot.owner_pid,
+                precheck_snapshot.owner_started_at,
+                precheck_snapshot.owner_route,
+                precheck_snapshot.operation_kind,
+                precheck_snapshot.operation_state,
             ],
         )?;
         if changed != 1 {
-            transaction.commit()?;
+            transaction.rollback()?;
             return Ok(None);
         }
-        LOCAL_GLOBAL_INDEX_OPERATIONS
-            .get_or_init(|| Mutex::new(HashSet::new()))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(operation_id.to_string());
-        if let Err(error) = transaction.commit() {
-            unregister_local_global_index_operation(operation_id);
-            return Err(DbError::from(error));
-        }
+        let Some(registration) = LocalGlobalIndexOperationRegistration::try_register(operation_id)
+        else {
+            transaction.rollback()?;
+            return Ok(None);
+        };
+        transaction.commit()?;
+        registration.keep_after_commit();
         Ok(Some(SourceOperationOwner {
             volume_id: volume.id.clone(),
             revision: next_revision,
@@ -1693,6 +1760,113 @@ fn current_process_identity() -> Result<(i64, i64), DbError> {
     let started_at = process_start_time(process_id)
         .ok_or_else(|| DbError::Validation("global_index_process_identity_unavailable".into()))?;
     Ok((i64::from(process_id), started_at))
+}
+
+fn query_global_index_operation_claim_snapshot(
+    conn: &Connection,
+    volume: &GlobalVolume,
+) -> Result<Option<GlobalIndexOperationClaimSnapshot>, DbError> {
+    conn.query_row(
+        r#"
+        SELECT operation_revision, operation_owner_id, operation_owner_pid,
+               operation_owner_started_at, operation_owner_route, operation_kind,
+               operation_state
+        FROM global_volumes
+        WHERE id = ?1 AND stable_volume_id = ?2 AND provider = ?3 AND enabled = 1
+        "#,
+        params![volume.id, volume.stable_volume_id, volume.provider],
+        |row| {
+            Ok(GlobalIndexOperationClaimSnapshot {
+                revision: row.get(0)?,
+                owner_id: row.get(1)?,
+                owner_pid: row.get(2)?,
+                owner_started_at: row.get(3)?,
+                owner_route: row.get(4)?,
+                operation_kind: row.get(5)?,
+                operation_state: row.get(6)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(DbError::from)
+}
+
+fn global_index_operation_snapshot_allows_claim(
+    snapshot: &GlobalIndexOperationClaimSnapshot,
+    current_pid: i64,
+    current_started_at: i64,
+    active_operations: &HashSet<String>,
+    route: SourceOperationRoute,
+    process_is_alive: &mut impl FnMut(i64, i64) -> Option<bool>,
+) -> bool {
+    let Some(owner_id) = snapshot.owner_id.as_deref() else {
+        // An ownerless row should not retain fragments of a previous owner.
+        // Treat inconsistent durable state as ambiguous instead of reclaiming it.
+        return snapshot.owner_pid.is_none()
+            && snapshot.owner_started_at.is_none()
+            && snapshot.owner_route.is_none()
+            && snapshot.operation_kind.is_none()
+            && snapshot.operation_state.is_none();
+    };
+
+    if active_operations.contains(owner_id) {
+        return false;
+    }
+
+    let (
+        Some(owner_pid),
+        Some(owner_started_at),
+        Some(owner_route),
+        Some(operation_kind),
+        Some(state),
+    ) = (
+        snapshot.owner_pid,
+        snapshot.owner_started_at,
+        snapshot.owner_route.as_deref(),
+        snapshot.operation_kind.as_deref(),
+        snapshot.operation_state.as_deref(),
+    )
+    else {
+        return false;
+    };
+    if !matches!(owner_route, "coordinator" | "service" | "direct")
+        || !matches!(operation_kind, "initial" | "incremental" | "rebuild")
+        || !matches!(state, "running" | "unknown")
+    {
+        return false;
+    }
+
+    let unresolved_service_owner = owner_route == "service";
+    // A Direct request cannot prove that a previously admitted Service
+    // operation stopped. Only a new validated Service admission may reconcile
+    // the durable Service owner.
+    if unresolved_service_owner && route != SourceOperationRoute::Service {
+        return false;
+    }
+
+    let same_process = owner_pid == current_pid && owner_started_at == current_started_at;
+    let owner_alive = if same_process {
+        false
+    } else {
+        // `None` means the OS could not verify the process identity. Fail closed;
+        // only an explicit false result proves a foreign Direct owner is gone.
+        let Some(owner_alive) = process_is_alive(owner_pid, owner_started_at) else {
+            return false;
+        };
+        owner_alive
+    };
+
+    let admitted_service_recovery =
+        route == SourceOperationRoute::Service && unresolved_service_owner;
+    if admitted_service_recovery {
+        // The caller reached this point only after the Service's real admission
+        // reservation. Preserve its existing ability to reconcile a previous
+        // Service operation, while still requiring a complete, verifiable owner
+        // identity and no matching process-local active operation above.
+        true
+    } else {
+        !owner_alive
+    }
 }
 
 fn process_instance_is_alive(process_id: i64, started_at: i64) -> Option<bool> {

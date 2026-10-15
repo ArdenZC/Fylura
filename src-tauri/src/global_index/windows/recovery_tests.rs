@@ -72,7 +72,7 @@ fn diagnostic_strings_never_decide_windows_recovery() {
     ));
     assert_eq!(
         sink.status.as_deref(),
-        Some(INDEX_STATUS_PERMISSION_REQUIRED)
+        Some(crate::global_index::models::INDEX_STATUS_ERROR)
     );
     assert!(matches!(
         finish_incremental_result("volume", &mut sink, Err(GlobalIndexError::Paused)),

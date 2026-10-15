@@ -85,12 +85,49 @@ impl GlobalIndexProvider for ProbeProvider {
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         self.inner.shutdown()
     }
+    fn has_external_source_operation_admission(&self) -> bool {
+        self.inner.has_external_source_operation_admission()
+    }
 }
 struct PauseSink<'a> {
     sink: &'a mut dyn GlobalIndexSink,
     provider: &'a ProbeProvider,
 }
 impl GlobalIndexSink for PauseSink<'_> {
+    fn admit_source_operation(
+        &mut self,
+        source: &GlobalVolume,
+        operation_id: &str,
+        kind: crate::global_index::SourceOperationKind,
+        route: crate::global_index::SourceOperationRoute,
+    ) -> Result<(), GlobalIndexError> {
+        self.sink
+            .admit_source_operation(source, operation_id, kind, route)
+    }
+    fn source_operation_admitted(&self, volume_id: &str) -> bool {
+        self.sink.source_operation_admitted(volume_id)
+    }
+    fn mark_source_operation_unknown(&mut self, volume_id: &str) -> Result<(), GlobalIndexError> {
+        self.sink.mark_source_operation_unknown(volume_id)
+    }
+    fn finish_source_operation(
+        &mut self,
+        volume_id: &str,
+        status: &str,
+        error: Option<&str>,
+        full_index_at: Option<i64>,
+        incremental_sync_at: Option<i64>,
+        complete_rebuild_intent: bool,
+    ) -> Result<(), GlobalIndexError> {
+        self.sink.finish_source_operation(
+            volume_id,
+            status,
+            error,
+            full_index_at,
+            incremental_sync_at,
+            complete_rebuild_intent,
+        )
+    }
     fn set_source_provider(&mut self, id: &str, provider: &str) -> Result<(), GlobalIndexError> {
         self.sink.set_source_provider(id, provider)?;
         // Pause after the real service begins streaming, before its MFT read.
@@ -201,11 +238,20 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     )?;
     run_service_recovery_qa_cycle(&provider, &db)?;
     let required = db.get_global_volume(&source.id)?.ok_or("source absent")?;
+    let required_operation = db.global_index_operation_state(&source.id)?;
     if required.index_status != INDEX_STATUS_REBUILD_REQUIRED
         || *provider.outcome.lock().unwrap() != "rebuild_required"
         || provider.rebuilds.load(Ordering::Acquire) != 0
     {
-        return Err("typed rebuild-required / first-cycle durable assertion failed".into());
+        return Err(format!(
+            "typed rebuild-required / first-cycle durable assertion failed: status={}, last_error={:?}, outcome={}, rebuilds={}, operation={:?}",
+            required.index_status,
+            required.last_error,
+            *provider.outcome.lock().unwrap(),
+            provider.rebuilds.load(Ordering::Acquire),
+            required_operation,
+        )
+        .into());
     }
     run_service_recovery_qa_cycle(&provider, &db)?;
     let rebuilt = db.get_global_volume(&source.id)?.ok_or("source absent")?;

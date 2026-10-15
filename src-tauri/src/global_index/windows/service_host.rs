@@ -5,8 +5,8 @@
 //! `service.rs`. It never receives arbitrary file-operation commands.
 
 use super::service::{
-    IndexServiceCommand, IndexServiceEvent, IndexServiceLookupResponse, IndexServiceRequest,
-    IndexServiceResponse, IndexServiceServerConnection,
+    IndexServiceCommand, IndexServiceConnection, IndexServiceEvent, IndexServiceLookupResponse,
+    IndexServiceRequest, IndexServiceResponse,
 };
 use super::{volumes, DirectWindowsGlobalIndexProvider};
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
@@ -48,7 +48,18 @@ struct ServiceRuntime {
     busy: AtomicBool,
     state: Mutex<ServiceLifecycleState>,
     operation_lock: Mutex<()>,
-    provider: DirectWindowsGlobalIndexProvider,
+    provider: Box<dyn GlobalIndexProvider>,
+}
+
+#[derive(Debug)]
+struct BusyReservation<'a> {
+    busy: &'a AtomicBool,
+}
+
+impl Drop for BusyReservation<'_> {
+    fn drop(&mut self) {
+        self.busy.store(false, Ordering::Release);
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -68,7 +79,7 @@ impl ServiceRuntime {
                 last_error: None,
             }),
             operation_lock: Mutex::new(()),
-            provider: DirectWindowsGlobalIndexProvider::new(),
+            provider: Box::new(DirectWindowsGlobalIndexProvider::new()),
         }
     }
 
@@ -117,7 +128,7 @@ impl ServiceRuntime {
     fn send_error(
         &self,
         request: &IndexServiceRequest,
-        connection: &mut IndexServiceServerConnection,
+        connection: &mut dyn IndexServiceConnection,
         error_code: &str,
         message: impl Into<String>,
     ) -> Result<(), String> {
@@ -133,7 +144,7 @@ impl ServiceRuntime {
     fn handle_request(
         &self,
         request: IndexServiceRequest,
-        connection: &mut IndexServiceServerConnection,
+        connection: &mut dyn IndexServiceConnection,
     ) -> Result<(), String> {
         match request.command.clone() {
             IndexServiceCommand::Status => connection.send_response(self.response(
@@ -158,9 +169,12 @@ impl ServiceRuntime {
                         Some("ready".to_string()),
                     ))
                 }
-                Err(error) => {
-                    self.send_error(&request, connection, "discover_failed", error.to_string())
-                }
+                Err(error) => self.send_error(
+                    &request,
+                    connection,
+                    &super::service_errors::classify(&error).0,
+                    error.to_string(),
+                ),
             },
             IndexServiceCommand::Pause => {
                 self.cancel.store(true, Ordering::Release);
@@ -196,22 +210,28 @@ impl ServiceRuntime {
         &self,
         command: IndexServiceCommand,
         request: IndexServiceRequest,
-        connection: &mut IndexServiceServerConnection,
+        connection: &mut dyn IndexServiceConnection,
     ) -> Result<(), String> {
-        if let Err(response) = self.try_begin_index_request(&request) {
-            return connection.send_response(response);
-        }
+        let _reservation = match self.try_begin_index_request(&request) {
+            Ok(reservation) => reservation,
+            Err(response) => return connection.send_response(response),
+        };
         let operation_result = (|| {
             let _operation_guard = self.operation_lock.lock().map_err(|_| {
                 (
-                    "index_failed",
+                    "index_failed".to_string(),
                     "index_service_operation_lock_poisoned".to_string(),
                 )
             })?;
             let source_id = source_id(&command);
             let source = self
                 .validated_source(source_id, request.source.as_ref())
-                .map_err(|message| ("index_failed", message))?;
+                .map_err(|message| ("index_provider_error".to_string(), message))?;
+            connection
+                .send_event(IndexServiceEvent::Sources {
+                    sources: vec![source.volume.clone()],
+                })
+                .map_err(|message| ("index_provider_error".to_string(), message))?;
             self.cancel.store(false, Ordering::Release);
             self.set_state("indexing", None);
             let mut sink = PipeSink {
@@ -246,7 +266,6 @@ impl ServiceRuntime {
                 }
             }
         })();
-        self.busy.store(false, Ordering::Release);
         match operation_result {
             Ok(()) => connection.send_response(self.response(
                 &request,
@@ -255,17 +274,17 @@ impl ServiceRuntime {
                 None,
                 Some(self.status()),
             )),
-            Err((code, message)) => self.send_error(&request, connection, code, message),
+            Err((code, message)) => self.send_error(&request, connection, &code, message),
         }
     }
 
     fn try_begin_index_request(
         &self,
         request: &IndexServiceRequest,
-    ) -> Result<(), IndexServiceResponse> {
+    ) -> Result<BusyReservation<'_>, IndexServiceResponse> {
         self.busy
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map(|_| ())
+            .map(|_| BusyReservation { busy: &self.busy })
             .map_err(|_| {
                 self.response(
                     request,
@@ -345,7 +364,7 @@ fn source_id(command: &IndexServiceCommand) -> &str {
 }
 
 struct PipeSink<'a> {
-    connection: &'a mut IndexServiceServerConnection,
+    connection: &'a mut dyn IndexServiceConnection,
     cancel: Arc<AtomicBool>,
 }
 
@@ -888,6 +907,10 @@ fn service_state_name(state: u32) -> &'static str {
 }
 
 #[cfg(test)]
+#[path = "service_host_p1_tests.rs"]
+mod p1_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::global_index::models::INDEX_STATUS_DISCOVERED;
@@ -930,7 +953,7 @@ mod tests {
                 source_id: "source-a".to_string(),
             },
         );
-        runtime
+        let _active_reservation = runtime
             .try_begin_index_request(&active)
             .expect("first operation owns the service slot");
         runtime.set_state("indexing", None);

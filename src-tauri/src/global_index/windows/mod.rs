@@ -706,7 +706,7 @@ mod tests {
     use super::*;
     use crate::global_index::models::{
         GlobalEntry, GlobalEntryInput, GlobalVolume, INDEX_STATUS_PERMISSION_REQUIRED,
-        INDEX_STATUS_READY,
+        INDEX_STATUS_READY, INDEX_STATUS_SYNCING,
     };
     use std::collections::VecDeque;
 
@@ -856,8 +856,8 @@ mod tests {
                     }));
                     frames.push_back(frame_event(IndexServiceEvent::Checkpoint {
                         volume_id: source.volume.id.clone(),
-                        journal_id: Some("journal-after".into()),
-                        journal_cursor: Some("cursor-after".into()),
+                        journal_id: Some("42".into()),
+                        journal_cursor: Some("43".into()),
                     }));
                     frames.push_back(terminal(true, None, None, Some("ready")));
                 }
@@ -1048,6 +1048,10 @@ mod tests {
         source.volume.stable_volume_id = format!("stable-{id}");
         source.volume.display_name = id.into();
         source.volume.mount_path = format!("{id}:\\");
+        // Keep scripted checkpoints valid for the real v3 admission validator,
+        // which accepts canonical decimal USN values only.
+        source.volume.journal_id = Some("42".into());
+        source.volume.journal_cursor = Some("42".into());
         source
     }
 
@@ -1156,8 +1160,8 @@ mod tests {
         assert_eq!(counters.requests.load(Ordering::Acquire), 2);
         assert_eq!(counters.direct_calls.load(Ordering::Acquire), 0);
         assert_eq!(recovered.index_status, INDEX_STATUS_READY);
-        assert_eq!(recovered.journal_id.as_deref(), Some("journal-after"));
-        assert_eq!(recovered.journal_cursor.as_deref(), Some("cursor-after"));
+        assert_eq!(recovered.journal_id.as_deref(), Some("42"));
+        assert_eq!(recovered.journal_cursor.as_deref(), Some("43"));
         assert_eq!(entry_stale_flag(&db, &source.volume.id), 0);
         assert!(db
             .global_index_operation_state(&source.volume.id)
@@ -1205,15 +1209,12 @@ mod tests {
         assert_eq!(denied_after.index_status, INDEX_STATUS_PERMISSION_REQUIRED);
         assert_eq!(
             denied_after.last_error.as_deref(),
-            Some("source_access_denied")
+            Some("permission required: source_access_denied")
         );
         assert_eq!(denied_after.journal_cursor, denied.volume.journal_cursor);
         assert_eq!(healthy_after.index_status, INDEX_STATUS_READY);
-        assert_eq!(healthy_after.journal_id.as_deref(), Some("journal-after"));
-        assert_eq!(
-            healthy_after.journal_cursor.as_deref(),
-            Some("cursor-after")
-        );
+        assert_eq!(healthy_after.journal_id.as_deref(), Some("42"));
+        assert_eq!(healthy_after.journal_cursor.as_deref(), Some("43"));
         assert_eq!(entry_stale_flag(&db, &denied.volume.id), 0);
         assert_eq!(entry_stale_flag(&db, &healthy.volume.id), 0);
         assert_eq!(counters.requests.load(Ordering::Acquire), 2);
@@ -1267,7 +1268,7 @@ mod tests {
         assert_eq!(unknown.operation_state.as_deref(), Some("unknown"));
         let unknown_owner = unknown.owner_id.clone().expect("persisted Service owner");
         let source_after_unknown = db.get_global_volume(&source.volume.id).unwrap().unwrap();
-        assert_eq!(source_after_unknown.index_status, INDEX_STATUS_READY);
+        assert_eq!(source_after_unknown.index_status, INDEX_STATUS_SYNCING);
         assert_eq!(
             source_after_unknown.journal_cursor,
             source.volume.journal_cursor
@@ -1310,7 +1311,7 @@ mod tests {
         .expect("a newly admitted Service request reconciles the source");
         let recovered = db.get_global_volume(&source.volume.id).unwrap().unwrap();
         assert_eq!(recovered.index_status, INDEX_STATUS_READY);
-        assert_eq!(recovered.journal_cursor.as_deref(), Some("cursor-after"));
+        assert_eq!(recovered.journal_cursor.as_deref(), Some("43"));
         assert_eq!(counters.requests.load(Ordering::Acquire), 3);
         assert!(db
             .global_index_operation_state(&source.volume.id)
@@ -1369,7 +1370,7 @@ mod tests {
             .expect("one later admitted operation succeeds after SQLite releases");
         let recovered = db.get_global_volume(&source.volume.id).unwrap().unwrap();
         assert_eq!(recovered.index_status, INDEX_STATUS_READY);
-        assert_eq!(recovered.journal_cursor.as_deref(), Some("cursor-after"));
+        assert_eq!(recovered.journal_cursor.as_deref(), Some("43"));
         assert_eq!(counters.requests.load(Ordering::Acquire), 2);
     }
 

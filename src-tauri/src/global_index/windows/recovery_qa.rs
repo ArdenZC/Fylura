@@ -201,11 +201,20 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     )?;
     run_service_recovery_qa_cycle(&provider, &db)?;
     let required = db.get_global_volume(&source.id)?.ok_or("source absent")?;
+    let required_operation = db.global_index_operation_state(&source.id)?;
     if required.index_status != INDEX_STATUS_REBUILD_REQUIRED
         || *provider.outcome.lock().unwrap() != "rebuild_required"
         || provider.rebuilds.load(Ordering::Acquire) != 0
     {
-        return Err("typed rebuild-required / first-cycle durable assertion failed".into());
+        return Err(format!(
+            "typed rebuild-required / first-cycle durable assertion failed: status={}, last_error={:?}, outcome={}, rebuilds={}, operation={:?}",
+            required.index_status,
+            required.last_error,
+            *provider.outcome.lock().unwrap(),
+            provider.rebuilds.load(Ordering::Acquire),
+            required_operation,
+        )
+        .into());
     }
     run_service_recovery_qa_cycle(&provider, &db)?;
     let rebuilt = db.get_global_volume(&source.id)?.ok_or("source absent")?;

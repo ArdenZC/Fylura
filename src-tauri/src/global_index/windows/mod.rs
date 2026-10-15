@@ -709,7 +709,7 @@ mod tests {
         INDEX_STATUS_READY, INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_SYNCING,
     };
     use std::collections::VecDeque;
-    use std::sync::mpsc::{self, Receiver, Sender};
+    use std::sync::mpsc::{self, Sender};
     use std::thread::JoinHandle;
 
     struct ScriptedServiceIo {

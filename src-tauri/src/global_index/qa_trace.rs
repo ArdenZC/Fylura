@@ -36,6 +36,3 @@ pub(crate) fn record_error(scope: &str, error: &str) {
 
 #[cfg(not(feature = "native-qa"))]
 pub(crate) fn record(_event: &str) {}
-
-#[cfg(not(feature = "native-qa"))]
-pub(crate) fn record_error(_scope: &str, _error: &str) {}

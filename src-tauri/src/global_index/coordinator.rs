@@ -584,9 +584,9 @@ fn run_index(
 
         super::qa_trace::record("coordinator_wait");
         match wake.wait(&cancel, provider.topology_audit_interval()) {
-            GlobalIndexWaitResult::Notified(reason) => {
+            GlobalIndexWaitResult::Notified(_reason) => {
                 #[cfg(feature = "native-qa")]
-                super::qa_trace::record(&format!("coordinator_wake_{reason:?}"));
+                super::qa_trace::record(&format!("coordinator_wake_{_reason:?}"));
                 run_cycle = true;
             }
             GlobalIndexWaitResult::Cancelled | GlobalIndexWaitResult::Shutdown => break,

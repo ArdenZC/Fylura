@@ -496,9 +496,10 @@ impl Database {
                 ORDER BY claim.root_id
                 "#,
             )?;
-            statement
+            let rows = statement
                 .query_map(params![old_path], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
         };
         let target_roots = managed_root_ids_for_path_tx(&tx, &normalized_target)?;
         let source_tracking_required = !old_claim_roots.is_empty() || !target_roots.is_empty();
@@ -1044,9 +1045,10 @@ impl Database {
                 ORDER BY claim.root_id
                 "#,
             )?;
-            statement
+            let rows = statement
                 .query_map(params![old_path], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
         };
         let target_roots = managed_root_ids_for_path_tx(&tx, &normalized_target)?;
         let source_tracking_required = !old_claim_roots.is_empty() || !target_roots.is_empty();

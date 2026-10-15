@@ -277,11 +277,6 @@ pub(crate) fn observe_source_for_root_tx(
         ensure_unresolved_attribution_tx(tx, &file.id, &file.path, observed_at)?;
     }
 
-    let source_revision: i64 = tx.query_row(
-        "SELECT source_revision FROM library_source_incarnations WHERE source_uid = ?1",
-        params![source_uid],
-        |row| row.get(0),
-    )?;
     tx.execute(
         r#"
         INSERT INTO library_source_root_claims (

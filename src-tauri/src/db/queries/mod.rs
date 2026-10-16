@@ -24,6 +24,11 @@ pub mod scan;
 use rules_repo::current_timestamp_iso;
 
 pub(crate) const WATCHER_DEEP_UPSERT_ENTRY_LIMIT: usize = 5000;
+const LEGACY_UNASSIGNED_ARCHIVE_PATH_PREFIX: &str = "zen-canvas://legacy-unassigned/";
+
+fn is_legacy_unassigned_archive_path(path: &str) -> bool {
+    path.starts_with(LEGACY_UNASSIGNED_ARCHIVE_PATH_PREFIX)
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -262,11 +267,14 @@ fn extension_from_file_name(name: &str) -> String {
         .to_string()
 }
 
-fn find_file_row_id(conn: &Connection, candidates: &[String]) -> Result<Option<String>, DbError> {
-    for candidate in candidates {
+fn find_active_file_row_id_by_path(
+    conn: &Connection,
+    path_candidates: &[String],
+) -> Result<Option<String>, DbError> {
+    for candidate in path_candidates {
         let found = conn
             .query_row(
-                "SELECT id FROM files WHERE id = ?1 OR path = ?1 LIMIT 1",
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0 ORDER BY id LIMIT 1",
                 params![candidate],
                 |row| row.get::<_, String>(0),
             )
@@ -276,6 +284,75 @@ fn find_file_row_id(conn: &Connection, candidates: &[String]) -> Result<Option<S
         }
     }
     Ok(None)
+}
+
+fn find_active_file_row_id_by_identity(
+    conn: &Connection,
+    identity_candidates: &[String],
+) -> Result<Option<String>, DbError> {
+    for candidate in identity_candidates {
+        let found = conn
+            .query_row(
+                "SELECT id FROM files WHERE id = ?1 AND is_stale = 0 \
+                 AND path NOT LIKE 'zen-canvas://legacy-unassigned/%'",
+                params![candidate],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if found.is_some() {
+            return Ok(found);
+        }
+    }
+    Ok(None)
+}
+
+fn find_active_file_row_id(
+    conn: &Connection,
+    path_candidates: &[String],
+    identity_candidates: &[String],
+) -> Result<Option<String>, DbError> {
+    if let Some(file_id) = find_active_file_row_id_by_path(conn, path_candidates)? {
+        return Ok(Some(file_id));
+    }
+    find_active_file_row_id_by_identity(conn, identity_candidates)
+}
+
+#[cfg(test)]
+mod active_file_resolution_tests {
+    use super::*;
+
+    #[test]
+    fn active_path_resolution_wins_over_archived_primary_key_match() {
+        let conn = Connection::open_in_memory().expect("open lookup fixture");
+        conn.execute_batch(
+            "CREATE TABLE files (id TEXT PRIMARY KEY, path TEXT UNIQUE, is_stale INTEGER);
+             INSERT INTO files (id, path, is_stale) VALUES
+               ('/managed/a.txt', 'zen-canvas://legacy-unassigned/old', 1),
+               ('source-current', '/managed/a.txt', 0);",
+        )
+        .expect("seed archived and active rows");
+
+        assert_eq!(
+            find_active_file_row_id(
+                &conn,
+                &["/managed/a.txt".to_string()],
+                &["/managed/a.txt".to_string()],
+            )
+            .expect("resolve active path"),
+            Some("source-current".to_string())
+        );
+
+        conn.execute(
+            "UPDATE files SET is_stale = 0 WHERE id = '/managed/a.txt'",
+            [],
+        )
+        .expect("simulate an incorrectly un-staled archive row");
+        assert_eq!(
+            find_active_file_row_id(&conn, &[], &["/managed/a.txt".to_string()])
+                .expect("resolve explicit active identity"),
+            None
+        );
+    }
 }
 
 fn system_time_to_unix_seconds(time: SystemTime) -> Option<i64> {

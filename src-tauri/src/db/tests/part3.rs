@@ -456,6 +456,228 @@
     }
 
     #[test]
+    fn migrated_legacy_path_upsert_and_rename_postflight_keep_current_row_identity() {
+        let db_path = test_db_path();
+        let db = Database::open(&db_path).expect("create schema 40 fixture");
+        let root = test_dir();
+        let source = root.join("legacy-before.txt");
+        let target = root.join("legacy-after.txt");
+        fs::write(&source, "migrated legacy object").expect("write managed file");
+        let source_path = normalized_test_path(&source);
+        let target_path = normalized_test_path(&target);
+        let metadata = fs::metadata(&source).expect("read managed file metadata");
+        let mtime = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0);
+        db.insert_file(InsertFileRequest {
+            id: source_path.clone(),
+            path: source_path.clone(),
+            name: "legacy-before.txt".to_string(),
+            extension: "txt".to_string(),
+            size: metadata.len() as i64,
+            mtime,
+            ctime: mtime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed pre-migration legacy row");
+        let legacy_tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "Migrated legacy tag".to_string(),
+                color_token: "neutral".to_string(),
+            })
+            .expect("create historical tag");
+        db.mutate_file_user_tags(MutateFileUserTagsRequest {
+            selection: LibrarySelectionV1::Explicit {
+                file_ids: vec![source_path.clone()],
+            },
+            tag_ids: vec![legacy_tag.id.clone()],
+            operation: UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("attach tag before migration");
+
+        let mut settings = crate::settings::get_app_settings(&db).expect("read app settings");
+        settings.default_scan_folders = vec![crate::settings::ScanRootSetting {
+            id: "migrated-legacy-operation-root".to_string(),
+            path: normalized_test_path(&root),
+            label: "Migrated legacy operation root".to_string(),
+            enabled: true,
+            created_at: "2026-10-16T00:00:00.000Z".to_string(),
+        }];
+        crate::settings::save_app_settings(&db, &settings).expect("save managed root setting");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("sync managed root");
+        let root_id = db
+            .list_watcher_root_configs()
+            .expect("list managed roots")
+            .into_iter()
+            .find(|config| config.path == normalized_test_path(&root))
+            .expect("find migrated legacy root")
+            .id;
+
+        drop(db);
+        let schema39 = Connection::open(&db_path).expect("open historical schema fixture");
+        crate::db::drop_source_writer_schema_for_test(&schema39);
+        schema39
+            .execute_batch("PRAGMA user_version = 39;")
+            .expect("mark fixture as schema 39");
+        drop(schema39);
+
+        let db = Database::open(&db_path).expect("run production schema 39 to 40 migration");
+        let revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin managed observation")
+            .expect("managed root is enabled")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &root_id,
+            revision,
+            std::slice::from_ref(&source_path),
+            &std::collections::HashSet::new(),
+        )
+        .expect("publish migrated physical file through the watcher owner");
+        assert!(db
+            .complete_watcher_revision(&root_id, revision)
+            .expect("complete managed observation"));
+
+        let conn = Connection::open(db.path()).expect("inspect migrated rows");
+        let current_id: String = conn
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![source_path],
+                |row| row.get(0),
+            )
+            .expect("read current neutral row");
+        assert_ne!(current_id, source_path);
+        let archived_row: (String, i64) = conn
+            .query_row(
+                "SELECT path, is_stale FROM files WHERE id = ?1",
+                params![source_path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read archived historical row");
+        assert!(archived_row.0.starts_with("zen-canvas://legacy-unassigned/"));
+        assert_eq!(archived_row.1, 1);
+        let retained_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![source_path, legacy_tag.id],
+                |row| row.get(0),
+            )
+            .expect("count retained historical tag");
+        assert_eq!(retained_tag_count, 1);
+        drop(conn);
+
+        // This is the real filesystem path upsert. Its request ID is the old
+        // path-based primary key, while that key now belongs to the archived
+        // tagged row and the active browse row has a SourceUID ID.
+        assert_eq!(
+            crate::db::upsert_files_by_paths_for_db(&db, std::slice::from_ref(&source_path))
+                .expect("path upsert must target the active neutral row"),
+            1
+        );
+        let conn = Connection::open(db.path()).expect("inspect path upsert result");
+        let active_after_upsert: String = conn
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![source_path],
+                |row| row.get(0),
+            )
+            .expect("read active row after path upsert");
+        assert_eq!(active_after_upsert, current_id);
+        let retained_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![source_path, legacy_tag.id],
+                |row| row.get(0),
+            )
+            .expect("count tag after path upsert");
+        assert_eq!(retained_tag_count, 1);
+        drop(conn);
+
+        let library = db
+            .query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
+                version: 2,
+                request_id: "migrated-legacy-path-upsert".to_string(),
+                query: crate::db::queries::library::FileQuerySpecV2 {
+                    scope: crate::db::queries::library::FileLibraryScopeV2::AllEnabledRoots,
+                    text: None,
+                    filters: Default::default(),
+                    sort: Default::default(),
+                },
+                page_size: 50,
+                cursor: None,
+            })
+            .expect("query migrated file through the active File Library reader");
+        let visible_rows = library
+            .files
+            .iter()
+            .filter(|file| file.id == current_id)
+            .collect::<Vec<_>>();
+        assert_eq!(visible_rows.len(), 1);
+        assert_eq!(visible_rows[0].tag_count, 0);
+        assert!(visible_rows[0].tags.is_empty());
+
+        fs::rename(&source, &target).expect("perform actual filesystem rename");
+        assert!(db
+            .update_file_after_successful_operation(
+                &source_path,
+                &source_path,
+                &target_path,
+                "legacy-after.txt",
+            )
+            .expect("postflight resolves the active path row, not the archived ID"));
+
+        let conn = Connection::open(db.path()).expect("inspect rename postflight rows");
+        let moved_row: (String, i64) = conn
+            .query_row(
+                "SELECT id, is_stale FROM files WHERE path = ?1",
+                params![target_path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read renamed active row");
+        assert_eq!(moved_row, (current_id.clone(), 0));
+        let retained_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![source_path, legacy_tag.id],
+                |row| row.get(0),
+            )
+            .expect("count original tag after move");
+        assert_eq!(retained_tag_count, 1);
+        let inherited_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![current_id, legacy_tag.id],
+                |row| row.get(0),
+            )
+            .expect("ensure old tag did not move with the current object");
+        assert_eq!(inherited_tag_count, 0);
+        drop(conn);
+
+        let error = db
+            .insert_file(InsertFileRequest {
+                id: source_path.clone(),
+                path: source_path,
+                name: "legacy-before.txt".to_string(),
+                extension: "txt".to_string(),
+                size: 22,
+                mtime,
+                ctime: mtime,
+                is_dir: false,
+                state_code: 0,
+            })
+            .expect_err("an archived ID cannot be revived after its active row moved");
+        assert!(error
+            .to_string()
+            .contains("Path upsert cannot revive a parked legacy row"));
+    }
+
+    #[test]
     fn replacement_restore_finalization_reconciles_both_indexed_objects() {
         let db = Database::open(test_db_path()).expect("open replacement restore database");
         let root = test_dir();

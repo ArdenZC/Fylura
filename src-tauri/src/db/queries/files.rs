@@ -55,6 +55,38 @@ fn fence_source_root_for_user_mutation_tx(
     .map_err(DbError::from)
 }
 
+fn resolve_insert_file_row_id(
+    tx: &Transaction<'_>,
+    file: &InsertFileRequest,
+) -> Result<String, DbError> {
+    let existing_identity = tx
+        .query_row(
+            "SELECT path FROM files WHERE id = ?1",
+            params![file.id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(archived_path) = existing_identity else {
+        return Ok(file.id.clone());
+    };
+    if !super::is_legacy_unassigned_archive_path(&archived_path) {
+        return Ok(file.id.clone());
+    }
+
+    let active_path_id = tx
+        .query_row(
+            "SELECT id FROM files WHERE path = ?1 AND is_stale = 0 ORDER BY id LIMIT 1",
+            params![file.path],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    active_path_id.ok_or_else(|| {
+        DbError::Validation(
+            "Path upsert cannot revive a parked legacy row without a current active row; a managed scan must establish the current source identity first.".to_string(),
+        )
+    })
+}
+
 #[derive(Debug, Clone)]
 struct SearchMatchSql {
     cte: String,
@@ -151,10 +183,12 @@ impl Database {
             )?;
 
             for file in files {
+                let mut resolved_file = file.clone();
+                resolved_file.id = resolve_insert_file_row_id(&tx, file)?;
                 let previous = tx
                     .query_row(
                         "SELECT path, size, mtime, is_dir, is_stale FROM files WHERE id = ?1",
-                        params![file.id],
+                        params![resolved_file.id],
                         |row| {
                             Ok((
                                 row.get::<_, String>(0)?,
@@ -166,31 +200,31 @@ impl Database {
                         },
                     )
                     .optional()?;
-                let file_type = infer_file_type(&file.extension, file.is_dir);
+                let file_type = infer_file_type(&resolved_file.extension, resolved_file.is_dir);
                 stmt.execute(params![
-                    file.id,
-                    file.path,
-                    file.name,
-                    file.extension,
-                    file.size,
-                    file.mtime,
-                    file.ctime,
-                    bool_to_i64(file.is_dir),
-                    file.state_code,
+                    resolved_file.id,
+                    resolved_file.path,
+                    resolved_file.name,
+                    resolved_file.extension,
+                    resolved_file.size,
+                    resolved_file.mtime,
+                    resolved_file.ctime,
+                    bool_to_i64(resolved_file.is_dir),
+                    resolved_file.state_code,
                     file_type,
-                    file.name,
+                    resolved_file.name,
                     CLASSIFICATION_STATUS_UNCLASSIFIED,
                     last_seen_at
                 ])?;
                 if let Some((old_path, old_size, old_mtime, old_is_dir, old_is_stale)) = previous {
-                    let changed = old_path != file.path
-                        || old_size != file.size
-                        || old_mtime != file.mtime
-                        || old_is_dir != bool_to_i64(file.is_dir);
+                    let changed = old_path != resolved_file.path
+                        || old_size != resolved_file.size
+                        || old_mtime != resolved_file.mtime
+                        || old_is_dir != bool_to_i64(resolved_file.is_dir);
                     if changed {
                         invalidate_file_in_transaction(
                             &tx,
-                            &file.id,
+                            &resolved_file.id,
                             if old_is_stale != 0 {
                                 "missing"
                             } else {
@@ -324,7 +358,8 @@ impl Database {
         new_name: &str,
     ) -> Result<bool, DbError> {
         self.update_file_record_after_path_change(
-            path_lookup_candidates(file_id, source_path),
+            path_lookup_candidates(source_path, source_path),
+            vec![file_id.to_string()],
             target_path,
             new_name,
         )
@@ -344,6 +379,7 @@ impl Database {
                 log.target_path.as_str(),
                 log.source_path.as_str(),
             ]),
+            Vec::new(),
             &log.path_before,
             &log.name_before,
         )
@@ -961,7 +997,8 @@ impl Database {
 
     fn update_file_record_after_path_change(
         &self,
-        lookup_candidates: Vec<String>,
+        path_candidates: Vec<String>,
+        identity_candidates: Vec<String>,
         target_path: &str,
         new_name: &str,
     ) -> Result<bool, DbError> {
@@ -991,7 +1028,7 @@ impl Database {
 
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
-        let current_id = find_file_row_id(&tx, &lookup_candidates)?;
+        let current_id = find_active_file_row_id(&tx, &path_candidates, &identity_candidates)?;
         let Some(current_id) = current_id else {
             tx.commit()?;
             return Ok(false);

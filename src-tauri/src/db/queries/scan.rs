@@ -3263,9 +3263,12 @@ fn legacy_unassigned_archive_path(
     let mut suffix = 0_u32;
     loop {
         let candidate = if suffix == 0 {
-            format!("zen-canvas://legacy-unassigned/{digest}")
+            format!("{}{digest}", super::LEGACY_UNASSIGNED_ARCHIVE_PATH_PREFIX)
         } else {
-            format!("zen-canvas://legacy-unassigned/{digest}-{suffix}")
+            format!(
+                "{}{digest}-{suffix}",
+                super::LEGACY_UNASSIGNED_ARCHIVE_PATH_PREFIX
+            )
         };
         let exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM files WHERE path = ?1)",

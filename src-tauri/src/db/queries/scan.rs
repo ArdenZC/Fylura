@@ -5107,27 +5107,28 @@ mod tests {
     #[test]
     fn scanner_publication_clock_ignores_same_filesystem_state_and_counts_size_mtime() {
         let db = test_db("automation-publication-clock");
-        let root = format!("/tmp/zen-canvas-trigger-scan-{}", new_job_id("root"));
+        let root =
+            std::env::temp_dir().join(format!("zen-canvas-trigger-scan-{}", new_job_id("root")));
+        fs::create_dir_all(&root).expect("create scanner clock fixture root");
+        let path = root.join("file.txt");
+        fs::write(&path, b"same").expect("create scanner clock fixture file");
+        let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
+        let normalized_root = normalize_scan_root_path(&root.to_string_lossy());
         let admission = db
-            .admit_managed_scan(&request(&root, "automation-clock"))
+            .admit_managed_scan(&request(&normalized_root, "automation-clock"))
             .unwrap();
         let mut claimed = db.claim_queued_scan_run(&admission.runs[0].id).unwrap();
-        let mut entry = InsertFileRequest {
-            id: format!("{root}/file.txt"),
-            path: format!("{root}/file.txt"),
-            name: "file.txt".into(),
-            extension: "txt".into(),
-            size: 4,
-            mtime: 4,
-            ctime: 4,
-            is_dir: false,
-            state_code: 0,
-        };
+        let metadata = fs::metadata(&path).expect("read scanner clock fixture metadata");
+        let mut entry = insert_request_from_metadata(normalized_path.clone(), &path, &metadata);
         let mut first_observation_revision = None;
         for observation_index in 0..3 {
             if observation_index == 2 {
-                entry.size = 8;
-                entry.mtime = 5;
+                fs::write(&path, b"changed size").expect("change fixture filesystem size");
+                let metadata = fs::metadata(&path).expect("read changed fixture metadata");
+                entry = insert_request_from_metadata(normalized_path.clone(), &path, &metadata);
+                // Preserve an explicit mtime delta even on filesystems whose
+                // timestamp precision is coarser than this test's runtime.
+                entry.mtime = entry.mtime.saturating_add(1);
             }
             claimed = db
                 .persist_scan_batch(
@@ -5162,6 +5163,7 @@ mod tests {
             }
             entry.state_code = 1; // Classification alone is not filesystem truth.
         }
+        fs::remove_dir_all(root).expect("remove scanner clock fixture");
     }
 
     #[test]

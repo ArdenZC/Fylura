@@ -23,17 +23,55 @@ struct ProbeProvider {
 }
 impl ProbeProvider {
     fn record_event(&self, mut event: serde_json::Value) {
-        let sequence = self
-            .events
-            .lock()
-            .map(|events| events.len() + 1)
-            .unwrap_or(0);
-        if let Some(object) = event.as_object_mut() {
-            object.insert("sequence".into(), serde_json::json!(sequence));
-        }
         if let Ok(mut events) = self.events.lock() {
+            if let Some(object) = event.as_object_mut() {
+                object.insert("sequence".into(), serde_json::json!(events.len() + 1));
+            }
             events.push(event);
         }
+    }
+
+    fn trigger_pause_callback(&self, source_id: &str) -> Result<(), GlobalIndexError> {
+        if !self.pause_once.swap(false, Ordering::AcqRel) {
+            return Ok(());
+        }
+        self.record_event(serde_json::json!({
+            "event": "pause_callback_started",
+            "source_id": source_id,
+            "trigger": "service_sources_event_before_admission_commit",
+        }));
+        let result = self.inner.pause_for_native_qa(|observation| {
+            let event = match observation {
+                PauseObservation::Request {
+                    protocol_version,
+                    request_id,
+                } => serde_json::json!({
+                    "event": "typed_pause_request",
+                    "command": "pause",
+                    "protocol_version": protocol_version,
+                    "request_id": request_id,
+                }),
+                PauseObservation::Response(response) => serde_json::json!({
+                    "event": "typed_pause_response",
+                    "protocol_version": response.protocol_version,
+                    "request_id": response.request_id,
+                    "ok": response.ok,
+                    "status": response.status,
+                    "error_code": response.error_code,
+                    "message_omitted": response.message.is_some(),
+                }),
+                PauseObservation::TransportError { kind } => serde_json::json!({
+                    "event": "typed_pause_transport_error",
+                    "kind": kind,
+                }),
+            };
+            self.record_event(event);
+        });
+        self.record_event(serde_json::json!({
+            "event": "pause_callback_result",
+            "succeeded": result.is_ok(),
+        }));
+        result
     }
 
     fn operation_state_snapshot(&self) -> serde_json::Value {
@@ -72,6 +110,27 @@ impl ProbeProvider {
             _ => "failure",
         };
         *self.outcome.lock().unwrap() = outcome;
+        let terminal_error_code = match &result {
+            Ok(()) => None,
+            Err(GlobalIndexError::Paused) => Some("index_paused"),
+            Err(GlobalIndexError::RebuildRequired(_)) => Some("rebuild_required"),
+            Err(GlobalIndexError::PermissionRequired(_)) => Some("permission_required"),
+            Err(GlobalIndexError::ServiceBusy(_)) => Some("index_service_busy"),
+            Err(GlobalIndexError::SourceBusy(_)) => Some("source_operation_busy"),
+            Err(GlobalIndexError::ServiceProtocol(_)) => Some("invalid_service_protocol"),
+            Err(GlobalIndexError::ServiceOutcomeUnknown(_)) => Some("service_outcome_unknown"),
+            Err(GlobalIndexError::WindowsIo(_)) => Some("windows_io_error"),
+            Err(GlobalIndexError::Database(_)) => Some("database_error"),
+            Err(GlobalIndexError::Provider(_)) => Some("provider_error"),
+        };
+        self.record_event(serde_json::json!({
+            "event": "service_index_stream_terminal",
+            "ok": result.is_ok(),
+            "error_code": terminal_error_code,
+            "outcome": outcome,
+            "service_available": self.inner.service_available.load(Ordering::Acquire),
+            "observation": "decoded by the installed service client after consuming the stream",
+        }));
         self.record_event(serde_json::json!({
             "event": "provider_operation_result",
             "outcome": outcome,
@@ -192,6 +251,11 @@ impl GlobalIndexSink for PauseSink<'_> {
             "kind": format!("{kind:?}"),
             "route": format!("{route:?}"),
         }));
+        // The Service has accepted this index request and emitted Sources, but
+        // has not yet begun provider work. Issue typed Pause at this boundary;
+        // doing so later from set_source_provider blocks the stream consumer
+        // while the independent Pause pipe is being read.
+        self.provider.trigger_pause_callback(&source.id)?;
         let result = self
             .sink
             .admit_source_operation(source, operation_id, kind, route);
@@ -271,45 +335,6 @@ impl GlobalIndexSink for PauseSink<'_> {
             "committed": result.is_ok(),
         }));
         result?;
-        // Trigger the same typed Pause command used by the installed client.
-        if self.provider.pause_once.swap(false, Ordering::AcqRel) {
-            self.provider.record_event(serde_json::json!({
-                "event": "pause_callback_started",
-                "source_id": id,
-            }));
-            let result = self.provider.inner.pause_for_native_qa(|observation| {
-                let event = match observation {
-                    PauseObservation::Request {
-                        protocol_version,
-                        request_id,
-                    } => serde_json::json!({
-                        "event": "typed_pause_request",
-                        "command": "pause",
-                        "protocol_version": protocol_version,
-                        "request_id": request_id,
-                    }),
-                    PauseObservation::Response(response) => serde_json::json!({
-                        "event": "typed_pause_response",
-                        "protocol_version": response.protocol_version,
-                        "request_id": response.request_id,
-                        "ok": response.ok,
-                        "status": response.status,
-                        "error_code": response.error_code,
-                        "message_omitted": response.message.is_some(),
-                    }),
-                    PauseObservation::TransportError { kind } => serde_json::json!({
-                        "event": "typed_pause_transport_error",
-                        "kind": kind,
-                    }),
-                };
-                self.provider.record_event(event);
-            });
-            self.provider.record_event(serde_json::json!({
-                "event": "pause_callback_result",
-                "succeeded": result.is_ok(),
-            }));
-            result?;
-        }
         Ok(())
     }
     fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError> {
@@ -472,6 +497,8 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         "source_operation_after_cycle": owner_after_cycle,
         "pause_request": pause_request,
         "pause_response": pause_response,
+        "service_stream_terminal": first_event(&events, "service_index_stream_terminal"),
+        "event_sequence_scope": "client callback observation order; it does not establish send order across independent named pipes",
         "source_state_commit_order": events,
         "strict_assertions": {
             "index_status_is_paused": actual_index_status == Some(INDEX_STATUS_PAUSED),

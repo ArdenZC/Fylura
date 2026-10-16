@@ -721,6 +721,10 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 sample.heap_count > 0,
                 "Windows heap diagnostic found no heaps: {sample:?}"
             );
+            assert!(
+                sample.heap_region_count > 0,
+                "Windows heap diagnostic found no committed-region samples: {sample:?}"
+            );
             assert_eq!(
                 sample.heaps_walked, sample.heap_count,
                 "Windows heap diagnostic did not walk every heap: {sample:?}"

@@ -29,6 +29,11 @@ pub(super) struct ProcessHeapResources {
     pub(super) available: bool,
     pub(super) heap_count: u32,
     pub(super) heaps_walked: u32,
+    pub(super) heap_region_count: u64,
+    /// Bytes committed within regions in the process heaps. This does
+    /// not include private committed memory outside these heaps.
+    pub(super) heap_region_committed_bytes: u64,
+    pub(super) heap_region_uncommitted_bytes: u64,
     pub(super) busy_allocation_count: u64,
     pub(super) busy_allocation_bytes: u64,
     pub(super) elapsed_us: u64,
@@ -43,6 +48,7 @@ pub(super) fn process_heap_snapshot() -> Option<ProcessHeapResources> {
     };
 
     const MAX_PROCESS_HEAPS: usize = 64;
+    const PROCESS_HEAP_REGION: u16 = 0x0001;
     const PROCESS_HEAP_ENTRY_BUSY: u16 = 0x0004;
     let started = Instant::now();
     let mut heaps = [std::ptr::null_mut(); MAX_PROCESS_HEAPS];
@@ -74,6 +80,12 @@ pub(super) fn process_heap_snapshot() -> Option<ProcessHeapResources> {
         let mut entry = unsafe { std::mem::zeroed::<PROCESS_HEAP_ENTRY>() };
         let mut heap_walk_completed = false;
         while unsafe { HeapWalk(heap, &mut entry) } != 0 {
+            if entry.wFlags & PROCESS_HEAP_REGION != 0 {
+                let region = unsafe { entry.Anonymous.Region };
+                sample.heap_region_count += 1;
+                sample.heap_region_committed_bytes += u64::from(region.dwCommittedSize);
+                sample.heap_region_uncommitted_bytes += u64::from(region.dwUnCommittedSize);
+            }
             if entry.wFlags & PROCESS_HEAP_ENTRY_BUSY != 0 {
                 sample.busy_allocation_count += 1;
                 sample.busy_allocation_bytes += u64::from(entry.cbData);

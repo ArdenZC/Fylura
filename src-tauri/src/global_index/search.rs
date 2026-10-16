@@ -13,7 +13,9 @@ const MAX_TIER_CANDIDATES: u32 = 4_096;
 #[cfg(test)]
 std::thread_local! {
     static KEY_ONLY_CTE_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static KEY_ONLY_FTS_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LEGACY_NAME_PREFIX_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LEGACY_FTS_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Enables the remaining test-only key projection candidates while exercising
@@ -31,6 +33,23 @@ pub(crate) fn with_key_only_cte_search_candidate<T>(operation: impl FnOnce() -> 
     }
 
     KEY_ONLY_CTE_SEARCH_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(true);
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn with_key_only_fts_search_candidate<T>(operation: impl FnOnce() -> T) -> T {
+    struct ResetCandidate(bool);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            KEY_ONLY_FTS_SEARCH_OVERRIDE.with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    KEY_ONLY_FTS_SEARCH_OVERRIDE.with(|override_slot| {
         let previous = override_slot.replace(true);
         let _reset = ResetCandidate(previous);
         operation()
@@ -58,13 +77,40 @@ pub(crate) fn with_legacy_name_prefix_search_candidate<T>(operation: impl FnOnce
 }
 
 #[cfg(test)]
+pub(crate) fn with_legacy_fts_search_candidate<T>(operation: impl FnOnce() -> T) -> T {
+    struct ResetCandidate(bool);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            LEGACY_FTS_SEARCH_OVERRIDE.with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    LEGACY_FTS_SEARCH_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(true);
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
+#[cfg(test)]
 fn key_only_cte_search_candidate_enabled() -> bool {
     KEY_ONLY_CTE_SEARCH_OVERRIDE.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
+fn key_only_fts_search_candidate_enabled() -> bool {
+    KEY_ONLY_FTS_SEARCH_OVERRIDE.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
 fn legacy_name_prefix_search_candidate_enabled() -> bool {
     LEGACY_NAME_PREFIX_SEARCH_OVERRIDE.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn legacy_fts_search_candidate_enabled() -> bool {
+    LEGACY_FTS_SEARCH_OVERRIDE.with(std::cell::Cell::get)
 }
 
 /// Global search is intentionally a separate entry point from the library
@@ -299,7 +345,6 @@ fn key_only_extension_prefix_sql() -> String {
     )
 }
 
-#[cfg(test)]
 fn key_only_fts_sql() -> String {
     key_only_candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
@@ -468,24 +513,22 @@ fn search_fts(
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     #[cfg(test)]
-    if key_only_cte_search_candidate_enabled() {
+    if legacy_fts_search_candidate_enabled() {
+        let sql = diagnostic_legacy_fts_sql();
+        let mut statement = conn.prepare(&sql)?;
+        let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+        return collect_candidates(&mut statement, params![fts_query, limit]);
+    }
+
+    #[cfg(test)]
+    if key_only_cte_search_candidate_enabled() || key_only_fts_search_candidate_enabled() {
         let sql = key_only_fts_sql();
         let mut statement = conn.prepare(&sql)?;
         let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
         return collect_candidates(&mut statement, params![fts_query, limit]);
     }
 
-    // SQLite can reorder the ordinary JOINs into volume -> entries -> FTS.
-    // CROSS JOIN is SQLite's documented join-order fence: keep the selective
-    // MATCH cursor outermost, while applying active-volume and stale filters
-    // before ORDER BY/LIMIT so filtered rows never underfill the page.
-    let sql = candidate_sql(
-        "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
-        "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
-        "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
-        "?2",
-    );
+    let sql = key_only_fts_sql();
     let mut statement = conn.prepare(&sql)?;
     let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
     collect_candidates(&mut statement, params![fts_query, limit])
@@ -504,6 +547,11 @@ pub(crate) fn diagnostic_search_fts(
 
 #[cfg(test)]
 pub(crate) fn diagnostic_search_fts_sql() -> String {
+    key_only_fts_sql()
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_legacy_fts_sql() -> String {
     candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
         "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",

@@ -1,0 +1,102 @@
+name: Global Search high-hit FTS key-only CTE qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: global-search-high-hit-fts-qualification-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  qualify-key-only-cte:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/issue-364-high-hit-fts' }}
+    name: Windows paired high-hit FTS qualification (100k + 500k)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout exact dispatch ref without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Prepare evidence directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path ci-evidence | Out-Null
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-high-hit-fts-qualification-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Run 100k Original versus key-only FTS qualification
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "100000"
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-key-only-fts-100k.jsonl
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_fts_key_only_cte_qualification
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Run bounded 500k Original versus key-only FTS qualification
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "500000"
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-key-only-fts-500k.jsonl
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_fts_key_only_cte_qualification
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Record JSONL evidence SHA-256
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $paths = @(
+            'ci-evidence/global-search-key-only-fts-100k.jsonl',
+            'ci-evidence/global-search-key-only-fts-500k.jsonl'
+          )
+          $summary = @('## Key-only FTS JSONL evidence SHA-256', '')
+          foreach ($path in $paths) {
+            if (Test-Path $path) {
+              $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+              $summary += "- ``$path``: ``sha256:$hash``"
+              Write-Output "$path sha256:$hash"
+            } else {
+              $summary += "- ``$path``: NOT PRODUCED"
+              Write-Output "$path NOT PRODUCED"
+            }
+          }
+          $summary | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload 100k key-only FTS evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-key-only-fts-100k-${{ github.run_id }}
+          path: ci-evidence/global-search-key-only-fts-100k.jsonl
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload 500k key-only FTS evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-key-only-fts-500k-${{ github.run_id }}
+          path: ci-evidence/global-search-key-only-fts-500k.jsonl
+          if-no-files-found: warn
+          retention-days: 30

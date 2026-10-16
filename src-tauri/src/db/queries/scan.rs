@@ -19,11 +19,81 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(all(test, feature = "performance-test-tauri"))]
+use std::{
+    cell::RefCell,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Mutex, OnceLock,
+    },
+    time::Instant,
+};
+
+#[derive(Clone, Copy, Default)]
+struct ManagedScanTraceCheckout {
+    #[cfg(all(test, feature = "performance-test-tauri"))]
+    trace_id: Option<u64>,
+    #[cfg(all(test, feature = "performance-test-tauri"))]
+    connection_id: Option<u64>,
+    #[cfg(all(test, feature = "performance-test-tauri"))]
+    pool_checkout_wait_us: Option<u128>,
+}
+
+macro_rules! checkout_managed_scan_write_connection {
+    ($database:expr, $run_id:expr) => {{
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        {
+            let run_id: Option<&str> = $run_id;
+            if run_id.is_some_and(|run_id| run_id.starts_with("issue345-d4-owner-")) {
+                start_d4_managed_scan_write_trace($database.path());
+            }
+            let trace_id = managed_scan_write_trace_for_path($database.path());
+            let checkout_started_at = trace_id.map(|_| Instant::now());
+            let connection = $database.conn()?;
+            let checkout = match (trace_id, checkout_started_at) {
+                (Some(trace_id), Some(started_at)) => ManagedScanTraceCheckout {
+                    trace_id: Some(trace_id),
+                    connection_id: Some(managed_scan_trace_connection_id(trace_id, &connection)),
+                    pool_checkout_wait_us: Some(started_at.elapsed().as_micros()),
+                },
+                _ => ManagedScanTraceCheckout::default(),
+            };
+            Ok::<_, DbError>((connection, checkout))
+        }
+        #[cfg(not(all(test, feature = "performance-test-tauri")))]
+        {
+            let _ = $run_id;
+            Ok::<_, DbError>(($database.conn()?, ManagedScanTraceCheckout::default()))
+        }
+    }};
+}
+
 macro_rules! begin_managed_scan_write_transaction {
     ($conn:expr, $operation:expr, $run_id:expr) => {{
-        begin_managed_scan_write_transaction!($conn, $operation, $run_id, None::<&str>)
+        begin_managed_scan_write_transaction!(
+            $conn,
+            $operation,
+            $run_id,
+            None::<&str>,
+            ManagedScanTraceCheckout::default()
+        )
     }};
     ($conn:expr, $operation:expr, $run_id:expr, $issue366_diagnostic_key:expr) => {{
+        begin_managed_scan_write_transaction!(
+            $conn,
+            $operation,
+            $run_id,
+            $issue366_diagnostic_key,
+            ManagedScanTraceCheckout::default()
+        )
+    }};
+    ($conn:expr, $operation:expr, $run_id:expr, $issue366_diagnostic_key:expr, $trace_checkout:expr) => {{
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let managed_scan_operation: &str = $operation;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let managed_scan_run_id: Option<&str> = $run_id;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let managed_scan_trace_checkout: ManagedScanTraceCheckout = $trace_checkout;
         #[cfg(all(test, feature = "performance-test-tauri"))]
         let issue366_diagnostic_key: Option<&str> = $issue366_diagnostic_key;
         #[cfg(all(test, feature = "performance-test-tauri"))]
@@ -39,7 +109,18 @@ macro_rules! begin_managed_scan_write_transaction {
         #[cfg(all(test, feature = "performance-test-tauri"))]
         let issue366_begin_wall_started =
             issue366_diagnostic_key.map(|_| std::time::Instant::now());
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let trace_transaction_attempt = start_managed_scan_trace_transaction(
+            managed_scan_trace_checkout,
+            managed_scan_operation,
+            managed_scan_run_id,
+        );
         let transaction_result = $conn.transaction_with_behavior(TransactionBehavior::Immediate);
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let trace_transaction = finish_managed_scan_trace_begin(
+            trace_transaction_attempt,
+            &transaction_result,
+        );
         #[cfg(all(test, feature = "performance-test-tauri"))]
         if let Some(key) = issue366_diagnostic_key {
             let issue366_thread_cpu_after = issue366_thread_cpu_time_ns();
@@ -68,14 +149,791 @@ macro_rules! begin_managed_scan_write_transaction {
         if let Err(rusqlite::Error::SqliteFailure(code, _)) = &transaction_result {
             eprintln!(
                 "[issue345-sqlite] operation={} run_id={} sqlite_primary={} sqlite_extended={}",
-                $operation,
-                $run_id.unwrap_or("unavailable"),
+                managed_scan_operation,
+                managed_scan_run_id.unwrap_or("unavailable"),
                 code.extended_code & 0xff,
                 code.extended_code
             );
         }
-        transaction_result.map_err(DbError::from)
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        {
+            transaction_result
+                .map(|transaction| {
+                    ManagedScanWriteTransaction::new(transaction, trace_transaction)
+                })
+                .map_err(DbError::from)
+        }
+        #[cfg(not(all(test, feature = "performance-test-tauri")))]
+        {
+            let _ = $trace_checkout;
+            transaction_result.map_err(DbError::from)
+        }
     }};
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+const MANAGED_SCAN_TRACE_MAX_EVENTS: usize = 16_384;
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ManagedScanWriteTraceControl {
+    ScopedPressure,
+    UntrackedWriterNegative,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ManagedScanTraceMode {
+    ScopedPressure,
+    UntrackedWriterNegative,
+    D4KnownOwnerPositive,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+#[derive(Default, Clone, Copy)]
+pub(crate) struct ManagedScanWriteTraceSummary {
+    pub(crate) transaction_count: usize,
+    pub(crate) busy_count: usize,
+    pub(crate) busy_without_observed_writer_count: usize,
+    pub(crate) d4_positive_control_passed: bool,
+    pub(crate) active_transactions_at_finish: usize,
+    pub(crate) dropped_event_count: usize,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+pub(crate) struct ManagedScanWriteTraceGuard {
+    trace_id: u64,
+    finished: bool,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl ManagedScanWriteTraceGuard {
+    pub(crate) fn enable_for_database(
+        database: &Database,
+        label: &str,
+        control: ManagedScanWriteTraceControl,
+    ) -> Self {
+        let trace_id = start_managed_scan_write_trace(
+            database.path(),
+            label,
+            match control {
+                ManagedScanWriteTraceControl::ScopedPressure => {
+                    ManagedScanTraceMode::ScopedPressure
+                }
+                ManagedScanWriteTraceControl::UntrackedWriterNegative => {
+                    ManagedScanTraceMode::UntrackedWriterNegative
+                }
+            },
+        );
+        Self {
+            trace_id,
+            finished: false,
+        }
+    }
+
+    pub(crate) fn finish(mut self) -> ManagedScanWriteTraceSummary {
+        self.finished = true;
+        finish_managed_scan_write_trace(self.trace_id)
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl Drop for ManagedScanWriteTraceGuard {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = finish_managed_scan_write_trace(self.trace_id);
+        }
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+struct ManagedScanWriteTraceState {
+    trace_id: u64,
+    label: String,
+    database_path: PathBuf,
+    mode: ManagedScanTraceMode,
+    started_at: Instant,
+    next_event_sequence: u64,
+    next_transaction_id: u64,
+    next_connection_id: u64,
+    connection_ids: HashMap<usize, u64>,
+    active_transactions: HashMap<u64, ActiveManagedScanWriteTransaction>,
+    events: Vec<String>,
+    transaction_count: usize,
+    busy_count: usize,
+    busy_without_observed_writer_count: usize,
+    dropped_event_count: usize,
+    d4_owner_active_at_contender_begin: bool,
+    d4_owner_commit_sequence: Option<u64>,
+    d4_positive_control_passed: bool,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+struct ActiveManagedScanWriteTransaction {
+    transaction_id: u64,
+    connection_id: u64,
+    operation: String,
+    run_id: Option<String>,
+    acquired_at: Instant,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+struct ManagedScanTraceTransactionAttempt {
+    trace_id: u64,
+    transaction_id: u64,
+    connection_id: u64,
+    operation: String,
+    run_id: Option<String>,
+    started_at: Instant,
+    d4_owner_active_at_start: bool,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+struct ManagedScanTraceTransactionContext {
+    trace_id: u64,
+    transaction_id: u64,
+    connection_id: u64,
+    operation: String,
+    run_id: Option<String>,
+    acquired_at: Instant,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+static NEXT_MANAGED_SCAN_TRACE_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+static MANAGED_SCAN_WRITE_TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+static MANAGED_SCAN_WRITE_TRACE: OnceLock<Mutex<Option<ManagedScanWriteTraceState>>> =
+    OnceLock::new();
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn managed_scan_write_trace_state() -> &'static Mutex<Option<ManagedScanWriteTraceState>> {
+    MANAGED_SCAN_WRITE_TRACE.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl ManagedScanWriteTraceState {
+    fn new(trace_id: u64, database_path: &Path, label: &str, mode: ManagedScanTraceMode) -> Self {
+        Self {
+            trace_id,
+            label: label.to_string(),
+            database_path: database_path.to_path_buf(),
+            mode,
+            started_at: Instant::now(),
+            next_event_sequence: 1,
+            next_transaction_id: 1,
+            next_connection_id: 1,
+            connection_ids: HashMap::new(),
+            active_transactions: HashMap::new(),
+            events: Vec::new(),
+            transaction_count: 0,
+            busy_count: 0,
+            busy_without_observed_writer_count: 0,
+            dropped_event_count: 0,
+            d4_owner_active_at_contender_begin: false,
+            d4_owner_commit_sequence: None,
+            d4_positive_control_passed: false,
+        }
+    }
+
+    fn event(&mut self, detail: impl AsRef<str>) -> u64 {
+        let sequence = self.next_event_sequence;
+        self.next_event_sequence = self.next_event_sequence.saturating_add(1);
+        let elapsed_us = self.started_at.elapsed().as_micros();
+        if self.events.len() < MANAGED_SCAN_TRACE_MAX_EVENTS {
+            self.events.push(format!(
+                "seq={sequence} elapsed_us={elapsed_us} {}",
+                detail.as_ref()
+            ));
+        } else {
+            self.dropped_event_count = self.dropped_event_count.saturating_add(1);
+        }
+        sequence
+    }
+
+    fn active_writer_snapshot(&self) -> String {
+        let mut writers = self
+            .active_transactions
+            .values()
+            .map(|active| {
+                format!(
+                    "tx{}:conn{}:op={}:run_id={}:active_us={}",
+                    active.transaction_id,
+                    active.connection_id,
+                    active.operation,
+                    active.run_id.as_deref().unwrap_or("unavailable"),
+                    active.acquired_at.elapsed().as_micros()
+                )
+            })
+            .collect::<Vec<_>>();
+        writers.sort_unstable();
+        format!("[{}]", writers.join(";"))
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn start_managed_scan_write_trace(
+    database_path: &Path,
+    label: &str,
+    mode: ManagedScanTraceMode,
+) -> u64 {
+    let trace_id = NEXT_MANAGED_SCAN_TRACE_ID.fetch_add(1, Ordering::Relaxed);
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(
+        current.is_none(),
+        "managed scan trace scopes must not overlap within one test process"
+    );
+    *current = Some(ManagedScanWriteTraceState::new(
+        trace_id,
+        database_path,
+        label,
+        mode,
+    ));
+    MANAGED_SCAN_WRITE_TRACE_ENABLED.store(true, Ordering::Release);
+    trace_id
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn start_d4_managed_scan_write_trace(database_path: &Path) {
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if current.is_none() {
+        let trace_id = NEXT_MANAGED_SCAN_TRACE_ID.fetch_add(1, Ordering::Relaxed);
+        let mut trace = ManagedScanWriteTraceState::new(
+            trace_id,
+            database_path,
+            "issue345-d4-known-owner-positive-control",
+            ManagedScanTraceMode::D4KnownOwnerPositive,
+        );
+        trace.event("control=d4_positive_control_started writer_registry=scan_query_begin_macro");
+        *current = Some(trace);
+        MANAGED_SCAN_WRITE_TRACE_ENABLED.store(true, Ordering::Release);
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn managed_scan_write_trace_for_path(database_path: &Path) -> Option<u64> {
+    if !MANAGED_SCAN_WRITE_TRACE_ENABLED.load(Ordering::Acquire) {
+        return None;
+    }
+    managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .filter(|trace| trace.database_path == database_path)
+        .map(|trace| trace.trace_id)
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn managed_scan_trace_connection_id(trace_id: u64, connection: &Connection) -> u64 {
+    let connection_key = connection as *const Connection as usize;
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let trace = current
+        .as_mut()
+        .filter(|trace| trace.trace_id == trace_id)
+        .expect("connection checkout belongs to the active managed scan trace");
+    if let Some(connection_id) = trace.connection_ids.get(&connection_key) {
+        return *connection_id;
+    }
+    let connection_id = trace.next_connection_id;
+    trace.next_connection_id = trace.next_connection_id.saturating_add(1);
+    trace.connection_ids.insert(connection_key, connection_id);
+    let sequence = trace.event(format!(
+        "event=connection_checkout connection_id=c{connection_id} identity=opaque_sqlite_connection_address"
+    ));
+    let _ = sequence;
+    connection_id
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn start_managed_scan_trace_transaction(
+    checkout: ManagedScanTraceCheckout,
+    operation: &str,
+    run_id: Option<&str>,
+) -> Option<ManagedScanTraceTransactionAttempt> {
+    let trace_id = checkout.trace_id?;
+    let connection_id = checkout.connection_id?;
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let trace = current
+        .as_mut()
+        .filter(|trace| trace.trace_id == trace_id)?;
+    let transaction_id = trace.next_transaction_id;
+    trace.next_transaction_id = trace.next_transaction_id.saturating_add(1);
+    trace.transaction_count = trace.transaction_count.saturating_add(1);
+    let active_before = trace.active_writer_snapshot();
+    let d4_owner_active_at_start = trace.mode == ManagedScanTraceMode::D4KnownOwnerPositive
+        && operation == "persist_scan_batch"
+        && run_id.is_some_and(|run_id| run_id.starts_with("issue345-d4-contender-"))
+        && trace.active_transactions.values().any(|active| {
+            active.operation == "persist_scan_batch"
+                && active
+                    .run_id
+                    .as_deref()
+                    .is_some_and(|active_run_id| active_run_id.starts_with("issue345-d4-owner-"))
+        });
+    if d4_owner_active_at_start {
+        trace.d4_owner_active_at_contender_begin = true;
+    }
+    trace.event(format!(
+        "event=before_begin transaction_id=t{transaction_id} connection_id=c{connection_id} operation={operation} run_id={} pool_checkout_wait_us={} active_instrumented_writers={active_before} writer_coverage=scan_query_begin_macro_only owner_inference=none",
+        run_id.unwrap_or("unavailable"),
+        checkout.pool_checkout_wait_us
+            .map(|elapsed| elapsed.to_string())
+            .unwrap_or_else(|| "unavailable".to_string())
+    ));
+    Some(ManagedScanTraceTransactionAttempt {
+        trace_id,
+        transaction_id,
+        connection_id,
+        operation: operation.to_string(),
+        run_id: run_id.map(str::to_string),
+        started_at: Instant::now(),
+        d4_owner_active_at_start,
+    })
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn finish_managed_scan_trace_begin(
+    attempt: Option<ManagedScanTraceTransactionAttempt>,
+    result: &rusqlite::Result<Transaction<'_>>,
+) -> Option<ManagedScanTraceTransactionContext> {
+    let attempt = attempt?;
+    let begin_wait_us = attempt.started_at.elapsed().as_micros();
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let trace = current
+        .as_mut()
+        .filter(|trace| trace.trace_id == attempt.trace_id)?;
+    match result {
+        Ok(_) => {
+            let sequence = trace.event(format!(
+                "event=acquired transaction_id=t{} connection_id=c{} operation={} run_id={} begin_writer_wait_us={begin_wait_us} pool_wait_excluded=true",
+                attempt.transaction_id,
+                attempt.connection_id,
+                attempt.operation,
+                attempt.run_id.as_deref().unwrap_or("unavailable")
+            ));
+            trace.active_transactions.insert(
+                attempt.transaction_id,
+                ActiveManagedScanWriteTransaction {
+                    transaction_id: attempt.transaction_id,
+                    connection_id: attempt.connection_id,
+                    operation: attempt.operation.clone(),
+                    run_id: attempt.run_id.clone(),
+                    acquired_at: Instant::now(),
+                },
+            );
+            if trace.mode == ManagedScanTraceMode::D4KnownOwnerPositive
+                && attempt.operation == "persist_scan_batch"
+                && attempt
+                    .run_id
+                    .as_deref()
+                    .is_some_and(|run_id| run_id.starts_with("issue345-d4-contender-"))
+                && attempt.d4_owner_active_at_start
+                && trace
+                    .d4_owner_commit_sequence
+                    .is_some_and(|owner_commit| owner_commit < sequence && begin_wait_us >= 100_000)
+            {
+                trace.d4_positive_control_passed = true;
+            }
+            Some(ManagedScanTraceTransactionContext {
+                trace_id: attempt.trace_id,
+                transaction_id: attempt.transaction_id,
+                connection_id: attempt.connection_id,
+                operation: attempt.operation,
+                run_id: attempt.run_id,
+                acquired_at: Instant::now(),
+            })
+        }
+        Err(error) => {
+            let active_at_busy = trace.active_writer_snapshot();
+            let (result_kind, primary_code, extended_code) = match error {
+                rusqlite::Error::SqliteFailure(code, _) => (
+                    if code.extended_code & 0xff == 5 {
+                        "sqlite_busy"
+                    } else {
+                        "sqlite_error"
+                    },
+                    Some(code.extended_code & 0xff),
+                    Some(code.extended_code),
+                ),
+                _ => ("other_error", None, None),
+            };
+            if result_kind == "sqlite_busy" {
+                trace.busy_count = trace.busy_count.saturating_add(1);
+                if trace.active_transactions.is_empty() {
+                    trace.busy_without_observed_writer_count =
+                        trace.busy_without_observed_writer_count.saturating_add(1);
+                }
+            }
+            trace.event(format!(
+                "event=begin_failed transaction_id=t{} connection_id=c{} operation={} run_id={} result={result_kind} primary_code={} extended_code={} begin_wait_us={begin_wait_us} pool_wait_excluded=true active_instrumented_writers_at_failure={active_at_busy} writer_coverage=scan_query_begin_macro_only owner_status=OWNER_UNKNOWN owner_inference=none",
+                attempt.transaction_id,
+                attempt.connection_id,
+                attempt.operation,
+                attempt.run_id.as_deref().unwrap_or("unavailable"),
+                primary_code.map(|code| code.to_string()).unwrap_or_else(|| "none".to_string()),
+                extended_code.map(|code| code.to_string()).unwrap_or_else(|| "none".to_string())
+            ));
+            None
+        }
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn finish_managed_scan_write_transaction(
+    transaction: ManagedScanTraceTransactionContext,
+    outcome: &str,
+    release_call_us: u128,
+) {
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(trace) = current
+        .as_mut()
+        .filter(|trace| trace.trace_id == transaction.trace_id)
+    else {
+        return;
+    };
+    let active = trace
+        .active_transactions
+        .remove(&transaction.transaction_id);
+    let hold_us = active
+        .as_ref()
+        .map(|active| active.acquired_at.elapsed().as_micros())
+        .or_else(|| Some(transaction.acquired_at.elapsed().as_micros()))
+        .unwrap_or_default();
+    let sequence = trace.event(format!(
+        "event={outcome} transaction_id=t{} connection_id=c{} operation={} run_id={} hold_us={hold_us} release_timestamp_elapsed_us={} release_call_us={release_call_us}",
+        transaction.transaction_id,
+        transaction.connection_id,
+        transaction.operation,
+        transaction.run_id.as_deref().unwrap_or("unavailable"),
+        trace.started_at.elapsed().as_micros()
+    ));
+    if trace.mode == ManagedScanTraceMode::D4KnownOwnerPositive
+        && outcome == "committed"
+        && transaction.operation == "persist_scan_batch"
+        && transaction
+            .run_id
+            .as_deref()
+            .is_some_and(|run_id| run_id.starts_with("issue345-d4-owner-"))
+    {
+        trace.d4_owner_commit_sequence = Some(sequence);
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn record_managed_scan_trace_ownership(
+    transaction: &ManagedScanTraceTransactionContext,
+    stage: &str,
+    detail: &str,
+) {
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(trace) = current
+        .as_mut()
+        .filter(|trace| trace.trace_id == transaction.trace_id)
+    else {
+        return;
+    };
+    trace.event(format!(
+        "event=revision_ownership transaction_id=t{} operation={} run_id={} stage={stage} {detail}",
+        transaction.transaction_id,
+        transaction.operation,
+        transaction.run_id.as_deref().unwrap_or("unavailable")
+    ));
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn record_managed_scan_trace_test_hook(run_id: &str, point: ManagedScanWriteTestPoint) {
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(trace) = current.as_mut() else {
+        return;
+    };
+    if trace.mode == ManagedScanTraceMode::D4KnownOwnerPositive {
+        let active = trace.active_writer_snapshot();
+        trace.event(format!(
+            "event=d4_test_hook run_id={run_id} point={point:?} active_instrumented_writers={active} control_owner_inference=from_existing_d4_barriers"
+        ));
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn finish_d4_managed_scan_write_trace() {
+    let trace_id = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .filter(|trace| trace.mode == ManagedScanTraceMode::D4KnownOwnerPositive)
+        .map(|trace| trace.trace_id);
+    if let Some(trace_id) = trace_id {
+        let _ = finish_managed_scan_write_trace(trace_id);
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn finish_managed_scan_write_trace(trace_id: u64) -> ManagedScanWriteTraceSummary {
+    let mut current = managed_scan_write_trace_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(mut trace) = current.take().filter(|trace| trace.trace_id == trace_id) else {
+        return ManagedScanWriteTraceSummary::default();
+    };
+    MANAGED_SCAN_WRITE_TRACE_ENABLED.store(false, Ordering::Release);
+    let summary = ManagedScanWriteTraceSummary {
+        transaction_count: trace.transaction_count,
+        busy_count: trace.busy_count,
+        busy_without_observed_writer_count: trace.busy_without_observed_writer_count,
+        d4_positive_control_passed: trace.d4_positive_control_passed,
+        active_transactions_at_finish: trace.active_transactions.len(),
+        dropped_event_count: trace.dropped_event_count,
+    };
+    let mode = match trace.mode {
+        ManagedScanTraceMode::ScopedPressure => "scoped_pressure",
+        ManagedScanTraceMode::UntrackedWriterNegative => "untracked_writer_negative_control",
+        ManagedScanTraceMode::D4KnownOwnerPositive => "d4_known_owner_positive_control",
+    };
+    for event in trace.events.drain(..) {
+        eprintln!(
+            "[managed-scan-trace] trace={} label={} mode={} {}",
+            trace.trace_id, trace.label, mode, event
+        );
+    }
+    eprintln!(
+        "[managed-scan-trace] trace={} label={} mode={} summary transactions={} busy={} busy_without_observed_writers={} d4_positive_control_passed={} active_at_finish={} dropped_events={} writer_coverage=scan_query_begin_macro_only cross_writer_coverage=partial causal_owner_claims=none",
+        trace.trace_id,
+        trace.label,
+        mode,
+        summary.transaction_count,
+        summary.busy_count,
+        summary.busy_without_observed_writer_count,
+        summary.d4_positive_control_passed,
+        summary.active_transactions_at_finish,
+        summary.dropped_event_count
+    );
+    summary
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+thread_local! {
+    static MANAGED_SCAN_SOURCE_IDENTITY_TRACE_SCOPE: RefCell<Option<ManagedScanSourceIdentityMetrics>> = const {
+        RefCell::new(None)
+    };
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+#[derive(Default)]
+struct ManagedScanSourceIdentityMetrics {
+    trace_id: u64,
+    transaction_id: u64,
+    calls: u64,
+    elapsed_us: u128,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+struct ManagedScanSourceIdentityTraceScope {
+    trace_id: u64,
+    transaction_id: u64,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl ManagedScanSourceIdentityTraceScope {
+    fn begin(transaction: Option<&ManagedScanTraceTransactionContext>) -> Option<Self> {
+        let transaction = transaction?;
+        MANAGED_SCAN_SOURCE_IDENTITY_TRACE_SCOPE.with(|scope| {
+            let mut scope = scope.borrow_mut();
+            if scope.is_some() {
+                return None;
+            }
+            *scope = Some(ManagedScanSourceIdentityMetrics {
+                trace_id: transaction.trace_id,
+                transaction_id: transaction.transaction_id,
+                ..ManagedScanSourceIdentityMetrics::default()
+            });
+            Some(Self {
+                trace_id: transaction.trace_id,
+                transaction_id: transaction.transaction_id,
+            })
+        })
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl Drop for ManagedScanSourceIdentityTraceScope {
+    fn drop(&mut self) {
+        let metrics = MANAGED_SCAN_SOURCE_IDENTITY_TRACE_SCOPE.with(|scope| {
+            let mut scope = scope.borrow_mut();
+            if scope.as_ref().is_some_and(|metrics| {
+                metrics.trace_id == self.trace_id && metrics.transaction_id == self.transaction_id
+            }) {
+                scope.take()
+            } else {
+                None
+            }
+        });
+        if let Some(metrics) = metrics {
+            let mut current = managed_scan_write_trace_state()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(trace) = current
+                .as_mut()
+                .filter(|trace| trace.trace_id == self.trace_id)
+            {
+                trace.event(format!(
+                    "event=physical_identity_capture_aggregate transaction_id=t{} calls={} cumulative_native_us={}",
+                    self.transaction_id, metrics.calls, metrics.elapsed_us
+                ));
+            }
+        }
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn with_managed_scan_source_identity_capture<T>(capture: impl FnOnce() -> T) -> T {
+    if !MANAGED_SCAN_WRITE_TRACE_ENABLED.load(Ordering::Acquire) {
+        return capture();
+    }
+    MANAGED_SCAN_SOURCE_IDENTITY_TRACE_SCOPE.with(|scope| {
+        let mut scope = scope.borrow_mut();
+        if let Some(metrics) = scope.as_mut() {
+            let started_at = Instant::now();
+            let result = capture();
+            metrics.calls = metrics.calls.saturating_add(1);
+            metrics.elapsed_us = metrics
+                .elapsed_us
+                .saturating_add(started_at.elapsed().as_micros());
+            result
+        } else {
+            drop(scope);
+            capture()
+        }
+    })
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+struct ManagedScanWriteTransaction<'conn> {
+    transaction: Option<Transaction<'conn>>,
+    trace: Option<ManagedScanTraceTransactionContext>,
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl<'conn> ManagedScanWriteTransaction<'conn> {
+    fn new(
+        transaction: Transaction<'conn>,
+        trace: Option<ManagedScanTraceTransactionContext>,
+    ) -> Self {
+        Self {
+            transaction: Some(transaction),
+            trace,
+        }
+    }
+
+    fn commit(mut self) -> rusqlite::Result<()> {
+        let transaction = self
+            .transaction
+            .take()
+            .expect("managed scan transaction is present before commit");
+        let release_started_at = Instant::now();
+        let result = transaction.commit();
+        let release_call_us = release_started_at.elapsed().as_micros();
+        if let Some(trace) = self.trace.take() {
+            finish_managed_scan_write_transaction(
+                trace,
+                if result.is_ok() {
+                    "committed"
+                } else {
+                    "commit_failed_released"
+                },
+                release_call_us,
+            );
+        }
+        result
+    }
+
+    #[allow(dead_code)]
+    fn rollback(mut self) -> rusqlite::Result<()> {
+        let transaction = self
+            .transaction
+            .take()
+            .expect("managed scan transaction is present before rollback");
+        let release_started_at = Instant::now();
+        let result = transaction.rollback();
+        let release_call_us = release_started_at.elapsed().as_micros();
+        if let Some(trace) = self.trace.take() {
+            finish_managed_scan_write_transaction(
+                trace,
+                if result.is_ok() {
+                    "rolled_back"
+                } else {
+                    "rollback_failed_released"
+                },
+                release_call_us,
+            );
+        }
+        result
+    }
+
+    fn record_revision_ownership(&self, stage: &str, detail: &str) {
+        if let Some(trace) = &self.trace {
+            record_managed_scan_trace_ownership(trace, stage, detail);
+        }
+    }
+
+    fn source_identity_trace_scope(&self) -> Option<ManagedScanSourceIdentityTraceScope> {
+        ManagedScanSourceIdentityTraceScope::begin(self.trace.as_ref())
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl<'conn> std::ops::Deref for ManagedScanWriteTransaction<'conn> {
+    type Target = Transaction<'conn>;
+
+    fn deref(&self) -> &Self::Target {
+        self.transaction
+            .as_ref()
+            .expect("managed scan transaction remains present while borrowed")
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl<'conn> std::ops::DerefMut for ManagedScanWriteTransaction<'conn> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.transaction
+            .as_mut()
+            .expect("managed scan transaction remains present while mutably borrowed")
+    }
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+impl Drop for ManagedScanWriteTransaction<'_> {
+    fn drop(&mut self) {
+        if let Some(transaction) = self.transaction.take() {
+            let release_started_at = Instant::now();
+            drop(transaction);
+            let release_call_us = release_started_at.elapsed().as_micros();
+            if let Some(trace) = self.trace.take() {
+                finish_managed_scan_write_transaction(
+                    trace,
+                    "rolled_back_on_drop",
+                    release_call_us,
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -138,10 +996,17 @@ static MANAGED_SCAN_WRITE_TEST_HOOK: std::sync::OnceLock<
 
 #[cfg(all(test, feature = "performance-test-tauri"))]
 pub(crate) fn set_managed_scan_write_test_hook(hook: Option<ManagedScanWriteTestHook>) {
+    let clearing = hook.is_none();
     *MANAGED_SCAN_WRITE_TEST_HOOK
         .get_or_init(|| std::sync::Mutex::new(None))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = hook;
+    #[cfg(all(test, feature = "performance-test-tauri"))]
+    if clearing {
+        finish_d4_managed_scan_write_trace();
+    }
+    #[cfg(not(all(test, feature = "performance-test-tauri")))]
+    let _ = clearing;
 }
 
 #[cfg(all(test, feature = "performance-test-tauri"))]
@@ -151,6 +1016,8 @@ fn invoke_managed_scan_write_test_hook(run_id: &str, point: ManagedScanWriteTest
     if !run_id.starts_with("issue345-d4-") {
         return;
     }
+    #[cfg(all(test, feature = "performance-test-tauri"))]
+    record_managed_scan_trace_test_hook(run_id, point);
     let hook = MANAGED_SCAN_WRITE_TEST_HOOK
         .get_or_init(|| std::sync::Mutex::new(None))
         .lock()
@@ -528,6 +1395,10 @@ impl Database {
             .map(str::to_string);
 
         #[cfg(all(test, feature = "performance-test-tauri"))]
+        let managed_trace_id = managed_scan_write_trace_for_path(self.path());
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let managed_trace_checkout_started = managed_trace_id.map(|_| Instant::now());
+        #[cfg(all(test, feature = "performance-test-tauri"))]
         let issue366_pool_started = issue366_diagnostic_key.map(|_| std::time::Instant::now());
         #[cfg(all(test, feature = "performance-test-tauri"))]
         let issue366_pool_thread_cpu_before =
@@ -549,6 +1420,17 @@ impl Database {
             );
         }
         let mut conn = pool_result?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let managed_trace_checkout = match (managed_trace_id, managed_trace_checkout_started) {
+            (Some(trace_id), Some(started_at)) => ManagedScanTraceCheckout {
+                trace_id: Some(trace_id),
+                connection_id: Some(managed_scan_trace_connection_id(trace_id, &conn)),
+                pool_checkout_wait_us: Some(started_at.elapsed().as_micros()),
+            },
+            _ => ManagedScanTraceCheckout::default(),
+        };
+        #[cfg(not(all(test, feature = "performance-test-tauri")))]
+        let managed_trace_checkout = ManagedScanTraceCheckout::default();
         #[cfg(all(test, feature = "performance-test-tauri"))]
         if let Some(key) = issue366_diagnostic_key {
             let pragma_started = std::time::Instant::now();
@@ -574,7 +1456,8 @@ impl Database {
             &mut conn,
             "admit_managed_scan",
             None,
-            issue366_diagnostic_key
+            issue366_diagnostic_key,
+            managed_trace_checkout
         )?;
 
         if let Some(request_key) = request_key.as_deref() {
@@ -1422,11 +2305,14 @@ impl Database {
     }
 
     pub(crate) fn claim_queued_scan_run(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
-        let mut conn = self.conn()?;
+        let (mut conn, trace_checkout) =
+            checkout_managed_scan_write_connection!(self, Some(run_id))?;
         let tx = begin_managed_scan_write_transaction!(
             &mut conn,
             "claim_queued_scan_run",
-            Some(run_id)
+            Some(run_id),
+            None::<&str>,
+            trace_checkout
         )?;
         let record = load_scan_run_record(&tx, run_id)?;
         if record.dto.status != "queued" {
@@ -1531,24 +2417,44 @@ impl Database {
         expected_session_revision: i64,
         batch: &ScanBatchInput<'_>,
     ) -> Result<ScanRunRecord, DbError> {
-        let mut conn = self.conn()?;
+        let (mut conn, trace_checkout) =
+            checkout_managed_scan_write_connection!(self, Some(run_id))?;
         #[cfg(all(test, feature = "performance-test-tauri"))]
         invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::BeforeTransaction);
-        let tx =
-            begin_managed_scan_write_transaction!(&mut conn, "persist_scan_batch", Some(run_id))?;
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "persist_scan_batch",
+            Some(run_id),
+            None::<&str>,
+            trace_checkout
+        )?;
         #[cfg(all(test, feature = "performance-test-tauri"))]
         invoke_managed_scan_write_test_hook(run_id, ManagedScanWriteTestPoint::TransactionAcquired);
         let record = load_scan_run_record(&tx, run_id)?;
-        validate_worker_ownership(
+        let ownership_result = validate_worker_ownership(
             &record,
             run_id,
             expected_run_revision,
             expected_root_revision,
             expected_session_revision,
             true,
-        )?;
+        );
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        tx.record_revision_ownership(
+            "worker_batch",
+            &format!(
+                "expected_run_revision={expected_run_revision} actual_run_revision={} expected_root_revision={expected_root_revision} actual_root_revision={} expected_session_revision={expected_session_revision} actual_session_revision={} ownership_valid={}",
+                record.dto.revision,
+                record.root_revision,
+                record.session_revision,
+                ownership_result.is_ok()
+            ),
+        );
+        ownership_result?;
 
         let observed_at = current_unix_seconds();
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let source_identity_trace_scope = tx.source_identity_trace_scope();
         let filesystem_changed = upsert_scan_files_tx(
             &tx,
             run_id,
@@ -1557,6 +2463,8 @@ impl Database {
             &record.dto.scan_root_id,
             expected_root_revision,
         )?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        drop(source_identity_trace_scope);
         insert_scan_errors_tx(&tx, run_id, batch.errors, observed_at)?;
 
         let metadata_errors = batch
@@ -1671,9 +2579,15 @@ impl Database {
         expected_root_revision: i64,
         expected_session_revision: i64,
     ) -> Result<ScanRunRecord, DbError> {
-        let mut conn = self.conn()?;
-        let tx =
-            begin_managed_scan_write_transaction!(&mut conn, "reconcile_missing", Some(run_id))?;
+        let (mut conn, trace_checkout) =
+            checkout_managed_scan_write_connection!(self, Some(run_id))?;
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "reconcile_missing",
+            Some(run_id),
+            None::<&str>,
+            trace_checkout
+        )?;
         let record = load_scan_run_record(&tx, run_id)?;
         validate_worker_ownership(
             &record,
@@ -1843,11 +2757,14 @@ impl Database {
                 "Invalid scan run phase: {phase}"
             )));
         }
-        let mut conn = self.conn()?;
+        let (mut conn, trace_checkout) =
+            checkout_managed_scan_write_connection!(self, Some(run_id))?;
         let tx = begin_managed_scan_write_transaction!(
             &mut conn,
             "transition_scan_run_phase",
-            Some(run_id)
+            Some(run_id),
+            None::<&str>,
+            trace_checkout
         )?;
         let record = load_scan_run_record(&tx, run_id)?;
         if record.dto.revision != expected_run_revision
@@ -1961,10 +2878,29 @@ impl Database {
             input.terminal_status.as_str(),
             "completed" | "completed_with_warnings"
         );
-        let mut conn = self.conn()?;
-        let tx =
-            begin_managed_scan_write_transaction!(&mut conn, "finalize_scan_run", Some(run_id))?;
+        let (mut conn, trace_checkout) =
+            checkout_managed_scan_write_connection!(self, Some(run_id))?;
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "finalize_scan_run",
+            Some(run_id),
+            None::<&str>,
+            trace_checkout
+        )?;
         let record = load_scan_run_record(&tx, run_id)?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        tx.record_revision_ownership(
+            "finalize_snapshot",
+            &format!(
+                "expected_run_revision={expected_run_revision} actual_run_revision={} expected_root_revision={expected_root_revision} actual_root_revision={} expected_session_revision={expected_session_revision} actual_session_revision={} root_active_generation={:?} run_generation={} session_id_available={}",
+                record.dto.revision,
+                record.root_revision,
+                record.session_revision,
+                record.root_active_generation,
+                record.dto.generation,
+                record.dto.parent_session_id.is_some()
+            ),
+        );
         let (
             root_watcher_error_code,
             root_watcher_error_message,
@@ -1976,10 +2912,15 @@ impl Database {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
             )?;
         if record.dto.status == input.terminal_status {
-            if record.dto.revision != expected_run_revision
-                || record.root_revision != expected_root_revision
-                || record.session_revision != expected_session_revision
-            {
+            let repeated_ownership_matches = record.dto.revision == expected_run_revision
+                && record.root_revision == expected_root_revision
+                && record.session_revision == expected_session_revision;
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            tx.record_revision_ownership(
+                "finalize_idempotent_check",
+                &format!("ownership_valid={repeated_ownership_matches}"),
+            );
+            if !repeated_ownership_matches {
                 return Err(DbError::Validation(
                     "Repeated scan finalization lost durable revision ownership.".to_string(),
                 ));
@@ -2012,12 +2953,17 @@ impl Database {
                     .to_string(),
             ));
         }
-        if record.dto.revision != expected_run_revision
-            || !root_revision_owned_after_watcher_change(&record, expected_root_revision)
-            || record.session_revision != expected_session_revision
-            || record.root_active_run_id.as_deref() != Some(run_id)
-            || record.root_active_generation != Some(record.dto.generation)
-        {
+        let revision_ownership_matches = record.dto.revision == expected_run_revision
+            && root_revision_owned_after_watcher_change(&record, expected_root_revision)
+            && record.session_revision == expected_session_revision
+            && record.root_active_run_id.as_deref() == Some(run_id)
+            && record.root_active_generation == Some(record.dto.generation);
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        tx.record_revision_ownership(
+            "finalize_claim_check",
+            &format!("ownership_valid={revision_ownership_matches}"),
+        );
+        if !revision_ownership_matches {
             return Err(DbError::Validation(
                 "Scan finalization lost run, root lease, generation, or session revision."
                     .to_string(),
@@ -2260,9 +3206,15 @@ impl Database {
         warning_code: &str,
         warning_message: &str,
     ) -> Result<ScanRunRecord, DbError> {
-        let mut conn = self.conn()?;
-        let tx =
-            begin_managed_scan_write_transaction!(&mut conn, "record_scan_warning", Some(run_id))?;
+        let (mut conn, trace_checkout) =
+            checkout_managed_scan_write_connection!(self, Some(run_id))?;
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "record_scan_warning",
+            Some(run_id),
+            None::<&str>,
+            trace_checkout
+        )?;
         let record = load_scan_run_record(&tx, run_id)?;
         validate_worker_ownership(
             &record,
@@ -2322,14 +3274,29 @@ impl Database {
     }
 
     pub(crate) fn request_scan_cancellation(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
-        let mut conn = self.conn()?;
+        let (mut conn, trace_checkout) =
+            checkout_managed_scan_write_connection!(self, Some(run_id))?;
         let tx = begin_managed_scan_write_transaction!(
             &mut conn,
             "request_scan_cancellation",
-            Some(run_id)
+            Some(run_id),
+            None::<&str>,
+            trace_checkout
         )?;
         let record = load_scan_run_record(&tx, run_id)?;
         if is_terminal_status(&record.dto.status) {
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            tx.record_revision_ownership(
+                "cancellation_snapshot_terminal",
+                &format!(
+                    "run_revision={} root_revision={} session_revision={} status={} cancel_requested={}",
+                    record.dto.revision,
+                    record.root_revision,
+                    record.session_revision,
+                    record.dto.status,
+                    record.dto.cancel_requested
+                ),
+            );
             tx.commit()?;
             self.wake_automation_triggers();
             return Ok(record);
@@ -2351,6 +3318,20 @@ impl Database {
                 DbError::Validation("Scan run has no parent session.".to_string())
             })?;
         let session = load_session(&tx, session_id)?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        tx.record_revision_ownership(
+            "cancellation_snapshot",
+            &format!(
+                "run_revision={} root_revision={} session_revision={} loaded_session_revision={} status={} phase={} cancel_requested={}",
+                record.dto.revision,
+                record.root_revision,
+                record.session_revision,
+                session.revision,
+                record.dto.status,
+                record.dto.phase,
+                record.dto.cancel_requested
+            ),
+        );
         let now = current_unix_seconds();
         let session_changed = tx.execute(
             r#"
@@ -2423,17 +3404,31 @@ impl Database {
         }
         let _ = update_session_projection_tx(&tx, session_id, session_revision, now)?;
         let updated = load_scan_run_record(&tx, run_id)?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        tx.record_revision_ownership(
+            "cancellation_cas_result",
+            &format!(
+                "session_revision_before={} session_revision_after={session_revision} run_revision_before={} run_revision_after={} cancel_requested={}",
+                session.revision,
+                record.dto.revision,
+                updated.dto.revision,
+                updated.dto.cancel_requested
+            ),
+        );
         tx.commit()?;
         self.wake_automation_triggers();
         Ok(updated)
     }
 
     pub(crate) fn recover_interrupted_scan_runs(&self) -> Result<usize, DbError> {
-        let mut conn = self.conn()?;
+        let (mut conn, trace_checkout) =
+            checkout_managed_scan_write_connection!(self, None::<&str>)?;
         let tx = begin_managed_scan_write_transaction!(
             &mut conn,
             "recover_interrupted_scan_runs",
-            None
+            None,
+            None::<&str>,
+            trace_checkout
         )?;
         let ids = {
             let mut statement = tx.prepare(
@@ -3012,6 +4007,11 @@ fn upsert_file_rows_tx(
         }
         // Observe identity only inside the existing filesystem publication
         // owner. This is read-only and never feeds trigger-state file IDs.
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let physical = with_managed_scan_source_identity_capture(|| {
+            crate::fs_safety::capture_source_object_identity(std::path::Path::new(&file.path)).ok()
+        });
+        #[cfg(not(all(test, feature = "performance-test-tauri")))]
         let physical =
             crate::fs_safety::capture_source_object_identity(std::path::Path::new(&file.path)).ok();
         let source = observe_source_for_root_tx(
@@ -4358,6 +5358,12 @@ mod tests {
             Duration::from_millis(TEST_BUSY_TIMEOUT_MS),
         )
         .expect("verify production timeout then bound the test fixture timeout");
+        #[cfg(feature = "performance-test-tauri")]
+        let trace = ManagedScanWriteTraceGuard::enable_for_database(
+            &db,
+            "issue345-d3-untracked-writer-negative-control",
+            ManagedScanWriteTraceControl::UntrackedWriterNegative,
+        );
         println!(
             "[issue366-d3-test] stage=test_busy_timeout_configured production_default_ms=5000 fixture_busy_timeout_ms={TEST_BUSY_TIMEOUT_MS}"
         );
@@ -4491,6 +5497,13 @@ mod tests {
             },
         )
         .expect("settle the test run");
+        #[cfg(feature = "performance-test-tauri")]
+        {
+            let trace_summary = trace.finish();
+            assert_eq!(trace_summary.busy_count, 1);
+            assert_eq!(trace_summary.busy_without_observed_writer_count, 1);
+            assert_eq!(trace_summary.active_transactions_at_finish, 0);
+        }
         println!(
             "issue345_d3 operation=persist_scan_batch transaction=BEGIN_IMMEDIATE elapsed_ms={} production_default_ms=5000 fixture_busy_timeout_ms={} primary_code={} extended_code={} rollback_atomic=true after_release_success=true",
             elapsed.as_millis(), TEST_BUSY_TIMEOUT_MS, primary_code, extended_code

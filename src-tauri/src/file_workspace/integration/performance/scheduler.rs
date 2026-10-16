@@ -191,6 +191,11 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
 
     let scan_db = Database::open(fixture.state_path().join("managed-scan.sqlite3"))
         .expect("open managed scan performance database");
+    let write_trace = crate::db::scan::ManagedScanWriteTraceGuard::enable_for_database(
+        &scan_db,
+        "w1-11-managed-scan-natural-pressure",
+        crate::db::scan::ManagedScanWriteTraceControl::ScopedPressure,
+    );
     let jobs = crate::scanner::ScanJobManager::default();
     let dedupe_jobs = DedupeJobManager::default();
     let app = tauri::test::mock_app();
@@ -326,6 +331,9 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
         .map(|scan| scan.run_id.clone())
         .collect::<Vec<_>>();
     let cancellation_releases = cancel_and_join_scans(&scan_db, &jobs, &dedupe_jobs, &mut scans);
+    // The guard scopes capture through all worker cancellation/finalization
+    // writes and resets even if the test unwinds before this point.
+    drop(write_trace);
     let original_cancelled_run_status = scan_run_ids.first().and_then(|run_id| {
         scan_db
             .get_scan_run_record(run_id)

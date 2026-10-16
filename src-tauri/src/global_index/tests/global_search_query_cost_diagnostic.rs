@@ -16,11 +16,11 @@ use crate::global_index::repository::{
     GlobalSearchSourceHealthQueryCandidate as SourceHealthCandidate,
 };
 use crate::global_index::search::{
-    diagnostic_key_only_cte_sql, diagnostic_legacy_name_prefix_sql, diagnostic_search_fts,
-    diagnostic_search_fts_sql, diagnostic_search_tier, diagnostic_search_tier_sql,
-    search_global_entries_on_connection, with_key_only_cte_search_candidate,
-    with_key_only_fts_search_candidate, with_legacy_fts_search_candidate,
-    with_legacy_name_prefix_search_candidate,
+    diagnostic_key_only_cte_sql, diagnostic_legacy_fts_sql, diagnostic_legacy_name_prefix_sql,
+    diagnostic_search_fts, diagnostic_search_fts_sql, diagnostic_search_tier,
+    diagnostic_search_tier_sql, search_global_entries_on_connection,
+    with_key_only_cte_search_candidate, with_key_only_fts_search_candidate,
+    with_legacy_fts_search_candidate, with_legacy_name_prefix_search_candidate,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection, StatementStatus};
@@ -3359,7 +3359,7 @@ fn profile_key_only_sql_pair(
 ) -> JsonValue {
     let production_sql = match case.tier {
         "name_prefix" => diagnostic_legacy_name_prefix_sql(),
-        "fts" => diagnostic_search_fts_sql(),
+        "fts" => diagnostic_legacy_fts_sql(),
         _ => diagnostic_search_tier_sql(case.tier),
     };
     let candidate_sql = diagnostic_key_only_cte_sql(case.tier);

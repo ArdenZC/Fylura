@@ -345,7 +345,6 @@ fn key_only_extension_prefix_sql() -> String {
     )
 }
 
-#[cfg(test)]
 fn key_only_fts_sql() -> String {
     key_only_candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
@@ -515,7 +514,7 @@ fn search_fts(
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     #[cfg(test)]
     if legacy_fts_search_candidate_enabled() {
-        let sql = diagnostic_search_fts_sql();
+        let sql = diagnostic_legacy_fts_sql();
         let mut statement = conn.prepare(&sql)?;
         let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
         return collect_candidates(&mut statement, params![fts_query, limit]);
@@ -529,17 +528,7 @@ fn search_fts(
         return collect_candidates(&mut statement, params![fts_query, limit]);
     }
 
-    // SQLite can reorder the ordinary JOINs into volume -> entries -> FTS.
-    // CROSS JOIN is SQLite's documented join-order fence: keep the selective
-    // MATCH cursor outermost, while applying active-volume and stale filters
-    // before ORDER BY/LIMIT so filtered rows never underfill the page.
-    let sql = candidate_sql(
-        "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
-        "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
-        "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
-        "?2",
-    );
+    let sql = key_only_fts_sql();
     let mut statement = conn.prepare(&sql)?;
     let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
     collect_candidates(&mut statement, params![fts_query, limit])
@@ -558,6 +547,11 @@ pub(crate) fn diagnostic_search_fts(
 
 #[cfg(test)]
 pub(crate) fn diagnostic_search_fts_sql() -> String {
+    key_only_fts_sql()
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_legacy_fts_sql() -> String {
     candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
         "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",

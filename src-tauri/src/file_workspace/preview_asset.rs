@@ -435,6 +435,12 @@ impl PreviewAssetRegistry {
     }
 
     #[cfg(test)]
+    pub(crate) fn retained_counts_for_test(&self) -> (usize, usize) {
+        let state = lock(&self.state);
+        (state.records.len(), state.total_bytes)
+    }
+
+    #[cfg(test)]
     pub(crate) fn counts(&self) -> (usize, usize) {
         let mut state = lock(&self.state);
         prune_expired(&mut state);

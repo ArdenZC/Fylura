@@ -528,21 +528,71 @@
         drop(schema39);
 
         let db = Database::open(&db_path).expect("run production schema 39 to 40 migration");
-        let revision = db
-            .begin_watcher_revision(&root_id)
-            .expect("begin managed observation")
-            .expect("managed root is enabled")
-            .watcher_revision;
-        db.apply_watcher_exact_mutations(
-            &root_id,
-            revision,
-            std::slice::from_ref(&source_path),
-            &std::collections::HashSet::new(),
+        let root_text = crate::db::scan::normalize_scan_root_path(&root.to_string_lossy());
+        let admission = db
+            .admit_managed_scan(&crate::db::scan::ScanAdmissionOptions {
+                request: crate::db::scan::ManagedScanRequest {
+                    roots: vec![root_text],
+                    request_key: Some("migrated-legacy-operation-scan".to_string()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit the first post-migration managed scan");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim post-migration managed scan");
+        let entry = InsertFileRequest {
+            id: source_path.clone(),
+            path: source_path.clone(),
+            name: "legacy-before.txt".to_string(),
+            extension: "txt".to_string(),
+            size: fs::metadata(&source)
+                .expect("read file size before managed scan")
+                .len() as i64,
+            mtime,
+            ctime: mtime,
+            is_dir: false,
+            state_code: 0,
+        };
+        let persisted = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &crate::db::scan::ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: entry.size,
+                    warnings: 0,
+                },
+            )
+            .expect("publish migrated physical file through Managed Scan");
+        let reconciled = db
+            .reconcile_missing(
+                &persisted.dto.id,
+                persisted.dto.revision,
+                persisted.root_revision,
+                persisted.session_revision,
+            )
+            .expect("reconcile post-migration managed scan");
+        db.finalize_scan_run(
+            &reconciled.dto.id,
+            reconciled.dto.revision,
+            reconciled.root_revision,
+            reconciled.session_revision,
+            &crate::db::scan::ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: true,
+                rule_recovery_succeeded: false,
+            },
         )
-        .expect("publish migrated physical file through the watcher owner");
-        assert!(db
-            .complete_watcher_revision(&root_id, revision)
-            .expect("complete managed observation"));
+        .expect("finalize post-migration managed scan");
 
         let conn = Connection::open(db.path()).expect("inspect migrated rows");
         let current_id: String = conn
@@ -553,6 +603,15 @@
             )
             .expect("read current neutral row");
         assert_ne!(current_id, source_path);
+        let current_claims: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM library_source_root_claims \
+                 WHERE root_id = ?1 AND observed_path = ?2 AND claim_state = 'present'",
+                params![root_id, source_path],
+                |row| row.get(0),
+            )
+            .expect("read current managed source claim");
+        assert_eq!(current_claims, 1);
         let archived_row: (String, i64) = conn
             .query_row(
                 "SELECT path, is_stale FROM files WHERE id = ?1",

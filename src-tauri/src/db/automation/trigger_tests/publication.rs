@@ -27,8 +27,17 @@ fn actual_watcher_publication_changes_clock_only_for_filesystem_truth() {
             .unwrap()
     };
     let publish = |paths: &[String]| {
-        db.apply_watcher_exact_mutations("root", paths, &std::collections::HashSet::new())
+        let revision = db
+            .begin_watcher_revision("root")
             .unwrap()
+            .expect("enabled watcher root");
+        db.apply_watcher_exact_mutations(
+            "root",
+            revision.watcher_revision,
+            paths,
+            &std::collections::HashSet::new(),
+        )
+        .unwrap()
     };
     publish(std::slice::from_ref(&normalized));
     assert_eq!(clock(), 1);
@@ -89,8 +98,13 @@ fn watcher_detects_replaced_physical_identity_with_equal_size_and_mtime() {
     std::fs::write(&file, b"same").unwrap();
     let path = crate::db::scan::normalize_scan_root_path(&file.to_string_lossy());
     let publish = || {
+        let revision = db
+            .begin_watcher_revision("root")
+            .unwrap()
+            .expect("enabled watcher root");
         db.apply_watcher_exact_mutations(
             "root",
+            revision.watcher_revision,
             std::slice::from_ref(&path),
             &std::collections::HashSet::new(),
         )

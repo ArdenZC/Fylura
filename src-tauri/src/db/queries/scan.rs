@@ -1,6 +1,10 @@
 use super::super::*;
 use super::analysis::{bump_dedupe_authority_tx, invalidate_analysis_findings_for_root_tx};
 use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
+use super::library_identity::{
+    advance_root_epoch_tx, ensure_neutral_source_attribution_tx, mark_root_path_absent_tx,
+    observe_source_for_root_tx, reconcile_root_membership_tx, SourceObservationContext,
+};
 use super::*;
 use crate::ids::new_job_id;
 use crate::path_filter::{generated_dir_variant_bases, ignored_dir_names};
@@ -1283,16 +1287,22 @@ impl Database {
     pub(crate) fn apply_watcher_exact_mutations(
         &self,
         root_id: &str,
+        expected_watcher_revision: i64,
         paths: &[String],
         directory_paths: &HashSet<String>,
     ) -> Result<WatcherMutationResult, DbError> {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let root_path: String = tx.query_row(
-            "SELECT normalized_path FROM scan_roots WHERE id = ?1 AND enabled = 1 AND source_kind = 'file_library'",
+        let (root_path, actual_watcher_revision): (String, i64) = tx.query_row(
+            "SELECT normalized_path, watcher_revision FROM scan_roots WHERE id = ?1 AND enabled = 1 AND source_kind = 'file_library'",
             params![root_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
+        if actual_watcher_revision != expected_watcher_revision {
+            return Err(DbError::Validation(
+                "Watcher revision is stale; source claims were not applied.".to_string(),
+            ));
+        }
         let observed_at = current_unix_seconds();
         let mut files = Vec::new();
         let mut stale_paths = Vec::new();
@@ -1343,12 +1353,53 @@ impl Database {
             }
         }
 
-        let mut filesystem_changed = upsert_file_rows_tx(&tx, &files, observed_at)?;
+        let root_epoch = if !files.is_empty() || !stale_paths.is_empty() {
+            advance_root_epoch_tx(
+                &tx,
+                root_id,
+                "watcher",
+                expected_watcher_revision,
+                observed_at,
+            )?
+        } else {
+            0
+        };
+        let mut filesystem_changed = upsert_file_rows_tx(
+            &tx,
+            &files,
+            observed_at,
+            root_id,
+            root_epoch,
+            "watcher",
+            expected_watcher_revision,
+        )?;
         for path in &stale_paths {
+            if !directory_paths.contains(path) {
+                let absent_claims = mark_root_path_absent_tx(
+                    &tx,
+                    root_id,
+                    path,
+                    root_epoch,
+                    "watcher",
+                    expected_watcher_revision,
+                    observed_at,
+                )?;
+                filesystem_changed |= absent_claims > 0;
+            }
             for candidate in path_lookup_candidates(path, path) {
                 filesystem_changed |= tx.execute(
-                    "UPDATE files SET is_stale = 1 WHERE is_stale = 0 AND (id = ?1 OR path = ?1)",
-                    params![candidate],
+                    r#"
+                    UPDATE files AS file_row SET is_stale = 1
+                    WHERE file_row.is_stale = 0
+                      AND (file_row.id = ?1 OR file_row.path = ?1)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM library_source_root_claims AS claim
+                          WHERE claim.observed_path = file_row.path
+                            AND claim.root_id != ?2
+                            AND claim.claim_state = 'present'
+                      )
+                    "#,
+                    params![candidate, root_id],
                 )? > 0;
             }
         }
@@ -1498,7 +1549,14 @@ impl Database {
         )?;
 
         let observed_at = current_unix_seconds();
-        let filesystem_changed = upsert_scan_files_tx(&tx, run_id, batch.entries, observed_at)?;
+        let filesystem_changed = upsert_scan_files_tx(
+            &tx,
+            run_id,
+            batch.entries,
+            observed_at,
+            &record.dto.scan_root_id,
+            expected_root_revision,
+        )?;
         insert_scan_errors_tx(&tx, run_id, batch.errors, observed_at)?;
 
         let metadata_errors = batch
@@ -1634,8 +1692,10 @@ impl Database {
             .dto
             .started_at
             .ok_or_else(|| DbError::Validation("Scan run has no start timestamp.".to_string()))?;
+        let now = current_unix_seconds();
         let watcher_stable =
             record.current_watcher_revision == record.dto.watcher_revision_at_start;
+        let mut root_membership_changed = false;
         let changed = if watcher_stable {
             let root = &record.dto.root_path;
             let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
@@ -1645,7 +1705,7 @@ impl Database {
                 .iter()
                 .enumerate()
                 .map(|(index, _)| {
-                    let parameter_index = 7 + index;
+                    let parameter_index = 8 + index;
                     format!("LOWER(f.path) NOT LIKE LOWER(?{parameter_index}) ESCAPE '~'")
                 })
                 .collect::<Vec<_>>()
@@ -1657,9 +1717,26 @@ impl Database {
                 SqlValue::Text(root_backslash),
                 SqlValue::Text(root_backslash_descendant),
                 SqlValue::Text(run_id.to_string()),
+                SqlValue::Text(record.dto.scan_root_id.clone()),
             ];
             values.extend(ignored_patterns.into_iter().map(SqlValue::Text));
-            tx.execute(
+            let root_epoch = advance_root_epoch_tx(
+                &tx,
+                &record.dto.scan_root_id,
+                "scan",
+                record.dto.generation,
+                now,
+            )?;
+            let claims_changed = reconcile_root_membership_tx(
+                &tx,
+                &record.dto.scan_root_id,
+                run_id,
+                root_epoch,
+                record.dto.generation,
+                now,
+            )?;
+            root_membership_changed = claims_changed > 0;
+            let stale_changed = tx.execute(
                 &format!(
                     r#"
                     UPDATE files AS f
@@ -1675,18 +1752,26 @@ impl Database {
                           WHERE seen.run_id = ?6
                             AND (seen.file_id = f.id OR seen.observed_path = f.path)
                       )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM library_source_root_claims AS claim
+                          WHERE claim.observed_path = f.path
+                            AND claim.root_id != ?7
+                            AND claim.claim_state = 'present'
+                      )
                       AND {ignored_clauses}
                     "#
                 ),
                 params_from_iter(values),
-            )?
+            )?;
+            stale_changed
         } else {
             0
         };
-        let now = current_unix_seconds();
-        if changed > 0 {
+        if changed > 0 || root_membership_changed {
             bump_root_change_revision(&tx, &record.dto.scan_root_id)?;
-            invalidate_stale_files_in_transaction(&tx)?;
+            if changed > 0 {
+                invalidate_stale_files_in_transaction(&tx)?;
+            }
             super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
         let run_changed = tx.execute(
@@ -2838,6 +2923,9 @@ fn root_revision_owned_after_watcher_change(
 fn watcher_path_within_root(root: &str, path: &str) -> bool {
     let root = root_identity_key(&normalize_scan_root_path(root));
     let path = root_identity_key(&normalize_scan_root_path(path));
+    if root == "/" {
+        return path.starts_with('/');
+    }
     path == root
         || path
             .strip_prefix(&root)
@@ -2862,6 +2950,10 @@ fn upsert_file_rows_tx(
     tx: &Transaction<'_>,
     files: &[InsertFileRequest],
     observed_at: i64,
+    root_id: &str,
+    root_epoch: i64,
+    owner_kind: &str,
+    owner_revision: i64,
 ) -> Result<bool, DbError> {
     if files.is_empty() {
         return Ok(false);
@@ -2902,7 +2994,96 @@ fn upsert_file_rows_tx(
     )?;
     let mut invalidations = Vec::new();
     let mut filesystem_changed = false;
-    for file in files {
+    for observed_file in files {
+        // `InsertFileRequest.id` is normally the path. Once a legacy row has
+        // been parked, the live row has an opaque SourceUID-based id instead.
+        // Resolve by path first so repeated Scan/Watcher observations update
+        // that live row rather than mistaking the parked legacy id for it.
+        let row_at_path = tx
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1",
+                params![observed_file.path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let mut file = observed_file.clone();
+        if let Some(id) = row_at_path.as_ref() {
+            file.id = id.clone();
+        }
+        // Observe identity only inside the existing filesystem publication
+        // owner. This is read-only and never feeds trigger-state file IDs.
+        let physical =
+            crate::fs_safety::capture_source_object_identity(std::path::Path::new(&file.path)).ok();
+        let source = observe_source_for_root_tx(
+            tx,
+            &file,
+            physical.as_ref(),
+            SourceObservationContext {
+                root_id,
+                root_epoch,
+                owner_kind,
+                owner_revision,
+                legacy_row_exists: row_at_path.is_some(),
+                observed_at,
+            },
+        )?;
+
+        if source.block_legacy_row {
+            let verified = source.verification_state == "verified";
+            let reusable_unverified_neutral = if !verified {
+                if let Some(previous_id) = row_at_path
+                    .as_deref()
+                    .filter(|id| neutral_source_row_matches_source(id, &source.source_uid, false))
+                {
+                    !neutral_source_row_has_attached_facts_tx(tx, previous_id)?
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            let neutral_id = if reusable_unverified_neutral {
+                row_at_path
+                    .as_ref()
+                    .expect("reusable neutral row is present")
+                    .clone()
+            } else {
+                neutral_source_file_id(&source.source_uid, root_epoch, verified)
+            };
+            let already_neutral = row_at_path.as_deref() == Some(neutral_id.as_str());
+            if let Some(previous_id) = row_at_path.as_deref().filter(|_| !already_neutral) {
+                let stale_changed = tx.execute(
+                    "UPDATE files SET is_stale = 1, suggested_action = 'Keep', requires_confirmation = 1 WHERE id = ?1 AND is_stale = 0",
+                    params![previous_id],
+                )? > 0;
+                if stale_changed {
+                    invalidate_file_in_transaction(tx, previous_id, "stale")?;
+                }
+                let previous_path: String = tx.query_row(
+                    "SELECT path FROM files WHERE id = ?1",
+                    params![previous_id],
+                    |row| row.get(0),
+                )?;
+                let archive_path = legacy_unassigned_archive_path(tx, previous_id, &previous_path)?;
+                tx.execute(
+                    "UPDATE files SET path = ?2, is_stale = 1, content_hash = '', filesystem_observation_key = NULL WHERE id = ?1",
+                    params![previous_id, archive_path],
+                )?;
+                filesystem_changed = true;
+            }
+            file.id = neutral_id;
+            ensure_neutral_source_attribution_tx(
+                tx,
+                &file.id,
+                &file.path,
+                &source.source_uid,
+                physical.as_ref(),
+                source.verification_state == "verified",
+                observed_at,
+            )?;
+            filesystem_changed |= source.changed || row_at_path.is_none();
+        }
+
         let previous = tx
             .query_row(
                 "SELECT path, size, mtime, is_dir, is_stale, ctime, filesystem_observation_key FROM files WHERE id = ?1",
@@ -2920,10 +3101,6 @@ fn upsert_file_rows_tx(
                 },
             )
             .optional()?;
-        // Observe identity only inside the existing filesystem publication
-        // owner. This is read-only and never feeds trigger-state file IDs.
-        let physical =
-            crate::fs_safety::capture_physical_identity(std::path::Path::new(&file.path)).ok();
         let identity = if file.is_dir || physical.is_some() {
             // Retain the last filesystem publication independently of metadata
             // rows later updated by existing user operation owners. Only this
@@ -2934,7 +3111,9 @@ fn upsert_file_rows_tx(
                 file.mtime,
                 file.ctime,
                 file.is_dir,
-                physical.map(|identity| (identity.physical_key, identity.modified_ns)),
+                physical
+                    .as_ref()
+                    .map(|identity| (identity.physical_key.as_deref(), identity.modified_ns)),
             ))?;
             Some(blake3::hash(&bytes).to_hex().to_string())
         } else {
@@ -2969,6 +3148,14 @@ fn upsert_file_rows_tx(
             CLASSIFICATION_STATUS_UNCLASSIFIED,
             observed_at,
         ])?;
+        if source.block_legacy_row && file.id.starts_with("zen-canvas-source:") {
+            // Neutral rows remain browseable without inheriting old metadata
+            // or gaining an operation suggestion while source proof is absent.
+            tx.execute(
+                "UPDATE files SET purpose = 'Unknown', lifecycle = 'Inbox', context = '', risk_level = 'Normal', suggested_action = 'Keep', suggested_target_path = '', confidence = 0.0, classification_reason = 'Legacy facts remain unassigned to this current filesystem entry.', matched_rules = '[]', requires_confirmation = 1, classification_status = ?2 WHERE id = ?1",
+                params![file.id, CLASSIFICATION_STATUS_UNCLASSIFIED],
+            )?;
+        }
         if let Some(identity) = identity {
             tx.execute(
                 "UPDATE files SET filesystem_observation_key=?2 WHERE id=?1 AND filesystem_observation_key IS NOT ?2",
@@ -3008,16 +3195,114 @@ fn upsert_file_rows_tx(
     Ok(filesystem_changed)
 }
 
+fn neutral_source_file_id(source_uid: &str, root_epoch: i64, verified: bool) -> String {
+    if verified {
+        format!("zen-canvas-source:{source_uid}")
+    } else {
+        // Unverified entries may be reused only while they have no attached
+        // facts. If facts were added, a new per-observation id preserves them
+        // on the parked row and gives the current object a clean browse row.
+        format!("zen-canvas-source:{source_uid}:epoch:{root_epoch}")
+    }
+}
+
+fn neutral_source_row_matches_source(file_id: &str, source_uid: &str, verified: bool) -> bool {
+    let source_file_id = format!("zen-canvas-source:{source_uid}");
+    if verified {
+        file_id == source_file_id
+    } else {
+        file_id
+            .strip_prefix(&format!("{source_file_id}:epoch:"))
+            .is_some_and(|epoch| epoch.parse::<i64>().is_ok())
+    }
+}
+
+fn neutral_source_row_has_attached_facts_tx(
+    tx: &Transaction<'_>,
+    file_id: &str,
+) -> Result<bool, DbError> {
+    tx.query_row(
+        r#"
+        SELECT
+            file.classification_status <> ?2
+            OR file.purpose <> 'Unknown'
+            OR file.lifecycle <> 'Inbox'
+            OR file.context <> ''
+            OR file.risk_level <> 'Normal'
+            OR file.suggested_action <> 'Keep'
+            OR file.suggested_target_path <> ''
+            OR (file.suggested_name <> '' AND file.suggested_name <> file.name)
+            OR file.confidence <> 0.0
+            OR file.classification_reason <> 'Legacy facts remain unassigned to this current filesystem entry.'
+            OR file.matched_rules <> '[]'
+            OR file.requires_confirmation <> 1
+            OR file.last_classified_at IS NOT NULL
+            OR file.content_hash <> ''
+            OR EXISTS (SELECT 1 FROM file_user_tags WHERE file_id = file.id)
+            OR EXISTS (SELECT 1 FROM file_fingerprints WHERE file_id = file.id)
+            OR EXISTS (SELECT 1 FROM duplicate_group_members WHERE file_id = file.id)
+        FROM files AS file
+        WHERE file.id = ?1
+        "#,
+        params![file_id, CLASSIFICATION_STATUS_UNCLASSIFIED],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|value| value.unwrap_or(false))
+    .map_err(DbError::from)
+}
+
+fn legacy_unassigned_archive_path(
+    tx: &Transaction<'_>,
+    file_id: &str,
+    original_path: &str,
+) -> Result<String, DbError> {
+    let digest = blake3::hash(format!("{file_id}\0{original_path}").as_bytes())
+        .to_hex()
+        .to_string();
+    let mut suffix = 0_u32;
+    loop {
+        let candidate = if suffix == 0 {
+            format!("{}{digest}", super::LEGACY_UNASSIGNED_ARCHIVE_PATH_PREFIX)
+        } else {
+            format!(
+                "{}{digest}-{suffix}",
+                super::LEGACY_UNASSIGNED_ARCHIVE_PATH_PREFIX
+            )
+        };
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM files WHERE path = ?1)",
+            params![candidate],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Ok(candidate);
+        }
+        suffix = suffix.saturating_add(1);
+    }
+}
+
 fn upsert_scan_files_tx(
     tx: &Transaction<'_>,
     run_id: &str,
     files: &[InsertFileRequest],
     observed_at: i64,
+    root_id: &str,
+    owner_revision: i64,
 ) -> Result<bool, DbError> {
     if files.is_empty() {
         return Ok(false);
     }
-    let filesystem_changed = upsert_file_rows_tx(tx, files, observed_at)?;
+    let root_epoch = advance_root_epoch_tx(tx, root_id, "scan", owner_revision, observed_at)?;
+    let filesystem_changed = upsert_file_rows_tx(
+        tx,
+        files,
+        observed_at,
+        root_id,
+        root_epoch,
+        "scan",
+        owner_revision,
+    )?;
 
     let mut seen_statement = tx.prepare(
         r#"
@@ -3619,6 +3904,47 @@ mod tests {
         let mut settings = crate::settings::get_app_settings(db).expect("read app settings");
         settings.default_scan_folders = roots;
         crate::settings::save_app_settings(db, &settings).expect("persist app settings");
+    }
+
+    fn sync_watcher_roots(db: &Database, paths: &[PathBuf]) -> HashMap<String, String> {
+        let roots = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| crate::settings::ScanRootSetting {
+                id: format!("source-identity-root-{index}"),
+                path: normalize_scan_root_path(&path.to_string_lossy()),
+                label: format!("Source identity root {index}"),
+                enabled: true,
+                created_at: "2026-10-15T00:00:00.000Z".to_string(),
+            })
+            .collect::<Vec<_>>();
+        persist_default_scan_folders(db, roots.clone());
+        db.sync_file_library_watcher_roots(&roots)
+            .expect("sync source identity roots");
+        let configs = db
+            .list_watcher_root_configs()
+            .expect("list source identity roots");
+        paths
+            .iter()
+            .map(|path| {
+                let normalized = normalize_scan_root_path(&path.to_string_lossy());
+                let root_id = configs
+                    .iter()
+                    .find(|config| config.path == normalized)
+                    .expect("configured source identity root")
+                    .id
+                    .clone();
+                (normalized, root_id)
+            })
+            .collect()
+    }
+
+    fn watcher_root_id(db: &Database, path: &Path) -> String {
+        let normalized = normalize_scan_root_path(&path.to_string_lossy());
+        sync_watcher_roots(db, std::slice::from_ref(&path.to_path_buf()))
+            .get(&normalized)
+            .expect("configured watcher root")
+            .clone()
     }
 
     struct HeldManagedScanWriter {
@@ -4784,26 +5110,28 @@ mod tests {
     #[test]
     fn scanner_publication_clock_ignores_same_filesystem_state_and_counts_size_mtime() {
         let db = test_db("automation-publication-clock");
-        let root = format!("/tmp/zen-canvas-trigger-scan-{}", new_job_id("root"));
+        let root =
+            std::env::temp_dir().join(format!("zen-canvas-trigger-scan-{}", new_job_id("root")));
+        fs::create_dir_all(&root).expect("create scanner clock fixture root");
+        let path = root.join("file.txt");
+        fs::write(&path, b"same").expect("create scanner clock fixture file");
+        let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
+        let normalized_root = normalize_scan_root_path(&root.to_string_lossy());
         let admission = db
-            .admit_managed_scan(&request(&root, "automation-clock"))
+            .admit_managed_scan(&request(&normalized_root, "automation-clock"))
             .unwrap();
         let mut claimed = db.claim_queued_scan_run(&admission.runs[0].id).unwrap();
-        let mut entry = InsertFileRequest {
-            id: format!("{root}/file.txt"),
-            path: format!("{root}/file.txt"),
-            name: "file.txt".into(),
-            extension: "txt".into(),
-            size: 4,
-            mtime: 4,
-            ctime: 4,
-            is_dir: false,
-            state_code: 0,
-        };
-        for expected in [1, 1, 2] {
-            if expected == 2 {
-                entry.size = 8;
-                entry.mtime = 5;
+        let metadata = fs::metadata(&path).expect("read scanner clock fixture metadata");
+        let mut entry = insert_request_from_metadata(normalized_path.clone(), &path, &metadata);
+        let mut first_observation_revision = None;
+        for observation_index in 0..3 {
+            if observation_index == 2 {
+                fs::write(&path, b"changed size").expect("change fixture filesystem size");
+                let metadata = fs::metadata(&path).expect("read changed fixture metadata");
+                entry = insert_request_from_metadata(normalized_path.clone(), &path, &metadata);
+                // Preserve an explicit mtime delta even on filesystems whose
+                // timestamp precision is coarser than this test's runtime.
+                entry.mtime = entry.mtime.saturating_add(1);
             }
             claimed = db
                 .persist_scan_batch(
@@ -4821,19 +5149,24 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(
-                db.conn()
-                    .unwrap()
-                    .query_row(
-                        "SELECT library_change_revision FROM scan_roots WHERE id=?1",
-                        [&claimed.dto.scan_root_id],
-                        |r| r.get::<_, i64>(0)
-                    )
-                    .unwrap(),
-                expected
-            );
+            let current_revision = db
+                .conn()
+                .unwrap()
+                .query_row(
+                    "SELECT library_change_revision FROM scan_roots WHERE id=?1",
+                    [&claimed.dto.scan_root_id],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap();
+            match observation_index {
+                0 => first_observation_revision = Some(current_revision),
+                1 => assert_eq!(current_revision, first_observation_revision.unwrap()),
+                2 => assert_eq!(current_revision, first_observation_revision.unwrap() + 1),
+                _ => unreachable!(),
+            }
             entry.state_code = 1; // Classification alone is not filesystem truth.
         }
+        fs::remove_dir_all(root).expect("remove scanner clock fixture");
     }
 
     #[test]
@@ -5673,6 +6006,7 @@ mod tests {
         let result = db
             .apply_watcher_exact_mutations(
                 &root_id,
+                batch.watcher_revision,
                 std::slice::from_ref(&normalized_file),
                 &HashSet::new(),
             )
@@ -5706,6 +6040,628 @@ mod tests {
         assert_eq!(generation, 0);
         drop(conn);
         fs::remove_dir_all(root_path).expect("remove watcher fixture");
+    }
+
+    #[test]
+    fn schema39_tagged_file_stays_browseable_after_upgrade_and_real_scan() {
+        let db = test_db("schema39-library-compatibility");
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-schema39-library-{}",
+            new_job_id("root")
+        ));
+        fs::create_dir_all(&root).expect("create migration root");
+        let path = root.join("legacy.txt");
+        fs::write(&path, b"unchanged legacy object").expect("write legacy file");
+        // Keep the pre-existing Schema39 root in the active File Library
+        // scope so the test exercises the same reader used by users.
+        watcher_root_id(&db, &root);
+        let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
+        let metadata = fs::metadata(&path).expect("read legacy metadata");
+        let legacy_file = insert_request_from_metadata(normalized_path.clone(), &path, &metadata);
+        db.insert_file(legacy_file)
+            .expect("insert Schema39 legacy file");
+        let tag = db
+            .create_user_tag(crate::db::CreateUserTagRequest {
+                display_name: "Legacy tag remains unassigned".to_string(),
+                color_token: "blue".to_string(),
+            })
+            .expect("create legacy tag");
+        db.mutate_file_user_tags(crate::db::MutateFileUserTagsRequest {
+            selection: crate::db::LibrarySelectionV1::Explicit {
+                file_ids: vec![normalized_path.clone()],
+            },
+            tag_ids: vec![tag.id.clone()],
+            operation: crate::db::UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("tag Schema39 legacy file");
+
+        let database_path = db.path().to_path_buf();
+        {
+            let conn = db.conn().expect("open Schema39 fixture connection");
+            crate::db::drop_source_writer_schema_for_test(&conn);
+            conn.execute_batch("PRAGMA user_version = 39;")
+                .expect("restore the fixture to Schema39 shape");
+        }
+        drop(db);
+
+        // Reopening executes the production 39 -> 40 migration path.
+        let db = Database::open(&database_path).expect("upgrade Schema39 database");
+        let root_text = normalize_scan_root_path(&root.to_string_lossy());
+        let admission = db
+            .admit_managed_scan(&request(&root_text, "schema39-first-scan"))
+            .expect("admit first post-upgrade scan");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim first post-upgrade scan");
+        let entry = insert_request_from_metadata(
+            normalized_path.clone(),
+            &path,
+            &fs::metadata(&path).expect("read unchanged file metadata"),
+        );
+        let persisted = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: entry.size,
+                    warnings: 0,
+                },
+            )
+            .expect("publish the real upgraded file observation");
+        let current_file_id: String = db
+            .conn()
+            .expect("inspect current upgraded file")
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("current upgraded file row");
+
+        let query = || {
+            db.query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
+                version: 2,
+                request_id: "schema39-upgrade-visible-file".to_string(),
+                query: crate::db::queries::library::FileQuerySpecV2 {
+                    scope: crate::db::queries::library::FileLibraryScopeV2::AllEnabledRoots,
+                    text: None,
+                    filters: Default::default(),
+                    sort: Default::default(),
+                },
+                page_size: 50,
+                cursor: None,
+            })
+            .expect("query the active legacy File Library reader")
+        };
+
+        // Repeating the same Scan observation must update the current neutral
+        // row in place and must not make the quarantined legacy facts visible.
+        let repeated = db
+            .persist_scan_batch(
+                &persisted.dto.id,
+                persisted.dto.revision,
+                persisted.root_revision,
+                persisted.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: entry.size,
+                    warnings: 0,
+                },
+            )
+            .expect("repeat the upgraded file observation");
+        let reconciled = db
+            .reconcile_missing(
+                &repeated.dto.id,
+                repeated.dto.revision,
+                repeated.root_revision,
+                repeated.session_revision,
+            )
+            .expect("reconcile the repeated upgraded scan");
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+        db.finalize_scan_run(
+            &reconciled.dto.id,
+            reconciled.dto.revision,
+            reconciled.root_revision,
+            reconciled.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: true,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finish the reconciled compatibility scan");
+        let first_query = query();
+        let first_visible = first_query
+            .files
+            .iter()
+            .find(|file| file.id == current_file_id)
+            .expect("unchanged upgraded file remains visible");
+        assert_ne!(first_visible.id, normalized_path);
+        assert_eq!(first_visible.name, "legacy.txt");
+        assert_eq!(first_visible.tag_count, 0);
+        assert!(first_visible.tags.is_empty());
+        assert!(first_visible.requires_review);
+        let second_query = query();
+        let visible_rows = second_query
+            .files
+            .iter()
+            .filter(|file| file.id == current_file_id)
+            .collect::<Vec<_>>();
+        assert_eq!(visible_rows.len(), 1);
+        assert_eq!(visible_rows[0].id, first_visible.id);
+        assert_eq!(visible_rows[0].tag_count, 0);
+        assert!(visible_rows[0].tags.is_empty());
+        assert!(repeated.dto.revision > persisted.dto.revision);
+
+        let conn = db.conn().expect("inspect retained legacy facts");
+        let (legacy_stale, legacy_tag_count): (i64, i64) = conn
+            .query_row(
+                "SELECT is_stale, (SELECT COUNT(*) FROM file_user_tags WHERE file_id = files.id AND tag_id = ?2) FROM files WHERE id = ?1",
+                params![normalized_path, tag.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read quarantined Schema39 facts");
+        assert_eq!(legacy_stale, 1);
+        assert_eq!(legacy_tag_count, 1);
+        let unresolved_legacy_claims: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM library_legacy_attributions WHERE legacy_file_id = ?1 AND claim_state = 'unresolved' AND source_uid IS NULL",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("check legacy attribution stayed unresolved");
+        assert_eq!(unresolved_legacy_claims, 1);
+        drop(conn);
+        fs::remove_dir_all(root).expect("remove Schema39 migration fixture");
+    }
+
+    #[test]
+    fn source_uid_replacement_keeps_old_tag_and_does_not_attach_it_to_new_object() {
+        let db = test_db("source-replacement-keeps-tag");
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-source-replacement-{}",
+            new_job_id("root")
+        ));
+        fs::create_dir_all(&root).expect("create root");
+        let path = root.join("kept.txt");
+        let moved_old_object = root.join("old-object-preserved.txt");
+        fs::write(&path, b"first physical object").expect("write original object");
+        let root_id = watcher_root_id(&db, &root);
+        let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
+
+        let initial_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin initial watcher revision")
+            .expect("enabled initial root")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &root_id,
+            initial_revision,
+            std::slice::from_ref(&normalized_path),
+            &HashSet::new(),
+        )
+        .expect("publish original object");
+        assert!(db
+            .complete_watcher_revision(&root_id, initial_revision)
+            .expect("complete initial watcher revision"));
+        // Establish the ordinary managed-scan lifecycle before testing the
+        // File Library reader. Watcher publication alone leaves a freshly
+        // registered root unknown, which is intentionally not browseable.
+        let root_text = normalize_scan_root_path(&root.to_string_lossy());
+        let admission = db
+            .admit_managed_scan(&request(&root_text, "replacement-initial-scan"))
+            .expect("admit initial managed scan");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim initial managed scan");
+        let entry = insert_request_from_metadata(
+            normalized_path.clone(),
+            &path,
+            &fs::metadata(&path).expect("read original metadata"),
+        );
+        let persisted = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: entry.size,
+                    warnings: 0,
+                },
+            )
+            .expect("publish original through Managed Scan");
+        let reconciled = db
+            .reconcile_missing(
+                &persisted.dto.id,
+                persisted.dto.revision,
+                persisted.root_revision,
+                persisted.session_revision,
+            )
+            .expect("reconcile initial managed scan");
+        db.finalize_scan_run(
+            &reconciled.dto.id,
+            reconciled.dto.revision,
+            reconciled.root_revision,
+            reconciled.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: true,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize initial managed scan");
+        let original_file_id: String = db
+            .conn()
+            .expect("inspect original library row")
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("original library row");
+        let original_uid: String = db
+            .conn()
+            .expect("open original uid connection")
+            .query_row(
+                "SELECT source_uid FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2 AND claim_state = 'present'",
+                params![root_id, normalized_path],
+                |row| row.get(0),
+            )
+            .expect("original source uid");
+        let tag = db
+            .create_user_tag(crate::db::CreateUserTagRequest {
+                display_name: "Keep with original object".to_string(),
+                color_token: "blue".to_string(),
+            })
+            .expect("create retained tag");
+        let tagged = db
+            .mutate_file_user_tags(crate::db::MutateFileUserTagsRequest {
+                selection: crate::db::LibrarySelectionV1::Explicit {
+                    file_ids: vec![original_file_id.clone()],
+                },
+                tag_ids: vec![tag.id.clone()],
+                operation: crate::db::UserTagMutationOperation::Add,
+                expected_count: Some(1),
+            })
+            .expect("tag original object");
+        assert_eq!(tagged.applied_count, 1);
+
+        fs::rename(&path, &moved_old_object).expect("preserve original physical object");
+        fs::write(&path, b"replacement physical object").expect("write replacement object");
+        let replacement_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin replacement watcher revision")
+            .expect("enabled replacement root")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &root_id,
+            replacement_revision,
+            std::slice::from_ref(&normalized_path),
+            &HashSet::new(),
+        )
+        .expect("observe replacement object");
+        assert!(db
+            .complete_watcher_revision(&root_id, replacement_revision)
+            .expect("complete replacement watcher revision"));
+
+        let repeated_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin repeated replacement revision")
+            .expect("enabled repeated replacement root")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &root_id,
+            repeated_revision,
+            std::slice::from_ref(&normalized_path),
+            &HashSet::new(),
+        )
+        .expect("repeat replacement observation");
+        assert!(db
+            .complete_watcher_revision(&root_id, repeated_revision)
+            .expect("complete repeated watcher revision"));
+
+        let current_replacement_id: String = db
+            .conn()
+            .expect("inspect current replacement row")
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("current replacement row");
+
+        let library = db
+            .query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
+                version: 2,
+                request_id: "replacement-neutral-row".to_string(),
+                query: crate::db::queries::library::FileQuerySpecV2 {
+                    scope: crate::db::queries::library::FileLibraryScopeV2::AllEnabledRoots,
+                    text: None,
+                    filters: Default::default(),
+                    sort: Default::default(),
+                },
+                page_size: 50,
+                cursor: None,
+            })
+            .expect("query replacement through the active File Library reader");
+        let visible_replacement = library
+            .files
+            .iter()
+            .find(|file| file.id == current_replacement_id)
+            .expect("replacement remains browseable after repeated observation");
+        assert_eq!(visible_replacement.name, "kept.txt");
+        assert_eq!(visible_replacement.tag_count, 0);
+        assert!(visible_replacement.tags.is_empty());
+        assert!(visible_replacement.requires_review);
+
+        let conn = db.conn().expect("inspect replacement state");
+        let (stale, retained_tag_count): (i64, i64) = conn
+            .query_row(
+                "SELECT file.is_stale, (SELECT COUNT(*) FROM file_user_tags WHERE file_id = file.id AND tag_id = ?2) FROM files AS file WHERE file.id = ?1",
+                params![original_file_id, tag.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read old user facts");
+        let replacement_uid: String = conn
+            .query_row(
+                "SELECT source_uid FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2 AND claim_state = 'present'",
+                params![root_id, normalized_path],
+                |row| row.get(0),
+            )
+            .expect("replacement source uid");
+        let replacement_attribution_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM library_legacy_attributions WHERE legacy_file_id = ?1 AND source_uid = ?2 AND claim_state IN ('verified','user_confirmed')",
+                params![normalized_path, replacement_uid],
+                |row| row.get(0),
+            )
+            .expect("count replacement facts attribution");
+        assert_eq!(stale, 1, "legacy row must remain non-actionable");
+        assert_eq!(retained_tag_count, 1, "old tag remains on the old row");
+        assert_ne!(
+            replacement_uid, original_uid,
+            "replacement receives a new UID"
+        );
+        assert_eq!(
+            replacement_attribution_count, 0,
+            "old tag is not attributed to replacement"
+        );
+        let neutral_id: String = conn
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("read current neutral row id");
+        assert_eq!(neutral_id, visible_replacement.id);
+        let (suggested_action, requires_confirmation, classification_status): (
+            String,
+            i64,
+            String,
+        ) = conn
+            .query_row(
+                "SELECT suggested_action, requires_confirmation, classification_status FROM files WHERE id = ?1",
+                params![neutral_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read neutral row authority defaults");
+        assert_eq!(suggested_action, "Keep");
+        assert_eq!(requires_confirmation, 1);
+        assert_eq!(classification_status, CLASSIFICATION_STATUS_UNCLASSIFIED);
+        drop(conn);
+        fs::remove_dir_all(root).expect("remove replacement fixture");
+    }
+
+    #[test]
+    fn source_uid_same_object_rename_keeps_the_physical_uid() {
+        let db = test_db("source-same-object-rename");
+        let root =
+            std::env::temp_dir().join(format!("zen-canvas-source-rename-{}", new_job_id("root")));
+        fs::create_dir_all(&root).expect("create root");
+        let old_path = root.join("before.txt");
+        let new_path = root.join("after.txt");
+        fs::write(&old_path, b"same physical object").expect("write rename fixture");
+        let root_id = watcher_root_id(&db, &root);
+        let normalized_old = normalize_scan_root_path(&old_path.to_string_lossy());
+        let normalized_new = normalize_scan_root_path(&new_path.to_string_lossy());
+        let first_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin initial rename revision")
+            .expect("enabled initial rename root")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &root_id,
+            first_revision,
+            std::slice::from_ref(&normalized_old),
+            &HashSet::new(),
+        )
+        .expect("publish original rename path");
+        let original_uid: String = db
+            .conn()
+            .expect("open original rename uid connection")
+            .query_row(
+                "SELECT source_uid FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2 AND claim_state = 'present'",
+                params![root_id, normalized_old],
+                |row| row.get(0),
+            )
+            .expect("read original rename uid");
+
+        fs::rename(&old_path, &new_path).expect("rename same physical object");
+        let rename_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin rename watcher revision")
+            .expect("enabled rename root")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &root_id,
+            rename_revision,
+            &[normalized_old.clone(), normalized_new.clone()],
+            &HashSet::new(),
+        )
+        .expect("publish both rename paths");
+
+        let conn = db.conn().expect("inspect rename claims");
+        let (new_uid, new_state): (String, String) = conn
+            .query_row(
+                "SELECT source_uid, claim_state FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2",
+                params![root_id, normalized_new],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read new rename claim");
+        let old_state: String = conn
+            .query_row(
+                "SELECT claim_state FROM library_source_root_claims WHERE root_id = ?1 AND source_uid = ?2 AND observed_path = ?3",
+                params![root_id, original_uid, normalized_old],
+                |row| row.get(0),
+            )
+            .expect("read old rename claim");
+        assert_eq!(new_uid, original_uid, "same object keeps its SourceUID");
+        assert_eq!(new_state, "present");
+        assert_eq!(old_state, "absent");
+        drop(conn);
+        fs::remove_dir_all(root).expect("remove rename fixture");
+    }
+
+    #[test]
+    fn overlapping_root_absence_does_not_stale_a_surviving_root_claim() {
+        let db = test_db("source-overlapping-roots");
+        let parent =
+            std::env::temp_dir().join(format!("zen-canvas-source-overlap-{}", new_job_id("root")));
+        let child = parent.join("child");
+        fs::create_dir_all(&child).expect("create overlapping roots");
+        let path = child.join("shared.txt");
+        fs::write(&path, b"shared path in two roots").expect("write shared file");
+        let roots = sync_watcher_roots(&db, &[parent.clone(), child.clone()]);
+        let parent_id = roots
+            .get(&normalize_scan_root_path(&parent.to_string_lossy()))
+            .expect("parent root")
+            .clone();
+        let child_id = roots
+            .get(&normalize_scan_root_path(&child.to_string_lossy()))
+            .expect("child root")
+            .clone();
+        let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
+        for root_id in [&parent_id, &child_id] {
+            let revision = db
+                .begin_watcher_revision(root_id)
+                .expect("begin overlapping-root observation")
+                .expect("enabled overlapping root")
+                .watcher_revision;
+            db.apply_watcher_exact_mutations(
+                root_id,
+                revision,
+                std::slice::from_ref(&normalized_path),
+                &HashSet::new(),
+            )
+            .expect("observe shared path in root");
+        }
+        fs::remove_file(&path).expect("remove file from both roots");
+        let parent_revision = db
+            .begin_watcher_revision(&parent_id)
+            .expect("begin parent absence revision")
+            .expect("enabled parent root")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &parent_id,
+            parent_revision,
+            std::slice::from_ref(&normalized_path),
+            &HashSet::new(),
+        )
+        .expect("record parent-only absence");
+
+        let conn = db.conn().expect("inspect overlapping root claims");
+        let file_stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("read shared file visibility");
+        let child_claim: String = conn
+            .query_row(
+                "SELECT claim_state FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2",
+                params![child_id, normalized_path],
+                |row| row.get(0),
+            )
+            .expect("read surviving child claim");
+        assert_eq!(
+            file_stale, 0,
+            "one root's absence cannot hide the surviving claim"
+        );
+        assert_eq!(child_claim, "present");
+        drop(conn);
+        fs::remove_dir_all(parent).expect("remove overlapping roots fixture");
+    }
+
+    #[test]
+    fn stale_watcher_revision_cannot_publish_source_claims() {
+        let db = test_db("source-stale-watcher-revision");
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-source-stale-watcher-{}",
+            new_job_id("root")
+        ));
+        fs::create_dir_all(&root).expect("create stale watcher root");
+        let path = root.join("event.txt");
+        fs::write(&path, b"stale watcher event").expect("write stale watcher file");
+        let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
+        let root_id = watcher_root_id(&db, &root);
+        let stale_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin stale event revision")
+            .expect("enabled stale root")
+            .watcher_revision;
+        let current_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("advance watcher revision")
+            .expect("enabled current root")
+            .watcher_revision;
+        assert!(current_revision > stale_revision);
+        assert!(db
+            .apply_watcher_exact_mutations(
+                &root_id,
+                stale_revision,
+                std::slice::from_ref(&normalized_path),
+                &HashSet::new(),
+            )
+            .is_err());
+        let conn = db.conn().expect("inspect stale watcher result");
+        let stale_claim_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2",
+                params![root_id, normalized_path],
+                |row| row.get(0),
+            )
+            .expect("count stale claims");
+        let file_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE path = ?1",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("count stale indexed rows");
+        assert_eq!(stale_claim_count, 0);
+        assert_eq!(file_count, 0);
+        drop(conn);
+        fs::remove_dir_all(root).expect("remove stale watcher fixture");
     }
 
     #[test]
@@ -5782,6 +6738,7 @@ mod tests {
         let mutation = db
             .apply_watcher_exact_mutations(
                 &old_root_id,
+                batch.watcher_revision,
                 std::slice::from_ref(&old_directory),
                 &directory_paths,
             )
@@ -6059,6 +7016,7 @@ mod tests {
         .expect("insert legacy file");
         drop(db);
         let conn = Connection::open(&path).expect("open fixture");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             DROP TABLE scan_seen;
@@ -6095,7 +7053,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 39);
+        assert_eq!(version, 40);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));

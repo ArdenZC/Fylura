@@ -1,6 +1,11 @@
 use super::super::*;
 use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
 use super::library::{current_library_revision, selection_where, LibrarySelectionV1};
+use super::library_identity::{
+    advance_root_epoch_tx, has_source_uid_attribution_tx, managed_root_ids_for_path_tx,
+    mark_root_path_absent_tx, observe_source_for_root_tx, verify_legacy_source_identity_tx,
+    SourceObservationContext,
+};
 use super::*;
 use crate::file_naming::{
     normalize_proposed_file_name, split_filename_from_target_directory, ExtensionChangePolicy,
@@ -16,6 +21,72 @@ use std::{
     time::Instant,
 };
 use sysinfo::Disks;
+
+fn fence_source_root_for_user_mutation_tx(
+    tx: &Transaction<'_>,
+    root_id: &str,
+    observed_at: i64,
+) -> Result<i64, DbError> {
+    let changed = tx.execute(
+        r#"
+        UPDATE scan_roots
+        SET revision = revision + 1,
+            watcher_revision = watcher_revision + 1,
+            library_change_revision = library_change_revision + 1,
+            needs_reconciliation = 1,
+            health_status = CASE
+                WHEN health_status IN ('missing','permission_required') THEN health_status
+                ELSE 'reconciliation_required'
+            END,
+            updated_at = ?1
+        WHERE id = ?2 AND source_kind = 'file_library'
+        "#,
+        params![observed_at, root_id],
+    )?;
+    if changed != 1 {
+        return Err(DbError::Validation(format!(
+            "Source identity mutation lost its managed root: {root_id}"
+        )));
+    }
+    tx.query_row(
+        "SELECT revision FROM scan_roots WHERE id = ?1",
+        params![root_id],
+        |row| row.get(0),
+    )
+    .map_err(DbError::from)
+}
+
+fn resolve_insert_file_row_id(
+    tx: &Transaction<'_>,
+    file: &InsertFileRequest,
+) -> Result<String, DbError> {
+    let existing_identity = tx
+        .query_row(
+            "SELECT path FROM files WHERE id = ?1",
+            params![file.id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(archived_path) = existing_identity else {
+        return Ok(file.id.clone());
+    };
+    if !super::is_legacy_unassigned_archive_path(&archived_path) {
+        return Ok(file.id.clone());
+    }
+
+    let active_path_id = tx
+        .query_row(
+            "SELECT id FROM files WHERE path = ?1 AND is_stale = 0 ORDER BY id LIMIT 1",
+            params![file.path],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    active_path_id.ok_or_else(|| {
+        DbError::Validation(
+            "Path upsert cannot revive a parked legacy row without a current active row; a managed scan must establish the current source identity first.".to_string(),
+        )
+    })
+}
 
 #[derive(Debug, Clone)]
 struct SearchMatchSql {
@@ -73,7 +144,6 @@ impl Database {
         if files.is_empty() {
             return Ok(());
         }
-
         let last_seen_at = current_unix_seconds();
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
@@ -114,10 +184,12 @@ impl Database {
             )?;
 
             for file in files {
+                let mut resolved_file = file.clone();
+                resolved_file.id = resolve_insert_file_row_id(&tx, file)?;
                 let previous = tx
                     .query_row(
                         "SELECT path, size, mtime, is_dir, is_stale FROM files WHERE id = ?1",
-                        params![file.id],
+                        params![resolved_file.id],
                         |row| {
                             Ok((
                                 row.get::<_, String>(0)?,
@@ -129,31 +201,45 @@ impl Database {
                         },
                     )
                     .optional()?;
-                let file_type = infer_file_type(&file.extension, file.is_dir);
+                if previous.is_some() && has_source_uid_attribution_tx(&tx, &resolved_file.id)? {
+                    let physical = crate::fs_safety::capture_source_object_identity(Path::new(
+                        &resolved_file.path,
+                    ))
+                    .ok();
+                    if verify_legacy_source_identity_tx(&tx, &resolved_file.id, physical.as_ref())?
+                        .is_none()
+                    {
+                        return Err(DbError::Validation(format!(
+                            "Path upsert refused for SourceUID-attributed row {}: physical identity is missing, changed, or unverified; Managed Scan/Watcher reconciliation is required.",
+                            resolved_file.id
+                        )));
+                    }
+                }
+                let file_type = infer_file_type(&resolved_file.extension, resolved_file.is_dir);
                 stmt.execute(params![
-                    file.id,
-                    file.path,
-                    file.name,
-                    file.extension,
-                    file.size,
-                    file.mtime,
-                    file.ctime,
-                    bool_to_i64(file.is_dir),
-                    file.state_code,
+                    resolved_file.id,
+                    resolved_file.path,
+                    resolved_file.name,
+                    resolved_file.extension,
+                    resolved_file.size,
+                    resolved_file.mtime,
+                    resolved_file.ctime,
+                    bool_to_i64(resolved_file.is_dir),
+                    resolved_file.state_code,
                     file_type,
-                    file.name,
+                    resolved_file.name,
                     CLASSIFICATION_STATUS_UNCLASSIFIED,
                     last_seen_at
                 ])?;
                 if let Some((old_path, old_size, old_mtime, old_is_dir, old_is_stale)) = previous {
-                    let changed = old_path != file.path
-                        || old_size != file.size
-                        || old_mtime != file.mtime
-                        || old_is_dir != bool_to_i64(file.is_dir);
+                    let changed = old_path != resolved_file.path
+                        || old_size != resolved_file.size
+                        || old_mtime != resolved_file.mtime
+                        || old_is_dir != bool_to_i64(resolved_file.is_dir);
                     if changed {
                         invalidate_file_in_transaction(
                             &tx,
-                            &file.id,
+                            &resolved_file.id,
                             if old_is_stale != 0 {
                                 "missing"
                             } else {
@@ -287,7 +373,8 @@ impl Database {
         new_name: &str,
     ) -> Result<bool, DbError> {
         self.update_file_record_after_path_change(
-            path_lookup_candidates(file_id, source_path),
+            path_lookup_candidates(source_path, source_path),
+            vec![file_id.to_string()],
             target_path,
             new_name,
         )
@@ -307,6 +394,7 @@ impl Database {
                 log.target_path.as_str(),
                 log.source_path.as_str(),
             ]),
+            Vec::new(),
             &log.path_before,
             &log.name_before,
         )
@@ -361,9 +449,11 @@ impl Database {
             .and_then(system_time_to_unix_seconds)
             .unwrap_or(mtime);
         let is_dir = metadata.is_dir();
+        let restored_at = current_unix_seconds();
         let target_candidates = path_lookup_candidates(&log.path_before, &normalized_target);
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
+        let physical = crate::fs_safety::capture_source_object_identity(&target).ok();
         let (target_row_id, source_row_id) =
             Self::resolve_restore_index_rows(&tx, log, &target_candidates)?;
         if let Some(target_row_id) = target_row_id.as_deref() {
@@ -392,6 +482,103 @@ impl Database {
                 None,
             ),
         };
+
+        let prior_source_uid = current_id
+            .as_deref()
+            .map(|file_id| verify_legacy_source_identity_tx(&tx, file_id, physical.as_ref()))
+            .transpose()?
+            .flatten();
+        let old_path = normalize_path_for_db(Path::new(&log.path_after));
+        let old_claim_roots = {
+            let mut statement = tx.prepare(
+                r#"
+                SELECT DISTINCT claim.root_id
+                FROM library_source_root_claims AS claim
+                WHERE claim.observed_path = ?1
+                  AND claim.claim_state IN ('present','unverified')
+                ORDER BY claim.root_id
+                "#,
+            )?;
+            let rows = statement
+                .query_map(params![old_path], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        let target_roots = managed_root_ids_for_path_tx(&tx, &normalized_target)?;
+        let source_tracking_required = !old_claim_roots.is_empty() || !target_roots.is_empty();
+        if source_tracking_required && current_id.is_some() && prior_source_uid.is_none() {
+            return Err(DbError::Validation(
+                "Restore source identity is unverified; legacy facts were retained for owner review."
+                    .to_string(),
+            ));
+        }
+        let mut root_epochs = HashMap::<String, (i64, i64)>::new();
+        for root_id in &old_claim_roots {
+            let owner_revision = fence_source_root_for_user_mutation_tx(&tx, root_id, restored_at)?;
+            let epoch =
+                advance_root_epoch_tx(&tx, root_id, "restore", owner_revision, restored_at)?;
+            root_epochs.insert(root_id.clone(), (epoch, owner_revision));
+            if old_path != normalized_target {
+                mark_root_path_absent_tx(
+                    &tx,
+                    root_id,
+                    &old_path,
+                    epoch,
+                    "restore",
+                    owner_revision,
+                    restored_at,
+                )?;
+            }
+        }
+        let restore_observation = InsertFileRequest {
+            id: current_id
+                .clone()
+                .unwrap_or_else(|| normalized_target.clone()),
+            path: normalized_target.clone(),
+            name: name.clone(),
+            extension: extension.clone(),
+            size,
+            mtime,
+            ctime,
+            is_dir,
+            state_code: 0,
+        };
+        let mut restored_source_uid = prior_source_uid.clone();
+        for (root_id, _) in target_roots {
+            let owner_revision = if let Some((_, revision)) = root_epochs.get(&root_id) {
+                *revision
+            } else {
+                let revision = fence_source_root_for_user_mutation_tx(&tx, &root_id, restored_at)?;
+                let epoch = advance_root_epoch_tx(&tx, &root_id, "restore", revision, restored_at)?;
+                root_epochs.insert(root_id.clone(), (epoch, revision));
+                revision
+            };
+            let root_epoch = root_epochs[&root_id].0;
+            let outcome = observe_source_for_root_tx(
+                &tx,
+                &restore_observation,
+                physical.as_ref(),
+                SourceObservationContext {
+                    root_id: &root_id,
+                    root_epoch,
+                    owner_kind: "restore",
+                    owner_revision,
+                    legacy_row_exists: current_id.is_some(),
+                    observed_at: restored_at,
+                },
+            )?;
+            if outcome.block_legacy_row
+                || prior_source_uid
+                    .as_deref()
+                    .is_some_and(|uid| uid != outcome.source_uid)
+            {
+                return Err(DbError::Validation(
+                    "Restore source identity changed; legacy facts were retained for owner review."
+                        .to_string(),
+                ));
+            }
+            restored_source_uid = Some(outcome.source_uid);
+        }
         if let Some(watcher_target_id) = watcher_target_id {
             let deleted = tx.execute(
                 "DELETE FROM files WHERE id = ?1",
@@ -405,24 +592,33 @@ impl Database {
             }
         }
         let file_type = infer_file_type(&extension, is_dir);
-        if let Some(current_id) = current_id {
+        let restored_file_id = current_id
+            .as_deref()
+            .filter(|file_id| is_neutral_source_file_id(file_id))
+            .map(str::to_string)
+            .unwrap_or_else(|| normalized_target.clone());
+        if let Some(current_id) = current_id.as_deref() {
+            // A compatibility row may keep a SourceUID-based id while its
+            // path changes. Preserve that id so parked legacy rows whose
+            // primary key is still the old path cannot capture its facts.
             let updated = tx.execute(
                 r#"
                 UPDATE files
                 SET id = ?1,
-                    path = ?1,
-                    name = ?2,
-                    extension = ?3,
-                    size = ?4,
-                    mtime = ?5,
-                    ctime = ?6,
-                    is_dir = ?7,
-                    file_type = ?8,
+                    path = ?2,
+                    name = ?3,
+                    extension = ?4,
+                    size = ?5,
+                    mtime = ?6,
+                    ctime = ?7,
+                    is_dir = ?8,
+                    file_type = ?9,
                     is_stale = 0,
-                    last_seen_at = ?9
-                WHERE id = ?10
+                    last_seen_at = ?10
+                WHERE id = ?11
                 "#,
                 params![
+                    restored_file_id,
                     normalized_target,
                     name,
                     extension,
@@ -504,6 +700,28 @@ impl Database {
                 "restore journal row disappeared during finalization: {}",
                 log.id
             )));
+        }
+        if let (Some(current_id), Some(source_uid)) =
+            (current_id.as_deref(), restored_source_uid.as_deref())
+        {
+            tx.execute(
+                r#"
+                UPDATE library_legacy_attributions
+                SET legacy_file_id = ?1,
+                    legacy_path_snapshot = ?2,
+                    decision_revision = decision_revision + 1,
+                    updated_at = ?3
+                WHERE legacy_file_id = ?4 AND source_uid = ?5
+                  AND claim_state IN ('verified','user_confirmed')
+                "#,
+                params![
+                    restored_file_id,
+                    normalized_target,
+                    restored_at,
+                    current_id,
+                    source_uid
+                ],
+            )?;
         }
         super::library::bump_library_query_revision_in_transaction(&tx)?;
         tx.commit()?;
@@ -772,7 +990,9 @@ impl Database {
     ) -> Result<Option<String>, DbError> {
         let mut ids = Vec::new();
         for candidate in candidates {
-            let mut stmt = tx.prepare("SELECT id FROM files WHERE id = ?1 OR path = ?1")?;
+            let mut stmt = tx.prepare(
+                "SELECT id FROM files WHERE (id = ?1 OR path = ?1) AND (path = ?1 OR is_stale = 0)",
+            )?;
             let rows = stmt.query_map(params![candidate], |row| row.get::<_, String>(0))?;
             for row in rows {
                 let id = row?;
@@ -792,7 +1012,8 @@ impl Database {
 
     fn update_file_record_after_path_change(
         &self,
-        lookup_candidates: Vec<String>,
+        path_candidates: Vec<String>,
+        identity_candidates: Vec<String>,
         target_path: &str,
         new_name: &str,
     ) -> Result<bool, DbError> {
@@ -811,16 +1032,121 @@ impl Database {
             .ok()
             .and_then(system_time_to_unix_seconds)
             .unwrap_or_else(current_unix_seconds);
+        let ctime = metadata
+            .created()
+            .ok()
+            .and_then(system_time_to_unix_seconds)
+            .unwrap_or(mtime);
         let is_dir = metadata.is_dir();
+        let last_seen_at = current_unix_seconds();
         let target_candidates = path_lookup_candidates(target_path, &normalized_target);
 
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
-        let current_id = find_file_row_id(&tx, &lookup_candidates)?;
+        let current_id = find_active_file_row_id(&tx, &path_candidates, &identity_candidates)?;
         let Some(current_id) = current_id else {
             tx.commit()?;
             return Ok(false);
         };
+        let physical = crate::fs_safety::capture_source_object_identity(&target).ok();
+        let old_path: String = tx.query_row(
+            "SELECT path FROM files WHERE id = ?1",
+            params![current_id],
+            |row| row.get(0),
+        )?;
+        let verified_source_uid =
+            verify_legacy_source_identity_tx(&tx, &current_id, physical.as_ref())?;
+        let mut root_epochs = HashMap::<String, (i64, i64)>::new();
+        let old_claim_roots = {
+            let mut statement = tx.prepare(
+                r#"
+                SELECT DISTINCT claim.root_id
+                FROM library_source_root_claims AS claim
+                JOIN scan_roots AS root ON root.id = claim.root_id
+                WHERE claim.observed_path = ?1
+                  AND claim.claim_state IN ('present','unverified')
+                ORDER BY claim.root_id
+                "#,
+            )?;
+            let rows = statement
+                .query_map(params![old_path], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        let target_roots = managed_root_ids_for_path_tx(&tx, &normalized_target)?;
+        let source_tracking_required = !old_claim_roots.is_empty() || !target_roots.is_empty();
+        for root_id in &old_claim_roots {
+            let owner_revision =
+                fence_source_root_for_user_mutation_tx(&tx, root_id, last_seen_at)?;
+            let epoch =
+                advance_root_epoch_tx(&tx, root_id, "operation", owner_revision, last_seen_at)?;
+            root_epochs.insert(root_id.clone(), (epoch, owner_revision));
+            if old_path != normalized_target {
+                mark_root_path_absent_tx(
+                    &tx,
+                    root_id,
+                    &old_path,
+                    epoch,
+                    "operation",
+                    owner_revision,
+                    last_seen_at,
+                )?;
+            }
+        }
+
+        let mut source_uid = verified_source_uid.clone();
+        let mut source_write_blocked = source_tracking_required && verified_source_uid.is_none();
+        let observation = InsertFileRequest {
+            id: current_id.clone(),
+            path: normalized_target.clone(),
+            name: name.clone(),
+            extension: extension.clone(),
+            size,
+            mtime,
+            ctime,
+            is_dir,
+            state_code: 0,
+        };
+        for (root_id, _) in target_roots {
+            let owner_revision = if let Some((_, revision)) = root_epochs.get(&root_id) {
+                *revision
+            } else {
+                let revision = fence_source_root_for_user_mutation_tx(&tx, &root_id, last_seen_at)?;
+                let epoch =
+                    advance_root_epoch_tx(&tx, &root_id, "operation", revision, last_seen_at)?;
+                root_epochs.insert(root_id.clone(), (epoch, revision));
+                revision
+            };
+            let root_epoch = root_epochs[&root_id].0;
+            let outcome = observe_source_for_root_tx(
+                &tx,
+                &observation,
+                physical.as_ref(),
+                SourceObservationContext {
+                    root_id: &root_id,
+                    root_epoch,
+                    owner_kind: "operation",
+                    owner_revision,
+                    legacy_row_exists: true,
+                    observed_at: last_seen_at,
+                },
+            )?;
+            source_write_blocked |= outcome.block_legacy_row
+                || verified_source_uid.as_deref() != Some(outcome.source_uid.as_str());
+            source_uid = Some(outcome.source_uid);
+        }
+        if source_write_blocked {
+            tx.execute(
+                "UPDATE files SET is_stale = 1 WHERE id = ?1",
+                params![current_id],
+            )?;
+            invalidate_file_in_transaction(&tx, &current_id, "stale")?;
+            super::library::bump_library_query_revision_in_transaction(&tx)?;
+            tx.commit()?;
+            return Err(DbError::Validation(
+                "Source identity changed or is unverified after the operation; legacy facts remain non-actionable for owner review.".to_string(),
+            ));
+        }
 
         // A successful move/rename changes the indexed identity.  Remove the
         // old fingerprint and membership before changing files.id so the
@@ -842,33 +1168,42 @@ impl Database {
                 DELETE FROM files
                 WHERE (id = ?1 OR path = ?1)
                   AND id <> ?2
+                  AND NOT (is_stale = 1 AND path <> ?1)
                 "#,
                 params![candidate, current_id],
             )?;
         }
 
+        let target_file_id = if is_neutral_source_file_id(&current_id) {
+            current_id.clone()
+        } else {
+            normalized_target.clone()
+        };
         let updated = tx.execute(
             r#"
             UPDATE files
             SET id = ?1,
-                path = ?1,
-                name = ?2,
-                extension = ?3,
-                size = ?4,
-                mtime = ?5,
-                is_dir = ?6,
+                path = ?2,
+                name = ?3,
+                extension = ?4,
+                size = ?5,
+                mtime = ?6,
+                ctime = ?7,
+                is_dir = ?8,
                 suggested_action = 'Keep',
                 requires_confirmation = 0,
                 is_stale = 0,
-                last_seen_at = ?7
-            WHERE id = ?8
+                last_seen_at = ?9
+            WHERE id = ?10
             "#,
             params![
+                target_file_id,
                 normalized_target,
                 name,
                 extension,
                 size,
                 mtime,
+                ctime,
                 bool_to_i64(is_dir),
                 current_unix_seconds(),
                 current_id
@@ -876,6 +1211,26 @@ impl Database {
         )?;
 
         if updated > 0 {
+            if let Some(source_uid) = source_uid.as_deref() {
+                tx.execute(
+                    r#"
+                    UPDATE library_legacy_attributions
+                    SET legacy_file_id = ?1,
+                        legacy_path_snapshot = ?2,
+                        decision_revision = decision_revision + 1,
+                        updated_at = ?3
+                    WHERE legacy_file_id = ?4 AND source_uid = ?5
+                      AND claim_state IN ('verified','user_confirmed')
+                    "#,
+                    params![
+                        target_file_id,
+                        normalized_target,
+                        last_seen_at,
+                        current_id,
+                        source_uid
+                    ],
+                )?;
+            }
             super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
         tx.commit()?;
@@ -2321,6 +2676,10 @@ fn restore_index_request(path: &Path, preferred_name: &str) -> Result<InsertFile
         is_dir: metadata.is_dir(),
         state_code: 0,
     })
+}
+
+fn is_neutral_source_file_id(file_id: &str) -> bool {
+    file_id.starts_with("zen-canvas-source:")
 }
 
 fn indexed_row_matches_restore_request(

@@ -7,6 +7,7 @@ fn schema36_to37_preserves_populated_manual_history_and_reopens() {
         let path = f.db().path().with_file_name("legacy36.sqlite3");
         let db = Database::open(&path).unwrap();
         let conn = db.conn().unwrap();
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch("DROP TABLE automation_trigger_state; DROP TABLE automation_runs; DROP TABLE automation_intents; ALTER TABLE scan_roots DROP COLUMN library_change_revision; ALTER TABLE files DROP COLUMN filesystem_observation_key;").unwrap();
         crate::db::schema_automation::ensure_automation_schema(&conn).unwrap();
         conn.execute_batch("PRAGMA user_version=36; INSERT INTO app_settings(key,value) VALUES('migration-preserved','unchanged');").unwrap();
@@ -22,7 +23,7 @@ fn schema36_to37_preserves_populated_manual_history_and_reopens() {
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            39
+            40
         );
         assert_eq!(
             db.conn()

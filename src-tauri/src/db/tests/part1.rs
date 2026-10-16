@@ -318,6 +318,7 @@
         }
         {
             let conn = Connection::open(&path).expect("open database to simulate v11");
+            crate::db::drop_source_writer_schema_for_test(&conn);
             conn.execute_batch(
                     r#"
                         DROP TRIGGER IF EXISTS files_ai;
@@ -379,7 +380,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            39
+            40
         );
         assert_eq!(
             conn.query_row(
@@ -465,12 +466,12 @@
     }
 
     #[test]
-    fn database_rejects_schema_40_as_a_future_version() {
+    fn database_rejects_schema_41_as_a_future_version() {
         let path = test_db_path();
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 40;")
+        conn.execute_batch("PRAGMA user_version = 41;")
             .expect("set future version");
         drop(conn);
 
@@ -501,6 +502,7 @@
         drop(db);
 
         let conn = Connection::open(&path).expect("open schema 30 fixture");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             DROP TABLE file_user_tags;
@@ -523,7 +525,7 @@
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("schema version");
-        assert_eq!(version, 39);
+        assert_eq!(version, 40);
         for table in [
             "user_tags",
             "file_user_tags",
@@ -599,6 +601,7 @@
         drop(db);
 
         let conn = Connection::open(&path).expect("open schema fixture");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             DROP TABLE organization_plan_items;
@@ -616,7 +619,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("schema version"),
-            39
+            40
         );
         for table in ["organization_plans", "organization_plan_items"] {
             assert_eq!(
@@ -657,6 +660,7 @@
         let db = Database::open(&path).expect("create current database");
         drop(db);
         let conn = Connection::open(&path).expect("open schema fixture");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             DROP TABLE organization_plan_items;
@@ -738,6 +742,7 @@
                 |row| row.get(0),
             )
             .expect("operation schema before");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             DROP TABLE rule_proposals;
@@ -756,7 +761,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("schema version"),
-            39
+            40
         );
         assert_eq!(
             conn.query_row(
@@ -822,6 +827,7 @@
         let db = Database::open(&path).expect("create current database");
         drop(db);
         let conn = Connection::open(&path).expect("open schema 32 conflict fixture");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             DROP TABLE rule_proposals;
@@ -895,6 +901,7 @@
         drop(db);
 
         let conn = Connection::open(&path).expect("open schema 30 conflict fixture");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             DROP TABLE file_user_tags;
@@ -963,6 +970,7 @@
         drop(db);
 
         let conn = Connection::open(&path).expect("open schema 28 fixture");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             ALTER TABLE scan_roots DROP COLUMN watcher_last_error_message;
@@ -1017,7 +1025,7 @@
             )
             .expect("dedupe backfill count");
 
-        assert_eq!(version, 39);
+        assert_eq!(version, 40);
         assert_eq!(ledger_tables, 4);
         assert_eq!(watcher_defaults, (0, 0));
         assert_eq!(rule_recovery_required, 0);
@@ -1036,6 +1044,7 @@
             [],
         )
         .expect("seed schema 28 scan ledger");
+        crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
             DROP VIEW IF EXISTS active_duplicate_membership;

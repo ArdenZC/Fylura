@@ -3063,19 +3063,6 @@ mod tests {
         let old_path = root_path.join("old.txt");
         fs::write(&old_path, "old").expect("create file before scan");
         let old_path_text = old_path.to_string_lossy().replace('\\', "/");
-        db.insert_file(InsertFileRequest {
-            id: old_path_text.clone(),
-            path: old_path_text.clone(),
-            name: "old.txt".to_string(),
-            extension: "txt".to_string(),
-            size: 3,
-            mtime: 1,
-            ctime: 1,
-            is_dir: false,
-            state_code: 0,
-        })
-        .expect("seed file ledger");
-
         let first_admission = db
             .admit_managed_scan(&ScanAdmissionOptions {
                 request: ManagedScanRequest {

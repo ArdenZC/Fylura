@@ -7,7 +7,8 @@ use std::{
 };
 use zen_canvas_tauri::db::{
     CreateUserTagRequest, Database, FileLibraryScopeV2, FileQueryFiltersV2, FileQueryRequestV2,
-    FileQuerySpecV2, LibrarySelectionV1, MutateFileUserTagsRequest, UserTagMutationOperation,
+    FileQuerySpecV2, InsertFileRequest, LibrarySelectionV1, MutateFileUserTagsRequest,
+    UserTagMutationOperation,
 };
 use zen_canvas_tauri::file_ops::OperationLogDto;
 use zen_canvas_tauri::global_index::{GlobalEntryInput, GlobalVolume, PROVIDER_WINDOWS_MFT_USN};
@@ -58,7 +59,31 @@ fn identity_foundation_object_names() -> [&'static str; 8] {
     ]
 }
 
+fn source_writer_object_names() -> [&'static str; 6] {
+    [
+        "library_source_root_claims",
+        "library_root_epoch_state",
+        "idx_library_source_physical_verified",
+        "idx_library_source_root_claims_path_state",
+        "idx_library_source_root_claims_root_path",
+        "idx_library_source_root_claims_source_state",
+    ]
+}
+
+fn drop_source_writer_schema(conn: &Connection) {
+    conn.execute_batch(
+        "DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
+         DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
+         DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
+         DROP INDEX IF EXISTS idx_library_source_physical_verified;
+         DROP TABLE IF EXISTS library_source_root_claims;
+         DROP TABLE IF EXISTS library_root_epoch_state;",
+    )
+    .expect("remove schema 40 source writer objects from historical fixture");
+}
+
 fn drop_identity_foundation(conn: &Connection, user_version: i32) {
+    drop_source_writer_schema(conn);
     conn.execute_batch(&format!(
         "DROP TABLE IF EXISTS library_source_observations;
          DROP TABLE IF EXISTS library_legacy_attributions;
@@ -133,9 +158,12 @@ fn full_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Optio
 
 fn legacy_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Option<String>)> {
     let p0_names = identity_foundation_object_names();
+    let source_writer_names = source_writer_object_names();
     full_schema_snapshot(conn)
         .into_iter()
-        .filter(|(_, name, _, _)| !p0_names.contains(&name.as_str()))
+        .filter(|(_, name, _, _)| {
+            !p0_names.contains(&name.as_str()) && !source_writer_names.contains(&name.as_str())
+        })
         .collect()
 }
 
@@ -325,7 +353,14 @@ fn downgrade_current_fixture_to_schema_16(path: &PathBuf) {
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_file_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_quick_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN identity_status;
-        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 16;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
+        DROP INDEX IF EXISTS idx_library_source_physical_verified;
+        DROP TABLE IF EXISTS library_source_root_claims;
+        DROP TABLE IF EXISTS library_root_epoch_state;
+        PRAGMA user_version = 16;
         "#,
     )
     .expect("downgrade to schema 16");
@@ -398,6 +433,7 @@ fn downgrade_current_fixture_to_schema_20_or_21(path: &PathBuf, version: i32) {
     }
 
     conn.execute_batch("DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; ").expect("remove future Automation schema from legacy fixture");
+    drop_source_writer_schema(&conn);
     conn.execute(&format!("PRAGMA user_version = {version}"), [])
         .expect("downgrade journal fixture");
 }
@@ -567,6 +603,12 @@ fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
     conn.execute_batch(
         r#"
         ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_volume_id;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
+        DROP INDEX IF EXISTS idx_library_source_physical_verified;
+        DROP TABLE IF EXISTS library_source_root_claims;
+        DROP TABLE IF EXISTS library_root_epoch_state;
         DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 34;
         "#,
     )
@@ -620,7 +662,7 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema 35 version");
-    assert_eq!(version, 39);
+    assert_eq!(version, 40);
     assert!(column_names(&conn, "cleanup_trash_items")
         .contains(&"source_platform_volume_id".to_string()));
 
@@ -834,7 +876,7 @@ fn schema_34_cleanup_identity_migration_rolls_back_column_and_rows_together() {
 }
 
 #[test]
-fn schema_39_reopen_is_idempotent_and_future_schema_40_is_rejected() {
+fn schema_40_reopen_is_idempotent_and_future_schema_41_is_rejected() {
     let path = test_db_path("td014-idempotent");
     downgrade_current_fixture_to_schema_34(&path);
     let db = Database::open(&path).expect("migrate schema 34 fixture to schema 35");
@@ -847,7 +889,7 @@ fn schema_39_reopen_is_idempotent_and_future_schema_40_is_rejected() {
     let second = Connection::open(&path).expect("reopen migrated schema 35 fixture");
     assert_eq!(cleanup_identity_snapshot(&second), before);
     second
-        .execute_batch("PRAGMA user_version = 40;")
+        .execute_batch("PRAGMA user_version = 41;")
         .expect("set future schema version");
     drop(second);
     let error = match Database::open(&path) {
@@ -890,7 +932,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 39);
+    assert_eq!(version, 40);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -958,7 +1000,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 39);
+        assert_eq!(migrated_version, 40);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -1004,6 +1046,7 @@ fn schema_20_normalizes_invalid_historical_rule_domains_in_transaction() {
     .expect("seed invalid rule domains");
     conn.execute_batch("DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 19;")
         .expect("downgrade enum fixture");
+    drop_identity_foundation(&conn, 19);
     drop(conn);
 
     Database::open(&path).expect("run enum migration");
@@ -1051,6 +1094,7 @@ fn performance_100k_files_schema_28_to_29_and_wal_reader() {
         .expect("seed migration file");
     }
     tx.commit().expect("commit 100k file fixture");
+    drop_source_writer_schema(&conn);
     conn.execute_batch(
         r#"
         DROP VIEW active_duplicate_membership;
@@ -1116,6 +1160,7 @@ fn performance_100k_files_schema_29_to_30_analysis_and_wal_reader() {
         .expect("seed analysis migration file");
     }
     tx.commit().expect("commit 100k analysis migration files");
+    drop_source_writer_schema(&conn);
     conn.execute_batch(
         r#"
         DROP TABLE analysis_finding_evidence;
@@ -1181,7 +1226,14 @@ fn downgrade_current_fixture_to_schema_22(path: &PathBuf) {
         ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_file_id;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_volume_id;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_full_hash;
-        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 22;
+        DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
+        DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
+        DROP INDEX IF EXISTS idx_library_source_physical_verified;
+        DROP TABLE IF EXISTS library_source_root_claims;
+        DROP TABLE IF EXISTS library_root_epoch_state;
+        PRAGMA user_version = 22;
         "#,
     )
     .expect("downgrade to schema 22");
@@ -1198,7 +1250,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        39
+        40
     );
     assert_schema_23_journal_columns(&conn);
 
@@ -1269,23 +1321,24 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
 }
 
 #[test]
-fn p0_t01_fresh_and_repeated_open_create_only_dormant_identity_foundation() {
+fn p0_t01_fresh_and_repeated_open_keep_identity_authority_dormant() {
     let path = test_db_path("p0-t01-fresh");
-    let db = Database::open(&path).expect("create fresh schema 39 database");
+    let db = Database::open(&path).expect("create fresh schema 40 database");
     db.init().expect("repeat initialization is idempotent");
     drop(db);
 
-    let conn = Connection::open(&path).expect("inspect fresh schema 39 database");
+    let conn = Connection::open(&path).expect("inspect fresh schema 40 database");
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 39);
+    assert_eq!(version, 40);
     let tables: Vec<String> = {
         let mut statement = conn
             .prepare(
                 "SELECT name FROM sqlite_schema WHERE type = 'table' \
                  AND name IN ('library_source_incarnations', 'library_source_observations', \
-                              'library_legacy_attributions', 'library_generation_authority') \
+                              'library_legacy_attributions', 'library_generation_authority', \
+                              'library_root_epoch_state', 'library_source_root_claims') \
                  ORDER BY name",
             )
             .expect("prepare P0 table list");
@@ -1299,6 +1352,10 @@ fn p0_t01_fresh_and_repeated_open_create_only_dormant_identity_foundation() {
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
+    expected_tables.extend([
+        "library_root_epoch_state".to_string(),
+        "library_source_root_claims".to_string(),
+    ]);
     expected_tables.sort();
     assert_eq!(tables, expected_tables);
 
@@ -1308,12 +1365,17 @@ fn p0_t01_fresh_and_repeated_open_create_only_dormant_identity_foundation() {
              ('library_source_incarnations', 'library_source_observations', \
               'idx_library_observations_legacy_id', 'idx_library_observations_path', \
               'library_legacy_attributions', 'idx_library_attributions_legacy', \
-              'idx_library_attributions_source', 'library_generation_authority')",
+              'idx_library_attributions_source', 'library_generation_authority', \
+              'library_root_epoch_state', 'library_source_root_claims', \
+              'idx_library_source_root_claims_source_state', \
+              'idx_library_source_root_claims_root_path', \
+              'idx_library_source_root_claims_path_state', \
+              'idx_library_source_physical_verified')",
             [],
             |row| row.get(0),
         )
         .expect("count P0 schema objects");
-    assert_eq!(object_count, 8);
+    assert_eq!(object_count, 14);
 
     let authority: (i64, String, i64, Option<String>, i64) = conn
         .query_row(
@@ -1384,8 +1446,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     drop(conn);
 
     let started = Instant::now();
-    let migrated =
-        Database::open(&path).expect("migrate schema 37 fixture through schema 38 to 39");
+    let migrated = Database::open(&path).expect("migrate schema 37 fixture through schema 40");
     let migration_elapsed = started.elapsed();
     drop(migrated);
 
@@ -1393,7 +1454,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read migrated version");
-    assert_eq!(version, 39);
+    assert_eq!(version, 40);
     for (table, expected) in before_rows {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");
     }
@@ -1482,13 +1543,13 @@ fn p0_t03_schema_36_migrates_to_38_without_rewriting_files() {
     .expect("construct schema 36 automation tables");
     drop(conn);
 
-    let db = Database::open(&path).expect("migrate schema 36 through 38 to 39");
+    let db = Database::open(&path).expect("migrate schema 36 through schema 40");
     drop(db);
     let conn = Connection::open(&path).expect("inspect migrated schema 36 fixture");
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated version"),
-        39
+        40
     );
     assert_eq!(table_snapshot(&conn, "files"), before_file);
     assert_eq!(fts_rows_matching(&conn, "v36preserved"), before_fts);
@@ -1648,9 +1709,9 @@ fn p0_r1_schema_38_reopen_rejects_case_changed_check_without_mutation() {
 }
 
 #[test]
-fn schema_38_to_39_adds_operation_fencing_without_changing_global_index_data() {
-    let path = test_db_path("schema38-to-39-global-index");
-    let db = Database::open(&path).expect("create schema 39 fixture");
+fn schema_38_to_40_adds_source_and_operation_fencing_without_changing_global_index_data() {
+    let path = test_db_path("schema38-to-40-global-index");
+    let db = Database::open(&path).expect("create schema 40 fixture");
     let volume = GlobalVolume {
         id: "schema39-volume".into(),
         platform: "windows".into(),
@@ -1702,7 +1763,7 @@ fn schema_38_to_39_adds_operation_fencing_without_changing_global_index_data() {
     .expect("seed active Global Search entry");
     drop(db);
 
-    let conn = Connection::open(&path).expect("open schema 39 database as schema 38");
+    let conn = Connection::open(&path).expect("open schema 40 database as schema 38");
     conn.execute_batch(
         r#"
         ALTER TABLE global_volumes DROP COLUMN rebuild_completed_revision;
@@ -1714,13 +1775,19 @@ fn schema_38_to_39_adds_operation_fencing_without_changing_global_index_data() {
         ALTER TABLE global_volumes DROP COLUMN operation_owner_pid;
         ALTER TABLE global_volumes DROP COLUMN operation_owner_id;
         ALTER TABLE global_volumes DROP COLUMN operation_revision;
+        DROP INDEX idx_library_source_root_claims_source_state;
+        DROP INDEX idx_library_source_root_claims_root_path;
+        DROP INDEX idx_library_source_root_claims_path_state;
+        DROP INDEX idx_library_source_physical_verified;
+        DROP TABLE library_source_root_claims;
+        DROP TABLE library_root_epoch_state;
         PRAGMA user_version = 38;
         "#,
     )
     .expect("construct pre-migration schema 38 fixture");
     drop(conn);
 
-    let migrated = Database::open(&path).expect("migrate schema 38 to schema 39");
+    let migrated = Database::open(&path).expect("migrate schema 38 to schema 40");
     let stored = migrated
         .get_global_volume(&volume.id)
         .expect("read migrated volume")
@@ -1754,9 +1821,72 @@ fn schema_38_to_39_adds_operation_fencing_without_changing_global_index_data() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("read default operation state");
-    assert_eq!(version, 39);
+    assert_eq!(version, 40);
     assert_eq!(entry, ("preserved.txt".into(), 0));
     assert_eq!(operation, (0, 0, 0));
+}
+
+#[test]
+fn schema_39_to_40_adds_writer_claims_without_changing_legacy_file_authority() {
+    let path = test_db_path("schema39-to-40-source-writer");
+    let db = Database::open(&path).expect("create schema 40 fixture");
+    db.insert_file(InsertFileRequest {
+        id: "schema40-preserved".into(),
+        path: "schema40-preserved".into(),
+        name: "schema40-preserved.txt".into(),
+        extension: "txt".into(),
+        size: 17,
+        mtime: 23,
+        ctime: 19,
+        is_dir: false,
+        state_code: 0,
+    })
+    .expect("seed legacy file row");
+    drop(db);
+
+    let conn = Connection::open(&path).expect("open schema 40 as schema 39");
+    let before_file = table_snapshot(&conn, "files");
+    conn.execute_batch(
+        r#"
+        DROP INDEX idx_library_source_root_claims_source_state;
+        DROP INDEX idx_library_source_root_claims_root_path;
+        DROP INDEX idx_library_source_root_claims_path_state;
+        DROP INDEX idx_library_source_physical_verified;
+        DROP TABLE library_source_root_claims;
+        DROP TABLE library_root_epoch_state;
+        PRAGMA user_version = 39;
+        "#,
+    )
+    .expect("construct schema 39 fixture");
+    drop(conn);
+
+    let migrated = Database::open(&path).expect("migrate schema 39 to schema 40");
+    drop(migrated);
+    let conn = Connection::open(&path).expect("inspect schema 40 result");
+    assert_eq!(
+        conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .expect("read migrated version"),
+        40
+    );
+    assert_eq!(table_snapshot(&conn, "files"), before_file);
+    assert_eq!(
+        conn.query_row(
+            "SELECT read_mode, active_catalog_epoch, active_fts_slot_id FROM library_generation_authority WHERE singleton_id=1",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, Option<String>>(2)?)),
+        )
+        .expect("read dormant library authority"),
+        ("legacy".to_string(), 0, None)
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM library_source_root_claims",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .expect("count new membership rows"),
+        0
+    );
 }
 
 #[test]
@@ -2054,14 +2184,6 @@ fn p0_t09_file_library_search_tags_scan_upsert_and_restore_keep_legacy_authority
     };
     let normalized_file_path = original_path.to_string_lossy().replace('\\', "/");
     let conn = Connection::open(&path).expect("open root fixture");
-    conn.execute(
-        "INSERT INTO scan_roots (
-             id, normalized_path, display_name, source_kind, enabled, health_status,
-             current_generation, needs_reconciliation, created_at, updated_at
-         ) VALUES ('p0-t09-root', ?1, 'P0 test root', 'file_library', 1, 'healthy', 1, 0, 1, 1)",
-        [&normalized_root],
-    )
-    .expect("register File Library root");
     let file_id: String = conn
         .query_row(
             "SELECT id FROM files WHERE path = ?1",
@@ -2077,24 +2199,6 @@ fn p0_t09_file_library_search_tags_scan_upsert_and_restore_keep_legacy_authority
             .len(),
         1
     );
-    let file_library = db
-        .query_file_library_v2(FileQueryRequestV2 {
-            version: 2,
-            request_id: "p0-t09-list".to_string(),
-            query: FileQuerySpecV2 {
-                scope: FileLibraryScopeV2::Roots {
-                    scan_root_ids: vec!["p0-t09-root".to_string()],
-                },
-                text: Some("legacysearchtoken".to_string()),
-                filters: FileQueryFiltersV2::default(),
-                sort: Default::default(),
-            },
-            page_size: 10,
-            cursor: None,
-        })
-        .expect("list through File Library V2");
-    assert_eq!(file_library.files.len(), 1);
-    assert_eq!(file_library.files[0].id, file_id);
 
     let tag = db
         .create_user_tag(CreateUserTagRequest {
@@ -2168,6 +2272,34 @@ fn p0_t09_file_library_search_tags_scan_upsert_and_restore_keep_legacy_authority
             restore_claim_full_hash: None,
         })
         .expect("restore legacy indexed file"));
+    let conn = Connection::open(&path).expect("open root fixture");
+    conn.execute(
+        "INSERT INTO scan_roots (
+             id, normalized_path, display_name, source_kind, enabled, health_status,
+             current_generation, needs_reconciliation, created_at, updated_at
+         ) VALUES ('p0-t09-root', ?1, 'P0 test root', 'file_library', 1, 'healthy', 1, 0, 1, 1)",
+        [&normalized_root],
+    )
+    .expect("register File Library root");
+    drop(conn);
+    let file_library = db
+        .query_file_library_v2(FileQueryRequestV2 {
+            version: 2,
+            request_id: "p0-t09-list".to_string(),
+            query: FileQuerySpecV2 {
+                scope: FileLibraryScopeV2::Roots {
+                    scan_root_ids: vec!["p0-t09-root".to_string()],
+                },
+                text: Some("legacysearchtoken".to_string()),
+                filters: FileQueryFiltersV2::default(),
+                sort: Default::default(),
+            },
+            page_size: 10,
+            cursor: None,
+        })
+        .expect("list through File Library V2");
+    assert_eq!(file_library.files.len(), 1);
+    assert_eq!(file_library.files[0].id, file_id);
     assert_eq!(
         db.search_files("legacysearchtoken", Some(10))
             .expect("search after restore")

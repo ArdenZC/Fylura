@@ -10,6 +10,19 @@ mod queries;
 mod schema;
 mod types;
 
+#[cfg(test)]
+pub(crate) fn drop_source_writer_schema_for_test(conn: &rusqlite::Connection) {
+    conn.execute_batch(
+        "DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
+         DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
+         DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
+         DROP INDEX IF EXISTS idx_library_source_physical_verified;
+         DROP TABLE IF EXISTS library_source_root_claims;
+         DROP TABLE IF EXISTS library_root_epoch_state;",
+    )
+    .expect("drop schema 40 source writer objects from historical test fixture");
+}
+
 pub(crate) use automation::apply_watcher_root_transitions;
 pub(crate) fn app_setting_value_fingerprint(value: Option<&str>) -> String {
     let mut hasher = blake3::Hasher::new();

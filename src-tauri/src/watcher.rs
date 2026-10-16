@@ -1344,8 +1344,13 @@ fn process_backend_payload<R: Runtime>(
         native_qa_watcher_trace("exact_mutation_attempt", || {
             format!("root_id={root_id} path_count={}", paths.len())
         });
-        let result =
-            apply_watcher_exact_mutations_with_retry(db, &root_id, &paths, &directory_paths);
+        let result = apply_watcher_exact_mutations_with_retry(
+            db,
+            &root_id,
+            batch.watcher_revision,
+            &paths,
+            &directory_paths,
+        );
         match result {
             Ok(result) => {
                 native_qa_watcher_trace("exact_mutation_result", || {
@@ -1472,12 +1477,13 @@ fn trace_native_qa_durable_root_state(db: &Database, root_id: &str) {
 fn apply_watcher_exact_mutations_with_retry(
     db: &Database,
     root_id: &str,
+    watcher_revision: i64,
     paths: &[String],
     directory_paths: &HashSet<String>,
 ) -> Result<crate::db::scan::WatcherMutationResult, DbError> {
     bounded_retry(
         WATCHER_MAX_ATTEMPTS,
-        || db.apply_watcher_exact_mutations(root_id, paths, directory_paths),
+        || db.apply_watcher_exact_mutations(root_id, watcher_revision, paths, directory_paths),
         |attempt| {
             let delay = WATCHER_RETRY_DELAYS[attempt.min(WATCHER_RETRY_DELAYS.len() - 1)];
             thread::sleep(delay);

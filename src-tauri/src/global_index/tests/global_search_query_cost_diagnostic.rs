@@ -1,7 +1,6 @@
-//! Bounded Issue #352/#359 investigation plus isolated Issue #360 qualification.
-//! Candidate instrumentation is test-only; the new key-only CTE diagnostic
-//! leaves production SQL, source-health SQL, schema, search tiers, candidate
-//! cap, and result semantics unchanged.
+//! Bounded Global Search query diagnostics and the focused Issue #364
+//! name-prefix qualification. The legacy name-prefix SQL remains available
+//! only through test helpers for same-fixture paired comparisons.
 
 use super::{
     actual_match_count, assert_entry_triggers_enabled, assert_search_results, benchmark_context,
@@ -17,9 +16,10 @@ use crate::global_index::repository::{
     GlobalSearchSourceHealthQueryCandidate as SourceHealthCandidate,
 };
 use crate::global_index::search::{
-    diagnostic_key_only_cte_sql, diagnostic_search_fts, diagnostic_search_fts_sql,
-    diagnostic_search_tier, diagnostic_search_tier_sql, search_global_entries_on_connection,
-    with_key_only_cte_search_candidate,
+    diagnostic_key_only_cte_sql, diagnostic_legacy_name_prefix_sql, diagnostic_search_fts,
+    diagnostic_search_fts_sql, diagnostic_search_tier, diagnostic_search_tier_sql,
+    search_global_entries_on_connection, with_key_only_cte_search_candidate,
+    with_legacy_name_prefix_search_candidate,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection, StatementStatus};
@@ -2141,8 +2141,10 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
         )
         .expect("add managed marker to the enabled test scope");
 
-    let production = diagnostic_search_tier(&transaction, "name_prefix", "quarterly", 80)
-        .expect("run production prefix tier on adversarial rows");
+    let production = with_legacy_name_prefix_search_candidate(|| {
+        diagnostic_search_tier(&transaction, "name_prefix", "quarterly", 80)
+    })
+    .expect("run legacy prefix tier on adversarial rows");
     let values = prefix_variant_values("quarterly", 80);
     let safe = run_result_sql(&transaction, SAFE_PREFIX_CTE_SQL, &values);
     assert_eq!(
@@ -2176,13 +2178,15 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
     assert!(!production.iter().any(|row| row.id.contains("disabled")));
     assert!(!production.iter().any(|row| row.id.contains("stale")));
 
-    let production_4096 = diagnostic_search_tier(
-        &transaction,
-        "name_prefix",
-        "quarterly",
-        SEARCH_CANDIDATE_LIMIT as u32,
-    )
-    .expect("collect production prefix candidate window");
+    let production_4096 = with_legacy_name_prefix_search_candidate(|| {
+        diagnostic_search_tier(
+            &transaction,
+            "name_prefix",
+            "quarterly",
+            SEARCH_CANDIDATE_LIMIT as u32,
+        )
+    })
+    .expect("collect legacy prefix candidate window");
     let safe_4096 = run_result_sql(
         &transaction,
         SAFE_PREFIX_CTE_SQL,
@@ -2192,27 +2196,33 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
         safe_4096, production_4096,
         "4096-candidate prefix CTE equivalence"
     );
-    let production_page = search_global_entries_on_connection(&transaction, "quarterly", 80, 4_016)
-        .expect("production search at candidate-window boundary");
+    let production_page = with_legacy_name_prefix_search_candidate(|| {
+        search_global_entries_on_connection(&transaction, "quarterly", 80, 4_016)
+    })
+    .expect("legacy search at candidate-window boundary");
     assert_eq!(production_page, production_4096[4_016..4_096]);
     let cte_page = with_key_only_cte_search_candidate(|| {
         search_global_entries_on_connection(&transaction, "quarterly", 80, 4_016)
     })
     .expect("key-only CTE full search at candidate-window boundary");
     assert_eq!(cte_page, production_page);
-    assert!(
+    assert!(with_legacy_name_prefix_search_candidate(|| {
         search_global_entries_on_connection(&transaction, "quarterly", 80, 4_096)
-            .expect("production search after candidate cap")
-            .is_empty()
-    );
+    })
+    .expect("legacy search after candidate cap")
+    .is_empty());
     assert_eq!(
-        search_global_entries_on_connection(&transaction, "quarterly", 500, 0)
-            .expect("production search limit clamp")
-            .len(),
+        with_legacy_name_prefix_search_candidate(|| {
+            search_global_entries_on_connection(&transaction, "quarterly", 500, 0)
+        })
+        .expect("legacy search limit clamp")
+        .len(),
         200
     );
-    let clamped_production = search_global_entries_on_connection(&transaction, "quarterly", 500, 0)
-        .expect("production search result at clamped limit");
+    let clamped_production = with_legacy_name_prefix_search_candidate(|| {
+        search_global_entries_on_connection(&transaction, "quarterly", 500, 0)
+    })
+    .expect("legacy search result at clamped limit");
     let clamped_candidate = run_result_sql(
         &transaction,
         SAFE_PREFIX_CTE_SQL,
@@ -2227,12 +2237,14 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
         clamped_production
     );
 
-    let duplicate_tier_results = search_global_entries_on_connection(
-        &transaction,
-        "Quarterly Review 2026 duplicate.pdf",
-        80,
-        0,
-    )
+    let duplicate_tier_results = with_legacy_name_prefix_search_candidate(|| {
+        search_global_entries_on_connection(
+            &transaction,
+            "Quarterly Review 2026 duplicate.pdf",
+            80,
+            0,
+        )
+    })
     .expect("search duplicate basename across two enabled volumes");
     assert_eq!(
         duplicate_tier_results
@@ -2251,8 +2263,10 @@ fn add_adversarial_rows(db: &Database, conn: &mut Connection, context: &JsonValu
         .iter()
         .any(|row| row.id == "issue352-tie-b"));
 
-    let cross_tier_results = search_global_entries_on_connection(&transaction, "jp", 80, 0)
-        .expect("search for an entry matching both a basename and extension prefix");
+    let cross_tier_results = with_legacy_name_prefix_search_candidate(|| {
+        search_global_entries_on_connection(&transaction, "jp", 80, 0)
+    })
+    .expect("search for an entry matching both a basename and extension prefix");
     assert_eq!(
         cross_tier_results
             .iter()
@@ -3313,7 +3327,11 @@ fn profile_key_only_sql_pair(
     conn: &Connection,
     case: KeyOnlySqlPair<'_>,
 ) -> JsonValue {
-    let production_sql = diagnostic_search_tier_sql(case.tier);
+    let production_sql = if case.tier == "name_prefix" {
+        diagnostic_legacy_name_prefix_sql()
+    } else {
+        diagnostic_search_tier_sql(case.tier)
+    };
     let candidate_sql = diagnostic_key_only_cte_sql(case.tier);
     let values = key_only_values(case.tier, case.query, case.limit);
     let expected =
@@ -3442,7 +3460,9 @@ fn pooled_search_sample(
             measure_with_process_counters(|| db.search_global_entries(query, limit, offset))
         })
     } else {
-        measure_with_process_counters(|| db.search_global_entries(query, limit, offset))
+        with_legacy_name_prefix_search_candidate(|| {
+            measure_with_process_counters(|| db.search_global_entries(query, limit, offset))
+        })
     };
     (
         result.unwrap_or_else(|error| panic!("pooled search failed for {query:?}: {error}")),
@@ -3465,7 +3485,11 @@ fn snapshot_sample(
             })
         })
     } else {
-        measure_with_process_counters(|| db.search_global_entries_snapshot(query, limit, offset))
+        with_legacy_name_prefix_search_candidate(|| {
+            measure_with_process_counters(|| {
+                db.search_global_entries_snapshot(query, limit, offset)
+            })
+        })
     };
     (
         result.unwrap_or_else(|error| panic!("repository snapshot failed for {query:?}: {error}")),
@@ -3480,9 +3504,10 @@ fn profile_pooled_search_pair(
     query_case: QueryCase,
     hit_count: usize,
 ) -> JsonValue {
-    let expected = db
-        .search_global_entries(query_case.query, QUERY_LIMIT, 0)
-        .unwrap_or_else(|error| panic!("warm pooled search failed: {error}"));
+    let expected = with_legacy_name_prefix_search_candidate(|| {
+        db.search_global_entries(query_case.query, QUERY_LIMIT, 0)
+    })
+    .unwrap_or_else(|error| panic!("warm legacy pooled search failed: {error}"));
     let cte_expected = with_key_only_cte_search_candidate(|| {
         db.search_global_entries(query_case.query, QUERY_LIMIT, 0)
     })
@@ -3491,8 +3516,10 @@ fn profile_pooled_search_pair(
 
     for _ in 0..PAIRED_WARMUPS {
         assert_eq!(
-            db.search_global_entries(query_case.query, QUERY_LIMIT, 0)
-                .expect("warm original pooled search"),
+            with_legacy_name_prefix_search_candidate(|| {
+                db.search_global_entries(query_case.query, QUERY_LIMIT, 0)
+            })
+            .expect("warm legacy pooled search"),
             expected
         );
         assert_eq!(
@@ -3570,9 +3597,10 @@ fn profile_repository_snapshot_pair(
     query_case: QueryCase,
     hit_count: usize,
 ) -> JsonValue {
-    let expected = db
-        .search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
-        .unwrap_or_else(|error| panic!("warm original repository snapshot failed: {error}"));
+    let expected = with_legacy_name_prefix_search_candidate(|| {
+        db.search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
+    })
+    .unwrap_or_else(|error| panic!("warm legacy repository snapshot failed: {error}"));
     let cte_expected = with_key_only_cte_search_candidate(|| {
         db.search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
     })
@@ -3580,9 +3608,10 @@ fn profile_repository_snapshot_pair(
     assert_snapshot_results_equal(&expected, &cte_expected);
 
     for _ in 0..PAIRED_WARMUPS {
-        let original = db
-            .search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
-            .expect("warm original repository snapshot");
+        let original = with_legacy_name_prefix_search_candidate(|| {
+            db.search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
+        })
+        .expect("warm legacy repository snapshot");
         let candidate = with_key_only_cte_search_candidate(|| {
             db.search_global_entries_snapshot(query_case.query, QUERY_LIMIT, 0)
         })
@@ -3666,12 +3695,11 @@ fn profile_key_only_pagination(context: &JsonValue, db: &Database, conn: &Connec
         ("last_200_before_candidate_cap", 200, 3_896),
         ("candidate_cap_offset_4096", 80, 4_096),
     ];
-    for (class, query, tier) in [
-        ("name_prefix", "quarterly", "name_prefix"),
-        ("fts_substring_report", "report", "fts"),
-    ] {
-        let production_window = diagnostic_search_tier(conn, tier, query, 4_096)
-            .unwrap_or_else(|error| panic!("collect Original 4096 window for {query}: {error}"));
+    for (class, query, tier) in [("name_prefix", "quarterly", "name_prefix")] {
+        let production_window = with_legacy_name_prefix_search_candidate(|| {
+            diagnostic_search_tier(conn, tier, query, 4_096)
+        })
+        .unwrap_or_else(|error| panic!("collect legacy 4096 window for {query}: {error}"));
         let candidate_sql = diagnostic_key_only_cte_sql(tier);
         let values = key_only_values(tier, query, 4_096);
         let cte_window = run_result_sql(conn, &candidate_sql, &values);
@@ -3685,9 +3713,10 @@ fn profile_key_only_pagination(context: &JsonValue, db: &Database, conn: &Connec
         );
 
         for (page_class, limit, offset) in page_cases {
-            let original = db
-                .search_global_entries(query, limit, offset)
-                .unwrap_or_else(|error| panic!("Original page {page_class}: {error}"));
+            let original = with_legacy_name_prefix_search_candidate(|| {
+                db.search_global_entries(query, limit, offset)
+            })
+            .unwrap_or_else(|error| panic!("legacy page {page_class}: {error}"));
             let candidate = with_key_only_cte_search_candidate(|| {
                 db.search_global_entries(query, limit, offset)
             })
@@ -3730,6 +3759,7 @@ fn profile_key_only_pagination(context: &JsonValue, db: &Database, conn: &Connec
     }
 }
 
+#[allow(dead_code)] // Retained for the earlier multi-hit research; not run in the Issue #364 product qualification.
 fn profile_key_only_hit_count_scale(context: &JsonValue, conn: &Connection, base_entries: u64) {
     let transaction = conn
         .unchecked_transaction()
@@ -3834,11 +3864,8 @@ fn profile_key_only_hit_count_scale(context: &JsonValue, conn: &Connection, base
 
         if expected_count >= SEARCH_CANDIDATE_LIMIT {
             let values = prefix_variant_values(&query, SEARCH_CANDIDATE_LIMIT as u32);
-            let production_window = run_result_sql(
-                &transaction,
-                &diagnostic_search_tier_sql("name_prefix"),
-                &values,
-            );
+            let production_window =
+                run_result_sql(&transaction, &diagnostic_legacy_name_prefix_sql(), &values);
             let cte_window = run_result_sql(
                 &transaction,
                 &diagnostic_key_only_cte_sql("name_prefix"),
@@ -3973,13 +4000,22 @@ fn global_search_key_only_cte_qualification() {
             "qualification count oracle for {}",
             query_case.class
         );
-        let original = assert_search_results(
+        let expected = assert_search_results(
             &conn,
             query_case,
             expectation,
             SEARCH_RESULT_LIMIT,
             0,
             entries,
+        );
+        let original = with_legacy_name_prefix_search_candidate(|| {
+            db.search_global_entries(query_case.query, SEARCH_RESULT_LIMIT, 0)
+        })
+        .unwrap_or_else(|error| panic!("legacy full search for {}: {error}", query_case.class));
+        assert_eq!(
+            original, expected,
+            "legacy result object for {}",
+            query_case.class
         );
         let key_only = with_key_only_cte_search_candidate(|| {
             db.search_global_entries(query_case.query, SEARCH_RESULT_LIMIT, 0)
@@ -3995,9 +4031,10 @@ fn global_search_key_only_cte_qualification() {
             "full result object for {}",
             query_case.class
         );
-        let original_snapshot = db
-            .search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
-            .unwrap_or_else(|error| panic!("Original snapshot for {}: {error}", query_case.class));
+        let original_snapshot = with_legacy_name_prefix_search_candidate(|| {
+            db.search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
+        })
+        .unwrap_or_else(|error| panic!("legacy snapshot for {}: {error}", query_case.class));
         let key_only_snapshot = with_key_only_cte_search_candidate(|| {
             db.search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
         })
@@ -4025,82 +4062,55 @@ fn global_search_key_only_cte_qualification() {
         "query_results": correctness_records
     }));
 
-    // SQL tier A/B covers every prefix specialization and the low/high/no-hit
-    // FTS range. The paired request measurements below then check whether any
-    // SQL-only gain survives the pooled and full repository paths.
-    for spec in PREFIX_QUERIES {
-        let tier = if spec.extension {
-            "extension_prefix"
-        } else if spec.class == "punctuation_prefix" {
-            "punctuation_prefix"
-        } else {
-            "name_prefix"
-        };
-        let hit_count = QUERY_MATRIX
-            .iter()
-            .position(|query| query.class == spec.class)
-            .map(|index| expectations[index].total_matches as usize)
-            .expect("prefix query maps to the official matrix");
-        profile_key_only_sql_pair(
-            &context,
-            &conn,
-            KeyOnlySqlPair {
-                query_class: spec.class,
-                tier,
-                query: spec.query,
-                hit_count,
-                limit: QUERY_LIMIT,
-                samples: PAIRED_SAMPLES,
-            },
-        );
-    }
-    for (class, query) in FTS_QUERIES {
-        let hit_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM global_entries_fts WHERE global_entries_fts MATCH ?1",
-                [fts_phrase(query)],
-                |row| row.get(0),
-            )
-            .expect("count key-only FTS hits");
-        profile_key_only_sql_pair(
-            &context,
-            &conn,
-            KeyOnlySqlPair {
-                query_class: class,
-                tier: "fts",
-                query,
-                hit_count: hit_count as usize,
-                limit: QUERY_LIMIT,
-                samples: PAIRED_SAMPLES,
-            },
-        );
-    }
-
-    let mut pooled_records = Vec::with_capacity(QUERY_MATRIX.len());
-    let mut snapshot_records = Vec::with_capacity(QUERY_MATRIX.len());
-    for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
-        let hit_count = expectation.total_matches as usize;
-        pooled_records.push(profile_pooled_search_pair(
-            &context, &db, query_case, hit_count,
-        ));
-        snapshot_records.push(profile_repository_snapshot_pair(
-            &context, &db, query_case, hit_count,
-        ));
-    }
+    // The one performance pair is the established high-fanout English
+    // name-prefix case. The complete 12-query correctness matrix above still
+    // covers zero/low/high hits, Chinese, punctuation and accented prefixes.
+    let (query_case, expectation) = QUERY_MATRIX
+        .iter()
+        .copied()
+        .zip(expectations.iter())
+        .find(|(query, _)| query.class == "name_prefix")
+        .expect("high-fanout name-prefix benchmark case");
+    profile_key_only_sql_pair(
+        &context,
+        &conn,
+        KeyOnlySqlPair {
+            query_class: query_case.class,
+            tier: "name_prefix",
+            query: query_case.query,
+            hit_count: expectation.total_matches as usize,
+            limit: QUERY_LIMIT,
+            samples: PAIRED_SAMPLES,
+        },
+    );
+    let pooled_record = profile_pooled_search_pair(
+        &context,
+        &db,
+        query_case,
+        expectation.total_matches as usize,
+    );
+    let snapshot_record = profile_repository_snapshot_pair(
+        &context,
+        &db,
+        query_case,
+        expectation.total_matches as usize,
+    );
     emit_record(&json!({
         "schema_version": 1,
-        "record_type": "key_only_cte_full_path_matrix_summary",
+        "record_type": "issue364_name_prefix_full_path_summary",
         "context": context,
-        "query_classes": QUERY_MATRIX.len(),
-        "pooled_search_records": pooled_records,
-        "repository_snapshot_records": snapshot_records,
+        "query_class": query_case.class,
+        "query": query_case.query,
+        "eligible_match_count": expectation.total_matches,
+        "pooled_search_record": pooled_record,
+        "repository_snapshot_record": snapshot_record,
         "historical_100ms_gate": 100.0,
-        "query_only_improvement_is_not_substituted_for_full_path_measurement": true,
-        "source_health_candidate_comparison_mixed_in": false
+        "only_one_performance_query_paired": true,
+        "source_health_candidate_comparison_mixed_in": false,
+        "other_tiers_promoted": false
     }));
 
     profile_key_only_pagination(&context, &db, &conn);
-    profile_key_only_hit_count_scale(&context, &conn, entries);
 
     // Reuse the same fixture for disabled-volume, stale-row, cross-volume tie,
     // managed/unmanaged, exact field, cross-tier duplicate and filter-before-
@@ -4121,7 +4131,8 @@ fn global_search_key_only_cte_qualification() {
         "base_rows_after_rollback": remaining_rows,
         "schema_index_signature_unchanged": true,
         "source_health_production_sql_modified": false,
-        "production_search_sql_modified": false,
+        "production_search_sql_modified": true,
+        "production_tier_changed": "name_prefix only",
         "schema_or_persistent_index_changed": false,
         "100ms_gate_changed": false,
         "official_full_12_class_correctness": "PASS",

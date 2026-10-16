@@ -4,6 +4,7 @@ use crate::global_index::repository::{
     diagnostic_compare_snapshot_queries_on_connection, load_global_search_source_health_candidate,
     GlobalSearchSourceHealthQueryCandidate as Query,
 };
+use crate::global_index::search::with_legacy_name_prefix_search_candidate;
 use crate::global_index::{GlobalEntryInput, GlobalVolume};
 use rusqlite::params;
 use std::sync::{Arc, Barrier};
@@ -236,6 +237,119 @@ fn global_search_source_health_candidates_match_adversarial_volume_and_entry_sta
     .expect("change source updated_at directly");
     drop(conn);
     assert_candidate_matches_production(&db, "stale");
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn global_search_name_prefix_cte_matches_legacy_product_path() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open name-prefix equivalence database");
+    let enabled = volume("gv_prefix_enabled", true);
+    let disabled = volume("gv_prefix_disabled", false);
+    db.upsert_global_volume(&enabled)
+        .expect("insert enabled name-prefix source");
+    db.upsert_global_volume(&disabled)
+        .expect("insert disabled name-prefix source");
+
+    let prefix_entry = |volume_id: &str, name: &str, modified_at: i64| {
+        let mut row = entry(
+            volume_id,
+            &format!(r"C:\Global\{volume_id}\{name}"),
+            name,
+            modified_at,
+        );
+        row.modified_at_fs = Some(modified_at);
+        row
+    };
+
+    let exact = prefix_entry("gv_prefix_enabled", "quarterly", 1_200);
+    let tied_a = prefix_entry("gv_prefix_enabled", "Quarterly Review tie-a.txt", 1_000);
+    let tied_b = prefix_entry("gv_prefix_enabled", "Quarterly Review tie-b.txt", 1_000);
+    let older = prefix_entry("gv_prefix_enabled", "Quarterly Review older.txt", 900);
+    let stale = prefix_entry("gv_prefix_enabled", "Quarterly Review stale.txt", 2_000);
+    let disabled_hit = prefix_entry("gv_prefix_disabled", "Quarterly Review disabled.txt", 3_000);
+    let chinese = prefix_entry("gv_prefix_enabled", "数据库-报告.txt", 800);
+    let accented = prefix_entry("gv_prefix_enabled", "Résumé-final.txt", 799);
+    let punctuation = prefix_entry("gv_prefix_enabled", "build[one]-artifact?.txt", 798);
+    db.upsert_global_entries_batch(&[
+        exact.clone(),
+        tied_a.clone(),
+        tied_b.clone(),
+        older,
+        stale.clone(),
+        disabled_hit,
+        chinese.clone(),
+        accented.clone(),
+        punctuation.clone(),
+    ])
+    .expect("insert name-prefix equivalence entries");
+    db.mark_global_entry_stale(&stale.entry_id())
+        .expect("exclude stale high-ranked name-prefix candidate");
+
+    let conn = db
+        .conn()
+        .expect("borrow name-prefix equivalence connection");
+    conn.execute(
+        "INSERT INTO managed_scopes (id, path, global_entry_id, enabled, allow_local_ai, allow_cloud_ai, created_at, updated_at) VALUES ('scope-prefix-tie-a', 'C:\\Global\\managed', ?1, 1, 1, 0, 1700000000, 1700000000)",
+        params![tied_a.entry_id()],
+    )
+    .expect("mark a tied result as managed");
+    conn.execute(
+        "INSERT INTO managed_entries (id, global_entry_id, managed_scope_id, enabled, created_at, updated_at) VALUES ('entry-prefix-tie-a', ?1, 'scope-prefix-tie-a', 1, 1700000000, 1700000000)",
+        params![tied_a.entry_id()],
+    )
+    .expect("insert managed marker for tied result");
+    drop(conn);
+
+    let assert_old_and_new_equal = |query: &str, limit: u32, offset: u32| {
+        let legacy = with_legacy_name_prefix_search_candidate(|| {
+            db.search_global_entries_snapshot(query, limit, offset)
+        })
+        .expect("read legacy name-prefix product snapshot");
+        let production = db
+            .search_global_entries_snapshot(query, limit, offset)
+            .expect("read key-only name-prefix product snapshot");
+        assert_snapshot_equal(&legacy, &production);
+        production
+    };
+
+    let first_page = assert_old_and_new_equal("quarterly", 3, 0);
+    let mut tied_ids = [tied_a.entry_id(), tied_b.entry_id()];
+    tied_ids.sort();
+    let expected_ids = vec![exact.entry_id(), tied_ids[0].clone(), tied_ids[1].clone()];
+    assert_eq!(
+        first_page
+            .results
+            .iter()
+            .map(|row| row.id.clone())
+            .collect::<Vec<_>>(),
+        expected_ids
+    );
+    assert!(first_page
+        .results
+        .iter()
+        .any(|row| row.id == tied_a.entry_id() && row.managed));
+    assert!(first_page
+        .results
+        .iter()
+        .all(|row| row.id != stale.entry_id() && row.volume_id != disabled.id));
+
+    let second_page = assert_old_and_new_equal("quarterly", 1, 1);
+    assert_eq!(second_page.results[0].id, tied_ids[0]);
+    let third_page = assert_old_and_new_equal("quarterly", 1, 2);
+    assert_eq!(third_page.results[0].id, tied_ids[1]);
+
+    let chinese_result = assert_old_and_new_equal("数据库", 20, 0);
+    assert_eq!(chinese_result.results[0].id, chinese.entry_id());
+    let accented_result = assert_old_and_new_equal("RÉSUMÉ", 20, 0);
+    assert_eq!(accented_result.results[0].id, accented.entry_id());
+    let punctuation_result = assert_old_and_new_equal("build[", 20, 0);
+    assert_eq!(punctuation_result.results[0].id, punctuation.entry_id());
+    assert!(assert_old_and_new_equal("missing-prefix", 20, 0)
+        .results
+        .is_empty());
 
     drop(db);
     let _ = std::fs::remove_file(path);

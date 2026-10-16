@@ -13,11 +13,13 @@ const MAX_TIER_CANDIDATES: u32 = 4_096;
 #[cfg(test)]
 std::thread_local! {
     static KEY_ONLY_CTE_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LEGACY_NAME_PREFIX_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Enables the test-only key projection candidate while exercising the normal
-/// pooled and repository entry points. The release search path never reads
-/// this override and keeps its existing SQL unchanged.
+/// Enables the remaining test-only key projection candidates while exercising
+/// the normal pooled and repository entry points. The name-prefix production
+/// tier is always key-only; this override only selects alternatives for tiers
+/// that remain on their current production query paths.
 #[cfg(test)]
 pub(crate) fn with_key_only_cte_search_candidate<T>(operation: impl FnOnce() -> T) -> T {
     struct ResetCandidate(bool);
@@ -35,9 +37,34 @@ pub(crate) fn with_key_only_cte_search_candidate<T>(operation: impl FnOnce() -> 
     })
 }
 
+/// Forces the pre-CTE name-prefix SQL while exercising the normal pooled and
+/// repository entry points. This is only for paired regression/performance
+/// comparisons; release builds always use the key-only production query.
+#[cfg(test)]
+pub(crate) fn with_legacy_name_prefix_search_candidate<T>(operation: impl FnOnce() -> T) -> T {
+    struct ResetCandidate(bool);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            LEGACY_NAME_PREFIX_SEARCH_OVERRIDE.with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    LEGACY_NAME_PREFIX_SEARCH_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(true);
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
 #[cfg(test)]
 fn key_only_cte_search_candidate_enabled() -> bool {
     KEY_ONLY_CTE_SEARCH_OVERRIDE.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn legacy_name_prefix_search_candidate_enabled() -> bool {
+    LEGACY_NAME_PREFIX_SEARCH_OVERRIDE.with(std::cell::Cell::get)
 }
 
 /// Global search is intentionally a separate entry point from the library
@@ -197,7 +224,6 @@ fn candidate_sql(from: &str, predicate: &str, order: &str, rank: &str, limit_slo
     )
 }
 
-#[cfg(test)]
 fn key_only_candidate_sql(
     from: &str,
     predicate: &str,
@@ -238,7 +264,6 @@ fn key_only_candidate_sql(
     )
 }
 
-#[cfg(test)]
 fn key_only_name_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
@@ -307,13 +332,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
             "0.0",
             "?2",
         ),
-        "name_prefix" => candidate_sql(
-            "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
-            "ge.modified_at_fs DESC, ge.id ASC",
-            "0.0",
-            "?3",
-        ),
+        "name_prefix" => key_only_name_prefix_sql(),
         "exact_extension" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
             "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
@@ -338,6 +357,17 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
         ),
         _ => panic!("unknown diagnostic production search tier: {tier}"),
     }
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_legacy_name_prefix_sql() -> String {
+    candidate_sql(
+        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "ge.modified_at_fs DESC, ge.id ASC",
+        "0.0",
+        "?3",
+    )
 }
 
 fn collect_candidates<P: Params>(
@@ -370,8 +400,8 @@ fn search_name_prefix(
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     #[cfg(test)]
-    if key_only_cte_search_candidate_enabled() {
-        let sql = key_only_name_prefix_sql();
+    if legacy_name_prefix_search_candidate_enabled() {
+        let sql = diagnostic_legacy_name_prefix_sql();
         let mut statement = conn.prepare(&sql)?;
         return collect_candidates(
             &mut statement,
@@ -379,13 +409,7 @@ fn search_name_prefix(
         );
     }
 
-    let sql = candidate_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
-        "ge.modified_at_fs DESC, ge.id ASC",
-        "0.0",
-        "?3",
-    );
+    let sql = key_only_name_prefix_sql();
     let mut statement = conn.prepare(&sql)?;
     collect_candidates(
         &mut statement,

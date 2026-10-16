@@ -687,6 +687,7 @@ fn global_search_high_hit_fts_candidate_preserves_filters_ties_and_snapshot() {
         .expect("query enabled FTS tie IDs")
         .collect::<Result<Vec<_>, _>>()
         .expect("collect enabled FTS tie IDs");
+    drop(tie_statement);
     assert_eq!(expected_tie_ids.len(), 2);
     assert_eq!(
         legacy_tier

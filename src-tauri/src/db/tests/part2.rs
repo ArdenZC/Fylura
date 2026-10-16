@@ -107,6 +107,72 @@
     }
 
     #[test]
+    fn unverified_neutral_source_rows_never_receive_automatic_classification() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
+        let path = "/test/virtual/documents/resume_2026.pdf";
+        let file_id = "zen-canvas-source:source-uid:epoch:1";
+        insert_test_file_at_path(
+            &db,
+            file_id,
+            path,
+            "resume_2026.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            "UPDATE files SET suggested_action = 'Keep', requires_confirmation = 1, classification_status = 'unclassified', classification_reason = 'Legacy facts remain unassigned to this current filesystem entry.' WHERE id = ?1",
+            params![file_id],
+        )
+        .expect("set neutral source defaults");
+        drop(conn);
+
+        let targeted = db
+            .execute_rules_for_paths(&[path.to_string()], Vec::new())
+            .expect("execute watcher targeted rules");
+        let scoped = db
+            .execute_rules_for_scope_with_mode(
+                &LibraryScope::Roots {
+                    roots: vec!["/test/virtual/documents".to_string()],
+                },
+                Vec::new(),
+                RuleExecutionMode::AllChangedOrRuleChanged,
+            )
+            .expect("execute reconciliation rules");
+        let inbox = db
+            .execute_rules_on_inbox(Vec::new())
+            .expect("execute inbox rules");
+
+        assert_eq!(targeted.scanned, 0);
+        assert_eq!(targeted.updated, 0);
+        assert_eq!(scoped.scanned, 0);
+        assert_eq!(scoped.updated, 0);
+        assert_eq!(inbox.scanned, 0);
+        assert_eq!(inbox.updated, 0);
+        let (purpose, lifecycle, suggested_action, requires_confirmation, classification_status): (
+            String,
+            String,
+            String,
+            i64,
+            String,
+        ) = Connection::open(db.path())
+            .expect("open migrated database")
+            .query_row(
+                "SELECT purpose, lifecycle, suggested_action, requires_confirmation, classification_status FROM files WHERE id = ?1",
+                params![file_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .expect("neutral source row remains available");
+        assert_eq!(purpose, "Unknown");
+        assert_eq!(lifecycle, "Inbox");
+        assert_eq!(suggested_action, "Keep");
+        assert_eq!(requires_confirmation, 1);
+        assert_eq!(classification_status, "unclassified");
+    }
+
+    #[test]
     fn execute_rules_for_scope_classifies_only_scoped_roots() {
         let db = Database::open(test_db_path()).expect("open test database");
         enable_legacy_builtin_rules(&db);

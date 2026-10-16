@@ -266,10 +266,15 @@ impl Database {
     ) -> Result<RuleExecutionSummary, DbError> {
         let rule_version = classification_version_for_rules(all_rules, settings)?;
         let scoped = scoped_files_sql(Some(scope));
-        let lifecycle_filter = match mode {
-            RuleExecutionMode::InboxOnly => "WHERE f.lifecycle = 'Inbox'",
-            RuleExecutionMode::AllChangedOrRuleChanged => "",
+        let selection_filter = match mode {
+            RuleExecutionMode::InboxOnly => {
+                "f.id NOT GLOB 'zen-canvas-source:*:epoch:*' AND f.lifecycle = 'Inbox'"
+            }
+            RuleExecutionMode::AllChangedOrRuleChanged => {
+                "f.id NOT GLOB 'zen-canvas-source:*:epoch:*'"
+            }
         };
+        let lifecycle_filter = format!("WHERE {selection_filter}");
         let sql = format!(
             r#"
                 WITH {},
@@ -375,7 +380,8 @@ impl Database {
                 FROM files AS f
                 LEFT JOIN dup_groups AS dg
                   ON dg.file_id = f.id
-                WHERE f.lifecycle = 'Inbox'
+                WHERE f.id NOT GLOB 'zen-canvas-source:*:epoch:*'
+                  AND f.lifecycle = 'Inbox'
                   AND f.is_stale = 0
                 ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
                 "#,
@@ -492,7 +498,8 @@ impl Database {
             FROM files AS f
             LEFT JOIN dup_groups AS dg
               ON dg.file_id = f.id
-            WHERE f.lifecycle = 'Inbox'
+            WHERE f.id NOT GLOB 'zen-canvas-source:*:epoch:*'
+              AND f.lifecycle = 'Inbox'
               AND f.is_stale = 0
               AND f.path IN ({placeholders})
             ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC

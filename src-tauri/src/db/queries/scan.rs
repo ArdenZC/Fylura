@@ -2,8 +2,8 @@ use super::super::*;
 use super::analysis::{bump_dedupe_authority_tx, invalidate_analysis_findings_for_root_tx};
 use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
 use super::library_identity::{
-    advance_root_epoch_tx, mark_root_path_absent_tx, observe_source_for_root_tx,
-    reconcile_root_membership_tx, SourceObservationContext,
+    advance_root_epoch_tx, ensure_neutral_source_attribution_tx, mark_root_path_absent_tx,
+    observe_source_for_root_tx, reconcile_root_membership_tx, SourceObservationContext,
 };
 use super::*;
 use crate::ids::new_job_id;
@@ -2994,7 +2994,98 @@ fn upsert_file_rows_tx(
     )?;
     let mut invalidations = Vec::new();
     let mut filesystem_changed = false;
-    for file in files {
+    for observed_file in files {
+        // `InsertFileRequest.id` is normally the path. Once a legacy row has
+        // been parked, the live row has an opaque SourceUID-based id instead.
+        // Resolve by path first so repeated Scan/Watcher observations update
+        // that live row rather than mistaking the parked legacy id for it.
+        let row_at_path = tx
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1",
+                params![observed_file.path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let mut file = observed_file.clone();
+        if let Some(id) = row_at_path.as_ref() {
+            file.id = id.clone();
+        }
+        // Observe identity only inside the existing filesystem publication
+        // owner. This is read-only and never feeds trigger-state file IDs.
+        let physical = crate::fs_safety::capture_source_object_identity(
+            std::path::Path::new(&file.path),
+        )
+        .ok();
+        let source = observe_source_for_root_tx(
+            tx,
+            &file,
+            physical.as_ref(),
+            SourceObservationContext {
+                root_id,
+                root_epoch,
+                owner_kind,
+                owner_revision,
+                legacy_row_exists: row_at_path.is_some(),
+                observed_at,
+            },
+        )?;
+
+        if source.block_legacy_row {
+            let verified = source.verification_state == "verified";
+            let reusable_unverified_neutral = if !verified {
+                if let Some(previous_id) = row_at_path.as_deref().filter(|id| {
+                    neutral_source_row_matches_source(id, &source.source_uid, false)
+                }) {
+                    !neutral_source_row_has_attached_facts_tx(tx, previous_id)?
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            let neutral_id = if reusable_unverified_neutral {
+                row_at_path
+                    .as_ref()
+                    .expect("reusable neutral row is present")
+                    .clone()
+            } else {
+                neutral_source_file_id(&source.source_uid, root_epoch, verified)
+            };
+            let already_neutral = row_at_path.as_deref() == Some(neutral_id.as_str());
+            if let Some(previous_id) = row_at_path.as_deref().filter(|_| !already_neutral) {
+                let stale_changed = tx.execute(
+                    "UPDATE files SET is_stale = 1, suggested_action = 'Keep', requires_confirmation = 1 WHERE id = ?1 AND is_stale = 0",
+                    params![previous_id],
+                )? > 0;
+                if stale_changed {
+                    invalidate_file_in_transaction(tx, previous_id, "stale")?;
+                }
+                let previous_path: String = tx.query_row(
+                    "SELECT path FROM files WHERE id = ?1",
+                    params![previous_id],
+                    |row| row.get(0),
+                )?;
+                let archive_path =
+                    legacy_unassigned_archive_path(tx, previous_id, &previous_path)?;
+                tx.execute(
+                    "UPDATE files SET path = ?2, is_stale = 1, content_hash = '', filesystem_observation_key = NULL WHERE id = ?1",
+                    params![previous_id, archive_path],
+                )?;
+                filesystem_changed = true;
+            }
+            file.id = neutral_id;
+            ensure_neutral_source_attribution_tx(
+                tx,
+                &file.id,
+                &file.path,
+                &source.source_uid,
+                physical.as_ref(),
+                source.verification_state == "verified",
+                observed_at,
+            )?;
+            filesystem_changed |= source.changed || row_at_path.is_none();
+        }
+
         let previous = tx
             .query_row(
                 "SELECT path, size, mtime, is_dir, is_stale, ctime, filesystem_observation_key FROM files WHERE id = ?1",
@@ -3012,35 +3103,6 @@ fn upsert_file_rows_tx(
                 },
             )
             .optional()?;
-        // Observe identity only inside the existing filesystem publication
-        // owner. This is read-only and never feeds trigger-state file IDs.
-        let physical =
-            crate::fs_safety::capture_source_object_identity(std::path::Path::new(&file.path)).ok();
-        let source = observe_source_for_root_tx(
-            tx,
-            file,
-            physical.as_ref(),
-            SourceObservationContext {
-                root_id,
-                root_epoch,
-                owner_kind,
-                owner_revision,
-                legacy_row_exists: previous.is_some(),
-                observed_at,
-            },
-        )?;
-        if source.block_legacy_row {
-            let stale_changed = tx.execute(
-                "UPDATE files SET is_stale = 1 WHERE id = ?1 AND is_stale = 0",
-                params![file.id],
-            )? > 0;
-            if stale_changed {
-                invalidate_file_in_transaction(tx, &file.id, "stale")?;
-            }
-            filesystem_changed |= stale_changed;
-            filesystem_changed |= source.changed;
-            continue;
-        }
         let identity = if file.is_dir || physical.is_some() {
             // Retain the last filesystem publication independently of metadata
             // rows later updated by existing user operation owners. Only this
@@ -3088,6 +3150,14 @@ fn upsert_file_rows_tx(
             CLASSIFICATION_STATUS_UNCLASSIFIED,
             observed_at,
         ])?;
+        if source.block_legacy_row && file.id.starts_with("zen-canvas-source:") {
+            // Neutral rows remain browseable without inheriting old metadata
+            // or gaining an operation suggestion while source proof is absent.
+            tx.execute(
+                "UPDATE files SET purpose = 'Unknown', lifecycle = 'Inbox', context = '', risk_level = 'Normal', suggested_action = 'Keep', suggested_target_path = '', confidence = 0.0, classification_reason = 'Legacy facts remain unassigned to this current filesystem entry.', matched_rules = '[]', requires_confirmation = 1, classification_status = ?2 WHERE id = ?1",
+                params![file.id, CLASSIFICATION_STATUS_UNCLASSIFIED],
+            )?;
+        }
         if let Some(identity) = identity {
             tx.execute(
                 "UPDATE files SET filesystem_observation_key=?2 WHERE id=?1 AND filesystem_observation_key IS NOT ?2",
@@ -3125,6 +3195,90 @@ fn upsert_file_rows_tx(
         invalidate_file_in_transaction(tx, &file_id, stale_status)?;
     }
     Ok(filesystem_changed)
+}
+
+fn neutral_source_file_id(source_uid: &str, root_epoch: i64, verified: bool) -> String {
+    if verified {
+        format!("zen-canvas-source:{source_uid}")
+    } else {
+        // Unverified entries may be reused only while they have no attached
+        // facts. If facts were added, a new per-observation id preserves them
+        // on the parked row and gives the current object a clean browse row.
+        format!("zen-canvas-source:{source_uid}:epoch:{root_epoch}")
+    }
+}
+
+fn neutral_source_row_matches_source(file_id: &str, source_uid: &str, verified: bool) -> bool {
+    let source_file_id = format!("zen-canvas-source:{source_uid}");
+    if verified {
+        file_id == source_file_id
+    } else {
+        file_id
+            .strip_prefix(&format!("{source_file_id}:epoch:"))
+            .is_some_and(|epoch| epoch.parse::<i64>().is_ok())
+    }
+}
+
+fn neutral_source_row_has_attached_facts_tx(
+    tx: &Transaction<'_>,
+    file_id: &str,
+) -> Result<bool, DbError> {
+    tx.query_row(
+        r#"
+        SELECT
+            file.classification_status <> ?2
+            OR file.purpose <> 'Unknown'
+            OR file.lifecycle <> 'Inbox'
+            OR file.context <> ''
+            OR file.risk_level <> 'Normal'
+            OR file.suggested_action <> 'Keep'
+            OR file.suggested_target_path <> ''
+            OR (file.suggested_name <> '' AND file.suggested_name <> file.name)
+            OR file.confidence <> 0.0
+            OR file.classification_reason <> 'Legacy facts remain unassigned to this current filesystem entry.'
+            OR file.matched_rules <> '[]'
+            OR file.requires_confirmation <> 1
+            OR file.last_classified_at IS NOT NULL
+            OR file.content_hash <> ''
+            OR EXISTS (SELECT 1 FROM file_user_tags WHERE file_id = file.id)
+            OR EXISTS (SELECT 1 FROM file_fingerprints WHERE file_id = file.id)
+            OR EXISTS (SELECT 1 FROM duplicate_group_members WHERE file_id = file.id)
+        FROM files AS file
+        WHERE file.id = ?1
+        "#,
+        params![file_id, CLASSIFICATION_STATUS_UNCLASSIFIED],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|value| value.unwrap_or(false))
+    .map_err(DbError::from)
+}
+
+fn legacy_unassigned_archive_path(
+    tx: &Transaction<'_>,
+    file_id: &str,
+    original_path: &str,
+) -> Result<String, DbError> {
+    let digest = blake3::hash(format!("{file_id}\0{original_path}").as_bytes())
+        .to_hex()
+        .to_string();
+    let mut suffix = 0_u32;
+    loop {
+        let candidate = if suffix == 0 {
+            format!("zen-canvas://legacy-unassigned/{digest}")
+        } else {
+            format!("zen-canvas://legacy-unassigned/{digest}-{suffix}")
+        };
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM files WHERE path = ?1)",
+            params![candidate],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Ok(candidate);
+        }
+        suffix = suffix.saturating_add(1);
+    }
 }
 
 fn upsert_scan_files_tx(
@@ -5881,6 +6035,189 @@ mod tests {
     }
 
     #[test]
+    fn schema39_tagged_file_stays_browseable_after_upgrade_and_real_scan() {
+        let db = test_db("schema39-library-compatibility");
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-schema39-library-{}",
+            new_job_id("root")
+        ));
+        fs::create_dir_all(&root).expect("create migration root");
+        let path = root.join("legacy.txt");
+        fs::write(&path, b"unchanged legacy object").expect("write legacy file");
+        let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
+        let metadata = fs::metadata(&path).expect("read legacy metadata");
+        let legacy_file = insert_request_from_metadata(
+            normalized_path.clone(),
+            &path,
+            &metadata,
+        );
+        db.insert_file(legacy_file)
+            .expect("insert Schema39 legacy file");
+        let tag = db
+            .create_user_tag(crate::db::CreateUserTagRequest {
+                display_name: "Legacy tag remains unassigned".to_string(),
+                color_token: "blue".to_string(),
+            })
+            .expect("create legacy tag");
+        db.mutate_file_user_tags(crate::db::MutateFileUserTagsRequest {
+            selection: crate::db::LibrarySelectionV1::Explicit {
+                file_ids: vec![normalized_path.clone()],
+            },
+            tag_ids: vec![tag.id.clone()],
+            operation: crate::db::UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("tag Schema39 legacy file");
+
+        let database_path = db.path().to_path_buf();
+        {
+            let conn = db.conn().expect("open Schema39 fixture connection");
+            conn.execute_batch(
+                "DROP TABLE library_source_root_claims;
+                 DROP TABLE library_source_observations;
+                 DROP TABLE library_legacy_attributions;
+                 DROP TABLE library_source_incarnations;
+                 DROP TABLE library_root_epoch_state;
+                 PRAGMA user_version = 39;",
+            )
+            .expect("restore the fixture to Schema39 shape");
+        }
+        drop(db);
+
+        // Reopening executes the production 39 -> 40 migration path.
+        let db = Database::open(&database_path).expect("upgrade Schema39 database");
+        let root_text = normalize_scan_root_path(&root.to_string_lossy());
+        let admission = db
+            .admit_managed_scan(&request(&root_text, "schema39-first-scan"))
+            .expect("admit first post-upgrade scan");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim first post-upgrade scan");
+        let entry = insert_request_from_metadata(
+            normalized_path.clone(),
+            &path,
+            &fs::metadata(&path).expect("read unchanged file metadata"),
+        );
+        let persisted = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: entry.size,
+                    warnings: 0,
+                },
+            )
+            .expect("publish the real upgraded file observation");
+
+        let query = || {
+            db.query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
+                version: 2,
+                request_id: "schema39-upgrade-visible-file".to_string(),
+                query: crate::db::queries::library::FileQuerySpecV2 {
+                    scope: crate::db::queries::library::FileLibraryScopeV2::AllEnabledRoots,
+                    text: None,
+                    filters: Default::default(),
+                    sort: Default::default(),
+                },
+                page_size: 50,
+                cursor: None,
+            })
+            .expect("query the active legacy File Library reader")
+        };
+        let first_query = query();
+        let first_visible = first_query
+            .files
+            .iter()
+            .find(|file| file.native_path.as_deref() == Some(normalized_path.as_str()))
+            .expect("unchanged upgraded file remains visible");
+        assert_ne!(first_visible.id, normalized_path);
+        assert_eq!(first_visible.name, "legacy.txt");
+        assert_eq!(first_visible.tag_count, 0);
+        assert!(first_visible.tags.is_empty());
+        assert!(first_visible.requires_review);
+
+        // Repeating the same Scan observation must update the current neutral
+        // row in place and must not make the quarantined legacy facts visible.
+        let repeated = db
+            .persist_scan_batch(
+                &persisted.dto.id,
+                persisted.dto.revision,
+                persisted.root_revision,
+                persisted.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: entry.size,
+                    warnings: 0,
+                },
+            )
+            .expect("repeat the upgraded file observation");
+        let reconciled = db
+            .reconcile_missing(
+                &repeated.dto.id,
+                repeated.dto.revision,
+                repeated.root_revision,
+                repeated.session_revision,
+            )
+            .expect("reconcile the repeated upgraded scan");
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+        db.finalize_scan_run(
+            &reconciled.dto.id,
+            reconciled.dto.revision,
+            reconciled.root_revision,
+            reconciled.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: true,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finish the reconciled compatibility scan");
+        let second_query = query();
+        let visible_rows = second_query
+            .files
+            .iter()
+            .filter(|file| file.native_path.as_deref() == Some(normalized_path.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(visible_rows.len(), 1);
+        assert_eq!(visible_rows[0].id, first_visible.id);
+        assert_eq!(visible_rows[0].tag_count, 0);
+        assert!(visible_rows[0].tags.is_empty());
+        assert!(repeated.dto.revision > persisted.dto.revision);
+
+        let conn = db.conn().expect("inspect retained legacy facts");
+        let (legacy_stale, legacy_tag_count): (i64, i64) = conn
+            .query_row(
+                "SELECT is_stale, (SELECT COUNT(*) FROM file_user_tags WHERE file_id = files.id AND tag_id = ?2) FROM files WHERE id = ?1",
+                params![normalized_path, tag.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read quarantined Schema39 facts");
+        assert_eq!(legacy_stale, 1);
+        assert_eq!(legacy_tag_count, 1);
+        let unresolved_legacy_claims: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM library_legacy_attributions WHERE legacy_file_id = ?1 AND claim_state = 'unresolved' AND source_uid IS NULL",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("check legacy attribution stayed unresolved");
+        assert_eq!(unresolved_legacy_claims, 1);
+        drop(conn);
+        fs::remove_dir_all(root).expect("remove Schema39 migration fixture");
+    }
+
+    #[test]
     fn source_uid_replacement_keeps_old_tag_and_does_not_attach_it_to_new_object() {
         let db = test_db("source-replacement-keeps-tag");
         let root = std::env::temp_dir().join(format!(
@@ -5948,6 +6285,43 @@ mod tests {
         )
         .expect("observe replacement object");
 
+        let repeated_revision = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin repeated replacement revision")
+            .expect("enabled repeated replacement root")
+            .watcher_revision;
+        db.apply_watcher_exact_mutations(
+            &root_id,
+            repeated_revision,
+            std::slice::from_ref(&normalized_path),
+            &HashSet::new(),
+        )
+        .expect("repeat replacement observation");
+
+        let library = db
+            .query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
+                version: 2,
+                request_id: "replacement-neutral-row".to_string(),
+                query: crate::db::queries::library::FileQuerySpecV2 {
+                    scope: crate::db::queries::library::FileLibraryScopeV2::AllEnabledRoots,
+                    text: None,
+                    filters: Default::default(),
+                    sort: Default::default(),
+                },
+                page_size: 50,
+                cursor: None,
+            })
+            .expect("query replacement through the active File Library reader");
+        let visible_replacement = library
+            .files
+            .iter()
+            .find(|file| file.native_path.as_deref() == Some(normalized_path.as_str()))
+            .expect("replacement remains browseable after repeated observation");
+        assert_eq!(visible_replacement.name, "kept.txt");
+        assert_eq!(visible_replacement.tag_count, 0);
+        assert!(visible_replacement.tags.is_empty());
+        assert!(visible_replacement.requires_review);
+
         let conn = db.conn().expect("inspect replacement state");
         let (stale, retained_tag_count): (i64, i64) = conn
             .query_row(
@@ -5980,6 +6354,28 @@ mod tests {
             replacement_attribution_count, 0,
             "old tag is not attributed to replacement"
         );
+        let neutral_id: String = conn
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("read current neutral row id");
+        assert_eq!(neutral_id, visible_replacement.id);
+        let (suggested_action, requires_confirmation, classification_status): (
+            String,
+            i64,
+            String,
+        ) = conn
+            .query_row(
+                "SELECT suggested_action, requires_confirmation, classification_status FROM files WHERE id = ?1",
+                params![neutral_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read neutral row authority defaults");
+        assert_eq!(suggested_action, "Keep");
+        assert_eq!(requires_confirmation, 1);
+        assert_eq!(classification_status, CLASSIFICATION_STATUS_UNCLASSIFIED);
         drop(conn);
         fs::remove_dir_all(root).expect("remove replacement fixture");
     }

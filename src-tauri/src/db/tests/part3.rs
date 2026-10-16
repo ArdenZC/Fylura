@@ -279,6 +279,33 @@
         fs::write(&source, "retained source payload").expect("write retained source");
         let source_path = normalized_test_path(&source);
         let target_path = normalized_test_path(&target);
+        db.insert_file(crate::db::InsertFileRequest {
+            id: source_path.clone(),
+            path: source_path.clone(),
+            name: "retained-before.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 22,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed a preexisting legacy row");
+        let legacy_tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "Unassigned pre-upgrade tag".to_string(),
+                color_token: "gray".to_string(),
+            })
+            .expect("create legacy tag");
+        db.mutate_file_user_tags(MutateFileUserTagsRequest {
+            selection: LibrarySelectionV1::Explicit {
+                file_ids: vec![source_path.clone()],
+            },
+            tag_ids: vec![legacy_tag.id.clone()],
+            operation: UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("tag legacy row before first observation");
         let mut settings = crate::settings::get_app_settings(&db).expect("read app settings");
         settings.default_scan_folders = vec![crate::settings::ScanRootSetting {
             id: "retained-restore-root".to_string(),
@@ -318,6 +345,24 @@
                 |row| row.get(0),
             )
             .expect("read retained source uid");
+        let current_file_id: String = Connection::open(db.path())
+            .expect("open current neutral row database")
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![source_path],
+                |row| row.get(0),
+            )
+            .expect("read current neutral row id");
+        assert_ne!(current_file_id, source_path);
+        let legacy_tag_count_on_current: i64 = Connection::open(db.path())
+            .expect("open current tag isolation database")
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![current_file_id, legacy_tag.id],
+                |row| row.get(0),
+            )
+            .expect("check old tag is not inherited");
+        assert_eq!(legacy_tag_count_on_current, 0);
         let tag = db
             .create_user_tag(CreateUserTagRequest {
                 display_name: "Retained restore tag".to_string(),
@@ -326,7 +371,7 @@
             .expect("create retained restore tag");
         db.mutate_file_user_tags(MutateFileUserTagsRequest {
             selection: LibrarySelectionV1::Explicit {
-                file_ids: vec![source_path.clone()],
+                file_ids: vec![current_file_id.clone()],
             },
             tag_ids: vec![tag.id.clone()],
             operation: UserTagMutationOperation::Add,
@@ -339,7 +384,7 @@
         fs::rename(&source, &target).expect("move source into operation target");
         assert!(db
             .update_file_after_successful_operation(
-                &source_path,
+                &current_file_id,
                 &source_path,
                 &target_path,
                 "retained-after.txt",
@@ -385,10 +430,17 @@
         let restored_tags: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
-                params![source_path, tag.id],
+                params![current_file_id, tag.id],
                 |row| row.get(0),
             )
             .expect("count restored user tags");
+        let retained_legacy_tags: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![source_path, legacy_tag.id],
+                |row| row.get(0),
+            )
+            .expect("count quarantined legacy tags");
         let restored_file: (String, i64) = conn
             .query_row(
                 "SELECT id, is_stale FROM files WHERE path = ?1",
@@ -399,7 +451,8 @@
         assert_eq!(restored_uid, original_uid);
         assert_eq!(claim_state, "present");
         assert_eq!(restored_tags, 1);
-        assert_eq!(restored_file, (source_path, 0));
+        assert_eq!(retained_legacy_tags, 1);
+        assert_eq!(restored_file, (current_file_id, 0));
     }
 
     #[test]

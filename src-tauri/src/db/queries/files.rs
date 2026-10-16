@@ -541,24 +541,33 @@ impl Database {
             }
         }
         let file_type = infer_file_type(&extension, is_dir);
+        let restored_file_id = current_id
+            .as_deref()
+            .filter(|file_id| is_neutral_source_file_id(file_id))
+            .map(str::to_string)
+            .unwrap_or_else(|| normalized_target.clone());
         if let Some(current_id) = current_id.as_deref() {
+            // A compatibility row may keep a SourceUID-based id while its
+            // path changes. Preserve that id so parked legacy rows whose
+            // primary key is still the old path cannot capture its facts.
             let updated = tx.execute(
                 r#"
                 UPDATE files
                 SET id = ?1,
-                    path = ?1,
-                    name = ?2,
-                    extension = ?3,
-                    size = ?4,
-                    mtime = ?5,
-                    ctime = ?6,
-                    is_dir = ?7,
-                    file_type = ?8,
+                    path = ?2,
+                    name = ?3,
+                    extension = ?4,
+                    size = ?5,
+                    mtime = ?6,
+                    ctime = ?7,
+                    is_dir = ?8,
+                    file_type = ?9,
                     is_stale = 0,
-                    last_seen_at = ?9
-                WHERE id = ?10
+                    last_seen_at = ?10
+                WHERE id = ?11
                 "#,
                 params![
+                    restored_file_id,
                     normalized_target,
                     name,
                     extension,
@@ -648,13 +657,19 @@ impl Database {
                 r#"
                 UPDATE library_legacy_attributions
                 SET legacy_file_id = ?1,
-                    legacy_path_snapshot = ?1,
+                    legacy_path_snapshot = ?2,
                     decision_revision = decision_revision + 1,
-                    updated_at = ?2
-                WHERE legacy_file_id = ?3 AND source_uid = ?4
+                    updated_at = ?3
+                WHERE legacy_file_id = ?4 AND source_uid = ?5
                   AND claim_state IN ('verified','user_confirmed')
                 "#,
-                params![normalized_target, restored_at, current_id, source_uid],
+                params![
+                    restored_file_id,
+                    normalized_target,
+                    restored_at,
+                    current_id,
+                    source_uid
+                ],
             )?;
         }
         super::library::bump_library_query_revision_in_transaction(&tx)?;
@@ -924,7 +939,9 @@ impl Database {
     ) -> Result<Option<String>, DbError> {
         let mut ids = Vec::new();
         for candidate in candidates {
-            let mut stmt = tx.prepare("SELECT id FROM files WHERE id = ?1 OR path = ?1")?;
+            let mut stmt = tx.prepare(
+                "SELECT id FROM files WHERE (id = ?1 OR path = ?1) AND (path = ?1 OR is_stale = 0)",
+            )?;
             let rows = stmt.query_map(params![candidate], |row| row.get::<_, String>(0))?;
             for row in rows {
                 let id = row?;
@@ -1099,29 +1116,36 @@ impl Database {
                 DELETE FROM files
                 WHERE (id = ?1 OR path = ?1)
                   AND id <> ?2
+                  AND NOT (is_stale = 1 AND path <> ?1)
                 "#,
                 params![candidate, current_id],
             )?;
         }
 
+        let target_file_id = if is_neutral_source_file_id(&current_id) {
+            current_id.clone()
+        } else {
+            normalized_target.clone()
+        };
         let updated = tx.execute(
             r#"
             UPDATE files
             SET id = ?1,
-                path = ?1,
-                name = ?2,
-                extension = ?3,
-                size = ?4,
-                mtime = ?5,
-                ctime = ?6,
-                is_dir = ?7,
+                path = ?2,
+                name = ?3,
+                extension = ?4,
+                size = ?5,
+                mtime = ?6,
+                ctime = ?7,
+                is_dir = ?8,
                 suggested_action = 'Keep',
                 requires_confirmation = 0,
                 is_stale = 0,
-                last_seen_at = ?8
-            WHERE id = ?9
+                last_seen_at = ?9
+            WHERE id = ?10
             "#,
             params![
+                target_file_id,
                 normalized_target,
                 name,
                 extension,
@@ -1140,13 +1164,19 @@ impl Database {
                     r#"
                     UPDATE library_legacy_attributions
                     SET legacy_file_id = ?1,
-                        legacy_path_snapshot = ?1,
+                        legacy_path_snapshot = ?2,
                         decision_revision = decision_revision + 1,
-                        updated_at = ?2
-                    WHERE legacy_file_id = ?3 AND source_uid = ?4
+                        updated_at = ?3
+                    WHERE legacy_file_id = ?4 AND source_uid = ?5
                       AND claim_state IN ('verified','user_confirmed')
                     "#,
-                    params![normalized_target, last_seen_at, current_id, source_uid],
+                    params![
+                        target_file_id,
+                        normalized_target,
+                        last_seen_at,
+                        current_id,
+                        source_uid
+                    ],
                 )?;
             }
             super::library::bump_library_query_revision_in_transaction(&tx)?;
@@ -2594,6 +2624,10 @@ fn restore_index_request(path: &Path, preferred_name: &str) -> Result<InsertFile
         is_dir: metadata.is_dir(),
         state_code: 0,
     })
+}
+
+fn is_neutral_source_file_id(file_id: &str) -> bool {
+    file_id.starts_with("zen-canvas-source:")
 }
 
 fn indexed_row_matches_restore_request(

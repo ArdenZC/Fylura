@@ -13,9 +13,10 @@ use rusqlite::{params, OptionalExtension, Transaction};
 #[derive(Debug, Clone)]
 pub(crate) struct SourceObservationOutcome {
     pub source_uid: String,
-    /// Existing path rows are retained as stale if their fact lineage cannot
-    /// be proved against the new physical object.
+    /// Existing path rows are quarantined when their fact lineage cannot be
+    /// proved against the observed physical object.
     pub block_legacy_row: bool,
+    pub verification_state: &'static str,
     pub changed: bool,
 }
 
@@ -319,10 +320,40 @@ pub(crate) fn observe_source_for_root_tx(
     Ok(SourceObservationOutcome {
         source_uid,
         block_legacy_row,
+        verification_state,
         changed: observation_changed
             || identity_changed
             || previous_claim_state.as_deref() != Some(claim_state),
     })
+}
+
+/// Records the identity boundary for a neutral File Library row created when
+/// an existing legacy row cannot be proven to describe the observed object.
+/// This row contains no inherited user facts, so verified physical identity
+/// can safely bind future facts created against the current object.
+pub(crate) fn ensure_neutral_source_attribution_tx(
+    tx: &Transaction<'_>,
+    file_id: &str,
+    path: &str,
+    source_uid: &str,
+    physical: Option<&PhysicalFileIdentity>,
+    verified: bool,
+    observed_at: i64,
+) -> Result<(), DbError> {
+    let physical_claim = physical.and_then(physical_claim);
+    if verified {
+        if let Some(physical_claim) = physical_claim.as_ref() {
+            return ensure_verified_attribution_tx(
+                tx,
+                file_id,
+                path,
+                source_uid,
+                Some(&physical_claim.digest),
+                observed_at,
+            );
+        }
+    }
+    ensure_unresolved_attribution_tx(tx, file_id, path, observed_at)
 }
 
 pub(crate) fn verify_legacy_source_identity_tx(

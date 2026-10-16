@@ -59,11 +59,12 @@ fn identity_foundation_object_names() -> [&'static str; 8] {
     ]
 }
 
-fn source_writer_object_names() -> [&'static str; 6] {
+fn source_writer_object_names() -> [&'static str; 7] {
     [
         "library_source_root_claims",
         "library_root_epoch_state",
         "idx_library_source_physical_verified",
+        "idx_library_source_physical_lookup",
         "idx_library_source_root_claims_path_state",
         "idx_library_source_root_claims_root_path",
         "idx_library_source_root_claims_source_state",
@@ -76,10 +77,11 @@ fn drop_source_writer_schema(conn: &Connection) {
          DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
          DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
          DROP INDEX IF EXISTS idx_library_source_physical_verified;
+         DROP INDEX IF EXISTS idx_library_source_physical_lookup;
          DROP TABLE IF EXISTS library_source_root_claims;
          DROP TABLE IF EXISTS library_root_epoch_state;",
     )
-    .expect("remove schema 40 source writer objects from historical fixture");
+    .expect("remove schema 41 source writer objects from historical fixture");
 }
 
 fn drop_identity_foundation(conn: &Connection, user_version: i32) {
@@ -358,6 +360,7 @@ fn downgrade_current_fixture_to_schema_16(path: &PathBuf) {
         DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
         DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
         DROP INDEX IF EXISTS idx_library_source_physical_verified;
+        DROP INDEX IF EXISTS idx_library_source_physical_lookup;
         DROP TABLE IF EXISTS library_source_root_claims;
         DROP TABLE IF EXISTS library_root_epoch_state;
         PRAGMA user_version = 16;
@@ -607,6 +610,7 @@ fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
         DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
         DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
         DROP INDEX IF EXISTS idx_library_source_physical_verified;
+        DROP INDEX IF EXISTS idx_library_source_physical_lookup;
         DROP TABLE IF EXISTS library_source_root_claims;
         DROP TABLE IF EXISTS library_root_epoch_state;
         DROP TABLE IF EXISTS automation_trigger_state; DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automation_intents; ALTER TABLE files DROP COLUMN filesystem_observation_key; ALTER TABLE scan_roots DROP COLUMN library_change_revision; PRAGMA user_version = 34;
@@ -662,7 +666,7 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema 35 version");
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     assert!(column_names(&conn, "cleanup_trash_items")
         .contains(&"source_platform_volume_id".to_string()));
 
@@ -876,7 +880,7 @@ fn schema_34_cleanup_identity_migration_rolls_back_column_and_rows_together() {
 }
 
 #[test]
-fn schema_40_reopen_is_idempotent_and_future_schema_41_is_rejected() {
+fn schema_41_reopen_is_idempotent_and_future_schema_42_is_rejected() {
     let path = test_db_path("td014-idempotent");
     downgrade_current_fixture_to_schema_34(&path);
     let db = Database::open(&path).expect("migrate schema 34 fixture to schema 35");
@@ -889,7 +893,7 @@ fn schema_40_reopen_is_idempotent_and_future_schema_41_is_rejected() {
     let second = Connection::open(&path).expect("reopen migrated schema 35 fixture");
     assert_eq!(cleanup_identity_snapshot(&second), before);
     second
-        .execute_batch("PRAGMA user_version = 41;")
+        .execute_batch("PRAGMA user_version = 42;")
         .expect("set future schema version");
     drop(second);
     let error = match Database::open(&path) {
@@ -932,7 +936,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -1000,7 +1004,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 40);
+        assert_eq!(migrated_version, 41);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -1231,6 +1235,7 @@ fn downgrade_current_fixture_to_schema_22(path: &PathBuf) {
         DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
         DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
         DROP INDEX IF EXISTS idx_library_source_physical_verified;
+        DROP INDEX IF EXISTS idx_library_source_physical_lookup;
         DROP TABLE IF EXISTS library_source_root_claims;
         DROP TABLE IF EXISTS library_root_epoch_state;
         PRAGMA user_version = 22;
@@ -1250,7 +1255,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        40
+        41
     );
     assert_schema_23_journal_columns(&conn);
 
@@ -1323,15 +1328,15 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
 #[test]
 fn p0_t01_fresh_and_repeated_open_keep_identity_authority_dormant() {
     let path = test_db_path("p0-t01-fresh");
-    let db = Database::open(&path).expect("create fresh schema 40 database");
+    let db = Database::open(&path).expect("create fresh schema 41 database");
     db.init().expect("repeat initialization is idempotent");
     drop(db);
 
-    let conn = Connection::open(&path).expect("inspect fresh schema 40 database");
+    let conn = Connection::open(&path).expect("inspect fresh schema 41 database");
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     let tables: Vec<String> = {
         let mut statement = conn
             .prepare(
@@ -1370,12 +1375,46 @@ fn p0_t01_fresh_and_repeated_open_keep_identity_authority_dormant() {
               'idx_library_source_root_claims_source_state', \
               'idx_library_source_root_claims_root_path', \
               'idx_library_source_root_claims_path_state', \
-              'idx_library_source_physical_verified')",
+              'idx_library_source_physical_verified', \
+              'idx_library_source_physical_lookup')",
             [],
             |row| row.get(0),
         )
         .expect("count P0 schema objects");
-    assert_eq!(object_count, 14);
+    assert_eq!(object_count, 15);
+
+    let index_properties: Vec<(String, i64, i64)> = {
+        let mut statement = conn
+            .prepare("PRAGMA index_list('library_source_incarnations')")
+            .expect("prepare SourceUID index list");
+        statement
+            .query_map([], |row| Ok((row.get(1)?, row.get(2)?, row.get(4)?)))
+            .expect("query SourceUID index list")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect SourceUID index list")
+    };
+    assert!(index_properties.contains(&("idx_library_source_physical_lookup".to_string(), 0, 0,)));
+    assert!(index_properties.contains(&("idx_library_source_physical_verified".to_string(), 1, 1,)));
+    let lookup_columns: Vec<String> = {
+        let mut statement = conn
+            .prepare("PRAGMA index_info('idx_library_source_physical_lookup')")
+            .expect("prepare SourceUID lookup index columns");
+        statement
+            .query_map([], |row| row.get(2))
+            .expect("query SourceUID lookup index columns")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect SourceUID lookup index columns")
+    };
+    assert_eq!(
+        lookup_columns,
+        vec![
+            "physical_platform",
+            "physical_volume_id",
+            "physical_object_id",
+            "created_at",
+            "source_uid",
+        ]
+    );
 
     let authority: (i64, String, i64, Option<String>, i64) = conn
         .query_row(
@@ -1446,7 +1485,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     drop(conn);
 
     let started = Instant::now();
-    let migrated = Database::open(&path).expect("migrate schema 37 fixture through schema 40");
+    let migrated = Database::open(&path).expect("migrate schema 37 fixture through schema 41");
     let migration_elapsed = started.elapsed();
     drop(migrated);
 
@@ -1454,7 +1493,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read migrated version");
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     for (table, expected) in before_rows {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");
     }
@@ -1543,13 +1582,13 @@ fn p0_t03_schema_36_migrates_to_38_without_rewriting_files() {
     .expect("construct schema 36 automation tables");
     drop(conn);
 
-    let db = Database::open(&path).expect("migrate schema 36 through schema 40");
+    let db = Database::open(&path).expect("migrate schema 36 through schema 41");
     drop(db);
     let conn = Connection::open(&path).expect("inspect migrated schema 36 fixture");
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated version"),
-        40
+        41
     );
     assert_eq!(table_snapshot(&conn, "files"), before_file);
     assert_eq!(fts_rows_matching(&conn, "v36preserved"), before_fts);
@@ -1709,9 +1748,9 @@ fn p0_r1_schema_38_reopen_rejects_case_changed_check_without_mutation() {
 }
 
 #[test]
-fn schema_38_to_40_adds_source_and_operation_fencing_without_changing_global_index_data() {
-    let path = test_db_path("schema38-to-40-global-index");
-    let db = Database::open(&path).expect("create schema 40 fixture");
+fn schema_38_to_41_adds_source_and_operation_fencing_without_changing_global_index_data() {
+    let path = test_db_path("schema38-to-41-global-index");
+    let db = Database::open(&path).expect("create schema 41 fixture");
     let volume = GlobalVolume {
         id: "schema39-volume".into(),
         platform: "windows".into(),
@@ -1763,7 +1802,7 @@ fn schema_38_to_40_adds_source_and_operation_fencing_without_changing_global_ind
     .expect("seed active Global Search entry");
     drop(db);
 
-    let conn = Connection::open(&path).expect("open schema 40 database as schema 38");
+    let conn = Connection::open(&path).expect("open schema 41 database as schema 38");
     conn.execute_batch(
         r#"
         ALTER TABLE global_volumes DROP COLUMN rebuild_completed_revision;
@@ -1779,6 +1818,7 @@ fn schema_38_to_40_adds_source_and_operation_fencing_without_changing_global_ind
         DROP INDEX idx_library_source_root_claims_root_path;
         DROP INDEX idx_library_source_root_claims_path_state;
         DROP INDEX idx_library_source_physical_verified;
+        DROP INDEX idx_library_source_physical_lookup;
         DROP TABLE library_source_root_claims;
         DROP TABLE library_root_epoch_state;
         PRAGMA user_version = 38;
@@ -1787,7 +1827,7 @@ fn schema_38_to_40_adds_source_and_operation_fencing_without_changing_global_ind
     .expect("construct pre-migration schema 38 fixture");
     drop(conn);
 
-    let migrated = Database::open(&path).expect("migrate schema 38 to schema 40");
+    let migrated = Database::open(&path).expect("migrate schema 38 to schema 41");
     let stored = migrated
         .get_global_volume(&volume.id)
         .expect("read migrated volume")
@@ -1821,15 +1861,15 @@ fn schema_38_to_40_adds_source_and_operation_fencing_without_changing_global_ind
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("read default operation state");
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     assert_eq!(entry, ("preserved.txt".into(), 0));
     assert_eq!(operation, (0, 0, 0));
 }
 
 #[test]
-fn schema_39_to_40_adds_writer_claims_without_changing_legacy_file_authority() {
-    let path = test_db_path("schema39-to-40-source-writer");
-    let db = Database::open(&path).expect("create schema 40 fixture");
+fn schema_39_to_41_adds_writer_claims_without_changing_legacy_file_authority() {
+    let path = test_db_path("schema39-to-41-source-writer");
+    let db = Database::open(&path).expect("create schema 41 fixture");
     db.insert_file(InsertFileRequest {
         id: "schema40-preserved".into(),
         path: "schema40-preserved".into(),
@@ -1844,7 +1884,7 @@ fn schema_39_to_40_adds_writer_claims_without_changing_legacy_file_authority() {
     .expect("seed legacy file row");
     drop(db);
 
-    let conn = Connection::open(&path).expect("open schema 40 as schema 39");
+    let conn = Connection::open(&path).expect("open schema 41 as schema 39");
     let before_file = table_snapshot(&conn, "files");
     conn.execute_batch(
         r#"
@@ -1852,6 +1892,7 @@ fn schema_39_to_40_adds_writer_claims_without_changing_legacy_file_authority() {
         DROP INDEX idx_library_source_root_claims_root_path;
         DROP INDEX idx_library_source_root_claims_path_state;
         DROP INDEX idx_library_source_physical_verified;
+        DROP INDEX idx_library_source_physical_lookup;
         DROP TABLE library_source_root_claims;
         DROP TABLE library_root_epoch_state;
         PRAGMA user_version = 39;
@@ -1860,13 +1901,13 @@ fn schema_39_to_40_adds_writer_claims_without_changing_legacy_file_authority() {
     .expect("construct schema 39 fixture");
     drop(conn);
 
-    let migrated = Database::open(&path).expect("migrate schema 39 to schema 40");
+    let migrated = Database::open(&path).expect("migrate schema 39 to schema 41");
     drop(migrated);
-    let conn = Connection::open(&path).expect("inspect schema 40 result");
+    let conn = Connection::open(&path).expect("inspect schema 41 result");
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated version"),
-        40
+        41
     );
     assert_eq!(table_snapshot(&conn, "files"), before_file);
     assert_eq!(
@@ -1887,6 +1928,151 @@ fn schema_39_to_40_adds_writer_claims_without_changing_legacy_file_authority() {
         .expect("count new membership rows"),
         0
     );
+}
+
+#[test]
+fn schema_40_to_41_adds_only_lookup_index_and_preserves_existing_facts() {
+    let path = test_db_path("schema40-to-41-preserve-facts");
+    let db = Database::open(&path).expect("create Schema41 fixture");
+    db.insert_file(InsertFileRequest {
+        id: "schema41-legacy-file".into(),
+        path: "/schema41/legacy.txt".into(),
+        name: "legacy.txt".into(),
+        extension: "txt".into(),
+        size: 23,
+        mtime: 29,
+        ctime: 31,
+        is_dir: false,
+        state_code: 0,
+    })
+    .expect("seed legacy file row");
+    let tag = db
+        .create_user_tag(CreateUserTagRequest {
+            display_name: "Schema41 preserved tag".into(),
+            color_token: "blue".into(),
+        })
+        .expect("create user tag");
+    db.mutate_file_user_tags(MutateFileUserTagsRequest {
+        selection: LibrarySelectionV1::Explicit {
+            file_ids: vec!["schema41-legacy-file".into()],
+        },
+        tag_ids: vec![tag.id],
+        operation: UserTagMutationOperation::Add,
+        expected_count: Some(1),
+    })
+    .expect("attach preserved user tag");
+
+    drop(db);
+    let conn = Connection::open(&path).expect("open Schema41 fixture connection");
+    conn.execute(
+        "INSERT INTO scan_roots (
+            id, normalized_path, display_name, source_kind, enabled,
+            health_status, needs_reconciliation, created_at, updated_at
+         ) VALUES ('schema41-root', '/schema41', 'Schema41 root', 'file_library', 1,
+                   'healthy', 0, 1, 1)",
+        [],
+    )
+    .expect("seed managed root");
+    conn.execute(
+        "INSERT INTO library_source_incarnations (
+            source_uid, verification_state, source_revision, created_at, updated_at
+         ) VALUES ('schema41-source', 'unverified', 1, 11, 11)",
+        [],
+    )
+    .expect("seed source incarnation");
+    conn.execute(
+        "INSERT INTO library_source_observations (
+            source_uid, observation_revision, legacy_file_id_snapshot, observed_path,
+            name, extension, size, mtime, ctime, is_dir, physical_claim_digest,
+            observation_digest, observed_at
+         ) VALUES ('schema41-source', 1, 'schema41-legacy-file', '/schema41/legacy.txt',
+                  'legacy.txt', 'txt', 23, 29, 31, 0, NULL, 'observation-digest', 11)",
+        [],
+    )
+    .expect("seed source observation");
+    conn.execute(
+        "INSERT INTO library_legacy_attributions (
+            claim_id, legacy_file_id, legacy_path_snapshot, source_uid, claim_state,
+            evidence_digest, decision_revision, created_at, updated_at
+         ) VALUES ('schema41-attribution', 'schema41-legacy-file', '/schema41/legacy.txt',
+                  NULL, 'unresolved', NULL, 1, 11, 11)",
+        [],
+    )
+    .expect("seed unresolved legacy attribution");
+    conn.execute(
+        "INSERT INTO library_root_epoch_state (
+            root_id, epoch, last_owner_kind, last_owner_revision, updated_at
+         ) VALUES ('schema41-root', 1, 'scan', 1, 11)",
+        [],
+    )
+    .expect("seed root epoch");
+    conn.execute(
+        "INSERT INTO library_source_root_claims (
+            root_id, source_uid, observed_path, root_epoch, owner_kind, owner_revision,
+            observation_revision, claim_state, observed_at
+         ) VALUES ('schema41-root', 'schema41-source', '/schema41/legacy.txt', 1,
+                  'scan', 1, 1, 'unverified', 11)",
+        [],
+    )
+    .expect("seed root claim");
+    conn.execute_batch("DROP INDEX idx_library_source_physical_lookup; PRAGMA user_version = 40;")
+        .expect("construct Schema40 fixture");
+    let preserved_tables = [
+        "files",
+        "user_tags",
+        "file_user_tags",
+        "scan_roots",
+        "library_source_incarnations",
+        "library_source_observations",
+        "library_legacy_attributions",
+        "library_root_epoch_state",
+        "library_source_root_claims",
+    ];
+    let before = preserved_tables
+        .iter()
+        .map(|table| (*table, table_snapshot(&conn, table)))
+        .collect::<Vec<_>>();
+    let verified_index_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'index' \
+             AND name = 'idx_library_source_physical_verified'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("snapshot verified unique index");
+    drop(conn);
+
+    let migrated = Database::open(&path).expect("migrate exact Schema40 fixture to 41");
+    drop(migrated);
+    let conn = Connection::open(&path).expect("inspect Schema41 migrated fixture");
+    assert_eq!(
+        conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .expect("read migrated schema version"),
+        41
+    );
+    for (table, expected) in before {
+        assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");
+    }
+    let verified_index_sql_after: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'index' \
+             AND name = 'idx_library_source_physical_verified'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read verified unique index after migration");
+    assert_eq!(verified_index_sql_after, verified_index_sql);
+    let (lookup_unique, lookup_partial): (i64, i64) = conn
+        .query_row(
+            "SELECT \"unique\", partial FROM pragma_index_list('library_source_incarnations') \
+             WHERE name = 'idx_library_source_physical_lookup'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read new lookup index properties");
+    assert_eq!((lookup_unique, lookup_partial), (0, 0));
+    drop(conn);
+    let _ = fs::remove_file(path);
 }
 
 #[test]

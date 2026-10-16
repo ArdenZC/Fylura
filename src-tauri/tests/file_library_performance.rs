@@ -28,10 +28,11 @@ fn drop_source_writer_schema_for_historical_fixture(conn: &Connection) {
          DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
          DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
          DROP INDEX IF EXISTS idx_library_source_physical_verified;
+         DROP INDEX IF EXISTS idx_library_source_physical_lookup;
          DROP TABLE IF EXISTS library_source_root_claims;
          DROP TABLE IF EXISTS library_root_epoch_state;",
     )
-    .expect("drop schema 40 source writer objects from historical performance fixture");
+    .expect("drop schema 41 source writer objects from historical performance fixture");
 }
 
 #[test]
@@ -418,7 +419,7 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
             |row| row.get(0),
         )
         .expect("read migrated file library indexes");
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     assert_eq!(file_count, row_count as i64);
     assert_eq!(index_count, 5);
     println!(
@@ -487,7 +488,7 @@ fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
         .expect("read catalog revision");
     let size_after = fs::metadata(&path).expect("schema34 size").len();
     let size_delta = size_after.saturating_sub(size_before);
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     for table in [
         "content_scope_policies",
         "content_runs",

@@ -17,10 +17,11 @@ pub(crate) fn drop_source_writer_schema_for_test(conn: &rusqlite::Connection) {
          DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
          DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
          DROP INDEX IF EXISTS idx_library_source_physical_verified;
+         DROP INDEX IF EXISTS idx_library_source_physical_lookup;
          DROP TABLE IF EXISTS library_source_root_claims;
          DROP TABLE IF EXISTS library_root_epoch_state;",
     )
-    .expect("drop schema 40 source writer objects from historical test fixture");
+    .expect("drop schema 41 source writer objects from historical test fixture");
 }
 
 pub(crate) use automation::apply_watcher_root_transitions;

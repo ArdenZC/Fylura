@@ -458,7 +458,7 @@
     #[test]
     fn migrated_legacy_path_upsert_rejects_replacement_before_managed_scan_and_keeps_facts_isolated() {
         let db_path = test_db_path();
-        let db = Database::open(&db_path).expect("create schema 40 fixture");
+        let db = Database::open(&db_path).expect("create schema 41 fixture");
         let root = test_dir();
         let source = root.join("legacy-before.txt");
         let target = root.join("legacy-after.txt");
@@ -527,7 +527,7 @@
             .expect("mark fixture as schema 39");
         drop(schema39);
 
-        let db = Database::open(&db_path).expect("run production schema 39 to 40 migration");
+        let db = Database::open(&db_path).expect("run production schema 39 to 41 migration");
         let root_text = crate::db::scan::normalize_scan_root_path(&root.to_string_lossy());
         let admission = db
             .admit_managed_scan(&crate::db::scan::ScanAdmissionOptions {

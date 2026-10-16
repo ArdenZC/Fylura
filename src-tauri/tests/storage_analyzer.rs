@@ -35,6 +35,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
         DROP INDEX IF EXISTS idx_library_source_root_claims_path_state;
         DROP INDEX IF EXISTS idx_library_source_physical_verified;
+        DROP INDEX IF EXISTS idx_library_source_physical_lookup;
         DROP TABLE IF EXISTS library_source_root_claims;
         DROP TABLE IF EXISTS library_root_epoch_state;
         PRAGMA user_version = 18;
@@ -58,7 +59,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()

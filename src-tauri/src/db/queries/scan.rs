@@ -5123,11 +5123,8 @@ mod tests {
             is_dir: false,
             state_code: 0,
         };
-        // An unverified observation now publishes a neutral browse row. That
-        // visible insertion advances the root clock once; repeating it is
-        // idempotent, and a later filesystem metadata change advances it once.
-        for (index, expected) in [2, 2, 3].into_iter().enumerate() {
-            if index == 2 {
+        for expected in [1, 1, 2] {
+            if expected == 2 {
                 entry.size = 8;
                 entry.mtime = 5;
             }
@@ -6045,6 +6042,9 @@ mod tests {
         fs::create_dir_all(&root).expect("create migration root");
         let path = root.join("legacy.txt");
         fs::write(&path, b"unchanged legacy object").expect("write legacy file");
+        // Keep the pre-existing Schema39 root in the active File Library
+        // scope so the test exercises the same reader used by users.
+        watcher_root_id(&db, &root);
         let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
         let metadata = fs::metadata(&path).expect("read legacy metadata");
         let legacy_file = insert_request_from_metadata(normalized_path.clone(), &path, &metadata);

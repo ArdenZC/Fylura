@@ -31,4 +31,12 @@ describe("stable error codes", () => {
   it("preserves unknown technical details for diagnostics", () => {
     expect(localizedStableError("provider_timeout", makeTranslator("en"))).toBe("provider_timeout");
   });
+
+  it("shows only the safe Settings support classification", () => {
+    const en = makeTranslator("en");
+    expect(localizedStableError("settings_save_failure:watcher_root_sync_failure", en))
+      .toBe("Failed to save settings (Support code: watcher_root_sync_failure)");
+    expect(localizedStableError("settings_save_failure:rollback_reconciliation_failure", en))
+      .toContain("rollback_reconciliation_failure");
+  });
 });

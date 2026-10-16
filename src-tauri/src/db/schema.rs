@@ -4,8 +4,153 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 37;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 39;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
+
+const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
+
+const CREATE_LIBRARY_SOURCE_INCARNATIONS: &str = r#"
+CREATE TABLE library_source_incarnations (
+  source_uid TEXT PRIMARY KEY NOT NULL,
+  verification_state TEXT NOT NULL DEFAULT 'unverified'
+    CHECK (verification_state IN ('unverified','verified','conflicted','retired')),
+  physical_platform TEXT,
+  physical_volume_id TEXT,
+  physical_object_id TEXT,
+  verification_digest TEXT,
+  source_revision INTEGER NOT NULL DEFAULT 1 CHECK (source_revision >= 1),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CHECK (
+    verification_state <> 'verified' OR (
+      physical_platform IS NOT NULL AND physical_platform <> '' AND
+      physical_volume_id IS NOT NULL AND physical_volume_id <> '' AND
+      physical_object_id IS NOT NULL AND physical_object_id <> '' AND
+      verification_digest IS NOT NULL AND verification_digest <> ''
+    )
+  )
+);
+"#;
+
+const CREATE_LIBRARY_SOURCE_OBSERVATIONS: &str = r#"
+CREATE TABLE library_source_observations (
+  source_uid TEXT NOT NULL,
+  observation_revision INTEGER NOT NULL CHECK (observation_revision >= 1),
+  legacy_file_id_snapshot TEXT,
+  observed_path TEXT NOT NULL,
+  name TEXT NOT NULL,
+  extension TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL CHECK (size >= 0),
+  mtime INTEGER NOT NULL,
+  ctime INTEGER NOT NULL,
+  is_dir INTEGER NOT NULL CHECK (is_dir IN (0,1)),
+  physical_claim_digest TEXT,
+  observation_digest TEXT NOT NULL CHECK (observation_digest <> ''),
+  observed_at INTEGER NOT NULL,
+  PRIMARY KEY (source_uid, observation_revision),
+  FOREIGN KEY (source_uid) REFERENCES library_source_incarnations(source_uid)
+    ON DELETE RESTRICT
+);
+"#;
+
+const CREATE_LIBRARY_OBSERVATIONS_LEGACY_ID_INDEX: &str = r#"
+CREATE INDEX idx_library_observations_legacy_id
+  ON library_source_observations(legacy_file_id_snapshot);
+"#;
+
+const CREATE_LIBRARY_OBSERVATIONS_PATH_INDEX: &str = r#"
+CREATE INDEX idx_library_observations_path
+  ON library_source_observations(observed_path, source_uid);
+"#;
+
+const CREATE_LIBRARY_LEGACY_ATTRIBUTIONS: &str = r#"
+CREATE TABLE library_legacy_attributions (
+  claim_id TEXT PRIMARY KEY NOT NULL,
+  legacy_file_id TEXT NOT NULL,
+  legacy_path_snapshot TEXT NOT NULL,
+  source_uid TEXT,
+  claim_state TEXT NOT NULL DEFAULT 'unresolved'
+    CHECK (claim_state IN ('unresolved','verified','conflicted','user_confirmed')),
+  evidence_digest TEXT,
+  decision_revision INTEGER NOT NULL DEFAULT 1 CHECK (decision_revision >= 1),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CHECK (claim_state IN ('unresolved','conflicted')
+         OR (source_uid IS NOT NULL AND evidence_digest IS NOT NULL
+             AND evidence_digest <> '')),
+  FOREIGN KEY (source_uid) REFERENCES library_source_incarnations(source_uid)
+    ON DELETE RESTRICT
+);
+"#;
+
+const CREATE_LIBRARY_ATTRIBUTIONS_LEGACY_INDEX: &str = r#"
+CREATE INDEX idx_library_attributions_legacy
+  ON library_legacy_attributions(legacy_file_id, decision_revision);
+"#;
+
+const CREATE_LIBRARY_ATTRIBUTIONS_SOURCE_INDEX: &str = r#"
+CREATE INDEX idx_library_attributions_source
+  ON library_legacy_attributions(source_uid, claim_state);
+"#;
+
+const CREATE_LIBRARY_GENERATION_AUTHORITY: &str = r#"
+CREATE TABLE library_generation_authority (
+  singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+  read_mode TEXT NOT NULL DEFAULT 'legacy'
+    CHECK (read_mode IN ('legacy','generation')),
+  active_catalog_epoch INTEGER NOT NULL DEFAULT 0
+    CHECK (active_catalog_epoch >= 0),
+  active_fts_slot_id TEXT,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  updated_at INTEGER NOT NULL,
+  CHECK ((read_mode='legacy' AND active_catalog_epoch=0 AND active_fts_slot_id IS NULL)
+       OR (read_mode='generation' AND active_catalog_epoch>0 AND
+           active_fts_slot_id IS NOT NULL AND active_fts_slot_id <> ''))
+);
+"#;
+
+const LIBRARY_IDENTITY_SCHEMA_OBJECTS: &[(&str, &str, &str)] = &[
+    (
+        "table",
+        "library_source_incarnations",
+        CREATE_LIBRARY_SOURCE_INCARNATIONS,
+    ),
+    (
+        "table",
+        "library_source_observations",
+        CREATE_LIBRARY_SOURCE_OBSERVATIONS,
+    ),
+    (
+        "index",
+        "idx_library_observations_legacy_id",
+        CREATE_LIBRARY_OBSERVATIONS_LEGACY_ID_INDEX,
+    ),
+    (
+        "index",
+        "idx_library_observations_path",
+        CREATE_LIBRARY_OBSERVATIONS_PATH_INDEX,
+    ),
+    (
+        "table",
+        "library_legacy_attributions",
+        CREATE_LIBRARY_LEGACY_ATTRIBUTIONS,
+    ),
+    (
+        "index",
+        "idx_library_attributions_legacy",
+        CREATE_LIBRARY_ATTRIBUTIONS_LEGACY_INDEX,
+    ),
+    (
+        "index",
+        "idx_library_attributions_source",
+        CREATE_LIBRARY_ATTRIBUTIONS_SOURCE_INDEX,
+    ),
+    (
+        "table",
+        "library_generation_authority",
+        CREATE_LIBRARY_GENERATION_AUTHORITY,
+    ),
+];
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
     if FTS5_CHECKED.get().is_none() {
@@ -42,6 +187,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         )));
     }
     if version == CURRENT_SCHEMA_VERSION {
+        validate_library_identity_schema(conn)?;
         ensure_global_index_schema(conn)?;
         ensure_global_index_hardening(conn)?;
         ensure_journal_state_triggers(conn)?;
@@ -56,8 +202,19 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
-    conn.execute_batch("BEGIN IMMEDIATE")?;
-    let migration_result = (|| -> Result<(), DbError> {
+    with_migration_transaction(conn, |conn| {
+        let library_identity_schema_installed = if version < 38 {
+            ensure_library_identity_schema_names_available(conn)?
+        } else if version == 38 {
+            // Schema 38 already required the complete Library identity
+            // foundation. Keep validating it before the 38 -> 39 migration;
+            // otherwise a version bump would silently admit malformed 38
+            // databases that were rejected when 38 was current.
+            validate_library_identity_schema(conn)?;
+            true
+        } else {
+            false
+        };
         if version < 1 {
             // 建表 + 基础索引
             conn.execute_batch(
@@ -732,9 +889,39 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             super::schema_automation_triggers::migrate_automation_triggers(conn)?;
             set_schema_version(conn, 37)?;
         }
+        if version < 38 {
+            if !library_identity_schema_installed {
+                migrate_library_identity_foundation(conn)?;
+            }
+            set_schema_version(conn, 38)?;
+        }
+        if version < 39 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE global_volumes ADD COLUMN operation_revision INTEGER NOT NULL DEFAULT 0 CHECK (operation_revision >= 0);",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_owner_id TEXT;",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_owner_pid INTEGER;",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_owner_started_at INTEGER;",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_owner_route TEXT CHECK (operation_owner_route IS NULL OR operation_owner_route IN ('coordinator', 'service', 'direct'));",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_kind TEXT CHECK (operation_kind IS NULL OR operation_kind IN ('initial', 'incremental', 'rebuild'));",
+                    "ALTER TABLE global_volumes ADD COLUMN operation_state TEXT CHECK (operation_state IS NULL OR operation_state IN ('running', 'unknown'));",
+                    "ALTER TABLE global_volumes ADD COLUMN rebuild_intent_revision INTEGER NOT NULL DEFAULT 0 CHECK (rebuild_intent_revision >= 0);",
+                    "ALTER TABLE global_volumes ADD COLUMN rebuild_completed_revision INTEGER NOT NULL DEFAULT 0 CHECK (rebuild_completed_revision >= 0);",
+                ],
+            )?;
+            set_schema_version(conn, 39)?;
+        }
         Ok(())
-    })();
-    match migration_result {
+    })
+}
+
+fn with_migration_transaction(
+    conn: &Connection,
+    migration: impl FnOnce(&Connection) -> Result<(), DbError>,
+) -> Result<(), DbError> {
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    match migration(conn) {
         Ok(()) => {
             conn.execute_batch("COMMIT")?;
             Ok(())
@@ -744,6 +931,127 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             Err(error)
         }
     }
+}
+
+fn migrate_library_identity_foundation(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(CREATE_LIBRARY_SOURCE_INCARNATIONS)?;
+    conn.execute_batch(CREATE_LIBRARY_SOURCE_OBSERVATIONS)?;
+    conn.execute_batch(CREATE_LIBRARY_OBSERVATIONS_LEGACY_ID_INDEX)?;
+    conn.execute_batch(CREATE_LIBRARY_OBSERVATIONS_PATH_INDEX)?;
+    conn.execute_batch(CREATE_LIBRARY_LEGACY_ATTRIBUTIONS)?;
+    conn.execute_batch(CREATE_LIBRARY_ATTRIBUTIONS_LEGACY_INDEX)?;
+    conn.execute_batch(CREATE_LIBRARY_ATTRIBUTIONS_SOURCE_INDEX)?;
+    conn.execute_batch(CREATE_LIBRARY_GENERATION_AUTHORITY)?;
+    conn.execute_batch(
+        r#"
+        INSERT INTO library_generation_authority (
+          singleton_id, read_mode, active_catalog_epoch, active_fts_slot_id,
+          revision, updated_at
+        ) VALUES (1, 'legacy', 0, NULL, 1, unixepoch());
+        "#,
+    )?;
+    Ok(())
+}
+
+fn ensure_library_identity_schema_names_available(conn: &Connection) -> Result<bool, DbError> {
+    let mut has_existing_object = false;
+    for (_, name, _) in LIBRARY_IDENTITY_SCHEMA_OBJECTS {
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = ?1)",
+            [name],
+            |row| row.get(0),
+        )?;
+        has_existing_object |= exists;
+    }
+    if !has_existing_object {
+        return Ok(false);
+    }
+
+    // A manually downgraded developer fixture can still carry the complete,
+    // dormant P0 schema. Accept only the exact empty foundation; a partial,
+    // altered, or already-populated identity ledger remains a hard conflict.
+    validate_library_identity_schema(conn)?;
+    for table in [
+        "library_source_incarnations",
+        "library_source_observations",
+        "library_legacy_attributions",
+    ] {
+        let has_rows: bool = conn.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM {table} LIMIT 1)"),
+            [],
+            |row| row.get(0),
+        )?;
+        if has_rows {
+            return Err(DbError::Validation(format!(
+                "{LIBRARY_IDENTITY_SCHEMA_CONFLICT}: {table}"
+            )));
+        }
+    }
+    Ok(true)
+}
+
+fn validate_library_identity_schema(conn: &Connection) -> Result<(), DbError> {
+    for (object_type, name, expected_sql) in LIBRARY_IDENTITY_SCHEMA_OBJECTS {
+        let actual_sql: Option<String> = conn
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = ?1 AND name = ?2",
+                params![object_type, name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if !actual_sql
+            .as_deref()
+            .map(schema_sql_signature)
+            .is_some_and(|actual| actual == schema_sql_signature(expected_sql))
+        {
+            return Err(DbError::Validation(format!(
+                "{LIBRARY_IDENTITY_SCHEMA_CONFLICT}: {name}"
+            )));
+        }
+    }
+
+    let authority: Option<(String, i64, Option<String>, i64)> = conn
+        .query_row(
+            "SELECT read_mode, active_catalog_epoch, active_fts_slot_id, revision \
+             FROM library_generation_authority WHERE singleton_id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    if authority != Some(("legacy".to_string(), 0, None, 1)) {
+        return Err(DbError::Validation(format!(
+            "{LIBRARY_IDENTITY_SCHEMA_CONFLICT}: library_generation_authority"
+        )));
+    }
+    Ok(())
+}
+
+fn schema_sql_signature(sql: &str) -> String {
+    let mut signature = String::with_capacity(sql.len());
+    let mut characters = sql.chars().peekable();
+    let mut in_string_literal = false;
+
+    while let Some(character) = characters.next() {
+        if in_string_literal {
+            signature.push(character);
+            if character == '\'' {
+                if characters.peek() == Some(&'\'') {
+                    signature.push(characters.next().expect("peeked escaped quote"));
+                } else {
+                    in_string_literal = false;
+                }
+            }
+        } else if character == '\'' {
+            signature.push(character);
+            in_string_literal = true;
+        } else if character.is_ascii_whitespace() || character == ';' {
+            continue;
+        } else {
+            signature.extend(character.to_lowercase());
+        }
+    }
+
+    signature
 }
 
 const MACOS_CLEANUP_PHYSICAL_ID_PREFIX: &str = "macos-dev-ino:";
@@ -2821,4 +3129,212 @@ fn ensure_fts_triggers(conn: &Connection) -> Result<(), DbError> {
 fn is_trigram_fts_definition(sql: &str) -> bool {
     let normalized = sql.to_ascii_lowercase().replace(char::is_whitespace, "");
     normalized.contains("tokenize='trigram'") || normalized.contains("tokenize=\"trigram\"")
+}
+
+#[cfg(test)]
+mod issue381_b4_p0_tests {
+    use super::*;
+    use crate::db::Database;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+    fn test_database_path(label: &str) -> std::path::PathBuf {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "zen-canvas-issue381-{label}-{}-{timestamp}.sqlite3",
+            std::process::id()
+        ))
+    }
+
+    fn remove_identity_foundation(conn: &Connection, version: i32) {
+        conn.execute_batch(&format!(
+            "DROP TABLE IF EXISTS library_source_observations;
+             DROP TABLE IF EXISTS library_legacy_attributions;
+             DROP TABLE IF EXISTS library_source_incarnations;
+             DROP TABLE IF EXISTS library_generation_authority;
+             PRAGMA user_version = {version};"
+        ))
+        .expect("construct schema 37 transaction fixture");
+    }
+
+    #[test]
+    fn p0_t04_injected_ddl_failure_rolls_back_schema_version_and_legacy_fts() {
+        let path = test_database_path("p0-t04-rollback");
+        let db = Database::open(&path).expect("create current database");
+        let conn = db.conn().expect("get configured product SQLite connection");
+        conn.execute(
+            "INSERT INTO files (id, path, name, extension, size, mtime, is_dir, state_code) \
+             VALUES ('rollback-file', '/p0/rollbacktoken.txt', 'rollbacktoken.txt', 'txt', 8, 1, 0, 0)",
+            [],
+        )
+        .expect("seed legacy file");
+        conn.execute(
+            "INSERT INTO user_tags (id, display_name, normalized_name, color_token, created_at, updated_at, revision) \
+             VALUES ('rollback-tag', 'Rollback Tag', 'rollback tag', 'blue', 1, 1, 1)",
+            [],
+        )
+        .expect("seed user tag");
+        conn.execute(
+            "INSERT INTO file_user_tags (file_id, tag_id, created_at) VALUES ('rollback-file', 'rollback-tag', 1)",
+            [],
+        )
+        .expect("seed user tag assignment");
+        let before_fts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'rollbacktoken'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query legacy FTS before rollback");
+        assert_eq!(before_fts, 1);
+        remove_identity_foundation(&conn, 37);
+
+        let migration_result = with_migration_transaction(&conn, |conn| {
+            assert!(!ensure_library_identity_schema_names_available(conn)?);
+            migrate_library_identity_foundation(conn)?;
+            set_schema_version(conn, 38)?;
+            conn.execute_batch(
+                "CREATE TABLE p0_injected_failure (id TEXT); \
+                 CREATE TABLE p0_injected_failure (id TEXT);",
+            )?;
+            Ok(())
+        });
+        assert!(
+            migration_result.is_err(),
+            "injected duplicate DDL must fail"
+        );
+
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("read version after rollback"),
+            37
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name IN \
+                 ('library_source_incarnations', 'library_source_observations', \
+                  'idx_library_observations_legacy_id', 'idx_library_observations_path', \
+                  'library_legacy_attributions', 'idx_library_attributions_legacy', \
+                  'idx_library_attributions_source', 'library_generation_authority', \
+                  'p0_injected_failure')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count rolled-back schema objects"),
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM files WHERE id = 'rollback-file'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("read preserved file"),
+            1
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM file_user_tags", [], |row| row
+                .get::<_, i64>(0))
+                .expect("read preserved tag assignment"),
+            1
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH 'rollbacktoken'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("read preserved FTS row"),
+            before_fts
+        );
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn p0_t10_product_sqlite_fts_timeout_and_migration_lock_are_observed() {
+        let path = test_database_path("p0-t10-lock");
+        let db = Database::open(&path).expect("create current product database");
+        let conn = db.conn().expect("get configured product SQLite connection");
+        let sqlite_version: String = conn
+            .query_row("SELECT sqlite_version()", [], |row| row.get(0))
+            .expect("read product SQLite version");
+        assert_eq!(sqlite_version, "3.51.3");
+        let busy_timeout: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .expect("read product busy timeout");
+        assert_eq!(busy_timeout, 5_000);
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE temp.issue381_trigram_probe USING fts5(value, tokenize='trigram'); \
+             INSERT INTO issue381_trigram_probe (value) VALUES ('sqlite trigram capability probe');",
+        )
+        .expect("create FTS5 trigram probe");
+        let trigram_matches: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM issue381_trigram_probe \
+                 WHERE issue381_trigram_probe MATCH 'trigram capability'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query FTS5 trigram probe");
+        assert_eq!(trigram_matches, 1);
+
+        conn.execute_batch(
+            r#"
+            WITH RECURSIVE sequence(value) AS (
+                SELECT 1 UNION ALL SELECT value + 1 FROM sequence WHERE value < 1000
+            )
+            INSERT INTO files (id, path, name, extension, size, mtime, is_dir, state_code)
+            SELECT 'p0-lock-' || value, '/p0-lock/' || value || '-lockmarker.txt',
+                   value || '-lockmarker.txt', 'txt', value, 1700000000 + value, 0, 0
+            FROM sequence;
+            "#,
+        )
+        .expect("seed untouched file rows for lock measurement");
+        let before_files: (i64, i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(*), SUM(size), SUM(length(path)) FROM files",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("snapshot files before migration");
+        remove_identity_foundation(&conn, 37);
+
+        let transaction_started = Instant::now();
+        with_migration_transaction(&conn, |conn| {
+            let already_installed = ensure_library_identity_schema_names_available(conn)?;
+            if !already_installed {
+                migrate_library_identity_foundation(conn)?;
+            }
+            set_schema_version(conn, 38)?;
+            Ok(())
+        })
+        .expect("commit production migration helpers");
+        let transaction_elapsed = transaction_started.elapsed();
+        let after_files: (i64, i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(*), SUM(size), SUM(length(path)) FROM files",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("snapshot files after migration");
+        assert_eq!(after_files, before_files);
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("read migrated version"),
+            38
+        );
+        eprintln!(
+            "[issue381-p0] T10 sqlite_version={sqlite_version} fts5_trigram=pass busy_timeout_ms={busy_timeout} file_rows={} begin_immediate_to_commit_ms={} files_unchanged=true",
+            before_files.0,
+            transaction_elapsed.as_millis()
+        );
+
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
 }

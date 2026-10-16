@@ -10,6 +10,63 @@ const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 // but never turns a keystroke into an unbounded result materialization.
 const MAX_TIER_CANDIDATES: u32 = 4_096;
 
+#[cfg(test)]
+std::thread_local! {
+    static KEY_ONLY_CTE_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LEGACY_NAME_PREFIX_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Enables the remaining test-only key projection candidates while exercising
+/// the normal pooled and repository entry points. The name-prefix production
+/// tier is always key-only; this override only selects alternatives for tiers
+/// that remain on their current production query paths.
+#[cfg(test)]
+pub(crate) fn with_key_only_cte_search_candidate<T>(operation: impl FnOnce() -> T) -> T {
+    struct ResetCandidate(bool);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            KEY_ONLY_CTE_SEARCH_OVERRIDE.with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    KEY_ONLY_CTE_SEARCH_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(true);
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
+/// Forces the pre-CTE name-prefix SQL while exercising the normal pooled and
+/// repository entry points. This is only for paired regression/performance
+/// comparisons; release builds always use the key-only production query.
+#[cfg(test)]
+pub(crate) fn with_legacy_name_prefix_search_candidate<T>(operation: impl FnOnce() -> T) -> T {
+    struct ResetCandidate(bool);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            LEGACY_NAME_PREFIX_SEARCH_OVERRIDE.with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    LEGACY_NAME_PREFIX_SEARCH_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(true);
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
+#[cfg(test)]
+fn key_only_cte_search_candidate_enabled() -> bool {
+    KEY_ONLY_CTE_SEARCH_OVERRIDE.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn legacy_name_prefix_search_candidate_enabled() -> bool {
+    LEGACY_NAME_PREFIX_SEARCH_OVERRIDE.with(std::cell::Cell::get)
+}
+
 /// Global search is intentionally a separate entry point from the library
 /// query. It never accepts `LibraryScope` and never joins the AI `files`
 /// table, so a Spotlight query cannot accidentally widen an AI operation.
@@ -167,6 +224,152 @@ fn candidate_sql(from: &str, predicate: &str, order: &str, rank: &str, limit_slo
     )
 }
 
+fn key_only_candidate_sql(
+    from: &str,
+    predicate: &str,
+    order: &str,
+    rank: &str,
+    outer_order: &str,
+    limit_slot: &str,
+) -> String {
+    format!(
+        r#"
+        WITH candidates AS MATERIALIZED (
+            SELECT ge.rowid AS entry_rowid,
+                   ge.id AS entry_id,
+                   ge.modified_at_fs AS modified_at_fs,
+                   {rank} AS candidate_rank
+            FROM {from}
+            WHERE {predicate}
+            ORDER BY {order}
+            LIMIT {limit_slot}
+        )
+        SELECT ge.id, ge.volume_id, ge.platform_file_id, ge.name, ge.path,
+               ge.extension, ge.is_directory, ge.size, ge.created_at_fs,
+               ge.modified_at_fs, ge.file_attributes, ge.is_hidden, ge.is_system,
+               ge.source_provider,
+               EXISTS (
+                   SELECT 1
+                   FROM managed_entries me
+                   JOIN managed_scopes ms ON ms.id = me.managed_scope_id
+                   WHERE me.global_entry_id = ge.id
+                     AND me.enabled = 1
+                     AND ms.enabled = 1
+               ) AS managed,
+               candidates.candidate_rank AS rank
+        FROM candidates
+        JOIN global_entries ge ON ge.rowid = candidates.entry_rowid
+        ORDER BY {outer_order}
+        "#
+    )
+}
+
+fn key_only_name_prefix_sql() -> String {
+    key_only_candidate_sql(
+        "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "ge.modified_at_fs DESC, ge.id ASC",
+        "0.0",
+        "candidates.modified_at_fs DESC, candidates.entry_id ASC",
+        "?3",
+    )
+}
+
+#[cfg(test)]
+fn key_only_punctuation_prefix_sql() -> String {
+    key_only_candidate_sql(
+        "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+        "ge.modified_at_fs DESC, ge.id ASC",
+        "0.0",
+        "candidates.modified_at_fs DESC, candidates.entry_id ASC",
+        "?2",
+    )
+}
+
+#[cfg(test)]
+fn key_only_extension_prefix_sql() -> String {
+    key_only_candidate_sql(
+        "global_entries ge INDEXED BY idx_global_entries_active_extension_order CROSS JOIN global_volumes gv",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "ge.modified_at_fs DESC, ge.id ASC",
+        "1.0",
+        "candidates.modified_at_fs DESC, candidates.entry_id ASC",
+        "?3",
+    )
+}
+
+#[cfg(test)]
+fn key_only_fts_sql() -> String {
+    key_only_candidate_sql(
+        "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
+        "candidate_rank ASC, ge.modified_at_fs DESC, ge.id ASC",
+        "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
+        "candidates.candidate_rank ASC, candidates.modified_at_fs DESC, candidates.entry_id ASC",
+        "?2",
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_key_only_cte_sql(tier: &str) -> String {
+    match tier {
+        "name_prefix" => key_only_name_prefix_sql(),
+        "punctuation_prefix" => key_only_punctuation_prefix_sql(),
+        "extension_prefix" => key_only_extension_prefix_sql(),
+        "fts" => key_only_fts_sql(),
+        _ => panic!("unknown key-only CTE search tier: {tier}"),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
+    match tier {
+        "exact_name" => candidate_sql(
+            "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
+            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
+            "ge.modified_at_fs DESC, ge.id ASC",
+            "0.0",
+            "?2",
+        ),
+        "name_prefix" => key_only_name_prefix_sql(),
+        "exact_extension" => candidate_sql(
+            "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
+            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
+            "ge.modified_at_fs DESC, ge.id ASC",
+            "0.0",
+            "?2",
+        ),
+        "extension_prefix" => candidate_sql(
+            "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
+            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+            "ge.modified_at_fs DESC, ge.id ASC",
+            "1.0",
+            "?3",
+        ),
+        "fts" => diagnostic_search_fts_sql(),
+        "punctuation_prefix" => candidate_sql(
+            "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
+            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+            "ge.modified_at_fs DESC, ge.id ASC",
+            "0.0",
+            "?2",
+        ),
+        _ => panic!("unknown diagnostic production search tier: {tier}"),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_legacy_name_prefix_sql() -> String {
+    candidate_sql(
+        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "ge.modified_at_fs DESC, ge.id ASC",
+        "0.0",
+        "?3",
+    )
+}
+
 fn collect_candidates<P: Params>(
     statement: &mut rusqlite::Statement<'_>,
     parameters: P,
@@ -196,13 +399,17 @@ fn search_name_prefix(
     query: &str,
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
-    let sql = candidate_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
-        "ge.modified_at_fs DESC, ge.id ASC",
-        "0.0",
-        "?3",
-    );
+    #[cfg(test)]
+    if legacy_name_prefix_search_candidate_enabled() {
+        let sql = diagnostic_legacy_name_prefix_sql();
+        let mut statement = conn.prepare(&sql)?;
+        return collect_candidates(
+            &mut statement,
+            params![query, format!("{}*", escape_glob(query)), limit],
+        );
+    }
+
+    let sql = key_only_name_prefix_sql();
     let mut statement = conn.prepare(&sql)?;
     collect_candidates(
         &mut statement,
@@ -231,6 +438,16 @@ fn search_extension_prefix(
     query: &str,
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    #[cfg(test)]
+    if key_only_cte_search_candidate_enabled() {
+        let sql = key_only_extension_prefix_sql();
+        let mut statement = conn.prepare(&sql)?;
+        return collect_candidates(
+            &mut statement,
+            params![query, format!("{}*", escape_glob(query)), limit],
+        );
+    }
+
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
@@ -250,6 +467,14 @@ fn search_fts(
     query: &str,
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    #[cfg(test)]
+    if key_only_cte_search_candidate_enabled() {
+        let sql = key_only_fts_sql();
+        let mut statement = conn.prepare(&sql)?;
+        let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+        return collect_candidates(&mut statement, params![fts_query, limit]);
+    }
+
     // SQLite can reorder the ordinary JOINs into volume -> entries -> FTS.
     // CROSS JOIN is SQLite's documented join-order fence: keep the selective
     // MATCH cursor outermost, while applying active-volume and stale filters
@@ -303,6 +528,7 @@ pub(crate) fn diagnostic_search_tier(
         "exact_extension" => search_exact_extension(conn, query, limit),
         "extension_prefix" => search_extension_prefix(conn, query, limit),
         "fts" => search_fts(conn, query, limit),
+        "punctuation_prefix" => search_punctuation_prefix(conn, query, limit),
         _ => panic!("unknown diagnostic search tier: {tier}"),
     }
 }
@@ -312,6 +538,16 @@ fn search_punctuation_prefix(
     prefix: &str,
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    #[cfg(test)]
+    if key_only_cte_search_candidate_enabled() {
+        let sql = key_only_punctuation_prefix_sql();
+        let mut statement = conn.prepare(&sql)?;
+        return collect_candidates(
+            &mut statement,
+            params![format!("{}*", escape_glob(prefix)), limit],
+        );
+    }
+
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",

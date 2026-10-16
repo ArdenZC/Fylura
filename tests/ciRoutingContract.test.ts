@@ -80,6 +80,13 @@ describe("CI change routing", () => {
     expect(performanceFlags(scope)).toEqual([false, true, false, false, false, false]);
   });
 
+  it("routes managed-scan admission changes to the Native macOS performance lane", () => {
+    const scope = route(["src-tauri/src/db/queries/scan.rs"]);
+    expect(scope.perf_scan_schema).toBe(true);
+    expect(scope.performance_sensitive).toBe(true);
+    expect(scope.macos_sensitive).toBe(true);
+  });
+
   it("routes File Library and Content changes to Library/Content 100k only", () => {
     const scope = route(["src-tauri/src/db/queries/library/query.rs"]);
     expect(performanceFlags(scope)).toEqual([false, false, true, false, false, false]);

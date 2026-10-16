@@ -17,7 +17,49 @@ use std::{
 
 macro_rules! begin_managed_scan_write_transaction {
     ($conn:expr, $operation:expr, $run_id:expr) => {{
+        begin_managed_scan_write_transaction!($conn, $operation, $run_id, None::<&str>)
+    }};
+    ($conn:expr, $operation:expr, $run_id:expr, $issue366_diagnostic_key:expr) => {{
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_diagnostic_key: Option<&str> = $issue366_diagnostic_key;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            eprintln!(
+                "[issue366-begin] request_key={key} stage=before_transaction_with_behavior elapsed_from_test_start_us={:?}",
+                issue366_elapsed_from_test_start_us()
+            );
+        }
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_thread_cpu_before = issue366_diagnostic_key
+            .and_then(|_| issue366_thread_cpu_time_ns());
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_begin_wall_started =
+            issue366_diagnostic_key.map(|_| std::time::Instant::now());
         let transaction_result = $conn.transaction_with_behavior(TransactionBehavior::Immediate);
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            let issue366_thread_cpu_after = issue366_thread_cpu_time_ns();
+            let issue366_wall_elapsed_us = issue366_begin_wall_started
+                .expect("diagnostic timer exists when a key is selected")
+                .elapsed()
+                .as_micros();
+            let issue366_thread_cpu_elapsed_ns = issue366_thread_cpu_before
+                .zip(issue366_thread_cpu_after)
+                .map(|(before, after)| after.saturating_sub(before));
+            let (outcome, primary_code, extended_code) = match &transaction_result {
+                Ok(_) => ("success", None, None),
+                Err(rusqlite::Error::SqliteFailure(code, _)) => (
+                    "sqlite_error",
+                    Some(code.extended_code & 0xff),
+                    Some(code.extended_code),
+                ),
+                Err(_) => ("other_error", None, None),
+            };
+            eprintln!(
+                "[issue366-begin] request_key={key} stage=transaction_with_behavior_returned elapsed_from_test_start_us={:?} begin_wall_us={issue366_wall_elapsed_us} begin_thread_cpu_ns={issue366_thread_cpu_elapsed_ns:?} outcome={outcome} primary_code={primary_code:?} extended_code={extended_code:?}",
+                issue366_elapsed_from_test_start_us()
+            );
+        }
         #[cfg(all(test, feature = "performance-test-tauri"))]
         if let Err(rusqlite::Error::SqliteFailure(code, _)) = &transaction_result {
             eprintln!(
@@ -30,6 +72,47 @@ macro_rules! begin_managed_scan_write_transaction {
         }
         transaction_result.map_err(DbError::from)
     }};
+}
+
+#[cfg(test)]
+thread_local! {
+    static ISSUE366_TEST_START: std::cell::Cell<Option<std::time::Instant>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+#[cfg(test)]
+fn issue366_set_test_start(started_at: std::time::Instant) {
+    ISSUE366_TEST_START.with(|origin| origin.set(Some(started_at)));
+}
+
+#[cfg(all(test, feature = "performance-test-tauri"))]
+fn issue366_elapsed_from_test_start_us() -> Option<u128> {
+    ISSUE366_TEST_START.with(|origin| {
+        origin
+            .get()
+            .map(|started_at| started_at.elapsed().as_micros())
+    })
+}
+
+#[cfg(test)]
+fn issue366_thread_cpu_time_ns() -> Option<u128> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut value = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        let result = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut value) };
+        if result == 0 && value.tv_sec >= 0 && value.tv_nsec >= 0 {
+            return Some(value.tv_sec as u128 * 1_000_000_000 + value.tv_nsec as u128);
+        }
+        None
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
 }
 
 #[cfg(all(test, feature = "performance-test-tauri"))]
@@ -385,8 +468,53 @@ impl Database {
         &self,
         options: &ScanAdmissionOptions,
     ) -> Result<ScanAdmission, DbError> {
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_diagnostic_key = options
+            .request
+            .request_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| value.starts_with("issue366-"));
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_admission_started = issue366_diagnostic_key.map(|_| std::time::Instant::now());
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=method_entered elapsed_from_test_start_us={:?}",
+                issue366_elapsed_from_test_start_us()
+            );
+        }
+
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_roots_started = issue366_diagnostic_key.map(|_| std::time::Instant::now());
         let resolved = resolve_requested_roots(&options.request.roots);
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=roots_resolved elapsed_from_test_start_us={:?} roots_resolution_wall_us={}",
+                issue366_elapsed_from_test_start_us(),
+                issue366_roots_started
+                    .expect("diagnostic timer exists when a key is selected")
+                    .elapsed()
+                    .as_micros()
+            );
+        }
+
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_hash_started = issue366_diagnostic_key.map(|_| std::time::Instant::now());
         let canonical_hash = canonical_request_hash(&resolved, options.request.dedupe)?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=request_hash_ready elapsed_from_test_start_us={:?} request_hash_wall_us={}",
+                issue366_elapsed_from_test_start_us(),
+                issue366_hash_started
+                    .expect("diagnostic timer exists when a key is selected")
+                    .elapsed()
+                    .as_micros()
+            );
+        }
+
         let request_key = options
             .request
             .request_key
@@ -394,8 +522,56 @@ impl Database {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        let mut conn = self.conn()?;
-        let tx = begin_managed_scan_write_transaction!(&mut conn, "admit_managed_scan", None)?;
+
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_pool_started = issue366_diagnostic_key.map(|_| std::time::Instant::now());
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let issue366_pool_thread_cpu_before =
+            issue366_diagnostic_key.and_then(|_| issue366_thread_cpu_time_ns());
+        let pool_result = self.conn();
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            let pool_elapsed_us = issue366_pool_started
+                .expect("diagnostic timer exists when a key is selected")
+                .elapsed()
+                .as_micros();
+            let pool_thread_cpu_elapsed_ns = issue366_pool_thread_cpu_before
+                .zip(issue366_thread_cpu_time_ns())
+                .map(|(before, after)| after.saturating_sub(before));
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=pool_connection_result elapsed_from_test_start_us={:?} pool_wait_wall_us={pool_elapsed_us} pool_wait_thread_cpu_ns={pool_thread_cpu_elapsed_ns:?} result={}",
+                issue366_elapsed_from_test_start_us(),
+                if pool_result.is_ok() { "ok" } else { "error" }
+            );
+        }
+        let mut conn = pool_result?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Some(key) = issue366_diagnostic_key {
+            let pragma_started = std::time::Instant::now();
+            let configured_busy_timeout_ms = conn
+                .query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(-1);
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=pool_connection_acquired elapsed_from_test_start_us={:?} busy_timeout_ms={configured_busy_timeout_ms} pragma_read_wall_us={}",
+                issue366_elapsed_from_test_start_us(),
+                pragma_started.elapsed().as_micros()
+            );
+            eprintln!(
+                "[issue366-admission] request_key={key} stage=before_begin_immediate elapsed_from_test_start_us={:?} admission_method_wall_us={}",
+                issue366_elapsed_from_test_start_us(),
+                issue366_admission_started
+                    .as_ref()
+                    .expect("diagnostic timer exists when a key is selected")
+                    .elapsed()
+                    .as_micros()
+            );
+        }
+        let tx = begin_managed_scan_write_transaction!(
+            &mut conn,
+            "admit_managed_scan",
+            None,
+            issue366_diagnostic_key
+        )?;
 
         if let Some(request_key) = request_key.as_deref() {
             if let Some((session_id, existing_hash)) = tx
@@ -3446,7 +3622,7 @@ mod tests {
     }
 
     struct HeldManagedScanWriter {
-        ready: Receiver<Result<(), String>>,
+        ready: Receiver<Result<Instant, String>>,
         release: Option<Sender<()>>,
         worker: Option<JoinHandle<Result<(), String>>>,
     }
@@ -3469,7 +3645,8 @@ mod tests {
                     let _ = ready_tx.send(Err(message.clone()));
                     return Err(message);
                 }
-                let _ = ready_tx.send(Ok(()));
+                let writer_lock_acquired_at = Instant::now();
+                let _ = ready_tx.send(Ok(writer_lock_acquired_at));
                 match release_rx.recv_timeout(Duration::from_secs(20)) {
                     Ok(()) => connection
                         .execute_batch("COMMIT")
@@ -3487,11 +3664,11 @@ mod tests {
             }
         }
 
-        fn wait_until_held(&self) {
+        fn wait_until_held(&self) -> Instant {
             self.ready
                 .recv_timeout(Duration::from_secs(5))
                 .expect("writer lock holder reaches its barrier")
-                .expect("writer lock holder begins a real SQLite transaction");
+                .expect("writer lock holder begins a real SQLite transaction")
         }
 
         fn release_and_join(mut self) {
@@ -3592,40 +3769,191 @@ mod tests {
     #[test]
     #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
     fn managed_scan_admission_fails_closed_after_busy_timeout_without_partial_authority() {
-        let db = test_db("issue345-admission-timeout-lock");
+        let test_started_at = Instant::now();
+        let request_key = new_job_id("issue366-admission-timeout");
+        let db = test_db("issue366-admission-timeout-lock");
+        const TEST_BUSY_TIMEOUT_MS: u64 = 500;
+        db.set_test_busy_timeout_for_all_connections(
+            5_000,
+            Duration::from_millis(TEST_BUSY_TIMEOUT_MS),
+        )
+        .expect("verify production timeout then bound the test fixture timeout");
+        eprintln!(
+            "[issue366-test] request_key={request_key} stage=test_busy_timeout_configured production_default_ms=5000 fixture_busy_timeout_ms={TEST_BUSY_TIMEOUT_MS}"
+        );
         let holder = HeldManagedScanWriter::start(db.clone());
-        holder.wait_until_held();
+        let writer_lock_acquired_at = holder.wait_until_held();
+        eprintln!(
+            "[issue366-test] request_key={request_key} stage=writer_begin_immediate_returned elapsed_from_test_start_us={} ",
+            writer_lock_acquired_at.duration_since(test_started_at).as_micros()
+        );
         let root = normalize_scan_root_path(
             &std::env::temp_dir()
                 .join(format!(
-                    "zen-canvas-issue345-admission-timeout-{}",
+                    "zen-canvas-issue366-admission-timeout-{}",
                     new_job_id("root")
                 ))
                 .to_string_lossy(),
         );
-        let request_key = new_job_id("issue345-admission-timeout");
         let options = request(&root, &request_key);
         let contender_db = db.clone();
+        let worker_request_key = request_key.clone();
         let (started_tx, started_rx) = mpsc::sync_channel(1);
         let (result_tx, result_rx) = mpsc::sync_channel(1);
-        let started_at = Instant::now();
+        let started_at = test_started_at;
+        let admission_watch_started_at = Instant::now();
         let contender = std::thread::spawn(move || {
-            let _ = started_tx.send(());
+            issue366_set_test_start(started_at);
+            let start_signal_sent_at = Instant::now();
+            let start_signal_sent = started_tx.send(start_signal_sent_at).is_ok();
+            eprintln!(
+                "[issue366-test] request_key={worker_request_key} stage=start_signal_sent elapsed_from_test_start_us={} send_ok={start_signal_sent}",
+                start_signal_sent_at.duration_since(started_at).as_micros()
+            );
+            let admission_call_started_at = Instant::now();
+            let admission_thread_cpu_started_ns = issue366_thread_cpu_time_ns();
+            eprintln!(
+                "[issue366-test] request_key={worker_request_key} stage=admit_call_started elapsed_from_test_start_us={} ",
+                admission_call_started_at.duration_since(started_at).as_micros()
+            );
             let result = contender_db.admit_managed_scan(&options);
-            let _ = result_tx.send(result);
+            let admission_call_returned_at = Instant::now();
+            let admission_thread_cpu_elapsed_ns = admission_thread_cpu_started_ns
+                .zip(issue366_thread_cpu_time_ns())
+                .map(|(before, after)| after.saturating_sub(before));
+            let result_label = match &result {
+                Ok(_) => "success".to_string(),
+                Err(DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _))) => format!(
+                    "sqlite_error_primary_{}_extended_{}",
+                    code.extended_code & 0xff,
+                    code.extended_code
+                ),
+                Err(_) => "other_error".to_string(),
+            };
+            eprintln!(
+                "[issue366-test] request_key={worker_request_key} stage=admit_call_returned elapsed_from_test_start_us={} admission_call_wall_us={} admission_thread_cpu_ns={admission_thread_cpu_elapsed_ns:?} result={result_label}",
+                admission_call_returned_at
+                    .duration_since(started_at)
+                    .as_micros(),
+                admission_call_returned_at
+                    .duration_since(admission_call_started_at)
+                    .as_micros()
+            );
+            let result_send_started_at = Instant::now();
+            let sent = result_tx
+                .send((
+                    result,
+                    admission_call_started_at,
+                    admission_call_returned_at,
+                    admission_thread_cpu_elapsed_ns,
+                    result_send_started_at,
+                ))
+                .is_ok();
+            let result_send_returned_at = Instant::now();
+            eprintln!(
+                "[issue366-test] request_key={worker_request_key} stage=result_send_returned elapsed_from_test_start_us={} send_wall_us={} send_ok={sent}",
+                result_send_returned_at.duration_since(started_at).as_micros(),
+                result_send_returned_at
+                    .duration_since(result_send_started_at)
+                    .as_micros()
+            );
         });
-        started_rx
+        let start_receiver_wait_at = Instant::now();
+        let start_signal_sent_at = started_rx
             .recv_timeout(Duration::from_secs(2))
             .expect("admission contender reaches the call boundary");
-        // SQLite retains the production 5 s busy timeout. Leave hosted-runner
-        // scheduling variance room while still failing well before the holder's
-        // 20 s fail-safe release.
-        let error = match result_rx.recv_timeout(Duration::from_secs(10)) {
-            Ok(Err(error)) => error,
-            Ok(Ok(_)) => panic!("admission unexpectedly passed under a held writer"),
-            Err(error) => panic!("admission did not fail boundedly at the busy timeout: {error}"),
+        let start_signal_received_at = Instant::now();
+        eprintln!(
+            "[issue366-test] request_key={request_key} stage=start_signal_received signal_elapsed_from_test_start_us={} signal_delivery_us={} receiver_wait_wall_us={} ",
+            start_signal_sent_at.duration_since(started_at).as_micros(),
+            start_signal_received_at
+                .duration_since(start_signal_sent_at)
+                .as_micros(),
+            start_signal_received_at
+                .duration_since(start_receiver_wait_at)
+                .as_micros()
+        );
+        // This D2 fixture verified the pool's production 5 s default, then
+        // overrides its connections to 500 ms. Keep hosted-runner scheduling
+        // variance room while still failing well before the 20 s holder release.
+        let channel_wait_started_at = Instant::now();
+        eprintln!(
+            "[issue366-test] request_key={request_key} stage=result_channel_wait_started elapsed_from_test_start_us={} receiver_deadline_ms=10000",
+            channel_wait_started_at.duration_since(started_at).as_micros()
+        );
+        let received = result_rx.recv_timeout(Duration::from_secs(10));
+        let channel_wait_returned_at = Instant::now();
+        let error = match received {
+            Ok((Err(error), call_started_at, call_returned_at, thread_cpu_ns, sent_at)) => {
+                let result_received_at = channel_wait_returned_at;
+                eprintln!(
+                    "[issue366-test] request_key={request_key} stage=result_received elapsed_from_test_start_us={} channel_wait_wall_us={} call_started_elapsed_us={} call_returned_elapsed_us={} thread_cpu_ns={thread_cpu_ns:?} send_to_receive_us={} ",
+                    result_received_at.duration_since(started_at).as_micros(),
+                    result_received_at
+                        .duration_since(channel_wait_started_at)
+                        .as_micros(),
+                    call_started_at.duration_since(started_at).as_micros(),
+                    call_returned_at.duration_since(started_at).as_micros(),
+                    result_received_at.duration_since(sent_at).as_micros()
+                );
+                error
+            }
+            Ok((Ok(_), _, _, _, _)) => {
+                panic!("admission unexpectedly passed under a held writer")
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                eprintln!(
+                    "[issue366-test] request_key={request_key} stage=result_channel_timeout elapsed_from_test_start_us={} channel_wait_wall_us={} writer_lock=still_held",
+                    channel_wait_returned_at.duration_since(started_at).as_micros(),
+                    channel_wait_returned_at
+                        .duration_since(channel_wait_started_at)
+                        .as_micros()
+                );
+                eprintln!(
+                    "[issue366-test] request_key={request_key} stage=writer_release_requested elapsed_from_test_start_us={} ",
+                    Instant::now().duration_since(started_at).as_micros()
+                );
+                holder.release_and_join();
+                eprintln!(
+                    "[issue366-test] request_key={request_key} stage=writer_release_joined elapsed_from_test_start_us={} ",
+                    Instant::now().duration_since(started_at).as_micros()
+                );
+                let after_release = result_rx.recv_timeout(Duration::from_secs(3));
+                let after_release_received_at = Instant::now();
+                let outcome = match &after_release {
+                    Ok((Ok(admission), _, _, _, _)) => format!(
+                        "admitted(created={}, runs={})",
+                        admission.created,
+                        admission.runs.len()
+                    ),
+                    Ok((Err(error), _, _, _, _)) => format!("error({error:?})"),
+                    Err(error) => format!("no_result({error})"),
+                };
+                let contender_joined = if after_release.is_ok() {
+                    let joined = contender.join().is_ok();
+                    eprintln!(
+                        "[issue366-test] request_key={request_key} stage=contender_joined elapsed_from_test_start_us={} joined={joined}",
+                        Instant::now().duration_since(started_at).as_micros()
+                    );
+                    joined
+                } else {
+                    false
+                };
+                eprintln!(
+                    "[issue366-test] request_key={request_key} stage=after_writer_release elapsed_from_test_start_us={} post_release_wait_us={} contender_result={} contender_joined={contender_joined}",
+                    after_release_received_at.duration_since(started_at).as_micros(),
+                    after_release_received_at
+                        .duration_since(channel_wait_returned_at)
+                        .as_micros(),
+                    outcome
+                );
+                panic!(
+                    "admission did not fail boundedly at the busy timeout: timed out waiting on channel; after_writer_release={outcome}; contender_joined={contender_joined}"
+                );
+            }
+            Err(error) => panic!("admission result channel closed unexpectedly: {error}"),
         };
-        let elapsed = started_at.elapsed();
+        let elapsed = admission_watch_started_at.elapsed();
         let (primary_code, extended_code) = assert_plain_sqlite_busy(&error);
 
         let conn = db.conn().expect("inspect admission transaction state");
@@ -3655,7 +3983,7 @@ mod tests {
         contender.join().expect("admission contender joins");
 
         assert!(
-            elapsed >= Duration::from_secs(4),
+            elapsed >= Duration::from_millis(TEST_BUSY_TIMEOUT_MS / 2),
             "busy timeout returned too early: {elapsed:?}"
         );
         assert!(
@@ -3664,8 +3992,8 @@ mod tests {
         );
         assert_eq!((root_count, session_count, run_count), (0, 0, 0));
         println!(
-            "issue345_d2 admission_waited=true success=false elapsed_ms={} primary_code={} extended_code={} partial_authority=false",
-            elapsed.as_millis(), primary_code, extended_code
+            "issue345_d2 admission_waited=true success=false elapsed_ms={} fixture_busy_timeout_ms={} primary_code={} extended_code={} partial_authority=false",
+            elapsed.as_millis(), TEST_BUSY_TIMEOUT_MS, primary_code, extended_code
         );
     }
 
@@ -3687,6 +4015,26 @@ mod tests {
         let path_text = path.to_string_lossy().replace('\\', "/");
         let entry_id = format!("issue345-test:{path_text}");
         let expected_file_id = entry_id.clone();
+        let batch_entry = InsertFileRequest {
+            id: entry_id,
+            path: path_text.clone(),
+            name: "issue345-batch-entry.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 17,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        };
+        const TEST_BUSY_TIMEOUT_MS: u64 = 500;
+        db.set_test_busy_timeout_for_all_connections(
+            5_000,
+            Duration::from_millis(TEST_BUSY_TIMEOUT_MS),
+        )
+        .expect("verify production timeout then bound the test fixture timeout");
+        println!(
+            "[issue366-d3-test] stage=test_busy_timeout_configured production_default_ms=5000 fixture_busy_timeout_ms={TEST_BUSY_TIMEOUT_MS}"
+        );
         let holder = HeldManagedScanWriter::start(db.clone());
         holder.wait_until_held();
 
@@ -3695,30 +4043,18 @@ mod tests {
         let run_revision = claimed.dto.revision;
         let root_revision = claimed.root_revision;
         let session_revision = claimed.session_revision;
-        let contender_path = path_text.clone();
         let (started_tx, started_rx) = mpsc::sync_channel(1);
         let (result_tx, result_rx) = mpsc::sync_channel(1);
         let started_at = Instant::now();
         let contender = std::thread::spawn(move || {
             let _ = started_tx.send(());
-            let entry = InsertFileRequest {
-                id: entry_id,
-                path: contender_path,
-                name: "issue345-batch-entry.txt".to_string(),
-                extension: "txt".to_string(),
-                size: 17,
-                mtime: 1,
-                ctime: 1,
-                is_dir: false,
-                state_code: 0,
-            };
             let result = contender_db.persist_scan_batch(
                 &run_id,
                 run_revision,
                 root_revision,
                 session_revision,
                 &ScanBatchInput {
-                    entries: &[entry],
+                    entries: &[batch_entry],
                     errors: &[],
                     scanned_files: 1,
                     scanned_directories: 0,
@@ -3766,7 +4102,10 @@ mod tests {
         holder.release_and_join();
         contender.join().expect("batch writer contender joins");
 
-        assert!(elapsed >= Duration::from_secs(4));
+        assert!(
+            elapsed >= Duration::from_millis(TEST_BUSY_TIMEOUT_MS / 2),
+            "batch BUSY returned too early: {elapsed:?}"
+        );
         assert!(
             elapsed < Duration::from_secs(10),
             "batch BUSY result was not bounded: {elapsed:?}"
@@ -3827,8 +4166,8 @@ mod tests {
         )
         .expect("settle the test run");
         println!(
-            "issue345_d3 operation=persist_scan_batch transaction=BEGIN_IMMEDIATE elapsed_ms={} primary_code={} extended_code={} rollback_atomic=true after_release_success=true",
-            elapsed.as_millis(), primary_code, extended_code
+            "issue345_d3 operation=persist_scan_batch transaction=BEGIN_IMMEDIATE elapsed_ms={} production_default_ms=5000 fixture_busy_timeout_ms={} primary_code={} extended_code={} rollback_atomic=true after_release_success=true",
+            elapsed.as_millis(), TEST_BUSY_TIMEOUT_MS, primary_code, extended_code
         );
         fs::remove_dir_all(root).expect("remove managed scan root fixture");
     }
@@ -5756,7 +6095,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 37);
+        assert_eq!(version, 39);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));

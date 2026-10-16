@@ -483,6 +483,20 @@ try {
         Copy-Item -LiteralPath (Join-Path $taskRoot "recovery-trace.log") -Destination (Join-Path $retainedEvidenceDirectory "recovery-trace.log")
     } finally {
         if (-not $recoveryProcess.HasExited) { $recoveryProcess.Kill($true); $recoveryProcess.WaitForExit(5000) | Out-Null }
+        # Preserve partial native-QA diagnostics even when the strict recovery
+        # assertion fails. This does not change the qualification result.
+        $retainedEvidenceDirectory = Split-Path -Parent $EvidencePath
+        New-Item -ItemType Directory -Path $retainedEvidenceDirectory -Force | Out-Null
+        if (Test-Path -LiteralPath $recoveryReport -PathType Leaf) {
+            Copy-Item -LiteralPath $recoveryReport -Destination (Join-Path $retainedEvidenceDirectory "service-recovery.json") -Force
+        }
+        $recoveryTracePath = Join-Path $taskRoot "recovery-trace.log"
+        if (-not (Test-Path -LiteralPath $recoveryTracePath -PathType Leaf) -and (Test-Path -LiteralPath $tracePath -PathType Leaf)) {
+            Copy-Item -LiteralPath $tracePath -Destination $recoveryTracePath
+        }
+        if (Test-Path -LiteralPath $recoveryTracePath -PathType Leaf) {
+            Copy-Item -LiteralPath $recoveryTracePath -Destination (Join-Path $retainedEvidenceDirectory "recovery-trace.log") -Force
+        }
         $recoveryProcess.Dispose()
     }
 

@@ -664,6 +664,67 @@ mod tests {
             .is_some_and(|path| !path.is_empty()));
     }
 
+    #[test]
+    fn issue375_path_upsert_prunes_build_descendants_but_accepts_selected_build_root() {
+        let fixture = test_dir("issue375-upsert");
+        let project_root = fixture.join("Project");
+        let project_build_file = project_root.join("build/logo.ai");
+        let project_source_file = project_root.join("src/main.rs");
+        let selected_build_root = fixture.join("chosen/build");
+        let selected_build_file = selected_build_root.join("README.md");
+        fs::create_dir_all(
+            project_build_file
+                .parent()
+                .expect("project build directory"),
+        )
+        .expect("create project build directory");
+        fs::create_dir_all(
+            project_source_file
+                .parent()
+                .expect("project source directory"),
+        )
+        .expect("create project source directory");
+        fs::create_dir_all(&selected_build_root).expect("create selected build root");
+        fs::write(&project_build_file, b"project asset").expect("write project build asset");
+        fs::write(&project_source_file, b"project source").expect("write project source");
+        fs::write(&selected_build_file, b"selected build root").expect("write selected-root file");
+
+        let db = Database::open(fixture.join("watcher-upsert.sqlite3"))
+            .expect("open isolated watcher-upsert database");
+        let project_root_text = project_root.to_string_lossy().into_owned();
+        let project_count = upsert_files_by_paths_for_db(&db, &[project_root_text])
+            .expect("bulk-upsert ordinary project path");
+        assert_eq!(
+            project_count, 3,
+            "root, src directory and source file are indexed"
+        );
+
+        let selected_root_text = selected_build_root.to_string_lossy().into_owned();
+        let selected_count = upsert_files_by_paths_for_db(&db, &[selected_root_text])
+            .expect("bulk-upsert the explicitly selected build root");
+        assert_eq!(selected_count, 2, "selected root and its file are indexed");
+
+        let conn = db.conn().expect("open watcher-upsert query connection");
+        {
+            let is_indexed = |path: &Path| {
+                let normalized = normalize_path_for_db(path);
+                conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM files WHERE id = ?1 AND is_stale = 0)",
+                    [&normalized],
+                    |row| row.get::<_, bool>(0),
+                )
+                .expect("query watcher-upsert result")
+            };
+            assert!(!is_indexed(&project_build_file));
+            assert!(is_indexed(&project_source_file));
+            assert!(is_indexed(&selected_build_root));
+            assert!(is_indexed(&selected_build_file));
+        }
+        drop(conn);
+        drop(db);
+        fs::remove_dir_all(fixture).expect("remove isolated watcher-upsert fixture");
+    }
+
     fn test_dir(prefix: &str) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)

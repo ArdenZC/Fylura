@@ -16,6 +16,7 @@ const PERFORMANCE_DOMAIN_KEYS = [
 const NATIVE_PERFORMANCE_PREFIXES = [
   "src-tauri/src/platform/macos/",
   "src-tauri/src/global_index/macos/",
+  "src-tauri/src/db/queries/scan.rs",
   "src-tauri/tests/macos_",
   "src-tauri/src/runtime_capabilities.rs",
   "src-tauri/src/scanner.rs",

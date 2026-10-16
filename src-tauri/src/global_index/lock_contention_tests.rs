@@ -1,24 +1,31 @@
 use crate::{
     db::{Database, DbError},
-    global_index::models::{
-        GlobalVolume, INDEX_STATUS_INDEXING, INDEX_STATUS_READY, INDEX_STATUS_SYNCING,
-        PROVIDER_WINDOWS_MFT_USN,
+    global_index::{
+        coordinator::{sqlite_contention_kind, GlobalIndexError, SqliteContentionKind},
+        models::{
+            GlobalEntryInput, GlobalVolume, INDEX_STATUS_INDEXING, INDEX_STATUS_READY,
+            INDEX_STATUS_SYNCING, PROVIDER_WINDOWS_MFT_USN,
+        },
     },
     settings::{
-        get_versioned_app_settings, save_app_settings, save_app_settings_cas, AppSettings,
-        ScanRootSetting, SettingsError,
+        get_versioned_app_settings, save_app_settings, save_app_settings_cas,
+        save_app_settings_cas_for_test, AppSettings, ScanRootSetting, SettingsError,
     },
 };
-use rusqlite::{Connection, Error as SqliteError, ErrorCode, OpenFlags};
+use rusqlite::{Connection, Error as SqliteError, ErrorCode, OpenFlags, TransactionBehavior};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Mutex,
+    },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+static SETTINGS_CONTENTION_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 struct FixtureDirectory(PathBuf);
 
@@ -329,6 +336,204 @@ fn assert_busy_wait(elapsed: Duration) {
     );
 }
 
+fn contention_entry(volume_id: &str, path: &Path) -> GlobalEntryInput {
+    let path = path.to_string_lossy().into_owned();
+    GlobalEntryInput {
+        volume_id: volume_id.to_string(),
+        platform_file_id: "fixture-file-id".to_string(),
+        parent_platform_file_id: "fixture-parent-id".to_string(),
+        name: "entry.txt".to_string(),
+        path,
+        extension: "txt".to_string(),
+        is_directory: false,
+        size: 4,
+        created_at_fs: Some(1),
+        modified_at_fs: Some(2),
+        file_attributes: 0,
+        is_hidden: false,
+        is_system: false,
+        source_provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+        last_seen_at: 3,
+    }
+}
+
+#[test]
+fn deferred_scope_read_then_entry_write_reproduces_busy_snapshot_upgrade() {
+    let (directory, database, volume) = fixture();
+    assert_database_configuration(&database);
+    let entry = contention_entry(&volume.id, &directory.0.join("entry.txt"));
+    let reader = database.conn().expect("acquire deferred reader connection");
+    let writer = Connection::open(directory.database_path()).expect("open competing writer");
+
+    reader
+        .execute_batch("BEGIN DEFERRED")
+        .expect("open deferred transaction");
+    let _: i64 = reader
+        .query_row(
+            "SELECT COUNT(*) FROM managed_scopes WHERE enabled = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read the same managed-scope policy used by the batch");
+    writer
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("acquire competing WAL writer reservation");
+    writer
+        .execute(
+            "UPDATE global_volumes SET updated_at = updated_at + 1 WHERE id = ?1",
+            [&volume.id],
+        )
+        .expect("write from the competing transaction");
+    writer
+        .execute_batch("COMMIT")
+        .expect("commit a newer WAL snapshot");
+
+    let error = reader
+        .execute(
+            r#"
+            INSERT INTO global_entries (
+                id, volume_id, platform_file_id, parent_platform_file_id,
+                name, name_normalized, path, path_normalized, extension,
+                is_directory, size, created_at_fs, modified_at_fs,
+                file_attributes, is_hidden, is_system, is_stale,
+                source_provider, last_seen_at
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?11, ?12,
+                ?13, 0, 0, 0, ?14, ?15
+            )
+            "#,
+            rusqlite::params![
+                entry.entry_id(),
+                entry.volume_id,
+                entry.platform_file_id,
+                entry.parent_platform_file_id,
+                entry.name,
+                entry.name.to_lowercase(),
+                entry.path,
+                entry.path,
+                entry.extension,
+                entry.size,
+                entry.created_at_fs,
+                entry.modified_at_fs,
+                entry.file_attributes,
+                entry.source_provider,
+                entry.last_seen_at,
+            ],
+        )
+        .expect_err("an obsolete deferred snapshot cannot upgrade to a writer");
+    assert!(matches!(
+        &error,
+        SqliteError::SqliteFailure(code, _)
+            if code.code == ErrorCode::DatabaseBusy
+                && code.extended_code == rusqlite::ffi::SQLITE_BUSY_SNAPSHOT
+    ));
+    let global_error = GlobalIndexError::from(DbError::from(error));
+    assert_eq!(
+        sqlite_contention_kind(&global_error),
+        Some(SqliteContentionKind::BusySnapshot)
+    );
+    reader
+        .execute_batch("ROLLBACK")
+        .expect("close the failed deferred snapshot");
+
+    println!(
+        "issue328_upgrade_reproducer transaction=DEFERRED read=managed_scopes write=global_entries result=SQLITE_BUSY_SNAPSHOT extended_code={} classification=stale_snapshot_upgrade",
+        rusqlite::ffi::SQLITE_BUSY_SNAPSHOT
+    );
+}
+
+#[test]
+fn sqlite_locked_and_busy_remain_code_classified_from_service_and_text_errors() {
+    let name = format!(
+        "file:issue328-locked-{}?mode=memory&cache=shared",
+        uuid::Uuid::new_v4()
+    );
+    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
+        | OpenFlags::SQLITE_OPEN_CREATE
+        | OpenFlags::SQLITE_OPEN_URI
+        | OpenFlags::SQLITE_OPEN_SHARED_CACHE;
+    let reader = Connection::open_with_flags(&name, flags).expect("open shared-cache reader");
+    let writer = Connection::open_with_flags(&name, flags).expect("open shared-cache writer");
+    reader
+        .execute_batch("CREATE TABLE sample(value INTEGER); INSERT INTO sample VALUES (1);")
+        .expect("seed shared-cache lock fixture");
+    reader
+        .execute_batch("BEGIN DEFERRED")
+        .expect("begin shared-cache reader");
+    let _: i64 = reader
+        .query_row("SELECT value FROM sample", [], |row| row.get(0))
+        .expect("hold a table read lock");
+    let locked = writer
+        .execute("UPDATE sample SET value = 2", [])
+        .expect_err("shared-cache table lock must return SQLITE_LOCKED");
+    assert!(matches!(
+        &locked,
+        SqliteError::SqliteFailure(code, _)
+            if code.code == ErrorCode::DatabaseLocked
+                && code.extended_code == rusqlite::ffi::SQLITE_LOCKED_SHAREDCACHE
+    ));
+    assert_eq!(
+        sqlite_contention_kind(&GlobalIndexError::from(DbError::from(locked))),
+        Some(SqliteContentionKind::Locked)
+    );
+    reader
+        .execute_batch("ROLLBACK")
+        .expect("release shared-cache reader lock");
+
+    assert_eq!(
+        sqlite_contention_kind(&GlobalIndexError::ServiceBusy("database is locked".into())),
+        None,
+        "Service request contention stays a distinct error class"
+    );
+    assert_eq!(
+        sqlite_contention_kind(&GlobalIndexError::Provider("database is locked".into())),
+        None,
+        "diagnostic text cannot impersonate an SQLite result code"
+    );
+    assert_eq!(
+        sqlite_contention_kind(&GlobalIndexError::ServiceOutcomeUnknown(
+            "database is locked".into()
+        )),
+        None,
+        "transport uncertainty stays a distinct error class"
+    );
+}
+
+#[test]
+fn batch_upsert_immediate_transaction_waits_for_short_writer_and_commits_atomically() {
+    let (directory, database, volume) = fixture();
+    assert_database_configuration(&database);
+    let entry = contention_entry(&volume.id, &directory.0.join("entry.txt"));
+    let holder = HeldWriteLock::begin(&database, &volume.id);
+    let release_thread = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(300));
+        holder.release()
+    });
+
+    let started = Instant::now();
+    let changed = database
+        .upsert_global_entries_batch(std::slice::from_ref(&entry))
+        .expect("IMMEDIATE batch waits for the short writer then commits");
+    let elapsed = started.elapsed();
+    let release_result = release_thread
+        .join()
+        .expect("short writer release thread should not panic");
+    assert!(release_result.is_ok(), "writer release: {release_result:?}");
+    assert_eq!(changed, 1);
+    assert!(elapsed >= Duration::from_millis(200));
+    assert!(elapsed < BUSY_TIMEOUT);
+    assert!(database
+        .get_global_entry(&entry.entry_id())
+        .expect("read committed batch entry")
+        .is_some());
+
+    println!(
+        "issue328_batch_contention transaction=IMMEDIATE result=committed rows={changed} elapsed_ms={} configured_busy_timeout_ms={} atomic_batch=true",
+        elapsed.as_millis(),
+        BUSY_TIMEOUT.as_millis()
+    );
+}
+
 #[test]
 fn global_index_state_write_reproduces_busy_and_recovers_after_holder_release() {
     let (_directory, database, volume) = fixture();
@@ -349,6 +554,15 @@ fn global_index_state_write_reproduces_busy_and_recovers_after_holder_release() 
         .expect_err("a second writer must wait, then fail while the holder owns WAL write access");
     let elapsed = started.elapsed();
     assert_busy(db_sqlite_error(&error));
+    let global_error = GlobalIndexError::from(error);
+    assert!(matches!(
+        &global_error,
+        GlobalIndexError::Database(DbError::Sqlite(_))
+    ));
+    assert_eq!(
+        sqlite_contention_kind(&global_error),
+        Some(SqliteContentionKind::Busy)
+    );
     assert_busy_wait(elapsed);
 
     let status_while_locked = database
@@ -387,7 +601,7 @@ fn global_index_state_write_reproduces_busy_and_recovers_after_holder_release() 
     assert_eq!(recovered.status, INDEX_STATUS_READY);
     assert_eq!(recovered.last_error, None);
     println!(
-        "issue_328_reproducer holder=second_pooled_connection transaction=BEGIN_IMMEDIATE table=global_volumes contender=Database::update_global_volume_state stage=UPDATE result=SQLITE_BUSY(5) extended_code=5 elapsed_ms={} released_retry=success final_status={}",
+        "issue_328_reproducer holder=second_pooled_connection transaction=BEGIN_IMMEDIATE table=global_volumes contender=Database::update_global_volume_state stage=UPDATE result=SQLITE_BUSY(5) extended_code=5 error_category=sqlite_busy elapsed_ms={} released_retry=success final_status={}",
         elapsed.as_millis(), recovered.status
     );
 }
@@ -443,7 +657,123 @@ fn read_only_wal_observer_does_not_block_global_index_writer() {
 }
 
 #[test]
+fn deferred_settings_cas_reproduces_the_immediate_upgrade_failure_baseline() {
+    let _test_guard = SETTINGS_CONTENTION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (_directory, database, volume) = fixture();
+    assert_database_configuration(&database);
+    save_app_settings(&database, &AppSettings::default()).expect("seed default app settings");
+    let previous = get_versioned_app_settings(&database).expect("load initial settings revision");
+    let mut next = previous.settings.clone();
+    next.background_index_on_startup = !previous.settings.background_index_on_startup;
+
+    let holder = HeldWriteLock::begin(&database, &volume.id);
+    let release_thread = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(300));
+        holder.release()
+    });
+    let cas_started = Instant::now();
+    let cas_error = save_app_settings_cas_for_test(
+        &database,
+        &next,
+        previous.revision,
+        TransactionBehavior::Deferred,
+    )
+    .expect_err("deferred read-to-write upgrade should fail while the writer is active");
+    let cas_elapsed = cas_started.elapsed();
+    assert_busy(settings_sqlite_error(&cas_error));
+    assert!(
+        cas_elapsed < Duration::from_millis(200),
+        "deferred upgrade should reproduce the immediate SQLITE_BUSY failure: {cas_elapsed:?}"
+    );
+    let release_result = release_thread
+        .join()
+        .expect("deferred baseline writer release thread should not panic");
+    assert!(
+        release_result.is_ok(),
+        "deferred baseline writer should commit: {release_result:?}"
+    );
+    let persisted = get_versioned_app_settings(&database).expect("reload baseline settings");
+    assert_eq!(persisted.revision, previous.revision);
+    assert_eq!(
+        serde_json::to_value(&persisted.settings).expect("serialize persisted settings"),
+        serde_json::to_value(&previous.settings).expect("serialize previous settings")
+    );
+    println!(
+        "issue_329_correlation baseline=deferred_settings_cas stage=read_to_write_upgrade result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} configured_busy_timeout_ms={} correlation=POSSIBLE_SHARED_CONTENTION",
+        cas_elapsed.as_millis(),
+        BUSY_TIMEOUT.as_millis()
+    );
+}
+
+#[test]
+fn settings_cas_waits_for_a_short_writer_and_saves_one_revision() {
+    let _test_guard = SETTINGS_CONTENTION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (directory, database, volume) = fixture();
+    assert_database_configuration(&database);
+    save_app_settings(&database, &AppSettings::default()).expect("seed default app settings");
+    let previous = get_versioned_app_settings(&database).expect("load initial settings revision");
+
+    let fixture_root = directory.0.join("short-contention-root");
+    fs::create_dir_all(&fixture_root).expect("create permitted scan-root fixture");
+    let mut next = previous.settings.clone();
+    next.default_scan_folders = vec![ScanRootSetting {
+        id: "fixture-short-contention-root".to_string(),
+        path: fixture_root.to_string_lossy().into_owned(),
+        label: "Fixture root".to_string(),
+        enabled: true,
+        created_at: "2026-10-08T00:00:00.000Z".to_string(),
+    }];
+
+    let holder = HeldWriteLock::begin(&database, &volume.id);
+    let release_thread = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(300));
+        holder.release()
+    });
+    let cas_started = Instant::now();
+    let saved = save_app_settings_cas(&database, &next, previous.revision)
+        .expect("CAS should wait for a short competing writer and save");
+    let cas_elapsed = cas_started.elapsed();
+    let release_result = release_thread
+        .join()
+        .expect("short writer release thread should not panic");
+    assert!(
+        release_result.is_ok(),
+        "short writer should commit: {release_result:?}"
+    );
+    assert!(
+        cas_elapsed >= Duration::from_millis(200),
+        "CAS should overlap the held writer: {cas_elapsed:?}"
+    );
+    assert!(
+        cas_elapsed < BUSY_TIMEOUT,
+        "short contention should resolve inside the configured timeout: {cas_elapsed:?}"
+    );
+
+    let persisted = get_versioned_app_settings(&database).expect("reload persisted settings");
+    assert_eq!(saved.revision, previous.revision + 1);
+    assert_eq!(persisted.revision, previous.revision + 1);
+    let mut expected_scan_root = next.default_scan_folders[0].clone();
+    expected_scan_root.path = expected_scan_root.path.replace('\\', "/");
+    assert_eq!(
+        persisted.settings.default_scan_folders,
+        vec![expected_scan_root]
+    );
+    println!(
+        "issue_329_correlation holder=synthetic_second_pooled_connection_BEGIN_IMMEDIATE cas_operation=save_app_settings_cas stage=BEGIN_IMMEDIATE_acquisition result=success elapsed_ms={} timeout_ms={} correlation=POSSIBLE_SHARED_CONTENTION",
+        cas_elapsed.as_millis(),
+        BUSY_TIMEOUT.as_millis()
+    );
+}
+
+#[test]
 fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
+    let _test_guard = SETTINGS_CONTENTION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let (directory, database, volume) = fixture();
     assert_database_configuration(&database);
     let initial = AppSettings::default();
@@ -467,6 +797,7 @@ fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
         .expect_err("settings CAS must surface the active SQLite writer conflict");
     let cas_elapsed = cas_started.elapsed();
     assert_busy(settings_sqlite_error(&cas_error));
+    assert_busy_wait(cas_elapsed);
 
     // save_settings stops after the failed CAS. Exercise the next real boundary
     // separately to classify sync_file_library_watcher_roots' BEGIN IMMEDIATE.
@@ -485,6 +816,16 @@ fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
         .settings
         .default_scan_folders
         .is_empty());
+    let root_count_while_locked: i64 = database
+        .conn()
+        .expect("borrow pooled connection for pre-commit root assertion")
+        .query_row(
+            "SELECT COUNT(*) FROM scan_roots WHERE source_kind = 'file_library' AND normalized_path = ?1",
+            [fixture_root.to_string_lossy().as_ref()],
+            |row| row.get(0),
+        )
+        .expect("read roots after both begin-time failures");
+    assert_eq!(root_count_while_locked, 0);
 
     let release_result = holder.release();
     assert!(
@@ -513,7 +854,7 @@ fn settings_cas_and_watcher_root_sync_share_the_database_writer_lock() {
     assert_eq!(enabled_roots, 1);
 
     println!(
-        "issue_329_correlation holder=synthetic_second_pooled_connection_BEGIN_IMMEDIATE cas_operation=save_app_settings_cas stage=UPDATE result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} root_sync_operation=sync_file_library_watcher_roots stage=BEGIN_IMMEDIATE result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} released_retry=cas_and_root_sync_success watcher_reload=not_exercised correlation=POSSIBLE_SHARED_CONTENTION",
+        "issue_329_correlation holder=synthetic_second_pooled_connection_BEGIN_IMMEDIATE cas_operation=save_app_settings_cas stage=BEGIN_IMMEDIATE_acquisition result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} root_sync_operation=sync_file_library_watcher_roots stage=BEGIN_IMMEDIATE_acquisition result=SQLITE_BUSY(5)/extended=5 elapsed_ms={} no_mutations_before_begin=true released_retry=cas_and_root_sync_success watcher_reload=not_exercised correlation=POSSIBLE_SHARED_CONTENTION",
         cas_elapsed.as_millis(),
         sync_elapsed.as_millis()
     );

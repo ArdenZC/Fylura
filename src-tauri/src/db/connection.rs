@@ -132,6 +132,42 @@ impl Database {
         self.pool.get().map_err(DbError::from)
     }
 
+    /// Verify the normal timeout, then set the test fixture timeout on every pooled connection.
+    #[cfg(test)]
+    pub(crate) fn set_test_busy_timeout_for_all_connections(
+        &self,
+        expected_current_ms: i64,
+        timeout: std::time::Duration,
+    ) -> Result<(), DbError> {
+        let pool_size = self.pool.max_size();
+        let mut connections = Vec::with_capacity(pool_size as usize);
+        for _ in 0..pool_size {
+            connections.push(self.conn()?);
+        }
+
+        let timeout_ms = timeout.as_millis() as i64;
+        for connection in &mut connections {
+            let current_ms =
+                connection.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))?;
+            if current_ms != expected_current_ms {
+                return Err(DbError::Validation(format!(
+                    "test database busy timeout was {current_ms}ms, expected {expected_current_ms}ms before override"
+                )));
+            }
+
+            connection.busy_timeout(timeout)?;
+            let configured_ms =
+                connection.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))?;
+            if configured_ms != timeout_ms {
+                return Err(DbError::Validation(format!(
+                    "test database busy timeout override was {configured_ms}ms, expected {timeout_ms}ms"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn cached_library_count(
         &self,
         revision: i64,

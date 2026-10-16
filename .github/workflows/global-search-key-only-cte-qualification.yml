@@ -1,0 +1,106 @@
+name: Global Search key-only CTE qualification
+
+on:
+  pull_request:
+    paths:
+      - "src-tauri/src/global_index/search.rs"
+      - "src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs"
+      - ".github/workflows/global-search-key-only-cte-qualification.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: global-search-key-only-cte-qualification-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  qualify-key-only-cte:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'research/issue-360-global-search-key-only-cte-qualification' && github.event.pull_request.head.repo.full_name == github.repository }}
+    name: Windows paired qualification (100k + 500k)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact PR head without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Prepare evidence directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path ci-evidence | Out-Null
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-key-only-cte-qualification-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Run 100k Original versus key-only CTE qualification
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "100000"
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-key-only-100k.jsonl
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_key_only_cte_qualification
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Run bounded 500k Original versus key-only CTE qualification
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "500000"
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-key-only-500k.jsonl
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_key_only_cte_qualification
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Record JSONL evidence SHA-256
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $paths = @(
+            'ci-evidence/global-search-key-only-100k.jsonl',
+            'ci-evidence/global-search-key-only-500k.jsonl'
+          )
+          $summary = @('## Key-only CTE JSONL evidence SHA-256', '')
+          foreach ($path in $paths) {
+            if (Test-Path $path) {
+              $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+              $summary += "- ``$path``: ``sha256:$hash``"
+              Write-Output "$path sha256:$hash"
+            } else {
+              $summary += "- ``$path``: NOT PRODUCED"
+              Write-Output "$path NOT PRODUCED"
+            }
+          }
+          $summary | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload 100k key-only CTE evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-key-only-100k-${{ github.run_id }}
+          path: ci-evidence/global-search-key-only-100k.jsonl
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload 500k key-only CTE evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-key-only-500k-${{ github.run_id }}
+          path: ci-evidence/global-search-key-only-500k.jsonl
+          if-no-files-found: warn
+          retention-days: 30

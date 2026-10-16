@@ -8,6 +8,7 @@ import type {
   FileRecord,
   LibraryFilter,
   LibraryScope,
+  ScanRootSetting,
   RuleExecutionSummary
 } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
@@ -120,6 +121,7 @@ export interface FileLibraryStore {
   statsRequestId: number;
   organizeQueueRequestId: number;
   setScope: (scope: LibraryScope) => void;
+  adoptConfiguredRootsIfScopeEmpty: (roots: ScanRootSetting[]) => boolean;
   setCurrentScanScope: (roots: string[], scanSessionId?: string) => void;
   setLibraryFilter: (libraryFilter: LibraryFilter) => void;
   setLibraryPage: (page: FileQueryResult | ((current: FileQueryResult) => FileQueryResult)) => void;
@@ -165,6 +167,17 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
   setScope: (scope) => {
     persistLibraryScope(scope);
     set({ scope });
+  },
+  adoptConfiguredRootsIfScopeEmpty: (roots) => {
+    const currentScope = get().scope;
+    const hasConfiguredRoot = roots.some((root) => root.enabled && root.path.trim());
+    if (!hasConfiguredRoot
+      || currentScope.kind !== "current_scan"
+      || currentScope.roots.length > 0
+      || currentScope.scanSessionId) return false;
+
+    get().setScope({ kind: "all" });
+    return true;
   },
   setCurrentScanScope: (roots, scanSessionId) => {
     const scope: LibraryScope = {

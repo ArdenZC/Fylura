@@ -3,8 +3,12 @@ name: Global Search synthetic benchmark
 on:
   pull_request:
     paths:
+      - "src-tauri/src/global_index/repository.rs"
       - "src-tauri/src/global_index/tests.rs"
       - "src-tauri/src/global_index/tests/global_search_benchmark.rs"
+      - "src-tauri/src/global_index/tests/global_search_index_cost_benchmark.rs"
+      - "src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs"
+      - ".github/workflows/global-search-benchmark.yml"
   workflow_dispatch:
     inputs:
       entries:
@@ -18,31 +22,46 @@ on:
           - "1000000"
           - "2000000"
           - "5000000"
+      cost_entries:
+        description: Synthetic row count for the test-only index-ingestion cost experiment
+        required: false
+        type: choice
+        default: "100000"
+        options:
+          - "1000"
+          - "10000"
+          - "100000"
       mode:
-        description: Run the official benchmark or the focused FTS diagnostic
+        description: Run the official benchmark or a focused diagnostic
         required: true
         type: choice
         default: baseline
         options:
           - baseline
           - fts_diagnostic
+          - source_health_diagnostic
+          - source_health_topology_diagnostic
+          - index_cost
 
 permissions:
   contents: read
 
 concurrency:
-  group: global-search-benchmark-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}-${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
+  group: global-search-benchmark-${{ github.ref }}-${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}-${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
   cancel-in-progress: false
 
 jobs:
+  # Keep manual baseline/diagnostic modes and the two branch-scoped diagnostics;
+  # ordinary PRs use only the bounded 1k-row smoke in the index-cost job below.
   synthetic-global-search:
-    name: Global Search ${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
+    name: Global Search ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
     env:
-      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }}
       ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/global-search-baseline.jsonl
-      ZC_GLOBAL_SEARCH_BENCHMARK_MODE: ${{ github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_MODE: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }}
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source head
@@ -50,8 +69,28 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: 2
           persist-credentials: false
+      - name: Detect changed source-health diagnostic inputs
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' }}
+        id: source-health-scope
+        shell: pwsh
+        run: |
+          $previous = git rev-parse HEAD^
+          $changed = git diff --name-only $previous HEAD
+          $watched = @(
+            'src-tauri/src/global_index/repository.rs',
+            'src-tauri/src/global_index/tests.rs',
+            'src-tauri/src/global_index/tests/global_search_source_health.rs',
+            'src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs',
+            '.github/workflows/global-search-benchmark.yml'
+          )
+          $runDiagnostic = $false
+          foreach ($file in $watched) {
+            if ($changed -contains $file) { $runDiagnostic = $true }
+          }
+          $value = if ($runDiagnostic) { 'true' } else { 'false' }
+          "run_source_health_topology_diagnostic=$value" >> $env:GITHUB_OUTPUT
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -76,6 +115,44 @@ jobs:
           --lib
           global_index::tests::global_search_benchmark::fts_diagnostic::global_search_fts_latency_diagnostic
           -- --ignored --exact --nocapture --test-threads=1
+      - name: Run single-fixture 500k query-cost diagnostic
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'query_cost_diagnostic' }}
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_query_cost_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Require the fixed 500k source-health fixture
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'source_health_diagnostic' }}
+        shell: pwsh
+        run: |
+          if ($env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES -ne '500000') {
+            throw 'Source-health diagnostic is fixed at 500,000 rows.'
+          }
+      - name: Run source-health candidates on the reused 500k fixture
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'source_health_diagnostic' && (github.event_name != 'pull_request' || github.head_ref != 'fix/issue-359-global-search-source-health-snapshot' || steps.source-health-scope.outputs.run_source_health_diagnostic == 'true') }}
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_query_cost_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Require the fixed 500k Owner topology fixture
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'source_health_topology_diagnostic' }}
+        shell: pwsh
+        run: |
+          if ($env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES -ne '500000') {
+            throw 'Owner topology qualification is fixed at exactly 500,000 rows.'
+          }
+      - name: Run focused Owner 500k topology qualification
+        if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'source_health_topology_diagnostic' && (github.event_name != 'pull_request' || github.head_ref != 'fix/issue-359-global-search-source-health-snapshot' || steps.source-health-scope.outputs.run_source_health_topology_diagnostic == 'true') }}
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_source_health_topology_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
       - name: Upload benchmark evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -84,3 +161,77 @@ jobs:
           path: ci-evidence/global-search-baseline.jsonl
           if-no-files-found: warn
           retention-days: 30
+
+  synthetic-global-index-cost:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'index_cost') }}
+    name: ISG-00E ingestion cost (${{ matrix.runner_key }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            runner_key: windows
+          - os: macos-latest
+            runner_key: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      ZC_GLOBAL_INDEX_COST_BENCHMARK_ENTRIES: ${{ github.event_name == 'pull_request' && '1000' || inputs.cost_entries || '100000' }}
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Record exact Windows source tree
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $sourceTree = git rev-parse 'HEAD^{tree}'
+          "ZEN_CANVAS_BENCHMARK_SOURCE_TREE=$sourceTree" >> $env:GITHUB_ENV
+      - name: Record exact macOS source tree
+        if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          source_tree="$(git rev-parse 'HEAD^{tree}')"
+          echo "ZEN_CANVAS_BENCHMARK_SOURCE_TREE=$source_tree" >> "$GITHUB_ENV"
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-${{ matrix.runner_key }}-global-index-cost-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Run the 1k-row ingestion-cost smoke fixture first
+        env:
+          ZC_GLOBAL_INDEX_COST_BENCHMARK_OUTPUT: ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}-smoke.jsonl
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::index_cost_benchmark::global_search_index_cost_benchmark_smoke
+          -- --exact --nocapture --test-threads=1
+      - name: Run configured paired A/B/C/D ingestion-cost experiment and search checks
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'index_cost' }}
+        env:
+          ZC_GLOBAL_INDEX_COST_BENCHMARK_OUTPUT: ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}.jsonl
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::index_cost_benchmark::global_search_index_cost_synthetic_benchmark
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Upload raw ISG-00E evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: isg-00e-${{ matrix.runner_key }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}-smoke.jsonl
+            ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}.jsonl
+          if-no-files-found: warn
+          retention-days: 90

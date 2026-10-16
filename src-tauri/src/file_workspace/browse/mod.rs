@@ -1583,12 +1583,11 @@ mod tests {
     use std::fs;
     use std::io::{self, ErrorKind};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static FIXTURE_COUNTER: AtomicUsize = AtomicUsize::new(0);
-    static FIXTURE_FS_LOCK: Mutex<()> = Mutex::new(());
 
     struct Fixture {
         root: PathBuf,
@@ -1596,12 +1595,16 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let id = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
             let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .expect("src-tauri has repository parent")
                 .to_path_buf();
-            let root = repo_root.join(".tmp-tests").join("browse").join(format!(
+            Self::new_under(repo_root.join(".tmp-tests").join("browse"))
+        }
+
+        fn new_under(parent: PathBuf) -> Self {
+            let id = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let root = parent.join(format!(
                 "{}-{}-{}",
                 std::process::id(),
                 SystemTime::now()
@@ -1610,7 +1613,6 @@ mod tests {
                     .as_nanos(),
                 id
             ));
-            let _guard = FIXTURE_FS_LOCK.lock().expect("fixture fs lock");
             fs::create_dir_all(&root).expect("create fixture root");
             Self { root }
         }
@@ -1622,14 +1624,7 @@ mod tests {
 
     impl Drop for Fixture {
         fn drop(&mut self) {
-            let _guard = FIXTURE_FS_LOCK.lock().expect("fixture fs lock");
             fs::remove_dir_all(&self.root).expect("remove fixture root");
-            if let Some(browse_root) = self.root.parent() {
-                let _ = fs::remove_dir(browse_root);
-                if let Some(tmp_root) = browse_root.parent() {
-                    let _ = fs::remove_dir(tmp_root);
-                }
-            }
         }
     }
 
@@ -1646,17 +1641,30 @@ mod tests {
 
     #[test]
     fn fixture_uses_worktree_local_ignored_temp_and_cleans_it() {
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("repo parent")
+            .to_path_buf();
+        let temp_root = repo_root.join(".tmp-tests");
+        let lifecycle_parent =
+            temp_root.join(format!("browse-fixture-lifecycle-{}", uuid::Uuid::new_v4()));
         let root = {
-            let fixture = Fixture::new();
-            let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .expect("repo parent")
-                .to_path_buf();
-            assert!(fixture.root.starts_with(repo_root.join(".tmp-tests")));
+            let fixture = Fixture::new_under(lifecycle_parent.clone());
+            assert!(fixture.root.starts_with(&temp_root));
             assert!(fixture.root.exists());
             fixture.root.clone()
         };
         assert!(!root.exists());
+        assert!(
+            lifecycle_parent.is_dir(),
+            "fixture drop must preserve its shared parent"
+        );
+        assert!(
+            temp_root.is_dir(),
+            "fixture drop must preserve the worktree temp root"
+        );
+        fs::remove_dir(&lifecycle_parent)
+            .expect("remove isolated fixture parent after its owner exits");
     }
 
     #[test]

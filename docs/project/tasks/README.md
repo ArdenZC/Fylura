@@ -18,3 +18,9 @@ Future bounded task briefs should be context compressors with these sections:
 - Read only if triggered
 - Acceptance
 - Validation
+
+For an ordinary reversible feature or bug fix, keep this brief to the minimum
+needed to implement and verify the user outcome. A research phase, standalone
+audit, hand-built hash manifest or bespoke native environment is **not** a
+mandatory taskbook section. See [delivery-first workflow](../DEVELOPMENT_WORKFLOW.md#delivery-first-operating-rule)
+and [ADR-0015](../DECISIONS/0015-delivery-first-engineering.md).

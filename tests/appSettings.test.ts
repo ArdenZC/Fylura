@@ -5,6 +5,7 @@ import {
   DEFAULT_APP_SETTINGS,
   createSearchRootSetting,
   createScanRootSetting,
+  defaultScanRootSettingsEqual,
   enabledScanRootPaths,
   enabledSearchRootPaths,
   mergeAppSettings,
@@ -44,6 +45,30 @@ describe("app settings helpers", () => {
     expect(saveSettings).toHaveBeenCalledWith({
       settings: { ...latest.settings, restoreRetentionDays: 90 },
       expectedRevision: 7
+    });
+  });
+
+  it("rebases once when the stable support code identifies a revision conflict", async () => {
+    const latest = { settings: { ...DEFAULT_APP_SETTINGS, searchHotkey: "Ctrl+K" }, revision: 7 };
+    const saveSettings = vi.fn()
+      .mockRejectedValueOnce(new Error("settings_save_failure:revision_conflict"))
+      .mockResolvedValueOnce({
+        settings: { ...latest.settings, restoreRetentionDays: 90 },
+        revision: 8
+      });
+    const getSettings = vi.fn().mockResolvedValue(latest);
+
+    await expect(saveSettingsIntent(
+      { getSettings, saveSettings },
+      { settings: DEFAULT_APP_SETTINGS, revision: 6 },
+      { restoreRetentionDays: 90 }
+    )).resolves.toMatchObject({ revision: 8, settings: { searchHotkey: "Ctrl+K" } });
+
+    expect(getSettings).toHaveBeenCalledOnce();
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(saveSettings).toHaveBeenLastCalledWith({
+      settings: { ...latest.settings, restoreRetentionDays: 90 },
+      expectedRevision: latest.revision
     });
   });
 
@@ -136,11 +161,58 @@ describe("app settings helpers", () => {
     const projects = createScanRootSetting("D:/Work/Projects", createdAt);
     const roots = upsertDefaultScanRoot([downloads], "D:/Work/Projects", createdAt);
     const disabled = toggleDefaultScanRoot(roots, projects.id, false);
+    const reenabled = toggleDefaultScanRoot(disabled, projects.id, true);
 
     expect(roots).toEqual([downloads, projects]);
     expect(enabledScanRootPaths(disabled)).toEqual(["F:/Downloads"]);
+    expect(enabledScanRootPaths(reenabled)).toEqual(["F:/Downloads", "D:/Work/Projects"]);
     expect(upsertDefaultScanRoot(disabled, "d:/work/projects", createdAt)[1].enabled).toBe(true);
     expect(removeDefaultScanRoot(roots, downloads.id)).toEqual([projects]);
+  });
+
+  it("upserts an equivalent existing path without retaining duplicate roots", () => {
+    const original = createScanRootSetting("F:/Downloads", "2026-06-22T00:00:00.000Z");
+    const duplicate = {
+      ...original,
+      id: "legacy-downloads-root",
+      path: "f:\\downloads",
+      enabled: false
+    };
+
+    const roots = upsertDefaultScanRoot([original, duplicate], "f:/downloads", "2026-10-08T00:00:00.000Z");
+
+    expect(roots).toHaveLength(1);
+    expect(roots[0]).toMatchObject({ id: original.id, enabled: true, path: "f:/downloads" });
+  });
+
+  it("compares authoritative scan roots by path and enabled state while allowing backend normalization", () => {
+    const requested = [createScanRootSetting(
+      "C:\\OwnerQualification\\fixture",
+      "2026-10-08T00:00:00.000Z"
+    )];
+    const normalized = [{
+      ...requested[0],
+      id: "backend-owned-root-id",
+      path: "c:/ownerqualification/fixture/",
+      label: "Fixture",
+      createdAt: "2026-10-08T00:00:01.000Z"
+    }];
+
+    expect(defaultScanRootSettingsEqual(normalized, requested)).toBe(true);
+    expect(defaultScanRootSettingsEqual([], requested)).toBe(false);
+    expect(defaultScanRootSettingsEqual([{ ...normalized[0], enabled: false }], requested)).toBe(false);
+    expect(defaultScanRootSettingsEqual([
+      ...normalized,
+      createScanRootSetting("D:/Unrelated", "2026-10-08T00:00:00.000Z")
+    ], requested)).toBe(false);
+  });
+
+  it("preserves filesystem-root paths during scan-root semantic comparison", () => {
+    const requested = [createScanRootSetting("/", "2026-10-08T00:00:00.000Z")];
+    const persisted = [{ ...requested[0], path: "/", id: "backend-root-id" }];
+
+    expect(requested[0].path).toBe("/");
+    expect(defaultScanRootSettingsEqual(persisted, requested)).toBe(true);
   });
 
   it("generates distinct IDs for paths whose slugs collide", () => {
@@ -196,14 +268,30 @@ describe("app settings helpers", () => {
   it("restarts the backend file watcher when saved scan roots change", () => {
     const settingsSource = readFileSync(resolve("src-tauri/src/settings.rs"), "utf8");
     const mainSource = readFileSync(resolve("src-tauri/src/main.rs"), "utf8");
+    const runtimeProvidersSource = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
     const i18nSource = readFileSync(resolve("src/i18n/dictionary.ts"), "utf8");
 
     expect(mainSource).toContain("FileWatcherManager::default()");
     expect(mainSource).toContain("reload_file_watcher_for_settings");
     expect(settingsSource).toContain("watcher_manager: State<'_, FileWatcherManager>");
     expect(settingsSource).toContain("reload_file_watcher_for_settings");
+    expect(runtimeProvidersSource).toContain("updateSettingsWithResult({ defaultScanFolders: next })");
+    expect(runtimeProvidersSource).toContain(
+      "const rootsMatch = defaultScanRootSettingsEqual(result.settings.defaultScanFolders, next)"
+    );
+    expect(runtimeProvidersSource).toContain("return result.persisted && rootsMatch");
+    expect(runtimeProvidersSource).toContain("persistedSettings.defaultScanFolders");
+    expect(runtimeProvidersSource).toContain("library.adoptConfiguredRootsIfScopeEmpty(persistedSettings.defaultScanFolders)");
     expect(i18nSource).not.toContain("file watching updates after restarting the app");
     expect(i18nSource).not.toContain("文件监听会在重启应用后更新");
+  });
+
+  it("routes Settings add, enable/disable, and delete through authoritative scan-root persistence", () => {
+    const settingsViewSource = readFileSync(resolve("src/views/settings/SettingsView.tsx"), "utf8");
+
+    expect(settingsViewSource).toContain("setDefaultScanFolders(upsertDefaultScanRoot(defaultScanFolders, path))");
+    expect(settingsViewSource).toContain("setDefaultScanFolders(toggleDefaultScanRoot(defaultScanFolders, root.id, enabled))");
+    expect(settingsViewSource).toContain("setDefaultScanFolders(removeDefaultScanRoot(defaultScanFolders, root.id))");
   });
 
   it("surfaces persisted global hotkey registration status in settings", () => {

@@ -294,7 +294,7 @@
         let legacy_tag = db
             .create_user_tag(CreateUserTagRequest {
                 display_name: "Unassigned pre-upgrade tag".to_string(),
-                color_token: "gray".to_string(),
+                color_token: "neutral".to_string(),
             })
             .expect("create legacy tag");
         db.mutate_file_user_tags(MutateFileUserTagsRequest {

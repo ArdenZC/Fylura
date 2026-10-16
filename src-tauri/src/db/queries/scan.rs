@@ -5123,8 +5123,11 @@ mod tests {
             is_dir: false,
             state_code: 0,
         };
-        for expected in [1, 1, 2] {
-            if expected == 2 {
+        // An unverified observation now publishes a neutral browse row. That
+        // visible insertion advances the root clock once; repeating it is
+        // idempotent, and a later filesystem metadata change advances it once.
+        for (index, expected) in [2, 2, 3].into_iter().enumerate() {
+            if index == 2 {
                 entry.size = 8;
                 entry.mtime = 5;
             }
@@ -6066,15 +6069,9 @@ mod tests {
         let database_path = db.path().to_path_buf();
         {
             let conn = db.conn().expect("open Schema39 fixture connection");
-            conn.execute_batch(
-                "DROP TABLE library_source_root_claims;
-                 DROP TABLE library_source_observations;
-                 DROP TABLE library_legacy_attributions;
-                 DROP TABLE library_source_incarnations;
-                 DROP TABLE library_root_epoch_state;
-                 PRAGMA user_version = 39;",
-            )
-            .expect("restore the fixture to Schema39 shape");
+            crate::db::drop_source_writer_schema_for_test(&conn);
+            conn.execute_batch("PRAGMA user_version = 39;")
+                .expect("restore the fixture to Schema39 shape");
         }
         drop(db);
 
@@ -6108,6 +6105,15 @@ mod tests {
                 },
             )
             .expect("publish the real upgraded file observation");
+        let current_file_id: String = db
+            .conn()
+            .expect("inspect current upgraded file")
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("current upgraded file row");
 
         let query = || {
             db.query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
@@ -6128,7 +6134,7 @@ mod tests {
         let first_visible = first_query
             .files
             .iter()
-            .find(|file| file.native_path.as_deref() == Some(normalized_path.as_str()))
+            .find(|file| file.id == current_file_id)
             .expect("unchanged upgraded file remains visible");
         assert_ne!(first_visible.id, normalized_path);
         assert_eq!(first_visible.name, "legacy.txt");
@@ -6181,7 +6187,7 @@ mod tests {
         let visible_rows = second_query
             .files
             .iter()
-            .filter(|file| file.native_path.as_deref() == Some(normalized_path.as_str()))
+            .filter(|file| file.id == current_file_id)
             .collect::<Vec<_>>();
         assert_eq!(visible_rows.len(), 1);
         assert_eq!(visible_rows[0].id, first_visible.id);
@@ -6292,6 +6298,16 @@ mod tests {
         )
         .expect("repeat replacement observation");
 
+        let current_replacement_id: String = db
+            .conn()
+            .expect("inspect current replacement row")
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("current replacement row");
+
         let library = db
             .query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
                 version: 2,
@@ -6309,7 +6325,7 @@ mod tests {
         let visible_replacement = library
             .files
             .iter()
-            .find(|file| file.native_path.as_deref() == Some(normalized_path.as_str()))
+            .find(|file| file.id == current_replacement_id)
             .expect("replacement remains browseable after repeated observation");
         assert_eq!(visible_replacement.name, "kept.txt");
         assert_eq!(visible_replacement.tag_count, 0);

@@ -677,6 +677,10 @@ fn global_search_high_hit_fts_candidate_preserves_filters_ties_and_snapshot() {
         .iter()
         .all(|result| result.volume_id == "gv_test" || result.volume_id == "gv_fts_second"));
 
+    let legacy_ties = with_legacy_fts_search_candidate(|| diagnostic_search_fts(&conn, "alpha", 2))
+        .expect("run legacy equal-rank FTS tie query");
+    assert_eq!(legacy_ties.len(), 2);
+
     let mut tie_statement = conn
         .prepare(
             "SELECT id FROM global_entries WHERE name_normalized = 'alpha.txt' AND volume_id IN ('gv_test', 'gv_fts_second') AND is_stale = 0 ORDER BY id ASC",
@@ -690,12 +694,12 @@ fn global_search_high_hit_fts_candidate_preserves_filters_ties_and_snapshot() {
     drop(tie_statement);
     assert_eq!(expected_tie_ids.len(), 2);
     assert_eq!(
-        legacy_tier
+        legacy_ties
             .iter()
             .map(|result| result.id.clone())
             .collect::<Vec<_>>(),
         expected_tie_ids,
-        "equal BM25 and mtime results must retain ascending ID order"
+        "equal BM25 and mtime FTS results must retain ascending ID order"
     );
 
     let legacy_full = with_legacy_fts_search_candidate(|| db.search_global_entries("report", 2, 0))

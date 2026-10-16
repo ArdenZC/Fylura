@@ -613,6 +613,129 @@ fn global_search_fts_layer_fills_remaining_page_and_offset_is_stable() {
 }
 
 #[test]
+fn global_search_high_hit_fts_candidate_preserves_filters_ties_and_snapshot() {
+    use crate::global_index::search::{
+        diagnostic_search_fts, with_key_only_fts_search_candidate, with_legacy_fts_search_candidate,
+    };
+
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert primary enabled volume");
+
+    for (id, stable_id, enabled) in [
+        ("gv_fts_second", "fts-second-volume", true),
+        ("gv_fts_stale", "fts-stale-volume", true),
+        ("gv_fts_disabled", "fts-disabled-volume", false),
+    ] {
+        let mut volume = test_volume();
+        volume.id = id.to_string();
+        volume.stable_volume_id = stable_id.to_string();
+        volume.enabled = enabled;
+        db.upsert_global_volume(&volume)
+            .expect("insert FTS comparison volume");
+    }
+
+    let mut active_a = test_entry(r"C:\Global\Report\alpha.txt", "alpha.txt", false);
+    active_a.platform_file_id = "fts-active-a".to_string();
+    active_a.modified_at_fs = Some(10);
+    let mut active_b = active_a.clone();
+    active_b.volume_id = "gv_fts_second".to_string();
+    active_b.platform_file_id = "fts-active-b".to_string();
+    let mut active_c = test_entry(r"C:\Global\Report\beta.txt", "beta.txt", false);
+    active_c.platform_file_id = "fts-active-c".to_string();
+    active_c.modified_at_fs = Some(9);
+    let mut stale = active_a.clone();
+    stale.volume_id = "gv_fts_stale".to_string();
+    stale.platform_file_id = "fts-stale".to_string();
+    stale.modified_at_fs = Some(30);
+    let mut disabled = active_a.clone();
+    disabled.volume_id = "gv_fts_disabled".to_string();
+    disabled.platform_file_id = "fts-disabled".to_string();
+    disabled.modified_at_fs = Some(40);
+
+    db.upsert_global_entries_batch(&[active_a, active_b, active_c, stale, disabled])
+        .expect("insert same-rank FTS comparison rows");
+    db.conn()
+        .expect("get connection to mark stale FTS row")
+        .execute(
+            "UPDATE global_entries SET is_stale = 1 WHERE volume_id = ?1 AND platform_file_id = ?2",
+            rusqlite::params!["gv_fts_stale", "fts-stale"],
+        )
+        .expect("mark stale FTS row");
+
+    let conn = db.conn().expect("get direct FTS test connection");
+    let legacy_tier =
+        with_legacy_fts_search_candidate(|| diagnostic_search_fts(&conn, "report", 2))
+            .expect("run legacy FTS tier");
+    let candidate_tier =
+        with_key_only_fts_search_candidate(|| diagnostic_search_fts(&conn, "report", 2))
+            .expect("run key-only FTS tier");
+    assert_eq!(candidate_tier, legacy_tier);
+    assert_eq!(legacy_tier.len(), 2, "filters must precede the limit");
+    assert!(legacy_tier
+        .iter()
+        .all(|result| result.volume_id == "gv_test" || result.volume_id == "gv_fts_second"));
+
+    let mut tie_statement = conn
+        .prepare(
+            "SELECT id FROM global_entries WHERE name_normalized = 'alpha.txt' AND volume_id IN ('gv_test', 'gv_fts_second') AND is_stale = 0 ORDER BY id ASC",
+        )
+        .expect("prepare enabled FTS tie ID query");
+    let expected_tie_ids = tie_statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query enabled FTS tie IDs")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect enabled FTS tie IDs");
+    assert_eq!(expected_tie_ids.len(), 2);
+    assert_eq!(
+        legacy_tier
+            .iter()
+            .map(|result| result.id.clone())
+            .collect::<Vec<_>>(),
+        expected_tie_ids,
+        "equal BM25 and mtime results must retain ascending ID order"
+    );
+
+    let legacy_full = with_legacy_fts_search_candidate(|| db.search_global_entries("report", 2, 0))
+        .expect("run legacy full search");
+    let candidate_full =
+        with_key_only_fts_search_candidate(|| db.search_global_entries("report", 2, 0))
+            .expect("run key-only full search");
+    assert_eq!(candidate_full, legacy_full);
+    assert_eq!(
+        with_legacy_fts_search_candidate(|| db.search_global_entries("report", 1, 1))
+            .expect("legacy paged FTS search"),
+        with_key_only_fts_search_candidate(|| db.search_global_entries("report", 1, 1))
+            .expect("key-only paged FTS search")
+    );
+
+    let legacy_snapshot =
+        with_legacy_fts_search_candidate(|| db.search_global_entries_snapshot("report", 2, 0))
+            .expect("run legacy FTS repository snapshot");
+    let candidate_snapshot =
+        with_key_only_fts_search_candidate(|| db.search_global_entries_snapshot("report", 2, 0))
+            .expect("run key-only FTS repository snapshot");
+    assert_eq!(candidate_snapshot.results, legacy_snapshot.results);
+    assert_eq!(
+        candidate_snapshot.source_health,
+        legacy_snapshot.source_health
+    );
+    assert_eq!(
+        candidate_snapshot.source_revision,
+        legacy_snapshot.source_revision
+    );
+    assert_eq!(
+        candidate_snapshot.index_status,
+        legacy_snapshot.index_status
+    );
+
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn global_search_snapshot_filters_disabled_sources_and_tracks_entry_revision() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");

@@ -13,7 +13,9 @@ const MAX_TIER_CANDIDATES: u32 = 4_096;
 #[cfg(test)]
 std::thread_local! {
     static KEY_ONLY_CTE_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static KEY_ONLY_FTS_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LEGACY_NAME_PREFIX_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LEGACY_FTS_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Enables the remaining test-only key projection candidates while exercising
@@ -31,6 +33,23 @@ pub(crate) fn with_key_only_cte_search_candidate<T>(operation: impl FnOnce() -> 
     }
 
     KEY_ONLY_CTE_SEARCH_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(true);
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn with_key_only_fts_search_candidate<T>(operation: impl FnOnce() -> T) -> T {
+    struct ResetCandidate(bool);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            KEY_ONLY_FTS_SEARCH_OVERRIDE.with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    KEY_ONLY_FTS_SEARCH_OVERRIDE.with(|override_slot| {
         let previous = override_slot.replace(true);
         let _reset = ResetCandidate(previous);
         operation()
@@ -58,13 +77,40 @@ pub(crate) fn with_legacy_name_prefix_search_candidate<T>(operation: impl FnOnce
 }
 
 #[cfg(test)]
+pub(crate) fn with_legacy_fts_search_candidate<T>(operation: impl FnOnce() -> T) -> T {
+    struct ResetCandidate(bool);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            LEGACY_FTS_SEARCH_OVERRIDE.with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    LEGACY_FTS_SEARCH_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(true);
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
+#[cfg(test)]
 fn key_only_cte_search_candidate_enabled() -> bool {
     KEY_ONLY_CTE_SEARCH_OVERRIDE.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
+fn key_only_fts_search_candidate_enabled() -> bool {
+    KEY_ONLY_FTS_SEARCH_OVERRIDE.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
 fn legacy_name_prefix_search_candidate_enabled() -> bool {
     LEGACY_NAME_PREFIX_SEARCH_OVERRIDE.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn legacy_fts_search_candidate_enabled() -> bool {
+    LEGACY_FTS_SEARCH_OVERRIDE.with(std::cell::Cell::get)
 }
 
 /// Global search is intentionally a separate entry point from the library
@@ -468,7 +514,15 @@ fn search_fts(
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     #[cfg(test)]
-    if key_only_cte_search_candidate_enabled() {
+    if legacy_fts_search_candidate_enabled() {
+        let sql = diagnostic_search_fts_sql();
+        let mut statement = conn.prepare(&sql)?;
+        let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+        return collect_candidates(&mut statement, params![fts_query, limit]);
+    }
+
+    #[cfg(test)]
+    if key_only_cte_search_candidate_enabled() || key_only_fts_search_candidate_enabled() {
         let sql = key_only_fts_sql();
         let mut statement = conn.prepare(&sql)?;
         let fts_query = format!("\"{}\"", query.replace('"', "\"\""));

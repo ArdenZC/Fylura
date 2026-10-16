@@ -2,8 +2,9 @@ use super::super::*;
 use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
 use super::library::{current_library_revision, selection_where, LibrarySelectionV1};
 use super::library_identity::{
-    advance_root_epoch_tx, managed_root_ids_for_path_tx, mark_root_path_absent_tx,
-    observe_source_for_root_tx, verify_legacy_source_identity_tx, SourceObservationContext,
+    advance_root_epoch_tx, has_source_uid_attribution_tx, managed_root_ids_for_path_tx,
+    mark_root_path_absent_tx, observe_source_for_root_tx, verify_legacy_source_identity_tx,
+    SourceObservationContext,
 };
 use super::*;
 use crate::file_naming::{
@@ -200,6 +201,20 @@ impl Database {
                         },
                     )
                     .optional()?;
+                if previous.is_some() && has_source_uid_attribution_tx(&tx, &resolved_file.id)? {
+                    let physical = crate::fs_safety::capture_source_object_identity(Path::new(
+                        &resolved_file.path,
+                    ))
+                    .ok();
+                    if verify_legacy_source_identity_tx(&tx, &resolved_file.id, physical.as_ref())?
+                        .is_none()
+                    {
+                        return Err(DbError::Validation(format!(
+                            "Path upsert refused for SourceUID-attributed row {}: physical identity is missing, changed, or unverified; Managed Scan/Watcher reconciliation is required.",
+                            resolved_file.id
+                        )));
+                    }
+                }
                 let file_type = infer_file_type(&resolved_file.extension, resolved_file.is_dir);
                 stmt.execute(params![
                     resolved_file.id,

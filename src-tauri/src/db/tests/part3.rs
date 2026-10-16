@@ -456,13 +456,13 @@
     }
 
     #[test]
-    fn migrated_legacy_path_upsert_and_rename_postflight_keep_current_row_identity() {
+    fn migrated_legacy_path_upsert_rejects_replacement_before_managed_scan_and_keeps_facts_isolated() {
         let db_path = test_db_path();
         let db = Database::open(&db_path).expect("create schema 40 fixture");
         let root = test_dir();
         let source = root.join("legacy-before.txt");
         let target = root.join("legacy-after.txt");
-        fs::write(&source, "migrated legacy object").expect("write managed file");
+        fs::write(&source, "replacement-physical-A").expect("write managed file");
         let source_path = normalized_test_path(&source);
         let target_path = normalized_test_path(&target);
         let metadata = fs::metadata(&source).expect("read managed file metadata");
@@ -658,6 +658,40 @@
         assert_eq!(retained_tag_count, 1);
         drop(conn);
 
+        let current_tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "Current physical object tag".to_string(),
+                color_token: "blue".to_string(),
+            })
+            .expect("create tag for the verified physical object");
+        db.mutate_file_user_tags(MutateFileUserTagsRequest {
+            selection: LibrarySelectionV1::Explicit {
+                file_ids: vec![current_id.clone()],
+            },
+            tag_ids: vec![current_tag.id.clone()],
+            operation: UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("attach a user fact to the current physical object");
+
+        // A normal path Upsert remains valid when the same physical object is
+        // still present, and it must leave that object's user fact attached.
+        assert_eq!(
+            crate::db::upsert_files_by_paths_for_db(&db, std::slice::from_ref(&source_path))
+                .expect("same-object path upsert remains supported"),
+            1
+        );
+        let conn = Connection::open(db.path()).expect("inspect same-object upsert");
+        let current_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![current_id, current_tag.id],
+                |row| row.get(0),
+            )
+            .expect("count current-object tag after same-object upsert");
+        assert_eq!(current_tag_count, 1);
+        drop(conn);
+
         let library = db
             .query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
                 version: 2,
@@ -678,8 +712,299 @@
             .filter(|file| file.id == current_id)
             .collect::<Vec<_>>();
         assert_eq!(visible_rows.len(), 1);
-        assert_eq!(visible_rows[0].tag_count, 0);
-        assert!(visible_rows[0].tags.is_empty());
+        assert_eq!(visible_rows[0].tag_count, 1);
+        assert_eq!(visible_rows[0].tags.len(), 1);
+
+        // Keep the old object alive outside the managed root so it cannot be
+        // rediscovered at another path. Recreate the original path with a
+        // different object that deliberately has the same size and mtime.
+        let original_modified = fs::metadata(&source)
+            .expect("read original file metadata")
+            .modified()
+            .expect("read original file modification time");
+        let parked_source = root.with_file_name(format!(
+            "{}-parked-replaced-object",
+            root.file_name()
+                .expect("test root has a final path component")
+                .to_string_lossy()
+        ));
+        fs::rename(&source, &parked_source).expect("park original physical object outside root");
+        fs::write(&source, "replacement-physical-B").expect("write replacement physical object");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .expect("open replacement to preserve modification time")
+            .set_times(std::fs::FileTimes::new().set_modified(original_modified))
+            .expect("preserve same-path replacement modification time");
+        let replacement_metadata = fs::metadata(&source).expect("read replacement metadata");
+        assert_eq!(replacement_metadata.len(), metadata.len());
+        assert_eq!(
+            replacement_metadata
+                .modified()
+                .expect("read replacement modification time"),
+            original_modified
+        );
+
+        let conn = Connection::open(db.path()).expect("snapshot before rejected path upsert");
+        let file_before: (String, String, String, i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT id, path, name, size, mtime, is_stale, last_seen_at FROM files WHERE id = ?1",
+                params![current_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                },
+            )
+            .expect("read current row before rejected upsert");
+        let attribution_before: (Option<String>, String, Option<String>, i64) = conn
+            .query_row(
+                "SELECT source_uid, claim_state, evidence_digest, decision_revision FROM library_legacy_attributions WHERE legacy_file_id = ?1 ORDER BY decision_revision DESC, rowid DESC LIMIT 1",
+                params![current_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("read current SourceUID attribution before rejected upsert");
+        let root_epoch_before: i64 = conn
+            .query_row(
+                "SELECT epoch FROM library_root_epoch_state WHERE root_id = ?1",
+                params![root_id],
+                |row| row.get(0),
+            )
+            .expect("read root epoch before rejected upsert");
+        let root_claim_before: (String, i64, String, i64, i64) = conn
+            .query_row(
+                "SELECT source_uid, root_epoch, claim_state, owner_revision, observation_revision FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2 ORDER BY root_epoch DESC, rowid DESC LIMIT 1",
+                params![root_id, source_path],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .expect("read source root claim before rejected upsert");
+        drop(conn);
+
+        let error = crate::db::upsert_files_by_paths_for_db(
+            &db,
+            std::slice::from_ref(&source_path),
+        )
+        .expect_err("same-path replacement must not inherit the old SourceUID facts");
+        assert!(error.to_string().contains("physical identity is missing, changed, or unverified"));
+        assert!(error.to_string().contains("Managed Scan/Watcher reconciliation is required"));
+
+        let conn = Connection::open(db.path()).expect("inspect rejected upsert state");
+        let file_after: (String, String, String, i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT id, path, name, size, mtime, is_stale, last_seen_at FROM files WHERE id = ?1",
+                params![current_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                },
+            )
+            .expect("read current row after rejected upsert");
+        let attribution_after: (Option<String>, String, Option<String>, i64) = conn
+            .query_row(
+                "SELECT source_uid, claim_state, evidence_digest, decision_revision FROM library_legacy_attributions WHERE legacy_file_id = ?1 ORDER BY decision_revision DESC, rowid DESC LIMIT 1",
+                params![current_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("read current SourceUID attribution after rejected upsert");
+        let root_epoch_after: i64 = conn
+            .query_row(
+                "SELECT epoch FROM library_root_epoch_state WHERE root_id = ?1",
+                params![root_id],
+                |row| row.get(0),
+            )
+            .expect("read root epoch after rejected upsert");
+        let root_claim_after: (String, i64, String, i64, i64) = conn
+            .query_row(
+                "SELECT source_uid, root_epoch, claim_state, owner_revision, observation_revision FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2 ORDER BY root_epoch DESC, rowid DESC LIMIT 1",
+                params![root_id, source_path],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .expect("read source root claim after rejected upsert");
+        let current_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![current_id, current_tag.id],
+                |row| row.get(0),
+            )
+            .expect("count retained current-object tag");
+        let legacy_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![source_path, legacy_tag.id],
+                |row| row.get(0),
+            )
+            .expect("count retained historical legacy tag");
+        drop(conn);
+        assert_eq!(file_after, file_before);
+        assert_eq!(attribution_after, attribution_before);
+        assert_eq!(root_epoch_after, root_epoch_before);
+        assert_eq!(root_claim_after, root_claim_before);
+        assert_eq!(current_tag_count, 1);
+        assert_eq!(legacy_tag_count, 1);
+
+        // Existing Managed Scan publishes replacement B as a new neutral row.
+        let replacement_mtime = replacement_metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0);
+        let replacement_entry = InsertFileRequest {
+            id: source_path.clone(),
+            path: source_path.clone(),
+            name: "legacy-before.txt".to_string(),
+            extension: "txt".to_string(),
+            size: replacement_metadata.len() as i64,
+            mtime: replacement_mtime,
+            ctime: replacement_metadata
+                .created()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs() as i64)
+                .unwrap_or(replacement_mtime),
+            is_dir: false,
+            state_code: 0,
+        };
+        let replacement_admission = db
+            .admit_managed_scan(&crate::db::scan::ScanAdmissionOptions {
+                request: crate::db::scan::ManagedScanRequest {
+                    roots: vec![crate::db::scan::normalize_scan_root_path(
+                        &root.to_string_lossy(),
+                    )],
+                    request_key: Some("migrated-legacy-replacement-scan".to_string()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit Managed Scan for replacement object");
+        let replacement_claimed = db
+            .claim_queued_scan_run(&replacement_admission.runs[0].id)
+            .expect("claim Managed Scan for replacement object");
+        let replacement_persisted = db
+            .persist_scan_batch(
+                &replacement_claimed.dto.id,
+                replacement_claimed.dto.revision,
+                replacement_claimed.root_revision,
+                replacement_claimed.session_revision,
+                &crate::db::scan::ScanBatchInput {
+                    entries: std::slice::from_ref(&replacement_entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: replacement_entry.size,
+                    warnings: 0,
+                },
+            )
+            .expect("publish replacement object through Managed Scan");
+        let replacement_reconciled = db
+            .reconcile_missing(
+                &replacement_persisted.dto.id,
+                replacement_persisted.dto.revision,
+                replacement_persisted.root_revision,
+                replacement_persisted.session_revision,
+            )
+            .expect("reconcile replacement Managed Scan");
+        db.finalize_scan_run(
+            &replacement_reconciled.dto.id,
+            replacement_reconciled.dto.revision,
+            replacement_reconciled.root_revision,
+            replacement_reconciled.session_revision,
+            &crate::db::scan::ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: true,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize replacement Managed Scan");
+
+        let conn = Connection::open(db.path()).expect("inspect managed replacement rows");
+        let replacement_id: String = conn
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![source_path],
+                |row| row.get(0),
+            )
+            .expect("read active replacement row");
+        let archived_original: (String, i64) = conn
+            .query_row(
+                "SELECT path, is_stale FROM files WHERE id = ?1",
+                params![current_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read archived original SourceUID row");
+        let replacement_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![replacement_id, current_tag.id],
+                |row| row.get(0),
+            )
+            .expect("check replacement did not inherit original object's tag");
+        let original_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![current_id, current_tag.id],
+                |row| row.get(0),
+            )
+            .expect("check original object's tag stayed with its row");
+        let replacement_source_uid: String = conn
+            .query_row(
+                "SELECT source_uid FROM library_legacy_attributions WHERE legacy_file_id = ?1 ORDER BY decision_revision DESC, rowid DESC LIMIT 1",
+                params![replacement_id],
+                |row| row.get(0),
+            )
+            .expect("read replacement SourceUID attribution");
+        let original_source_uid: String = conn
+            .query_row(
+                "SELECT source_uid FROM library_legacy_attributions WHERE legacy_file_id = ?1 ORDER BY decision_revision DESC, rowid DESC LIMIT 1",
+                params![current_id],
+                |row| row.get(0),
+            )
+            .expect("read original SourceUID attribution");
+        drop(conn);
+        assert_ne!(replacement_id, current_id);
+        assert!(archived_original.0.starts_with("zen-canvas://legacy-unassigned/"));
+        assert_eq!(archived_original.1, 1);
+        assert_eq!(replacement_tag_count, 0);
+        assert_eq!(original_tag_count, 1);
+        assert_ne!(replacement_source_uid, original_source_uid);
+
+        let replacement_library = db
+            .query_file_library_v2(crate::db::queries::library::FileQueryRequestV2 {
+                version: 2,
+                request_id: "migrated-legacy-replacement-visible".to_string(),
+                query: crate::db::queries::library::FileQuerySpecV2 {
+                    scope: crate::db::queries::library::FileLibraryScopeV2::AllEnabledRoots,
+                    text: None,
+                    filters: Default::default(),
+                    sort: Default::default(),
+                },
+                page_size: 50,
+                cursor: None,
+            })
+            .expect("query replacement through the active File Library reader");
+        let replacement_rows = replacement_library
+            .files
+            .iter()
+            .filter(|file| file.id == replacement_id)
+            .collect::<Vec<_>>();
+        assert_eq!(replacement_rows.len(), 1);
+        assert_eq!(replacement_rows[0].tag_count, 0);
+        assert!(replacement_rows[0].tags.is_empty());
 
         fs::rename(&source, &target).expect("perform actual filesystem rename");
         assert!(db
@@ -699,7 +1024,7 @@
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("read renamed active row");
-        assert_eq!(moved_row, (current_id.clone(), 0));
+        assert_eq!(moved_row, (replacement_id.clone(), 0));
         let retained_tag_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
@@ -716,6 +1041,22 @@
             )
             .expect("ensure old tag did not move with the current object");
         assert_eq!(inherited_tag_count, 0);
+        let original_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![current_id, current_tag.id],
+                |row| row.get(0),
+            )
+            .expect("ensure original object's tag remains on its archived row");
+        assert_eq!(original_tag_count, 1);
+        let replacement_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![replacement_id, current_tag.id],
+                |row| row.get(0),
+            )
+            .expect("ensure original object's tag was not transferred to replacement");
+        assert_eq!(replacement_tag_count, 0);
         drop(conn);
 
         let error = db

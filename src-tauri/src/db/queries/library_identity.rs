@@ -631,6 +631,13 @@ fn latest_attribution_tx(
     .map_err(DbError::from)
 }
 
+pub(crate) fn has_source_uid_attribution_tx(
+    tx: &Transaction<'_>,
+    file_id: &str,
+) -> Result<bool, DbError> {
+    Ok(latest_attribution_tx(tx, file_id)?.is_some())
+}
+
 fn latest_source_uid_for_path_tx(
     tx: &Transaction<'_>,
     path: &str,

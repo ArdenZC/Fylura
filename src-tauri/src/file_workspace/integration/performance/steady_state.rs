@@ -64,6 +64,31 @@ struct EpochObservation {
     target_switch_after: ProcessResources,
     target_switch_peak: ProcessResources,
     settled: ProcessResources,
+    retained: RetainedOwners,
+}
+
+/// These owners are not included in the historical Browse/Preview session
+/// registry totals. Pair their bounded counts with the same-process memory
+/// samples instead of inferring an allocation owner from a different run.
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+struct RetainedOwners {
+    read_leases: usize,
+    preview_assets: usize,
+    preview_asset_bytes: usize,
+    thumbnail_cache_entries: usize,
+}
+
+fn retained_owners(
+    runtime: &crate::file_workspace::integration::FileWorkspaceRuntime,
+) -> RetainedOwners {
+    let (preview_assets, preview_asset_bytes) =
+        runtime.inner.preview_assets.retained_counts_for_test();
+    RetainedOwners {
+        read_leases: runtime.inner.read_gate.retained_lease_count_for_test(),
+        preview_assets,
+        preview_asset_bytes,
+        thumbnail_cache_entries: runtime.inner.thumbnail.memory_cache_len(),
+    }
 }
 
 fn enumerate_fixture(
@@ -339,6 +364,7 @@ fn run_epoch(
         target_switch_after,
         target_switch_peak,
         settled: ProcessResources::default(),
+        retained: RetainedOwners::default(),
     }
 }
 
@@ -496,6 +522,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
     let warmed_thumbnail_cache_entries = warm_thumbnail_cache(&runtime, &fixture);
     resources::settle_allocator();
     let idle_process = resources::snapshot();
+    let idle_retained = retained_owners(&runtime);
 
     let mut epochs = Vec::with_capacity(EPOCH_COUNT);
     for epoch in 0..EPOCH_COUNT {
@@ -506,6 +533,7 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
         thread::sleep(Duration::from_millis(250));
         resources::settle_allocator();
         observation.settled = resources::snapshot();
+        observation.retained = retained_owners(&runtime);
         let counts = runtime.resource_counts();
         assert_eq!(counts.browse_sessions, 0);
         assert_eq!(counts.browse_service_sessions, 0);
@@ -523,6 +551,23 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
     }
 
     assert!(runtime.dispose());
+    let disposed_retained = retained_owners(&runtime);
+    metrics::emit_metric(
+        "resource_retained_owners",
+        metrics::OBSERVED,
+        [
+            ("idle".to_string(), json!(idle_retained)),
+            (
+                "settled_epochs".to_string(),
+                json!(epochs.iter().map(|epoch| epoch.retained).collect::<Vec<_>>()),
+            ),
+            ("after_dispose".to_string(), json!(disposed_retained)),
+            (
+                "scope".to_string(),
+                json!("Read Gate leases, Preview assets and Thumbnail cache entry counts only; not allocator bytes or proof of the PrivateUsage allocation owner. Counts are sampled after memory and include expired records without pruning."),
+            ),
+        ],
+    );
     let settled = runtime.resource_counts();
     assert_eq!(settled.browse_sessions, 0);
     assert_eq!(settled.browse_service_sessions, 0);

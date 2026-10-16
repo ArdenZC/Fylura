@@ -600,6 +600,13 @@ impl MaterializationReadGate {
         true
     }
 
+    /// Diagnostic count of retained records, including expired leases. Unlike
+    /// active_lease_count, sampling must not clean up the owner being measured.
+    #[cfg(test)]
+    pub(crate) fn retained_lease_count_for_test(&self) -> usize {
+        lock(&self.leases).leases.len()
+    }
+
     pub fn active_lease_count(&self) -> usize {
         let mut registry = lock(&self.leases);
         prune_expired(&mut registry.leases);
@@ -3485,6 +3492,10 @@ mod tests {
             .issue_lease_for_current("request-1", source.clone(), ReadIntent::Preview)
             .expect("issue expiring lease");
         std::thread::sleep(Duration::from_millis(5));
+        // Resource diagnostics must reveal retained expired records without
+        // making the next memory sample look healthier by collecting them.
+        assert_eq!(expiring.retained_lease_count_for_test(), 1);
+        assert_eq!(expiring.retained_lease_count_for_test(), 1);
         assert_eq!(
             read_through_preview(
                 expiring,

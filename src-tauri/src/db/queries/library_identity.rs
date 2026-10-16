@@ -178,13 +178,18 @@ pub(crate) fn observe_source_for_root_tx(
     };
 
     let attribution = latest_attribution_tx(tx, &file.id)?;
-    let path_prior_uid = root_prior_uid
-        .or_else(|| {
-            attribution
-                .as_ref()
-                .and_then(|claim| claim.source_uid.clone())
-        })
-        .or(latest_source_uid_for_path_tx(tx, &file.path)?);
+    let path_prior_uid = root_prior_uid.or_else(|| {
+        attribution
+            .as_ref()
+            .and_then(|claim| claim.source_uid.clone())
+    });
+    // Option::or eagerly ran the cross-root SQL even when the root or legacy
+    // attribution already supplied the answer. Keep the precedence unchanged,
+    // but avoid that extra query while the scan owns SQLite's writer lock.
+    let path_prior_uid = match path_prior_uid {
+        Some(uid) => Some(uid),
+        None => latest_source_uid_for_path_tx(tx, &file.path)?,
+    };
 
     let identity_changed = path_prior_uid
         .as_deref()
@@ -1115,6 +1120,61 @@ mod tests {
             physical_key: Some("unix:v1:volume:object".to_string()),
             link_count: Some(1),
         }
+    }
+
+    #[test]
+    fn cross_root_path_fallback_preserves_replacement_conflicts() {
+        let db = test_db("cross-root-fallback");
+        seed_root(&db, "parent", "/managed");
+        seed_root(&db, "child", "/managed/nested");
+        let mut conn = db.conn().expect("identity connection");
+        let tx = conn.transaction().expect("identity transaction");
+        let mut file = file_request("/managed/nested/identity.txt");
+        let first_epoch = advance_root_epoch_tx(&tx, "parent", "scan", 1, 10).unwrap();
+        let first = observe_source_for_root_tx(
+            &tx,
+            &file,
+            Some(&physical_identity(100)),
+            SourceObservationContext {
+                root_id: "parent",
+                root_epoch: first_epoch,
+                owner_kind: "scan",
+                owner_revision: 1,
+                legacy_row_exists: false,
+                observed_at: 10,
+            },
+        )
+        .unwrap();
+        // This root has neither a prior path claim nor a legacy attribution.
+        // Only the cross-root fallback can discover the replaced source.
+        file.id = "new-legacy-row".to_string();
+        let mut replacement = physical_identity(200);
+        replacement.platform_file_id = Some("replacement-object".to_string());
+        let second_epoch = advance_root_epoch_tx(&tx, "child", "scan", 1, 11).unwrap();
+        let second = observe_source_for_root_tx(
+            &tx,
+            &file,
+            Some(&replacement),
+            SourceObservationContext {
+                root_id: "child",
+                root_epoch: second_epoch,
+                owner_kind: "scan",
+                owner_revision: 1,
+                legacy_row_exists: false,
+                observed_at: 11,
+            },
+        )
+        .unwrap();
+        assert_ne!(first.source_uid, second.source_uid);
+        let old_claim: String = tx
+            .query_row(
+                "SELECT claim_state FROM library_source_root_claims WHERE root_id = 'parent' AND source_uid = ?1",
+                params![first.source_uid],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_claim, "conflicted");
+        tx.commit().unwrap();
     }
 
     #[test]

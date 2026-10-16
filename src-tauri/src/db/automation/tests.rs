@@ -353,7 +353,7 @@ fn schema36_migration_preserves_populated35_and_constraints() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        40
+        41
     );
     assert_eq!(
         conn.query_row(
@@ -498,7 +498,7 @@ fn fresh_schema_and_exact_indexes_are_idempotent() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        40
+        41
     );
 }
 
@@ -604,7 +604,7 @@ fn empty_schema35_upgrades_without_history_or_extra_automation_tables() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        40
+        41
     );
     assert_eq!(
         conn.query_row(

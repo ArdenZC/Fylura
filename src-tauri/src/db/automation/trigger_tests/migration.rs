@@ -23,7 +23,7 @@ fn schema36_to37_preserves_populated_manual_history_and_reopens() {
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            40
+            41
         );
         assert_eq!(
             db.conn()

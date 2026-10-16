@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 40;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 41;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -167,6 +167,14 @@ CREATE UNIQUE INDEX idx_library_source_physical_verified
   WHERE verification_state = 'verified';
 "#;
 
+const CREATE_LIBRARY_SOURCE_PHYSICAL_LOOKUP_INDEX: &str = r#"
+CREATE INDEX idx_library_source_physical_lookup
+  ON library_source_incarnations(
+    physical_platform, physical_volume_id, physical_object_id,
+    created_at, source_uid
+  );
+"#;
+
 const LIBRARY_IDENTITY_SCHEMA_OBJECTS: &[(&str, &str, &str)] = &[
     (
         "table",
@@ -247,6 +255,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
     if version == CURRENT_SCHEMA_VERSION {
         validate_library_identity_schema(conn)?;
         validate_library_source_writer_schema(conn)?;
+        validate_library_source_physical_lookup_index(conn)?;
         ensure_global_index_schema(conn)?;
         ensure_global_index_hardening(conn)?;
         ensure_journal_state_triggers(conn)?;
@@ -975,8 +984,43 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             ensure_library_source_writer_schema(conn)?;
             set_schema_version(conn, 40)?;
         }
+        if version < 41 {
+            migrate_library_source_physical_lookup_index(conn)?;
+        }
         Ok(())
     })
+}
+
+fn migrate_library_source_physical_lookup_index(conn: &Connection) -> Result<(), DbError> {
+    validate_library_identity_schema(conn)?;
+    validate_library_source_writer_schema(conn)?;
+    conn.execute_batch(CREATE_LIBRARY_SOURCE_PHYSICAL_LOOKUP_INDEX)?;
+    validate_library_source_physical_lookup_index(conn)?;
+    set_schema_version(conn, 41)?;
+    Ok(())
+}
+
+fn validate_library_source_physical_lookup_index(conn: &Connection) -> Result<(), DbError> {
+    let actual_sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?1",
+            ["idx_library_source_physical_lookup"],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if !actual_sql
+        .as_deref()
+        .map(schema_sql_signature)
+        .is_some_and(|actual| {
+            actual == schema_sql_signature(CREATE_LIBRARY_SOURCE_PHYSICAL_LOOKUP_INDEX)
+        })
+    {
+        return Err(DbError::Validation(
+            "library_schema41_source_lookup_conflict: idx_library_source_physical_lookup"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn ensure_library_source_writer_schema(conn: &Connection) -> Result<(), DbError> {
@@ -3378,6 +3422,95 @@ mod issue381_b4_p0_tests {
         );
         drop(conn);
         drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn schema41_lookup_index_ddl_failure_rolls_back_index_and_version() {
+        let path = test_database_path("schema41-lookup-rollback");
+        let db = Database::open(&path).expect("create Schema41 database");
+        let conn = db.conn().expect("get configured product SQLite connection");
+        conn.execute(
+            "INSERT INTO files (id, path, name, extension, size, mtime, is_dir, state_code) \
+             VALUES ('schema41-rollback-file', '/schema41/rollback.txt', 'rollback.txt', 'txt', 8, 1, 0, 0)",
+            [],
+        )
+        .expect("seed legacy file before migration");
+        conn.execute_batch(
+            "DROP INDEX idx_library_source_physical_lookup; PRAGMA user_version = 40;",
+        )
+        .expect("construct exact Schema40 fixture");
+
+        let migration_result = with_migration_transaction(&conn, |conn| {
+            migrate_library_source_physical_lookup_index(conn)?;
+            conn.execute_batch(
+                "CREATE TABLE schema41_injected_failure (id TEXT); \
+                 CREATE TABLE schema41_injected_failure (id TEXT);",
+            )?;
+            Ok(())
+        });
+        assert!(migration_result.is_err(), "injected DDL must fail");
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("read version after rollback"),
+            40
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index' \
+                 AND name = 'idx_library_source_physical_lookup'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back index"),
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'schema41_injected_failure'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back injected DDL"),
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM files WHERE id = 'schema41-rollback-file'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check preserved legacy file"),
+            1
+        );
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn schema41_reopen_rejects_physical_lookup_index_signature_drift() {
+        let path = test_database_path("schema41-lookup-drift");
+        let db = Database::open(&path).expect("create Schema41 database");
+        drop(db);
+        let conn = Connection::open(&path).expect("open Schema41 drift fixture");
+        conn.execute_batch(
+            "DROP INDEX idx_library_source_physical_lookup; \
+             CREATE INDEX idx_library_source_physical_lookup \
+             ON library_source_incarnations(created_at, source_uid);",
+        )
+        .expect("install a drifted index with the same name");
+        drop(conn);
+
+        let error = Database::open(&path).err().expect("reject drifted index");
+        assert!(format!("{error:?}").contains("library_schema41_source_lookup_conflict"));
+        let conn = Connection::open(&path).expect("inspect unchanged Schema41 drift fixture");
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("read unchanged Schema41 version"),
+            41
+        );
+        drop(conn);
         let _ = std::fs::remove_file(path);
     }
 

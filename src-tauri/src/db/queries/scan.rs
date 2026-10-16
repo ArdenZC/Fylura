@@ -7098,7 +7098,7 @@ mod tests {
         }
         drop(db);
 
-        // Reopening executes the production 39 -> 40 migration path.
+        // Reopening executes the production 39 -> 41 migration path.
         let db = Database::open(&database_path).expect("upgrade Schema39 database");
         let root_text = normalize_scan_root_path(&root.to_string_lossy());
         let admission = db
@@ -8066,7 +8066,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 40);
+        assert_eq!(version, 41);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));

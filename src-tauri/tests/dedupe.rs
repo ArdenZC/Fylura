@@ -46,7 +46,7 @@ fn current_schema_retains_content_hash_and_dedupe_index() {
         )
         .expect("cleanup trash tables");
 
-    assert_eq!(version, 40);
+    assert_eq!(version, 41);
     assert_eq!(cleanup_table_count, 2);
     assert_eq!(content_hash_type, "TEXT");
     assert_eq!(content_hash_notnull, 1);

@@ -10,6 +10,14 @@ use crate::{
 };
 use rusqlite::{params, OptionalExtension, Transaction};
 
+const SOURCE_UID_PHYSICAL_LOOKUP_SQL: &str = r#"
+SELECT source_uid, verification_digest, verification_state
+FROM library_source_incarnations
+WHERE physical_platform = ?1 AND physical_volume_id = ?2
+  AND physical_object_id = ?3
+ORDER BY created_at, source_uid
+"#;
+
 #[derive(Debug, Clone)]
 pub(crate) struct SourceObservationOutcome {
     pub source_uid: String,
@@ -511,15 +519,7 @@ fn resolve_source_uid_tx(
         return Ok((source_uid, "unverified"));
     };
 
-    let mut statement = tx.prepare(
-        r#"
-        SELECT source_uid, verification_digest, verification_state
-        FROM library_source_incarnations
-        WHERE physical_platform = ?1 AND physical_volume_id = ?2
-          AND physical_object_id = ?3
-        ORDER BY created_at, source_uid
-        "#,
-    )?;
+    let mut statement = tx.prepare(SOURCE_UID_PHYSICAL_LOOKUP_SQL)?;
     let matching_ids = statement
         .query_map(
             params![physical.platform, physical.volume_id, physical.object_id],
@@ -877,18 +877,207 @@ mod tests {
         db::Database,
         fs_safety::{PhysicalFileIdentity, PhysicalPlatform},
     };
+    use rusqlite::Connection;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_db(label: &str) -> Database {
+    fn test_db_path(label: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock")
             .as_nanos();
-        Database::open(std::env::temp_dir().join(format!(
+        std::env::temp_dir().join(format!(
             "zen-canvas-source-identity-{label}-{}-{nonce}.sqlite3",
             std::process::id()
-        )))
-        .expect("open source identity test database")
+        ))
+    }
+
+    fn test_db(label: &str) -> Database {
+        Database::open(test_db_path(label)).expect("open source identity test database")
+    }
+
+    fn seed_physical_lookup_row(
+        conn: &Connection,
+        source_uid: &str,
+        verification_state: &str,
+        physical_object_id: Option<&str>,
+        verification_digest: Option<&str>,
+        created_at: i64,
+    ) {
+        conn.execute(
+            "INSERT INTO library_source_incarnations (
+                source_uid, verification_state, physical_platform, physical_volume_id,
+                physical_object_id, verification_digest, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            params![
+                source_uid,
+                verification_state,
+                physical_object_id.map(|_| "unix"),
+                physical_object_id.map(|_| "volume"),
+                physical_object_id,
+                verification_digest,
+                created_at,
+            ],
+        )
+        .expect("seed source physical lookup row");
+    }
+
+    fn physical_lookup_rows(conn: &Connection) -> Vec<(String, Option<String>, String)> {
+        let mut statement = conn
+            .prepare(SOURCE_UID_PHYSICAL_LOOKUP_SQL)
+            .expect("prepare SourceUID physical lookup");
+        statement
+            .query_map(params!["unix", "volume", "object"], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .expect("query SourceUID physical lookup")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect SourceUID physical lookup rows")
+    }
+
+    fn physical_lookup_plan(conn: &Connection) -> Vec<String> {
+        let mut statement = conn
+            .prepare(&format!(
+                "EXPLAIN QUERY PLAN {SOURCE_UID_PHYSICAL_LOOKUP_SQL}"
+            ))
+            .expect("prepare SourceUID physical lookup plan");
+        statement
+            .query_map(params!["unix", "volume", "object"], |row| row.get(3))
+            .expect("query SourceUID physical lookup plan")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect SourceUID physical lookup plan")
+    }
+
+    #[test]
+    fn schema_40_to_41_lookup_index_preserves_all_state_results_and_query_order() {
+        let path = test_db_path("schema41-lookup-equivalence");
+        let db = Database::open(&path).expect("create Schema41 source identity database");
+        let conn = db.conn().expect("open source identity connection");
+        seed_physical_lookup_row(
+            &conn,
+            "uid-a-retired",
+            "retired",
+            Some("object"),
+            Some("digest-a"),
+            10,
+        );
+        seed_physical_lookup_row(
+            &conn,
+            "uid-z-verified",
+            "verified",
+            Some("object"),
+            Some("digest-a"),
+            10,
+        );
+        seed_physical_lookup_row(
+            &conn,
+            "uid-b-conflicted",
+            "conflicted",
+            Some("object"),
+            Some("digest-b"),
+            11,
+        );
+        seed_physical_lookup_row(
+            &conn,
+            "uid-d-retired",
+            "retired",
+            Some("object"),
+            Some("digest-b"),
+            11,
+        );
+        seed_physical_lookup_row(
+            &conn,
+            "uid-c-unverified",
+            "unverified",
+            Some("object"),
+            None,
+            12,
+        );
+        seed_physical_lookup_row(
+            &conn,
+            "uid-other-object",
+            "verified",
+            Some("other-object"),
+            Some("digest-other"),
+            1,
+        );
+        seed_physical_lookup_row(&conn, "uid-null-identity", "unverified", None, None, 0);
+
+        conn.execute_batch(
+            "DROP INDEX idx_library_source_physical_lookup; PRAGMA user_version = 40;",
+        )
+        .expect("construct exact Schema40 lookup fixture");
+        let before_plan = physical_lookup_plan(&conn);
+        let before_rows = physical_lookup_rows(&conn);
+        assert!(before_plan
+            .iter()
+            .any(|detail| { detail.contains("SCAN library_source_incarnations") }));
+        assert!(before_plan
+            .iter()
+            .any(|detail| detail.contains("USE TEMP B-TREE FOR ORDER BY")));
+        assert_eq!(
+            before_rows,
+            vec![
+                (
+                    "uid-a-retired".to_string(),
+                    Some("digest-a".to_string()),
+                    "retired".to_string(),
+                ),
+                (
+                    "uid-z-verified".to_string(),
+                    Some("digest-a".to_string()),
+                    "verified".to_string(),
+                ),
+                (
+                    "uid-b-conflicted".to_string(),
+                    Some("digest-b".to_string()),
+                    "conflicted".to_string(),
+                ),
+                (
+                    "uid-d-retired".to_string(),
+                    Some("digest-b".to_string()),
+                    "retired".to_string(),
+                ),
+                (
+                    "uid-c-unverified".to_string(),
+                    None,
+                    "unverified".to_string(),
+                ),
+            ]
+        );
+        drop(conn);
+        drop(db);
+
+        let migrated = Database::open(&path).expect("migrate Schema40 lookup fixture to 41");
+        let conn = migrated.conn().expect("inspect Schema41 lookup fixture");
+        let after_plan = physical_lookup_plan(&conn);
+        let after_rows = physical_lookup_rows(&conn);
+        assert_eq!(after_rows, before_rows);
+        assert!(after_plan
+            .iter()
+            .any(|detail| { detail.contains("USING INDEX idx_library_source_physical_lookup") }));
+        assert!(!after_plan
+            .iter()
+            .any(|detail| detail.contains("USE TEMP B-TREE FOR ORDER BY")));
+
+        let same_digest_duplicate = conn.execute(
+            "INSERT INTO library_source_incarnations (
+                source_uid, verification_state, physical_platform, physical_volume_id,
+                physical_object_id, verification_digest, created_at, updated_at
+             ) VALUES ('uid-duplicate-verified', 'verified', 'unix', 'volume', 'object', 'digest-a', 20, 20)",
+            [],
+        );
+        assert!(same_digest_duplicate.is_err());
+        conn.execute(
+            "INSERT INTO library_source_incarnations (
+                source_uid, verification_state, physical_platform, physical_volume_id,
+                physical_object_id, verification_digest, created_at, updated_at
+             ) VALUES ('uid-distinct-verified', 'verified', 'unix', 'volume', 'object', 'digest-distinct', 21, 21)",
+            [],
+        )
+        .expect("verified uniqueness index permits a distinct digest");
+        drop(conn);
+        drop(migrated);
+        let _ = std::fs::remove_file(path);
     }
 
     fn seed_root(db: &Database, root_id: &str, path: &str) {

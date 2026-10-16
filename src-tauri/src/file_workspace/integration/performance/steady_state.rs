@@ -2,7 +2,7 @@ use super::{
     fixture::WorkspaceFixture,
     harness::{open_fixture, runtime_for_with_renderer},
     metrics,
-    resources::{self, ProcessResources},
+    resources::{self, ProcessHeapResources, ProcessResources},
 };
 use crate::file_workspace::{
     contracts::{BrowseEntryRef, PreviewHostKind, PreviewSourceRef, WorkClass},
@@ -17,12 +17,33 @@ use crate::file_workspace::{
 };
 use crate::scheduler::ResourceHints;
 use serde_json::json;
-use std::{sync::Arc, thread, time::Duration};
+use std::{ffi::OsStr, sync::Arc, thread, time::Duration};
 
 const EPOCH_COUNT: usize = 5;
 const CYCLES_PER_EPOCH: usize = 20;
 const PREVIEW_EXECUTION_WARMUP_CYCLES: usize = 1;
 const THUMBNAIL_CACHE_WARMUP_ENTRIES: usize = 128;
+const WINDOWS_HEAP_DIAGNOSTICS_ENV: &str = "ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS";
+
+fn heap_diagnostics_enabled_from(value: Option<&OsStr>) -> bool {
+    value == Some(OsStr::new("1"))
+}
+
+fn heap_diagnostics_enabled() -> bool {
+    heap_diagnostics_enabled_from(std::env::var_os(WINDOWS_HEAP_DIAGNOSTICS_ENV).as_deref())
+}
+
+fn heap_snapshot_if_enabled<T>(enabled: bool, capture: impl FnOnce() -> Option<T>) -> Option<T> {
+    if enabled {
+        capture()
+    } else {
+        None
+    }
+}
+
+fn process_heap_snapshot(enabled: bool) -> Option<ProcessHeapResources> {
+    heap_snapshot_if_enabled(enabled, resources::process_heap_snapshot)
+}
 
 struct PerformanceThumbnailRenderer;
 
@@ -56,14 +77,20 @@ impl ThumbnailRenderer for PerformanceThumbnailRenderer {
 #[derive(Debug, Clone, Copy, Default)]
 struct EpochObservation {
     preview_before: ProcessResources,
+    preview_before_heaps: Option<ProcessHeapResources>,
     preview_after: ProcessResources,
+    preview_after_heaps: Option<ProcessHeapResources>,
     preview_peak: ProcessResources,
     thumbnail_after: ProcessResources,
+    thumbnail_after_heaps: Option<ProcessHeapResources>,
     thumbnail_peak: ProcessResources,
     target_switch_before: ProcessResources,
+    target_switch_before_heaps: Option<ProcessHeapResources>,
     target_switch_after: ProcessResources,
+    target_switch_after_heaps: Option<ProcessHeapResources>,
     target_switch_peak: ProcessResources,
     settled: ProcessResources,
+    settled_heaps: Option<ProcessHeapResources>,
 }
 
 fn enumerate_fixture(
@@ -212,6 +239,7 @@ fn run_epoch(
     runtime: &crate::file_workspace::integration::FileWorkspaceRuntime,
     fixture: &WorkspaceFixture,
     epoch: usize,
+    heap_diagnostics_enabled: bool,
 ) -> EpochObservation {
     let opened = open_fixture(runtime, fixture, &format!("resource-10k-epoch-{epoch}"));
     let pages = enumerate_fixture(
@@ -234,6 +262,7 @@ fn run_epoch(
         },
     };
     let preview_before = resources::snapshot();
+    let preview_before_heaps = process_heap_snapshot(heap_diagnostics_enabled);
     let mut preview_peak = preview_before;
     for index in 0..CYCLES_PER_EPOCH {
         let preview = runtime
@@ -263,6 +292,7 @@ fn run_epoch(
         assert_eq!(runtime.resource_counts().preview_sessions, 0);
     }
     let preview_after = resources::snapshot();
+    let preview_after_heaps = process_heap_snapshot(heap_diagnostics_enabled);
 
     let mut thumbnail_peak = preview_after;
     for index in 0..CYCLES_PER_EPOCH {
@@ -286,6 +316,7 @@ fn run_epoch(
         assert_eq!(runtime.resource_counts().thumbnail_requests, 0);
     }
     let thumbnail_after = resources::snapshot();
+    let thumbnail_after_heaps = process_heap_snapshot(heap_diagnostics_enabled);
 
     runtime
         .dispose_browse(BrowseSessionRequest {
@@ -299,6 +330,7 @@ fn run_epoch(
     assert_eq!(counts.browse_path_refs, 0);
 
     let target_switch_before = resources::snapshot();
+    let target_switch_before_heaps = process_heap_snapshot(heap_diagnostics_enabled);
     let mut target_switch_peak = target_switch_before;
     for index in 0..CYCLES_PER_EPOCH {
         let switched = open_fixture(
@@ -328,17 +360,24 @@ fn run_epoch(
         target_switch_peak = target_switch_peak.max(resources::snapshot());
     }
     let target_switch_after = resources::snapshot();
+    let target_switch_after_heaps = process_heap_snapshot(heap_diagnostics_enabled);
 
     EpochObservation {
         preview_before,
+        preview_before_heaps,
         preview_after,
+        preview_after_heaps,
         preview_peak,
         thumbnail_after,
+        thumbnail_after_heaps,
         thumbnail_peak,
         target_switch_before,
+        target_switch_before_heaps,
         target_switch_after,
+        target_switch_after_heaps,
         target_switch_peak,
         settled: ProcessResources::default(),
+        settled_heaps: None,
     }
 }
 
@@ -366,6 +405,31 @@ where
     F: Fn(ProcessResources) -> Option<u64>,
 {
     samples.iter().copied().map(select).collect()
+}
+
+#[test]
+fn windows_heap_diagnostics_are_explicit_and_default_capture_is_inert() {
+    use std::cell::Cell;
+
+    assert!(!heap_diagnostics_enabled_from(None));
+    assert!(!heap_diagnostics_enabled_from(Some(OsStr::new("0"))));
+    assert!(!heap_diagnostics_enabled_from(Some(OsStr::new("true"))));
+    assert!(heap_diagnostics_enabled_from(Some(OsStr::new("1"))));
+
+    let capture_calls = Cell::new(0);
+    let disabled_sample = heap_snapshot_if_enabled(false, || {
+        capture_calls.set(capture_calls.get() + 1);
+        Some(42)
+    });
+    assert_eq!(disabled_sample, None);
+    assert_eq!(capture_calls.get(), 0);
+
+    let enabled_sample = heap_snapshot_if_enabled(true, || {
+        capture_calls.set(capture_calls.get() + 1);
+        Some(42)
+    });
+    assert_eq!(enabled_sample, Some(42));
+    assert_eq!(capture_calls.get(), 1);
 }
 
 #[test]
@@ -465,6 +529,7 @@ fn touch_retained_memory(block: &mut [u8], value: u8, stride: usize) {
 #[test]
 #[ignore = "W1-11 resource and lifecycle steady-state observations"]
 fn resource_and_registry_steady_state_after_browse_preview_switches() {
+    let heap_diagnostics_enabled = heap_diagnostics_enabled();
     let fixture = WorkspaceFixture::large("resource-10k", 9_000, 1_000);
     let runtime = runtime_for_with_renderer(&fixture, Arc::new(PerformanceThumbnailRenderer));
     // Warm the runtime/session before collecting the idle baseline. Fixture
@@ -496,16 +561,18 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
     let warmed_thumbnail_cache_entries = warm_thumbnail_cache(&runtime, &fixture);
     resources::settle_allocator();
     let idle_process = resources::snapshot();
+    let idle_process_heaps = process_heap_snapshot(heap_diagnostics_enabled);
 
     let mut epochs = Vec::with_capacity(EPOCH_COUNT);
     for epoch in 0..EPOCH_COUNT {
-        let mut observation = run_epoch(&runtime, &fixture, epoch);
+        let mut observation = run_epoch(&runtime, &fixture, epoch, heap_diagnostics_enabled);
         // Every measured epoch is a bounded workload followed immediately by
         // its own settle/sample boundary. This prevents a final plateau from
         // hiding growth that occurred during an earlier epoch.
         thread::sleep(Duration::from_millis(250));
         resources::settle_allocator();
         observation.settled = resources::snapshot();
+        observation.settled_heaps = process_heap_snapshot(heap_diagnostics_enabled);
         let counts = runtime.resource_counts();
         assert_eq!(counts.browse_sessions, 0);
         assert_eq!(counts.browse_service_sessions, 0);
@@ -523,6 +590,8 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
     }
 
     assert!(runtime.dispose());
+    let after_runtime_dispose_process = resources::snapshot();
+    let after_runtime_dispose_heaps = process_heap_snapshot(heap_diagnostics_enabled);
     let settled = runtime.resource_counts();
     assert_eq!(settled.browse_sessions, 0);
     assert_eq!(settled.browse_service_sessions, 0);
@@ -608,12 +677,74 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
         .iter()
         .map(|epoch| epoch.thumbnail_after)
         .collect::<Vec<_>>();
+    let preview_before_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.preview_before_heaps)
+        .collect::<Vec<_>>();
+    let preview_after_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.preview_after_heaps)
+        .collect::<Vec<_>>();
+    let thumbnail_after_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.thumbnail_after_heaps)
+        .collect::<Vec<_>>();
+    let target_switch_before_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.target_switch_before_heaps)
+        .collect::<Vec<_>>();
+    let target_switch_after_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.target_switch_after_heaps)
+        .collect::<Vec<_>>();
+    let settled_heap_samples = epochs
+        .iter()
+        .map(|epoch| epoch.settled_heaps)
+        .collect::<Vec<_>>();
+
+    if cfg!(target_os = "windows") && heap_diagnostics_enabled {
+        for sample in std::iter::once(idle_process_heaps)
+            .chain(preview_before_heap_samples.iter().copied())
+            .chain(preview_after_heap_samples.iter().copied())
+            .chain(thumbnail_after_heap_samples.iter().copied())
+            .chain(target_switch_before_heap_samples.iter().copied())
+            .chain(target_switch_after_heap_samples.iter().copied())
+            .chain(settled_heap_samples.iter().copied())
+            .chain(std::iter::once(after_runtime_dispose_heaps))
+        {
+            let sample = sample.expect("enabled Windows heap diagnostic must return a sample");
+            assert!(
+                sample.available,
+                "Windows heap diagnostic unavailable: {sample:?}"
+            );
+            assert!(
+                sample.heap_count > 0,
+                "Windows heap diagnostic found no heaps: {sample:?}"
+            );
+            assert!(
+                sample.heap_region_count > 0,
+                "Windows heap diagnostic found no committed-region samples: {sample:?}"
+            );
+            assert_eq!(
+                sample.heaps_walked, sample.heap_count,
+                "Windows heap diagnostic did not walk every heap: {sample:?}"
+            );
+            assert_eq!(
+                sample.error_code, None,
+                "Windows heap diagnostic API error: {sample:?}"
+            );
+        }
+    }
 
     metrics::emit_metric(
         "resource_observations",
         metrics::OBSERVED,
         [
             ("epoch_count".to_string(), json!(EPOCH_COUNT)),
+            (
+                "windows_heap_diagnostics_enabled".to_string(),
+                json!(heap_diagnostics_enabled),
+            ),
             (
                 "thumbnail_cache_warmup_entries".to_string(),
                 json!(THUMBNAIL_CACHE_WARMUP_ENTRIES),
@@ -639,6 +770,42 @@ fn resource_and_registry_steady_state_after_browse_preview_switches() {
                 json!(EPOCH_COUNT * CYCLES_PER_EPOCH),
             ),
             ("idle_rss_bytes".to_string(), json!(idle_process.rss_bytes)),
+            (
+                "windows_process_heap_idle".to_string(),
+                json!(idle_process_heaps),
+            ),
+            (
+                "windows_process_heap_preview_before_samples".to_string(),
+                json!(preview_before_heap_samples),
+            ),
+            (
+                "windows_process_heap_preview_after_samples".to_string(),
+                json!(preview_after_heap_samples),
+            ),
+            (
+                "windows_process_heap_thumbnail_after_samples".to_string(),
+                json!(thumbnail_after_heap_samples),
+            ),
+            (
+                "windows_process_heap_target_switch_before_samples".to_string(),
+                json!(target_switch_before_heap_samples),
+            ),
+            (
+                "windows_process_heap_target_switch_after_samples".to_string(),
+                json!(target_switch_after_heap_samples),
+            ),
+            (
+                "windows_process_heap_settled_samples".to_string(),
+                json!(settled_heap_samples),
+            ),
+            (
+                "windows_process_heap_after_runtime_dispose".to_string(),
+                json!(after_runtime_dispose_heaps),
+            ),
+            (
+                "process_private_committed_after_runtime_dispose_bytes".to_string(),
+                json!(after_runtime_dispose_process.private_committed_bytes),
+            ),
             (
                 "rss_measurement_classification".to_string(),
                 json!(rss_measurement_classification),

@@ -39,6 +39,7 @@ function parseArguments(argv) {
   const allowed = [
     "--suite",
     "--profile",
+    "--benchmark-id",
     "--prepared-binaries",
     "--fixture-root",
     "--build-identity",
@@ -56,12 +57,23 @@ function parseArguments(argv) {
   return {
     suite: resolvePerformanceSuite(suiteValue ? [`--suite=${suiteValue}`] : []),
     profile: resolvePerformanceProfile(profileValue ? [`--profile=${profileValue}`] : []),
+    benchmarkId: parseValue(argv, "--benchmark-id"),
     preparedBinaries: parseValue(argv, "--prepared-binaries"),
     fixtureRoot: parseValue(argv, "--fixture-root"),
     buildIdentity: parseValue(argv, "--build-identity") ?? process.env.PERF_BINARY_BUILD_IDENTITY,
     fixtureIdentity: parseValue(argv, "--fixture-identity") ?? process.env.PERF_FIXTURE_IDENTITY,
     prepareMissing: argv.includes("--prepare-missing-fixtures"),
   };
+}
+
+function selectBenchmarks(suite, profile, benchmarkId) {
+  const benchmarks = getPerformanceBenchmarks(suite, profile);
+  if (benchmarkId === undefined) return benchmarks;
+  const selected = benchmarks.filter((benchmark) => benchmark.id === benchmarkId);
+  if (selected.length !== 1) {
+    throw new Error(`Unknown or ambiguous performance benchmark for ${suite} (${profile}): ${benchmarkId}`);
+  }
+  return selected;
 }
 
 function currentCommit() {
@@ -127,6 +139,7 @@ function appendSummary(suite, profile, elapsedMs) {
 function main(argv) {
   const selection = parseArguments(argv);
   const { suite, profile } = selection;
+  const benchmarks = selectBenchmarks(suite, profile, selection.benchmarkId);
   let preparedBinaries = selection.preparedBinaries
     ? path.resolve(root, selection.preparedBinaries)
     : undefined;
@@ -146,7 +159,6 @@ function main(argv) {
     fixtureRoot = prepared.fixtureRoot;
   }
 
-  const benchmarks = getPerformanceBenchmarks(suite, profile);
   const expectedBuildIdentity = selection.buildIdentity
     ?? createPerformanceBuildIdentity({
       profile,

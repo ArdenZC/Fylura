@@ -1336,7 +1336,20 @@ jobs:
           $manifest = Get-Content ".performance-artifacts/binaries/manifest.json" | ConvertFrom-Json
           if ([string]::IsNullOrWhiteSpace($manifest.buildIdentity)) { throw "Prepared Workspace Foundation binary manifest has no build identity." }
           "build_identity=$($manifest.buildIdentity)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-      - name: Run Workspace Foundation performance suite from prepared binary
+      - name: Run standard Windows resource test with heap diagnostics disabled
+        env:
+          ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS: "0"
+        shell: pwsh
+        run: |
+          $performanceTemp = Join-Path $PWD ".performance-temp"
+          New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
+          $env:TEMP = $performanceTemp
+          $env:TMP = $performanceTemp
+          node scripts/runPerformanceSuite.mjs "--suite=workspace-foundation" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ steps.binary-identity.outputs.build_identity }}" "--benchmark-id=workspace_foundation_resource_steady_state"
+
+      - name: Run Workspace Foundation suite with heap diagnostics disabled
+        env:
+          ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS: "0"
         shell: pwsh
         run: |
           $performanceTemp = Join-Path $PWD ".performance-temp"
@@ -1344,6 +1357,18 @@ jobs:
           $env:TEMP = $performanceTemp
           $env:TMP = $performanceTemp
           node scripts/runPerformanceSuite.mjs "--suite=workspace-foundation" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ steps.binary-identity.outputs.build_identity }}"
+
+      - name: Run explicitly enabled Windows heap diagnostic variant
+        if: ${{ !cancelled() && matrix.validation_lane == 'merge_integration' }}
+        env:
+          ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS: "1"
+        shell: pwsh
+        run: |
+          $performanceTemp = Join-Path $PWD ".performance-temp"
+          New-Item -ItemType Directory -Force -Path $performanceTemp | Out-Null
+          $env:TEMP = $performanceTemp
+          $env:TMP = $performanceTemp
+          node scripts/runPerformanceSuite.mjs "--suite=workspace-foundation" "--profile=${{ needs.change-scope.outputs.full_validation == 'true' && 'full' || 'extended' }}" "--prepared-binaries=.performance-artifacts/binaries" "--build-identity=${{ steps.binary-identity.outputs.build_identity }}" "--benchmark-id=workspace_foundation_resource_steady_state"
 
       - name: Write sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}

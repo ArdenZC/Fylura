@@ -93,6 +93,9 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_WindowsProgramming",
 ] }
 
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_Memory"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
 fsevent-sys = "4.1.0"

@@ -252,6 +252,55 @@ describe("performance profile and manifest contract", () => {
     expect(result.stderr).toContain("Unsupported performance suite: unknown");
   });
 
+  it("isolates the Windows heap walk behind an explicit diagnostic run", () => {
+    const steadyState = read("src-tauri/src/file_workspace/integration/performance/steady_state.rs");
+    const resources = read("src-tauri/src/file_workspace/integration/performance/resources.rs");
+    const workflow = read(".github/workflows/ci.yml");
+    const runner = read("scripts/runPerformanceSuite.mjs");
+
+    expect(steadyState).toContain('"ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS"');
+    expect(steadyState).toContain("fn heap_snapshot_if_enabled<T>(enabled: bool");
+    expect(steadyState).toContain("if enabled {\n        capture()\n    } else {\n        None\n    }");
+    expect(steadyState.match(/resources::process_heap_snapshot\b/g)).toHaveLength(1);
+    expect(steadyState).toContain('"windows_heap_diagnostics_enabled"');
+    expect(steadyState).toContain("sample.heaps_walked, sample.heap_count");
+    expect(steadyState).toContain("sample.error_code, None");
+    expect(resources).toContain("pub(super) heap_count: u32");
+    expect(resources).toContain("pub(super) heaps_walked: u32");
+    expect(resources).toContain("pub(super) busy_allocation_bytes: u64");
+    expect(resources).toContain("pub(super) elapsed_us: u64");
+    expect(resources).toContain("pub(super) error_code: Option<u32>");
+
+    expect(workflow).toContain("Run Workspace Foundation suite with heap diagnostics disabled");
+    expect(workflow).toContain("Run standard Windows resource test with heap diagnostics disabled");
+    expect(workflow).toContain('ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS: "0"');
+    expect(workflow).toContain("Run explicitly enabled Windows heap diagnostic variant");
+    expect(workflow).toContain('ZEN_CANVAS_W1_11_HEAP_DIAGNOSTICS: "1"');
+    expect(workflow).toContain('"--benchmark-id=workspace_foundation_resource_steady_state"');
+    expect(workflow).toContain("!cancelled() && matrix.validation_lane == 'merge_integration'");
+    expect(runner).toContain('"--benchmark-id"');
+  });
+
+  it("selects the isolated heap diagnostic benchmark by ID", () => {
+    const script = path.join(process.cwd(), "scripts/runPerformanceSuite.mjs");
+    const invalid = spawnSync(
+      process.execPath,
+      [script, "--suite=workspace-foundation", "--profile=extended", "--benchmark-id=unknown"],
+      { cwd: process.cwd(), env: { ...process.env, CI: "false", GITHUB_ACTIONS: "false" }, encoding: "utf8" },
+    );
+    expect(invalid.status).toBe(1);
+    expect(invalid.stderr).toContain("Unknown or ambiguous performance benchmark");
+
+    const selected = spawnSync(
+      process.execPath,
+      [script, "--suite=workspace-foundation", "--profile=extended", "--benchmark-id=workspace_foundation_resource_steady_state"],
+      { cwd: process.cwd(), env: { ...process.env, CI: "false", GITHUB_ACTIONS: "false" }, encoding: "utf8" },
+    );
+    expect(selected.status).toBe(1);
+    expect(selected.stderr).toContain("Prepared binaries are required");
+    expect(selected.stderr).not.toContain("Unknown or ambiguous performance benchmark");
+  });
+
   it("fails closed when CI consumers lack prepared binaries or fixtures", () => {
     const script = path.join(process.cwd(), "scripts/runPerformanceSuite.mjs");
     const missingBinary = spawnSync(

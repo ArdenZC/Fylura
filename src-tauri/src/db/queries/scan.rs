@@ -5123,8 +5123,9 @@ mod tests {
             is_dir: false,
             state_code: 0,
         };
-        for expected in [1, 1, 2] {
-            if expected == 2 {
+        let mut first_observation_revision = None;
+        for observation_index in 0..3 {
+            if observation_index == 2 {
                 entry.size = 8;
                 entry.mtime = 5;
             }
@@ -5144,17 +5145,21 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(
-                db.conn()
-                    .unwrap()
-                    .query_row(
-                        "SELECT library_change_revision FROM scan_roots WHERE id=?1",
-                        [&claimed.dto.scan_root_id],
-                        |r| r.get::<_, i64>(0)
-                    )
-                    .unwrap(),
-                expected
-            );
+            let current_revision = db
+                .conn()
+                .unwrap()
+                .query_row(
+                    "SELECT library_change_revision FROM scan_roots WHERE id=?1",
+                    [&claimed.dto.scan_root_id],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap();
+            match observation_index {
+                0 => first_observation_revision = Some(current_revision),
+                1 => assert_eq!(current_revision, first_observation_revision.unwrap()),
+                2 => assert_eq!(current_revision, first_observation_revision.unwrap() + 1),
+                _ => unreachable!(),
+            }
             entry.state_code = 1; // Classification alone is not filesystem truth.
         }
     }
@@ -6130,17 +6135,6 @@ mod tests {
             })
             .expect("query the active legacy File Library reader")
         };
-        let first_query = query();
-        let first_visible = first_query
-            .files
-            .iter()
-            .find(|file| file.id == current_file_id)
-            .expect("unchanged upgraded file remains visible");
-        assert_ne!(first_visible.id, normalized_path);
-        assert_eq!(first_visible.name, "legacy.txt");
-        assert_eq!(first_visible.tag_count, 0);
-        assert!(first_visible.tags.is_empty());
-        assert!(first_visible.requires_review);
 
         // Repeating the same Scan observation must update the current neutral
         // row in place and must not make the quarantined legacy facts visible.
@@ -6183,6 +6177,17 @@ mod tests {
             },
         )
         .expect("finish the reconciled compatibility scan");
+        let first_query = query();
+        let first_visible = first_query
+            .files
+            .iter()
+            .find(|file| file.id == current_file_id)
+            .expect("unchanged upgraded file remains visible");
+        assert_ne!(first_visible.id, normalized_path);
+        assert_eq!(first_visible.name, "legacy.txt");
+        assert_eq!(first_visible.tag_count, 0);
+        assert!(first_visible.tags.is_empty());
+        assert!(first_visible.requires_review);
         let second_query = query();
         let visible_rows = second_query
             .files
@@ -6243,6 +6248,71 @@ mod tests {
             &HashSet::new(),
         )
         .expect("publish original object");
+        assert!(db
+            .complete_watcher_revision(&root_id, initial_revision)
+            .expect("complete initial watcher revision"));
+        // Establish the ordinary managed-scan lifecycle before testing the
+        // File Library reader. Watcher publication alone leaves a freshly
+        // registered root unknown, which is intentionally not browseable.
+        let root_text = normalize_scan_root_path(&root.to_string_lossy());
+        let admission = db
+            .admit_managed_scan(&request(&root_text, "replacement-initial-scan"))
+            .expect("admit initial managed scan");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim initial managed scan");
+        let entry = insert_request_from_metadata(
+            normalized_path.clone(),
+            &path,
+            &fs::metadata(&path).expect("read original metadata"),
+        );
+        let persisted = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: entry.size,
+                    warnings: 0,
+                },
+            )
+            .expect("publish original through Managed Scan");
+        let reconciled = db
+            .reconcile_missing(
+                &persisted.dto.id,
+                persisted.dto.revision,
+                persisted.root_revision,
+                persisted.session_revision,
+            )
+            .expect("reconcile initial managed scan");
+        db.finalize_scan_run(
+            &reconciled.dto.id,
+            reconciled.dto.revision,
+            reconciled.root_revision,
+            reconciled.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: true,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize initial managed scan");
+        let original_file_id: String = db
+            .conn()
+            .expect("inspect original library row")
+            .query_row(
+                "SELECT id FROM files WHERE path = ?1 AND is_stale = 0",
+                params![normalized_path],
+                |row| row.get(0),
+            )
+            .expect("original library row");
         let original_uid: String = db
             .conn()
             .expect("open original uid connection")
@@ -6261,7 +6331,7 @@ mod tests {
         let tagged = db
             .mutate_file_user_tags(crate::db::MutateFileUserTagsRequest {
                 selection: crate::db::LibrarySelectionV1::Explicit {
-                    file_ids: vec![normalized_path.clone()],
+                    file_ids: vec![original_file_id.clone()],
                 },
                 tag_ids: vec![tag.id.clone()],
                 operation: crate::db::UserTagMutationOperation::Add,
@@ -6284,6 +6354,9 @@ mod tests {
             &HashSet::new(),
         )
         .expect("observe replacement object");
+        assert!(db
+            .complete_watcher_revision(&root_id, replacement_revision)
+            .expect("complete replacement watcher revision"));
 
         let repeated_revision = db
             .begin_watcher_revision(&root_id)
@@ -6297,6 +6370,9 @@ mod tests {
             &HashSet::new(),
         )
         .expect("repeat replacement observation");
+        assert!(db
+            .complete_watcher_revision(&root_id, repeated_revision)
+            .expect("complete repeated watcher revision"));
 
         let current_replacement_id: String = db
             .conn()
@@ -6336,7 +6412,7 @@ mod tests {
         let (stale, retained_tag_count): (i64, i64) = conn
             .query_row(
                 "SELECT file.is_stale, (SELECT COUNT(*) FROM file_user_tags WHERE file_id = file.id AND tag_id = ?2) FROM files AS file WHERE file.id = ?1",
-                params![normalized_path, tag.id],
+                params![original_file_id, tag.id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("read old user facts");

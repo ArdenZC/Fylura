@@ -3012,10 +3012,8 @@ fn upsert_file_rows_tx(
         }
         // Observe identity only inside the existing filesystem publication
         // owner. This is read-only and never feeds trigger-state file IDs.
-        let physical = crate::fs_safety::capture_source_object_identity(
-            std::path::Path::new(&file.path),
-        )
-        .ok();
+        let physical =
+            crate::fs_safety::capture_source_object_identity(std::path::Path::new(&file.path)).ok();
         let source = observe_source_for_root_tx(
             tx,
             &file,
@@ -3033,9 +3031,10 @@ fn upsert_file_rows_tx(
         if source.block_legacy_row {
             let verified = source.verification_state == "verified";
             let reusable_unverified_neutral = if !verified {
-                if let Some(previous_id) = row_at_path.as_deref().filter(|id| {
-                    neutral_source_row_matches_source(id, &source.source_uid, false)
-                }) {
+                if let Some(previous_id) = row_at_path
+                    .as_deref()
+                    .filter(|id| neutral_source_row_matches_source(id, &source.source_uid, false))
+                {
                     !neutral_source_row_has_attached_facts_tx(tx, previous_id)?
                 } else {
                     false
@@ -3065,8 +3064,7 @@ fn upsert_file_rows_tx(
                     params![previous_id],
                     |row| row.get(0),
                 )?;
-                let archive_path =
-                    legacy_unassigned_archive_path(tx, previous_id, &previous_path)?;
+                let archive_path = legacy_unassigned_archive_path(tx, previous_id, &previous_path)?;
                 tx.execute(
                     "UPDATE files SET path = ?2, is_stale = 1, content_hash = '', filesystem_observation_key = NULL WHERE id = ?1",
                     params![previous_id, archive_path],
@@ -6046,11 +6044,7 @@ mod tests {
         fs::write(&path, b"unchanged legacy object").expect("write legacy file");
         let normalized_path = normalize_scan_root_path(&path.to_string_lossy());
         let metadata = fs::metadata(&path).expect("read legacy metadata");
-        let legacy_file = insert_request_from_metadata(
-            normalized_path.clone(),
-            &path,
-            &metadata,
-        );
+        let legacy_file = insert_request_from_metadata(normalized_path.clone(), &path, &metadata);
         db.insert_file(legacy_file)
             .expect("insert Schema39 legacy file");
         let tag = db

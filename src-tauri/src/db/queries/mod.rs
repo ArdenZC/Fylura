@@ -15,6 +15,7 @@ pub(crate) mod dedupe;
 pub(crate) mod files;
 pub(crate) mod library;
 pub(crate) mod library_identity;
+pub(crate) mod library_shadow;
 pub(crate) mod operations;
 pub(crate) mod organization;
 pub(crate) mod rule_proposals;

@@ -556,19 +556,19 @@ struct QueryParts {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LibraryCursor {
-    version: i32,
-    fingerprint: String,
-    revision: i64,
-    total_count: i64,
-    sort_kind: LibrarySortKind,
-    direction: LibrarySortDirection,
-    file_id: String,
-    last_i64: Option<i64>,
-    last_text: Option<String>,
-    last_f64_bits: Option<u64>,
-    last_rank_bits: Option<u64>,
-    last_mtime: Option<i64>,
+pub(super) struct LibraryCursor {
+    pub(super) version: i32,
+    pub(super) fingerprint: String,
+    pub(super) revision: i64,
+    pub(super) total_count: i64,
+    pub(super) sort_kind: LibrarySortKind,
+    pub(super) direction: LibrarySortDirection,
+    pub(super) file_id: String,
+    pub(super) last_i64: Option<i64>,
+    pub(super) last_text: Option<String>,
+    pub(super) last_f64_bits: Option<u64>,
+    pub(super) last_rank_bits: Option<u64>,
+    pub(super) last_mtime: Option<i64>,
 }
 
 fn default_color_token() -> String {
@@ -1519,7 +1519,7 @@ fn build_library_count_query(
     Ok((sql, parts.params))
 }
 
-fn append_filters(
+pub(super) fn append_filters(
     conn: &Connection,
     conditions: &mut Vec<String>,
     params: &mut Vec<SqlValue>,
@@ -1646,7 +1646,7 @@ fn append_tag_filter(
     Ok(())
 }
 
-fn query_has_missing_tags(
+pub(super) fn query_has_missing_tags(
     conn: &Connection,
     filters: &FileQueryFiltersV2,
 ) -> Result<bool, DbError> {
@@ -1685,7 +1685,7 @@ fn missing_tag_ids(
     Ok(missing)
 }
 
-fn order_clause(sort: &FileLibrarySortV2, has_text: bool) -> String {
+pub(super) fn order_clause(sort: &FileLibrarySortV2, has_text: bool) -> String {
     let direction = match sort.direction {
         LibrarySortDirection::Asc => "ASC",
         LibrarySortDirection::Desc => "DESC",
@@ -1703,7 +1703,7 @@ fn order_clause(sort: &FileLibrarySortV2, has_text: bool) -> String {
     }
 }
 
-fn append_cursor_condition(
+pub(super) fn append_cursor_condition(
     conditions: &mut Vec<String>,
     params: &mut Vec<SqlValue>,
     cursor: &LibraryCursor,

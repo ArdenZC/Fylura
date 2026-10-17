@@ -4,6 +4,26 @@ use crate::settings::ScanRootSetting;
 use rusqlite::params;
 use serde_json::json;
 
+pub(super) fn assert_dormant_schema42(conn: &rusqlite::Connection) {
+    crate::db::schema_global_generations::validate(conn).expect("complete Schema42 signature");
+    for table in [
+        "global_index_generations",
+        "global_index_generation_entries",
+        "global_index_generation_fts",
+    ] {
+        assert_eq!(
+            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+    assert_eq!(conn.query_row(
+        "SELECT COUNT(*) FROM global_index_generation_heads WHERE legacy_state <> 'LEGACY_UNVERIFIED'
+         OR published_generation_id IS NOT NULL OR candidate_generation_id IS NOT NULL", [], |r| r.get::<_, i64>(0)
+    ).unwrap(), 0, "historical migration must not activate a generation");
+}
+
 pub(super) struct Fixture {
     db: Option<Database>,
     root: std::path::PathBuf,
@@ -354,8 +374,9 @@ fn schema36_migration_preserves_populated35_and_constraints() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        41
+        42
     );
+    assert_dormant_schema42(&conn);
     assert_eq!(
         conn.query_row(
             "SELECT value FROM app_settings WHERE key='preserved'",
@@ -499,8 +520,9 @@ fn fresh_schema_and_exact_indexes_are_idempotent() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        41
+        42
     );
+    assert_dormant_schema42(&conn);
 }
 
 #[test]
@@ -605,8 +627,9 @@ fn empty_schema35_upgrades_without_history_or_extra_automation_tables() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        41
+        42
     );
+    assert_dormant_schema42(&conn);
     assert_eq!(
         conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE 'automation_%'",

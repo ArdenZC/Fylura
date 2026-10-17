@@ -12,7 +12,7 @@ pub const ROOT_PATH: &str = "/task05/benchmark-library";
 pub const TAG_A: &str = "task05-benchmark-tag-a";
 pub const TAG_B: &str = "task05-benchmark-tag-b";
 pub const FIXTURE_FORMAT_VERSION: i64 = 1;
-pub const FIXTURE_SCHEMA_VERSION: i64 = 41;
+pub const FIXTURE_SCHEMA_VERSION: i64 = 42;
 
 pub fn fixture_root() -> Option<PathBuf> {
     std::env::var_os("ZC_PERF_FIXTURE_ROOT").map(PathBuf::from)
@@ -177,6 +177,48 @@ fn validate_fixture_structure(connection: &Connection, path: &Path) {
         "prepared fixture schema version mismatch: {}",
         path.display()
     );
+    let generation_tables: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN
+         ('global_index_generations', 'global_index_generation_heads',
+          'global_index_generation_entries', 'global_index_generation_fts')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read Schema42 fixture foundation");
+    assert_eq!(
+        generation_tables,
+        4,
+        "prepared fixture Schema42 foundation is incomplete: {}",
+        path.display()
+    );
+    for table in [
+        "global_index_generations",
+        "global_index_generation_entries",
+        "global_index_generation_fts",
+    ] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("read dormant fixture generation rows");
+        assert_eq!(
+            count,
+            0,
+            "prepared fixture has staged/published generation rows: {}",
+            path.display()
+        );
+    }
+    let active_heads: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM global_index_generation_heads WHERE legacy_state <> 'LEGACY_UNVERIFIED'
+         OR published_generation_id IS NOT NULL OR candidate_generation_id IS NOT NULL", [], |row| row.get(0)
+    ).expect("read dormant fixture generation heads");
+    assert_eq!(
+        active_heads,
+        0,
+        "prepared fixture activates generation authority: {}",
+        path.display()
+    );
     let library_index_count: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index' AND name IN ('idx_library_files_modified', 'idx_library_files_created', 'idx_library_files_name', 'idx_library_files_size', 'idx_library_files_confidence')",
@@ -333,5 +375,115 @@ pub fn benchmark_insert_request(index: usize) -> InsertFileRequest {
         extension: "pdf".into(),
         is_dir: false,
         state_code: 0,
+    }
+}
+
+// Test/benchmark fixture teardown only: historical input schemas must not
+// retain current-generation objects before exercising the real migration.
+pub fn drop_schema42_for_historical_fixture(conn: &Connection) {
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS global_index_generation_entries_ai;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_insert_guard;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_no_update;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_no_delete;
+         DROP TABLE IF EXISTS global_index_generation_fts;
+         DROP TABLE IF EXISTS global_index_generation_entries;
+         DROP TABLE IF EXISTS global_index_generation_heads;
+         DROP TABLE IF EXISTS global_index_generations;",
+    )
+    .expect("remove only Schema42 objects from historical performance fixture");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FixtureDirectory(PathBuf);
+    impl FixtureDirectory {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("zc434-fixture-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for FixtureDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn restore_schema41(path: &Path) {
+        let conn = Connection::open(path).unwrap();
+        drop_schema42_for_historical_fixture(&conn);
+        conn.execute_batch("PRAGMA user_version = 41;").unwrap();
+    }
+
+    fn version(path: &Path) -> i64 {
+        Connection::open(path)
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn schema42_fixture_rejects_schema41_cache_and_working_copy_without_relabeling() {
+        let root = FixtureDirectory::new();
+        prepare_library_fixture(&root.0, 8);
+        let source = library_fixture_path(&root.0, 8);
+        validate_fixture(&source, 8);
+        prepare_library_working_copy(&root.0, &root.0, 8, "query");
+        let working = library_working_copy_path(&root.0, 8, "query");
+        validate_fixture_shape(&working, 8);
+        assert_eq!(version(&source), 42);
+        assert_eq!(version(&working), 42);
+        restore_schema41(&source);
+        assert!(std::panic::catch_unwind(|| prepare_library_fixture(&root.0, 8)).is_err());
+        let untouched = fs::read(&working).unwrap();
+        assert!(
+            std::panic::catch_unwind(|| copy_and_validate_fixture(&source, &working, 8)).is_err()
+        );
+        assert_eq!(
+            fs::read(&working).unwrap(),
+            untouched,
+            "bad cache cannot replace a good working copy"
+        );
+        assert!(std::panic::catch_unwind(|| prepare_library_working_copy(
+            &root.0,
+            &root.0,
+            8,
+            "library-migration"
+        ))
+        .is_err());
+        assert!(!library_working_copy_path(&root.0, 8, "library-migration").exists());
+        restore_schema41(&working);
+        assert!(std::panic::catch_unwind(|| prepare_library_working_copy(
+            &root.0, &root.0, 8, "query"
+        ))
+        .is_err());
+        assert!(std::panic::catch_unwind(|| validate_fixture_shape(&working, 8)).is_err());
+        assert_eq!(
+            version(&source),
+            41,
+            "validation must not migrate stale cache data"
+        );
+        assert_eq!(
+            version(&working),
+            41,
+            "validation must not relabel stale working data"
+        );
+    }
+
+    #[test]
+    fn schema42_fixture_rejects_a_forged_version_with_missing_foundation() {
+        let root = FixtureDirectory::new();
+        prepare_library_fixture(&root.0, 8);
+        let path = library_fixture_path(&root.0, 8);
+        restore_schema41(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA user_version = 42").unwrap();
+        drop(conn);
+        assert!(std::panic::catch_unwind(|| validate_fixture(&path, 8)).is_err());
+        assert!(std::panic::catch_unwind(|| validate_fixture_shape(&path, 8)).is_err());
+        assert_eq!(version(&path), 42);
     }
 }

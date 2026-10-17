@@ -27,7 +27,7 @@ import {
 import { buildPreparedTestArgs, runPreparedTestBinary } from "../scripts/runPreparedPerformanceBinary.mjs";
 import { resolvePerformanceProfile } from "../scripts/performanceProfile.mjs";
 import { createPerformanceBuildIdentity } from "../scripts/performanceBuildIdentity.mjs";
-import { createPerformanceFixtureIdentity } from "../scripts/performanceFixtureIdentity.mjs";
+import { createPerformanceFixtureIdentity, PERFORMANCE_FIXTURE_SCHEMA_VERSION } from "../scripts/performanceFixtureIdentity.mjs";
 
 const TEST_RUST_VERSION = "rustc test";
 
@@ -630,6 +630,20 @@ describe("performance profile and manifest contract", () => {
     }).schemaVersion).toBe(35);
     expect(() => validateFixtureManifest(tempRoot, { expectedFixtureIdentity: "wrong" }))
       .toThrow("identity mismatch");
+    const staleSchema41 = createFixtureManifest({
+      commit: "commit-1", profile: "extended", suites: ["library-content"],
+      schemaVersion: 41, fixtureFormatVersion: 1, fixtureIdentity: "fixture-identity-1",
+      rowCounts: [100_000],
+      files: { "fixture.sqlite3": { size: fs.statSync(fixture).size, sha256: sha256File(fixture) } },
+    });
+    writeJson(path.join(tempRoot, "manifest.json"), staleSchema41);
+    expect(() => validateFixtureManifest(tempRoot, {
+      expectedFixtureIdentity: "fixture-identity-1",
+      expectedSchemaVersion: PERFORMANCE_FIXTURE_SCHEMA_VERSION,
+      requiredFiles: ["fixture.sqlite3"],
+    })).toThrow("schema mismatch: expected 42, got 41");
+    expect(readJson(path.join(tempRoot, "manifest.json")).schemaVersion).toBe(41);
+
   });
 
   it("reuses a build-identity binary cache without invoking Cargo and refreshes provenance", () => {
@@ -742,6 +756,15 @@ describe("performance profile and manifest contract", () => {
       runnerArch: "X64",
     });
 
+    expect(PERFORMANCE_FIXTURE_SCHEMA_VERSION).toBe(42);
+    expect(full.schemaVersion).toBe(42);
+    expect(full.payload.schemaVersion).toBe(42);
+    expect(fs.readFileSync("src-tauri/tests/support/performance_fixture.rs", "utf8"))
+      .toContain("pub const FIXTURE_SCHEMA_VERSION: i64 = 42;");
+    expect(full.payload.inputs).toEqual(expect.arrayContaining([
+      { path: "src-tauri/src/db/schema_global_generations.rs", sha256: sha256File("src-tauri/src/db/schema_global_generations.rs") },
+      { path: "src-tauri/src/db/schema_global_generations.sql", sha256: sha256File("src-tauri/src/db/schema_global_generations.sql") },
+    ]));
     expect(full.fixtureIdentity).toBe(fullRepeat.fixtureIdentity);
     expect(full.fixtureCacheKey).toBe(fullRepeat.fixtureCacheKey);
     expect(full.rowCounts).toEqual([100_000, 1_000_000]);

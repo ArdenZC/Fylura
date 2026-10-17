@@ -642,8 +642,13 @@ describe("performance profile and manifest contract", () => {
       expectedSchemaVersion: PERFORMANCE_FIXTURE_SCHEMA_VERSION,
       requiredFiles: ["fixture.sqlite3"],
     })).toThrow("schema mismatch: expected 42, got 41");
-    expect(readJson(path.join(tempRoot, "manifest.json")).schemaVersion).toBe(41);
-
+    const persistedManifest = readJson(path.join(tempRoot, "manifest.json"));
+    if (typeof persistedManifest !== "object" || persistedManifest === null
+      || !("schemaVersion" in persistedManifest)
+      || typeof persistedManifest.schemaVersion !== "number") {
+      throw new Error("persisted fixture manifest must contain a numeric schemaVersion");
+    }
+    expect(persistedManifest.schemaVersion).toBe(41);
   });
 
   it("reuses a build-identity binary cache without invoking Cargo and refreshes provenance", () => {

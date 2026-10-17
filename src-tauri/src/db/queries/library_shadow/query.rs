@@ -4,6 +4,7 @@ use super::super::{
 };
 use super::*;
 use rusqlite::{params_from_iter, types::Value};
+use std::collections::HashSet;
 
 /// Comparison-only DTO: never an operation/tag/restore selection authority.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -254,10 +255,26 @@ impl Shadow {
         spec: FileQuerySpecV2,
         excluded: &[String],
     ) -> Result<ShadowSelection, DbError> {
+        self.select_matching_guarded(spec, excluded, &self.guard())
+    }
+
+    pub(super) fn select_matching_guarded(
+        &self,
+        spec: FileQuerySpecV2,
+        excluded: &[String],
+        guard: &Guard,
+    ) -> Result<ShadowSelection, DbError> {
         if excluded.len() > 100000 {
             return Err(unavailable("selection_limit"));
         }
-        let guard = self.guard();
+        guard.check()?;
+        // Borrow IDs, cap before allocating, and never let hash iteration order
+        // affect the query's ordering or count duplicate exclusions twice.
+        let mut excluded_ids = HashSet::with_capacity(excluded.len());
+        for chunk in excluded.chunks(200) {
+            guard.check()?;
+            excluded_ids.extend(chunk.iter().map(String::as_str));
+        }
         let mut cursor = None;
         let mut ids = Vec::new();
         let mut excluded_count = 0;
@@ -265,7 +282,10 @@ impl Shadow {
             guard.check()?;
             let page = self.query(spec.clone(), 200, cursor.as_deref())?;
             for row in page.rows {
-                if excluded.contains(&row.file_id) {
+                if guard.cancellation.is_cancelled() {
+                    return Err(unavailable("cancelled"));
+                }
+                if excluded_ids.contains(row.file_id.as_str()) {
                     excluded_count += 1;
                 } else {
                     ids.push(row.file_id);
@@ -279,6 +299,7 @@ impl Shadow {
                 break;
             }
         }
+        guard.check()?;
         Ok(ShadowSelection {
             file_ids: ids,
             excluded_count,
@@ -286,25 +307,35 @@ impl Shadow {
         })
     }
     pub(crate) fn select_explicit(&self, ids: &[String]) -> Result<ShadowSelection, DbError> {
+        self.select_explicit_guarded(ids, &self.guard())
+    }
+
+    pub(super) fn select_explicit_guarded(
+        &self,
+        ids: &[String],
+        guard: &Guard,
+    ) -> Result<ShadowSelection, DbError> {
         if ids.len() > 100000 {
             return Err(unavailable("selection_limit"));
         }
+        guard.check()?;
         let mut unique = ids.to_vec();
         unique.sort();
         unique.dedup();
         let total = unique.len();
-        let guard = self.guard();
         let mut found = Vec::new();
+        // Retain indexed per-ID lookups and sorted/deduplicated output, but
+        // compile the identical statement only once for this selection.
+        let mut exists = self
+            .conn
+            .prepare("SELECT EXISTS(SELECT 1 FROM files WHERE id=?1)")?;
         for id in unique {
             guard.check()?;
-            if self.conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM files WHERE id=?1)",
-                [&id],
-                |r| r.get::<_, bool>(0),
-            )? {
+            if exists.query_row([&id], |r| r.get::<_, bool>(0))? {
                 found.push(id);
             }
         }
+        guard.check()?;
         Ok(ShadowSelection {
             missing_count: total - found.len(),
             file_ids: found,

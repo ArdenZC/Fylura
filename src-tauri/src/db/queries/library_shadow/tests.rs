@@ -399,6 +399,109 @@ fn query_weights_filters_selection_and_cursor_tampering() {
 }
 
 #[test]
+fn selection_exclusions_preserve_order_counts_and_explicit_deduplication() {
+    let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
+    let f = fixture();
+    let c = build(&f);
+    let v = verify(&c).unwrap();
+    let s = open_shadow(&v).unwrap();
+    for direction in [LibrarySortDirection::Asc, LibrarySortDirection::Desc] {
+        let mut query = spec();
+        query.sort = FileLibrarySortV2 {
+            kind: LibrarySortKind::Name,
+            direction,
+        };
+        let expected = s
+            .query(query.clone(), 20, None)
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|r| r.file_id)
+            .collect::<Vec<_>>();
+        for exclusions in [
+            vec![],
+            vec!["one".into(), "one".into(), "missing".into()],
+            vec!["two".into(), "one".into(), "two".into()],
+        ] {
+            let selected = s.select_matching(query.clone(), &exclusions).unwrap();
+            // Original linear semantics are a small deterministic oracle.
+            let retained = expected
+                .iter()
+                .filter(|id| !exclusions.contains(id))
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(selected.excluded_count, expected.len() - retained.len());
+            assert_eq!(selected.file_ids, retained);
+            assert_eq!(selected.missing_count, 0);
+        }
+    }
+    let explicit = s
+        .select_explicit(&[
+            "two".into(),
+            "missing".into(),
+            "one".into(),
+            "two".into(),
+            "missing".into(),
+        ])
+        .unwrap();
+    assert_eq!(explicit.file_ids, vec!["one", "two"]);
+    assert_eq!(explicit.missing_count, 1);
+    assert_eq!(explicit.excluded_count, 0);
+    let empty = s.select_explicit(&[]).unwrap();
+    assert!(empty.file_ids.is_empty());
+    assert_eq!((empty.missing_count, empty.excluded_count), (0, 0));
+    let mut no_matches = spec();
+    no_matches.text = Some("absent".into());
+    let empty = s.select_matching(no_matches, &["one".into()]).unwrap();
+    assert!(empty.file_ids.is_empty());
+    assert_eq!((empty.missing_count, empty.excluded_count), (0, 0));
+}
+
+#[test]
+fn selection_input_limits_and_cancelled_or_expired_work_fail_closed() {
+    let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
+    let f = fixture();
+    let c = build(&f);
+    let v = verify(&c).unwrap();
+    let s = open_shadow(&v).unwrap();
+    // Boundary inputs reuse one ID against two rows, not a large corpus or
+    // timing benchmark. The raw input cap must apply before deduplication.
+    let at_limit = vec!["one".to_string(); 100000];
+    let selected = s.select_matching(spec(), &at_limit).unwrap();
+    assert_eq!(selected.file_ids, vec!["two"]);
+    assert_eq!(selected.excluded_count, 1);
+    assert_eq!(s.select_explicit(&at_limit).unwrap().file_ids, vec!["one"]);
+    let mut oversized = at_limit;
+    oversized.push("one".into());
+    fails(s.select_matching(spec(), &oversized), "selection_limit");
+    fails(s.select_explicit(&oversized), "selection_limit");
+
+    let token = CancellationToken::new();
+    let guard = Guard::new(&f.workspace, f.db.path(), budget(), token.clone());
+    token.cancel();
+    for ids in [vec![], vec!["one".into(), "one".into()]] {
+        fails(s.select_matching_guarded(spec(), &ids, &guard), "cancelled");
+        fails(s.select_explicit_guarded(&ids, &guard), "cancelled");
+    }
+    let mut expired_budget = budget();
+    expired_budget.work_age = Duration::ZERO;
+    let guard = Guard::new(
+        &f.workspace,
+        f.db.path(),
+        expired_budget,
+        CancellationToken::new(),
+    );
+    fails(
+        s.select_matching_guarded(spec(), &["one".into()], &guard),
+        "work_deadline",
+    );
+    fails(
+        s.select_explicit_guarded(&["one".into()], &guard),
+        "work_deadline",
+    );
+}
+
+#[test]
 fn cancellation_budgets_and_retirement_leave_truthful_retained_state() {
     let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
     let f = fixture();

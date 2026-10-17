@@ -2773,7 +2773,10 @@ mod tests {
         let first_visible = first_query
             .files
             .iter()
-            .map(|file| file.path.as_str())
+            .map(|file| {
+                db.resolve_file_library_path(&file.id)
+                    .expect("resolve visible file path")
+            })
             .collect::<HashSet<_>>();
         // Legacy rows without SourceUID proof may be parked by the existing
         // identity owner; assert visible paths, not transfer of historical IDs.
@@ -2902,7 +2905,10 @@ mod tests {
         let second_visible = second_query
             .files
             .iter()
-            .map(|file| file.path.as_str())
+            .map(|file| {
+                db.resolve_file_library_path(&file.id)
+                    .expect("resolve visible file path")
+            })
             .collect::<HashSet<_>>();
         assert!(
             !second_visible.contains(normalize_path(&current_file).as_str()),

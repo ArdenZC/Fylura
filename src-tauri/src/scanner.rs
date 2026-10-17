@@ -9,7 +9,9 @@ use crate::db::{
 use crate::dedupe::{spawn_duplicate_detection, DedupeJobManager};
 use crate::file_workspace::WorkClass;
 use crate::ids::new_job_id;
+#[cfg(test)]
 use crate::path_filter::is_ignored_dir_name;
+use crate::path_filter::{metadata_is_link_or_reparse, ManagedPathFilter};
 use crate::scheduler::{
     adapters::ManagedScanResourceLeaseAdapter, AcquireError, CancellationToken, ResourceLease,
 };
@@ -1230,6 +1232,7 @@ fn run_scan_run<R: Runtime>(
         return Ok(());
     }
 
+    let path_filter = ManagedPathFilter::new(&root);
     let walker = WalkDir::new(&root)
         .parallelism(scan_walk_parallelism(&resource_lease))
         .skip_hidden(true)
@@ -1242,7 +1245,11 @@ fn run_scan_run<R: Runtime>(
             }
             children.retain(|entry_result| match entry_result {
                 Ok(entry)
-                    if entry.file_type().is_dir() && is_ignored_dir_name(entry.file_name()) =>
+                    if path_filter.excludes(&entry.path(), entry.file_type().is_dir())
+                        || entry.file_type().is_dir()
+                            && entry
+                                .metadata()
+                                .is_ok_and(|metadata| metadata_is_link_or_reparse(&metadata)) =>
                 {
                     skipped_for_filter.fetch_add(1, Ordering::Relaxed);
                     false
@@ -1952,6 +1959,9 @@ fn entry_to_payload<C: ClientState>(
         path: normalize_path(&path),
         source,
     })?;
+    if metadata_is_link_or_reparse(&metadata) {
+        return Ok(None);
+    }
     let mtime = modified_unix_seconds(&metadata);
 
     Ok(Some(ScannedEntry {
@@ -2010,10 +2020,18 @@ fn scan_error_input_for_error(error: &ScanError) -> ScanErrorInput {
 }
 
 fn validate_root(root: &Path) -> Result<(), ScanError> {
+    if ManagedPathFilter::new(root).excludes(root, root.is_dir()) {
+        return Err(ScanError::InvalidRoot(format!(
+            "{} (excluded managed path)",
+            normalize_path(root)
+        )));
+    }
     if !root.exists() {
         return Err(ScanError::MissingRoot(normalize_path(root)));
     }
-    if !root.is_dir() && !root.is_file() {
+    if crate::fs_safety::identity::ensure_supported_entry(root).is_err()
+        || (!root.is_dir() && !root.is_file())
+    {
         return Err(ScanError::InvalidRoot(normalize_path(root)));
     }
     Ok(())
@@ -2625,13 +2643,12 @@ mod tests {
         assert!(!is_ignored_dir_name(OsStr::new("client-documents")));
     }
 
-    /// Issue #375 characterization: run the real managed-scan worker over a
-    /// disposable filesystem tree and retain the current name-only omissions
-    /// as passing evidence. This test intentionally does not change the
-    /// production path filter.
+    /// Issue #375's historical characterization is retained in PR #378.
+    /// #381 intentionally changes false-exclusion assertions to desired coverage
+    /// through the real worker, while preserving ignored historical rows.
     #[cfg(feature = "performance-test-tauri")]
     #[test]
-    fn issue375_managed_scan_characterizes_directory_name_exclusions() {
+    fn issue375_managed_scan_covers_user_names_and_preserves_ignored_history() {
         let fixture = Issue375Fixture::new();
         let main_root = fixture.0.join("library");
         let selected_build_root = fixture.0.join("chosen").join("build");
@@ -2644,6 +2661,8 @@ mod tests {
             "Project/.vscode/settings.json",
             "Project/node_modules/pkg/index.js",
             "Project/.venv/pyvenv.cfg",
+            "Project/build/generated.js",
+            "Projects/wInDoWs/设计.md",
         ];
         for relative in excluded_paths {
             fixture.write(&main_root, relative, b"previously indexed fixture");
@@ -2653,6 +2672,8 @@ mod tests {
             "Design/build/new-logo.ai",
             b"not previously indexed",
         );
+        fixture.write(&main_root, "Project/package.json", b"{}");
+        fixture.write(&fixture.0, "chosen/package.json", b"{}");
         let current_file = fixture.write(&main_root, "Project/src/current.rs", b"current");
         let selected_root_file = fixture.write(&selected_build_root, "README.md", b"selected root");
 
@@ -2668,6 +2689,17 @@ mod tests {
             seed_issue375_file_row(&db, path);
         }
 
+        {
+            let conn = db.conn().expect("seed retained user facts");
+            conn.execute_batch("INSERT INTO user_tags (id, display_name, normalized_name, created_at, updated_at) VALUES ('retained-tag','Keep','keep',1,1)").unwrap();
+            conn.execute("INSERT INTO file_user_tags (file_id, tag_id, created_at) VALUES (?1,'retained-tag',1)", [&normalize_path(&deleted_ignored)]).unwrap();
+            conn.execute(
+                "UPDATE files SET suggested_name = 'user correction' WHERE id = ?1",
+                [&normalize_path(&deleted_ignored)],
+            )
+            .unwrap();
+            conn.execute("INSERT INTO content_artifacts (id,file_id,source_size,source_mtime,source_is_dir,extractor_family,extractor_version,policy_revision,content_fingerprint,status,summary,raw_text,created_at,updated_at) VALUES ('retained-content',?1,1,1,0,'text','1',1,'retained','current','user note','retained content fact',1,1)", [&normalize_path(&deleted_ignored)]).unwrap();
+        }
         let jobs = ScanJobManager::default();
         let dedupe_jobs = DedupeJobManager::default();
         let app = tauri::test::mock_app();
@@ -2710,19 +2742,19 @@ mod tests {
             "ordinary files are discovered by the managed scan"
         );
         assert!(
-            !scan_seen_path(&db, &selected_build_run.dto.id, &selected_root_file),
-            "a user-selected root named build is still omitted by the name-only filter"
+            scan_seen_path(&db, &selected_build_run.dto.id, &selected_root_file),
+            "a user-selected build root is scanned"
         );
         for relative in excluded_paths {
             let path = main_root.join(relative);
             assert!(
-                !scan_seen_path(&db, &main_run.dto.id, &path),
-                "name-filtered subtree should remain unseen: {relative}"
+                scan_seen_path(&db, &main_run.dto.id, &path) != relative.starts_with("Project/"),
+                "only dependency/IDE subtrees remain unseen: {relative}"
             );
         }
         assert!(
-            !scan_seen_path(&db, &main_run.dto.id, &newly_created_build_file),
-            "a new file below a build descendant is not discovered"
+            scan_seen_path(&db, &main_run.dto.id, &newly_created_build_file),
+            "a new user build descendant is discovered"
         );
 
         let main_health = db
@@ -2741,8 +2773,10 @@ mod tests {
         let first_visible = first_query
             .files
             .iter()
-            .map(|file| file.id.as_str())
+            .map(|file| file.path.as_str())
             .collect::<HashSet<_>>();
+        // Legacy rows without SourceUID proof may be parked by the existing
+        // identity owner; assert visible paths, not transfer of historical IDs.
         for relative in excluded_paths {
             let path = main_root.join(relative);
             let id = normalize_path(&path);
@@ -2752,12 +2786,12 @@ mod tests {
             );
         }
         assert!(
-            !first_visible.contains(normalize_path(&newly_created_build_file).as_str()),
-            "File Library cannot return a newly created file that scanning never inserted"
+            first_visible.contains(normalize_path(&newly_created_build_file).as_str()),
+            "File Library returns newly scanned user build data"
         );
         assert!(
-            !first_visible.contains(normalize_path(&selected_root_file).as_str()),
-            "File Library has no row for a file omitted from the selected build-root scan"
+            first_visible.contains(normalize_path(&selected_root_file).as_str()),
+            "File Library returns the selected build-root file"
         );
 
         let deleted_ignored_id = normalize_path(&deleted_ignored);
@@ -2815,8 +2849,8 @@ mod tests {
         );
         assert!(!scan_seen_path(&db, &second.run_id, &current_file));
         assert!(
-            !scan_seen_path(&db, &second.run_id, &new_appdata_file),
-            "a new AppData descendant remains undiscovered during the next scan"
+            scan_seen_path(&db, &second.run_id, &new_appdata_file),
+            "a new user AppData descendant is discovered during the next scan"
         );
         assert_eq!(
             db.get_scan_root_health(Some(&second_run.dto.scan_root_id), None)
@@ -2842,6 +2876,19 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("read deleted ignored file stale state");
+        let retained: (String, String, String, i64) = conn.query_row(
+            "SELECT f.suggested_name, a.summary, a.raw_text, (SELECT COUNT(*) FROM file_user_tags WHERE file_id=f.id) FROM files f JOIN content_artifacts a ON a.file_id=f.id WHERE f.id=?1",
+            [&deleted_ignored_id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+        ).unwrap();
+        assert_eq!(
+            retained,
+            (
+                "user correction".into(),
+                "user note".into(),
+                "retained content fact".into(),
+                1
+            )
+        );
         assert_eq!(current_stale, 1, "deleted ordinary file becomes stale");
         assert_eq!(
             ignored_stale, 0,
@@ -2855,14 +2902,14 @@ mod tests {
         let second_visible = second_query
             .files
             .iter()
-            .map(|file| file.id.as_str())
+            .map(|file| file.path.as_str())
             .collect::<HashSet<_>>();
         assert!(
             !second_visible.contains(normalize_path(&current_file).as_str()),
             "the incrementally deleted file is no longer visible in File Library"
         );
         assert!(second_visible.contains(deleted_ignored_id.as_str()));
-        assert!(!second_visible.contains(normalize_path(&new_appdata_file).as_str()));
+        assert!(second_visible.contains(normalize_path(&new_appdata_file).as_str()));
     }
 
     #[cfg(feature = "performance-test-tauri")]

@@ -7,7 +7,10 @@ use super::library_identity::{
 };
 use super::*;
 use crate::ids::new_job_id;
-use crate::path_filter::{generated_dir_variant_bases, ignored_dir_names};
+use crate::path_filter::{
+    generated_dir_variant_bases, legacy_ignored_dir_names, managed_protected_roots,
+    metadata_is_link_or_reparse, ManagedPathFilter,
+};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
     Transaction, TransactionBehavior,
@@ -1030,9 +1033,6 @@ fn invoke_managed_scan_write_test_hook(run_id: &str, point: ManagedScanWriteTest
 
 const WATCHER_RECONCILIATION_MAX_AUTOMATIC_ATTEMPTS: usize = 3;
 const WATCHER_RECONCILIATION_RETRY_DELAYS_SECONDS: [i64; 2] = [2, 10];
-
-#[cfg(windows)]
-use std::os::windows::fs::MetadataExt;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2192,6 +2192,7 @@ impl Database {
         let mut upserted_paths = Vec::new();
         let mut reconciliation_required = false;
         let mut warning = None;
+        let path_filter = ManagedPathFilter::new(Path::new(&root_path));
 
         for raw_path in paths
             .iter()
@@ -2205,11 +2206,14 @@ impl Database {
                 continue;
             }
             let path = PathBuf::from(&normalized);
+            if path_filter.excludes(&path, path.is_dir()) {
+                continue;
+            }
             if directory_paths.contains(&normalized) {
                 reconciliation_required = true;
             }
             match fs::symlink_metadata(&path) {
-                Ok(metadata) if watcher_metadata_is_link_or_reparse(&metadata) => {
+                Ok(metadata) if metadata_is_link_or_reparse(&metadata) => {
                     reconciliation_required = true;
                     warning = Some(
                         "Symlink or reparse-point watcher event requires reconciliation."
@@ -3915,7 +3919,7 @@ fn root_revision_owned_after_watcher_change(
         || record.current_watcher_revision != record.dto.watcher_revision_at_start
 }
 
-fn watcher_path_within_root(root: &str, path: &str) -> bool {
+pub(super) fn watcher_path_within_root(root: &str, path: &str) -> bool {
     let root = root_identity_key(&normalize_scan_root_path(root));
     let path = root_identity_key(&normalize_scan_root_path(path));
     if root == "/" {
@@ -3925,20 +3929,6 @@ fn watcher_path_within_root(root: &str, path: &str) -> bool {
         || path
             .strip_prefix(&root)
             .is_some_and(|suffix| suffix.starts_with('/'))
-}
-
-fn watcher_metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        metadata.file_attributes() & 0x400 != 0
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
 }
 
 fn upsert_file_rows_tx(
@@ -4367,7 +4357,10 @@ fn ignored_subtree_like_patterns(root: &str) -> Vec<String> {
     let backslash_root = escape_like_pattern_local(&root.replace('\\', "/").replace('/', "\\"));
     let mut patterns = Vec::new();
 
-    for name in ignored_dir_names() {
+    // Keep legacy exclusions as an additional lossless historical guard.
+    // Current ingress eligibility is shared; broad repair of never-observed
+    // historical rows is deliberately not authorized by this correction.
+    for name in legacy_ignored_dir_names() {
         let name = escape_like_pattern_local(name);
         patterns.extend([
             format!("{slash_root}/{name}"),
@@ -4394,6 +4387,23 @@ fn ignored_subtree_like_patterns(root: &str) -> Vec<String> {
                 format!("{backslash_root}\\%\\{variant}%\\%"),
             ]);
         }
+    }
+    let root_filter = ManagedPathFilter::new(Path::new(root));
+    let root_allowed = !root_filter.excludes(Path::new(root), true);
+    for protected in managed_protected_roots() {
+        if root_allowed && watcher_path_within_root(&protected.to_string_lossy(), root) {
+            continue; // Preserve the platform owner's current-temp exception.
+        }
+        let slash = escape_like_pattern_local(&normalize_path_text(&protected.to_string_lossy()));
+        let backslash = escape_like_pattern_local(
+            &normalize_path_text(&protected.to_string_lossy()).replace('/', "\\"),
+        );
+        patterns.extend([
+            slash.clone(),
+            format!("{slash}/%"),
+            backslash.clone(),
+            format!("{backslash}\\%"),
+        ]);
     }
     patterns
 }

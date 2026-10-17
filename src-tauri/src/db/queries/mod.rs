@@ -1,5 +1,5 @@
 use super::*;
-use crate::path_filter::is_ignored_dir_name;
+use crate::path_filter::{metadata_is_link_or_reparse, ManagedPathFilter};
 use rusqlite::{params, types::Value as SqlValue, Connection, OptionalExtension, Row};
 use serde::Serialize;
 use std::{
@@ -380,6 +380,7 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
     let mut files = Vec::new();
     let mut seen = Vec::new();
     let mut warnings = Vec::new();
+    let roots = db.list_watcher_root_configs()?;
 
     for raw_path in paths
         .iter()
@@ -391,8 +392,21 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
             continue;
         }
 
+        let matching_roots = roots
+            .iter()
+            .filter(|root| scan::watcher_path_within_root(&root.path, path))
+            .collect::<Vec<_>>();
+        let selected_root = match matching_roots.as_slice() {
+            [root] => Some(Path::new(&root.path)),
+            [] => None,
+            _ => return Err(DbError::Validation(
+                "Bulk upsert path maps to overlapping managed roots; reconciliation is required."
+                    .into(),
+            )),
+        };
         collect_upsert_requests_for_path(
             PathBuf::from(path),
+            selected_root,
             &mut files,
             &mut seen,
             &mut warnings,
@@ -409,11 +423,22 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
 
 fn collect_upsert_requests_for_path(
     path: PathBuf,
+    selected_root: Option<&Path>,
     files: &mut Vec<InsertFileRequest>,
     seen: &mut Vec<String>,
     warnings: &mut Vec<WatcherUpsertWarning>,
     limit: usize,
 ) -> Result<(), DbError> {
+    // Resolve the actual input as well as its selected root: a direct file
+    // request must not reach a protected/dependency tree through an alias.
+    if ManagedPathFilter::new(&path).excludes(&path, path.is_dir()) {
+        return Ok(());
+    }
+    let path_filter = match selected_root {
+        Some(root) => ManagedPathFilter::new(root),
+        None if path.is_dir() => ManagedPathFilter::new(&path),
+        None => ManagedPathFilter::unselected(&path),
+    };
     let mut stack = vec![path];
 
     while let Some(path_buf) = stack.pop() {
@@ -436,7 +461,9 @@ fn collect_upsert_requests_for_path(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(DbError::Io(error)),
         };
-        if metadata.file_type().is_symlink() {
+        if path_filter.excludes(&path_buf, metadata.is_dir())
+            || metadata_is_link_or_reparse(&metadata)
+        {
             continue;
         }
 
@@ -468,7 +495,7 @@ fn collect_upsert_requests_for_path(
             if file_type.is_symlink() {
                 continue;
             }
-            if file_type.is_dir() && is_ignored_dir_name(&entry.file_name()) {
+            if path_filter.excludes(&entry.path(), file_type.is_dir()) {
                 continue;
             }
             stack.push(entry.path());
@@ -728,8 +755,15 @@ mod tests {
         let mut seen = Vec::new();
         let mut warnings = Vec::new();
 
-        collect_upsert_requests_for_path(root.clone(), &mut files, &mut seen, &mut warnings, 2)
-            .expect("collect upsert requests");
+        collect_upsert_requests_for_path(
+            root.clone(),
+            None,
+            &mut files,
+            &mut seen,
+            &mut warnings,
+            2,
+        )
+        .expect("collect upsert requests");
 
         assert_eq!(files.len(), 2);
         assert_eq!(warnings.len(), 1);
@@ -744,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn issue375_path_upsert_prunes_build_descendants_but_accepts_selected_build_root() {
+    fn issue375_path_upsert_covers_user_build_and_selected_root() {
         let fixture = test_dir("issue375-upsert");
         let project_root = fixture.join("Project");
         let project_build_file = project_root.join("build/logo.ai");
@@ -774,10 +808,30 @@ mod tests {
         let project_count = upsert_files_by_paths_for_db(&db, &[project_root_text])
             .expect("bulk-upsert ordinary project path");
         assert_eq!(
-            project_count, 3,
-            "root, src directory and source file are indexed"
+            project_count, 5,
+            "root, user build and source directory contents are indexed"
         );
 
+        fs::write(project_root.join("package.json"), b"{}").unwrap();
+        assert_eq!(
+            upsert_files_by_paths_for_db(&db, &[project_build_file.to_string_lossy().into_owned()])
+                .unwrap(),
+            0,
+            "a direct file upsert cannot bypass recognized build exclusion"
+        );
+        let dependency = project_root.join("node_modules/pkg/index.js");
+        fs::create_dir_all(dependency.parent().unwrap()).unwrap();
+        fs::write(&dependency, b"dependency").unwrap();
+        assert_eq!(
+            upsert_files_by_paths_for_db(&db, &[dependency.to_string_lossy().into_owned()])
+                .unwrap(),
+            0
+        );
+        fs::write(
+            selected_build_root.parent().unwrap().join("package.json"),
+            b"{}",
+        )
+        .unwrap();
         let selected_root_text = selected_build_root.to_string_lossy().into_owned();
         let selected_count = upsert_files_by_paths_for_db(&db, &[selected_root_text])
             .expect("bulk-upsert the explicitly selected build root");
@@ -794,7 +848,7 @@ mod tests {
                 )
                 .expect("query watcher-upsert result")
             };
-            assert!(!is_indexed(&project_build_file));
+            assert!(is_indexed(&project_build_file));
             assert!(is_indexed(&project_source_file));
             assert!(is_indexed(&selected_build_root));
             assert!(is_indexed(&selected_build_file));

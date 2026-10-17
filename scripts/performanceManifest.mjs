@@ -333,6 +333,15 @@ export const PERFORMANCE_SUITES = Object.freeze({
         testName: "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
       }),
       benchmark({
+        id: "workspace_foundation_browse_stage_observation_contract",
+        label: "Browse stage observation scope and percentile contract",
+        targetKey: "lib",
+        targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
+        testName: "file_workspace::integration::performance::scheduler::browse_stage_observation_scope_and_percentile_contract",
+        ignored: false,
+        testThreads: 1,
+      }),
+      benchmark({
         id: "workspace_foundation_sqlite_admission_wait",
         label: "Issue 345 managed-scan admission waits for writer release",
         targetKey: "lib",

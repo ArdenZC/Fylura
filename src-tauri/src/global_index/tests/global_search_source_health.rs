@@ -1,8 +1,9 @@
 use super::{test_db_path, test_entry, test_volume};
 use crate::db::Database;
 use crate::global_index::repository::{
-    diagnostic_compare_snapshot_queries_on_connection, load_global_search_source_health_candidate,
-    GlobalSearchSourceHealthQueryCandidate as Query,
+    diagnostic_compare_snapshot_queries_on_connection, diagnostic_snapshot_source_health,
+    diagnostic_snapshot_status, diagnostic_snapshot_status_sql,
+    load_global_search_source_health_candidate, GlobalSearchSourceHealthQueryCandidate as Query,
 };
 use crate::global_index::search::with_legacy_name_prefix_search_candidate;
 use crate::global_index::{GlobalEntryInput, GlobalVolume};
@@ -38,10 +39,30 @@ fn assert_snapshot_equal(
     assert_eq!(original.index_status, candidate.index_status);
 }
 
+// Every comparison below uses one established SQLite snapshot. The extra
+// COUNT(*) must not change canonical COUNT(id) facts, their bytes, or status.
+fn assert_snapshot_count_matches(conn: &rusqlite::Connection) -> i64 {
+    let legacy = load_global_search_source_health_candidate(conn, Query::LegacyNarrowAggregate)
+        .expect("read pre-optimization source facts");
+    let (source, count) = diagnostic_snapshot_source_health(conn)
+        .expect("read production source facts and private count");
+    assert_eq!(legacy, source);
+    let original_status = diagnostic_snapshot_status(conn, None).expect("old COUNT(*) status");
+    let reused_status = diagnostic_snapshot_status(conn, Some(count)).expect("reused count status");
+    assert_eq!(original_status, reused_status);
+    assert_eq!(reused_status.total_entries, count);
+    assert_eq!(reused_status.processed_entries, count);
+    count
+}
+
 fn assert_candidate_matches_production(db: &Database, query: &str) {
+    let standalone = db
+        .global_index_status()
+        .expect("standalone status remains truthful");
     let original = db
         .search_global_entries_snapshot(query, 80, 0)
         .expect("read production source snapshot");
+    assert_eq!(standalone, original.index_status);
 
     for candidate in [
         Query::CorrelatedAggregates,
@@ -56,6 +77,7 @@ fn assert_candidate_matches_production(db: &Database, query: &str) {
 
     let mut conn = db.conn().expect("borrow database connection");
     let transaction = conn.transaction().expect("begin fact comparison snapshot");
+    assert_snapshot_count_matches(&transaction);
     let baseline = load_global_search_source_health_candidate(&transaction, Query::Original)
         .expect("load baseline revision facts");
     for candidate in [
@@ -363,6 +385,8 @@ fn global_search_source_health_candidates_preserve_null_max_semantics() {
         .expect("insert source for nullable fixture");
     db.upsert_global_volume(&volume("gv_null_count", true))
         .expect("insert source for COUNT(column) fixture");
+    db.upsert_global_volume(&volume("gv_disabled", false))
+        .expect("insert disabled nullable source");
     let mut conn = db.conn().expect("borrow database connection");
     conn.execute_batch(
         "CREATE TEMP TABLE global_entries (
@@ -373,12 +397,16 @@ fn global_search_source_health_candidates_preserve_null_max_semantics() {
          );
          INSERT INTO global_entries VALUES ('active-null', 'gv_null', 0, NULL);
          INSERT INTO global_entries VALUES ('stale-value', 'gv_null', 1, 123);
-         INSERT INTO global_entries VALUES (NULL, 'gv_null_count', 0, 777);",
+         INSERT INTO global_entries VALUES (NULL, 'gv_null_count', 0, 777);
+         INSERT INTO global_entries VALUES ('disabled-active', 'gv_disabled', 0, 888);
+         INSERT INTO global_entries VALUES ('disabled-stale', 'gv_disabled', 1, 999);
+         INSERT INTO global_entries VALUES ('orphan', 'missing-source', 0, 111);",
     )
     .expect("shadow production table with nullable isolated fixture");
     let transaction = conn.transaction().expect("begin nullable fact snapshot");
     let original = load_global_search_source_health_candidate(&transaction, Query::Original)
         .expect("load original nullable aggregate");
+    assert_eq!(assert_snapshot_count_matches(&transaction), 2);
     for candidate in [
         Query::CorrelatedAggregates,
         Query::NarrowAggregate,
@@ -389,10 +417,19 @@ fn global_search_source_health_candidates_preserve_null_max_semantics() {
         assert_eq!(original, optimized);
         let serialized: serde_json::Value =
             serde_json::from_slice(&optimized.revision_facts_json).expect("parse facts");
-        assert_eq!(serialized[0]["active_entry_count"], 1);
-        assert!(serialized[0]["max_last_seen_at"].is_null());
-        assert_eq!(serialized[1]["active_entry_count"], 0);
-        assert_eq!(serialized[1]["max_last_seen_at"], 777);
+        let facts = serialized.as_array().expect("fact array");
+        let null_max = facts
+            .iter()
+            .find(|fact| fact["source_id"] == "gv_null")
+            .unwrap();
+        let null_id = facts
+            .iter()
+            .find(|fact| fact["source_id"] == "gv_null_count")
+            .unwrap();
+        assert_eq!(null_max["active_entry_count"], 1);
+        assert!(null_max["max_last_seen_at"].is_null());
+        assert_eq!(null_id["active_entry_count"], 0);
+        assert_eq!(null_id["max_last_seen_at"], 777);
     }
     transaction.commit().expect("commit nullable fact snapshot");
 
@@ -472,6 +509,7 @@ fn global_search_source_health_candidates_match_during_concurrent_writes() {
             .expect("establish reader snapshot before concurrent writer commit");
         writer_start.wait();
         writer_commit.wait();
+        assert_snapshot_count_matches(&transaction);
         for candidate in [
             Query::CorrelatedAggregates,
             Query::NarrowAggregate,
@@ -493,6 +531,90 @@ fn global_search_source_health_candidates_match_during_concurrent_writes() {
     }
     worker.join().expect("join source-health writer");
 
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn snapshot_reused_count_preserves_status_transitions_and_exact_enabled_filter() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open status transition fixture");
+    db.upsert_global_volume(&volume("gv_count", true)).unwrap();
+    db.upsert_global_entries_batch(&[entry("gv_count", r"C:\Global\count.txt", "count.txt", 77)])
+        .unwrap();
+    let mut conn = db.conn().unwrap();
+    for status in [
+        "ready",
+        "discovered",
+        "indexing",
+        "syncing",
+        "rebuild_required",
+        "spotlight_not_indexed",
+        "permission_required",
+        "spotlight_unavailable",
+        "spotlight_external_not_indexed",
+        "fsevents_unavailable",
+        "unavailable",
+        "error",
+        "paused",
+    ] {
+        for enabled in [0, 1] {
+            conn.execute("UPDATE global_volumes SET enabled=?1, index_status=?2,
+                entry_count=999, last_incremental_sync_at=123, last_error='kept error', updated_at=456",
+                params![enabled, status]).unwrap();
+            for stale in [0, 1] {
+                conn.execute("UPDATE global_entries SET is_stale=?1", params![stale])
+                    .unwrap();
+                let transaction = conn.transaction().unwrap();
+                let count = assert_snapshot_count_matches(&transaction);
+                assert_eq!(count, i64::from(enabled == 1 && stale == 0));
+                transaction.commit().unwrap();
+                assert_candidate_matches_production(&db, "count");
+            }
+        }
+    }
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn snapshot_precomputed_status_skips_the_entries_count_branch() {
+    let path = test_db_path();
+    let db = Database::open(&path).unwrap();
+    db.upsert_global_volume(&volume("gv_steps", true)).unwrap();
+    let mut conn = db.conn().unwrap();
+    conn.execute_batch("CREATE TEMP TABLE global_entries (id TEXT, volume_id TEXT, is_stale INTEGER, last_seen_at INTEGER);
+        WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<256)
+        INSERT INTO global_entries SELECT CAST(x AS TEXT), 'gv_steps', 0, x FROM n;").unwrap();
+    let transaction = conn.transaction().unwrap();
+    let count = assert_snapshot_count_matches(&transaction);
+    assert_eq!(count, 256);
+    let mut statement = transaction
+        .prepare(diagnostic_snapshot_status_sql())
+        .unwrap();
+    let original: i64 = statement
+        .query_row(params![None::<i64>], |row| row.get(0))
+        .unwrap();
+    let original_steps = statement.get_status(rusqlite::StatementStatus::VmStep);
+    statement.reset_status(rusqlite::StatementStatus::VmStep);
+    let reused: i64 = statement
+        .query_row(params![Some(count)], |row| row.get(0))
+        .unwrap();
+    let reused_steps = statement.get_status(rusqlite::StatementStatus::VmStep);
+    assert_eq!(original, reused);
+    assert!(
+        reused_steps < original_steps,
+        "the bound count must bypass the entries scan"
+    );
+    // A supplied zero is a real count, not a request to execute the fallback.
+    let zero: i64 = statement
+        .query_row(params![Some(0_i64)], |row| row.get(0))
+        .unwrap();
+    assert_eq!(zero, 0);
+    drop(statement);
+    transaction.commit().unwrap();
+    drop(conn);
     drop(db);
     let _ = std::fs::remove_file(path);
 }

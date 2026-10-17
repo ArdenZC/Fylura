@@ -677,6 +677,7 @@ fn record_production_results(
 fn source_health_candidate_name(candidate: SourceHealthCandidate) -> &'static str {
     match candidate {
         SourceHealthCandidate::Original => "original",
+        SourceHealthCandidate::LegacyNarrowAggregate => "legacy_narrow_aggregate",
         SourceHealthCandidate::CorrelatedAggregates => "correlated_aggregates",
         SourceHealthCandidate::NarrowAggregate => "narrow_aggregate",
         SourceHealthCandidate::GroupByVolumeId => "candidate_c_group_by_volume_id",
@@ -686,6 +687,7 @@ fn source_health_candidate_name(candidate: SourceHealthCandidate) -> &'static st
 fn source_health_topology_candidate_label(candidate: SourceHealthCandidate) -> &'static str {
     match candidate {
         SourceHealthCandidate::Original => "Original",
+        SourceHealthCandidate::LegacyNarrowAggregate => "Legacy Candidate B",
         SourceHealthCandidate::NarrowAggregate => "Candidate B (current production SQL)",
         SourceHealthCandidate::GroupByVolumeId => "Candidate C (test-only)",
         SourceHealthCandidate::CorrelatedAggregates => unreachable!(
@@ -816,7 +818,8 @@ impl SourceHealthResourceSampler {
             SourceHealthCandidate::Original => 0,
             SourceHealthCandidate::NarrowAggregate => 1,
             SourceHealthCandidate::GroupByVolumeId => 2,
-            SourceHealthCandidate::CorrelatedAggregates => {
+            SourceHealthCandidate::CorrelatedAggregates
+            | SourceHealthCandidate::LegacyNarrowAggregate => {
                 unreachable!("the topology diagnostic does not profile candidate A")
             }
         };
@@ -4504,4 +4507,211 @@ fn global_search_fts_key_only_cte_qualification() {
         "macos_native_measurement": "NOT VERIFIED: qualification executes on Windows Hosted; macOS quality remains a separate CI lane",
         "temporary_btree_byte_measurement": "NOT VERIFIED"
     }));
+}
+
+#[test]
+#[ignore = "Owner-approved single matched 100k/500k Snapshot duplicate-count comparison"]
+fn global_search_snapshot_count_qualification() {
+    use crate::global_index::repository::{
+        diagnostic_snapshot_source_health, diagnostic_snapshot_status,
+        diagnostic_snapshot_status_sql,
+    };
+    let entries = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
+        .expect("set the bounded fixture size")
+        .parse::<u64>()
+        .expect("integer fixture size");
+    assert!(matches!(entries, 100_000 | 500_000));
+    let context = benchmark_context(entries);
+    let path = test_db_path();
+    let _cleanup = BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).expect("open Snapshot qualification fixture");
+    db.upsert_global_volume(&super::super::test_volume())
+        .unwrap();
+    let (expectations, generation_ms, population_ms, _) = populate_synthetic_database(&db, entries);
+    let mut conn = configured_connection(&path).unwrap();
+    emit_record(&json!({
+        "record_type": "snapshot_count_environment", "context": context,
+        "generation_ms": generation_ms, "population_ms": population_ms,
+        "database": database_metrics(&conn, &path),
+        "sqlite_pragmas": sqlite_runtime_settings(&conn),
+        "fixture": "existing synthetic production-schema fixture; no filesystem discovery",
+        "resource_scope": "existing process-boundary sampler; not SQLite temp allocation bytes"
+    }));
+    for (case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
+        let baseline = db
+            .search_global_entries_snapshot_with_source_health_candidate(
+                case.query,
+                SEARCH_RESULT_LIMIT,
+                0,
+                SourceHealthCandidate::LegacyNarrowAggregate,
+            )
+            .unwrap();
+        let candidate = db
+            .search_global_entries_snapshot(case.query, SEARCH_RESULT_LIMIT, 0)
+            .unwrap();
+        assert_snapshot_results_equal(&baseline, &candidate);
+        let expected =
+            assert_search_results(&conn, case, expectation, SEARCH_RESULT_LIMIT, 0, entries);
+        assert_eq!(candidate.results, expected);
+    }
+    let transaction = conn.transaction().unwrap();
+    let old_facts = load_global_search_source_health_candidate(
+        &transaction,
+        SourceHealthCandidate::LegacyNarrowAggregate,
+    )
+    .unwrap();
+    let (new_facts, count) = diagnostic_snapshot_source_health(&transaction).unwrap();
+    assert_eq!(old_facts, new_facts);
+    assert_eq!(
+        diagnostic_snapshot_status(&transaction, None).unwrap(),
+        diagnostic_snapshot_status(&transaction, Some(count)).unwrap()
+    );
+    // COALESCE leaves the fallback visible in static EQP. Record both EQP and
+    // executed VM work; a supplied count must jump past that entries branch.
+    let source_plans = [
+        SourceHealthCandidate::LegacyNarrowAggregate,
+        SourceHealthCandidate::NarrowAggregate,
+    ]
+    .map(|kind| {
+        let mut plan = transaction
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", kind.sql()))
+            .unwrap();
+        plan.query_map([], |row| row.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    });
+    let mut status_plan = transaction
+        .prepare(&format!(
+            "EXPLAIN QUERY PLAN {}",
+            diagnostic_snapshot_status_sql()
+        ))
+        .unwrap();
+    let status_plan_rows = status_plan
+        .query_map(params![Some(count)], |row| row.get::<_, String>(3))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    drop(status_plan);
+    let source_counters = [
+        SourceHealthCandidate::LegacyNarrowAggregate,
+        SourceHealthCandidate::NarrowAggregate,
+    ]
+    .map(|kind| measure_source_health_sql_rows(&transaction, kind).1);
+    let mut stage_samples = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    for sample in 0..PAIRED_WARMUPS + PAIRED_SAMPLES {
+        for candidate in if sample % 2 == 0 {
+            [false, true]
+        } else {
+            [true, false]
+        } {
+            let (stage_count, source_ms) = if candidate {
+                let started = Instant::now();
+                let (facts, total) = diagnostic_snapshot_source_health(&transaction).unwrap();
+                let elapsed = started.elapsed().as_secs_f64() * 1_000.0;
+                assert_eq!(facts, old_facts);
+                (Some(total), elapsed)
+            } else {
+                let started = Instant::now();
+                let facts = load_global_search_source_health_candidate(
+                    &transaction,
+                    SourceHealthCandidate::LegacyNarrowAggregate,
+                )
+                .unwrap();
+                let elapsed = started.elapsed().as_secs_f64() * 1_000.0;
+                assert_eq!(facts, old_facts);
+                (None, elapsed)
+            };
+            let started = Instant::now();
+            let status = diagnostic_snapshot_status(&transaction, stage_count).unwrap();
+            let status_ms = started.elapsed().as_secs_f64() * 1_000.0;
+            assert_eq!(status.total_entries, count);
+            if sample >= PAIRED_WARMUPS {
+                let index = usize::from(candidate) * 2;
+                stage_samples[index].push(source_ms);
+                stage_samples[index + 1].push(status_ms);
+            }
+        }
+    }
+    let mut status_steps = Vec::new();
+    for supplied in [None, Some(count)] {
+        let mut statement = transaction
+            .prepare(diagnostic_snapshot_status_sql())
+            .unwrap();
+        let total: i64 = statement
+            .query_row(params![supplied], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total, count);
+        status_steps.push(statement.get_status(StatementStatus::VmStep));
+    }
+    assert!(status_steps[1] < status_steps[0]);
+    emit_record(&json!({
+        "record_type": "snapshot_count_stages", "context": context,
+        "legacy_source_ms": summarize_samples(&stage_samples[0]),
+        "legacy_status_ms": summarize_samples(&stage_samples[1]),
+        "candidate_source_ms": summarize_samples(&stage_samples[2]),
+        "candidate_status_ms": summarize_samples(&stage_samples[3]),
+        "source_query_plans_legacy_candidate": source_plans,
+        "source_statement_counters_legacy_candidate": source_counters,
+        "status_static_query_plan_with_conditional_fallback": status_plan_rows,
+        "status_vm_steps_legacy_candidate": status_steps,
+        "facts_json_and_revision_equal": true,
+        "stage_scope": "prepare, drain, mapping/hash for source; complete status helper; one read transaction; excludes pool/search/commit",
+        "temporary_bytes": "NOT VERIFIED"
+    }));
+    transaction.commit().unwrap();
+    for query in ["quarterly", "report", "invoice"] {
+        let expected = db
+            .search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+            .unwrap();
+        let mut samples = [Vec::new(), Vec::new()];
+        let mut resources = [
+            ProcessResourceAccumulator::default(),
+            ProcessResourceAccumulator::default(),
+        ];
+        let mut pooled = Vec::new();
+        for sample in 0..PAIRED_WARMUPS + PAIRED_SAMPLES {
+            for candidate in if sample % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            } {
+                let (result, elapsed, observation) = measure_with_process_counters(|| {
+                    if candidate {
+                        db.search_global_entries_snapshot(query, QUERY_LIMIT, 0)
+                    } else {
+                        db.search_global_entries_snapshot_with_source_health_candidate(
+                            query,
+                            QUERY_LIMIT,
+                            0,
+                            SourceHealthCandidate::LegacyNarrowAggregate,
+                        )
+                    }
+                });
+                assert_snapshot_results_equal(&expected, &result.unwrap());
+                if sample >= PAIRED_WARMUPS {
+                    let index = usize::from(candidate);
+                    samples[index].push(elapsed);
+                    resources[index].observe(observation);
+                }
+            }
+            let (rows, elapsed, _) =
+                measure_with_process_counters(|| db.search_global_entries(query, QUERY_LIMIT, 0));
+            assert_eq!(rows.unwrap(), expected.results);
+            if sample >= PAIRED_WARMUPS {
+                pooled.push(elapsed);
+            }
+        }
+        emit_record(&json!({
+            "record_type": "snapshot_count_actual_repository_pair", "context": context, "query": query,
+            "legacy_snapshot_ms": summarize_samples(&samples[0]),
+            "candidate_snapshot_ms": summarize_samples(&samples[1]),
+            "unchanged_pooled_control_ms": summarize_samples(&pooled),
+            "legacy_resources": resources[0].json(samples[0].iter().sum()),
+            "candidate_resources": resources[1].json(samples[1].iter().sum()),
+            "all_snapshot_fields_equal": true,
+            "timing_scope": "actual Repository Snapshot: checkout, same read transaction, search, source facts/revision, status, commit; alternating order",
+            "temporary_bytes": "NOT VERIFIED"
+        }));
+    }
 }

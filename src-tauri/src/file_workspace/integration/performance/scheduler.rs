@@ -10,6 +10,7 @@ use super::{
 use crate::{
     db::Database,
     dedupe::DedupeJobManager,
+    file_workspace::browse::stage_trace,
     file_workspace::contracts::WorkClass,
     scanner::{
         cancel_performance_managed_scan, start_performance_managed_scan, PerformanceManagedScan,
@@ -51,6 +52,8 @@ fn measure_first_pages(
 ) -> Vec<u128> {
     (0..FIRST_PAGE_SAMPLE_COUNT)
         .map(|index| {
+            let observation =
+                stage_trace::Sample::begin(u8::from(prefix == "scheduler-pressure"), index);
             let started = Instant::now();
             let page = runtime
                 .start_enumeration(
@@ -64,7 +67,10 @@ fn measure_first_pages(
                 )
                 .expect("foreground Browse remains usable under scheduler pressure");
             assert!(!page.entries.is_empty());
-            started.elapsed().as_micros()
+            let elapsed = started.elapsed();
+            let sample_us = elapsed.as_micros();
+            observation.finish(elapsed.as_nanos().min(u64::MAX as u128) as u64);
+            sample_us
         })
         .collect()
 }
@@ -182,6 +188,7 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
     );
     let runtime = runtime_for(&fixture);
     let opened = open_fixture(&runtime, &fixture, "scheduler-managed-scan");
+    let browse_observation = stage_trace::Scope::enable();
     let idle_samples = measure_first_pages(
         &runtime,
         &opened.session_id,
@@ -537,8 +544,175 @@ fn managed_scan_pressure_preserves_foreground_browse_and_releases() {
         ));
     }
     metrics::emit_metric("managed_scan_pressure", classification, pressure_metrics);
+    emit_browse_stage_observations(browse_observation.finish());
     assert!(
         structural_pass,
         "real managed scan pressure did not preserve foreground access, background progress, cancellation release, or steady state"
     );
+}
+
+// Serialized only after the original timing vectors, p95s and structural
+// predicates have been computed. No paths, filenames or authority IDs.
+fn emit_browse_stage_observations(report: stage_trace::Report) {
+    let calibration = report.calibration;
+    let rows = report.observations[..report.len].iter().map(|sample| {
+        let accounted = sample.stages_ns.iter().sum::<u64>();
+        let residual = sample.outer_ns.and_then(|outer| outer.checked_sub(accounted));
+        let accounting_valid = sample.entered && sample.inner_ns == Some(accounted) && residual.is_some();
+        // Timer-only proxy excludes TLS/borrow/CPU-API costs and is not an
+        // observer-free control. Mark obvious timer perturbation conservatively.
+        let timer_proxy = calibration.timer_pair_max_ns.saturating_mul(12);
+        let perturbed = sample.outer_ns.is_some_and(|outer| timer_proxy > outer / 10);
+        json!({
+            "group": sample.group, "sample": sample.sample,
+            "outer_wall_us": sample.outer_ns.map(|ns| ns as f64 / 1000.0),
+            "inner_wall_us": sample.inner_ns.map(|ns| ns as f64 / 1000.0),
+            "stage_wall_us": sample.stages_ns.map(|ns| ns as f64 / 1000.0),
+            "residual_wall_us": residual.map(|ns| ns as f64 / 1000.0),
+            "open_sessions_lock_held_envelope_us": (sample.stages_ns[2] + sample.stages_ns[3] + sample.stages_ns[4]) as f64 / 1000.0,
+            "publication_sessions_lock_held_envelope_us": sample.stages_ns[8] as f64 / 1000.0,
+            "entry_count": sample.completed.then_some(sample.entries),
+            "entered": sample.entered, "completed": sample.completed,
+            "raw_thread_cpu_delta_100ns": sample.cpu_delta_100ns,
+            "accounting_valid": accounting_valid,
+            "diagnostic": if !accounting_valid { "UNVERIFIED" } else if perturbed { "PERTURBED/INCONCLUSIVE" } else { "INCONCLUSIVE" },
+        })
+    }).collect::<Vec<_>>();
+    metrics::emit_metric("browse_stage_diagnostic", if calibration.cpu_available { metrics::OBSERVED } else { metrics::UNVERIFIED }, [
+        ("stage_names".to_string(), json!(stage_trace::NAMES)),
+        ("groups".to_string(), json!(["idle", "pressure"])),
+        ("observations".to_string(), json!(rows)),
+        ("sample_capacity".to_string(), json!(stage_trace::CAPACITY)),
+        ("timer_min_positive_observed_ns".to_string(), json!(calibration.timer_min_positive_ns)),
+        ("timer_pair_max_observed_ns".to_string(), json!(calibration.timer_pair_max_ns)),
+        ("cpu_read_max_observed_ns".to_string(), json!(calibration.cpu_read_max_ns)),
+        ("cpu_api".to_string(), json!(if cfg!(target_os = "windows") { "GetThreadTimes" } else { "UNSUPPORTED" })),
+        ("cpu_api_available".to_string(), json!(calibration.cpu_available)),
+        ("cpu_min_positive_observed_delta_100ns".to_string(), json!(calibration.cpu_min_positive_delta_100ns)),
+        ("cpu_resolution_status".to_string(), json!("CPU_RESOLUTION_INSUFFICIENT")),
+        ("cpu_vs_wait".to_string(), json!("CPU_VS_WAIT_INCONCLUSIVE")),
+        ("limitations".to_string(), json!("100ns units do not establish effective resolution; adjacent reads are not a resolution guarantee; raw CPU interval surrounds outer timer; residual includes DTO and observer/envelope costs; lock-held totals overlap stages; stage 5 includes current-check sessions lock; stage 6 includes source lock; timer proxy excludes TLS overhead; no clean A/B or off-CPU attribution")),
+    ]);
+}
+
+#[test]
+fn browse_stage_observation_scope_and_percentile_contract() {
+    // Disabled observation does not collect, and the original nearest-rank
+    // classifier still selects the second largest of twenty samples.
+    let off = stage_trace::Sample::begin(0, 0);
+    {
+        let call = stage_trace::Call::begin();
+        call.complete(5);
+    }
+    off.finish(1);
+    let mut idle = [1u128; 20];
+    idle[18] = 216;
+    idle[19] = 286;
+    let mut pressure = [1u128; 20];
+    pressure[18] = 452;
+    pressure[19] = 498;
+    assert_eq!((p95(&idle), p95(&pressure)), (216, 452));
+    assert!(p95(&pressure) > p95(&idle).saturating_mul(2).max(1));
+
+    let scope = stage_trace::Scope::enable();
+    for index in 0..40 {
+        let sample = stage_trace::Sample::begin(u8::from(index >= 20), index % 20);
+        {
+            let call = stage_trace::Call::begin();
+            stage_trace::mark(6);
+            call.complete(5);
+        }
+        sample.finish(u64::MAX);
+    }
+    // Capacity never grows, including accidental extra invocations.
+    let overflow = stage_trace::Sample::begin(1, 20);
+    {
+        let call = stage_trace::Call::begin();
+        call.complete(9);
+    }
+    overflow.finish(1);
+    let report = scope.finish();
+    assert_eq!(report.len, 40);
+    for (i, row) in report.observations.iter().enumerate() {
+        assert_eq!((row.group, row.sample), (u8::from(i >= 20), i % 20));
+        assert!(row.entered && row.completed);
+        assert_eq!(row.entries, 5);
+        assert_eq!(row.inner_ns, Some(row.stages_ns.iter().sum()));
+    }
+    // Reuse the existing tiny fixture and publication barrier, never the
+    // measured pressure workload, to exercise real validation/cancel returns.
+    {
+        use crate::file_workspace::browse::{
+            BackendResolvedDirectory, BrowseError, BrowseService, TestPublishGate,
+        };
+        let fixture = WorkspaceFixture::smoke();
+        let service = Arc::new(BrowseService::default());
+        let session = service
+            .start_session(
+                BackendResolvedDirectory::from_backend_path(fixture.path().to_path_buf())
+                    .expect("fixture directory"),
+            )
+            .expect("session");
+        let scope = stage_trace::Scope::enable();
+        let sample = stage_trace::Sample::begin(0, 0);
+        let started = Instant::now();
+        assert_eq!(
+            service.start_enumeration(&session.session_id, "", &session.root_path_ref, 1),
+            Err(BrowseError::InvalidRequest)
+        );
+        sample.finish(started.elapsed().as_nanos() as u64);
+        let gate = Arc::new(TestPublishGate::default());
+        service.set_test_publish_gate(Arc::clone(&gate));
+        let cancelled_service = Arc::clone(&service);
+        let session_id = session.session_id.clone();
+        let cancellation = thread::spawn(move || {
+            gate.wait_until_reached();
+            let result = cancelled_service.cancel_request(&session_id, "observed-cancel");
+            gate.release();
+            result
+        });
+        let sample = stage_trace::Sample::begin(0, 1);
+        let started = Instant::now();
+        let result = service.start_enumeration(
+            &session.session_id,
+            "observed-cancel",
+            &session.root_path_ref,
+            1,
+        );
+        sample.finish(started.elapsed().as_nanos() as u64);
+        cancellation
+            .join()
+            .expect("cancel worker")
+            .expect("cancel request");
+        assert_eq!(result, Err(BrowseError::Cancelled));
+        let report = scope.finish();
+        assert_eq!(report.len, 2);
+        for row in &report.observations[..2] {
+            assert!(row.entered && !row.completed);
+            assert_eq!(row.inner_ns, Some(row.stages_ns.iter().sum()));
+            assert!(row.outer_ns >= row.inner_ns);
+        }
+        service
+            .dispose_session(&session.session_id)
+            .expect("dispose test session");
+    }
+    // Error/unwind paths preserve the captured stages without inventing a
+    // successful result or measured zero, and both guards restore opt-in OFF.
+    let scope = stage_trace::Scope::enable();
+    {
+        let _sample = stage_trace::Sample::begin(0, 0);
+        let _call = stage_trace::Call::begin();
+        stage_trace::mark(6);
+    }
+    let report = scope.finish();
+    assert_eq!(report.len, 1);
+    assert!(report.observations[0].entered);
+    assert!(!report.observations[0].completed);
+    assert!(report.observations[0].inner_ns.is_some());
+    assert!(report.observations[0].outer_ns.is_none());
+    let _ = std::panic::catch_unwind(|| {
+        let _scope = stage_trace::Scope::enable();
+        panic!("test unwind");
+    });
+    assert_eq!(stage_trace::Scope::enable().finish().len, 0);
 }

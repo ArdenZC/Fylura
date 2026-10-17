@@ -474,16 +474,22 @@ impl BrowseService {
         page_size: usize,
         query: BrowseQuerySpecV1,
     ) -> Result<BrowsePage, BrowseError> {
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        let observation = stage_trace::Call::begin();
         let request_id = request_id.into();
         self.validate_request_id(&request_id)?;
         let page_size = self.limits.page_size(page_size)?;
         let query = query.normalized()?;
 
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        stage_trace::mark(1);
         let enumeration = {
             let mut sessions = self
                 .sessions
                 .lock()
                 .map_err(|_| BrowseError::StateUnavailable)?;
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            stage_trace::mark(2);
             let session = sessions
                 .get_mut(session_id)
                 .ok_or(BrowseError::SessionNotFound)?;
@@ -496,11 +502,15 @@ impl BrowseService {
             validate_directory_path(&path)?;
             let source = fs::read_dir(&path).map_err(map_directory_error)?;
 
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            stage_trace::mark(3);
             if let Some(previous) = session.active.take() {
                 invalidate_entries_for_enumeration(session, &previous.identity.enumeration_id);
                 previous.cancel(CancelReason::Superseded);
             }
 
+            #[cfg(all(test, feature = "performance-test-tauri"))]
+            stage_trace::mark(4);
             let enumeration = Arc::new(EnumerationState::new_with_query(
                 BrowseEnumerationRef {
                     session_id: session_id.to_string(),
@@ -514,7 +524,14 @@ impl BrowseService {
             enumeration
         };
 
-        self.read_page(session_id, enumeration, None, page_size)
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        stage_trace::mark(5);
+        let result = self.read_page(session_id, enumeration, None, page_size);
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        if let Ok(page) = &result {
+            observation.complete(page.entries.len());
+        }
+        result
     }
 
     pub(crate) fn next_page(
@@ -884,6 +901,8 @@ impl BrowseService {
         self.ensure_current_or_cancelled(session_id, &enumeration)?;
         enumeration.claim_cursor(cursor)?;
 
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        stage_trace::mark(6);
         let (pending_entries, complete) = match read_entries(&enumeration, page_size) {
             Ok(result) => result,
             Err(error) => {
@@ -893,13 +912,20 @@ impl BrowseService {
             }
         };
 
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        stage_trace::mark(5);
         #[cfg(test)]
         self.pause_before_publish();
+
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        stage_trace::mark(7);
 
         let mut sessions = self
             .sessions
             .lock()
             .map_err(|_| BrowseError::StateUnavailable)?;
+        #[cfg(all(test, feature = "performance-test-tauri"))]
+        stage_trace::mark(8);
         let live_entry_refs = sessions
             .values()
             .map(|value| value.entries.len())
@@ -1572,6 +1598,317 @@ fn classify_link_like(_path: &Path, metadata: &fs::Metadata) -> LinkLike {
         LinkLike::Unsafe
     } else {
         LinkLike::Ordinary
+    }
+}
+
+// #404-B: only the synchronous performance test opts in. No observer symbols
+// or calls exist in production or in tests without performance-test-tauri.
+#[cfg(all(test, feature = "performance-test-tauri"))]
+pub(crate) mod stage_trace {
+    use std::{cell::RefCell, time::Instant};
+
+    pub const CAPACITY: usize = 40;
+    pub const STAGES: usize = 9;
+    // Stages partition the inner call; lock-held totals are supplementary,
+    // overlapping envelopes (2+3+4 and 8), never added to the partition.
+    // They include guard release/observer overhead; they are not exact native
+    // mutex ownership intervals. Stage 5 also includes ensure-current locking.
+    pub const NAMES: [&str; STAGES] = [
+        "request_validation",
+        "open_sessions_lock_wait",
+        "lookup_directory_validation_open_lock_held",
+        "previous_enumeration_ref_invalidation_lock_held",
+        "install_enumeration_lock_release_envelope",
+        "current_check_cursor_and_envelope_mixed",
+        "read_entries_metadata_source_lock_error_cleanup_mixed",
+        "publication_sessions_lock_wait",
+        "publication_refs_cursor_lock_release_envelope",
+    ];
+
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct Observation {
+        pub group: u8,
+        pub sample: usize,
+        pub outer_ns: Option<u64>,
+        pub inner_ns: Option<u64>,
+        pub stages_ns: [u64; STAGES],
+        pub entered: bool,
+        pub completed: bool,
+        pub entries: usize,
+        pub cpu_delta_100ns: Option<u64>,
+    }
+
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct Calibration {
+        pub timer_min_positive_ns: Option<u64>,
+        pub timer_pair_max_ns: u64,
+        pub cpu_read_max_ns: u64,
+        pub cpu_min_positive_delta_100ns: Option<u64>,
+        pub cpu_available: bool,
+    }
+
+    pub struct Report {
+        pub observations: [Observation; CAPACITY],
+        pub len: usize,
+        pub calibration: Calibration,
+    }
+
+    struct Current {
+        index: usize,
+        call_start: Option<Instant>,
+        last: Option<Instant>,
+        stage: usize,
+    }
+
+    struct State {
+        report: Report,
+        current: Option<Current>,
+    }
+
+    thread_local! {
+        static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+    }
+
+    fn ns(start: Instant) -> u64 {
+        start.elapsed().as_nanos().min(u64::MAX as u128) as u64
+    }
+
+    // Uses only the already enabled windows-sys Foundation/Threading APIs.
+    // FILETIME is a unit, NOT a promise of effective sub-millisecond precision.
+    // Raw deltas are never subtracted from wall time or converted from cycles.
+    fn thread_cpu_100ns() -> Option<u64> {
+        #[cfg(target_os = "windows")]
+        {
+            use windows_sys::Win32::{
+                Foundation::FILETIME,
+                System::Threading::{GetCurrentThread, GetThreadTimes},
+            };
+            let mut created = FILETIME::default();
+            let mut exited = FILETIME::default();
+            let mut kernel = FILETIME::default();
+            let mut user = FILETIME::default();
+            // SAFETY: the pseudo-handle denotes this live thread; all four
+            // output pointers are distinct, initialized, writable FILETIMEs.
+            // No handle is retained or closed and no scheduling state changes.
+            let ok = unsafe {
+                GetThreadTimes(
+                    GetCurrentThread(),
+                    &mut created,
+                    &mut exited,
+                    &mut kernel,
+                    &mut user,
+                )
+            };
+            if ok == 0 {
+                return None;
+            }
+            let ticks =
+                |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+            ticks(kernel).checked_add(ticks(user))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
+    }
+
+    fn min_positive(current: &mut Option<u64>, value: u64) {
+        if value > 0 {
+            *current = Some(current.map_or(value, |old| old.min(value)));
+        }
+    }
+
+    fn calibrate() -> Calibration {
+        // Fixed 64 adjacent reads, outside the workload/timed samples. No spin,
+        // sleep, synthetic pressure, affinity or timer-resolution changes.
+        let mut previous = thread_cpu_100ns();
+        let mut result = Calibration {
+            cpu_available: previous.is_some(),
+            ..Calibration::default()
+        };
+        for _ in 0..64 {
+            let start = Instant::now();
+            let elapsed = ns(start);
+            min_positive(&mut result.timer_min_positive_ns, elapsed);
+            result.timer_pair_max_ns = result.timer_pair_max_ns.max(elapsed);
+            let start = Instant::now();
+            let cpu = thread_cpu_100ns();
+            result.cpu_read_max_ns = result.cpu_read_max_ns.max(ns(start));
+            if let Some(delta) = previous.zip(cpu).and_then(|(a, b)| b.checked_sub(a)) {
+                min_positive(&mut result.cpu_min_positive_delta_100ns, delta);
+            }
+            result.cpu_available &= cpu.is_some();
+            previous = cpu;
+        }
+        result
+    }
+
+    pub struct Scope;
+    impl Scope {
+        pub fn enable() -> Self {
+            let calibration = calibrate();
+            STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                assert!(state.is_none(), "Browse observation scopes cannot nest");
+                *state = Some(State {
+                    report: Report {
+                        observations: [Observation::default(); CAPACITY],
+                        len: 0,
+                        calibration,
+                    },
+                    current: None,
+                });
+            });
+            Self
+        }
+        pub fn finish(self) -> Report {
+            STATE.with(|state| {
+                state
+                    .borrow_mut()
+                    .take()
+                    .expect("active observation scope")
+                    .report
+            })
+        }
+    }
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            STATE.with(|state| {
+                *state.borrow_mut() = None;
+            });
+        }
+    }
+
+    pub struct Sample {
+        active: bool,
+        cpu_before: Option<u64>,
+    }
+    impl Sample {
+        pub fn begin(group: u8, sample: usize) -> Self {
+            let active = STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                let Some(state) = state.as_mut() else {
+                    return false;
+                };
+                if state.report.len == CAPACITY || state.current.is_some() {
+                    return false;
+                }
+                let index = state.report.len;
+                state.report.len += 1;
+                state.report.observations[index] = Observation {
+                    group,
+                    sample,
+                    ..Observation::default()
+                };
+                state.current = Some(Current {
+                    index,
+                    call_start: None,
+                    last: None,
+                    stage: 0,
+                });
+                true
+            });
+            Self {
+                active,
+                cpu_before: active.then(thread_cpu_100ns).flatten(),
+            }
+        }
+        pub fn finish(mut self, outer_ns: u64) {
+            self.end(Some(outer_ns));
+        }
+        fn end(&mut self, outer_ns: Option<u64>) {
+            if !self.active {
+                return;
+            }
+            let cpu_after = thread_cpu_100ns();
+            STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                if let Some(state) = state.as_mut() {
+                    if let Some(current) = state.current.take() {
+                        let observation = &mut state.report.observations[current.index];
+                        observation.outer_ns = outer_ns;
+                        observation.cpu_delta_100ns = self
+                            .cpu_before
+                            .zip(cpu_after)
+                            .and_then(|(a, b)| b.checked_sub(a));
+                    }
+                }
+            });
+            self.active = false;
+        }
+    }
+    impl Drop for Sample {
+        fn drop(&mut self) {
+            self.end(None);
+        }
+    }
+
+    pub struct Call;
+    impl Call {
+        pub fn begin() -> Self {
+            STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                if let Some(state) = state.as_mut() {
+                    if let Some(current) = state.current.as_mut() {
+                        let now = Instant::now();
+                        current.call_start = Some(now);
+                        current.last = Some(now);
+                        current.stage = 0;
+                        state.report.observations[current.index].entered = true;
+                    }
+                }
+            });
+            Self
+        }
+        pub fn complete(&self, entries: usize) {
+            STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                if let Some(state) = state.as_mut() {
+                    if let Some(current) = state.current.as_ref() {
+                        let observation = &mut state.report.observations[current.index];
+                        observation.completed = true;
+                        observation.entries = entries;
+                    }
+                }
+            });
+        }
+    }
+    impl Drop for Call {
+        fn drop(&mut self) {
+            STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                if let Some(state) = state.as_mut() {
+                    if let Some(current) = state.current.as_mut() {
+                        if let (Some(start), Some(last)) =
+                            (current.call_start.take(), current.last.take())
+                        {
+                            let now = Instant::now();
+                            let observation = &mut state.report.observations[current.index];
+                            observation.stages_ns[current.stage] +=
+                                now.duration_since(last).as_nanos() as u64;
+                            observation.inner_ns =
+                                Some(now.duration_since(start).as_nanos() as u64);
+                        }
+                    }
+                }
+            });
+        }
+    }
+    pub fn mark(stage: usize) {
+        STATE.with(|state| {
+            let mut state = state.borrow_mut();
+            if let Some(state) = state.as_mut() {
+                if let Some(current) = state.current.as_mut() {
+                    if let Some(last) = current.last {
+                        let now = Instant::now();
+                        state.report.observations[current.index].stages_ns[current.stage] +=
+                            now.duration_since(last).as_nanos() as u64;
+                        current.last = Some(now);
+                        current.stage = stage;
+                    }
+                }
+            }
+        });
     }
 }
 

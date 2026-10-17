@@ -40,6 +40,8 @@ const WORKSPACE_BENCHMARK_TEST_NAMES = {
     "file_workspace::integration::performance::browse::browse_session_capacity_remains_bounded",
   workspace_foundation_scheduler_pressure:
     "file_workspace::integration::performance::scheduler::managed_scan_pressure_preserves_foreground_browse_and_releases",
+  workspace_foundation_browse_stage_observation_contract:
+    "file_workspace::integration::performance::scheduler::browse_stage_observation_scope_and_percentile_contract",
   workspace_foundation_sqlite_admission_wait:
     "db::queries::scan::tests::managed_scan_admission_waits_for_a_short_real_writer_lock",
   workspace_foundation_sqlite_admission_timeout:
@@ -150,6 +152,8 @@ describe("performance profile and manifest contract", () => {
       expect(benchmarks.find((benchmark) => benchmark.id === id)?.testName).toBe(testName);
       expect(source).toContain(`fn ${testName.split("::").at(-1)}(`);
     }
+    expect(benchmarks.find((benchmark) => benchmark.id === "workspace_foundation_browse_stage_observation_contract"))
+      .toMatchObject({ targetKey: "lib", targetArgs: ["--lib", "--features", PERFORMANCE_BUILD_FEATURES], ignored: false, testThreads: 1 });
     for (const id of [
       "workspace_foundation_sqlite_admission_wait",
       "workspace_foundation_sqlite_admission_timeout",

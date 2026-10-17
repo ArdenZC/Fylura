@@ -116,6 +116,28 @@ impl ManagedPathFilter {
         filter
     }
 
+    /// Direct events/imports do not traverse the directory chain. Check that
+    /// chain inside the selected root before applying a file or absence fact.
+    /// Ancestors above an explicitly selected root keep existing platform rules
+    /// (in particular macOS's trusted /var and /tmp aliases).
+    pub(crate) fn direct_path_has_no_links(&self, path: &Path) -> std::io::Result<bool> {
+        let Some(root) = self.root.as_ref() else {
+            return Ok(true);
+        };
+        for ancestor in path
+            .ancestors()
+            .take_while(|ancestor| within(&normalize(ancestor), root))
+        {
+            match std::fs::symlink_metadata(ancestor) {
+                Ok(metadata) if metadata_is_link_or_reparse(&metadata) => return Ok(false),
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(true)
+    }
+
     pub(crate) fn excludes(&self, path: &Path, is_dir: bool) -> bool {
         if self.resolved_root_excluded || protected_path(path) {
             return true;
@@ -299,6 +321,27 @@ mod tests {
             ".cache/file",
         ] {
             assert!(filter.excludes(&root.join(name), false), "{name}");
+        }
+        #[cfg(unix)]
+        {
+            let fixture = std::env::temp_dir().join(format!(
+                "zen-canvas-policy-link-{}",
+                crate::ids::new_job_id("fixture")
+            ));
+            let selected = fixture.join("selected");
+            let outside = fixture.join("outside");
+            std::fs::create_dir_all(&selected).unwrap();
+            std::fs::create_dir_all(&outside).unwrap();
+            std::fs::write(outside.join("fact.txt"), b"outside selected root").unwrap();
+            std::os::unix::fs::symlink(&outside, selected.join("Windows")).unwrap();
+            let filter = ManagedPathFilter::new(&selected);
+            assert!(!filter
+                .direct_path_has_no_links(&selected.join("Windows/fact.txt"))
+                .unwrap());
+            assert!(!filter
+                .direct_path_has_no_links(&selected.join("Windows/missing.txt"))
+                .unwrap());
+            std::fs::remove_dir_all(&fixture).unwrap();
         }
         for protected in managed_protected_roots() {
             assert!(

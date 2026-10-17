@@ -2209,6 +2209,12 @@ impl Database {
             if path_filter.excludes(&path, path.is_dir()) {
                 continue;
             }
+            if !path_filter.direct_path_has_no_links(&path)? {
+                reconciliation_required = true;
+                warning =
+                    Some("Linked ancestor in watcher path requires reconciliation.".to_string());
+                continue;
+            }
             if directory_paths.contains(&normalized) {
                 reconciliation_required = true;
             }

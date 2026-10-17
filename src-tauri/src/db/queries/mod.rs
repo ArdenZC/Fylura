@@ -439,6 +439,11 @@ fn collect_upsert_requests_for_path(
         None if path.is_dir() => ManagedPathFilter::new(&path),
         None => ManagedPathFilter::unselected(&path),
     };
+    if !path_filter.direct_path_has_no_links(&path)? {
+        return Err(DbError::Validation(
+            "Bulk upsert cannot follow a linked ancestor inside the selected root.".into(),
+        ));
+    }
     let mut stack = vec![path];
 
     while let Some(path_buf) = stack.pop() {

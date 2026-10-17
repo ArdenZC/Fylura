@@ -16,6 +16,27 @@ fn schema_18_adds_safe_trash_identity_columns() {
     let db = Database::open(&path).expect("create current database");
     drop(db);
     let conn = rusqlite::Connection::open(&path).expect("open sqlite");
+    // Test-only teardown mirrors support/performance_fixture.rs before a real
+    // Schema18 downgrade. DROP of the virtual table also removes its FTS shadows.
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS global_index_generation_entries_ai;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_insert_guard;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_no_update;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_no_delete;
+         DROP TABLE IF EXISTS global_index_generation_fts;
+         DROP TABLE IF EXISTS global_index_generation_entries;
+         DROP TABLE IF EXISTS global_index_generation_heads;
+         DROP TABLE IF EXISTS global_index_generations;",
+    )
+    .expect("remove only Schema42 objects from historical Schema18 fixture");
+    let remaining: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name GLOB 'global_index_generation*' OR tbl_name GLOB 'global_index_generation*'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("inspect Schema42 teardown including FTS shadows and indexes");
+    assert_eq!(remaining, 0, "historical fixture retains Schema42 objects");
     conn.execute_batch(
         r#"
         ALTER TABLE cleanup_trash_items DROP COLUMN source_modified_ns;
@@ -59,7 +80,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()

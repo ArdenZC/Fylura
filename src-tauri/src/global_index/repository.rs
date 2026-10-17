@@ -1711,7 +1711,7 @@ fn map_global_volume(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalVolume> 
     })
 }
 
-fn ensure_source_operation_owner_tx(
+pub(super) fn ensure_source_operation_owner_tx(
     transaction: &Transaction<'_>,
     owner: &SourceOperationOwner,
 ) -> Result<(), DbError> {

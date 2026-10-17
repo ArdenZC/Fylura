@@ -8,10 +8,12 @@ mod connection;
 mod learning;
 mod queries;
 mod schema;
+mod schema_global_generations;
 mod types;
 
 #[cfg(test)]
 pub(crate) fn drop_source_writer_schema_for_test(conn: &rusqlite::Connection) {
+    schema_global_generations::drop_for_test(conn);
     conn.execute_batch(
         "DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
          DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;

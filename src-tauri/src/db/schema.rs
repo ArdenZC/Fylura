@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 41;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 42;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -253,6 +253,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         )));
     }
     if version == CURRENT_SCHEMA_VERSION {
+        super::schema_global_generations::validate(conn)?;
         validate_library_identity_schema(conn)?;
         validate_library_source_writer_schema(conn)?;
         validate_library_source_physical_lookup_index(conn)?;
@@ -986,6 +987,14 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         }
         if version < 41 {
             migrate_library_source_physical_lookup_index(conn)?;
+        }
+        if version < 42 {
+            // Check the existing 41 contract before the additive migration.
+            validate_library_identity_schema(conn)?;
+            validate_library_source_writer_schema(conn)?;
+            validate_library_source_physical_lookup_index(conn)?;
+            super::schema_global_generations::install(conn)?;
+            set_schema_version(conn, 42)?;
         }
         Ok(())
     })
@@ -3436,6 +3445,7 @@ mod issue381_b4_p0_tests {
             [],
         )
         .expect("seed legacy file before migration");
+        crate::db::schema_global_generations::drop_for_test(&conn);
         conn.execute_batch(
             "DROP INDEX idx_library_source_physical_lookup; PRAGMA user_version = 40;",
         )
@@ -3507,8 +3517,8 @@ mod issue381_b4_p0_tests {
         let conn = Connection::open(&path).expect("inspect unchanged Schema41 drift fixture");
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
-                .expect("read unchanged Schema41 version"),
-            41
+                .expect("read unchanged current schema version"),
+            i64::from(CURRENT_SCHEMA_VERSION)
         );
         drop(conn);
         let _ = std::fs::remove_file(path);

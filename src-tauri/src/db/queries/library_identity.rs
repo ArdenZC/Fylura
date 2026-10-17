@@ -1007,6 +1007,7 @@ mod tests {
         );
         seed_physical_lookup_row(&conn, "uid-null-identity", "unverified", None, None, 0);
 
+        crate::db::schema_global_generations::drop_for_test(&conn);
         conn.execute_batch(
             "DROP INDEX idx_library_source_physical_lookup; PRAGMA user_version = 40;",
         )

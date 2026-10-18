@@ -902,17 +902,38 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("escape.txt"), b"outside selected root").unwrap();
         let linked = selected_build_root.join("linked");
+        #[cfg(windows)]
+        let (outside, linked) = {
+            let spaced_outside = outside.with_file_name("outside with spaces");
+            fs::rename(&outside, &spaced_outside).unwrap();
+            (spaced_outside, linked.with_file_name("linked with spaces"))
+        };
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, &linked).unwrap();
         #[cfg(windows)]
         {
-            let output = std::process::Command::new("cmd")
-                .args(["/C", "mklink", "/J"])
-                .arg(&linked)
-                .arg(&outside)
+            use std::os::windows::{fs::MetadataExt, process::CommandExt};
+
+            assert!(linked.is_absolute() && outside.is_absolute());
+            let linked_text = linked.to_string_lossy().replace('/', "\\");
+            let outside_text = outside.to_string_lossy().replace('/', "\\");
+            assert!(linked_text.contains(' ') && outside_text.contains(' '));
+            // cmd's built-in consumes one command line, not separately escaped
+            // program arguments. Keep Windows separators and quote both paths.
+            let command = format!(r#"mklink /J "{linked_text}" "{outside_text}""#);
+            let output = std::process::Command::new("cmd.exe")
+                .args(["/D", "/C"])
+                .raw_arg(command)
                 .output()
                 .expect("create junction under selected root");
             assert!(output.status.success(), "junction creation: {output:?}");
+            let metadata = fs::symlink_metadata(&linked).expect("read junction metadata");
+            assert!(metadata_is_link_or_reparse(&metadata));
+            assert_ne!(metadata.file_attributes() & 0x400, 0);
+            eprintln!(
+                "issue375 Windows junction created: absolute paths with spaces; reparse attributes={:#x}",
+                metadata.file_attributes()
+            );
         }
         let escaped_file = linked.join("escape.txt");
         assert!(matches!(
@@ -923,7 +944,13 @@ mod tests {
         #[cfg(unix)]
         fs::remove_file(&linked).unwrap();
         #[cfg(windows)]
-        fs::remove_dir(&linked).unwrap();
+        {
+            fs::remove_dir(&linked).unwrap();
+            assert_eq!(
+                fs::read(outside.join("escape.txt")).unwrap(),
+                b"outside selected root"
+            );
+        }
 
         let conn = db.conn().expect("open watcher-upsert query connection");
         {
@@ -952,6 +979,20 @@ mod tests {
                     0,
                     "excluded file was not inserted: {}",
                     path.display()
+                );
+            }
+            #[cfg(windows)]
+            {
+                let external_rows: i64 = conn
+                    .query_row(
+                        "SELECT count(*) FROM files WHERE path = ?1",
+                        [normalize_path_for_db(&outside.join("escape.txt"))],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(external_rows, 0, "junction target was not indexed");
+                eprintln!(
+                    "issue375 Windows junction escape denied: DbError::Validation; alias rows=0; external rows=0; target preserved"
                 );
             }
         }

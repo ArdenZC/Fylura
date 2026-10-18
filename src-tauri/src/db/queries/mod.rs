@@ -429,16 +429,22 @@ fn collect_upsert_requests_for_path(
     warnings: &mut Vec<WatcherUpsertWarning>,
     limit: usize,
 ) -> Result<(), DbError> {
-    // Resolve the actual input as well as its selected root: a direct file
-    // request must not reach a protected/dependency tree through an alias.
-    if ManagedPathFilter::new(&path).excludes(&path, path.is_dir()) {
-        return Ok(());
-    }
     let path_filter = match selected_root {
         Some(root) => ManagedPathFilter::new(root),
         None if path.is_dir() => ManagedPathFilter::new(&path),
         None => ManagedPathFilter::unselected(&path),
     };
+    // Keep verified selected-root authority for both lexical and resolved input.
+    // Resolving the input also retains protected/dependency checks when `..` or
+    // an alias leads outside the lexical root; the ancestor check rejects links.
+    if path_filter.excludes(&path, path.is_dir())
+        || path
+            .canonicalize()
+            .ok()
+            .is_some_and(|resolved| path_filter.excludes(&resolved, path.is_dir()))
+    {
+        return Ok(());
+    }
     if !path_filter.direct_path_has_no_links(&path)? {
         return Err(DbError::Validation(
             "Bulk upsert cannot follow a linked ancestor inside the selected root.".into(),
@@ -818,19 +824,13 @@ mod tests {
         );
 
         fs::write(project_root.join("package.json"), b"{}").unwrap();
+        let generated_file = project_root.join("build/generated.js");
+        fs::write(&generated_file, b"generated output").unwrap();
         assert_eq!(
-            upsert_files_by_paths_for_db(&db, &[project_build_file.to_string_lossy().into_owned()])
+            upsert_files_by_paths_for_db(&db, &[generated_file.to_string_lossy().into_owned()])
                 .unwrap(),
             0,
             "a direct file upsert cannot bypass recognized build exclusion"
-        );
-        let dependency = project_root.join("node_modules/pkg/index.js");
-        fs::create_dir_all(dependency.parent().unwrap()).unwrap();
-        fs::write(&dependency, b"dependency").unwrap();
-        assert_eq!(
-            upsert_files_by_paths_for_db(&db, &[dependency.to_string_lossy().into_owned()])
-                .unwrap(),
-            0
         );
         fs::write(
             selected_build_root.parent().unwrap().join("package.json"),
@@ -838,9 +838,92 @@ mod tests {
         )
         .unwrap();
         let selected_root_text = selected_build_root.to_string_lossy().into_owned();
-        let selected_count = upsert_files_by_paths_for_db(&db, &[selected_root_text])
-            .expect("bulk-upsert the explicitly selected build root");
-        assert_eq!(selected_count, 2, "selected root and its file are indexed");
+        let roots = vec![crate::settings::ScanRootSetting {
+            id: "issue375-explicit-build".into(),
+            path: selected_root_text,
+            label: "Explicit build".into(),
+            enabled: true,
+            created_at: "2026-10-18T00:00:00.000Z".into(),
+        }];
+        let mut settings = crate::settings::get_app_settings(&db).unwrap();
+        settings.default_scan_folders = roots.clone();
+        crate::settings::save_app_settings(&db, &settings).unwrap();
+        db.sync_file_library_watcher_roots(&roots).unwrap();
+        assert_eq!(db.list_watcher_root_configs().unwrap().len(), 1);
+
+        let selected_file_text = selected_build_file.to_string_lossy().into_owned();
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM files WHERE path = ?1",
+                    [normalize_path_for_db(&selected_build_file)],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0,
+            "no directory upsert has preinserted the selected file"
+        );
+        let selected_count = upsert_files_by_paths_for_db(&db, &[selected_file_text])
+            .expect("directly upsert a fresh file under the registered selected build root");
+        assert_eq!(
+            selected_count, 1,
+            "the fresh selected-root file is inserted"
+        );
+
+        let mut excluded_paths = vec![generated_file];
+        for root in [&project_root, &selected_build_root] {
+            for relative in ["node_modules/pkg/index.js", ".venv/pyvenv.cfg"] {
+                let dependency = root.join(relative);
+                fs::create_dir_all(dependency.parent().unwrap()).unwrap();
+                fs::write(&dependency, b"dependency").unwrap();
+                assert_eq!(
+                    upsert_files_by_paths_for_db(&db, &[dependency.to_string_lossy().into_owned()])
+                        .unwrap(),
+                    0,
+                    "direct dependency paths remain excluded: {}",
+                    dependency.display()
+                );
+                excluded_paths.push(dependency);
+            }
+        }
+        for protected_root in crate::path_filter::managed_protected_roots() {
+            let protected_file = protected_root.join("zen-canvas-upsert-policy-probe.txt");
+            assert_eq!(
+                upsert_files_by_paths_for_db(&db, &[protected_file.to_string_lossy().into_owned()])
+                    .unwrap(),
+                0,
+                "direct protected paths remain excluded"
+            );
+            excluded_paths.push(protected_file);
+        }
+
+        let outside = fixture.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("escape.txt"), b"outside selected root").unwrap();
+        let linked = selected_build_root.join("linked");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &linked).unwrap();
+        #[cfg(windows)]
+        {
+            let output = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&linked)
+                .arg(&outside)
+                .output()
+                .expect("create junction under selected root");
+            assert!(output.status.success(), "junction creation: {output:?}");
+        }
+        let escaped_file = linked.join("escape.txt");
+        assert!(matches!(
+            upsert_files_by_paths_for_db(&db, &[escaped_file.to_string_lossy().into_owned()]),
+            Err(DbError::Validation(_))
+        ));
+        excluded_paths.push(escaped_file);
+        #[cfg(unix)]
+        fs::remove_file(&linked).unwrap();
+        #[cfg(windows)]
+        fs::remove_dir(&linked).unwrap();
 
         let conn = db.conn().expect("open watcher-upsert query connection");
         {
@@ -855,8 +938,22 @@ mod tests {
             };
             assert!(is_indexed(&project_build_file));
             assert!(is_indexed(&project_source_file));
-            assert!(is_indexed(&selected_build_root));
             assert!(is_indexed(&selected_build_file));
+            for path in &excluded_paths {
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT count(*) FROM files WHERE path = ?1",
+                        [normalize_path_for_db(path)],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    count,
+                    0,
+                    "excluded file was not inserted: {}",
+                    path.display()
+                );
+            }
         }
         drop(conn);
         drop(db);

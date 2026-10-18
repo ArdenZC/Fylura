@@ -283,7 +283,10 @@ impl PreparedPreview for PreparedArchiveZipPreview {
 
             let metadata = match archive.by_index_raw(index) {
                 Ok(file) => ArchiveEntryMetadata {
-                    name: file.name().to_owned(),
+                    name: file
+                        .name()
+                        .map_err(|_| PreviewProviderError::CorruptSource)?
+                        .into_owned(),
                     is_directory: file.is_dir(),
                     compressed_size: file.compressed_size(),
                     uncompressed_size: file.size(),
@@ -1972,6 +1975,43 @@ mod tests {
     }
 
     #[test]
+    fn rustsec_zip_symlink_and_privileged_modes_stay_inert_metadata() {
+        for mode in [0o120777_u32, 0o106755_u32] {
+            let mut bytes = zip_bytes(&[("../escape.txt", false, false)]);
+            let central = central_offset(&bytes);
+            bytes[central + 5] = 3; // Unix creator, including symlink/SUID/SGID mode bits.
+            bytes[central + 38..central + 42].copy_from_slice(&(mode << 16).to_le_bytes());
+            let gate = TestArchiveReadGate::new(bytes);
+            let result = load_archive_for_test(&gate, "hostile-mode-v1").unwrap();
+            let PreviewRepresentation::ArchiveTree { encoded_tree } = result.representation else {
+                panic!("expected metadata tree");
+            };
+            assert!(encoded_tree.contains("unsafe_name"));
+            assert!(gate.total_requested() <= MAX_ZIP_TOTAL_SOURCE_BYTES_READ);
+            // Source access is only through this read adapter: no extraction
+            // destination, symlink creation or Unix permission application exists.
+            assert!(!gate.reads_payload_data());
+        }
+    }
+
+    #[test]
+    fn zip9_legacy_encoded_member_name_is_preserved_as_inert_metadata() {
+        let mut bytes = zip_bytes(&[("bad.txt", false, false)]);
+        let central = central_offset(&bytes);
+        bytes[6..8].copy_from_slice(&0x0800_u16.to_le_bytes());
+        bytes[central + 8..central + 10].copy_from_slice(&0x0800_u16.to_le_bytes());
+        bytes[30] = 0x82; // zip 9 decodes non-UTF8 names through CP437.
+        bytes[central + 46] = 0x82;
+        let gate = TestArchiveReadGate::new(bytes);
+        let result = load_archive_for_test(&gate, "legacy-name-v1").unwrap();
+        let PreviewRepresentation::ArchiveTree { encoded_tree } = result.representation else {
+            panic!("expected metadata tree");
+        };
+        assert!(encoded_tree.contains("éad.txt"));
+        assert!(gate.total_requested() <= MAX_ZIP_TOTAL_SOURCE_BYTES_READ);
+    }
+
+    #[test]
     fn source_version_drift_is_terminal_and_never_publishes_archive_tree() {
         let bytes = zip_bytes(&[("file.txt", false, false)]);
         let gate = TestArchiveReadGate::new(bytes).expect_source_version("new-version");
@@ -2206,7 +2246,9 @@ mod tests {
     #[test]
     fn huge_comment_extra_and_declared_sizes_publish_partial_metadata_only() {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        writer.set_comment("c".repeat(MAX_ZIP_ARCHIVE_COMMENT_BYTES + 1));
+        writer
+            .set_comment("c".repeat(MAX_ZIP_ARCHIVE_COMMENT_BYTES + 1))
+            .expect("ZIP format accepts the 16 KiB plus one comment fixture");
         writer
             .start_file("huge.bin", zip::write::SimpleFileOptions::default())
             .expect("file entry");

@@ -71,6 +71,28 @@ fn source_writer_object_names() -> [&'static str; 7] {
     ]
 }
 
+// Mirror the performance fixture teardown before constructing genuine pre-42 inputs.
+fn drop_schema42_for_historical_fixture(conn: &Connection) {
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS global_index_generation_entries_ai;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_insert_guard;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_no_update;
+         DROP TRIGGER IF EXISTS global_index_generation_entries_no_delete;
+         DROP TABLE IF EXISTS global_index_generation_fts;
+         DROP TABLE IF EXISTS global_index_generation_entries;
+         DROP TABLE IF EXISTS global_index_generation_heads;
+         DROP TABLE IF EXISTS global_index_generations;",
+    )
+    .expect("remove only Schema42 objects from historical migration fixture");
+    let remaining: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name GLOB 'global_index_generation*' OR tbl_name GLOB 'global_index_generation*'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("inspect Schema42 teardown including FTS shadows and indexes");
+    assert_eq!(remaining, 0, "historical fixture retains Schema42 objects");
+}
 fn drop_source_writer_schema(conn: &Connection) {
     conn.execute_batch(
         "DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
@@ -158,13 +180,147 @@ fn full_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Optio
         .expect("collect schema snapshot")
 }
 
-fn legacy_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Option<String>)> {
+fn schema42_object_identities() -> Vec<(&'static str, &'static str, &'static str)> {
+    let mut identities = vec![
+        (
+            "table",
+            "global_index_generations",
+            "global_index_generations",
+        ),
+        (
+            "table",
+            "global_index_generation_heads",
+            "global_index_generation_heads",
+        ),
+        (
+            "table",
+            "global_index_generation_entries",
+            "global_index_generation_entries",
+        ),
+        (
+            "table",
+            "global_index_generation_fts",
+            "global_index_generation_fts",
+        ),
+        (
+            "table",
+            "global_index_generation_fts_data",
+            "global_index_generation_fts_data",
+        ),
+        (
+            "table",
+            "global_index_generation_fts_idx",
+            "global_index_generation_fts_idx",
+        ),
+        (
+            "table",
+            "global_index_generation_fts_docsize",
+            "global_index_generation_fts_docsize",
+        ),
+        (
+            "table",
+            "global_index_generation_fts_config",
+            "global_index_generation_fts_config",
+        ),
+        (
+            "trigger",
+            "global_index_generation_entries_insert_guard",
+            "global_index_generation_entries",
+        ),
+        (
+            "trigger",
+            "global_index_generation_entries_no_update",
+            "global_index_generation_entries",
+        ),
+        (
+            "trigger",
+            "global_index_generation_entries_no_delete",
+            "global_index_generation_entries",
+        ),
+        (
+            "trigger",
+            "global_index_generation_entries_ai",
+            "global_index_generation_entries",
+        ),
+    ];
+    identities.sort_unstable();
+    identities
+}
+
+fn schema42_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Option<String>)> {
+    let mut statement = conn
+        .prepare(
+            "SELECT type, name, tbl_name, sql FROM sqlite_schema \
+             WHERE name NOT LIKE 'sqlite_%' AND \
+             (name GLOB 'global_index_generation*' OR tbl_name GLOB 'global_index_generation*') \
+             ORDER BY type, name",
+        )
+        .expect("prepare complete Schema42 namespace snapshot");
+    statement
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("query Schema42 namespace snapshot")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect Schema42 SQL signatures")
+}
+
+fn assert_schema42_signatures_and_dormant_state(conn: &Connection) {
+    let reference = Connection::open_in_memory().expect("independent Schema42 reference");
+    reference
+        .execute_batch(include_str!("../src/db/schema_global_generations.sql"))
+        .expect("install unchanged production Schema42 SQL in reference");
+    let expected = schema42_schema_snapshot(&reference);
+    let identities = expected
+        .iter()
+        .map(|(kind, name, table, _)| (kind.as_str(), name.as_str(), table.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(identities.len(), 12, "Schema42 explicit object inventory");
+    assert_eq!(identities, schema42_object_identities());
+    assert_eq!(
+        schema42_schema_snapshot(conn),
+        expected,
+        "Schema42 objects must be complete and retain their exact SQL signatures"
+    );
+    for table in [
+        "global_index_generations",
+        "global_index_generation_entries",
+        "global_index_generation_fts",
+    ] {
+        let count: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("count dormant Schema42 rows");
+        assert_eq!(count, 0, "{table} must remain empty");
+    }
+    let nonlegacy_heads: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM global_index_generation_heads \
+             WHERE legacy_state <> 'LEGACY_UNVERIFIED' \
+             OR published_generation_id IS NOT NULL OR candidate_generation_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("inspect all Schema42 heads");
+    assert_eq!(
+        nonlegacy_heads, 0,
+        "no generation may be published or staged"
+    );
+}
+
+fn schema37_legacy_schema_snapshot(
+    conn: &Connection,
+) -> Vec<(String, String, String, Option<String>)> {
     let p0_names = identity_foundation_object_names();
     let source_writer_names = source_writer_object_names();
+    let schema42_identities = schema42_object_identities();
     full_schema_snapshot(conn)
         .into_iter()
-        .filter(|(_, name, _, _)| {
-            !p0_names.contains(&name.as_str()) && !source_writer_names.contains(&name.as_str())
+        .filter(|(kind, name, table, _)| {
+            !p0_names.contains(&name.as_str())
+                && !source_writer_names.contains(&name.as_str())
+                && !schema42_identities.contains(&(kind.as_str(), name.as_str(), table.as_str()))
         })
         .collect()
 }
@@ -292,6 +448,7 @@ fn downgrade_current_fixture_to_schema_16(path: &PathBuf) {
     let db = Database::open(path).expect("create current database");
     drop(db);
     let conn = Connection::open(path).expect("open downgrade fixture");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute(
         "UPDATE app_settings SET value = ?1, revision = 41 WHERE key = 'app_settings_v1'",
         [r#"{"closeBehavior":"minimize","folderNamingLanguage":"en","defaultScanFolders":[],"restoreRetentionDays":30,"launchAtLogin":false}"#],
@@ -374,6 +531,7 @@ fn downgrade_current_fixture_to_schema_20_or_21(path: &PathBuf, version: i32) {
     let db = Database::open(path).expect("create current database");
     drop(db);
     let conn = Connection::open(path).expect("open journal downgrade fixture");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute(
         "INSERT INTO operation_batches (id, created_at, status) VALUES ('legacy-pending-batch', 1, 'pending')",
         [],
@@ -518,6 +676,7 @@ fn downgrade_current_fixture_to_schema_34(path: &PathBuf) {
     let db = Database::open(path).expect("create schema 35 database");
     drop(db);
     let conn = Connection::open(path).expect("open schema 34 cleanup fixture");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute(
         "INSERT INTO cleanup_trash_batches (id, created_at, root, total_items, total_size, status) VALUES ('td014-batch', '1', 'C:/td014', 10, 70, 'success')",
         [],
@@ -666,7 +825,7 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema 35 version");
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     assert!(column_names(&conn, "cleanup_trash_items")
         .contains(&"source_platform_volume_id".to_string()));
 
@@ -880,20 +1039,34 @@ fn schema_34_cleanup_identity_migration_rolls_back_column_and_rows_together() {
 }
 
 #[test]
-fn schema_41_reopen_is_idempotent_and_future_schema_42_is_rejected() {
+fn schema_42_reopen_is_idempotent_and_future_schema_43_is_rejected() {
     let path = test_db_path("td014-idempotent");
     downgrade_current_fixture_to_schema_34(&path);
-    let db = Database::open(&path).expect("migrate schema 34 fixture to schema 35");
+    let db = Database::open(&path).expect("migrate schema 34 fixture to schema 42");
     drop(db);
-    let first = Connection::open(&path).expect("open migrated schema 35 fixture");
+    let first = Connection::open(&path).expect("open migrated schema 42 fixture");
+    assert_eq!(
+        first
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        42
+    );
+    let before_schema = full_schema_snapshot(&first);
     let before = cleanup_identity_snapshot(&first);
     drop(first);
 
-    Database::open(&path).expect("schema 35 reopen is idempotent");
-    let second = Connection::open(&path).expect("reopen migrated schema 35 fixture");
+    Database::open(&path).expect("schema 42 reopen is idempotent");
+    let second = Connection::open(&path).expect("reopen migrated schema 42 fixture");
     assert_eq!(cleanup_identity_snapshot(&second), before);
+    assert_eq!(full_schema_snapshot(&second), before_schema);
+    assert_eq!(
+        second
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        42
+    );
     second
-        .execute_batch("PRAGMA user_version = 42;")
+        .execute_batch("PRAGMA user_version = 43;")
         .expect("set future schema version");
     drop(second);
     let error = match Database::open(&path) {
@@ -936,7 +1109,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -1004,7 +1177,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 41);
+        assert_eq!(migrated_version, 42);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -1034,6 +1207,7 @@ fn schema_20_normalizes_invalid_historical_rule_domains_in_transaction() {
     let db = Database::open(&path).expect("create current database");
     drop(db);
     let conn = Connection::open(&path).expect("open enum fixture");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute(
         r#"
         INSERT INTO rules (
@@ -1081,6 +1255,7 @@ fn performance_100k_files_schema_28_to_29_and_wal_reader() {
     drop(db);
 
     let conn = Connection::open(&path).expect("open schema 29 fixture");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute(
         "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, current_generation, needs_reconciliation, created_at, updated_at) VALUES ('migration-performance-root', '/tmp/migration-performance-root', 'migration-performance-root', 'file_library', 1, 'healthy', 0, 0, 1, 1)",
         [],
@@ -1147,6 +1322,7 @@ fn performance_100k_files_schema_29_to_30_analysis_and_wal_reader() {
     drop(db);
 
     let conn = Connection::open(&path).expect("open schema 30 fixture");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute(
         "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, current_generation, needs_reconciliation, created_at, updated_at) VALUES ('analysis-migration-root', '/tmp/analysis-migration-root', 'analysis-migration-root', 'file_library', 1, 'healthy', 0, 0, 1, 1)",
         [],
@@ -1216,6 +1392,7 @@ fn downgrade_current_fixture_to_schema_22(path: &PathBuf) {
     let db = Database::open(path).expect("create current schema 23 database");
     drop(db);
     let conn = Connection::open(path).expect("open schema 22 fixture");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute_batch(
         r#"
         DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_insert;
@@ -1255,7 +1432,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        41
+        42
     );
     assert_schema_23_journal_columns(&conn);
 
@@ -1328,15 +1505,15 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
 #[test]
 fn p0_t01_fresh_and_repeated_open_keep_identity_authority_dormant() {
     let path = test_db_path("p0-t01-fresh");
-    let db = Database::open(&path).expect("create fresh schema 41 database");
+    let db = Database::open(&path).expect("create fresh schema 42 database");
     db.init().expect("repeat initialization is idempotent");
     drop(db);
 
-    let conn = Connection::open(&path).expect("inspect fresh schema 41 database");
+    let conn = Connection::open(&path).expect("inspect fresh schema 42 database");
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     let tables: Vec<String> = {
         let mut statement = conn
             .prepare(
@@ -1455,6 +1632,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     let db = Database::open(&path).expect("create current schema fixture");
     drop(db);
     let conn = Connection::open(&path).expect("seed schema 37 preservation fixture");
+    drop_schema42_for_historical_fixture(&conn);
     seed_legacy_contract_rows(&conn);
     drop_identity_foundation(&conn, 37);
 
@@ -1479,13 +1657,13 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
         .iter()
         .map(|table| (*table, table_snapshot(&conn, table)))
         .collect::<Vec<_>>();
-    let before_schema = legacy_schema_snapshot(&conn);
+    let before_schema = schema37_legacy_schema_snapshot(&conn);
     let before_fts = fts_rows_matching(&conn, "migrationtoken");
     assert_eq!(before_fts.len(), 1);
     drop(conn);
 
     let started = Instant::now();
-    let migrated = Database::open(&path).expect("migrate schema 37 fixture through schema 41");
+    let migrated = Database::open(&path).expect("migrate schema 37 fixture through schema 42");
     let migration_elapsed = started.elapsed();
     drop(migrated);
 
@@ -1493,11 +1671,12 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read migrated version");
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     for (table, expected) in before_rows {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");
     }
-    assert_eq!(legacy_schema_snapshot(&conn), before_schema);
+    assert_eq!(schema37_legacy_schema_snapshot(&conn), before_schema);
+    assert_schema42_signatures_and_dormant_state(&conn);
     assert_eq!(fts_rows_matching(&conn, "migrationtoken"), before_fts);
     let authority: (String, i64, Option<String>, i64) = conn
         .query_row(
@@ -1520,6 +1699,7 @@ fn p0_t03_schema_36_migrates_to_38_without_rewriting_files() {
     let db = Database::open(&path).expect("create current schema fixture");
     drop(db);
     let conn = Connection::open(&path).expect("create schema 36 fixture");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute(
         "INSERT INTO files (id, path, name, extension, size, mtime, is_dir, state_code) \
          VALUES ('v36-file', '/legacy/v36preserved.txt', 'v36preserved.txt', 'txt', 12, 9, 0, 0)",
@@ -1582,13 +1762,13 @@ fn p0_t03_schema_36_migrates_to_38_without_rewriting_files() {
     .expect("construct schema 36 automation tables");
     drop(conn);
 
-    let db = Database::open(&path).expect("migrate schema 36 through schema 41");
+    let db = Database::open(&path).expect("migrate schema 36 through schema 42");
     drop(db);
     let conn = Connection::open(&path).expect("inspect migrated schema 36 fixture");
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated version"),
-        41
+        42
     );
     assert_eq!(table_snapshot(&conn, "files"), before_file);
     assert_eq!(fts_rows_matching(&conn, "v36preserved"), before_fts);
@@ -1748,9 +1928,9 @@ fn p0_r1_schema_38_reopen_rejects_case_changed_check_without_mutation() {
 }
 
 #[test]
-fn schema_38_to_41_adds_source_and_operation_fencing_without_changing_global_index_data() {
+fn schema_38_to_42_adds_source_and_operation_fencing_without_changing_global_index_data() {
     let path = test_db_path("schema38-to-41-global-index");
-    let db = Database::open(&path).expect("create schema 41 fixture");
+    let db = Database::open(&path).expect("create schema 42 fixture");
     let volume = GlobalVolume {
         id: "schema39-volume".into(),
         platform: "windows".into(),
@@ -1802,7 +1982,8 @@ fn schema_38_to_41_adds_source_and_operation_fencing_without_changing_global_ind
     .expect("seed active Global Search entry");
     drop(db);
 
-    let conn = Connection::open(&path).expect("open schema 41 database as schema 38");
+    let conn = Connection::open(&path).expect("open schema 42 database as schema 38");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute_batch(
         r#"
         ALTER TABLE global_volumes DROP COLUMN rebuild_completed_revision;
@@ -1827,7 +2008,7 @@ fn schema_38_to_41_adds_source_and_operation_fencing_without_changing_global_ind
     .expect("construct pre-migration schema 38 fixture");
     drop(conn);
 
-    let migrated = Database::open(&path).expect("migrate schema 38 to schema 41");
+    let migrated = Database::open(&path).expect("migrate schema 38 to schema 42");
     let stored = migrated
         .get_global_volume(&volume.id)
         .expect("read migrated volume")
@@ -1861,15 +2042,15 @@ fn schema_38_to_41_adds_source_and_operation_fencing_without_changing_global_ind
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("read default operation state");
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     assert_eq!(entry, ("preserved.txt".into(), 0));
     assert_eq!(operation, (0, 0, 0));
 }
 
 #[test]
-fn schema_39_to_41_adds_writer_claims_without_changing_legacy_file_authority() {
+fn schema_39_to_42_adds_writer_claims_without_changing_legacy_file_authority() {
     let path = test_db_path("schema39-to-41-source-writer");
-    let db = Database::open(&path).expect("create schema 41 fixture");
+    let db = Database::open(&path).expect("create schema 42 fixture");
     db.insert_file(InsertFileRequest {
         id: "schema40-preserved".into(),
         path: "schema40-preserved".into(),
@@ -1884,7 +2065,8 @@ fn schema_39_to_41_adds_writer_claims_without_changing_legacy_file_authority() {
     .expect("seed legacy file row");
     drop(db);
 
-    let conn = Connection::open(&path).expect("open schema 41 as schema 39");
+    let conn = Connection::open(&path).expect("open schema 42 as schema 39");
+    drop_schema42_for_historical_fixture(&conn);
     let before_file = table_snapshot(&conn, "files");
     conn.execute_batch(
         r#"
@@ -1901,13 +2083,13 @@ fn schema_39_to_41_adds_writer_claims_without_changing_legacy_file_authority() {
     .expect("construct schema 39 fixture");
     drop(conn);
 
-    let migrated = Database::open(&path).expect("migrate schema 39 to schema 41");
+    let migrated = Database::open(&path).expect("migrate schema 39 to schema 42");
     drop(migrated);
-    let conn = Connection::open(&path).expect("inspect schema 41 result");
+    let conn = Connection::open(&path).expect("inspect schema 42 result");
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated version"),
-        41
+        42
     );
     assert_eq!(table_snapshot(&conn, "files"), before_file);
     assert_eq!(
@@ -1931,9 +2113,9 @@ fn schema_39_to_41_adds_writer_claims_without_changing_legacy_file_authority() {
 }
 
 #[test]
-fn schema_40_to_41_adds_only_lookup_index_and_preserves_existing_facts() {
+fn schema_40_to_42_adds_lookup_and_dormant_generations_and_preserves_existing_facts() {
     let path = test_db_path("schema40-to-41-preserve-facts");
-    let db = Database::open(&path).expect("create Schema41 fixture");
+    let db = Database::open(&path).expect("create Schema42 fixture");
     db.insert_file(InsertFileRequest {
         id: "schema41-legacy-file".into(),
         path: "/schema41/legacy.txt".into(),
@@ -1963,7 +2145,8 @@ fn schema_40_to_41_adds_only_lookup_index_and_preserves_existing_facts() {
     .expect("attach preserved user tag");
 
     drop(db);
-    let conn = Connection::open(&path).expect("open Schema41 fixture connection");
+    let conn = Connection::open(&path).expect("open Schema42 fixture connection");
+    drop_schema42_for_historical_fixture(&conn);
     conn.execute(
         "INSERT INTO scan_roots (
             id, normalized_path, display_name, source_kind, enabled,
@@ -2042,13 +2225,13 @@ fn schema_40_to_41_adds_only_lookup_index_and_preserves_existing_facts() {
         .expect("snapshot verified unique index");
     drop(conn);
 
-    let migrated = Database::open(&path).expect("migrate exact Schema40 fixture to 41");
+    let migrated = Database::open(&path).expect("migrate exact Schema40 fixture to 42");
     drop(migrated);
-    let conn = Connection::open(&path).expect("inspect Schema41 migrated fixture");
+    let conn = Connection::open(&path).expect("inspect Schema42 migrated fixture");
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated schema version"),
-        41
+        42
     );
     for (table, expected) in before {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");

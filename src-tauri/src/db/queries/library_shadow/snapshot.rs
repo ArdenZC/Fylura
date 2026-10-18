@@ -57,8 +57,12 @@ pub(super) fn capture(path: &Path, guard: &Guard) -> Result<Snapshot, DbError> {
 }
 
 fn capture_tx(conn: &Connection, guard: &mut Guard) -> Result<Snapshot, DbError> {
-    if conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? != 41 {
-        return Err(unavailable("source_schema_unsupported"));
+    match conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? {
+        41 => {}
+        // Schema42 adds only dormant Global Index objects. Validate their full
+        // signature without migrating or writing to this read-only source.
+        42 => crate::db::schema_global_generations::validate(conn)?,
+        _ => return Err(unavailable("source_schema_unsupported")),
     }
     let mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
     if !mode.eq_ignore_ascii_case("wal") {

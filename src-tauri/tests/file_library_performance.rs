@@ -23,6 +23,7 @@ use support::performance_fixture::{
 };
 
 fn drop_source_writer_schema_for_historical_fixture(conn: &Connection) {
+    support::performance_fixture::drop_schema42_for_historical_fixture(conn);
     conn.execute_batch(
         "DROP INDEX IF EXISTS idx_library_source_root_claims_source_state;
          DROP INDEX IF EXISTS idx_library_source_root_claims_root_path;
@@ -419,7 +420,7 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
             |row| row.get(0),
         )
         .expect("read migrated file library indexes");
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     assert_eq!(file_count, row_count as i64);
     assert_eq!(index_count, 5);
     println!(
@@ -488,7 +489,7 @@ fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
         .expect("read catalog revision");
     let size_after = fs::metadata(&path).expect("schema34 size").len();
     let size_delta = size_after.saturating_sub(size_before);
-    assert_eq!(version, 41);
+    assert_eq!(version, 42);
     for table in [
         "content_scope_policies",
         "content_runs",
@@ -693,4 +694,10 @@ fn percentile(values: &[Duration], percentile: f64) -> f64 {
     values.sort_by(f64::total_cmp);
     let index = ((values.len() as f64 - 1.0) * percentile).ceil() as usize;
     values[index.min(values.len().saturating_sub(1))]
+}
+
+#[test]
+fn schema42_historical_fixture_migrations_preserve_small_corpus() {
+    run_schema_migration_benchmark(8, "schema42-contract-library");
+    run_task07_schema_migration_benchmark(8, "schema42-contract-content");
 }

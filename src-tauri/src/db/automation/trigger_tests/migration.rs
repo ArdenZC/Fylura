@@ -23,8 +23,9 @@ fn schema36_to37_preserves_populated_manual_history_and_reopens() {
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            41
+            42
         );
+        super::super::tests::assert_dormant_schema42(&db.conn().unwrap());
         assert_eq!(
             db.conn()
                 .unwrap()
@@ -55,7 +56,8 @@ fn schema36_to37_preserves_populated_manual_history_and_reopens() {
             .unwrap();
         assert_eq!(states, 0);
         drop(db);
-        Database::open(&path).unwrap();
+        let reopened = Database::open(&path).unwrap();
+        super::super::tests::assert_dormant_schema42(&reopened.conn().unwrap());
     }
 }
 

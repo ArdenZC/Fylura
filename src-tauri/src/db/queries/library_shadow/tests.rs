@@ -917,3 +917,150 @@ fn power_policy_defers_before_io_and_charged_ram_budget_fails_closed() {
         "ram_budget",
     );
 }
+
+// Observe all persisted main/WAL bytes as well as the captured source facts.
+fn main_bytes(f: &Fixture) -> (Vec<u8>, Option<Vec<u8>>) {
+    let mut wal = f.db.path().as_os_str().to_os_string();
+    wal.push("-wal");
+    let wal = PathBuf::from(wal);
+    (
+        fs::read(f.db.path()).unwrap(),
+        wal.exists().then(|| fs::read(wal).unwrap()),
+    )
+}
+
+#[test]
+fn schema41_and_schema42_build_verify_query_and_qualify_without_main_writes() {
+    let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
+    for version in [41, 42] {
+        let f = fixture();
+        let conn = f.db.conn().unwrap();
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            42
+        );
+        if version == 41 {
+            crate::db::schema_global_generations::drop_for_test(&conn);
+            conn.execute_batch("PRAGMA user_version=41").unwrap();
+        }
+        let before_version: i64 = conn
+            .query_row("PRAGMA data_version", [], |r| r.get(0))
+            .unwrap();
+        let before_bytes = main_bytes(&f);
+        let guard = Guard::new(
+            &f.workspace,
+            f.db.path(),
+            budget(),
+            CancellationToken::new(),
+        );
+        let before = snapshot::capture(f.db.path(), &guard).unwrap();
+        let candidate = build(&f);
+        let verified = verify(&candidate).unwrap();
+        let shadow = open_shadow(&verified).unwrap();
+        let page = shadow.query(spec(), 20, None).unwrap();
+        assert_eq!(page.total, 2);
+        assert_eq!(page.rows.len(), 2);
+        let tagged = page.rows.iter().find(|r| r.file_id == "one").unwrap();
+        assert_eq!(tagged.tags, vec!["tag".to_string()]);
+        assert!(!tagged.source_uid.is_empty());
+        snapshot::qualify_current(&candidate, reader(&f), budget(), CancellationToken::new())
+            .unwrap();
+        assert_eq!(snapshot::capture(f.db.path(), &guard).unwrap(), before);
+        assert_eq!(
+            main_bytes(&f),
+            before_bytes,
+            "Schema{version} main/WAL bytes changed"
+        );
+        assert_eq!(
+            conn.query_row("PRAGMA data_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            before_version
+        );
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            version
+        );
+        let authority: (String, i64, Option<String>, i64) = conn.query_row(
+            "SELECT read_mode,active_catalog_epoch,active_fts_slot_id,revision FROM library_generation_authority",
+            [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        ).unwrap();
+        assert_eq!(authority, ("legacy".into(), 0, None, 1));
+        drop(shadow);
+        retire_candidate(&verified).unwrap();
+    }
+}
+
+fn assert_capture_rejected_without_main_write(f: &Fixture, reason: &str) {
+    let before = main_bytes(f);
+    fails(
+        prepare(reader(f), &f.workspace, budget(), CancellationToken::new()),
+        reason,
+    );
+    assert_eq!(main_bytes(f), before);
+    let directories = fs::read_dir(&f.workspace)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(directories.len(), 1);
+    let directory = directories[0].path();
+    assert_eq!(
+        fs::read_to_string(directory.join("state")).unwrap(),
+        "UNAVAILABLE"
+    );
+    assert!(!directory.join("index.sqlite").exists());
+    fails(
+        recover_candidate(&directory),
+        "recovery_requires_fresh_capture",
+    );
+}
+
+#[test]
+fn schema40_and_schema43_sources_are_rejected_before_shadow_build() {
+    let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
+    for version in [40, 43] {
+        let f = fixture();
+        let conn = f.db.conn().unwrap();
+        crate::db::schema_global_generations::drop_for_test(&conn);
+        if version == 40 {
+            conn.execute_batch("DROP INDEX idx_library_source_physical_lookup")
+                .unwrap();
+        }
+        conn.execute_batch(&format!("PRAGMA user_version={version}"))
+            .unwrap();
+        assert_capture_rejected_without_main_write(&f, "source_schema_unsupported");
+    }
+}
+
+#[test]
+fn malformed_schema42_namespace_is_rejected_before_shadow_build() {
+    let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
+    for sql in [
+        "DROP TRIGGER global_index_generation_entries_no_update",
+        "DROP TABLE global_index_generation_fts",
+        "DROP TRIGGER global_index_generation_entries_no_update; CREATE TRIGGER global_index_generation_entries_no_update BEFORE UPDATE ON global_index_generation_entries BEGIN SELECT 1; END",
+        "CREATE TABLE global_index_generation_forged(value TEXT)",
+    ] {
+        let f = fixture();
+        f.db.conn().unwrap().execute_batch(sql).unwrap();
+        assert_capture_rejected_without_main_write(&f, "global_index_schema42_generation_signature_conflict");
+    }
+}
+
+#[test]
+fn schema42_current_qualification_rejects_signature_drift_without_main_writes() {
+    let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
+    let f = fixture();
+    let candidate = build(&f);
+    verify(&candidate).unwrap();
+    let conn = f.db.conn().unwrap();
+    conn.execute_batch("DROP TRIGGER global_index_generation_entries_no_delete")
+        .unwrap();
+    let before = main_bytes(&f);
+    fails(
+        snapshot::qualify_current(&candidate, reader(&f), budget(), CancellationToken::new()),
+        "global_index_schema42_generation_signature_conflict",
+    );
+    assert_eq!(main_bytes(&f), before);
+}

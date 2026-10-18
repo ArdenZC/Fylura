@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createBinaryManifest,
   createFixtureManifest,
@@ -81,6 +81,39 @@ function createTaskTempRoot(prefix: string) {
   const parent = path.join(process.cwd(), ".tmp-tests");
   fs.mkdirSync(parent, { recursive: true });
   return fs.mkdtempSync(path.join(parent, prefix));
+}
+
+function withFakePreparedBinary(check: (executable: string, marker: string) => void) {
+  const root = createTaskTempRoot("prepared-test-list-");
+  const executable = path.join(root, "fake libtest.cjs");
+  const marker = path.join(root, "executed.txt");
+  fs.writeFileSync(executable, `
+const fs = require("node:fs");
+const listing = process.argv.includes("--list");
+const phase = listing ? "list" : "run";
+if (process.env.TEST_TIMEOUT_PHASE === phase) {
+  process.stdout.write(phase + " before timeout\\n");
+  process.stderr.write(phase + " timeout stderr\\n");
+  setInterval(() => {}, 1000);
+} else if (listing) {
+  const selected = !process.argv.includes("--ignored") || process.env.TEST_IGNORED !== "0";
+  const count = selected ? Number(process.env.TEST_MATCHES ?? "1") : 0;
+  for (let i = 0; i < count; i++) process.stdout.write(process.argv[1] + ": test\\r\\n");
+  process.stdout.write("\\r\\n" + count + " tests, 0 benchmarks\\r\\n");
+  process.stderr.write("listing stderr\\n");
+  process.exit(Number(process.env.TEST_LIST_STATUS ?? "0"));
+} else {
+  fs.writeFileSync(process.env.TEST_RUN_MARKER, "executed");
+  process.stdout.write("benchmark stdout\\n");
+  process.stderr.write("benchmark stderr\\n");
+  process.exit(Number(process.env.TEST_RUN_STATUS ?? "0"));
+}
+`);
+  try {
+    check(executable, marker);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 describe("performance profile and manifest contract", () => {
@@ -164,6 +197,25 @@ describe("performance profile and manifest contract", () => {
         testThreads: 1,
       });
     }
+  });
+
+  it("maps Global Search 100k and Full 1M to the real ignored benchmark and explicit scales", () => {
+    const testName = "global_index::tests::global_search_benchmark::global_search_synthetic_benchmark_baseline";
+    const extended = getPerformanceBenchmarks("search", "extended");
+    const full = getPerformanceBenchmarks("search", "full");
+    expect(extended.find((item) => item.id === "global_search_100k")).toMatchObject({
+      testName, ignored: true, targetKey: "lib",
+      env: { ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "100000" },
+    });
+    expect(extended.some((item) => item.id === "global_search_1m")).toBe(false);
+    expect(full.find((item) => item.id === "global_search_1m")).toMatchObject({
+      testName, ignored: true, targetKey: "lib",
+      env: { ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "1000000" },
+    });
+    const source = read("src-tauri/src/global_index/tests/global_search_benchmark.rs");
+    expect(source).toContain("fn global_search_synthetic_benchmark_baseline()");
+    expect(source).toContain('env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")');
+    expect(source).toContain("const WARM_QUERY_P95_LIMIT_MS: f64 = 100.0;");
   });
 
   it("locks Preview Phase A manifest IDs, targets and fixture vocabulary", () => {
@@ -391,10 +443,14 @@ describe("performance profile and manifest contract", () => {
       env: process.env,
       spawnImpl: (command: string, args: string[]) => {
         calls.push({ command, args });
-        return { status: 0, signal: null };
+        return { status: 0, signal: null, stdout: args.includes("--list") ? `${args[0]}: test\n\n1 test, 0 benchmarks\n` : "" };
       },
     });
     expect(calls[0]).toEqual({
+      command: "fake.exe",
+      args: ["passing_test", "--list", "--exact", "--ignored"],
+    });
+    expect(calls[1]).toEqual({
       command: "fake.exe",
       args: ["passing_test", "--exact", "--ignored", "--nocapture"],
     });
@@ -403,7 +459,9 @@ describe("performance profile and manifest contract", () => {
       testName: "failing_test",
       cwd: process.cwd(),
       env: process.env,
-      spawnImpl: () => ({ status: 1, signal: null, stdout: "out", stderr: "err" }),
+      spawnImpl: (_command: string, args: string[]) => args.includes("--list")
+        ? { status: 0, signal: null, stdout: `${args[0]}: test\n` }
+        : { status: 1, signal: null, stdout: "out", stderr: "err" },
     })).toThrow(/exit code 1/);
     expect(() => runPreparedTestBinary({
       executable: "missing.exe",
@@ -427,6 +485,99 @@ describe("performance profile and manifest contract", () => {
         error: new Error("timed out"),
       }),
     })).toThrow("timed out");
+  });
+
+  it.each([0, 2])("rejects %i real fake-binary registrations before benchmark execution", (matches) => {
+    withFakePreparedBinary((executable, marker) => {
+      expect(() => runPreparedTestBinary({
+        executable: process.execPath, testName: executable, stdio: "pipe",
+        cwd: process.cwd(),
+        env: { ...process.env, TEST_MATCHES: String(matches), TEST_RUN_MARKER: marker },
+      })).toThrow(`matched ${matches}`);
+      expect(fs.existsSync(marker)).toBe(false);
+    });
+  });
+
+  it.each([true, false])("runs exactly one selected test with ignored=%s and preserves output", (ignored) => {
+    withFakePreparedBinary((executable, marker) => {
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      try {
+        const result = runPreparedTestBinary({
+          executable: process.execPath, testName: executable, ignored, stdio: "pipe",
+          cwd: process.cwd(),
+          env: { ...process.env, TEST_IGNORED: ignored ? "1" : "0", TEST_RUN_MARKER: marker },
+        });
+        expect(result.stdout).toBe("benchmark stdout\n");
+        expect(result.stderr).toBe("benchmark stderr\n");
+        expect(stderr).toHaveBeenCalledWith("listing stderr\n");
+        expect(fs.readFileSync(marker, "utf8")).toBe("executed");
+      } finally {
+        stderr.mockRestore();
+      }
+    });
+  });
+
+  it("rejects an ignored registration when the invocation would skip it", () => {
+    withFakePreparedBinary((executable, marker) => {
+      expect(() => runPreparedTestBinary({
+        executable: process.execPath, testName: executable, ignored: false, stdio: "pipe",
+        cwd: process.cwd(),
+        env: { ...process.env, TEST_IGNORED: "1", TEST_RUN_MARKER: marker },
+      })).toThrow("requested a nonignored test but matched an ignored registration");
+      expect(fs.existsSync(marker)).toBe(false);
+    });
+  });
+
+  it.each(["list", "run"])("propagates real %s process failure and diagnostic output", (phase) => {
+    withFakePreparedBinary((executable, marker) => {
+      const env = {
+        ...process.env, TEST_RUN_MARKER: marker,
+        ...(phase === "list" ? { TEST_LIST_STATUS: "7" } : { TEST_RUN_STATUS: "7" }),
+      };
+      expect(() => runPreparedTestBinary({
+        executable: process.execPath, testName: executable, env, stdio: "pipe",
+        cwd: process.cwd(),
+      })).toThrow(new RegExp(`exit code 7\\.[\\s\\S]*${phase === "list" ? "listing stderr" : "benchmark stderr"}`));
+      expect(fs.existsSync(marker)).toBe(phase === "run");
+    });
+  });
+
+  it.each(["list", "run"])("propagates real %s timeout and captured output", (phase) => {
+    withFakePreparedBinary((executable, marker) => {
+      expect(() => runPreparedTestBinary({
+        executable: process.execPath, testName: executable, timeoutMs: 1000, stdio: "pipe",
+        cwd: process.cwd(),
+        env: { ...process.env, TEST_TIMEOUT_PHASE: phase, TEST_RUN_MARKER: marker },
+      })).toThrow(new RegExp(`ETIMEDOUT[\\s\\S]*${phase} before timeout[\\s\\S]*${phase} timeout stderr`));
+    });
+  });
+
+  it.each(["list", "run"])("propagates a %s process signal", (phase) => {
+    expect(() => runPreparedTestBinary({
+      executable: "fake.exe", testName: "signal_test",
+      cwd: process.cwd(),
+      env: process.env,
+      spawnImpl: (_command: string, args: string[]) => {
+        if ((args.includes("--list") ? "list" : "run") === phase) {
+          return { status: null, signal: "SIGTERM", stdout: "before signal", stderr: "signal stderr" };
+        }
+        return { status: 0, signal: null, stdout: "signal_test: test\n" };
+      },
+    })).toThrow(/signal SIGTERM[\s\S]*before signal[\s\S]*signal stderr/);
+  });
+
+  it.each([
+    "1 test, 0 benchmarks\n",
+    "different_test: test\n\n1 test, 0 benchmarks\n",
+    "expected_test: benchmark\n\n0 tests, 1 benchmark\n",
+  ])("rejects malformed or wrong test listing %j", (stdout) => {
+    const spawn = vi.fn(() => ({ status: 0, signal: null, stdout, stderr: "list diagnostics" }));
+    expect(() => runPreparedTestBinary({
+      executable: "fake.exe", testName: "expected_test", spawnImpl: spawn,
+      cwd: process.cwd(),
+      env: process.env,
+    })).toThrow(/expected_test[\s\S]*expected exactly one[\s\S]*list diagnostics/);
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 
   it("validates binary commit/hash/path and fixture manifest contracts", () => {

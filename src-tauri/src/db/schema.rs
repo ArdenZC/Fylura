@@ -246,32 +246,34 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<(), DbError> {
 
 pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
     assert_fts5_available(conn)?;
-    let version = schema_version(conn)?;
-    if version > CURRENT_SCHEMA_VERSION {
-        return Err(DbError::Validation(format!(
-            "Database schema version {version} is newer than this app supports ({CURRENT_SCHEMA_VERSION})."
-        )));
-    }
-    if version == CURRENT_SCHEMA_VERSION {
-        super::schema_global_generations::validate(conn)?;
-        validate_library_identity_schema(conn)?;
-        validate_library_source_writer_schema(conn)?;
-        validate_library_source_physical_lookup_index(conn)?;
-        ensure_global_index_schema(conn)?;
-        ensure_global_index_hardening(conn)?;
-        ensure_journal_state_triggers(conn)?;
-        ensure_scan_ledger_schema(conn)?;
-        ensure_watcher_reconciliation_schema(conn)?;
-        ensure_dedupe_schema(conn)?;
-        ensure_analysis_schema(conn)?;
-        ensure_file_library_schema(conn)?;
-        ensure_organization_plan_schema(conn)?;
-        ensure_rule_proposal_schema(conn)?;
-        ensure_content_schema(conn)?;
-        backfill_scan_roots_from_settings(conn)?;
-        return Ok(());
-    }
+    // Read and decide under the same write lock. Another opener may finish an
+    // upgrade while this connection waits for BEGIN IMMEDIATE.
     with_migration_transaction(conn, |conn| {
+        let version = schema_version(conn)?;
+        if version > CURRENT_SCHEMA_VERSION {
+            return Err(DbError::Validation(format!(
+                "Database schema version {version} is newer than this app supports ({CURRENT_SCHEMA_VERSION})."
+            )));
+        }
+        if version == CURRENT_SCHEMA_VERSION {
+            super::schema_global_generations::validate(conn)?;
+            validate_library_identity_schema(conn)?;
+            validate_library_source_writer_schema(conn)?;
+            validate_library_source_physical_lookup_index(conn)?;
+            ensure_global_index_schema(conn)?;
+            ensure_global_index_hardening(conn)?;
+            ensure_journal_state_triggers(conn)?;
+            ensure_scan_ledger_schema(conn)?;
+            ensure_watcher_reconciliation_schema(conn)?;
+            ensure_dedupe_schema(conn)?;
+            ensure_analysis_schema(conn)?;
+            ensure_file_library_schema(conn)?;
+            ensure_organization_plan_schema(conn)?;
+            ensure_rule_proposal_schema(conn)?;
+            ensure_content_schema(conn)?;
+            backfill_scan_roots_from_settings(conn)?;
+            return Ok(());
+        }
         let library_identity_schema_installed = if version < 38 {
             ensure_library_identity_schema_names_available(conn)?
         } else if version == 38 {
@@ -3606,5 +3608,299 @@ mod issue381_b4_p0_tests {
         drop(conn);
         drop(db);
         let _ = std::fs::remove_file(path);
+    }
+    #[derive(Debug, PartialEq)]
+    struct Issue441Snapshot {
+        version: i32,
+        schema: Vec<(String, String, String, Option<String>)>,
+        facts: Vec<Vec<Vec<String>>>,
+        fts: Vec<Vec<String>>,
+    }
+
+    fn issue441_rows(conn: &Connection, sql: &str) -> Vec<Vec<String>> {
+        let mut statement = conn.prepare(sql).expect("prepare migration evidence");
+        let columns = statement.column_count();
+        statement
+            .query_map([], |row| {
+                (0..columns)
+                    .map(|index| {
+                        Ok(match row.get_ref(index)? {
+                            rusqlite::types::ValueRef::Null => "<null>".to_string(),
+                            rusqlite::types::ValueRef::Text(bytes) => {
+                                String::from_utf8_lossy(bytes).into_owned()
+                            }
+                            value => format!("{value:?}"),
+                        })
+                    })
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    }
+
+    fn issue441_snapshot(conn: &Connection) -> Issue441Snapshot {
+        let mut statement = conn
+            .prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name")
+            .unwrap();
+        let schema = statement
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let facts = [
+            "SELECT id,path,name,extension,size,mtime,is_dir,state_code FROM files ORDER BY id",
+            "SELECT * FROM user_tags ORDER BY id",
+            "SELECT * FROM file_user_tags ORDER BY file_id,tag_id",
+            "SELECT * FROM app_settings ORDER BY key",
+            "SELECT id,revision,title,workflow_kind,scope_query_json,scope_fingerprint,policy_json,enabled,created_at,updated_at,archived_at FROM automation_intents ORDER BY id",
+            "SELECT id,request_key,intent_id,intent_revision,trigger_kind,scope_fingerprint,library_snapshot_revision,status,result_plan_id,queued_analysis_count,requires_plan_refresh,analysis_blocker_code,error_code,created_at,completed_at FROM automation_runs ORDER BY id",
+        ]
+        .iter()
+        .map(|sql| issue441_rows(conn, sql))
+        .collect();
+        Issue441Snapshot {
+            version: schema_version(conn).unwrap(),
+            schema,
+            facts,
+            fts: issue441_rows(conn, "SELECT rowid,name,path FROM files_fts WHERE files_fts MATCH 'migrationtoken' ORDER BY rowid"),
+        }
+    }
+
+    fn issue441_connection(path: &std::path::Path) -> Connection {
+        let conn = Connection::open(path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(mode, "wal");
+        conn
+    }
+
+    fn issue441_schema36_fixture(label: &str) -> std::path::PathBuf {
+        let path = test_database_path(label);
+        let db = Database::open(&path).unwrap();
+        let conn = db.conn().unwrap();
+        remove_identity_foundation(&conn, 36);
+        conn.execute_batch(
+            "DROP TABLE automation_trigger_state;
+             DROP TABLE automation_runs;
+             DROP TABLE automation_intents;
+             ALTER TABLE files DROP COLUMN filesystem_observation_key;
+             ALTER TABLE scan_roots DROP COLUMN library_change_revision;",
+        )
+        .unwrap();
+        super::super::schema_automation::ensure_automation_schema(&conn).unwrap();
+        conn.execute_batch(r#"
+            INSERT INTO files(id,path,name,extension,size,mtime,is_dir,state_code)
+            VALUES('lock-file','/issue441/migrationtoken.txt','migrationtoken.txt','txt',7,100,0,0);
+            INSERT INTO user_tags(id,display_name,normalized_name,color_token,created_at,updated_at,revision)
+            VALUES('lock-tag','Kept tag','kept tag','blue',100,200,1);
+            INSERT INTO file_user_tags(file_id,tag_id,created_at) VALUES('lock-file','lock-tag',100);
+            INSERT INTO app_settings(key,value) VALUES('issue441-preserved','unchanged');
+            INSERT INTO automation_intents(id,revision,title,workflow_kind,scope_query_json,scope_fingerprint,trigger_json,policy_json,enabled,created_at,updated_at)
+            VALUES('lock-intent',7,'Kept intent','organize_plan','{}','kept-scope','{"version":1,"kind":"manual"}','{"version":1,"review":"required","autoExecute":false}',1,100,200);
+            INSERT INTO automation_runs(id,request_key,intent_id,intent_revision,trigger_kind,scope_fingerprint,status,queued_analysis_count,requires_plan_refresh,created_at,completed_at)
+            VALUES('lock-run','kept-request','lock-intent',7,'manual','kept-scope','blocked',0,0,100,200);
+        "#).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), 36);
+        assert_eq!(
+            issue441_rows(&conn, "PRAGMA table_info(automation_runs)").len(),
+            15
+        );
+        drop(conn);
+        drop(db);
+        path
+    }
+
+    fn issue441_assert_current(conn: &Connection, original: &Issue441Snapshot) {
+        let current = issue441_snapshot(conn);
+        assert_eq!(current.version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(current.facts, original.facts);
+        assert_eq!(current.fts, original.fts);
+        assert_eq!(current.fts.len(), 1);
+        assert_eq!(
+            issue441_rows(conn, "PRAGMA table_info(automation_runs)").len(),
+            16
+        );
+        assert_eq!(
+            issue441_rows(conn, "SELECT trigger_context_json FROM automation_runs"),
+            vec![vec![r#"{"version":1,"kind":"manual"}"#.to_string()]]
+        );
+        let authority: (String, i64, Option<String>, i64) = conn.query_row(
+            "SELECT read_mode,active_catalog_epoch,active_fts_slot_id,revision FROM library_generation_authority WHERE singleton_id=1", [],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)),
+        ).unwrap();
+        assert_eq!(authority, ("legacy".into(), 0, None, 1));
+        super::super::schema_global_generations::validate(conn).unwrap();
+        for table in [
+            "global_index_generations",
+            "global_index_generation_entries",
+            "global_index_generation_fts",
+        ] {
+            assert_eq!(
+                conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+        assert!(conn.is_autocommit());
+    }
+
+    struct Issue441BusyGate {
+        entered: std::sync::mpsc::SyncSender<()>,
+        resume: std::sync::mpsc::Receiver<()>,
+    }
+    std::thread_local! {
+        static ISSUE441_BUSY_GATE: std::cell::RefCell<Option<Issue441BusyGate>> = const { std::cell::RefCell::new(None) };
+    }
+    fn issue441_busy_gate(_attempts: i32) -> bool {
+        // Exactly one controlled retry after the holder commits, not a sleep
+        // or probabilistic retry loop. Other contention fails closed.
+        ISSUE441_BUSY_GATE.with(|slot| {
+            let Some(gate) = slot.borrow_mut().take() else {
+                return false;
+            };
+            gate.entered.send(()).is_ok()
+                && gate
+                    .resume
+                    .recv_timeout(std::time::Duration::from_secs(30))
+                    .is_ok()
+        })
+    }
+    struct Issue441Opener {
+        thread: std::thread::JoinHandle<Result<Issue441Snapshot, DbError>>,
+        entered: std::sync::mpsc::Receiver<()>,
+        resume: std::sync::mpsc::SyncSender<()>,
+    }
+    fn issue441_opener(conn: Connection, observed_version: i32) -> Issue441Opener {
+        let (entered_tx, entered) = std::sync::mpsc::sync_channel(1);
+        let (resume, resume_rx) = std::sync::mpsc::sync_channel(1);
+        let thread = std::thread::spawn(move || {
+            // This test observation deliberately becomes stale; migrate must
+            // obtain its own authoritative version only after taking the lock.
+            assert_eq!(schema_version(&conn)?, observed_version);
+            ISSUE441_BUSY_GATE.with(|slot| {
+                *slot.borrow_mut() = Some(Issue441BusyGate {
+                    entered: entered_tx,
+                    resume: resume_rx,
+                })
+            });
+            conn.busy_handler(Some(issue441_busy_gate))?;
+            let result = migrate(&conn);
+            assert!(
+                conn.is_autocommit(),
+                "success and error must close the transaction"
+            );
+            result?;
+            Ok(issue441_snapshot(&conn))
+        });
+        Issue441Opener {
+            thread,
+            entered,
+            resume,
+        }
+    }
+
+    #[test]
+    fn issue441_concurrent_migrators_reread_version_after_write_lock() {
+        let path = issue441_schema36_fixture("issue441-concurrent");
+        let holder = issue441_connection(&path);
+        let original = issue441_snapshot(&holder);
+        let a = issue441_connection(&path);
+        let b = issue441_connection(&path);
+        holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let a = issue441_opener(a, 36);
+        let b = issue441_opener(b, 36);
+        a.entered
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .unwrap();
+        b.entered
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .unwrap();
+        holder.execute_batch("COMMIT").unwrap();
+        a.resume.send(()).unwrap();
+        let after_a = a.thread.join().unwrap().expect("first migration succeeds");
+        assert_eq!(after_a.version, 42);
+        b.resume.send(()).unwrap();
+        let after_b = b
+            .thread
+            .join()
+            .unwrap()
+            .expect("second opener must not repeat 36-to-37");
+        assert_eq!(after_a, after_b);
+        issue441_assert_current(&holder, &original);
+        let reopened = Database::open(&path).unwrap();
+        assert_eq!(issue441_snapshot(&reopened.conn().unwrap()), after_a);
+        eprintln!("[issue441] both observed36 before lock; A committed42; B reread42; identical schema/rows/FTS, legacy Authority, dormant Schema42");
+    }
+
+    #[test]
+    fn issue441_independent_paths_and_serial_reopens_preserve_legacy_facts() {
+        for label in ["issue441-isolated-a", "issue441-isolated-b"] {
+            let path = issue441_schema36_fixture(label);
+            let conn = issue441_connection(&path);
+            let before = issue441_snapshot(&conn);
+            for _ in 0..2 {
+                let db = Database::open(&path).unwrap();
+                issue441_assert_current(&db.conn().unwrap(), &before);
+            }
+        }
+    }
+
+    #[test]
+    fn issue441_late_ddl_failure_rolls_back_schema36_rows_and_version() {
+        let path = issue441_schema36_fixture("issue441-rollback");
+        let conn = issue441_connection(&path);
+        conn.execute_batch("CREATE TABLE global_index_generations(issue441_tripwire TEXT)")
+            .unwrap();
+        let before = issue441_snapshot(&conn);
+        let error = migrate(&conn).unwrap_err();
+        assert!(error.to_string().contains("already exists"), "{error}");
+        assert!(conn.is_autocommit());
+        assert_eq!(issue441_snapshot(&conn), before);
+        assert_eq!(schema_version(&conn).unwrap(), 36);
+        assert_eq!(
+            issue441_rows(&conn, "PRAGMA table_info(automation_runs)").len(),
+            15
+        );
+    }
+
+    #[test]
+    fn issue441_waiting_current_opener_rejects_future_or_forged_schema() {
+        for (label, mutation, expected_error) in [
+            (
+                "issue441-future",
+                "PRAGMA user_version=43",
+                "newer than this app supports",
+            ),
+            (
+                "issue441-forged",
+                "CREATE TABLE global_index_generation_intruder(x)",
+                "global_index_schema42_generation_signature_conflict",
+            ),
+        ] {
+            let path = issue441_schema36_fixture(label);
+            let db = Database::open(&path).unwrap();
+            drop(db);
+            let holder = issue441_connection(&path);
+            let waiter = issue441_connection(&path);
+            holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+            let waiter = issue441_opener(waiter, 42);
+            waiter
+                .entered
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .unwrap();
+            holder.execute_batch(mutation).unwrap();
+            holder.execute_batch("COMMIT").unwrap();
+            let before = issue441_snapshot(&holder);
+            waiter.resume.send(()).unwrap();
+            let error = waiter.thread.join().unwrap().unwrap_err();
+            assert!(error.to_string().contains(expected_error), "{error}");
+            assert_eq!(issue441_snapshot(&holder), before);
+        }
     }
 }

@@ -5064,7 +5064,7 @@ mod tests {
         holder.wait_until_held();
 
         let root = normalize_scan_root_path(
-            &std::env::temp_dir()
+            &crate::path_filter::managed_test_temp_dir()
                 .join(format!(
                     "zen-canvas-issue345-admission-{}",
                     new_job_id("root")
@@ -5130,7 +5130,7 @@ mod tests {
             writer_lock_acquired_at.duration_since(test_started_at).as_micros()
         );
         let root = normalize_scan_root_path(
-            &std::env::temp_dir()
+            &crate::path_filter::managed_test_temp_dir()
                 .join(format!(
                     "zen-canvas-issue366-admission-timeout-{}",
                     new_job_id("root")
@@ -5343,8 +5343,8 @@ mod tests {
     #[ignore = "Issue #345 deterministic SQLite writer contention evidence"]
     fn managed_scan_batch_write_returns_busy_atomically_and_succeeds_after_release() {
         let db = test_db("issue345-batch-timeout-lock");
-        let root =
-            std::env::temp_dir().join(format!("zen-canvas-issue345-batch-{}", new_job_id("root")));
+        let root = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-issue345-batch-{}", new_job_id("root")));
         fs::create_dir_all(&root).expect("create managed scan root");
         let root_text = root.to_string_lossy().replace('\\', "/");
         let admission = db
@@ -5534,7 +5534,8 @@ mod tests {
         settings.default_scan_folders.clear();
         crate::settings::save_app_settings(&db, &settings).expect("persist empty watcher settings");
 
-        let path = std::env::temp_dir().join(format!("zen-canvas-ad-hoc-{}", new_job_id("root")));
+        let path = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-ad-hoc-{}", new_job_id("root")));
         fs::create_dir_all(&path).expect("create ad-hoc scan root");
         let normalized = normalize_scan_root_path(&path.to_string_lossy());
         db.admit_managed_scan(&request(&normalized, "ad-hoc-watcher-authority"))
@@ -5554,7 +5555,7 @@ mod tests {
 
     #[test]
     fn watcher_membership_uses_enabled_default_folders_only() {
-        let fixture = std::env::temp_dir().join(format!(
+        let fixture = crate::path_filter::managed_test_temp_dir().join(format!(
             "zen-canvas-watcher-membership-{}",
             uuid::Uuid::new_v4()
         ));
@@ -6139,8 +6140,8 @@ mod tests {
     #[test]
     fn scanner_publication_clock_ignores_same_filesystem_state_and_counts_size_mtime() {
         let db = test_db("automation-publication-clock");
-        let root =
-            std::env::temp_dir().join(format!("zen-canvas-trigger-scan-{}", new_job_id("root")));
+        let root = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-trigger-scan-{}", new_job_id("root")));
         fs::create_dir_all(&root).expect("create scanner clock fixture root");
         let path = root.join("file.txt");
         fs::write(&path, b"same").expect("create scanner clock fixture file");
@@ -7003,8 +7004,8 @@ mod tests {
     #[test]
     fn watcher_exact_mutation_uses_durable_revision_without_scan_seen_or_generation() {
         let db = test_db("watcher-exact");
-        let root_path =
-            std::env::temp_dir().join(format!("zen-canvas-watcher-root-{}", new_job_id("root")));
+        let root_path = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-watcher-root-{}", new_job_id("root")));
         fs::create_dir_all(&root_path).expect("create watcher root");
         let file_path = root_path.join("new.txt");
         fs::write(&file_path, b"watcher").expect("create watcher file");
@@ -7074,7 +7075,7 @@ mod tests {
     #[test]
     fn schema39_tagged_file_stays_browseable_after_upgrade_and_real_scan() {
         let db = test_db("schema39-library-compatibility");
-        let root = std::env::temp_dir().join(format!(
+        let root = crate::path_filter::managed_test_temp_dir().join(format!(
             "zen-canvas-schema39-library-{}",
             new_job_id("root")
         ));
@@ -7259,7 +7260,7 @@ mod tests {
     #[test]
     fn source_uid_replacement_keeps_old_tag_and_does_not_attach_it_to_new_object() {
         let db = test_db("source-replacement-keeps-tag");
-        let root = std::env::temp_dir().join(format!(
+        let root = crate::path_filter::managed_test_temp_dir().join(format!(
             "zen-canvas-source-replacement-{}",
             new_job_id("root")
         ));
@@ -7503,8 +7504,8 @@ mod tests {
     #[test]
     fn source_uid_same_object_rename_keeps_the_physical_uid() {
         let db = test_db("source-same-object-rename");
-        let root =
-            std::env::temp_dir().join(format!("zen-canvas-source-rename-{}", new_job_id("root")));
+        let root = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-source-rename-{}", new_job_id("root")));
         fs::create_dir_all(&root).expect("create root");
         let old_path = root.join("before.txt");
         let new_path = root.join("after.txt");
@@ -7573,8 +7574,8 @@ mod tests {
     #[test]
     fn overlapping_root_absence_does_not_stale_a_surviving_root_claim() {
         let db = test_db("source-overlapping-roots");
-        let parent =
-            std::env::temp_dir().join(format!("zen-canvas-source-overlap-{}", new_job_id("root")));
+        let parent = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-source-overlap-{}", new_job_id("root")));
         let child = parent.join("child");
         fs::create_dir_all(&child).expect("create overlapping roots");
         let path = child.join("shared.txt");
@@ -7644,7 +7645,7 @@ mod tests {
     #[test]
     fn stale_watcher_revision_cannot_publish_source_claims() {
         let db = test_db("source-stale-watcher-revision");
-        let root = std::env::temp_dir().join(format!(
+        let root = crate::path_filter::managed_test_temp_dir().join(format!(
             "zen-canvas-source-stale-watcher-{}",
             new_job_id("root")
         ));
@@ -7696,11 +7697,11 @@ mod tests {
     #[test]
     fn moved_directory_old_descendants_are_removed_only_by_full_reconciliation() {
         let db = test_db("watcher-cross-root-directory-rename");
-        let old_root_path = std::env::temp_dir().join(format!(
+        let old_root_path = crate::path_filter::managed_test_temp_dir().join(format!(
             "zen-canvas-watcher-cross-root-old-{}",
             new_job_id("root")
         ));
-        let new_root_path = std::env::temp_dir().join(format!(
+        let new_root_path = crate::path_filter::managed_test_temp_dir().join(format!(
             "zen-canvas-watcher-cross-root-new-{}",
             new_job_id("root")
         ));

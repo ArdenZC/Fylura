@@ -297,13 +297,33 @@ pub(crate) fn metadata_is_link_or_reparse(metadata: &std::fs::Metadata) -> bool 
     }
 }
 
+/// Real-product fixtures must be ordinary user paths, not the OS AppData/cache
+/// directory returned by Windows temp_dir(). Reuse the existing ignored
+/// .tmp-tests convention used by the real Watcher fixtures.
+#[cfg(test)]
+pub(crate) fn managed_test_temp_dir() -> PathBuf {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(".tmp-tests")
+            .join("managed-scan");
+        std::fs::create_dir_all(&root).expect("create ordinary managed test root");
+        assert!(
+            !ManagedPathFilter::new(&root).excludes(&root, true),
+            "managed fixtures require an ordinary user location"
+        );
+        root
+    })
+    .clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn issue375_path_policy_distinguishes_user_names_and_protected_locations() {
-        let root = std::env::temp_dir().join("zen-canvas-policy-user");
+        let root = managed_test_temp_dir().join("zen-canvas-policy-user");
         let filter = ManagedPathFilter::new(&root);
         for name in [
             "Projects/Windows/README.md",

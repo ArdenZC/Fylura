@@ -868,7 +868,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("zen-canvas-{prefix}-{nonce}"));
+        let dir = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-{prefix}-{nonce}"));
         fs::create_dir_all(&dir).expect("create test dir");
         dir
     }

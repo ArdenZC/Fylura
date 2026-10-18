@@ -10,7 +10,8 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub(super) fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("pm02a-{}", uuid::Uuid::new_v4()));
+        let root = crate::path_filter::managed_test_temp_dir()
+            .join(format!("pm02a-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let db = Database::open(root.join("test.sqlite3")).unwrap();
         db.conn().unwrap().execute("INSERT INTO scan_roots(id,normalized_path,display_name,source_kind,enabled,health_status,current_generation,needs_reconciliation,created_at,updated_at) VALUES ('root','/tmp','Test','file_library',1,'healthy',1,0,1,1)",[]).unwrap();

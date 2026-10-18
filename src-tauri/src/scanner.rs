@@ -2179,8 +2179,8 @@ mod tests {
         let filler_count = available_scan_capacity.saturating_sub(2);
 
         let db = test_db("issue345-d4-concurrent-writers");
-        let fixture_root =
-            std::env::temp_dir().join(format!("zen-canvas-issue345-d4-{}", new_job_id("fixture")));
+        let fixture_root = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-issue345-d4-{}", new_job_id("fixture")));
         let owner_root = fixture_root.join("owner");
         let contender_root = fixture_root.join("contender");
         let replacement_root = fixture_root.join("replacement");
@@ -2662,7 +2662,7 @@ mod tests {
             "Project/node_modules/pkg/index.js",
             "Project/.venv/pyvenv.cfg",
             "Project/build/generated.js",
-            "Projects/wInDoWs/设计.md",
+            "Case/wInDoWs/设计.md",
         ];
         for relative in excluded_paths {
             fixture.write(&main_root, relative, b"previously indexed fixture");
@@ -2924,8 +2924,8 @@ mod tests {
     #[cfg(feature = "performance-test-tauri")]
     impl Issue375Fixture {
         fn new() -> Self {
-            let root =
-                std::env::temp_dir().join(format!("zen-canvas-issue375-{}", new_job_id("fixture")));
+            let root = crate::path_filter::managed_test_temp_dir()
+                .join(format!("zen-canvas-issue375-{}", new_job_id("fixture")));
             fs::create_dir_all(&root).expect("create isolated Issue #375 fixture");
             Self(root)
         }
@@ -3107,7 +3107,7 @@ mod tests {
     #[test]
     fn kill_switch_path_completes_normally_without_fabricating_a_reconciliation_signal() {
         let db = test_db("default-stale-gate");
-        let root_path = std::env::temp_dir().join(format!(
+        let root_path = crate::path_filter::managed_test_temp_dir().join(format!(
             "zen-canvas-default-stale-gate-{}",
             new_job_id("root")
         ));

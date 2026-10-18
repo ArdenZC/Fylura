@@ -1,5 +1,5 @@
 use super::*;
-use crate::path_filter::is_ignored_dir_name;
+use crate::path_filter::{metadata_is_link_or_reparse, ManagedPathFilter};
 use rusqlite::{params, types::Value as SqlValue, Connection, OptionalExtension, Row};
 use serde::Serialize;
 use std::{
@@ -380,6 +380,7 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
     let mut files = Vec::new();
     let mut seen = Vec::new();
     let mut warnings = Vec::new();
+    let roots = db.list_watcher_root_configs()?;
 
     for raw_path in paths
         .iter()
@@ -391,8 +392,21 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
             continue;
         }
 
+        let matching_roots = roots
+            .iter()
+            .filter(|root| scan::watcher_path_within_root(&root.path, path))
+            .collect::<Vec<_>>();
+        let selected_root = match matching_roots.as_slice() {
+            [root] => Some(Path::new(&root.path)),
+            [] => None,
+            _ => return Err(DbError::Validation(
+                "Bulk upsert path maps to overlapping managed roots; reconciliation is required."
+                    .into(),
+            )),
+        };
         collect_upsert_requests_for_path(
             PathBuf::from(path),
+            selected_root,
             &mut files,
             &mut seen,
             &mut warnings,
@@ -409,11 +423,33 @@ pub fn upsert_files_by_paths_for_db_with_warnings(
 
 fn collect_upsert_requests_for_path(
     path: PathBuf,
+    selected_root: Option<&Path>,
     files: &mut Vec<InsertFileRequest>,
     seen: &mut Vec<String>,
     warnings: &mut Vec<WatcherUpsertWarning>,
     limit: usize,
 ) -> Result<(), DbError> {
+    let path_filter = match selected_root {
+        Some(root) => ManagedPathFilter::new(root),
+        None if path.is_dir() => ManagedPathFilter::new(&path),
+        None => ManagedPathFilter::unselected(&path),
+    };
+    // Keep verified selected-root authority for both lexical and resolved input.
+    // Resolving the input also retains protected/dependency checks when `..` or
+    // an alias leads outside the lexical root; the ancestor check rejects links.
+    if path_filter.excludes(&path, path.is_dir())
+        || path
+            .canonicalize()
+            .ok()
+            .is_some_and(|resolved| path_filter.excludes(&resolved, path.is_dir()))
+    {
+        return Ok(());
+    }
+    if !path_filter.direct_path_has_no_links(&path)? {
+        return Err(DbError::Validation(
+            "Bulk upsert cannot follow a linked ancestor inside the selected root.".into(),
+        ));
+    }
     let mut stack = vec![path];
 
     while let Some(path_buf) = stack.pop() {
@@ -436,7 +472,9 @@ fn collect_upsert_requests_for_path(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(DbError::Io(error)),
         };
-        if metadata.file_type().is_symlink() {
+        if path_filter.excludes(&path_buf, metadata.is_dir())
+            || metadata_is_link_or_reparse(&metadata)
+        {
             continue;
         }
 
@@ -468,7 +506,7 @@ fn collect_upsert_requests_for_path(
             if file_type.is_symlink() {
                 continue;
             }
-            if file_type.is_dir() && is_ignored_dir_name(&entry.file_name()) {
+            if path_filter.excludes(&entry.path(), file_type.is_dir()) {
                 continue;
             }
             stack.push(entry.path());
@@ -728,8 +766,15 @@ mod tests {
         let mut seen = Vec::new();
         let mut warnings = Vec::new();
 
-        collect_upsert_requests_for_path(root.clone(), &mut files, &mut seen, &mut warnings, 2)
-            .expect("collect upsert requests");
+        collect_upsert_requests_for_path(
+            root.clone(),
+            None,
+            &mut files,
+            &mut seen,
+            &mut warnings,
+            2,
+        )
+        .expect("collect upsert requests");
 
         assert_eq!(files.len(), 2);
         assert_eq!(warnings.len(), 1);
@@ -744,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn issue375_path_upsert_prunes_build_descendants_but_accepts_selected_build_root() {
+    fn issue375_path_upsert_covers_user_build_and_selected_root() {
         let fixture = test_dir("issue375-upsert");
         let project_root = fixture.join("Project");
         let project_build_file = project_root.join("build/logo.ai");
@@ -774,14 +819,138 @@ mod tests {
         let project_count = upsert_files_by_paths_for_db(&db, &[project_root_text])
             .expect("bulk-upsert ordinary project path");
         assert_eq!(
-            project_count, 3,
-            "root, src directory and source file are indexed"
+            project_count, 5,
+            "root, user build and source directory contents are indexed"
         );
 
+        fs::write(project_root.join("package.json"), b"{}").unwrap();
+        let generated_file = project_root.join("build/generated.js");
+        fs::write(&generated_file, b"generated output").unwrap();
+        assert_eq!(
+            upsert_files_by_paths_for_db(&db, &[generated_file.to_string_lossy().into_owned()])
+                .unwrap(),
+            0,
+            "a direct file upsert cannot bypass recognized build exclusion"
+        );
+        fs::write(
+            selected_build_root.parent().unwrap().join("package.json"),
+            b"{}",
+        )
+        .unwrap();
         let selected_root_text = selected_build_root.to_string_lossy().into_owned();
-        let selected_count = upsert_files_by_paths_for_db(&db, &[selected_root_text])
-            .expect("bulk-upsert the explicitly selected build root");
-        assert_eq!(selected_count, 2, "selected root and its file are indexed");
+        let roots = vec![crate::settings::ScanRootSetting {
+            id: "issue375-explicit-build".into(),
+            path: selected_root_text,
+            label: "Explicit build".into(),
+            enabled: true,
+            created_at: "2026-10-18T00:00:00.000Z".into(),
+        }];
+        let mut settings = crate::settings::get_app_settings(&db).unwrap();
+        settings.default_scan_folders = roots.clone();
+        crate::settings::save_app_settings(&db, &settings).unwrap();
+        db.sync_file_library_watcher_roots(&roots).unwrap();
+        assert_eq!(db.list_watcher_root_configs().unwrap().len(), 1);
+
+        let selected_file_text = selected_build_file.to_string_lossy().into_owned();
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM files WHERE path = ?1",
+                    [normalize_path_for_db(&selected_build_file)],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0,
+            "no directory upsert has preinserted the selected file"
+        );
+        let selected_count = upsert_files_by_paths_for_db(&db, &[selected_file_text])
+            .expect("directly upsert a fresh file under the registered selected build root");
+        assert_eq!(
+            selected_count, 1,
+            "the fresh selected-root file is inserted"
+        );
+
+        let mut excluded_paths = vec![generated_file];
+        for root in [&project_root, &selected_build_root] {
+            for relative in ["node_modules/pkg/index.js", ".venv/pyvenv.cfg"] {
+                let dependency = root.join(relative);
+                fs::create_dir_all(dependency.parent().unwrap()).unwrap();
+                fs::write(&dependency, b"dependency").unwrap();
+                assert_eq!(
+                    upsert_files_by_paths_for_db(&db, &[dependency.to_string_lossy().into_owned()])
+                        .unwrap(),
+                    0,
+                    "direct dependency paths remain excluded: {}",
+                    dependency.display()
+                );
+                excluded_paths.push(dependency);
+            }
+        }
+        for protected_root in crate::path_filter::managed_protected_roots() {
+            let protected_file = protected_root.join("zen-canvas-upsert-policy-probe.txt");
+            assert_eq!(
+                upsert_files_by_paths_for_db(&db, &[protected_file.to_string_lossy().into_owned()])
+                    .unwrap(),
+                0,
+                "direct protected paths remain excluded"
+            );
+            excluded_paths.push(protected_file);
+        }
+
+        let outside = fixture.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("escape.txt"), b"outside selected root").unwrap();
+        let linked = selected_build_root.join("linked");
+        #[cfg(windows)]
+        let (outside, linked) = {
+            let spaced_outside = outside.with_file_name("outside with spaces");
+            fs::rename(&outside, &spaced_outside).unwrap();
+            (spaced_outside, linked.with_file_name("linked with spaces"))
+        };
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &linked).unwrap();
+        #[cfg(windows)]
+        {
+            use std::os::windows::{fs::MetadataExt, process::CommandExt};
+
+            assert!(linked.is_absolute() && outside.is_absolute());
+            let linked_text = linked.to_string_lossy().replace('/', "\\");
+            let outside_text = outside.to_string_lossy().replace('/', "\\");
+            assert!(linked_text.contains(' ') && outside_text.contains(' '));
+            // cmd's built-in consumes one command line, not separately escaped
+            // program arguments. Keep Windows separators and quote both paths.
+            let command = format!(r#"mklink /J "{linked_text}" "{outside_text}""#);
+            let output = std::process::Command::new("cmd.exe")
+                .args(["/D", "/C"])
+                .raw_arg(command)
+                .output()
+                .expect("create junction under selected root");
+            assert!(output.status.success(), "junction creation: {output:?}");
+            let metadata = fs::symlink_metadata(&linked).expect("read junction metadata");
+            assert!(metadata_is_link_or_reparse(&metadata));
+            assert_ne!(metadata.file_attributes() & 0x400, 0);
+            eprintln!(
+                "issue375 Windows junction created: absolute paths with spaces; reparse attributes={:#x}",
+                metadata.file_attributes()
+            );
+        }
+        let escaped_file = linked.join("escape.txt");
+        assert!(matches!(
+            upsert_files_by_paths_for_db(&db, &[escaped_file.to_string_lossy().into_owned()]),
+            Err(DbError::Validation(_))
+        ));
+        excluded_paths.push(escaped_file);
+        #[cfg(unix)]
+        fs::remove_file(&linked).unwrap();
+        #[cfg(windows)]
+        {
+            fs::remove_dir(&linked).unwrap();
+            assert_eq!(
+                fs::read(outside.join("escape.txt")).unwrap(),
+                b"outside selected root"
+            );
+        }
 
         let conn = db.conn().expect("open watcher-upsert query connection");
         {
@@ -794,10 +963,38 @@ mod tests {
                 )
                 .expect("query watcher-upsert result")
             };
-            assert!(!is_indexed(&project_build_file));
+            assert!(is_indexed(&project_build_file));
             assert!(is_indexed(&project_source_file));
-            assert!(is_indexed(&selected_build_root));
             assert!(is_indexed(&selected_build_file));
+            for path in &excluded_paths {
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT count(*) FROM files WHERE path = ?1",
+                        [normalize_path_for_db(path)],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    count,
+                    0,
+                    "excluded file was not inserted: {}",
+                    path.display()
+                );
+            }
+            #[cfg(windows)]
+            {
+                let external_rows: i64 = conn
+                    .query_row(
+                        "SELECT count(*) FROM files WHERE path = ?1",
+                        [normalize_path_for_db(&outside.join("escape.txt"))],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(external_rows, 0, "junction target was not indexed");
+                eprintln!(
+                    "issue375 Windows junction escape denied: DbError::Validation; alias rows=0; external rows=0; target preserved"
+                );
+            }
         }
         drop(conn);
         drop(db);
@@ -809,7 +1006,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("zen-canvas-{prefix}-{nonce}"));
+        let dir = crate::path_filter::managed_test_temp_dir()
+            .join(format!("zen-canvas-{prefix}-{nonce}"));
         fs::create_dir_all(&dir).expect("create test dir");
         dir
     }

@@ -1,7 +1,7 @@
 use crate::{
     db::{current_unix_seconds, Database, DbError},
     dedupe::DedupeJobManager,
-    path_filter::is_ignored_dir_name,
+    path_filter::ManagedPathFilter,
     scanner::ScanJobManager,
     settings::{AppSettings, ScanRootSetting, SearchRootSetting},
 };
@@ -1305,7 +1305,14 @@ fn process_backend_payload<R: Runtime>(
             });
         }
         match matches.as_slice() {
-            [root] => grouped.entry(root.id.clone()).or_default().push(path),
+            [root] => {
+                let candidate = Path::new(&path);
+                if !ManagedPathFilter::new(Path::new(&root.path))
+                    .excludes(candidate, candidate.is_dir())
+                {
+                    grouped.entry(root.id.clone()).or_default().push(path);
+                }
+            }
             [] => {}
             _ => {
                 for root in matches {
@@ -2510,13 +2517,12 @@ mod tests {
         ));
     }
 
-    /// Issue #375 characterization: exercise the production Notify-event
-    /// conversion and backend payload processor against real fixture files.
-    /// Ignored-name paths are dropped before root routing, including paths
-    /// whose selected watcher root itself is named `build`.
+    /// #381 updates the #375 characterization to required user coverage.
+    /// Exercise Notify conversion and actual backend publication, retaining
+    /// dependency/IDE exclusions and separate selected-root routing.
     #[cfg(feature = "performance-test-tauri")]
     #[test]
-    fn issue375_watcher_filters_ignored_components_before_root_routing() {
+    fn issue375_watcher_covers_user_names_and_selected_build_root() {
         let fixture = WatcherTestTree::new("issue375-filter");
         let project_root = fixture.0.join("project");
         let selected_build_root = fixture.0.join("chosen").join("build");
@@ -2530,6 +2536,7 @@ mod tests {
             "Project/.vscode/settings.json",
             "Project/node_modules/pkg/index.js",
             "Project/.venv/pyvenv.cfg",
+            "Project/build/generated.js",
         ];
         let mut ignored_paths = ignored_relative_paths
             .iter()
@@ -2541,6 +2548,12 @@ mod tests {
                 .expect("create ignored event directory");
             fs::write(path, b"watcher fixture").expect("create ignored event file");
         }
+        fs::write(project_root.join("Project/package.json"), b"{}").unwrap();
+        fs::write(
+            selected_build_root.parent().unwrap().join("package.json"),
+            b"{}",
+        )
+        .unwrap();
         let ordinary_path = project_root.join("Project/src/current.rs");
         fs::create_dir_all(ordinary_path.parent().expect("ordinary event parent"))
             .expect("create ordinary event directory");
@@ -2588,8 +2601,10 @@ mod tests {
                 attrs: EventAttributes::new(),
             });
             assert!(
-                payload.is_none(),
-                "Notify event below ignored name should be discarded: {}",
+                payload.is_some()
+                    == (!normalize_path(path).contains("Project/")
+                        || normalize_path(path).contains("Project/build/")),
+                "only dependency/IDE Notify events should be discarded: {}",
                 path.display()
             );
         }
@@ -2616,6 +2631,15 @@ mod tests {
         let app_handle = app.handle().clone();
         let jobs = ScanJobManager::default();
         let dedupe_jobs = DedupeJobManager::default();
+        for path in &ignored_paths {
+            if let Some(payload) = event_to_payload(Event {
+                kind: EventKind::Create(notify::event::CreateKind::File),
+                paths: vec![path.clone()],
+                attrs: EventAttributes::new(),
+            }) {
+                process_backend_payload(&app_handle, &db, &jobs, &dedupe_jobs, payload);
+            }
+        }
         let ordinary_payload = event_to_payload(Event {
             kind: EventKind::Create(notify::event::CreateKind::File),
             paths: vec![ordinary_path.clone()],
@@ -2635,10 +2659,10 @@ mod tests {
             project_after.watcher_revision,
             project_after.watcher_applied_revision
         );
-        assert_eq!(build_after.watcher_revision, build_before.watcher_revision);
+        assert!(build_after.watcher_revision > build_before.watcher_revision);
         assert_eq!(
             build_after.watcher_applied_revision,
-            build_before.watcher_applied_revision
+            build_after.watcher_revision
         );
 
         let conn = db.conn().expect("open watcher publication connection");
@@ -2654,8 +2678,8 @@ mod tests {
         assert!(exists(&ordinary_path), "ordinary event reaches file upsert");
         for path in &ignored_paths {
             assert!(
-                !exists(path),
-                "ignored event never reaches file upsert: {}",
+                exists(path) != normalize_path(path).contains("Project/"),
+                "user data reaches file upsert, dependencies stay excluded: {}",
                 path.display()
             );
         }
@@ -2670,10 +2694,12 @@ mod tests {
             attrs: EventAttributes::new(),
         });
         assert!(
-            ignored.is_none(),
-            "extended mixed-case build path is filtered"
+            ignored.is_some(),
+            "extended mixed-case user build path is admitted"
         );
-        assert!(is_ignored_dir_name(std::ffi::OsStr::new("aPpDaTa")));
+        assert!(!crate::path_filter::is_ignored_dir_name(
+            std::ffi::OsStr::new("aPpDaTa")
+        ));
 
         let root = r"\\?\C:\ZC-375\Project";
         let child = r"\\?\c:\zc-375\project\src\main.rs";
@@ -3049,8 +3075,9 @@ fn normalize_watch_roots(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, WatcherErr
 }
 
 fn is_ignored_path(path: &Path) -> bool {
-    path.components()
-        .any(|component| is_ignored_dir_name(component.as_os_str()))
+    // Early filtering has no selected-root authority. Generated-build decisions
+    // are made after root routing; dependencies/protected paths never override.
+    ManagedPathFilter::new(path).excludes(path, path.is_dir())
 }
 
 fn normalize_event_paths(paths: &[PathBuf]) -> Vec<String> {

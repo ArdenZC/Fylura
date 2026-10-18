@@ -453,7 +453,7 @@
             .expect("clock")
             .as_nanos();
         let counter = TEST_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
+        let dir = crate::path_filter::managed_test_temp_dir().join(format!(
             "zen-canvas-db-file-test-{}-{nonce}-{counter}",
             std::process::id()
         ));

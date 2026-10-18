@@ -180,13 +180,147 @@ fn full_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Optio
         .expect("collect schema snapshot")
 }
 
-fn legacy_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Option<String>)> {
+fn schema42_object_identities() -> Vec<(&'static str, &'static str, &'static str)> {
+    let mut identities = vec![
+        (
+            "table",
+            "global_index_generations",
+            "global_index_generations",
+        ),
+        (
+            "table",
+            "global_index_generation_heads",
+            "global_index_generation_heads",
+        ),
+        (
+            "table",
+            "global_index_generation_entries",
+            "global_index_generation_entries",
+        ),
+        (
+            "table",
+            "global_index_generation_fts",
+            "global_index_generation_fts",
+        ),
+        (
+            "table",
+            "global_index_generation_fts_data",
+            "global_index_generation_fts_data",
+        ),
+        (
+            "table",
+            "global_index_generation_fts_idx",
+            "global_index_generation_fts_idx",
+        ),
+        (
+            "table",
+            "global_index_generation_fts_docsize",
+            "global_index_generation_fts_docsize",
+        ),
+        (
+            "table",
+            "global_index_generation_fts_config",
+            "global_index_generation_fts_config",
+        ),
+        (
+            "trigger",
+            "global_index_generation_entries_insert_guard",
+            "global_index_generation_entries",
+        ),
+        (
+            "trigger",
+            "global_index_generation_entries_no_update",
+            "global_index_generation_entries",
+        ),
+        (
+            "trigger",
+            "global_index_generation_entries_no_delete",
+            "global_index_generation_entries",
+        ),
+        (
+            "trigger",
+            "global_index_generation_entries_ai",
+            "global_index_generation_entries",
+        ),
+    ];
+    identities.sort_unstable();
+    identities
+}
+
+fn schema42_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Option<String>)> {
+    let mut statement = conn
+        .prepare(
+            "SELECT type, name, tbl_name, sql FROM sqlite_schema \
+             WHERE name NOT LIKE 'sqlite_%' AND \
+             (name GLOB 'global_index_generation*' OR tbl_name GLOB 'global_index_generation*') \
+             ORDER BY type, name",
+        )
+        .expect("prepare complete Schema42 namespace snapshot");
+    statement
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("query Schema42 namespace snapshot")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect Schema42 SQL signatures")
+}
+
+fn assert_schema42_signatures_and_dormant_state(conn: &Connection) {
+    let reference = Connection::open_in_memory().expect("independent Schema42 reference");
+    reference
+        .execute_batch(include_str!("../src/db/schema_global_generations.sql"))
+        .expect("install unchanged production Schema42 SQL in reference");
+    let expected = schema42_schema_snapshot(&reference);
+    let identities = expected
+        .iter()
+        .map(|(kind, name, table, _)| (kind.as_str(), name.as_str(), table.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(identities.len(), 12, "Schema42 explicit object inventory");
+    assert_eq!(identities, schema42_object_identities());
+    assert_eq!(
+        schema42_schema_snapshot(conn),
+        expected,
+        "Schema42 objects must be complete and retain their exact SQL signatures"
+    );
+    for table in [
+        "global_index_generations",
+        "global_index_generation_entries",
+        "global_index_generation_fts",
+    ] {
+        let count: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("count dormant Schema42 rows");
+        assert_eq!(count, 0, "{table} must remain empty");
+    }
+    let nonlegacy_heads: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM global_index_generation_heads \
+             WHERE legacy_state <> 'LEGACY_UNVERIFIED' \
+             OR published_generation_id IS NOT NULL OR candidate_generation_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("inspect all Schema42 heads");
+    assert_eq!(
+        nonlegacy_heads, 0,
+        "no generation may be published or staged"
+    );
+}
+
+fn schema37_legacy_schema_snapshot(
+    conn: &Connection,
+) -> Vec<(String, String, String, Option<String>)> {
     let p0_names = identity_foundation_object_names();
     let source_writer_names = source_writer_object_names();
+    let schema42_identities = schema42_object_identities();
     full_schema_snapshot(conn)
         .into_iter()
-        .filter(|(_, name, _, _)| {
-            !p0_names.contains(&name.as_str()) && !source_writer_names.contains(&name.as_str())
+        .filter(|(kind, name, table, _)| {
+            !p0_names.contains(&name.as_str())
+                && !source_writer_names.contains(&name.as_str())
+                && !schema42_identities.contains(&(kind.as_str(), name.as_str(), table.as_str()))
         })
         .collect()
 }
@@ -1523,7 +1657,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
         .iter()
         .map(|table| (*table, table_snapshot(&conn, table)))
         .collect::<Vec<_>>();
-    let before_schema = legacy_schema_snapshot(&conn);
+    let before_schema = schema37_legacy_schema_snapshot(&conn);
     let before_fts = fts_rows_matching(&conn, "migrationtoken");
     assert_eq!(before_fts.len(), 1);
     drop(conn);
@@ -1541,7 +1675,8 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     for (table, expected) in before_rows {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");
     }
-    assert_eq!(legacy_schema_snapshot(&conn), before_schema);
+    assert_eq!(schema37_legacy_schema_snapshot(&conn), before_schema);
+    assert_schema42_signatures_and_dormant_state(&conn);
     assert_eq!(fts_rows_matching(&conn, "migrationtoken"), before_fts);
     let authority: (String, i64, Option<String>, i64) = conn
         .query_row(

@@ -883,6 +883,14 @@ impl Database {
             None
         };
         let now = current_unix_seconds();
+        let mut update_item = tx.prepare(
+            "UPDATE organization_plan_items SET decision = ?1, edited_name = ?2,
+                        validity = CASE WHEN ?3 THEN 'needs_review' ELSE validity END,
+                        blocking_code = CASE WHEN ?3 THEN NULL ELSE blocking_code END,
+                        revision = revision + 1, updated_at = ?4
+                 WHERE id = ?5 AND plan_id = ?6 AND revision = ?7
+                   AND validity NOT IN ('executing', 'executed')",
+        )?;
         for mutation in request.mutations {
             let item_id = validate_id(&mutation.item_id, "organization_item_id_invalid")?;
             let decision = normalize_decision(&mutation.decision)?;
@@ -967,29 +975,22 @@ impl Database {
                     current_item.blocking_code.as_deref(),
                     Some("target_collision" | "organization_target_collision")
                 );
-            let updated = tx.execute(
-                "UPDATE organization_plan_items SET decision = ?1, edited_name = ?2,
-                        validity = CASE WHEN ?3 THEN 'needs_review' ELSE validity END,
-                        blocking_code = CASE WHEN ?3 THEN NULL ELSE blocking_code END,
-                        revision = revision + 1, updated_at = ?4
-                 WHERE id = ?5 AND plan_id = ?6 AND revision = ?7
-                   AND validity NOT IN ('executing', 'executed')",
-                params![
-                    decision,
-                    edited_name,
-                    bool_to_i64(resolves_target_collision),
-                    now,
-                    item_id,
-                    plan_id,
-                    mutation.expected_item_revision
-                ],
-            )?;
+            let updated = update_item.execute(params![
+                decision,
+                edited_name,
+                bool_to_i64(resolves_target_collision),
+                now,
+                item_id,
+                plan_id,
+                mutation.expected_item_revision
+            ])?;
             if updated != 1 {
                 return Err(DbError::Validation(
                     "organization_item_revision_conflict".to_string(),
                 ));
             }
         }
+        drop(update_item);
         tx.execute(
             "UPDATE organization_plans SET
                     status = CASE
@@ -4953,6 +4954,284 @@ pub(crate) mod tests {
                 }],
             })
             .is_err());
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn decision_batch_reuses_statement_for_mixed_decisions_and_safe_accept() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let fixture = path.with_extension("mixed-decisions");
+        std::fs::create_dir_all(&fixture).expect("mixed decision directory");
+        let decisions = ["accepted", "edited", "kept", "undecided"];
+        for (index, decision) in decisions.iter().enumerate() {
+            seed_live_group_item(&db, decision, index as i64 + 1, &fixture);
+        }
+        let mutations = decisions
+            .iter()
+            .map(|decision| OrganizationDecisionMutation {
+                item_id: (*decision).into(),
+                expected_item_revision: 1,
+                decision: (*decision).into(),
+                edited_filename: (*decision == "edited").then(|| "custom.txt".into()),
+            })
+            .collect();
+        let plan = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 1,
+                safe_batch: false,
+                mutations,
+            })
+            .expect("mixed batch");
+        assert_eq!(plan.revision, 2);
+        assert_eq!(plan.status, "ready");
+        assert_eq!(plan.summary.accepted, 1);
+        assert_eq!(plan.summary.edited, 1);
+        assert_eq!(plan.summary.kept, 1);
+        let conn = db.conn().expect("mixed batch connection");
+        assert!(conn.is_autocommit());
+        for decision in decisions {
+            let row = conn.query_row(
+                "SELECT decision, edited_name, revision FROM organization_plan_items WHERE id = ?1",
+                params![decision], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)?))
+            ).expect("mixed row");
+            assert_eq!(
+                row,
+                (
+                    decision.to_string(),
+                    (decision == "edited").then(|| "custom.txt".into()),
+                    2
+                )
+            );
+        }
+        drop(conn);
+        let cleared = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 2,
+                safe_batch: false,
+                mutations: vec![OrganizationDecisionMutation {
+                    item_id: "kept".into(),
+                    expected_item_revision: 2,
+                    decision: "undecided".into(),
+                    edited_filename: None,
+                }],
+            })
+            .expect("clear kept decision before accepting again");
+        assert_eq!(cleared.revision, 3);
+        assert_eq!(cleared.summary.kept, 0);
+        let plan = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 3,
+                safe_batch: true,
+                mutations: ["kept", "undecided"]
+                    .into_iter()
+                    .map(|id| OrganizationDecisionMutation {
+                        item_id: id.into(),
+                        expected_item_revision: if id == "kept" { 3 } else { 2 },
+                        decision: "accepted".into(),
+                        edited_filename: None,
+                    })
+                    .collect(),
+            })
+            .expect("safe batch accepts eligible items after mixed update");
+        assert_eq!(plan.revision, 4);
+        assert_eq!(plan.status, "ready");
+        assert_eq!(plan.summary.accepted, 3);
+        assert_eq!(plan.summary.kept, 0);
+        assert!(db.conn().expect("safe batch connection").is_autocommit());
+        drop(db);
+        let _ = std::fs::remove_dir_all(fixture);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn decision_batch_failures_preserve_all_rows_schema_and_transaction_state() {
+        fn snapshot(db: &Database) -> (i64, Vec<(String, Vec<String>)>) {
+            let conn = db.conn().expect("snapshot connection");
+            assert!(conn.is_autocommit());
+            let version = conn
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .expect("snapshot schema version");
+            let mut tables = conn
+                .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+                .expect("snapshot tables");
+            let names = tables
+                .query_map([], |row| row.get::<_, String>(0))
+                .expect("read table names")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("table names");
+            let rows = names
+                .into_iter()
+                .chain(std::iter::once("sqlite_schema".to_string()))
+                .map(|name| {
+                    let sql = format!("SELECT * FROM \"{}\"", name.replace('"', "\"\""));
+                    let mut statement = conn.prepare(&sql).expect("snapshot table");
+                    let count = statement.column_count();
+                    let mut values = statement
+                        .query_map([], |row| {
+                            (0..count)
+                                .map(|column| row.get::<_, rusqlite::types::Value>(column))
+                                .collect::<Result<Vec<_>, _>>()
+                                .map(|values| format!("{values:?}"))
+                        })
+                        .expect("snapshot rows")
+                        .collect::<Result<Vec<_>, _>>()
+                        .expect("read snapshot rows");
+                    values.sort();
+                    (name, values)
+                })
+                .collect();
+            (version, rows)
+        }
+
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        seed_group_item(
+            &db,
+            "item-second",
+            1,
+            &path.with_extension("missing"),
+            "ready",
+            "undecided",
+            0.95,
+            false,
+            None,
+        );
+        let mutation = |id: &str, revision, decision: &str| OrganizationDecisionMutation {
+            item_id: id.into(),
+            expected_item_revision: revision,
+            decision: decision.into(),
+            edited_filename: None,
+        };
+        let before = snapshot(&db);
+        assert_eq!(before.0, 42);
+        for (revision, safe_batch, mutations, expected_error) in [
+            (
+                0,
+                false,
+                vec![mutation("item-test", 1, "kept")],
+                "organization_plan_revision_conflict",
+            ),
+            (
+                1,
+                false,
+                vec![
+                    mutation("item-test", 1, "kept"),
+                    mutation("item-test", 1, "kept"),
+                ],
+                "organization_decision_duplicate_item",
+            ),
+            (
+                1,
+                false,
+                vec![
+                    mutation("item-test", 1, "kept"),
+                    mutation("item-second", 0, "kept"),
+                ],
+                "organization_item_revision_conflict",
+            ),
+            (
+                1,
+                false,
+                vec![
+                    mutation("item-test", 1, "kept"),
+                    mutation("item-second", 1, "invalid"),
+                ],
+                "organization_decision_invalid",
+            ),
+            (
+                1,
+                false,
+                vec![
+                    mutation("item-test", 1, "kept"),
+                    mutation("missing-item", 1, "kept"),
+                ],
+                "organization_item_not_found",
+            ),
+            (
+                1,
+                true,
+                vec![mutation("item-test", 1, "kept")],
+                "organization_safe_batch_accept_only",
+            ),
+        ] {
+            let error = db
+                .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                    plan_id: "plan-test".into(),
+                    expected_plan_revision: revision,
+                    safe_batch,
+                    mutations,
+                })
+                .expect_err("invalid batch must fail atomically");
+            assert!(
+                matches!(error, DbError::Validation(ref code) if code == expected_error),
+                "{error}"
+            );
+            assert_eq!(snapshot(&db), before, "{expected_error}");
+        }
+
+        // Force the second SQL CAS to affect zero rows after the first write succeeds.
+        db.conn().expect("trigger connection").execute_batch(
+            "CREATE TRIGGER decision_test_ignore_second BEFORE UPDATE ON organization_plan_items
+             WHEN OLD.id = 'item-second' BEGIN
+               SELECT CASE WHEN EXISTS (
+                 SELECT 1 FROM organization_plan_items
+                 WHERE id = 'item-test' AND decision = 'kept' AND revision = 2
+               ) THEN RAISE(IGNORE) ELSE RAISE(ABORT, 'first item was not updated') END;
+             END;"
+        ).expect("install zero-row CAS fixture");
+        let with_trigger = snapshot(&db);
+        let error = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 1,
+                safe_batch: false,
+                mutations: vec![
+                    mutation("item-test", 1, "kept"),
+                    mutation("item-second", 1, "kept"),
+                ],
+            })
+            .expect_err("second SQL CAS must roll back first write");
+        assert!(
+            matches!(error, DbError::Validation(ref code) if code == "organization_item_revision_conflict")
+        );
+        assert_eq!(snapshot(&db), with_trigger);
+        db.conn()
+            .expect("remove trigger connection")
+            .execute_batch("DROP TRIGGER decision_test_ignore_second;")
+            .expect("remove zero-row CAS fixture");
+        assert_eq!(snapshot(&db), before);
+
+        let plan = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 1,
+                safe_batch: false,
+                mutations: vec![
+                    mutation("item-test", 1, "kept"),
+                    mutation("item-second", 1, "kept"),
+                ],
+            })
+            .expect("same database remains writable after rollback");
+        assert_eq!(plan.revision, 2);
+        assert_eq!(plan.status, "ready");
+        let conn = db.conn().expect("successful batch connection");
+        assert!(conn.is_autocommit());
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM organization_plan_items WHERE plan_id = 'plan-test'
+             AND decision = 'kept' AND revision = 2",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("both reused-statement writes committed"),
+            2
+        );
+        drop(conn);
         drop(db);
         let _ = std::fs::remove_file(path);
     }

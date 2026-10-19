@@ -293,7 +293,7 @@ export const PERFORMANCE_SUITES = Object.freeze({
         label: "Rule Proposal 1M impact",
         targetKey: "lib",
         targetArgs: PERFORMANCE_TARGETS.lib.cargoArgs,
-        testName: "performance_task07_rule_proposal_repository_and_impact",
+        testName: "db::queries::rule_proposals::tests::performance_task07_rule_proposal_repository_and_impact",
         testThreads: 1,
       }),
     ]),

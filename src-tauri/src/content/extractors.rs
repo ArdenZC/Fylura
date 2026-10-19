@@ -957,11 +957,17 @@ pub(super) fn office_xml_extraction(
         .map(|name| (*name).to_string())
         .collect::<Vec<_>>();
     let mut member_names = HashSet::new();
+    // zip 9 indexes by raw filename bytes. Keep decoded-name lookup semantics
+    // for Office discovery, after the existing duplicate-name validation.
+    let mut member_indices = HashMap::new();
     for index in 0..archive.len() {
         let entry = archive
             .by_index(index)
             .map_err(|_| DbError::Validation("content_office_container_invalid".into()))?;
-        if let Err(error) = register_office_member_name(&mut member_names, entry.name()) {
+        let name = entry
+            .name()
+            .map_err(|_| DbError::Validation("content_office_container_invalid".into()))?;
+        if let Err(error) = register_office_member_name(&mut member_names, &name) {
             return Ok(Extraction {
                 family: family.into(),
                 text: String::new(),
@@ -971,6 +977,7 @@ pub(super) fn office_xml_extraction(
                 reason: Some(content_error_code(&error)),
             });
         }
+        member_indices.insert(name.into_owned(), index);
         if entry.encrypted() {
             return Ok(Extraction {
                 family: family.into(),
@@ -989,7 +996,10 @@ pub(super) fn office_xml_extraction(
             let entry = archive
                 .by_index(index)
                 .map_err(|_| DbError::Validation("content_office_container_invalid".into()))?;
-            let name = entry.name().to_string();
+            let name = entry
+                .name()
+                .map_err(|_| DbError::Validation("content_office_container_invalid".into()))?
+                .into_owned();
             let prefix = if family == "xlsx" {
                 "xl/worksheets/sheet"
             } else {
@@ -1017,7 +1027,10 @@ pub(super) fn office_xml_extraction(
     }
     let deadline = Instant::now() + Duration::from_secs(2);
     let shared_strings = if family == "xlsx" {
-        if let Ok(mut entry) = archive.by_name("xl/sharedStrings.xml") {
+        if let Some(&index) = member_indices.get("xl/sharedStrings.xml") {
+            let mut entry = archive
+                .by_index(index)
+                .map_err(|_| DbError::Validation("content_office_container_invalid".into()))?;
             let xml = match read_zip_entry_bounded(&mut entry, policy.max_bytes as u64, deadline) {
                 Ok(xml) => xml,
                 Err(error) => {
@@ -1069,9 +1082,12 @@ pub(super) fn office_xml_extraction(
                 reason: Some("content_extractor_timeout".into()),
             });
         }
-        let Ok(mut entry) = archive.by_name(name) else {
+        let Some(&index) = member_indices.get(name) else {
             continue;
         };
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|_| DbError::Validation("content_office_container_invalid".into()))?;
         if entry.encrypted() {
             return Ok(Extraction {
                 family: family.into(),

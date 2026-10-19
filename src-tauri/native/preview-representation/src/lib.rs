@@ -376,6 +376,32 @@ mod tests {
     }
 
     #[test]
+    fn rustsec_0373_css_url_case_variants_cannot_load_resources() {
+        for function in ["url", "URL", "uRl", "Url"] {
+            let input = format!(
+                r#"<p style='background-image:{function}("https://evil.example/pixel");'>safe</p>"#
+            );
+            let (representation, _) = render_markdown(input.as_bytes(), true).unwrap();
+            let SafeRepresentation::SafeHtml { html } = representation else {
+                panic!("expected safe html");
+            };
+            assert!(html.contains("safe"));
+            assert!(!html.contains("style="));
+            assert!(!html.contains("evil.example"));
+
+            // Exercise the patched dependency's CSS filter as well as our
+            // stricter production policy, which never admits style attributes.
+            let cleaned = HtmlSanitizer::default()
+                .filter_style_properties(["background-image"].into())
+                .add_generic_attributes(&["style"])
+                .url_schemes(["cid"].into())
+                .clean(&input)
+                .to_string();
+            assert!(!cleaned.contains("evil.example"), "{function}: {cleaned}");
+        }
+    }
+
+    #[test]
     fn markdown_renders_supported_document_structures_without_raw_syntax() {
         let (representation, _) = render_markdown(
             b"# Heading\n\n**Bold**\n\n- one\n- two\n\n> quote\n\n```rust\nlet answer = 42;\n```\n\n| Name | Value |\n| --- | --- |\n| bounded | safe |",

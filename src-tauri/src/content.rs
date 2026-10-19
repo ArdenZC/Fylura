@@ -5022,6 +5022,105 @@ mod tests {
     }
 
     #[test]
+    fn zip9_office_legacy_names_do_not_alias_and_bad_containers_fail_closed() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file("word/document.xml", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"<root>safe document</root>").unwrap();
+        let valid = writer.finish().unwrap().into_inner();
+        let central = valid.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+        let mut invalid_name = valid.clone();
+        invalid_name[6..8].copy_from_slice(&0x0800_u16.to_le_bytes());
+        invalid_name[central + 8..central + 10].copy_from_slice(&0x0800_u16.to_le_bytes());
+        invalid_name[30] = 0x82;
+        invalid_name[central + 46] = 0x82;
+        let policy = default_policy("fixture-root", 0);
+        let no_alias = office_xml_extraction(
+            "docx",
+            invalid_name.clone(),
+            &policy,
+            &["word/document.xml"],
+        )
+        .unwrap();
+        assert!(
+            no_alias.text.is_empty(),
+            "decoded name must not alias the required member"
+        );
+        let decoded =
+            office_xml_extraction("docx", invalid_name, &policy, &["éord/document.xml"]).unwrap();
+        assert!(decoded.text.contains("safe document"));
+        for bytes in [valid[..valid.len() - 8].to_vec(), b"not a zip".to_vec()] {
+            let error = office_xml_extraction("docx", bytes, &policy, &["word/document.xml"])
+                .expect_err("invalid container/name must not become an empty or allowed member");
+            assert_eq!(
+                content_error_code(&error),
+                "content_office_container_invalid"
+            );
+        }
+    }
+
+    #[test]
+    fn zip9_office_decoded_duplicate_names_are_rejected_before_lookup() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        for name in ["aord/document.xml", "éord/document.xml"] {
+            writer
+                .start_file(name, SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"<root>ambiguous</root>").unwrap();
+        }
+        let mut bytes = writer.finish().unwrap().into_inner();
+        let central = bytes.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+        bytes[30] = 0x82; // CP437 é aliases the second entry's UTF-8 name.
+        bytes[central + 46] = 0x82;
+        let result = office_xml_extraction(
+            "docx",
+            bytes,
+            &default_policy("fixture-root", 0),
+            &["éord/document.xml"],
+        )
+        .unwrap();
+        assert_eq!(result.status, "blocked");
+        assert_eq!(
+            result.reason.as_deref(),
+            Some("content_archive_duplicate_member")
+        );
+        assert!(result.text.is_empty());
+    }
+
+    #[test]
+    fn rustsec_office_symlink_permissions_and_unsafe_decoys_have_no_path_authority() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, payload) in [
+            ("word/document.xml", "<root>safe document</root>"),
+            ("../escape.xml", "<root>outside decoy</root>"),
+            ("/absolute.xml", "<root>absolute decoy</root>"),
+        ] {
+            writer
+                .start_file(name, SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(payload.as_bytes()).unwrap();
+        }
+        let valid = writer.finish().unwrap().into_inner();
+        let central = valid.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+        for mode in [0o120777_u32, 0o106755_u32] {
+            let mut bytes = valid.clone();
+            bytes[central + 5] = 3;
+            bytes[central + 38..central + 42].copy_from_slice(&(mode << 16).to_le_bytes());
+            let result = office_xml_extraction(
+                "docx",
+                bytes,
+                &default_policy("fixture-root", 0),
+                &["word/document.xml"],
+            )
+            .unwrap();
+            assert_eq!(result.status, "completed");
+            assert!(result.text.contains("safe document"));
+            assert!(!result.text.contains("decoy"));
+        }
+    }
+
+    #[test]
     fn office_zip_bomb_and_entry_limits_fail_closed() {
         let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
         writer

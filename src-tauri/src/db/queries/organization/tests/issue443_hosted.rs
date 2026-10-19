@@ -368,7 +368,7 @@ pub(super) fn run() {
         .next()
         .unwrap();
     assert!(
-        method.contains(ITEM_CAS_SQL),
+        method.replace("\r\n", "\n").contains(ITEM_CAS_SQL),
         "sidecar must retain exact product SQL"
     );
     let system = sysinfo::System::new_all();

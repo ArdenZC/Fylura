@@ -6,8 +6,8 @@ use super::{
     actual_match_count, assert_entry_triggers_enabled, assert_search_results, benchmark_context,
     benchmark_escape_glob, candidate_plan_sql, configured_connection, database_metrics,
     emit_record, populate_synthetic_database, round_ms, sidecar_bytes, summarize_samples,
-    test_db_path, test_volume, BenchmarkCleanup, QueryCase, INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX,
-    SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
+    test_db_path, test_volume, BenchmarkCleanup, QueryCase, QueryExpectation,
+    INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX, SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
 };
 use crate::db::Database;
 use crate::global_index::models::GlobalSearchResult;
@@ -25,8 +25,10 @@ use crate::global_index::search::{
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection, StatementStatus};
 use serde_json::{json, Value as JsonValue};
+use std::collections::HashSet;
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -35,7 +37,7 @@ use std::thread;
 use std::thread::JoinHandle;
 #[cfg(target_os = "windows")]
 use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration as StdDuration, Instant};
 
 const DIAGNOSTIC_ENTRIES: u64 = 500_000;
 const STAGE_WARMUPS: usize = 3;
@@ -43,6 +45,11 @@ const STAGE_SAMPLES: usize = 10;
 const PAIRED_WARMUPS: usize = 5;
 const PAIRED_SAMPLES: usize = 30;
 const QUERY_LIMIT: u32 = 80;
+const EXACT_SQL_1M_ENTRIES: u64 = 1_000_000;
+const EXACT_SQL_1M_SOFT_TIMEOUT_SECONDS: u64 = 30 * 60;
+const EXACT_SQL_1M_EVIDENCE_LIMIT_BYTES: u64 = 32 * 1024 * 1024;
+const EXACT_SQL_1M_WARMUPS: usize = 5;
+const EXACT_SQL_1M_SAMPLES: usize = 30;
 const TEST_INDEX_NAME: &str = "idx_issue352_diag_name_mtime";
 const SOURCE_HEALTH_TOPOLOGY_NAMES: [&str; 4] = [
     "one_volume_zero_stale",
@@ -3212,6 +3219,1238 @@ fn global_search_query_cost_diagnostic() {
         "official_full_benchmark_matrix_repeated": false,
         "normal_production_search_semantics_modified": false
     }));
+}
+
+#[derive(Default)]
+struct ExactSql1mEvidenceState {
+    bytes_written: u64,
+    phase: String,
+    terminal_status: Option<String>,
+    peak_sampled_working_set_bytes: u64,
+}
+
+struct ExactSql1mEvidence {
+    path: PathBuf,
+    started: Instant,
+    max_bytes: u64,
+    state: Mutex<ExactSql1mEvidenceState>,
+}
+
+impl ExactSql1mEvidence {
+    fn create(path: PathBuf) -> Self {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create exact SQL 1M evidence directory");
+        }
+        fs::write(&path, "").expect("initialize exact SQL 1M JSONL evidence");
+        Self {
+            path,
+            started: Instant::now(),
+            // Reserve 2 MiB of the combined 32 MiB budget for the existing
+            // semantic helper, terminal marker and workflow hash metadata.
+            max_bytes: EXACT_SQL_1M_EVIDENCE_LIMIT_BYTES - 2 * 1024 * 1024,
+            state: Mutex::new(ExactSql1mEvidenceState::default()),
+        }
+    }
+
+    fn set_phase(&self, phase: impl Into<String>) {
+        self.lock_state().phase = phase.into();
+    }
+
+    fn record_working_set(&self, bytes: u64) {
+        let mut state = self.lock_state();
+        state.peak_sampled_working_set_bytes = state.peak_sampled_working_set_bytes.max(bytes);
+    }
+
+    fn peak_sampled_working_set_bytes(&self) -> u64 {
+        self.lock_state().peak_sampled_working_set_bytes
+    }
+
+    fn bytes_written(&self) -> u64 {
+        self.lock_state().bytes_written
+    }
+
+    fn emit(&self, record: &JsonValue) {
+        let mut state = self.lock_state();
+        assert!(
+            state.terminal_status.is_none(),
+            "cannot append evidence after terminal record"
+        );
+        self.append_locked(&mut state, record, false)
+            .unwrap_or_else(|error| panic!("write bounded exact SQL 1M JSONL record: {error}"));
+    }
+
+    fn finish(&self, status: &str, reason: &str) -> Result<(), String> {
+        let mut state = self.lock_state();
+        if state.terminal_status.is_some() {
+            return Ok(());
+        }
+        let terminal = json!({
+            "schema_version": 1,
+            "record_type": "diagnostic_terminal",
+            "status": status,
+            "reason": reason,
+            "phase_at_termination": state.phase.clone(),
+            "elapsed_ms": round_ms(self.started.elapsed().as_secs_f64() * 1_000.0),
+            "evidence_bytes_before_terminal": state.bytes_written,
+            "evidence_limit_bytes": EXACT_SQL_1M_EVIDENCE_LIMIT_BYTES,
+            "peak_sampled_working_set_bytes": state.peak_sampled_working_set_bytes
+        });
+        self.append_locked(&mut state, &terminal, true)?;
+        state.terminal_status = Some(status.to_string());
+        Ok(())
+    }
+
+    fn is_terminal(&self) -> bool {
+        self.lock_state().terminal_status.is_some()
+    }
+
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, ExactSql1mEvidenceState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn append_locked(
+        &self,
+        state: &mut ExactSql1mEvidenceState,
+        record: &JsonValue,
+        terminal: bool,
+    ) -> Result<(), String> {
+        let mut line = serde_json::to_vec(record).map_err(|error| error.to_string())?;
+        line.push(b'\n');
+        let next_size = state.bytes_written.saturating_add(line.len() as u64);
+        let allowed = if terminal {
+            EXACT_SQL_1M_EVIDENCE_LIMIT_BYTES
+        } else {
+            self.max_bytes
+        };
+        if next_size > allowed {
+            return Err(format!(
+                "JSONL evidence would exceed its {allowed}-byte write limit (current {}, next line {})",
+                state.bytes_written,
+                line.len()
+            ));
+        }
+
+        let mut output = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|error| error.to_string())?;
+        output
+            .write_all(&line)
+            .and_then(|()| output.flush())
+            .map_err(|error| error.to_string())?;
+        if terminal {
+            output.sync_data().map_err(|error| error.to_string())?;
+        }
+        state.bytes_written = next_size;
+        let line = String::from_utf8(line).map_err(|error| error.to_string())?;
+        print!("{line}");
+        Ok(())
+    }
+}
+
+struct ExactSql1mCompletionGuard(Arc<ExactSql1mEvidence>);
+
+impl ExactSql1mCompletionGuard {
+    fn complete(&self) {
+        self.0
+            .finish("PASS", "all 12 query, SQL, pooled, snapshot, pagination and resource checks completed")
+            .expect("append durable PASS terminal record");
+    }
+}
+
+impl Drop for ExactSql1mCompletionGuard {
+    fn drop(&mut self) {
+        if !self.0.is_terminal() {
+            let reason = if std::thread::panicking() {
+                "test_panicked_or_assertion_failed"
+            } else {
+                "test_exited_before_all_checks_completed"
+            };
+            let _ = self.0.finish("INCOMPLETE", reason);
+        }
+    }
+}
+
+struct ExactSql1mWatchdog {
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+}
+
+fn checked_optional_file_bytes(path: &Path) -> Result<u64, String> {
+    match fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.len()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(error) => Err(format!("{}: {error}", path.display())),
+    }
+}
+
+fn checked_database_bytes(path: &Path) -> Result<u64, String> {
+    let main_bytes = fs::metadata(path)
+        .map_err(|error| format!("{}: {error}", path.display()))?
+        .len();
+    let mut wal_path = path.as_os_str().to_os_string();
+    wal_path.push("-wal");
+    let mut shm_path = path.as_os_str().to_os_string();
+    shm_path.push("-shm");
+    Ok(main_bytes
+        .saturating_add(checked_optional_file_bytes(&PathBuf::from(wal_path))?)
+        .saturating_add(checked_optional_file_bytes(&PathBuf::from(shm_path))?))
+}
+
+impl ExactSql1mWatchdog {
+    fn start(
+        evidence: Arc<ExactSql1mEvidence>,
+        database_path: PathBuf,
+        semantic_evidence_path: PathBuf,
+        soft_timeout: StdDuration,
+        max_database_bytes: u64,
+        max_working_set_bytes: u64,
+    ) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let worker = std::thread::Builder::new()
+            .name("global-search-exact-sql-1m-budget".to_string())
+            .spawn(move || {
+                let started = Instant::now();
+                loop {
+                    if thread_stop.load(Ordering::Relaxed) || evidence.is_terminal() {
+                        break;
+                    }
+                    if started.elapsed() >= soft_timeout {
+                        let _ = evidence.finish(
+                            "SOFT_TIMEOUT",
+                            "the test-owned 30-minute elapsed budget expired; partial JSONL is retained",
+                        );
+                        // `process::exit` makes the job fail even if the test
+                        // is inside a blocking SQLite operation. The terminal
+                        // marker and each preceding line were flushed first.
+                        std::process::exit(124);
+                    }
+
+                    match native_process_sample() {
+                        Some(sample) => {
+                            evidence.record_working_set(sample.working_set_bytes);
+                            if sample.working_set_bytes > max_working_set_bytes {
+                                let _ = evidence.finish(
+                                    "RESOURCE_LIMIT",
+                                    "sampled diagnostic-process working set exceeded the measured runner budget",
+                                );
+                                std::process::exit(125);
+                            }
+                        }
+                        None => {
+                            let _ = evidence.finish(
+                                "RESOURCE_LIMIT",
+                                "Windows process memory counters became unavailable during the run",
+                            );
+                            std::process::exit(126);
+                        }
+                    }
+
+                    let database_bytes = match checked_database_bytes(&database_path) {
+                        Ok(bytes) => bytes,
+                        Err(error) => {
+                            let _ = evidence.finish(
+                                "RESOURCE_LIMIT",
+                                &format!("could not measure SQLite main/WAL/SHM bytes: {error}"),
+                            );
+                            std::process::exit(129);
+                        }
+                    };
+                    if database_bytes > max_database_bytes {
+                        let _ = evidence.finish(
+                            "RESOURCE_LIMIT",
+                            "SQLite main database and sidecars exceeded the measured disk budget",
+                        );
+                        std::process::exit(127);
+                    }
+                    let semantic_bytes = match fs::metadata(&semantic_evidence_path) {
+                        Ok(metadata) => metadata.len(),
+                        Err(error) => {
+                            let _ = evidence.finish(
+                                "RESOURCE_LIMIT",
+                                &format!("could not measure semantic JSONL bytes: {error}"),
+                            );
+                            std::process::exit(130);
+                        }
+                    };
+                    if semantic_bytes > 1024 * 1024 {
+                        let _ = evidence.finish(
+                            "RESOURCE_LIMIT",
+                            "existing semantic helper exceeded its reserved 1 MiB JSONL budget",
+                        );
+                        std::process::exit(128);
+                    }
+
+                    std::thread::sleep(StdDuration::from_millis(250));
+                }
+            })
+            .expect("start exact SQL 1M budget watchdog");
+        Self {
+            stop,
+            worker: Some(worker),
+        }
+    }
+}
+
+impl Drop for ExactSql1mWatchdog {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+#[test]
+#[ignore = "Owner-approved test-only Issue #364 exact SQL 1M diagnostic; dedicated manual Hosted run requires a separate Owner GO"]
+fn global_search_exact_sql_1m_diagnostic() {
+    let output_path = PathBuf::from(
+        env::var("ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_OUTPUT")
+            .expect("dedicated exact SQL 1M workflow must set the JSONL path"),
+    );
+    let evidence = Arc::new(ExactSql1mEvidence::create(output_path.clone()));
+    let completion = ExactSql1mCompletionGuard(Arc::clone(&evidence));
+
+    assert_eq!(
+        env::var("ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_ENTRIES")
+            .ok()
+            .as_deref(),
+        Some("1000000"),
+        "the independent diagnostic is fixed to its own one-million-row fixture"
+    );
+    assert_eq!(
+        env::var("GITHUB_EVENT_NAME").ok().as_deref(),
+        Some("workflow_dispatch"),
+        "the exact SQL 1M diagnostic is manual-only"
+    );
+    assert_eq!(
+        env::var("GITHUB_JOB").ok().as_deref(),
+        Some("synthetic-global-search-exact-sql-diagnostic"),
+        "the exact SQL 1M test must run only in its dedicated job"
+    );
+    assert_eq!(
+        env::var("GITHUB_RUN_ATTEMPT").ok().as_deref(),
+        Some("1"),
+        "the hosted diagnostic is one attempt with no retry"
+    );
+    assert_eq!(
+        env::var("ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_MODE")
+            .ok()
+            .as_deref(),
+        Some("exact_sql_1m_diagnostic"),
+        "the independent 1M job must select only its explicit manual mode"
+    );
+    let source_sha = required_exact_sql_1m_env("ZEN_CANVAS_BENCHMARK_SOURCE_SHA");
+    let source_tree = required_exact_sql_1m_env("ZEN_CANVAS_BENCHMARK_SOURCE_TREE");
+    assert!(
+        is_git_object_id(&source_sha),
+        "source SHA must be a full Git object ID"
+    );
+    assert!(
+        is_git_object_id(&source_tree),
+        "source Tree must be a full Git object ID"
+    );
+
+    let limits = exact_sql_1m_resource_limits();
+    let semantic_output_path = PathBuf::from(required_exact_sql_1m_env(
+        "ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT",
+    ));
+    if let Some(parent) = semantic_output_path.parent() {
+        fs::create_dir_all(parent).expect("create semantic-helper evidence directory");
+    }
+    fs::write(&semantic_output_path, "").expect("initialize semantic-helper JSONL");
+    let temp_root = PathBuf::from(required_exact_sql_1m_env(
+        "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_TEMP_ROOT",
+    ));
+    assert_eq!(
+        env::temp_dir()
+            .to_string_lossy()
+            .trim_end_matches(|character| character == '\\' || character == '/')
+            .to_ascii_lowercase(),
+        temp_root
+            .to_string_lossy()
+            .trim_end_matches(|character| character == '\\' || character == '/')
+            .to_ascii_lowercase(),
+        "the measured disk budget must describe Rust's actual temporary directory"
+    );
+
+    let mut context = benchmark_context(EXACT_SQL_1M_ENTRIES);
+    context["source_sha"] = json!(source_sha);
+    context["source_tree"] = json!(source_tree);
+    context["workflow_mode"] = json!("exact_sql_1m_diagnostic");
+    context["workflow_job"] = json!(env::var("GITHUB_JOB").ok());
+    context["run_id"] = json!(env::var("GITHUB_RUN_ID").ok());
+    context["run_attempt"] = json!(env::var("GITHUB_RUN_ATTEMPT").ok());
+
+    evidence.set_phase("preflight");
+    evidence.emit(&json!({
+        "schema_version": 1,
+        "record_type": "exact_sql_1m_preflight",
+        "context": context,
+        "fixture_rows": EXACT_SQL_1M_ENTRIES,
+        "soft_timeout_seconds": EXACT_SQL_1M_SOFT_TIMEOUT_SECONDS,
+        "evidence_limit_bytes_combined": EXACT_SQL_1M_EVIDENCE_LIMIT_BYTES,
+        "measured_limits": limits,
+        "sql_provenance_values": ["CURRENT_PRODUCTION", "LEGACY", "TEST_CANDIDATE"],
+        "legacy_or_test_candidate_sql_in_current_tier_measurements": false,
+        "performance_gate_changed": false
+    }));
+
+    let path = test_db_path();
+    let _cleanup = BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).expect("open the sole exact SQL 1M fixture");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert the one enabled synthetic fixture volume");
+    let watchdog = ExactSql1mWatchdog::start(
+        Arc::clone(&evidence),
+        path.clone(),
+        semantic_output_path.clone(),
+        StdDuration::from_secs(EXACT_SQL_1M_SOFT_TIMEOUT_SECONDS),
+        limits.max_database_bytes,
+        limits.max_working_set_bytes,
+    );
+
+    evidence.set_phase("populate_one_million_rows");
+    let fixture_started = Instant::now();
+    let (expectations, generation_ms, population_ms, transaction_samples) =
+        populate_synthetic_database(&db, EXACT_SQL_1M_ENTRIES);
+    let fixture_wall_ms = fixture_started.elapsed().as_secs_f64() * 1_000.0;
+    let mut conn =
+        configured_connection(&path).expect("open configured exact SQL diagnostic reader");
+    let actual_total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row.get(0))
+        .expect("count exact synthetic fixture rows");
+    assert_eq!(actual_total, EXACT_SQL_1M_ENTRIES as i64);
+    assert_eq!(expectations.len(), QUERY_MATRIX.len());
+    let triggers = assert_entry_triggers_enabled(&conn);
+    let schema_before = schema_index_signature(&conn);
+    let sqlite_version: String = conn
+        .query_row("SELECT sqlite_version()", [], |row| row.get(0))
+        .expect("read bundled SQLite runtime version");
+    let sqlite_source_id: String = conn
+        .query_row("SELECT sqlite_source_id()", [], |row| row.get(0))
+        .expect("read SQLite source identity");
+    let compile_options = conn
+        .prepare("PRAGMA compile_options")
+        .expect("prepare SQLite compile option query")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("read SQLite compile options")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect SQLite compile options");
+    evidence.emit(&json!({
+        "schema_version": 1,
+        "record_type": "exact_sql_1m_environment_and_fixture",
+        "context": context,
+        "fixture_rows": actual_total,
+        "fixture_build_count": 1,
+        "fixture_source": "existing global_search_benchmark.rs deterministic generator and QueryExpectation oracle, using production schema, indexes and FTS triggers",
+        "fixture_generation_ms": round_ms(generation_ms),
+        "fixture_population_ms": round_ms(population_ms),
+        "fixture_wall_ms": round_ms(fixture_wall_ms),
+        "population_transaction_latency_ms": summarize_samples(&transaction_samples),
+        "runner": {
+            "os": env::consts::OS,
+            "arch": env::consts::ARCH,
+            "image_os": env::var("ImageOS").ok(),
+            "image_version": env::var("ImageVersion").ok(),
+            "runner_os_description": env::var("RUNNER_OS").ok(),
+            "github_job": env::var("GITHUB_JOB").ok(),
+            "github_run_attempt": env::var("GITHUB_RUN_ATTEMPT").ok(),
+            "rustc_version": env::var("ZEN_CANVAS_RUSTC_VERSION").ok(),
+            "cargo_version": env::var("ZEN_CANVAS_CARGO_VERSION").ok(),
+            "total_physical_memory_bytes_at_preflight": limits.total_physical_memory_bytes,
+            "free_physical_memory_bytes_at_preflight": limits.free_physical_memory_bytes,
+            "free_database_temp_disk_bytes_at_preflight": limits.free_disk_bytes,
+            "free_evidence_temp_disk_bytes_at_preflight": limits.free_evidence_disk_bytes
+        },
+        "measured_resource_limits": limits,
+        "process_memory_counters_available": native_process_sample().is_some(),
+        "peak_sampled_working_set_bytes_so_far": evidence.peak_sampled_working_set_bytes(),
+        "sqlite_version": sqlite_version,
+        "sqlite_source_id": sqlite_source_id,
+        "sqlite_compile_options": compile_options,
+        "sqlite_pragmas": sqlite_runtime_settings(&conn),
+        "database": database_metrics(&conn, &path),
+        "database_file_budget_bytes": limits.max_database_bytes,
+        "schema_index_trigger_signature_before": schema_before,
+        "required_production_triggers": triggers,
+        "existing_100k_500k_scale_guards_modified": false
+    }));
+
+    let source_health_oracle = load_global_search_source_health_candidate(
+        &conn,
+        SourceHealthCandidate::Original,
+    )
+    .expect("read source-health and revision facts with independent original aggregate SQL");
+    let index_status_oracle = db
+        .global_index_status()
+        .expect("read index status oracle from repository");
+    let mut query_correctness = 0;
+    for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
+        evidence.set_phase(format!("correctness:{}", query_case.class));
+        let actual_count = actual_match_count(&conn, query_case);
+        assert_eq!(
+            actual_count as u64,
+            expectation.total_matches,
+            "1M independent result-count oracle for {}",
+            query_case.class
+        );
+        assert_search_results(
+            &conn,
+            query_case,
+            expectation,
+            SEARCH_RESULT_LIMIT,
+            0,
+            EXACT_SQL_1M_ENTRIES,
+        );
+
+        let routed = trace_current_production_route(
+            &evidence,
+            &context,
+            &conn,
+            query_case,
+            SEARCH_RESULT_LIMIT,
+            0,
+        );
+        let direct = search_global_entries_on_connection(
+            &conn,
+            query_case.query,
+            SEARCH_RESULT_LIMIT,
+            0,
+        )
+        .expect("run the normal production search route on the same connection");
+        assert_eq!(routed, direct, "tier replay must equal production route");
+        assert_eq!(
+            direct,
+            assert_search_results(
+                &conn,
+                query_case,
+                expectation,
+                SEARCH_RESULT_LIMIT,
+                0,
+                EXACT_SQL_1M_ENTRIES,
+            ),
+            "full production result objects must preserve the fixture oracle"
+        );
+
+        let candidate_window = collect_current_production_candidate_window(
+            &evidence,
+            &context,
+            &conn,
+            query_case.class,
+            query_case.query,
+            SEARCH_CANDIDATE_LIMIT as u32,
+        );
+        let expected_window = expectation.expected_page(0, SEARCH_CANDIDATE_LIMIT);
+        let candidate_ids = candidate_window
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(candidate_ids, expected_window, "full 4096 window oracle");
+        assert_eq!(
+            candidate_window.len(),
+            expectation.bounded_match_count(),
+            "candidate window must contain every eligible result up to 4096"
+        );
+        assert_eq!(
+            candidate_ids.iter().copied().collect::<HashSet<_>>().len(),
+            candidate_ids.len(),
+            "candidate window de-duplicates stable entry IDs"
+        );
+        let boundary_page = search_global_entries_on_connection(
+            &conn,
+            query_case.query,
+            SEARCH_RESULT_LIMIT,
+            (SEARCH_CANDIDATE_LIMIT - SEARCH_RESULT_LIMIT as usize) as u32,
+        )
+        .expect("search immediately before 4096 candidate cap");
+        let expected_boundary = expectation.expected_page(
+            SEARCH_CANDIDATE_LIMIT - SEARCH_RESULT_LIMIT as usize,
+            SEARCH_RESULT_LIMIT as usize,
+        );
+        assert_eq!(
+            boundary_page
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            expected_boundary,
+            "pagination immediately before 4096 cap"
+        );
+        assert!(
+            search_global_entries_on_connection(
+                &conn,
+                query_case.query,
+                SEARCH_RESULT_LIMIT,
+                SEARCH_CANDIDATE_LIMIT as u32,
+            )
+            .expect("search at 4096 candidate cap")
+            .is_empty(),
+            "offset 4096 must return no results"
+        );
+        for (page_name, offset) in [("overlap_page", 40_u32), ("candidate_cap_page", 4_016_u32)] {
+            let page = assert_search_results(
+                &conn,
+                query_case,
+                expectation,
+                SEARCH_RESULT_LIMIT,
+                offset,
+                EXACT_SQL_1M_ENTRIES,
+            );
+            assert_eq!(
+                page.iter()
+                    .map(|row| row.id.as_str())
+                    .collect::<Vec<_>>(),
+                expectation.expected_page(offset as usize, SEARCH_RESULT_LIMIT as usize),
+                "page ID oracle for {page_name}"
+            );
+            evidence.emit(&json!({
+                "schema_version": 1,
+                "record_type": "exact_sql_1m_pagination_correctness",
+                "context": context,
+                "query_class": query_case.class,
+                "query": query_case.query,
+                "page": page_name,
+                "limit": SEARCH_RESULT_LIMIT,
+                "offset": offset,
+                "result_count": page.len(),
+                "oracle_order_dedup_filter_and_candidate_cap_equal": true
+            }));
+        }
+        evidence.emit(&json!({
+            "schema_version": 1,
+            "record_type": "exact_sql_1m_candidate_window_correctness",
+            "context": context,
+            "query_class": query_case.class,
+            "query": query_case.query,
+            "eligible_matches": expectation.total_matches,
+            "candidate_window_limit": SEARCH_CANDIDATE_LIMIT,
+            "candidate_window_result_count": candidate_window.len(),
+            "page_before_cap_count": boundary_page.len(),
+            "offset_at_cap_returns_empty": true,
+            "unique_ids": true,
+            "fixture_oracle_order_equal": true
+        }));
+
+        profile_pooled_and_snapshot_1m(
+            &evidence,
+            &context,
+            &db,
+            &query_case,
+            &direct,
+            &source_health_oracle.source_health,
+            &source_health_oracle.source_revision,
+            &index_status_oracle,
+        );
+        query_correctness += 1;
+    }
+    assert_eq!(query_correctness, QUERY_MATRIX.len());
+
+    evidence.set_phase("legacy_candidate_semantic_regression_checks");
+    add_adversarial_rows(&db, &mut conn, &context);
+    let semantic_lines = fs::read_to_string(&semantic_output_path)
+        .expect("read existing bounded adversarial semantic helper output");
+    assert!(!semantic_lines.trim().is_empty());
+    assert_eq!(semantic_lines.lines().count(), 1);
+    for line in semantic_lines.lines() {
+        let mut record: JsonValue =
+            serde_json::from_str(line).expect("parse existing semantic helper JSONL");
+        relabel_semantic_helper_provenance(&mut record);
+        evidence.emit(&record);
+    }
+
+    let final_total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row.get(0))
+        .expect("verify base entry count after rolled-back semantic overlay");
+    assert_eq!(final_total, EXACT_SQL_1M_ENTRIES as i64);
+    let schema_after = schema_index_signature(&conn);
+    assert_eq!(schema_after, schema_before, "no schema/index/trigger changes");
+    let database_bytes = fs::metadata(&path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+        .saturating_add(sidecar_bytes(&path, "-wal"))
+        .saturating_add(sidecar_bytes(&path, "-shm"));
+    assert!(
+        database_bytes <= limits.max_database_bytes,
+        "SQLite database plus WAL/SHM exceeded the measured file budget"
+    );
+    let evidence_bytes = evidence.bytes_written();
+    let semantic_bytes = fs::metadata(&semantic_output_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    assert!(
+        semantic_bytes <= 1024 * 1024,
+        "semantic helper evidence exceeded its reserved 1 MiB budget"
+    );
+    assert!(
+        evidence_bytes.saturating_add(semantic_bytes) <= EXACT_SQL_1M_EVIDENCE_LIMIT_BYTES,
+        "combined exact SQL evidence must remain at or below 32 MiB"
+    );
+    evidence.emit(&json!({
+        "schema_version": 1,
+        "record_type": "exact_sql_1m_correctness_summary",
+        "context": context,
+        "query_classes_checked": query_correctness,
+        "query_classes_total": QUERY_MATRIX.len(),
+        "query_oracles_all_passed": true,
+        "full_pooled_results_equal_raw_route": true,
+        "snapshot_full_results_source_health_revision_index_status_equal_oracles": true,
+        "pagination_dedup_sort_filter_and_4096_window_checked": true,
+        "schema_index_trigger_signature_unchanged": schema_after == schema_before,
+        "base_rows_after_semantic_transaction_rollback": final_total,
+        "database_main_wal_shm_bytes": database_bytes,
+        "database_budget_bytes": limits.max_database_bytes,
+        "evidence_bytes_before_summary": evidence_bytes,
+        "semantic_helper_bytes": semantic_bytes,
+        "evidence_budget_bytes_combined": EXACT_SQL_1M_EVIDENCE_LIMIT_BYTES,
+        "peak_sampled_working_set_bytes": evidence.peak_sampled_working_set_bytes(),
+        "working_set_budget_bytes": limits.max_working_set_bytes,
+        "performance_threshold_changed": false,
+        "production_sql_modified": false
+    }));
+    evidence.set_phase("complete");
+    completion.complete();
+    drop(watchdog);
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+struct ExactSql1mResourceLimits {
+    total_physical_memory_bytes: u64,
+    free_physical_memory_bytes: u64,
+    free_disk_bytes: u64,
+    free_evidence_disk_bytes: u64,
+    max_working_set_bytes: u64,
+    max_database_bytes: u64,
+}
+
+fn required_exact_sql_1m_env(name: &str) -> String {
+    env::var(name).unwrap_or_else(|_| panic!("dedicated exact SQL 1M workflow must set {name}"))
+}
+
+fn required_exact_sql_1m_env_u64(name: &str) -> u64 {
+    required_exact_sql_1m_env(name)
+        .parse::<u64>()
+        .unwrap_or_else(|error| panic!("{name} must be a positive integer: {error}"))
+}
+
+fn is_git_object_id(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn exact_sql_1m_resource_limits() -> ExactSql1mResourceLimits {
+    let limits = ExactSql1mResourceLimits {
+        total_physical_memory_bytes: required_exact_sql_1m_env_u64(
+            "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_TOTAL_MEMORY_BYTES",
+        ),
+        free_physical_memory_bytes: required_exact_sql_1m_env_u64(
+            "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_FREE_MEMORY_BYTES",
+        ),
+        free_disk_bytes: required_exact_sql_1m_env_u64(
+            "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_FREE_DISK_BYTES",
+        ),
+        free_evidence_disk_bytes: required_exact_sql_1m_env_u64(
+            "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_FREE_EVIDENCE_DISK_BYTES",
+        ),
+        max_working_set_bytes: required_exact_sql_1m_env_u64(
+            "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_MAX_WORKING_SET_BYTES",
+        ),
+        max_database_bytes: required_exact_sql_1m_env_u64(
+            "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_MAX_DATABASE_BYTES",
+        ),
+    };
+    assert!(limits.total_physical_memory_bytes > 0);
+    assert!(limits.free_physical_memory_bytes > 0);
+    assert!(limits.free_disk_bytes > 0);
+    assert!(limits.free_evidence_disk_bytes > 0);
+    assert!(limits.max_working_set_bytes > 0);
+    assert!(limits.max_database_bytes > 0);
+    assert!(
+        limits.max_working_set_bytes <= limits.total_physical_memory_bytes,
+        "measured working-set limit cannot exceed physical memory"
+    );
+    assert!(
+        limits.max_database_bytes < limits.free_disk_bytes,
+        "measured database budget must preserve free disk reserve"
+    );
+    assert!(native_process_sample().is_some(), "Windows process memory counters are required");
+    limits
+}
+
+fn exact_sql_1m_tier_order(query: &str) -> Vec<&'static str> {
+    let mut tiers = vec![
+        "exact_name",
+        "name_prefix",
+        "exact_extension",
+        "extension_prefix",
+    ];
+    if query.chars().count() >= 3 {
+        if query
+            .chars()
+            .all(|character| character.is_alphanumeric() || character.is_whitespace())
+        {
+            tiers.push("fts");
+        } else if !query.is_empty() {
+            tiers.push("punctuation_prefix");
+        }
+    }
+    tiers
+}
+
+fn exact_sql_1m_tier_parameters(tier: &str, query: &str, limit: u32) -> Vec<SqlValue> {
+    match tier {
+        "exact_name" | "exact_extension" => vec![
+            SqlValue::Text(query.to_string()),
+            SqlValue::Integer(limit as i64),
+        ],
+        "name_prefix" | "extension_prefix" => vec![
+            SqlValue::Text(query.to_string()),
+            SqlValue::Text(format!("{}*", benchmark_escape_glob(query))),
+            SqlValue::Integer(limit as i64),
+        ],
+        "fts" => vec![
+            SqlValue::Text(fts_phrase(query)),
+            SqlValue::Integer(limit as i64),
+        ],
+        "punctuation_prefix" => vec![
+            SqlValue::Text(format!("{}*", benchmark_escape_glob(query))),
+            SqlValue::Integer(limit as i64),
+        ],
+        _ => panic!("unknown current search tier {tier}"),
+    }
+}
+
+fn exact_sql_1m_layer_limit(target: u32, seen: usize) -> u32 {
+    target
+        .saturating_add(seen.min(SEARCH_CANDIDATE_LIMIT) as u32)
+        .clamp(1, SEARCH_CANDIDATE_LIMIT as u32)
+}
+
+fn collect_current_production_candidate_window(
+    evidence: &ExactSql1mEvidence,
+    context: &JsonValue,
+    conn: &Connection,
+    query_class: &str,
+    query: &str,
+    target: u32,
+) -> Vec<GlobalSearchResult> {
+    let mut results = Vec::with_capacity(target as usize);
+    let mut seen = HashSet::new();
+    for (tier_index, tier) in exact_sql_1m_tier_order(query).iter().copied().enumerate() {
+        let seen_before = seen.len();
+        if results.len() >= target as usize {
+            evidence.emit(&json!({
+                "schema_version": 1,
+                "record_type": "exact_sql_1m_candidate_window_layer",
+                "context": context,
+                "query_class": query_class,
+                "query": query,
+                "tier": tier,
+                "sql_provenance": "CURRENT_PRODUCTION",
+                "route_status": "SKIPPED_TARGET_FILLED",
+                "target": target,
+                "effective_target": target,
+                "seen_before": seen_before,
+                "layer_limit": null,
+                "limit": null,
+                "sql_limit": null,
+                "sql": null,
+                "bound_parameters": null
+            }));
+            continue;
+        }
+        let layer_limit = exact_sql_1m_layer_limit(target, seen_before);
+        let sql = diagnostic_search_tier_sql(tier);
+        let parameters = exact_sql_1m_tier_parameters(tier, query, layer_limit);
+        let explain_query_plan = explain_details(conn, &sql, &parameters);
+        let (rows, elapsed_ms, counters, _) =
+            execute_search_sql_with_counters(conn, &sql, &parameters);
+        let runtime_tier = diagnostic_search_tier(conn, tier, query, layer_limit)
+            .unwrap_or_else(|error| panic!("run 4096-window {tier} production tier: {error}"));
+        assert_eq!(rows, runtime_tier);
+        let appended_unique = append_exact_sql_1m_unique(
+            &mut results,
+            &mut seen,
+            rows.clone(),
+            target,
+        );
+        let route_status = if results.len() >= target as usize {
+            "EXECUTED_TARGET_FILLED"
+        } else if rows.is_empty() {
+            "EXECUTED_NO_MATCH"
+        } else {
+            "EXECUTED_MORE_LAYERS_REQUIRED"
+        };
+        let uses_temp_btree = explain_query_plan
+            .iter()
+            .any(|line| line.contains("USE TEMP B-TREE"));
+        evidence.emit(&json!({
+            "schema_version": 1,
+            "record_type": "exact_sql_1m_candidate_window_layer",
+            "context": context,
+            "query_class": query_class,
+            "query": query,
+            "tier": tier,
+            "tier_order_index": tier_index,
+            "sql_provenance": "CURRENT_PRODUCTION",
+            "route_status": route_status,
+            "target": target,
+            "effective_target": target,
+            "seen_before": seen_before,
+            "seen_after": seen.len(),
+            "layer_limit": layer_limit,
+            "limit": layer_limit,
+            "sql_limit": layer_limit,
+            "sql": sql,
+            "bound_parameters": sql_values_json(&parameters),
+            "route_probe_elapsed_ms": round_ms(elapsed_ms),
+            "sqlite_statement_counters_last_execution": counters,
+            "explain_query_plan": explain_query_plan,
+            "uses_temp_btree": uses_temp_btree,
+            "sql_rows": rows.len(),
+            "appended_unique_rows": appended_unique,
+            "full_result_objects_equal_runtime_tier_helper": true,
+            "sql_provenance_is_current_production": true
+        }));
+    }
+    evidence.emit(&json!({
+        "schema_version": 1,
+        "record_type": "exact_sql_1m_candidate_window_route",
+        "context": context,
+        "query_class": query_class,
+        "query": query,
+        "sql_provenance": "CURRENT_PRODUCTION",
+        "candidate_window_limit": target,
+        "candidate_window_result_count": results.len(),
+        "tiers_in_production_order": exact_sql_1m_tier_order(query),
+        "unique_ids": seen.len() == results.len(),
+        "full_result_objects_collected_in_production_order": true
+    }));
+    results
+}
+
+fn append_exact_sql_1m_unique(
+    results: &mut Vec<GlobalSearchResult>,
+    seen: &mut HashSet<String>,
+    candidates: Vec<GlobalSearchResult>,
+    target: u32,
+) -> usize {
+    let before = results.len();
+    for candidate in candidates {
+        if seen.insert(candidate.id.clone()) {
+            results.push(candidate);
+            if results.len() >= target as usize {
+                break;
+            }
+        }
+    }
+    results.len() - before
+}
+
+fn trace_current_production_route(
+    evidence: &ExactSql1mEvidence,
+    context: &JsonValue,
+    conn: &Connection,
+    query_case: QueryCase,
+    limit: u32,
+    offset: u32,
+) -> Vec<GlobalSearchResult> {
+    let query = query_case.query.trim();
+    let effective_limit = limit.clamp(1, 200);
+    let effective_offset = offset.min(1_000_000);
+    if query.is_empty() || effective_offset >= SEARCH_CANDIDATE_LIMIT as u32 {
+        return Vec::new();
+    }
+    let target = effective_offset
+        .saturating_add(effective_limit)
+        .min(SEARCH_CANDIDATE_LIMIT as u32);
+    let tiers = exact_sql_1m_tier_order(query);
+    let mut results = Vec::with_capacity(target as usize);
+    let mut seen = HashSet::new();
+    let mut executed = 0_usize;
+
+    for (tier_index, tier) in tiers.iter().copied().enumerate() {
+        let seen_before = seen.len();
+        if results.len() >= target as usize {
+            evidence.emit(&json!({
+                "schema_version": 1,
+                "record_type": "exact_sql_1m_route_layer",
+                "context": context,
+                "query_class": query_case.class,
+                "query": query_case.query,
+                "tier": tier,
+                "sql_provenance": "CURRENT_PRODUCTION",
+                "route_status": "SKIPPED_TARGET_FILLED",
+                "target": target,
+                "effective_target": target,
+                "seen_before": seen_before,
+                "layer_limit": null,
+                "limit": null,
+                "sql_limit": null,
+                "sql": null,
+                "bound_parameters": null,
+                "plan_and_counters": "NOT_EXECUTED: production route stops after target is filled"
+            }));
+            continue;
+        }
+
+        let layer_limit = exact_sql_1m_layer_limit(target, seen_before);
+        let sql = diagnostic_search_tier_sql(tier);
+        if tier == "fts" {
+            assert_eq!(sql, diagnostic_search_fts_sql());
+        }
+        let parameters = exact_sql_1m_tier_parameters(tier, query, layer_limit);
+        let explain_query_plan = explain_details(conn, &sql, &parameters);
+        let (rows, route_probe_ms, route_probe_counters, _) =
+            execute_search_sql_with_counters(conn, &sql, &parameters);
+        let runtime_tier = diagnostic_search_tier(conn, tier, query, layer_limit)
+            .unwrap_or_else(|error| panic!("run actual {tier} production tier: {error}"));
+        assert_eq!(
+            rows, runtime_tier,
+            "test-fetched current SQL must equal the production tier helper for {tier}"
+        );
+
+        for _ in 0..EXACT_SQL_1M_WARMUPS {
+            let (warm, _, _, _) = execute_search_sql_with_counters(conn, &sql, &parameters);
+            assert_eq!(warm, runtime_tier, "current {tier} SQL warmup equality");
+        }
+        let mut samples = Vec::with_capacity(EXACT_SQL_1M_SAMPLES);
+        let mut counters_last_sample = JsonValue::Null;
+        let mut resources = ProcessResourceAccumulator::default();
+        for _ in 0..EXACT_SQL_1M_SAMPLES {
+            let (sample_rows, elapsed_ms, counters, observation) =
+                execute_search_sql_with_counters(conn, &sql, &parameters);
+            assert_eq!(
+                sample_rows, runtime_tier,
+                "current {tier} SQL full result object equality"
+            );
+            samples.push(elapsed_ms);
+            counters_last_sample = counters;
+            resources.observe(observation);
+        }
+
+        let appended_unique = append_exact_sql_1m_unique(
+            &mut results,
+            &mut seen,
+            rows.clone(),
+            target,
+        );
+        let uses_temp_btree = explain_query_plan
+            .iter()
+            .any(|line| line.contains("USE TEMP B-TREE"));
+        let possible_full_table_scan = explain_query_plan.iter().any(|line| {
+            line.contains("SCAN ge") || line.contains("SCAN global_entries ")
+        });
+        let route_status = if rows.is_empty() {
+            "EXECUTED_NO_MATCH"
+        } else if results.len() >= target as usize {
+            "EXECUTED_TARGET_FILLED"
+        } else {
+            "EXECUTED_MORE_LAYERS_REQUIRED"
+        };
+        evidence.emit(&json!({
+            "schema_version": 1,
+            "record_type": "exact_sql_1m_route_layer",
+            "context": context,
+            "query_class": query_case.class,
+            "query": query_case.query,
+            "tier": tier,
+            "tier_order_index": tier_index,
+            "sql_provenance": "CURRENT_PRODUCTION",
+            "route_status": route_status,
+            "target": target,
+            "effective_target": target,
+            "seen_before": seen_before,
+            "seen_after": seen.len(),
+            "layer_limit": layer_limit,
+            "limit": layer_limit,
+            "sql_limit": layer_limit,
+            "bound_parameters": sql_values_json(&parameters),
+            "sql": sql,
+            "route_probe_elapsed_ms": round_ms(route_probe_ms),
+            "route_probe_sqlite_counters": route_probe_counters,
+            "latency_ms": summarize_samples(&samples),
+            "warmups": EXACT_SQL_1M_WARMUPS,
+            "samples": EXACT_SQL_1M_SAMPLES,
+            "sqlite_statement_counters_last_sample": counters_last_sample,
+            "process_resource_samples": resources.json(samples.iter().sum()),
+            "explain_query_plan": explain_query_plan,
+            "uses_temp_btree": uses_temp_btree,
+            "possible_full_table_scan": possible_full_table_scan,
+            "raw_sql_timing_scope": "current tier statement prepare, full ordered result drain and GlobalSearchResult mapping; no pool checkout, remaining tiers or snapshot facts",
+            "sql_accessor_matches_runtime_production_tier": true,
+            "legacy_or_test_candidate_sql_used_for_this_record": false,
+            "sql_rows": rows.len(),
+            "appended_unique_rows": appended_unique,
+            "seen_ids_are_deduplicated": true
+        }));
+        executed += 1;
+    }
+
+    evidence.emit(&json!({
+        "schema_version": 1,
+        "record_type": "exact_sql_1m_route_summary",
+        "context": context,
+        "query_class": query_case.class,
+        "query": query_case.query,
+        "sql_provenance": "CURRENT_PRODUCTION",
+        "target": target,
+        "executed_tier_count": executed,
+        "tiers_in_production_order": tiers,
+        "routed_result_count": results.len(),
+        "result_id_prefix": results.iter().take(8).map(|row| row.id.clone()).collect::<Vec<_>>(),
+        "full_result_objects_replayed_in_production_order": true,
+        "legacy_or_test_candidate_sql_in_current_route": false
+    }));
+    results.into_iter().skip(effective_offset as usize).take(effective_limit as usize).collect()
+}
+
+fn profile_pooled_and_snapshot_1m(
+    evidence: &ExactSql1mEvidence,
+    context: &JsonValue,
+    db: &Database,
+    query_case: &QueryCase,
+    expected_results: &[GlobalSearchResult],
+    expected_source_health: &[crate::global_index::models::GlobalSearchSourceHealth],
+    expected_source_revision: &str,
+    expected_index_status: &crate::global_index::models::GlobalIndexStatus,
+) {
+    for _ in 0..EXACT_SQL_1M_WARMUPS {
+        let results = db
+            .search_global_entries(query_case.query, SEARCH_RESULT_LIMIT, 0)
+            .expect("warm actual pooled production search");
+        assert_eq!(results.as_slice(), expected_results);
+    }
+    let mut pooled_samples = Vec::with_capacity(EXACT_SQL_1M_SAMPLES);
+    let mut pooled_resources = ProcessResourceAccumulator::default();
+    for _ in 0..EXACT_SQL_1M_SAMPLES {
+        let (results, elapsed_ms, resources) = measure_with_process_counters(|| {
+            db.search_global_entries(query_case.query, SEARCH_RESULT_LIMIT, 0)
+        });
+        let results = results.expect("measure actual pooled production search");
+        assert_eq!(
+            results.as_slice(),
+            expected_results,
+            "pooled full result objects/oracle"
+        );
+        pooled_samples.push(elapsed_ms);
+        pooled_resources.observe(resources);
+    }
+    evidence.emit(&json!({
+        "schema_version": 1,
+        "record_type": "exact_sql_1m_pooled_search",
+        "context": context,
+        "query_class": query_case.class,
+        "query": query_case.query,
+        "sql_provenance": "CURRENT_PRODUCTION",
+        "limit": SEARCH_RESULT_LIMIT,
+        "offset": 0,
+        "result_count": expected_results.len(),
+        "latency_ms": summarize_samples(&pooled_samples),
+        "warmups": EXACT_SQL_1M_WARMUPS,
+        "samples": EXACT_SQL_1M_SAMPLES,
+        "process_resource_samples": pooled_resources.json(pooled_samples.iter().sum()),
+        "entire_ordered_result_objects_equal_route_and_oracle": true,
+        "timing_scope": "actual Database::search_global_entries pool checkout, production tier route, de-duplication and page extraction; excludes repository snapshot facts"
+    }));
+
+    let snapshot_oracle = db
+        .search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
+        .expect("build actual full repository snapshot oracle");
+    assert_eq!(snapshot_oracle.results.as_slice(), expected_results);
+    assert_eq!(snapshot_oracle.source_health.as_slice(), expected_source_health);
+    assert_eq!(snapshot_oracle.source_revision.as_str(), expected_source_revision);
+    assert_eq!(&snapshot_oracle.index_status, expected_index_status);
+    for _ in 0..EXACT_SQL_1M_WARMUPS {
+        let snapshot = db
+            .search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
+            .expect("warm actual Repository Snapshot");
+        assert_snapshot_results_equal(&snapshot_oracle, &snapshot);
+    }
+    let mut snapshot_samples = Vec::with_capacity(EXACT_SQL_1M_SAMPLES);
+    let mut snapshot_resources = ProcessResourceAccumulator::default();
+    for _ in 0..EXACT_SQL_1M_SAMPLES {
+        let (snapshot, elapsed_ms, resources) = measure_with_process_counters(|| {
+            db.search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
+        });
+        let snapshot = snapshot.expect("measure actual Repository Snapshot");
+        assert_snapshot_results_equal(&snapshot_oracle, &snapshot);
+        assert_eq!(snapshot.results.as_slice(), expected_results);
+        assert_eq!(snapshot.source_health.as_slice(), expected_source_health);
+        assert_eq!(snapshot.source_revision.as_str(), expected_source_revision);
+        assert_eq!(&snapshot.index_status, expected_index_status);
+        snapshot_samples.push(elapsed_ms);
+        snapshot_resources.observe(resources);
+    }
+    evidence.emit(&json!({
+        "schema_version": 1,
+        "record_type": "exact_sql_1m_repository_snapshot",
+        "context": context,
+        "query_class": query_case.class,
+        "query": query_case.query,
+        "sql_provenance": "CURRENT_PRODUCTION",
+        "limit": SEARCH_RESULT_LIMIT,
+        "offset": 0,
+        "result_count": snapshot_oracle.results.len(),
+        "latency_ms": summarize_samples(&snapshot_samples),
+        "warmups": EXACT_SQL_1M_WARMUPS,
+        "samples": EXACT_SQL_1M_SAMPLES,
+        "source_health": snapshot_oracle.source_health,
+        "source_revision": snapshot_oracle.source_revision,
+        "index_status": snapshot_oracle.index_status,
+        "source_health_equals_independent_original_aggregate": true,
+        "source_revision_equals_independent_original_aggregate_hash": true,
+        "index_status_equals_repository_index_status_oracle": true,
+        "all_result_objects_equal_route_and_oracle": true,
+        "process_resource_samples": snapshot_resources.json(snapshot_samples.iter().sum()),
+        "sqlite_statement_counters": "not exposed by the Repository Snapshot API; current exact tier counters are emitted in route-layer records",
+        "timing_scope": "actual Repository Snapshot pool checkout and same read transaction for production search, Source Health, Source Revision and Index Status"
+    }));
+}
+
+fn relabel_semantic_helper_provenance(record: &mut JsonValue) {
+    let object = record
+        .as_object_mut()
+        .expect("existing semantic helper output is a JSON object");
+    object.insert(
+        "record_type".to_string(),
+        json!("exact_sql_1m_adversarial_semantic_equivalence"),
+    );
+    object.insert(
+        "sql_provenance".to_string(),
+        json!({
+            "legacy_baseline": "LEGACY",
+            "safe_cte_sql_mirror": "TEST_CANDIDATE",
+            "runtime_override": "CURRENT_PRODUCTION",
+            "note": "the helper forces Legacy SQL for its baseline, compares a test-only SQL mirror, then checks the runtime override against the current production tier; only the runtime override is CURRENT_PRODUCTION"
+        }),
+    );
+    object.insert(
+        "legacy_baseline_forced_by_test_override".to_string(),
+        json!(true),
+    );
+    object.insert("test_candidate_sql_executed".to_string(), json!(true));
+    object.insert(
+        "current_runtime_override_sql_executed".to_string(),
+        json!(true),
+    );
+    for (old, new) in [
+        (
+            "production_vs_safe_prefix_cte_fields_equal",
+            "legacy_vs_test_candidate_name_prefix_cte_full_result_objects_equal",
+        ),
+        (
+            "production_vs_safe_fts_cte_fields_equal",
+            "legacy_vs_test_candidate_fts_cte_full_result_objects_equal",
+        ),
+        ("production_fts_plan", "current_production_fts_plan"),
+    ] {
+        if let Some(value) = object.remove(old) {
+            object.insert(new.to_string(), value);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

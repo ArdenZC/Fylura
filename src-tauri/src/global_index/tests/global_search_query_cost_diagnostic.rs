@@ -6,8 +6,8 @@ use super::{
     actual_match_count, assert_entry_triggers_enabled, assert_search_results, benchmark_context,
     benchmark_escape_glob, candidate_plan_sql, configured_connection, database_metrics,
     emit_record, populate_synthetic_database, round_ms, sidecar_bytes, summarize_samples,
-    test_db_path, test_volume, BenchmarkCleanup, QueryCase, QueryExpectation,
-    INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX, SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
+    test_db_path, test_volume, BenchmarkCleanup, QueryCase, INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX,
+    SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
 };
 use crate::db::Database;
 use crate::global_index::models::GlobalSearchResult;
@@ -3356,7 +3356,10 @@ struct ExactSql1mCompletionGuard(Arc<ExactSql1mEvidence>);
 impl ExactSql1mCompletionGuard {
     fn complete(&self) {
         self.0
-            .finish("PASS", "all 12 query, SQL, pooled, snapshot, pagination and resource checks completed")
+            .finish(
+                "PASS",
+                "all 12 query, SQL, pooled, snapshot, pagination and resource checks completed",
+            )
             .expect("append durable PASS terminal record");
     }
 }
@@ -3681,11 +3684,10 @@ fn global_search_exact_sql_1m_diagnostic() {
         "existing_100k_500k_scale_guards_modified": false
     }));
 
-    let source_health_oracle = load_global_search_source_health_candidate(
-        &conn,
-        SourceHealthCandidate::Original,
-    )
-    .expect("read source-health and revision facts with independent original aggregate SQL");
+    let source_health_oracle =
+        load_global_search_source_health_candidate(&conn, SourceHealthCandidate::Original).expect(
+            "read source-health and revision facts with independent original aggregate SQL",
+        );
     let index_status_oracle = db
         .global_index_status()
         .expect("read index status oracle from repository");
@@ -3694,8 +3696,7 @@ fn global_search_exact_sql_1m_diagnostic() {
         evidence.set_phase(format!("correctness:{}", query_case.class));
         let actual_count = actual_match_count(&conn, query_case);
         assert_eq!(
-            actual_count as u64,
-            expectation.total_matches,
+            actual_count as u64, expectation.total_matches,
             "1M independent result-count oracle for {}",
             query_case.class
         );
@@ -3716,13 +3717,9 @@ fn global_search_exact_sql_1m_diagnostic() {
             SEARCH_RESULT_LIMIT,
             0,
         );
-        let direct = search_global_entries_on_connection(
-            &conn,
-            query_case.query,
-            SEARCH_RESULT_LIMIT,
-            0,
-        )
-        .expect("run the normal production search route on the same connection");
+        let direct =
+            search_global_entries_on_connection(&conn, query_case.query, SEARCH_RESULT_LIMIT, 0)
+                .expect("run the normal production search route on the same connection");
         assert_eq!(routed, direct, "tier replay must equal production route");
         assert_eq!(
             direct,
@@ -3801,9 +3798,7 @@ fn global_search_exact_sql_1m_diagnostic() {
                 EXACT_SQL_1M_ENTRIES,
             );
             assert_eq!(
-                page.iter()
-                    .map(|row| row.id.as_str())
-                    .collect::<Vec<_>>(),
+                page.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
                 expectation.expected_page(offset as usize, SEARCH_RESULT_LIMIT as usize),
                 "page ID oracle for {page_name}"
             );
@@ -3867,7 +3862,10 @@ fn global_search_exact_sql_1m_diagnostic() {
         .expect("verify base entry count after rolled-back semantic overlay");
     assert_eq!(final_total, EXACT_SQL_1M_ENTRIES as i64);
     let schema_after = schema_index_signature(&conn);
-    assert_eq!(schema_after, schema_before, "no schema/index/trigger changes");
+    assert_eq!(
+        schema_after, schema_before,
+        "no schema/index/trigger changes"
+    );
     let database_bytes = fs::metadata(&path)
         .map(|metadata| metadata.len())
         .unwrap_or(0)
@@ -3975,7 +3973,10 @@ fn exact_sql_1m_resource_limits() -> ExactSql1mResourceLimits {
         limits.max_database_bytes < limits.free_disk_bytes,
         "measured database budget must preserve free disk reserve"
     );
-    assert!(native_process_sample().is_some(), "Windows process memory counters are required");
+    assert!(
+        native_process_sample().is_some(),
+        "Windows process memory counters are required"
+    );
     limits
 }
 
@@ -4070,12 +4071,8 @@ fn collect_current_production_candidate_window(
         let runtime_tier = diagnostic_search_tier(conn, tier, query, layer_limit)
             .unwrap_or_else(|error| panic!("run 4096-window {tier} production tier: {error}"));
         assert_eq!(rows, runtime_tier);
-        let appended_unique = append_exact_sql_1m_unique(
-            &mut results,
-            &mut seen,
-            rows.clone(),
-            target,
-        );
+        let appended_unique =
+            append_exact_sql_1m_unique(&mut results, &mut seen, rows.clone(), target);
         let route_status = if results.len() >= target as usize {
             "EXECUTED_TARGET_FILLED"
         } else if rows.is_empty() {
@@ -4231,18 +4228,14 @@ fn trace_current_production_route(
             resources.observe(observation);
         }
 
-        let appended_unique = append_exact_sql_1m_unique(
-            &mut results,
-            &mut seen,
-            rows.clone(),
-            target,
-        );
+        let appended_unique =
+            append_exact_sql_1m_unique(&mut results, &mut seen, rows.clone(), target);
         let uses_temp_btree = explain_query_plan
             .iter()
             .any(|line| line.contains("USE TEMP B-TREE"));
-        let possible_full_table_scan = explain_query_plan.iter().any(|line| {
-            line.contains("SCAN ge") || line.contains("SCAN global_entries ")
-        });
+        let possible_full_table_scan = explain_query_plan
+            .iter()
+            .any(|line| line.contains("SCAN ge") || line.contains("SCAN global_entries "));
         let route_status = if rows.is_empty() {
             "EXECUTED_NO_MATCH"
         } else if results.len() >= target as usize {
@@ -4304,7 +4297,11 @@ fn trace_current_production_route(
         "full_result_objects_replayed_in_production_order": true,
         "legacy_or_test_candidate_sql_in_current_route": false
     }));
-    results.into_iter().skip(effective_offset as usize).take(effective_limit as usize).collect()
+    results
+        .into_iter()
+        .skip(effective_offset as usize)
+        .take(effective_limit as usize)
+        .collect()
 }
 
 fn profile_pooled_and_snapshot_1m(
@@ -4360,8 +4357,14 @@ fn profile_pooled_and_snapshot_1m(
         .search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
         .expect("build actual full repository snapshot oracle");
     assert_eq!(snapshot_oracle.results.as_slice(), expected_results);
-    assert_eq!(snapshot_oracle.source_health.as_slice(), expected_source_health);
-    assert_eq!(snapshot_oracle.source_revision.as_str(), expected_source_revision);
+    assert_eq!(
+        snapshot_oracle.source_health.as_slice(),
+        expected_source_health
+    );
+    assert_eq!(
+        snapshot_oracle.source_revision.as_str(),
+        expected_source_revision
+    );
     assert_eq!(&snapshot_oracle.index_status, expected_index_status);
     for _ in 0..EXACT_SQL_1M_WARMUPS {
         let snapshot = db

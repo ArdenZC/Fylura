@@ -880,7 +880,7 @@ jobs:
           running = re.findall(r"(?m)^running (\d+) tests?$", text)
           summaries = re.findall(
               r"(?m)^test result: ok\. 1180 passed; 0 failed; 32 ignored; "
-              r"0 measured; 6 filtered out; finished in "
+              r"0 measured; 0 filtered out; finished in "
               r"(?:\d+(?:\.\d*)?|\.\d+)s$", text)
           summary_lines = re.findall(r"(?m)^test result:", text)
           status_section = ""

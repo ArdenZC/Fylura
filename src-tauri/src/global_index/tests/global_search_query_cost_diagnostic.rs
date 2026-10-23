@@ -3569,15 +3569,16 @@ fn global_search_exact_sql_1m_diagnostic() {
     let temp_root = PathBuf::from(required_exact_sql_1m_env(
         "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_TEMP_ROOT",
     ));
+    // Windows may spell one directory with its 8.3 alias (runner~1) or long name
+    // (runneradmin). Compare resolved directories, not their textual spelling;
+    // the workflow still measures and bounds the disk containing this directory.
+    let rust_temp_root =
+        fs::canonicalize(env::temp_dir()).expect("canonicalize Rust's actual temporary directory");
+    let measured_temp_root =
+        fs::canonicalize(&temp_root).expect("canonicalize the measured temporary directory");
     assert_eq!(
-        env::temp_dir()
-            .to_string_lossy()
-            .trim_end_matches(['\\', '/'])
-            .to_ascii_lowercase(),
-        temp_root
-            .to_string_lossy()
-            .trim_end_matches(['\\', '/'])
-            .to_ascii_lowercase(),
+        rust_temp_root.to_string_lossy().to_ascii_lowercase(),
+        measured_temp_root.to_string_lossy().to_ascii_lowercase(),
         "the measured disk budget must describe Rust's actual temporary directory"
     );
 

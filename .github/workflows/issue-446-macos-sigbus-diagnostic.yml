@@ -1,0 +1,1414 @@
+name: Issue #446 macOS SIGBUS diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue-446-macos-sigbus-diagnostic
+  cancel-in-progress: false
+
+env:
+  DIAG_SOURCE_SHA: f205c24099d190a827befdace266a55fcbea0266
+  DIAG_SOURCE_TREE: 37798d82681aba5de806b27881e9af5b7738c0ba
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  diagnostic:
+    name: One-shot macOS arm64 LLDB diagnosis
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: Initialize one-shot admission and wall clock
+        id: admission
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/issue446-evidence"
+          private="$RUNNER_TEMP/issue446-private"
+          mkdir -p "$evidence" "$private"
+          date +%s > "$evidence/job-start-epoch"
+          printf 'OTHER_FAILURE\n' > "$evidence/classification.txt"
+          printf 'workflow_not_completed\n' > "$evidence/result-reason.txt"
+          {
+            printf 'event=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'ref=%s\n' "$GITHUB_REF"
+            printf 'run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+          } > "$evidence/admission.txt"
+
+          if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" || \
+                "$GITHUB_REF" != "refs/heads/master" || \
+                "$GITHUB_RUN_ATTEMPT" != "1" ]]; then
+            printf 'admission=denied\nreason=event_ref_or_attempt_guard\n' >> "$evidence/admission.txt"
+            printf 'event_ref_or_attempt_guard\n' > "$evidence/result-reason.txt"
+            exit 1
+          fi
+
+          api_url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/issue-446-macos-sigbus-diagnostic.yml/runs?event=workflow_dispatch&per_page=100"
+          if ! python3 - "$api_url" "$private/workflow-runs.json" <<'PY'
+          import os
+          import sys
+          import urllib.request
+
+          request = urllib.request.Request(
+              sys.argv[1],
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  data = response.read(2 * 1024 * 1024 + 1)
+              if len(data) > 2 * 1024 * 1024:
+                  raise ValueError("workflow history response exceeded limit")
+              with open(sys.argv[2], "wb") as output:
+                  output.write(data)
+          except Exception as error:
+              print("workflow history request failed: " + type(error).__name__, file=sys.stderr)
+              raise SystemExit(1)
+          PY
+          then
+            printf 'admission=denied\nreason=history_query_failed\n' >> "$evidence/admission.txt"
+            printf 'history_query_failed\n' > "$evidence/result-reason.txt"
+            exit 1
+          fi
+
+          if ! other_runs="$(python3 - "$private/workflow-runs.json" "$GITHUB_RUN_ID" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              payload = json.load(stream)
+          current = sys.argv[2]
+          rows = payload.get("workflow_runs")
+          total = payload.get("total_count")
+          if not isinstance(rows, list) or not isinstance(total, int):
+              raise SystemExit("workflow run history response was invalid")
+          if total > len(rows):
+              raise SystemExit("workflow run history exceeds one page; fail closed")
+          print(sum(str(row.get("id")) != current for row in rows))
+          PY
+          )"; then
+            printf 'admission=denied\nreason=history_parse_failed\n' >> "$evidence/admission.txt"
+            printf 'history_incomplete_or_parse_failed\n' > "$evidence/result-reason.txt"
+            exit 1
+          fi
+
+          if [[ "$other_runs" != "0" ]]; then
+            printf 'admission=denied\nreason=prior_or_queued_manual_run\nother_runs=%s\n' "$other_runs" >> "$evidence/admission.txt"
+            printf 'prior_or_queued_manual_run\n' > "$evidence/result-reason.txt"
+            exit 1
+          fi
+
+          rm -f "$private/workflow-runs.json"
+          printf 'admission=passed\nother_runs=0\n' >> "$evidence/admission.txt"
+          echo 'allowed=true' >> "$GITHUB_OUTPUT"
+
+      - name: Checkout fixed diagnostic source
+        if: steps.admission.outputs.allowed == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: f205c24099d190a827befdace266a55fcbea0266
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify source identity and runner baseline
+        id: verify
+        if: steps.admission.outputs.allowed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/issue446-evidence"
+          actual_sha="$(git rev-parse HEAD)"
+          actual_tree="$(git rev-parse 'HEAD^{tree}')"
+          {
+            printf 'head=%s\n' "$actual_sha"
+            printf 'tree=%s\n' "$actual_tree"
+            printf 'expected_head=%s\n' "$DIAG_SOURCE_SHA"
+            printf 'expected_tree=%s\n' "$DIAG_SOURCE_TREE"
+            printf 'worktree_dirty_count=%s\n' "$(git status --porcelain=v1 | wc -l | tr -d ' ')"
+          } > "$evidence/source.txt"
+          test "$actual_sha" = "$DIAG_SOURCE_SHA"
+          test "$actual_tree" = "$DIAG_SOURCE_TREE"
+          test -z "$(git status --porcelain=v1)"
+          {
+            sw_vers
+            uname -a
+            sysctl kern.osversion kern.osrelease hw.logicalcpu
+            printf 'RUNNER_OS=%s\n' "${RUNNER_OS:-unknown}"
+            printf 'RUNNER_ARCH=%s\n' "${RUNNER_ARCH:-unknown}"
+            printf 'ImageOS=%s\n' "${ImageOS:-unknown}"
+            printf 'ImageVersion=%s\n' "${ImageVersion:-unknown}"
+          } > "$evidence/runner.txt"
+          test "$(uname -m)" = "arm64"
+          test "$(sw_vers -productVersion)" = "26.6.2"
+          test "$(sw_vers -buildVersion)" = "25G83"
+
+      - name: Run bounded LLDB preflight and one Rust lib test process
+        id: diagnostic
+        if: steps.verify.outcome == 'success'
+        timeout-minutes: 12
+        shell: bash
+        env:
+          ISSUE446_EVIDENCE: ${{ runner.temp }}/issue446-evidence
+          ISSUE446_WORK: ${{ runner.temp }}/issue446-work
+          ISSUE446_START_FILE: ${{ runner.temp }}/issue446-evidence/job-start-epoch
+          ISSUE446_ACTIVE_LLDB_SESSION_FILE: ${{ runner.temp }}/issue446-work/active-lldb-session.txt
+        run: |
+          set -euo pipefail
+          mkdir -p "$ISSUE446_WORK"
+          : > "$ISSUE446_WORK/process-cleanup.log"
+          rm -f "$ISSUE446_ACTIVE_LLDB_SESSION_FILE"
+
+          cat > "$ISSUE446_WORK/body.sh" <<'BASH'
+          #!/bin/bash
+          set -Eeuo pipefail
+          EVIDENCE="$ISSUE446_EVIDENCE"
+          WORK="$ISSUE446_WORK"
+          RESULT="$EVIDENCE/classification.txt"
+          REASON="$EVIDENCE/result-reason.txt"
+          ACTIVE_LLDB_SESSION="$ISSUE446_ACTIVE_LLDB_SESSION_FILE"
+          PROCESS_CLEANUP="$WORK/process-cleanup.log"
+
+          finish() {
+            printf '%s\n' "$1" > "$RESULT.tmp"
+            mv "$RESULT.tmp" "$RESULT"
+            printf '%s\n' "$2" > "$REASON.tmp"
+            mv "$REASON.tmp" "$REASON"
+          }
+
+          rustc -vV > "$WORK/rustc.txt" 2>&1 || { finish OTHER_FAILURE rustc_unavailable; exit 0; }
+          cargo -V > "$WORK/cargo.txt" 2>&1 || { finish OTHER_FAILURE cargo_unavailable; exit 0; }
+          clang --version > "$WORK/clang.txt" 2>&1 || { finish DEBUGGER_UNAVAILABLE clang_unavailable; exit 0; }
+          rust_version="$(rustc --version | awk '{print $2}')"
+          rust_host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "$rust_version" != "1.97.1" || "$rust_host" != "aarch64-apple-darwin" ]]; then
+            finish OTHER_FAILURE toolchain_mismatch
+            exit 0
+          fi
+
+          lldb_bin="$(xcrun --find lldb 2>/dev/null || command -v lldb || true)"
+          if [[ -z "$lldb_bin" || ! -x "$lldb_bin" ]]; then
+            finish DEBUGGER_UNAVAILABLE lldb_not_found
+            exit 0
+          fi
+          printf '%s\n' "$lldb_bin" > "$WORK/lldb-path.txt"
+          if ! "$lldb_bin" --version > "$WORK/lldb-version.txt" 2>&1; then
+            finish DEBUGGER_UNAVAILABLE lldb_version_failed
+            exit 0
+          fi
+          if ! "$lldb_bin" --help > "$WORK/lldb-help.txt" 2>&1; then
+            finish DEBUGGER_UNAVAILABLE lldb_help_failed
+            exit 0
+          fi
+          if ! grep -q -- '--batch' "$WORK/lldb-help.txt" || ! grep -q -- '--no-lldbinit' "$WORK/lldb-help.txt"; then
+            finish DEBUGGER_UNAVAILABLE batch_or_no_init_option_missing
+            exit 0
+          fi
+          if grep -q -- '--source-on-crash' "$WORK/lldb-help.txt"; then
+            hook_mode=source
+          elif grep -q -- '--one-line-on-crash' "$WORK/lldb-help.txt"; then
+            hook_mode=one_line
+          else
+            finish DEBUGGER_UNAVAILABLE no_on_crash_hook
+            exit 0
+          fi
+          printf 'hook_mode=%s\n' "$hook_mode" > "$WORK/hook-mode.txt"
+
+          cat > "$WORK/select_fault_thread.py" <<'PY'
+          import lldb
+
+          def select_fault_thread(debugger, command, result, internal_dict):
+              process = debugger.GetSelectedTarget().GetProcess()
+              matches = []
+              for thread in process:
+                  reason = thread.GetStopReason()
+                  description = thread.GetStopDescription(4096) or ""
+                  if reason in (lldb.eStopReasonSignal, lldb.eStopReasonException):
+                      matches.append((thread, reason, description))
+              if len(matches) != 1:
+                  result.SetError("expected one signal/exception thread, found %d" % len(matches))
+                  return
+              thread, reason, description = matches[0]
+              process.SetSelectedThread(thread)
+              name = thread.GetName() or ""
+              reason_name = "signal" if reason == lldb.eStopReasonSignal else "exception"
+              print("I446_FAULT_THREAD_SELECTED tid=%s name=%s reason=%s description=%s" % (
+                  thread.GetThreadID(), name, reason_name, description))
+              result.SetStatus(lldb.eReturnStatusSuccessFinishResult)
+
+          def report_thread_count(debugger, command, result, internal_dict):
+              process = debugger.GetSelectedTarget().GetProcess()
+              print("I446_EXPECTED_THREAD_COUNT=%d" % process.GetNumThreads())
+              result.SetStatus(lldb.eReturnStatusSuccessFinishResult)
+
+          def __lldb_init_module(debugger, internal_dict):
+              debugger.HandleCommand(
+                  "command script add -f select_fault_thread.select_fault_thread issue446-select-fault-thread")
+              debugger.HandleCommand(
+                  "command script add -f select_fault_thread.report_thread_count issue446-report-thread-count")
+          PY
+
+          cat > "$WORK/crash-capture.lldb" <<'LLDB'
+          script print("I446_CAPTURE_BEGIN")
+          script print("I446_STATUS_BEGIN")
+          process status
+          script print("I446_STATUS_END")
+          script print("I446_THREAD_LIST_BEGIN")
+          thread list
+          script print("I446_THREAD_LIST_END")
+          issue446-report-thread-count
+          script print("I446_BACKTRACE_ALL_BEGIN")
+          thread backtrace all
+          script print("I446_BACKTRACE_ALL_END")
+          issue446-select-fault-thread
+          thread info
+          script print("I446_REGISTERS_BEGIN")
+          register read
+          script print("I446_REGISTERS_END")
+          script print("I446_IMAGES_BEGIN")
+          image list
+          script print("I446_IMAGES_END")
+          script print("I446_CAPTURE_END")
+          script print("I446_LLDB_QUIT_REQUESTED")
+          process kill
+          quit 1
+          LLDB
+
+          make_hook_args() {
+            if [[ "$hook_mode" = "source" ]]; then
+              HOOK_ARGS=(--source-on-crash "$WORK/crash-capture.lldb")
+            else
+              HOOK_ARGS=(
+                --one-line-on-crash 'script print("I446_CAPTURE_BEGIN")'
+                --one-line-on-crash 'script print("I446_STATUS_BEGIN")'
+                --one-line-on-crash 'process status'
+                --one-line-on-crash 'script print("I446_STATUS_END")'
+                --one-line-on-crash 'script print("I446_THREAD_LIST_BEGIN")'
+                --one-line-on-crash 'thread list'
+                --one-line-on-crash 'script print("I446_THREAD_LIST_END")'
+                --one-line-on-crash 'issue446-report-thread-count'
+                --one-line-on-crash 'script print("I446_BACKTRACE_ALL_BEGIN")'
+                --one-line-on-crash 'thread backtrace all'
+                --one-line-on-crash 'script print("I446_BACKTRACE_ALL_END")'
+                --one-line-on-crash 'issue446-select-fault-thread'
+                --one-line-on-crash 'thread info'
+                --one-line-on-crash 'script print("I446_REGISTERS_BEGIN")'
+                --one-line-on-crash 'register read'
+                --one-line-on-crash 'script print("I446_REGISTERS_END")'
+                --one-line-on-crash 'script print("I446_IMAGES_BEGIN")'
+                --one-line-on-crash 'image list'
+                --one-line-on-crash 'script print("I446_IMAGES_END")'
+                --one-line-on-crash 'script print("I446_CAPTURE_END")'
+                --one-line-on-crash 'script print("I446_LLDB_QUIT_REQUESTED")'
+                --one-line-on-crash 'process kill'
+                --one-line-on-crash 'quit 1'
+              )
+            fi
+          }
+          make_hook_args
+
+          run_lldb_bounded() {
+            local seconds="$1"
+            local logfile="$2"
+            local stage="$3"
+            shift 3
+            python3 - "$seconds" "$logfile" "$stage" "$ACTIVE_LLDB_SESSION" "$PROCESS_CLEANUP" "$WORK" "$@" <<'PY'
+          import os
+          import signal
+          import subprocess
+          import sys
+          import tempfile
+          import time
+
+          seconds = int(sys.argv[1])
+          logfile = sys.argv[2]
+          stage = sys.argv[3]
+          active_session_path = sys.argv[4]
+          cleanup_path = sys.argv[5]
+          work = sys.argv[6]
+          argv = sys.argv[7:]
+          child = None
+          child_session = None
+          output = None
+
+          def process_snapshot():
+              errors = []
+              for field in ("sess", "sid"):
+                  try:
+                      result = subprocess.run(
+                          ["/bin/ps", "-axo", "pid=,ppid=,pgid=,%s=" % field],
+                          check=True, capture_output=True, text=True, timeout=3)
+                      processes = {}
+                      for line in result.stdout.splitlines():
+                          columns = line.split()
+                          if len(columns) != 4 or not all(value.isdigit() for value in columns):
+                              continue
+                          pid, ppid, pgid, sid = map(int, columns)
+                          processes[pid] = {"ppid": ppid, "pgid": pgid, "sid": sid}
+                      if not processes or not any(item["sid"] > 1 for item in processes.values()):
+                          raise RuntimeError("process snapshot was empty or had no session ids")
+                      return processes
+                  except Exception as error:
+                      errors.append(type(error).__name__)
+              raise RuntimeError("process snapshot unavailable: " + ",".join(errors))
+
+          def descendants(processes, roots):
+              found = set()
+              pending = list(roots)
+              while pending:
+                  parent = pending.pop()
+                  for pid, item in processes.items():
+                      if item["ppid"] == parent and pid not in found:
+                          found.add(pid)
+                          pending.append(pid)
+              return found
+
+          def session_members(processes, session):
+              return {pid for pid, item in processes.items() if item["sid"] == session}
+
+          def session_processes(processes, session):
+              return session_members(processes, session) | descendants(processes, {session})
+
+          def group_alive(pgid):
+              try:
+                  os.killpg(pgid, 0)
+                  return True
+              except ProcessLookupError:
+                  return False
+              except PermissionError:
+                  return True
+
+          def signal_cleanup(processes, session, signum):
+              groups = {item["pgid"] for pid, item in processes.items()
+                        if item["sid"] == session and item["pgid"] > 1}
+              for pgid in groups:
+                  try:
+                      os.killpg(pgid, signum)
+                  except ProcessLookupError:
+                      pass
+              for pid in descendants(processes, {session}):
+                  try:
+                      os.kill(pid, signum)
+                  except ProcessLookupError:
+                      pass
+
+          def write_active_session(session):
+              parent = os.path.dirname(active_session_path)
+              fd, temporary = tempfile.mkstemp(prefix="active-lldb-", dir=parent)
+              try:
+                  with os.fdopen(fd, "w", encoding="ascii") as stream:
+                      stream.write("%d\n" % session)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+                  os.replace(temporary, active_session_path)
+              finally:
+                  try:
+                      os.unlink(temporary)
+                  except FileNotFoundError:
+                      pass
+
+          def record_cleanup(state, reason):
+              with open(cleanup_path, "a", encoding="utf-8") as stream:
+                  stream.write("stage=%s; lldb_session_cleanup=%s; reason=%s\n" %
+                               (stage, state, reason))
+                  stream.flush()
+                  os.fsync(stream.fileno())
+
+          def clear_active_if_confirmed(confirmed):
+              if confirmed:
+                  try:
+                      os.unlink(active_session_path)
+                  except FileNotFoundError:
+                      pass
+
+          def cleanup_session(grace_seconds=4):
+              if child is None or child_session is None:
+                  return True, True
+              try:
+                  snapshot = process_snapshot()
+              except RuntimeError:
+                  snapshot = None
+              if snapshot is not None:
+                  signal_cleanup(snapshot, child_session, signal.SIGTERM)
+              else:
+                  try:
+                      os.killpg(child_session, signal.SIGTERM)
+                  except ProcessLookupError:
+                      pass
+              deadline = time.monotonic() + grace_seconds
+              while time.monotonic() < deadline:
+                  try:
+                      snapshot = process_snapshot()
+                      remaining = session_processes(snapshot, child_session)
+                      if not remaining and child.poll() is not None:
+                          break
+                      signal_cleanup(snapshot, child_session, signal.SIGTERM)
+                  except RuntimeError:
+                      break
+                  time.sleep(0.1)
+              try:
+                  snapshot = process_snapshot()
+                  remaining = session_processes(snapshot, child_session)
+                  if remaining or child.poll() is None:
+                      signal_cleanup(snapshot, child_session, signal.SIGKILL)
+              except RuntimeError:
+                  remaining = {child_session}
+              try:
+                  child.wait(timeout=4)
+                  reaped = True
+              except subprocess.TimeoutExpired:
+                  reaped = False
+              deadline = time.monotonic() + 2
+              confirmed = False
+              while time.monotonic() < deadline:
+                  try:
+                      snapshot = process_snapshot()
+                      remaining = session_processes(snapshot, child_session)
+                      if not remaining and reaped and not group_alive(child_session):
+                          confirmed = True
+                          break
+                      signal_cleanup(snapshot, child_session, signal.SIGKILL)
+                  except RuntimeError:
+                      break
+                  time.sleep(0.1)
+              if confirmed:
+                  record_cleanup("CONFIRMED", "lldb_session_empty_and_child_reaped")
+              else:
+                  record_cleanup("UNVERIFIED", "lldb_session_or_child_remained_or_snapshot_failed")
+              clear_active_if_confirmed(confirmed)
+              return confirmed, reaped
+
+          def stop_child(signum, _frame):
+              confirmed, reaped = cleanup_session()
+              if output is not None:
+                  output.write(("\nI446_EXTERNAL_SIGNAL=%s\n" % signal.Signals(signum).name).encode())
+                  output.write(("I446_PROCESS_GROUP_CLEANUP=%s; direct_child_reaped=%s\n" %
+                                ("CONFIRMED" if confirmed else "UNVERIFIED",
+                                 "true" if reaped else "false")).encode())
+              raise SystemExit(128 + signum)
+
+          signal.signal(signal.SIGTERM, stop_child)
+          signal.signal(signal.SIGINT, stop_child)
+          blocked_signals = {signal.SIGTERM, signal.SIGINT}
+          prior_mask = signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+          with open(logfile, "ab", buffering=0) as output_stream:
+              output = output_stream
+              launch_record = os.path.join(work, stage + "-launch.txt")
+              with open(launch_record, "x", encoding="utf-8") as stream:
+                  stream.write("stage=%s\nlaunch_count=1\n" % stage)
+                  stream.flush()
+                  os.fsync(stream.fileno())
+              child = subprocess.Popen(argv, stdout=output, stderr=subprocess.STDOUT,
+                                       start_new_session=True)
+              child_session = os.getpgid(child.pid)
+              if child_session != child.pid:
+                  try:
+                      os.killpg(child_session, signal.SIGKILL)
+                  except ProcessLookupError:
+                      pass
+                  os.kill(child.pid, signal.SIGKILL)
+                  child.wait()
+                  record_cleanup("UNVERIFIED", "lldb_did_not_lead_its_new_session")
+                  raise SystemExit(125)
+              write_active_session(child_session)
+              signal.pthread_sigmask(signal.SIG_SETMASK, prior_mask)
+              try:
+                  code = child.wait(timeout=seconds)
+              except subprocess.TimeoutExpired:
+                  confirmed, reaped = cleanup_session()
+                  output.write(b"\nI446_EXTERNAL_TIMEOUT=true\n")
+                  output.write(("I446_PROCESS_GROUP_CLEANUP=%s; direct_child_reaped=%s\n" %
+                                ("CONFIRMED" if confirmed else "UNVERIFIED",
+                                 "true" if reaped else "false")).encode())
+                  raise SystemExit(124)
+              confirmed, reaped = cleanup_session()
+              output.write(("\nI446_PROCESS_GROUP_CLEANUP=%s; direct_child_reaped=%s\n" %
+                            ("CONFIRMED" if confirmed else "UNVERIFIED",
+                             "true" if reaped else "false")).encode())
+              if not confirmed or not reaped:
+                  raise SystemExit(125)
+          raise SystemExit(code)
+          PY
+          }
+
+          cat > "$WORK/sigbus_mmap_fixture.c" <<'C'
+          #include <fcntl.h>
+          #include <pthread.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <sys/mman.h>
+          #include <sys/stat.h>
+          #include <unistd.h>
+
+          static volatile unsigned char *mapped_page;
+          static volatile unsigned char observed_byte;
+
+          static void *faulting_worker(void *unused) {
+              (void)unused;
+              pthread_setname_np("issue446-sigbus-worker");
+              observed_byte = *(volatile unsigned char *)mapped_page;
+              return NULL;
+          }
+
+          int main(int argc, char **argv) {
+              if (argc != 2) return 2;
+              long page_size = sysconf(_SC_PAGESIZE);
+              if (page_size <= 0) return 3;
+              int fd = open(argv[1], O_RDWR | O_CREAT | O_EXCL, 0600);
+              if (fd < 0 || ftruncate(fd, page_size) != 0) return 4;
+              void *mapping = mmap(NULL, (size_t)page_size, PROT_READ, MAP_SHARED, fd, 0);
+              if (mapping == MAP_FAILED) return 5;
+              mapped_page = (volatile unsigned char *)mapping;
+              if (ftruncate(fd, 0) != 0) return 6;
+              pthread_t worker;
+              if (pthread_create(&worker, NULL, faulting_worker, NULL) != 0) return 7;
+              pthread_join(worker, NULL);
+              return observed_byte == 255 ? 91 : 92;
+          }
+          C
+
+          fixture_bin="$WORK/issue446-mmap-sigbus-fixture"
+          fixture_file="$WORK/issue446-mmap-sigbus-page.bin"
+          if ! clang -D_DARWIN_C_SOURCE -std=c11 -O0 -g -pthread \
+              "$WORK/sigbus_mmap_fixture.c" -o "$fixture_bin" > "$WORK/fixture-build.log" 2>&1; then
+            finish DEBUGGER_UNAVAILABLE fixture_build_failed
+            exit 0
+          fi
+
+          lldb_common=(
+            --batch --no-lldbinit
+            "${HOOK_ARGS[@]}"
+            -o "command script import \"$WORK/select_fault_thread.py\""
+            -o 'settings set auto-confirm true'
+            -o 'process handle SIGBUS --stop true --notify true --pass false'
+            -o run
+          )
+          set +e
+          run_lldb_bounded 90 "$WORK/preflight.raw.log" preflight \
+            "$lldb_bin" "${lldb_common[@]}" -- "$fixture_bin" "$fixture_file"
+          preflight_rc=$?
+          set -e
+          printf '%s\n' "$preflight_rc" > "$WORK/preflight-exit-code.txt"
+          rm -f "$fixture_file"
+
+          if [[ "$preflight_rc" = "124" || "$preflight_rc" = "125" ]]; then
+            finish DEBUGGER_UNAVAILABLE preflight_lldb_timeout_or_process_cleanup_unverified
+            exit 0
+          fi
+          if [[ "$preflight_rc" != "0" && "$preflight_rc" != "1" ]]; then
+            finish DEBUGGER_UNAVAILABLE preflight_lldb_unexpected_exit_status
+            exit 0
+          fi
+
+          if grep -Eq 'error:.*(process handle|unknown|invalid|unrecognized)' "$WORK/preflight.raw.log"; then
+            finish DEBUGGER_UNAVAILABLE lldb_signal_handling_command_rejected
+            exit 0
+          fi
+          if ! python3 - "$WORK/preflight.raw.log" "$fixture_bin" \
+              "$WORK/preflight-launch.txt" <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          fixture_binary = sys.argv[2]
+          launch_record = open(sys.argv[3], encoding="utf-8").read()
+          launches = re.findall(
+              r"(?m)^Process (\d+) launched: ['\"]([^'\"]+)['\"](?: \([^\n]*\))?$", text)
+          selected = re.search(r"I446_FAULT_THREAD_SELECTED[^\n]*", text)
+          status = ""
+          if "I446_STATUS_BEGIN" in text and "I446_STATUS_END" in text:
+              status = text.split("I446_STATUS_BEGIN", 1)[1].split("I446_STATUS_END", 1)[0]
+          selected_text = selected.group(0) if selected else ""
+          def section(name):
+              start = "I446_%s_BEGIN" % name
+              end = "I446_%s_END" % name
+              if start not in text or end not in text:
+                  return ""
+              return text.split(start, 1)[1].split(end, 1)[0]
+
+          backtrace = section("BACKTRACE_ALL")
+          registers = section("REGISTERS")
+          images = section("IMAGES")
+          status = section("STATUS")
+          backtrace_heads = list(re.finditer(r"(?m)^\s*\*?\s*thread #(\d+)\b", backtrace))
+          per_thread_frames = []
+          for index, match in enumerate(backtrace_heads):
+              end = backtrace_heads[index + 1].start() if index + 1 < len(backtrace_heads) else len(backtrace)
+              per_thread_frames.append("frame #0" in backtrace[match.start():end])
+          expected = re.search(r"I446_EXPECTED_THREAD_COUNT=(\d+)", text)
+          selected = re.search(r"I446_FAULT_THREAD_SELECTED[^\n]*", text)
+          selected_text = selected.group(0) if selected else ""
+          checks = {
+              "capture_begin": text.count("I446_CAPTURE_BEGIN") == 1,
+              "capture_end": text.count("I446_CAPTURE_END") == 1,
+              "one_fixture_launch_record": launch_record == "stage=preflight\nlaunch_count=1\n",
+              "fixture_binary_started_once": len(launches) == 1 and launches[0][1] == fixture_binary,
+              "lldb_exited_and_session_reaped": "I446_PROCESS_GROUP_CLEANUP=CONFIRMED; direct_child_reaped=true" in text,
+              "worker_selected": re.search(r"I446_FAULT_THREAD_SELECTED[^\n]*name=issue446-sigbus-worker", text) is not None,
+              "hardware_exception_or_signal": re.search(r"EXC_BAD_ACCESS|signal SIGBUS", status + "\n" + selected_text, re.IGNORECASE) is not None,
+              "fault_address": re.search(r"address\s*=\s*0x[0-9a-fA-F]+", status + "\n" + selected_text) is not None,
+              "all_thread_backtrace": expected is not None and int(expected.group(1)) >= 2 and
+                  len(backtrace_heads) == int(expected.group(1)) and all(per_thread_frames),
+              "faulting_pc": re.search(r"\bpc\s*=\s*0x[0-9a-fA-F]+", registers, re.IGNORECASE) is not None,
+              "images": re.search(r"\[\s*0\s*\]", images) is not None,
+              "lldb_termination_requested": "I446_LLDB_QUIT_REQUESTED" in text,
+          }
+          for name, passed in checks.items():
+              print("%s=%s" % (name, "true" if passed else "false"))
+          raise SystemExit(0 if all(checks.values()) else 1)
+          PY
+          then
+            finish CAPTURE_FAILED_NONMAIN preflight_capture_incomplete
+            exit 0
+          fi
+
+          start_epoch="$(cat "$ISSUE446_START_FILE")"
+          deadline=$((start_epoch + 660))
+          now="$(date +%s)"
+          remaining=$((deadline - now))
+          if (( remaining < 300 )); then
+            finish TIMEOUT insufficient_budget_before_rust_target
+            exit 0
+          fi
+
+          cargo_json="$WORK/cargo-messages.jsonl"
+          if ! cargo test --manifest-path src-tauri/Cargo.toml \
+              --features 'desktop-runtime native-qa' --lib --no-run \
+              --message-format=json > "$cargo_json" 2> "$WORK/cargo-build.stderr"; then
+            finish OTHER_FAILURE cargo_no_run_failed
+            exit 0
+          fi
+
+          bin_path_file="$WORK/test-binary-path.txt"
+          if ! python3 - "$cargo_json" "$bin_path_file" <<'PY'
+          import json
+          import os
+          import stat
+          import sys
+
+          artifacts = []
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              for line in stream:
+                  message = json.loads(line)
+                  target = message.get("target") or {}
+                  profile = message.get("profile") or {}
+                  path = message.get("executable")
+                  if (message.get("reason") == "compiler-artifact"
+                      and target.get("name") == "zen_canvas_tauri"
+                      and "lib" in target.get("kind", [])
+                      and profile.get("test") is True
+                      and isinstance(path, str)):
+                      artifacts.append(path)
+          if len(artifacts) != 1:
+              raise SystemExit("expected exactly one zen_canvas_tauri lib test executable; found %d" % len(artifacts))
+          path = artifacts[0]
+          if not os.path.isfile(path) or not os.access(path, os.X_OK):
+              raise SystemExit("Cargo test executable is absent or not executable")
+          if not (os.stat(path).st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)):
+              raise SystemExit("Cargo test executable mode has no execute bit")
+          with open(sys.argv[2], "w", encoding="utf-8") as output:
+              output.write(path + "\n")
+          PY
+          then
+            finish OTHER_FAILURE cargo_artifact_ambiguous_or_invalid
+            exit 0
+          fi
+
+          test_bin="$(cat "$bin_path_file")"
+          shasum -a 256 "$test_bin" > "$WORK/test-binary.sha256"
+          stat -f 'bytes=%z' "$test_bin" > "$WORK/test-binary-size.txt"
+          {
+            printf 'RUST_TEST_THREADS=%s\n' "${RUST_TEST_THREADS-unset}"
+            printf 'logical_cpu_count=%s\n' "$(sysctl -n hw.logicalcpu)"
+            printf 'test_binary_relative=%s\n' "${test_bin#"$GITHUB_WORKSPACE"/}"
+            cat "$WORK/test-binary.sha256"
+            cat "$WORK/test-binary-size.txt"
+          } > "$WORK/test-metadata.txt"
+
+          start_target="$(date +%s)"
+          remaining=$((deadline - start_target))
+          if (( remaining < 300 )); then
+            finish TIMEOUT insufficient_budget_before_rust_target
+            exit 0
+          fi
+          printf 'rust_target_started=true\n' > "$WORK/rust-target-started.txt"
+          set +e
+          run_lldb_bounded "$((remaining - 10))" "$WORK/test.raw.log" test \
+            "$lldb_bin" "${lldb_common[@]:0:${#lldb_common[@]}-2}" \
+            -o run \
+            -o 'script print("I446_NORMAL_COMPLETION_BEGIN")' \
+            -o 'process status' \
+            -o 'script print("I446_NORMAL_COMPLETION_END")' \
+            -o 'script print("I446_LLDB_FINAL_QUIT_REQUESTED")' \
+            -o 'quit 0' -- "$test_bin" \
+            --skip macos_mutation_parity_supports_move_copy_replace_restore_and_delete \
+            --skip macos_symlink_and_package_mutations_keep_namespace_boundaries \
+            --skip macos_target_conflict_preserves_both_objects_without_claim_artifacts \
+            --skip macos_target_creation_race_never_loses_source_payload \
+            --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
+            --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
+          test_rc=$?
+          set -e
+          printf '%s\n' "$test_rc" > "$WORK/test-exit-code.txt"
+
+          if [[ "$test_rc" = "124" ]]; then
+            finish TIMEOUT rust_test_target_reached_diagnostic_deadline
+            exit 0
+          fi
+
+          target_fault_type="$(python3 - "$WORK/test.raw.log" <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          selected = re.search(r"I446_FAULT_THREAD_SELECTED[^\n]*", text)
+          status = ""
+          if "I446_STATUS_BEGIN" in text and "I446_STATUS_END" in text:
+              status = text.split("I446_STATUS_BEGIN", 1)[1].split("I446_STATUS_END", 1)[0]
+          line = selected.group(0) if selected else ""
+          evidence = status + "\n" + line
+          if re.search(r"signal SIGBUS", evidence, re.IGNORECASE):
+              print("SIGBUS")
+          elif re.search(r"EXC_BAD_ACCESS", evidence, re.IGNORECASE):
+              print("MACH_EXCEPTION")
+          elif any(marker in text for marker in (
+              "I446_CAPTURE_BEGIN", "I446_CAPTURE_END", "I446_FAULT_THREAD_SELECTED",
+              "I446_EXTERNAL_TIMEOUT=true", "I446_EXTERNAL_SIGNAL=",
+              "I446_PROCESS_GROUP_CLEANUP=UNVERIFIED")):
+              print("CAPTURE_INCOMPLETE")
+          else:
+              print("NONE")
+          PY
+          )"
+          case "$target_fault_type" in
+          SIGBUS|MACH_EXCEPTION)
+            if python3 - "$WORK/test.raw.log" <<'PY'
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          def section(name):
+              start = "I446_%s_BEGIN" % name
+              end = "I446_%s_END" % name
+              if start not in text or end not in text:
+                  return ""
+              return text.split(start, 1)[1].split(end, 1)[0]
+
+          selected = re.search(r"I446_FAULT_THREAD_SELECTED[^\n]*", text)
+          status = section("STATUS")
+          selected_text = selected.group(0) if selected else ""
+          fault_type = re.search(r"EXC_BAD_ACCESS|signal SIGBUS", status + "\n" + selected_text, re.IGNORECASE)
+          backtrace = section("BACKTRACE_ALL")
+          expected = re.search(r"I446_EXPECTED_THREAD_COUNT=(\d+)", text)
+          heads = list(re.finditer(r"(?m)^\s*\*?\s*thread #(\d+)\b", backtrace))
+          frames_present = []
+          for index, head in enumerate(heads):
+              end = heads[index + 1].start() if index + 1 < len(heads) else len(backtrace)
+              frames_present.append("frame #0" in backtrace[head.start():end])
+          all_backtraces = (
+              expected is not None
+              and int(expected.group(1)) >= 1
+              and int(expected.group(1)) == len(heads)
+              and all(frames_present)
+          )
+          complete = (
+              "I446_CAPTURE_BEGIN" in text
+              and "I446_CAPTURE_END" in text
+              and selected is not None
+              and fault_type is not None
+              and "I446_LLDB_QUIT_REQUESTED" in text
+              and "I446_THREAD_LIST_BEGIN" in text
+              and "I446_THREAD_LIST_END" in text
+              and re.search(r"\bpc\s*=\s*0x[0-9a-fA-F]+", section("REGISTERS"), re.IGNORECASE)
+              and "I446_BACKTRACE_ALL_BEGIN" in text
+              and "I446_BACKTRACE_ALL_END" in text
+              and all_backtraces
+              and re.search(r"\[\s*0\s*\]", section("IMAGES"))
+          )
+          raise SystemExit(0 if complete else 1)
+          PY
+            then
+              if [[ "$target_fault_type" = "SIGBUS" ]]; then
+                finish SIGBUS_REPRODUCED_CAPTURED lldb_captured_target_sigbus
+              else
+                finish OTHER_FAILURE target_mach_exception_captured_but_sigbus_mapping_unverified
+              fi
+            else
+              finish CAPTURE_FAILED_ON_TARGET target_signal_without_complete_capture
+            fi
+            ;;
+          CAPTURE_INCOMPLETE)
+            finish CAPTURE_FAILED_ON_TARGET target_log_contains_incomplete_capture_or_cleanup_markers
+            ;;
+          NONE)
+            normal_result="$WORK/normal-result.txt"
+            python3 - "$WORK/test.raw.log" "$WORK/test-exit-code.txt" \
+              "$WORK/test-launch.txt" "$WORK/process-cleanup.log" \
+              "$test_bin" "$normal_result" <<'PY'
+          import os
+          import re
+          import sys
+
+          log_path, exit_path, launch_path, cleanup_path, binary_path, result_path = sys.argv[1:]
+          try:
+              text = open(log_path, encoding="utf-8", errors="replace").read()
+              with open(exit_path, encoding="ascii") as stream:
+                  lldb_exit = int(stream.read().strip())
+              launch_record = open(launch_path, encoding="utf-8").read()
+              cleanup = open(cleanup_path, encoding="utf-8").read()
+          except (OSError, ValueError):
+              text = ""
+              lldb_exit = -1
+              launch_record = ""
+              cleanup = ""
+
+          def count(marker):
+              return text.count(marker)
+
+          launched = re.findall(
+              r"(?m)^Process (\d+) launched: ['\"]([^'\"]+)['\"](?: \([^\n]*\))?$", text)
+          running = re.findall(r"(?m)^running (\d+) tests?$", text)
+          summaries = re.findall(
+              r"(?m)^test result: ok\. 1180 passed; 0 failed; 32 ignored; "
+              r"0 measured; 0 filtered out; finished in "
+              r"(?:\d+(?:\.\d*)?|\.\d+)s$", text)
+          summary_lines = re.findall(r"(?m)^test result:", text)
+          status_section = ""
+          if count("I446_NORMAL_COMPLETION_BEGIN") == 1 and count("I446_NORMAL_COMPLETION_END") == 1:
+              status_section = text.split("I446_NORMAL_COMPLETION_BEGIN", 1)[1].split(
+                  "I446_NORMAL_COMPLETION_END", 1)[0]
+          exited = re.findall(
+              r"(?m)^Process (\d+) exited with status = 0(?: \(0x0+\))?$", status_section)
+          forbidden = re.search(
+              r"(?m)(?:^test result: FAILED\.|^test .+ \.\.\. FAILED$)|"
+              r"signal SIGBUS|EXC_BAD_ACCESS|I446_CAPTURE_BEGIN|I446_CAPTURE_END|"
+              r"I446_FAULT_THREAD_SELECTED|I446_EXTERNAL_TIMEOUT=true|I446_EXTERNAL_SIGNAL=|"
+              r"I446_PROCESS_GROUP_CLEANUP=UNVERIFIED|panicked at|thread '.+' panicked",
+              text, re.IGNORECASE)
+          cleanup_ok = (
+              cleanup.count("stage=test; lldb_session_cleanup=CONFIRMED; "
+                             "reason=lldb_session_empty_and_child_reaped") == 1
+              and "stage=test; lldb_session_cleanup=UNVERIFIED;" not in cleanup
+          )
+          expected_launch_record = "stage=test\nlaunch_count=1\n"
+          checks = {
+              "lldb_exit_zero": lldb_exit == 0,
+              "one_test_binary_launch_record": launch_record == expected_launch_record,
+              "actual_binary_started_once": len(launched) == 1 and launched[0][1] == binary_path,
+              "full_suite_started": running == ["1212"],
+              "exact_baseline_final_summary": len(summaries) == 1,
+              "one_final_summary_line": len(summary_lines) == 1,
+              "target_exit_zero": len(exited) == 1 and len(launched) == 1 and exited[0] == launched[0][0],
+              "normal_completion_markers_complete": count("I446_NORMAL_COMPLETION_BEGIN") == 1
+                  and count("I446_NORMAL_COMPLETION_END") == 1
+                  and count("I446_LLDB_FINAL_QUIT_REQUESTED") == 1,
+              "no_failure_crash_or_incomplete_log_markers": forbidden is None,
+              "process_cleanup_confirmed": cleanup_ok,
+          }
+          failed = [name for name, passed in checks.items() if not passed]
+          classification = "NON_REPRODUCED" if not failed else "OTHER_FAILURE"
+          reason = "full_lib_target_completed_normally" if not failed else "normal_completion_unverified_" + "_".join(failed)
+          with open(result_path, "w", encoding="utf-8") as output:
+              output.write("classification=%s\nreason=%s\n" % (classification, reason))
+          PY
+            normal_classification="$(sed -n 's/^classification=//p' "$normal_result")"
+            normal_reason="$(sed -n 's/^reason=//p' "$normal_result")"
+            if [[ "$normal_classification" = "NON_REPRODUCED" && \
+                  "$normal_reason" = "full_lib_target_completed_normally" ]]; then
+              finish NON_REPRODUCED "$normal_reason"
+            else
+              finish OTHER_FAILURE "${normal_reason:-normal_completion_classifier_failed}"
+            fi
+            ;;
+          *)
+            finish OTHER_FAILURE target_fault_classification_invalid
+            ;;
+          esac
+          exit 0
+          BASH
+          chmod 700 "$ISSUE446_WORK/body.sh"
+
+          cat > "$ISSUE446_WORK/supervisor.py" <<'PY'
+          import os
+          import signal
+          import subprocess
+          import sys
+          import time
+
+          evidence = os.environ["ISSUE446_EVIDENCE"]
+          work = os.environ["ISSUE446_WORK"]
+          active_session_path = os.environ["ISSUE446_ACTIVE_LLDB_SESSION_FILE"]
+          with open(os.environ["ISSUE446_START_FILE"], encoding="ascii") as stream:
+              deadline = int(stream.read().strip()) + 660
+          log_path = os.path.join(work, "diagnostic-body.raw.log")
+          result_path = os.path.join(evidence, "classification.txt")
+          reason_path = os.path.join(evidence, "result-reason.txt")
+          cleanup_path = os.path.join(evidence, "process-cleanup.txt")
+          child = None
+
+          def set_result(classification, reason):
+              for path, value in ((result_path, classification), (reason_path, reason)):
+                  temp = path + ".tmp"
+                  with open(temp, "w", encoding="utf-8") as stream:
+                      stream.write(value + "\n")
+                      stream.flush()
+                      os.fsync(stream.fileno())
+                  os.replace(temp, path)
+
+          def active_lldb_session():
+              try:
+                  with open(active_session_path, encoding="ascii") as stream:
+                      session = int(stream.read().strip())
+                  return session if session > 1 else None
+              except (OSError, ValueError):
+                  return None
+
+          def process_snapshot():
+              errors = []
+              for field in ("sess", "sid"):
+                  try:
+                      result = subprocess.run(
+                          ["/bin/ps", "-axo", "pid=,ppid=,pgid=,%s=" % field],
+                          check=True, capture_output=True, text=True, timeout=3)
+                      processes = {}
+                      for line in result.stdout.splitlines():
+                          columns = line.split()
+                          if len(columns) != 4 or not all(value.isdigit() for value in columns):
+                              continue
+                          pid, ppid, pgid, sid = map(int, columns)
+                          processes[pid] = {"ppid": ppid, "pgid": pgid, "sid": sid}
+                      if not processes or not any(item["sid"] > 1 for item in processes.values()):
+                          raise RuntimeError("process snapshot was empty or had no session ids")
+                      return processes
+                  except Exception as error:
+                      errors.append(type(error).__name__)
+              raise RuntimeError("process snapshot unavailable: " + ",".join(errors))
+
+          def descendants(processes, roots):
+              found = set()
+              pending = list(roots)
+              while pending:
+                  parent = pending.pop()
+                  for pid, item in processes.items():
+                      if item["ppid"] == parent and pid not in found:
+                          found.add(pid)
+                          pending.append(pid)
+              return found
+
+          def group_alive(pgid):
+              try:
+                  os.killpg(pgid, 0)
+                  return True
+              except ProcessLookupError:
+                  return False
+              except PermissionError:
+                  return True
+
+          def cleanup_snapshot(signum):
+              session = active_lldb_session()
+              sessions = {child.pid}
+              if session is not None:
+                  sessions.add(session)
+              snapshot = process_snapshot()
+              members = {pid for pid, item in snapshot.items() if item["sid"] in sessions}
+              descendants_found = descendants(snapshot, sessions)
+              groups = {child.pid}
+              groups.update(item["pgid"] for pid, item in snapshot.items()
+                            if item["sid"] in sessions and item["pgid"] > 1)
+              groups.update(snapshot[pid]["pgid"] for pid in descendants_found if pid in snapshot)
+              for pgid in groups:
+                  try:
+                      os.killpg(pgid, signum)
+                  except ProcessLookupError:
+                      pass
+              for pid in descendants_found:
+                  try:
+                      os.kill(pid, signum)
+                  except ProcessLookupError:
+                      pass
+              return session, snapshot, members, descendants_found, groups
+
+          def cleanup_status(session):
+              try:
+                  snapshot = process_snapshot()
+              except RuntimeError:
+                  return False, False
+              sessions = {child.pid}
+              if session is not None:
+                  sessions.add(session)
+              members = {pid for pid, item in snapshot.items() if item["sid"] in sessions}
+              descendants_found = descendants(snapshot, sessions)
+              groups = {item["pgid"] for pid, item in snapshot.items()
+                        if item["sid"] in sessions and item["pgid"] > 1}
+              groups.add(child.pid)
+              alive_groups = any(group_alive(pgid) for pgid in groups)
+              complete = not members and not descendants_found and not alive_groups
+              return complete, True
+
+          def record_cleanup(reason, confirmed, child_reaped, snapshot_available):
+              with open(cleanup_path, "a", encoding="utf-8") as stream:
+                  stream.write(
+                      "supervisor_cleanup=%s; body_child_reaped=%s; process_snapshot=%s; reason=%s\n" %
+                      ("CONFIRMED" if confirmed else "UNVERIFIED",
+                       "true" if child_reaped else "false",
+                       "available" if snapshot_available else "UNAVAILABLE", reason))
+                  stream.flush()
+                  os.fsync(stream.fileno())
+
+          def terminate_group(reason, grace_seconds=6):
+              if child is None:
+                  record_cleanup(reason, True, True, True)
+                  return True
+              snapshot_available = True
+              session = active_lldb_session()
+              try:
+                  cleanup_snapshot(signal.SIGTERM)
+              except RuntimeError:
+                  snapshot_available = False
+                  for pgid in [child.pid, session]:
+                      if pgid is not None:
+                          try:
+                              os.killpg(pgid, signal.SIGTERM)
+                          except ProcessLookupError:
+                              pass
+              group_deadline = time.monotonic() + grace_seconds
+              confirmed = False
+              while time.monotonic() < group_deadline:
+                  try:
+                      session = active_lldb_session() or session
+                      cleanup_snapshot(signal.SIGTERM)
+                      confirmed, available = cleanup_status(session)
+                      snapshot_available = snapshot_available and available
+                      if confirmed and child.poll() is not None:
+                          break
+                  except RuntimeError:
+                      snapshot_available = False
+                  time.sleep(0.1)
+              if not confirmed or child.poll() is None:
+                  try:
+                      cleanup_snapshot(signal.SIGKILL)
+                  except RuntimeError:
+                      snapshot_available = False
+                      for pgid in [child.pid, session]:
+                          if pgid is not None:
+                              try:
+                                  os.killpg(pgid, signal.SIGKILL)
+                              except ProcessLookupError:
+                                  pass
+              try:
+                  child.wait(timeout=4)
+                  child_reaped = True
+              except subprocess.TimeoutExpired:
+                  child_reaped = False
+                  try:
+                      os.killpg(child.pid, signal.SIGKILL)
+                  except ProcessLookupError:
+                      pass
+                  try:
+                      child.wait(timeout=2)
+                      child_reaped = True
+                  except subprocess.TimeoutExpired:
+                      pass
+              verify_deadline = time.monotonic() + 2
+              while time.monotonic() < verify_deadline:
+                  try:
+                      session = active_lldb_session() or session
+                      confirmed, available = cleanup_status(session)
+                      snapshot_available = snapshot_available and available
+                      if confirmed and child_reaped:
+                          break
+                      cleanup_snapshot(signal.SIGKILL)
+                  except RuntimeError:
+                      snapshot_available = False
+                      confirmed = False
+                  time.sleep(0.1)
+              confirmed = confirmed and child_reaped and snapshot_available
+              if confirmed and session is not None:
+                  try:
+                      os.unlink(active_session_path)
+                  except FileNotFoundError:
+                      pass
+              record_cleanup(reason, confirmed, child_reaped, snapshot_available)
+              helper_cleanup_path = os.path.join(work, "process-cleanup.log")
+              try:
+                  with open(helper_cleanup_path, encoding="utf-8") as source:
+                      helper_cleanup = source.read()
+                  with open(cleanup_path, "a", encoding="utf-8") as destination:
+                      destination.write(helper_cleanup)
+              except OSError:
+                  pass
+              return confirmed
+
+          def on_signal(signum, _frame):
+              cleanup_confirmed = terminate_group("supervisor_signal_%d" % signum)
+              suffix = "cleanup_confirmed" if cleanup_confirmed else "cleanup_unverified"
+              set_result("TIMEOUT", "diagnostic_step_interrupted_signal_%d_%s" % (signum, suffix))
+              raise SystemExit(128 + signum)
+
+          signal.signal(signal.SIGTERM, on_signal)
+          signal.signal(signal.SIGINT, on_signal)
+          remaining = deadline - time.time()
+          if remaining <= 0:
+              record_cleanup("11_minute_deadline_before_body", True, True, True)
+              set_result("TIMEOUT", "11_minute_job_deadline_reached_before_body")
+              raise SystemExit(124)
+
+          try:
+              with open(log_path, "ab", buffering=0) as output:
+                  prior_mask = signal.pthread_sigmask(
+                      signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
+                  child = subprocess.Popen(
+                      ["/bin/bash", "-e", "-u", "-o", "pipefail", os.path.join(work, "body.sh")],
+                      cwd=os.environ["GITHUB_WORKSPACE"],
+                      stdout=output,
+                      stderr=subprocess.STDOUT,
+                      start_new_session=True,
+                  )
+                  signal.pthread_sigmask(signal.SIG_SETMASK, prior_mask)
+                  try:
+                      return_code = child.wait(timeout=remaining)
+                  except subprocess.TimeoutExpired:
+                      cleanup_confirmed = terminate_group("11_minute_deadline", grace_seconds=6)
+                      suffix = "cleanup_confirmed" if cleanup_confirmed else "cleanup_unverified"
+                      set_result("TIMEOUT", "11_minute_diagnostic_body_deadline_reached_%s" % suffix)
+                      raise SystemExit(124)
+          except SystemExit:
+              raise
+          except Exception as error:
+              cleanup_confirmed = terminate_group("supervisor_exception_%s" % type(error).__name__)
+              suffix = "cleanup_confirmed" if cleanup_confirmed else "cleanup_unverified"
+              set_result("OTHER_FAILURE", "supervisor_exception_%s_%s" % (type(error).__name__, suffix))
+              raise SystemExit(1)
+
+          cleanup_confirmed = terminate_group("body_exit_%d" % child.returncode, grace_seconds=2)
+
+          if child.returncode != 0:
+              current = ""
+              try:
+                  with open(result_path, encoding="utf-8") as stream:
+                      current = stream.read().strip()
+              except OSError:
+                  pass
+              if current == "OTHER_FAILURE":
+                  set_result("OTHER_FAILURE", "diagnostic_body_exit_%d" % child.returncode)
+          helper_cleanup_path = os.path.join(work, "process-cleanup.log")
+          try:
+              with open(helper_cleanup_path, encoding="utf-8") as source:
+                  helper_cleanup = source.read()
+          except OSError:
+              helper_cleanup = ""
+          if not cleanup_confirmed or "lldb_session_cleanup=UNVERIFIED" in helper_cleanup:
+              current = ""
+              try:
+                  with open(result_path, encoding="utf-8") as stream:
+                      current = stream.read().strip()
+              except OSError:
+                  pass
+              if current in ("", "OTHER_FAILURE", "NON_REPRODUCED"):
+                  set_result("OTHER_FAILURE", "process_cleanup_unverified_after_diagnostic_body")
+          with open(os.path.join(work, "diagnostic-body-exit-code.txt"), "w", encoding="ascii") as stream:
+              stream.write(str(child.returncode) + "\n")
+          raise SystemExit(0)
+          PY
+
+          python3 "$ISSUE446_WORK/supervisor.py"
+
+      - name: Sanitize and bound diagnostic evidence
+        if: always()
+        timeout-minutes: 2
+        shell: bash
+        env:
+          ISSUE446_EVIDENCE: ${{ runner.temp }}/issue446-evidence
+          ISSUE446_WORK: ${{ runner.temp }}/issue446-work
+        run: |
+          set -euo pipefail
+          python3 - "$ISSUE446_EVIDENCE" "$ISSUE446_WORK" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$HOME" <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          evidence = pathlib.Path(sys.argv[1])
+          work = pathlib.Path(sys.argv[2])
+          roots = [sys.argv[3], sys.argv[4], sys.argv[5], "/Users/runner"]
+          limit = 5 * 1024 * 1024
+          per_log_limits = {
+              "diagnostic-body.raw.log": 256 * 1024,
+              "preflight.raw.log": 1024 * 1024,
+              "test.raw.log": 2 * 1024 * 1024,
+              "process-cleanup.log": 128 * 1024,
+              "cargo-build.stderr": 512 * 1024,
+              "fixture-build.log": 128 * 1024,
+          }
+
+          def redact(text):
+              for root, replacement in zip(roots, ("<WORKSPACE>", "<RUNNER_TEMP>", "<HOME>", "<RUNNER_HOME>")):
+                  if root:
+                      text = text.replace(root, replacement)
+              text = re.sub(r"(?i)(authorization:\s*bearer)\s+\S+", r"\1 <REDACTED>", text)
+              text = re.sub(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b", "<REDACTED_TOKEN>", text)
+              text = re.sub(r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@", r"\1<REDACTED>@", text)
+              text = re.sub(r"(?i)\b(token|password|secret|api[_-]?key)\s*[:=]\s*([^\s,;]+)", r"\1=<REDACTED>", text)
+              return text
+
+          def bounded_text(source, destination, max_bytes):
+              if not source.is_file():
+                  return
+              text = source.read_text(encoding="utf-8", errors="replace")
+              text = redact(text)
+              data = text.encode("utf-8", errors="replace")
+              if len(data) > max_bytes:
+                  marker = b"\n<TRUNCATED: evidence size cap>\n"
+                  tail = max_bytes - len(marker)
+                  data = marker + data[-tail:]
+              destination.write_bytes(data)
+
+          copies = {
+              "diagnostic-body.raw.log": "diagnostic-body.log",
+              "preflight.raw.log": "preflight.log",
+              "test.raw.log": "rust-test-lldb.log",
+              "process-cleanup.log": "lldb-process-cleanup.log",
+              "cargo-build.stderr": "cargo-build.stderr",
+              "fixture-build.log": "fixture-build.log",
+          }
+          for source_name, destination_name in copies.items():
+              bounded_text(work / source_name, evidence / destination_name, per_log_limits[source_name])
+
+          for name in (
+              "source.txt", "runner.txt", "admission.txt", "classification.txt",
+              "result-reason.txt", "rustc.txt", "cargo.txt", "clang.txt",
+              "lldb-version.txt", "hook-mode.txt", "preflight-exit-code.txt",
+              "test-exit-code.txt", "test-metadata.txt", "test-binary-size.txt",
+              "preflight-launch.txt", "test-launch.txt", "normal-result.txt",
+              "rust-target-started.txt", "diagnostic-body-exit-code.txt",
+          ):
+              source = evidence / name
+              if not source.is_file():
+                  source = work / name
+              if source.is_file() and source.parent != evidence:
+                  bounded_text(source, evidence / name, 64 * 1024)
+
+          start_path = evidence / "job-start-epoch"
+          try:
+              start_epoch = int(start_path.read_text(encoding="ascii").strip())
+          except (OSError, ValueError):
+              start_epoch = 0
+
+          report_roots = [
+              pathlib.Path.home() / "Library/Logs/DiagnosticReports",
+              pathlib.Path("/Library/Logs/DiagnosticReports"),
+          ]
+          ips_count = 0
+          for root in report_roots:
+              if not root.is_dir():
+                  continue
+              for path in root.glob("*zen_canvas_tauri*.ips"):
+                  try:
+                      stat = path.stat()
+                      if stat.st_mtime < start_epoch or stat.st_size > 1024 * 1024:
+                          continue
+                      records = []
+                      for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                          try:
+                              payload = json.loads(line)
+                          except ValueError:
+                              continue
+                          records.append(json.loads(redact(json.dumps(payload, ensure_ascii=False))))
+                      if not records:
+                          continue
+                      report = "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n"
+                      if len(report.encode("utf-8")) > 1024 * 1024:
+                          continue
+                      (evidence / ("macos-report-%d.ips" % ips_count)).write_text(report, encoding="utf-8")
+                      ips_count += 1
+                      if ips_count >= 1:
+                          break
+                  except (OSError, ValueError, json.JSONDecodeError):
+                      continue
+              if ips_count:
+                  break
+          (evidence / "macos-report-status.txt").write_text(
+              "matching_ips=%d; per_file_limit_bytes=1048576; core_files_uploaded=0\n" % ips_count,
+              encoding="utf-8")
+
+          for path in list(evidence.iterdir()):
+              if path.name in {"job-start-epoch"}:
+                  path.unlink(missing_ok=True)
+          total = sum(path.stat().st_size for path in evidence.iterdir() if path.is_file())
+          if total > limit - 4096:
+              for name in (
+                  "fixture-build.log", "cargo-build.stderr", "diagnostic-body.log",
+                  "preflight.log", "rust-test-lldb.log",
+              ):
+                  path = evidence / name
+                  if path.exists() and total > limit - 4096:
+                      path.unlink()
+                      total = sum(p.stat().st_size for p in evidence.iterdir() if p.is_file())
+          if total > limit - 4096:
+              for path in evidence.iterdir():
+                  if path.name.startswith("macos-report-"):
+                      path.unlink()
+              total = sum(path.stat().st_size for path in evidence.iterdir() if path.is_file())
+          if total > limit - 4096:
+              for path in evidence.iterdir():
+                  if path.name not in {
+                      "classification.txt", "result-reason.txt", "source.txt", "runner.txt",
+                      "admission.txt", "rustc.txt", "cargo.txt", "clang.txt",
+                      "lldb-version.txt", "hook-mode.txt", "preflight-exit-code.txt",
+                      "test-exit-code.txt", "test-metadata.txt", "test-binary-size.txt",
+                      "macos-report-status.txt",
+                  }:
+                      path.unlink(missing_ok=True)
+              total = sum(path.stat().st_size for path in evidence.iterdir() if path.is_file())
+          if total > limit - 4096:
+              raise SystemExit("sanitized metadata exceeded 5 MiB cap")
+          size_path = evidence / "artifact-size.txt"
+          size_path.write_text("pending\n", encoding="ascii")
+          total = sum(path.stat().st_size for path in evidence.iterdir() if path.is_file())
+          size_path.write_text("bytes=%d\nlimit_bytes=%d\n" % (total, limit), encoding="ascii")
+          final_total = sum(path.stat().st_size for path in evidence.iterdir() if path.is_file())
+          if final_total > limit:
+              raise SystemExit("sanitized evidence exceeded 5 MiB cap after size manifest")
+          if final_total != total:
+              size_path.write_text("bytes=%d\nlimit_bytes=%d\n" % (final_total, limit), encoding="ascii")
+          PY
+
+      - name: Upload bounded diagnostic evidence
+        if: always()
+        timeout-minutes: 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue-446-macos-sigbus-${{ github.run_id }}
+          path: ${{ runner.temp }}/issue446-evidence
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 6
+
+      - name: Report diagnostic classification
+        if: always()
+        timeout-minutes: 1
+        shell: bash
+        env:
+          ISSUE446_EVIDENCE: ${{ runner.temp }}/issue446-evidence
+        run: |
+          set -euo pipefail
+          classification="$(cat "$ISSUE446_EVIDENCE/classification.txt" 2>/dev/null || printf 'OTHER_FAILURE')"
+          reason="$(cat "$ISSUE446_EVIDENCE/result-reason.txt" 2>/dev/null || printf 'evidence_or_diagnostic_step_incomplete')"
+          {
+            printf '### Issue #446 diagnostic result\n\n'
+            printf -- '- Classification: `%s`\n' "$classification"
+            printf -- '- Reason: `%s`\n' "$reason"
+            printf '%s\n' '- This manual diagnostic result does not waive Full Validation or resolve Issue #446.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1

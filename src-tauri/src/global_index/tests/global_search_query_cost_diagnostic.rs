@@ -3572,10 +3572,10 @@ fn global_search_exact_sql_1m_diagnostic() {
     // Windows may spell one directory with its 8.3 alias (runner~1) or long name
     // (runneradmin). Compare resolved directories, not their textual spelling;
     // the workflow still measures and bounds the disk containing this directory.
-    let rust_temp_root = fs::canonicalize(env::temp_dir())
-        .expect("canonicalize Rust's actual temporary directory");
-    let measured_temp_root = fs::canonicalize(&temp_root)
-        .expect("canonicalize the measured temporary directory");
+    let rust_temp_root =
+        fs::canonicalize(env::temp_dir()).expect("canonicalize Rust's actual temporary directory");
+    let measured_temp_root =
+        fs::canonicalize(&temp_root).expect("canonicalize the measured temporary directory");
     assert_eq!(
         rust_temp_root.to_string_lossy().to_ascii_lowercase(),
         measured_temp_root.to_string_lossy().to_ascii_lowercase(),

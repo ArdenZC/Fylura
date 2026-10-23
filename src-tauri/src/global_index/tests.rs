@@ -1861,3 +1861,7 @@ mod global_search_benchmark;
 
 #[path = "tests/global_search_source_health.rs"]
 mod global_search_source_health;
+
+#[cfg(test)]
+#[path = "tests/isg02/mod.rs"]
+mod isg02;

@@ -42,6 +42,7 @@ on:
           - source_health_diagnostic
           - source_health_topology_diagnostic
           - index_cost
+          - exact_sql_1m_diagnostic
 
 permissions:
   contents: read
@@ -54,7 +55,7 @@ jobs:
   # Keep manual baseline/diagnostic modes and the two branch-scoped diagnostics;
   # ordinary PRs use only the bounded 1k-row smoke in the index-cost job below.
   synthetic-global-search:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost' && inputs.mode != 'exact_sql_1m_diagnostic') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
     name: Global Search ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
@@ -233,5 +234,150 @@ jobs:
           path: |
             ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}-smoke.jsonl
             ${{ runner.temp }}/global-index-cost-${{ matrix.runner_key }}.jsonl
+          if-no-files-found: warn
+          retention-days: 90
+
+  synthetic-global-search-exact-sql-diagnostic:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'exact_sql_1m_diagnostic' }}
+    name: Global Search exact SQL 1M diagnostic (test-only)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    concurrency:
+      group: global-search-exact-sql-1m-diagnostic-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_ENTRIES: "1000000"
+      ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_MODE: ${{ inputs.mode }}
+    steps:
+      - name: Checkout exact dispatch ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-global-search-exact-sql-1m-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Record exact source and enforce measured runner budgets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceSha = (git rev-parse HEAD).Trim()
+          $sourceTree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($sourceSha -ne '${{ github.sha }}') { throw 'Checked out source does not match the dispatched SHA.' }
+
+          $os = Get-CimInstance Win32_OperatingSystem
+          $totalMemoryBytes = [long]$os.TotalVisibleMemorySize * 1024
+          $freeMemoryBytes = [long]$os.FreePhysicalMemory * 1024
+          $databaseTempRoot = [System.IO.Path]::GetTempPath().TrimEnd([char[]]@('\', '/'))
+          $databaseTempDrive = Get-PSDrive -Name ($databaseTempRoot.Substring(0, 1))
+          $freeDiskBytes = [long]$databaseTempDrive.Free
+          $evidenceTempRoot = $env:RUNNER_TEMP.TrimEnd([char[]]@('\', '/'))
+          $evidenceTempDrive = Get-PSDrive -Name ($evidenceTempRoot.Substring(0, 1))
+          $freeEvidenceDiskBytes = [long]$evidenceTempDrive.Free
+          if ($totalMemoryBytes -le 0 -or $freeMemoryBytes -le 0) { throw 'Could not measure Windows runner physical memory.' }
+          if ($freeMemoryBytes -lt 1073741824) { throw 'Fail-closed preflight: less than 1 GiB physical memory is available.' }
+          if ($freeDiskBytes -lt 4294967296) { throw 'Fail-closed preflight: less than 4 GiB disk space is available on the test temp drive.' }
+          if ($freeEvidenceDiskBytes -lt 1073741824) { throw 'Fail-closed preflight: less than 1 GiB disk space is available for evidence files.' }
+
+          $maxWorkingSetBytes = [long][Math]::Floor($freeMemoryBytes * 0.70)
+          $maxDatabaseBytes = [long][Math]::Floor($freeDiskBytes * 0.50)
+          if ($maxWorkingSetBytes -le 0 -or $maxDatabaseBytes -le 0 -or $maxDatabaseBytes -ge $freeDiskBytes) {
+            throw 'Could not derive enforceable memory and database budgets from the measured runner.'
+          }
+
+          "ZEN_CANVAS_BENCHMARK_SOURCE_SHA=$sourceSha" >> $env:GITHUB_ENV
+          "ZEN_CANVAS_BENCHMARK_SOURCE_TREE=$sourceTree" >> $env:GITHUB_ENV
+          "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_TOTAL_MEMORY_BYTES=$totalMemoryBytes" >> $env:GITHUB_ENV
+          "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_FREE_MEMORY_BYTES=$freeMemoryBytes" >> $env:GITHUB_ENV
+          "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_FREE_DISK_BYTES=$freeDiskBytes" >> $env:GITHUB_ENV
+          "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_FREE_EVIDENCE_DISK_BYTES=$freeEvidenceDiskBytes" >> $env:GITHUB_ENV
+          "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_MAX_WORKING_SET_BYTES=$maxWorkingSetBytes" >> $env:GITHUB_ENV
+          "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_MAX_DATABASE_BYTES=$maxDatabaseBytes" >> $env:GITHUB_ENV
+          "ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_TEMP_ROOT=$databaseTempRoot" >> $env:GITHUB_ENV
+
+          $budgetSummary = @(
+            "source_sha=$sourceSha"
+            "source_tree=$sourceTree"
+            "runner_total_physical_memory_bytes=$totalMemoryBytes"
+            "runner_free_physical_memory_bytes=$freeMemoryBytes"
+            "test_process_working_set_limit_bytes=$maxWorkingSetBytes"
+            "database_temp_drive=$($databaseTempRoot.Substring(0, 1))"
+            "database_temp_drive_free_bytes=$freeDiskBytes"
+            "evidence_temp_drive=$($evidenceTempRoot.Substring(0, 1))"
+            "evidence_temp_drive_free_bytes=$freeEvidenceDiskBytes"
+            "database_main_wal_shm_limit_bytes=$maxDatabaseBytes"
+            'evidence_jsonl_combined_limit_bytes=33554432'
+            'soft_elapsed_limit_seconds=1800'
+            'job_timeout_minutes=45'
+          ) -join [Environment]::NewLine
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $budgetSummary
+      - name: Record Rust build identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rustcVersion = (rustc --version).Trim()
+          $cargoVersion = (cargo --version).Trim()
+          "ZEN_CANVAS_RUSTC_VERSION=$rustcVersion" >> $env:GITHUB_ENV
+          "ZEN_CANVAS_CARGO_VERSION=$cargoVersion" >> $env:GITHUB_ENV
+          "rustc=$rustcVersion`ncargo=$cargoVersion" | Add-Content $env:GITHUB_STEP_SUMMARY
+      - name: Run the single ignored exact SQL 1M diagnostic
+        id: run-exact-sql-diagnostic
+        timeout-minutes: 40
+        env:
+          ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_OUTPUT: ${{ runner.temp }}/global-search-exact-sql-1m.jsonl
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ runner.temp }}/global-search-exact-sql-1m-semantic.jsonl
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_exact_sql_1m_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Verify terminal evidence and write SHA-256
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mainEvidence = Join-Path $env:RUNNER_TEMP 'global-search-exact-sql-1m.jsonl'
+          $semanticEvidence = Join-Path $env:RUNNER_TEMP 'global-search-exact-sql-1m-semantic.jsonl'
+          $hashManifest = Join-Path $env:RUNNER_TEMP 'global-search-exact-sql-1m.sha256'
+          $hashLines = @()
+          $totalBytes = 0L
+          foreach ($path in @($mainEvidence, $semanticEvidence)) {
+            if (Test-Path $path) {
+              $length = (Get-Item $path).Length
+              $totalBytes += $length
+              $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+              $hashLines += "$hash  $(Split-Path $path -Leaf)"
+              "$(Split-Path $path -Leaf)_bytes=$length sha256=$hash" | Add-Content $env:GITHUB_STEP_SUMMARY
+            }
+          }
+          Set-Content -Path $hashManifest -Value $hashLines
+          if ($totalBytes -gt 33554432) { throw "Combined JSONL evidence exceeded 32 MiB: $totalBytes bytes." }
+
+          $terminalStatus = 'MISSING'
+          if (Test-Path $mainEvidence) {
+            $records = Get-Content $mainEvidence | ForEach-Object { $_ | ConvertFrom-Json }
+            $terminal = $records | Where-Object { $_.record_type -eq 'diagnostic_terminal' } | Select-Object -Last 1
+            if ($null -ne $terminal) { $terminalStatus = [string]$terminal.status }
+          }
+          "terminal_status=$terminalStatus`ntest_step_outcome=${{ steps.run-exact-sql-diagnostic.outcome }}`ncombined_jsonl_bytes=$totalBytes" | Add-Content $env:GITHUB_STEP_SUMMARY
+          if ('${{ steps.run-exact-sql-diagnostic.outcome }}' -ne 'success') { throw 'The exact SQL 1M diagnostic step did not succeed.' }
+          if ($terminalStatus -ne 'PASS') { throw "Terminal evidence is $terminalStatus; incomplete evidence cannot PASS." }
+          if ($hashLines.Count -ne 2) { throw 'Both main and semantic JSONL evidence files and hashes are required.' }
+      - name: Upload partial or complete exact SQL evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-exact-sql-1m-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/global-search-exact-sql-1m.jsonl
+            ${{ runner.temp }}/global-search-exact-sql-1m-semantic.jsonl
+            ${{ runner.temp }}/global-search-exact-sql-1m.sha256
           if-no-files-found: warn
           retention-days: 90

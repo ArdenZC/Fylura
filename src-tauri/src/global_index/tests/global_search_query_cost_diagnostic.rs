@@ -3572,11 +3572,11 @@ fn global_search_exact_sql_1m_diagnostic() {
     assert_eq!(
         env::temp_dir()
             .to_string_lossy()
-            .trim_end_matches(|character| character == '\\' || character == '/')
+            .trim_end_matches(['\\', '/'])
             .to_ascii_lowercase(),
         temp_root
             .to_string_lossy()
-            .trim_end_matches(|character| character == '\\' || character == '/')
+            .trim_end_matches(['\\', '/'])
             .to_ascii_lowercase(),
         "the measured disk budget must describe Rust's actual temporary directory"
     );
@@ -3836,9 +3836,11 @@ fn global_search_exact_sql_1m_diagnostic() {
             &db,
             &query_case,
             &direct,
-            &source_health_oracle.source_health,
-            &source_health_oracle.source_revision,
-            &index_status_oracle,
+            ExpectedSnapshotFacts1m {
+                source_health: &source_health_oracle.source_health,
+                source_revision: &source_health_oracle.source_revision,
+                index_status: &index_status_oracle,
+            },
         );
         query_correctness += 1;
     }
@@ -4304,16 +4306,25 @@ fn trace_current_production_route(
         .collect()
 }
 
+struct ExpectedSnapshotFacts1m<'a> {
+    source_health: &'a [crate::global_index::models::GlobalSearchSourceHealth],
+    source_revision: &'a str,
+    index_status: &'a crate::global_index::models::GlobalIndexStatus,
+}
+
 fn profile_pooled_and_snapshot_1m(
     evidence: &ExactSql1mEvidence,
     context: &JsonValue,
     db: &Database,
     query_case: &QueryCase,
     expected_results: &[GlobalSearchResult],
-    expected_source_health: &[crate::global_index::models::GlobalSearchSourceHealth],
-    expected_source_revision: &str,
-    expected_index_status: &crate::global_index::models::GlobalIndexStatus,
+    expected_snapshot: ExpectedSnapshotFacts1m<'_>,
 ) {
+    let ExpectedSnapshotFacts1m {
+        source_health: expected_source_health,
+        source_revision: expected_source_revision,
+        index_status: expected_index_status,
+    } = expected_snapshot;
     for _ in 0..EXACT_SQL_1M_WARMUPS {
         let results = db
             .search_global_entries(query_case.query, SEARCH_RESULT_LIMIT, 0)

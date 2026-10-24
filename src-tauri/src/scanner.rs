@@ -2672,6 +2672,11 @@ mod tests {
             "Design/build/new-logo.ai",
             b"not previously indexed",
         );
+        let newly_created_dist_file = fixture.write(
+            &main_root,
+            "Design/dist/dist-name-test.txt",
+            b"manually created user content",
+        );
         fixture.write(&main_root, "Project/package.json", b"{}");
         fixture.write(&fixture.0, "chosen/package.json", b"{}");
         let current_file = fixture.write(&main_root, "Project/src/current.rs", b"current");
@@ -2757,6 +2762,11 @@ mod tests {
             "a new user build descendant is discovered"
         );
 
+        assert!(
+            scan_seen_path(&db, &main_run.dto.id, &newly_created_dist_file),
+            "a new user dist descendant is discovered"
+        );
+
         let main_health = db
             .get_scan_root_health(Some(&main_run.dto.scan_root_id), None)
             .expect("read main scan-root health");
@@ -2795,6 +2805,11 @@ mod tests {
         assert!(
             first_visible.contains(normalize_path(&selected_root_file).as_str()),
             "File Library returns the selected build-root file"
+        );
+
+        assert!(
+            first_visible.contains(normalize_path(&newly_created_dist_file).as_str()),
+            "File Library returns newly scanned user dist data"
         );
 
         let deleted_ignored_id = normalize_path(&deleted_ignored);

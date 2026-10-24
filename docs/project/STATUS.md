@@ -4,6 +4,15 @@ Last verified: 2026-10-09
 
 ## Current execution truth
 
+- **M1-R1 Windows Cleanup output-name safety — Draft / Owner review pending.**
+  Based on latest fetched master `af316d4` (2026-10-24). Ordinary `build`, `dist`,
+  `target`, `.next`, `.nuxt` and `.turbo` names now require Review/Reveal;
+  historical Safe projections and cleanup authorization independently recheck
+  this rule. Existing verified system-temp and package-cache policies remain.
+  No scan exclusion, schema, identity, Watcher, F1 or release change. Focused
+  frontend regression is local; Windows/macOS Rust evidence belongs to normal
+  PR CI. Windows native requalification remains Owner acceptance. R2 is separate.
+
 - **#381 minimal Managed Scan correction — production candidate / Owner review required.**
   Based on verified master `1ab7d0863863475ffaa61b5de7e8f73d29e95afa`
   (post-#436 CI [39053512209](https://github.com/ArdenZC/Zen-Canvas/actions/runs/39053512209) SUCCESS).

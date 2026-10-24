@@ -182,7 +182,7 @@ use zen_canvas_tauri::storage_analyzer::{
 };
 
 #[test]
-fn storage_analyzer_classifies_regenerable_build_outputs_as_safe() {
+fn storage_analyzer_preserves_dependency_folder_policy() {
     let root = test_dir();
     let project = root.join("workspace").join("node_modules");
     write_file(&project.join("package").join("index.js"), 128);
@@ -802,16 +802,22 @@ fn storage_analyzer_never_selects_developer_credentials_or_config() {
 }
 
 #[test]
-fn storage_analyzer_does_not_select_build_outputs_by_default() {
+fn storage_analyzer_requires_review_for_output_names_without_safety_evidence() {
     for path in [
         "C:/Users/zen/project/build",
         "C:/Users/zen/project/dist",
         "C:/Users/zen/project/target",
+        "F:/Coding/Zen-Canvas/Library/build",
+        "C:/Users/zen/project/.next",
+        "C:/Users/zen/project/.nuxt",
+        "C:/Users/zen/project/.turbo",
+        "C:/Users/zen/project/BuIlD",
     ] {
         let candidate = classify_candidate_for_test(&PathBuf::from(path), 500);
 
-        assert_eq!(candidate.tier, CleanupTier::Safe);
-        assert!(candidate.trash_allowed);
+        assert_eq!(candidate.tier, CleanupTier::Review);
+        assert_eq!(candidate.suggested_action, CleanupActionKind::Reveal);
+        assert!(!candidate.trash_allowed);
         assert!(!candidate.selected_by_default);
     }
 }
@@ -838,7 +844,8 @@ fn storage_analyzer_does_not_return_overlapping_safe_parent_and_child_candidates
 
 #[test]
 fn cleanup_preview_items_only_include_safe_trash_allowed_candidates() {
-    let safe = classify_candidate_for_test(&PathBuf::from("C:/Users/zen/project/target"), 100);
+    let safe =
+        classify_candidate_for_test(&PathBuf::from("C:/Users/zen/.cargo/registry/cache"), 100);
     let review =
         classify_candidate_for_test(&PathBuf::from("C:/Users/zen/Downloads/movie.zip"), 100);
     let caution = classify_candidate_for_test(&PathBuf::from("C:/Program Files/Example"), 100);

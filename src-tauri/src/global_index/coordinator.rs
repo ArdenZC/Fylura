@@ -2115,4 +2115,5 @@ mod tests {
         drop(path);
     }
     include!("coordinator_recovery_tests.rs");
+    include!("coordinator_service_busy_ownership_tests.rs");
 }

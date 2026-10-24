@@ -29,6 +29,10 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
+// Spotlight metadata query strings use `==` with glob wildcards; `LIKE` is
+// NSPredicate syntax. This matches every indexed item that has a file name.
+const SPOTLIGHT_MATCH_ALL_QUERY: &str = "kMDItemFSName == \"*\"";
+
 pub(super) struct SpotlightWatcherHandle {
     stopped: Arc<AtomicBool>,
     stop_signal: Arc<NativeRunLoopStopSignal>,
@@ -89,7 +93,7 @@ where
         return Err("macos_spotlight_query_paused".to_string());
     }
     autoreleasepool(|_| {
-        let query = new_local_computer_query();
+        let query = new_local_computer_query()?;
         if !query.startQuery() {
             return Err("macos_spotlight_query_unavailable".to_string());
         }
@@ -192,7 +196,14 @@ fn run_update_watcher(
     wake: &Arc<GlobalIndexWakeSlot>,
     stop_signal: &NativeRunLoopStopSignal,
 ) {
-    let query = new_local_computer_query();
+    let query = match new_local_computer_query() {
+        Ok(query) => query,
+        Err(error) => {
+            eprintln!("Spotlight watcher query initialization failed: {error}");
+            super::record_async_watcher_error(pending, wake, error);
+            return;
+        }
+    };
     let center = NSNotificationCenter::defaultCenter();
     let pending_for_block = pending.clone();
     let known_entries_for_block = known_entries.clone();
@@ -207,6 +218,7 @@ fn run_update_watcher(
         let mut entries = Vec::new();
         let mut stale_entry_ids = Vec::new();
         let mut full_reconcile = false;
+        let added_start = entries.len();
         collect_update_items(
             typed_info,
             unsafe { NSMetadataQueryUpdateAddedItemsKey },
@@ -217,6 +229,8 @@ fn run_update_watcher(
             &mut full_reconcile,
             false,
         );
+        let added_count = entries.len() - added_start;
+        let changed_start = entries.len();
         collect_update_items(
             typed_info,
             unsafe { NSMetadataQueryUpdateChangedItemsKey },
@@ -227,6 +241,8 @@ fn run_update_watcher(
             &mut full_reconcile,
             false,
         );
+        let changed_count = entries.len() - changed_start;
+        let removed_start = stale_entry_ids.len();
         collect_update_items(
             typed_info,
             unsafe { NSMetadataQueryUpdateRemovedItemsKey },
@@ -237,11 +253,17 @@ fn run_update_watcher(
             &mut full_reconcile,
             true,
         );
+        let removed_count = stale_entry_ids.len() - removed_start;
         if entries.is_empty() && stale_entry_ids.is_empty() && !full_reconcile {
             return;
         }
         if let Ok(mut pending) = pending_for_block.lock() {
             pending.append_incremental(entries, stale_entry_ids, full_reconcile);
+            #[cfg(feature = "native-qa")]
+            super::super::qa_trace::record(&format!(
+                "provider_change_source\tspotlight_incremental\tadded={added_count}\tchanged={changed_count}\tremoved={removed_count}\treconcile={}",
+                u8::from(full_reconcile)
+            ));
             wake_for_block.notify(GlobalIndexWakeReason::ProviderChange);
         }
     });
@@ -282,14 +304,16 @@ fn record_realtime_start_failure(pending: &Mutex<PendingUpdates>, wake: &GlobalI
     );
 }
 
-fn new_local_computer_query() -> Retained<NSMetadataQuery> {
+fn new_local_computer_query() -> Result<Retained<NSMetadataQuery>, String> {
     let query = NSMetadataQuery::new();
-    let predicate = NSPredicate::predicateWithValue(true);
+    let query_string = NSString::from_str(SPOTLIGHT_MATCH_ALL_QUERY);
+    let predicate = NSPredicate::predicateFromMetadataQueryString(&query_string)
+        .ok_or_else(|| "macos_spotlight_query_predicate_invalid".to_string())?;
     query.setPredicate(Some(&predicate));
     let scope: &AnyObject = unsafe { NSMetadataQueryIndexedLocalComputerScope }.as_ref();
     let scopes: Retained<NSArray<AnyObject>> = NSArray::from_slice(&[scope]);
     unsafe { query.setSearchScopes(&scopes) };
-    query
+    Ok(query)
 }
 
 fn full_disk_access_required() -> bool {
@@ -537,8 +561,8 @@ fn path_from_object(object: &AnyObject) -> Option<String> {
 mod tests {
     use super::super::super::models::normalize_path;
     use super::{
-        classify_spotlight_update, mac_file_identity, record_realtime_start_failure,
-        stream_local_computer_entries, SpotlightUpdateAction,
+        classify_spotlight_update, mac_file_identity, new_local_computer_query,
+        record_realtime_start_failure, stream_local_computer_entries, SpotlightUpdateAction,
     };
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
@@ -574,6 +598,13 @@ mod tests {
             classify_spotlight_update(true, true),
             SpotlightUpdateAction::Reconcile
         );
+    }
+
+    #[test]
+    fn macos_spotlight_query_uses_a_supported_metadata_predicate() {
+        objc2::rc::autoreleasepool(|_| {
+            new_local_computer_query().expect("construct Spotlight metadata query");
+        });
     }
 
     #[test]

@@ -1935,8 +1935,16 @@ pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let quit_item = MenuItem::with_id(app, TRAY_QUIT_APP_ID, "退出", true, None::<&str>)?;
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint=tray_menu_items_ready");
+
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint=tray_menu_ready");
+
     let icon = Image::from_bytes(TRAY_ICON_BYTES)?;
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint=tray_icon_decoded");
 
     TrayIconBuilder::new()
         .icon(icon)
@@ -1965,6 +1973,9 @@ pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    #[cfg(feature = "native-qa")]
+    eprintln!("native_qa startup_checkpoint=tray_icon_built");
+
     Ok(())
 }
 

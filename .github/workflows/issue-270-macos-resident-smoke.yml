@@ -1,0 +1,156 @@
+name: Issue 270 macOS resident smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/issue-270-macos-resident-smoke.yml'
+      - 'scripts/qualifyMacosResident.py'
+      - 'src-tauri/src/main.rs'
+      - 'src-tauri/src/app_control.rs'
+      - 'src-tauri/src/global_index/coordinator.rs'
+      - 'src-tauri/src/global_index/wake.rs'
+      - 'src-tauri/src/global_index/macos/fsevents.rs'
+      - 'src-tauri/src/global_index/macos/mod.rs'
+      - 'src-tauri/src/global_index/macos/spotlight.rs'
+      - 'src-tauri/src/global_index/qa_trace.rs'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/Cargo.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  CARGO_BUILD_JOBS: 2
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
+
+jobs:
+  macos-resident:
+    name: Apple Silicon Tahoe background startup
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify Apple Silicon Tahoe runner and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          case "$(sw_vers -productVersion)" in
+            26.*) ;;
+            *) echo "Expected macOS Tahoe 26.x" >&2; exit 1 ;;
+          esac
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          sw_vers
+          rustc -vV
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build:frontend
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: issue-270-macos-resident-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Test macOS FSEvents coordinator wake behavior
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --features native-qa --locked
+          global_index::macos::fsevents::tests:: -- --nocapture --test-threads=1
+
+      - name: Build native QA app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          task_config="$RUNNER_TEMP/issue-270-tauri.json"
+          if test -e "$task_config"; then
+            echo "refusing pre-existing task config: $task_config" >&2
+            exit 1
+          fi
+          trap 'rm -f "$task_config"' EXIT
+          printf '{"mainBinaryName":"zen-canvas"}\n' > "$task_config"
+          npx tauri build --features "desktop-runtime,native-qa" --bundles app --config "$task_config" -- --locked
+
+      - name: Qualify the exact background resident process
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .performance-artifacts/issue-270
+          qualification_status=0
+          python3 scripts/qualifyMacosResident.py \
+            'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' \
+            '.performance-artifacts/issue-270/macos-resident.json' || qualification_status=$?
+          export QUALIFICATION_EXIT_CODE="$qualification_status"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          evidence = json.loads(Path('.performance-artifacts/issue-270/macos-resident.json').read_text())
+          startup_log = evidence.get('stderr', evidence.get('startupLog', ''))
+          trace = evidence.get('coordinatorTrace') or {}
+          summary = {
+              'sourceHead': evidence.get('sourceHead'),
+              'qualificationExitCode': int(os.environ['QUALIFICATION_EXIT_CODE']),
+              'runner': evidence.get('runner'),
+              'architecture': evidence.get('architecture'),
+              'classification': evidence.get('classification'),
+              'failure': evidence.get('failure'),
+              'startupCheckpoints': evidence.get('startupCheckpoints'),
+              'coordinatorDiagnosis': evidence.get('coordinatorDiagnosis'),
+              'coordinatorTrace': {
+                  key: trace.get(key) for key in (
+                      'present', 'eventCount', 'eventCounts', 'lastEvent',
+                      'eventsRetained', 'eventsDropped', 'errorsDropped',
+                      'truncated', 'readError')
+              },
+              'sourceStatus': evidence.get('sourceStatus'),
+              'preIdleSampleCount': len(evidence.get('preIdleSamples', [])),
+              'sampleCount': len(evidence.get('samples', [])),
+              'coordinatorCycleDelta': evidence.get('coordinatorCycleDelta'),
+              'coordinatorWaitDelta': evidence.get('coordinatorWaitDelta'),
+              'cleanup': evidence.get('cleanup'),
+          }
+          print(json.dumps(summary, indent=2))
+          if evidence.get('sourceHead') != os.environ['EXPECTED_SOURCE_SHA']:
+              raise SystemExit('exact source SHA mismatch')
+          if evidence.get('classification') != 'HARD PASS / OBSERVATIONAL MEMORY':
+              print('--- background startup stderr ---')
+              print(startup_log, file=sys.stdout, end='' if startup_log.endswith('\n') else '\n')
+              raise SystemExit('resident qualification failed')
+          if int(os.environ['QUALIFICATION_EXIT_CODE']) != 0:
+              raise SystemExit('resident qualification exited nonzero')
+          if 'tray_ready' not in evidence.get('startupCheckpoints', []):
+              raise SystemExit('background process did not reach tray_ready')
+          PY
+
+      - name: Preserve macOS startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-270-macos-startup-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .performance-artifacts/issue-270/
+          if-no-files-found: warn
+          retention-days: 7

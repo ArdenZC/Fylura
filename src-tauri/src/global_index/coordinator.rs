@@ -218,6 +218,10 @@ impl GlobalIndexCoordinator {
             .name("zen-canvas-global-index".to_string())
             .spawn(move || {
                 let result = run_index(provider, db, cancel.clone(), wake);
+                #[cfg(feature = "native-qa")]
+                if let Err(error) = &result {
+                    super::qa_trace::record_error("coordinator_worker", &error.to_string());
+                }
                 if let Ok(mut state) = state.lock() {
                     state.running = false;
                     state.paused = cancel.load(Ordering::Acquire);
@@ -580,7 +584,9 @@ fn run_index(
 
         super::qa_trace::record("coordinator_wait");
         match wake.wait(&cancel, provider.topology_audit_interval()) {
-            GlobalIndexWaitResult::Notified(_) => {
+            GlobalIndexWaitResult::Notified(_reason) => {
+                #[cfg(feature = "native-qa")]
+                super::qa_trace::record(&format!("coordinator_wake_{_reason:?}"));
                 run_cycle = true;
             }
             GlobalIndexWaitResult::Cancelled | GlobalIndexWaitResult::Shutdown => break,
@@ -812,6 +818,8 @@ fn run_index_cycle_with_topology(
                 break;
             }
             Err(GlobalIndexError::RebuildRequired(message)) => {
+                #[cfg(feature = "native-qa")]
+                super::qa_trace::record_error("global_index_source", &message);
                 sink.finish_source_operation(
                     &volume.id,
                     INDEX_STATUS_REBUILD_REQUIRED,
@@ -833,6 +841,8 @@ fn run_index_cycle_with_topology(
                 sink.mark_source_operation_unknown(&volume.id)?;
             }
             Err(error) => {
+                #[cfg(feature = "native-qa")]
+                super::qa_trace::record_error("global_index_source", &error.to_string());
                 let current = db.get_global_volume(&volume.id)?;
                 let current_status = current
                     .as_ref()

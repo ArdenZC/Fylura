@@ -109,17 +109,26 @@ extern "C" fn fsevent_callback(
         let flags = unsafe { std::slice::from_raw_parts(event_flags, num_events) };
         flags.iter().copied().any(fsevent_requires_full_reconcile)
     };
-    if let Ok(mut pending) = info.pending.lock() {
+    let recorded = if let Ok(mut pending) = info.pending.lock() {
         // Normal file events are delivered by NSMetadataQueryDidUpdate. Keep
         // FSEvents as the durable gap/overflow signal so a busy directory
-        // does not cause a full local-computer Spotlight query every cycle.
+        // does not schedule redundant coordinator work for every event.
         pending.full_reconcile |= needs_full_reconcile;
         if !event_ids.is_null() {
             let ids = unsafe { std::slice::from_raw_parts(event_ids, num_events) };
             pending.last_event_id = ids.iter().copied().max().or(pending.last_event_id);
         }
+        true
+    } else {
+        false
+    };
+    if recorded && needs_full_reconcile {
+        #[cfg(feature = "native-qa")]
+        super::super::qa_trace::record(&format!(
+            "provider_change_source\tfsevents_reconcile\tevents={num_events}"
+        ));
+        info.wake.notify(GlobalIndexWakeReason::ProviderChange);
     }
-    info.wake.notify(GlobalIndexWakeReason::ProviderChange);
 }
 
 fn fsevent_requires_full_reconcile(flags: FSEventStreamEventFlags) -> bool {
@@ -303,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn fsevents_callback_keeps_normal_file_event_incremental() {
+    fn normal_fsevents_event_records_cursor_without_waking_coordinator() {
         let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
         let stopped = Arc::new(AtomicBool::new(false));
         let wake = Arc::new(GlobalIndexWakeSlot::default());
@@ -325,7 +334,7 @@ mod tests {
         let pending = pending.lock().expect("pending updates");
         assert!(!pending.full_reconcile);
         assert_eq!(pending.last_event_id, Some(7));
-        assert_eq!(wake.snapshot().notifications, 1);
+        assert_eq!(wake.snapshot().notifications, 0);
     }
 
     #[test]

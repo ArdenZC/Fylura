@@ -4,7 +4,23 @@ Last verified: 2026-10-09
 
 ## Current execution truth
 
-- **M1-R2 Windows Watcher metadata / scan occupancy — Draft / Owner review pending.**
+- **M1-R3 Windows Global Search scope readiness — Draft / Owner review pending (#460).**
+  Baseline: merged #459 `master@2ed18e1` (2026-10-24), Schema 42 unchanged.
+  Windows Search Scope no longer presents Managed Scan folder controls as a
+  Global Index configuration. The current Windows provider indexes NTFS volumes,
+  not individual folders; File Library visibility establishes no Global Search
+  coverage. Search distinguishes discovered, indexing, paused, rebuild-required,
+  unavailable and ready-empty snapshots, with an explicit read-only refresh.
+  No source is enabled or rebuilt by this correction. Existing source flags,
+  provider publication, query eligibility/order, permissions and F1 remain intact.
+  Regressions use only owned tiny fixtures and an isolated existing recursive
+  provider; they do not establish Windows folder-level NTFS support. For native
+  acceptance, place a tiny disposable corpus in an already authorized READY
+  source and let its existing incremental provider publish it; do not enable F:
+  or rebuild C:/D: for this check. Windows GUI status, open/reveal and native
+  publication remain Owner acceptance; normal PR CI owns platform Rust checks.
+
+- **M1-R2 Windows Watcher metadata / scan occupancy — MERGED #459 / Windows native requalification pending.**
   Baseline: merged #458 `master@649c143` (2026-10-24), Schema 42 unchanged.
   Watcher-triggered refresh now reaches managed Query V2 results, Details and
   scope health; invalidation supersedes pre-publication in-flight reads.

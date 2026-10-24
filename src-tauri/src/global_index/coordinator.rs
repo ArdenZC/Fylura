@@ -1216,6 +1216,141 @@ mod tests {
         }
     }
 
+    #[test]
+    fn m1_r3_bounded_provider_search_preserves_coverage_and_persistence() {
+        // Exercise the existing provider protocol only within owned files. Never
+        // discover host volumes: Windows production discovery is volume-wide.
+        let path = TestDatabasePath::new();
+        let root = path.0.with_extension("m1r3scope");
+        fs::create_dir_all(root.join("pathacceptance")).unwrap();
+        fs::write(root.join("m1-fixture.txt"), b"owned fixture").unwrap();
+        fs::write(root.join("中文验收.txt"), b"owned fixture").unwrap();
+        fs::write(root.join("pathacceptance/nested.txt"), b"owned fixture").unwrap();
+        let db = Database::open(&path.0).unwrap();
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.id = format!(
+            "gv_{}",
+            blake3::hash(format!("{}-root", std::env::consts::OS).as_bytes()).to_hex()
+        );
+        volume.stable_volume_id = format!("{}-root", std::env::consts::OS);
+        volume.mount_path = root.to_string_lossy().into_owned();
+        volume.provider = PROVIDER_RECURSIVE_FALLBACK.to_string();
+        db.upsert_global_volume(&volume).unwrap();
+        let before = db
+            .search_global_entries_snapshot("m1-fixture", 20, 0)
+            .unwrap();
+        assert!(before.results.is_empty());
+        assert!(!before.index_status.collection_complete);
+        assert_eq!(before.source_health[0].status, INDEX_STATUS_DISCOVERED);
+
+        let mut sink = DatabaseIndexSink {
+            db: db.clone(),
+            owners: HashMap::new(),
+        };
+        sink.admit_source_operation(
+            &volume,
+            "m1-r3-owned-fixture",
+            SourceOperationKind::Initial,
+            SourceOperationRoute::Coordinator,
+        )
+        .unwrap();
+        let during = db
+            .search_global_entries_snapshot("m1-fixture", 20, 0)
+            .unwrap();
+        assert!(!during.index_status.collection_complete);
+        assert_eq!(during.source_health[0].status, INDEX_STATUS_INDEXING);
+        RecursiveFallbackProvider::new()
+            .start_initial_index(
+                &GlobalSourceDescriptor {
+                    volume: volume.clone(),
+                },
+                &mut sink,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        sink.finish_source_operation(
+            &volume.id,
+            INDEX_STATUS_READY,
+            None,
+            Some(unix_now()),
+            None,
+            false,
+        )
+        .unwrap();
+        drop(sink);
+        for (query, expected) in [
+            ("m1-fixture.txt", "m1-fixture.txt"),
+            ("m1-fixture", "m1-fixture.txt"),
+            ("中文", "中文验收.txt"),
+            ("pathacceptance", "nested.txt"),
+        ] {
+            let snapshot = db.search_global_entries_snapshot(query, 20, 0).unwrap();
+            assert!(snapshot.index_status.collection_complete, "{query}");
+            assert!(
+                snapshot.results.iter().any(|entry| entry.name == expected),
+                "{query}"
+            );
+            assert!(snapshot
+                .results
+                .iter()
+                .all(|entry| Path::new(&entry.path).starts_with(&root)));
+        }
+        let ready = db
+            .search_global_entries_snapshot("m1-r3-genuinely-absent", 20, 0)
+            .unwrap();
+        assert!(ready.results.is_empty());
+        assert!(ready.index_status.collection_complete);
+        assert_ne!(before.source_revision, ready.source_revision);
+        db.set_global_volume_enabled(&volume.id, false).unwrap();
+        assert!(db
+            .search_global_entries_snapshot("m1-fixture", 20, 0)
+            .unwrap()
+            .results
+            .is_empty());
+        db.set_global_volume_enabled(&volume.id, true).unwrap();
+        drop(db);
+        let db = Database::open(&path.0).unwrap();
+        let restored = db
+            .search_global_entries_snapshot("m1-fixture.txt", 20, 0)
+            .unwrap();
+        assert_eq!(restored.results.len(), 1);
+        assert!(restored.index_status.collection_complete);
+
+        // Metadata-only representation of unindexed F:. It is never passed to
+        // a provider, enabled by a UI action, rebuilt, or visited on disk.
+        let mut unindexed = crate::global_index::tests::test_volume();
+        unindexed.id = "gv_m1_r3_unindexed_f".into();
+        unindexed.stable_volume_id = "m1-r3-unindexed-f".into();
+        unindexed.mount_path = "F:/".into();
+        db.upsert_global_volume(&unindexed).unwrap();
+        let partial = db
+            .search_global_entries_snapshot("m1-fixture", 20, 0)
+            .unwrap();
+        assert_eq!(partial.results.len(), 1);
+        assert!(!partial.index_status.collection_complete);
+        assert!(partial
+            .source_health
+            .iter()
+            .any(|source| source.source_id == unindexed.id
+                && source.status == INDEX_STATUS_DISCOVERED));
+        assert_eq!(
+            db.get_global_volume(&unindexed.id)
+                .unwrap()
+                .unwrap()
+                .entry_count,
+            0
+        );
+        assert_eq!(
+            db.get_global_volume(&volume.id)
+                .unwrap()
+                .unwrap()
+                .entry_count,
+            4
+        );
+        drop(db);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
     #[cfg(target_os = "windows")]
     struct WindowsNativeSmokeRun {
         root: PathBuf,

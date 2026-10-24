@@ -419,6 +419,55 @@ fn open_path(path: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn m1_r3_owned_result_revalidates_for_open_and_reveal_without_launching() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(".tmp-tests")
+            .join(format!(
+                "m1-r3-activation-{}-{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+        fs::create_dir_all(root.join("fixtures")).unwrap();
+        let fixture = root.join("fixtures/owned.txt");
+        fs::write(&fixture, b"owned fixture").unwrap();
+        let db = Database::open(root.join("index.sqlite3")).unwrap();
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.mount_path = root.join("fixtures").to_string_lossy().into_owned();
+        volume.provider = PROVIDER_RECURSIVE_FALLBACK.into();
+        volume.index_status = INDEX_STATUS_READY.into();
+        db.upsert_global_volume(&volume).unwrap();
+        db.upsert_global_entries_batch(&[GlobalEntryInput::from_path(
+            &volume.id,
+            &fixture,
+            PROVIDER_RECURSIVE_FALLBACK,
+        )])
+        .unwrap();
+        let result = db
+            .search_global_entries_snapshot("owned.txt", 10, 0)
+            .unwrap()
+            .results
+            .remove(0);
+        // Both activation commands share this check; do not open an OS app in CI.
+        assert_eq!(
+            revalidated_global_entry(&db, &result.id).unwrap().path,
+            fixture.to_string_lossy()
+        );
+        db.set_global_volume_enabled(&volume.id, false).unwrap();
+        assert_eq!(
+            revalidated_global_entry(&db, &result.id).unwrap_err(),
+            "global_search_source_disabled"
+        );
+        db.set_global_volume_enabled(&volume.id, true).unwrap();
+        fs::remove_file(&fixture).unwrap();
+        assert_eq!(
+            revalidated_global_entry(&db, &result.id).unwrap_err(),
+            "global_search_result_missing"
+        );
+        drop(db);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn request(request_id: &str, query: &str) -> GlobalSearchRequest {
         GlobalSearchRequest {
             version: 2,

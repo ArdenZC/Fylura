@@ -194,6 +194,7 @@
 | `revalidate_analysis_finding` | `main_state_mutation` | main | Revalidate a finding identity and stale state | default | yes | cleanup safety tests |
 | `reveal_in_folder` | `read_only` | main | Open containing folder | default | no | command permission contract |
 | `get_operation_previews_by_file_ids` | `read_only` | main | Read operation previews for exact File Library file IDs | default | no | operation queue exact-selection tests |
+| `get_manual_rename_operation_preview` | `read_only` | main | Preview an explicit file-ID/basename rename without filesystem mutation | default | no | manual rename authority tests |
 | `get_permanent_delete_operation_preview` | `read_only` | main | Build a backend-authoritative Permanent Delete preview for one current File Library file; never executes deletion | default | no | R-FL-01 T10-T12 tests |
 | `get_operation_previews_for_selection` | `read_only` | main | Read operation previews for an authoritative File Library selection | default | no | operation queue selection tests |
 | `execute_moves` | `filesystem_mutation` | main | Move/rename files | default | yes | filesystem safety tests |

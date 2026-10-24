@@ -251,6 +251,7 @@ const explicitContracts: CommandContract[] = [
     "get_paged_files",
     "get_operation_previews_for_scope",
     "get_operation_previews_by_file_ids",
+    "get_manual_rename_operation_preview",
     "get_permanent_delete_operation_preview",
     "get_operation_previews_for_selection",
     "get_stats_summary",

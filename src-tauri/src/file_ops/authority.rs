@@ -39,6 +39,16 @@ pub(crate) fn resolve_execute_selections(
         {
             return Err(OPERATION_PREVIEW_STALE.to_string());
         }
+        if selection.id.starts_with("op-manual-rename-") {
+            let name = selection
+                .new_name
+                .as_deref()
+                .ok_or_else(|| OPERATION_PREVIEW_STALE.to_string())?;
+            let preview = db
+                .get_manual_rename_operation_preview(&selection.file_id, name)
+                .map_err(|_| OPERATION_PREVIEW_STALE.to_string())?;
+            previews_by_identity.insert((preview.file_id.clone(), preview.id.clone()), preview);
+        }
         let preview = previews_by_identity
             .get(&(selection.file_id.clone(), selection.id.clone()))
             .ok_or_else(|| OPERATION_PREVIEW_STALE.to_string())?;

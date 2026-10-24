@@ -425,6 +425,7 @@ fn main() {
             zen_canvas_tauri::db::execute_organization_plan,
             zen_canvas_tauri::db::get_operation_previews_for_scope,
             zen_canvas_tauri::db::get_operation_previews_by_file_ids,
+            zen_canvas_tauri::db::get_manual_rename_operation_preview,
             zen_canvas_tauri::db::get_permanent_delete_operation_preview,
             zen_canvas_tauri::db::get_operation_previews_for_selection,
             zen_canvas_tauri::db::get_stats_summary,

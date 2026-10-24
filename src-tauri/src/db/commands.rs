@@ -429,6 +429,16 @@ pub fn get_operation_previews_by_file_ids(
 }
 
 #[tauri::command]
+pub fn get_manual_rename_operation_preview(
+    db: State<'_, Database>,
+    file_id: String,
+    new_name: String,
+) -> Result<OperationPreviewDto, String> {
+    db.get_manual_rename_operation_preview(&file_id, &new_name)
+        .map_err(command_error)
+}
+
+#[tauri::command]
 pub fn get_permanent_delete_operation_preview(
     db: State<'_, Database>,
     file_id: String,

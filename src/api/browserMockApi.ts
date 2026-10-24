@@ -1121,6 +1121,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       } satisfies ScanSummary as T;
     case "execute_moves":
       return { logs: [], batch_id: "browser-mock-batch" } satisfies ExecuteOperationResult as T;
+    case "get_manual_rename_operation_preview":
+      throw new Error("file_mutation_unsupported_in_browser");
     case "get_permanent_delete_operation_preview":
       throw new Error("permanent_delete_unsupported");
     case "materialize_provider_preview":

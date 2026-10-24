@@ -856,6 +856,47 @@ describe("Cleanup independent review behavior", () => {
     expect(container.querySelector('[data-ai-assessment-current="true"]')).not.toBeNull();
   });
 
+  it("keeps output-name Review findings reveal-only even after acknowledgement", async () => {
+    const run = makeRun("run-output-names", "completed", 2);
+    const findings = ["build", "dist"].map((name, index): AnalysisFinding => ({
+      ...makeAcknowledgedFinding(run, index),
+      title: name,
+      pathSnapshot: `F:/Coding/Zen-Canvas/Library/${name}`,
+      actionKind: "reveal",
+      executable: false,
+      confidence: "estimated"
+    }));
+    const revealInFolder = vi.fn(async () => undefined);
+    const previewCleanupOperations = vi.fn();
+    const moveCleanupCandidatesToSafeTrash = vi.fn();
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async ({ tier }: { tier?: string }) => ({
+        findings: tier === "review" ? findings : [], nextCursor: null, limit: 100
+      }),
+      revealInFolder,
+      previewCleanupOperations,
+      moveCleanupCandidatesToSafeTrash
+    });
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button(t("storageCleanupReviewTier")).click());
+    await flush(4);
+    for (const finding of findings) {
+      const row = container.querySelector(`[data-analysis-finding-id="${finding.id}"]`);
+      expect(row).not.toBeNull();
+      expect(row?.textContent).toContain(t("storageCleanupConfidenceEstimated"));
+      expect(row?.textContent).not.toContain(t("storageCleanupSelected"));
+      expect(row?.textContent).not.toContain(t("storageCleanupFindingAcknowledge"));
+      expect(findingButton(finding.id, t("storageCleanupSelectForTrash")).disabled).toBe(true);
+    }
+    const reveal = findingButton(findings[0].id, t("storageCleanupReveal"));
+    await act(async () => reveal.click());
+    expect(revealInFolder).toHaveBeenCalledOnce();
+    expect(previewCleanupOperations).not.toHaveBeenCalled();
+    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
+  });
+
   it("keeps deterministic findings inspectable when provider readiness blocks new Cleanup analysis", async () => {
     const run = makeRun("run-ai-provider-blocked", "completed", 1);
     const review = makeFinding(run, 0);

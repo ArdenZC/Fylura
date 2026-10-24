@@ -13,6 +13,74 @@ use std::{
 };
 
 #[test]
+fn output_names_persist_as_reveal_and_current_ai_cannot_enable_cleanup() {
+    let fixture = new_cleanup_ai_fixture();
+    for name in ["build", "dist", "target"] {
+        let path = fixture.source_root.join(name);
+        fs::create_dir_all(&path).expect("create ordinary user directory");
+        fs::write(
+            path.join("build-name-test.txt"),
+            b"manually created content",
+        )
+        .expect("write ordinary user file");
+    }
+    let run = complete_cleanup_analysis_run(fixture.db(), &fixture.source_root);
+    let page = fixture
+        .db()
+        .list_analysis_findings(
+            &crate::db::AnalysisFindingFilter {
+                run_id: Some(run.id.clone()),
+                ..Default::default()
+            },
+            None,
+            100,
+        )
+        .expect("load persisted findings");
+    let outputs = page
+        .findings
+        .into_iter()
+        .filter(|finding| matches!(finding.title.as_str(), "build" | "dist" | "target"))
+        .collect::<Vec<_>>();
+    assert_eq!(outputs.len(), 3, "small user directories remain scanned");
+    for finding in outputs {
+        assert_eq!(finding.tier, "review");
+        assert_eq!(finding.action_kind, "reveal");
+        assert_eq!(finding.confidence, "estimated");
+        assert!(!finding.executable);
+        assert_eq!(finding.exact_reclaimable_bytes, None);
+        assert_eq!(finding.evidence_summary["trashAllowed"], false);
+        assert_eq!(finding.evidence_summary["selectedByDefault"], false);
+        let candidate = storage_candidate_from_analysis_finding(&finding).unwrap();
+        let current_run = fixture.db().get_analysis_run(&run.id).unwrap();
+        let provider =
+            StaticCleanupProvider::new(vec![response_for_ids(std::slice::from_ref(&candidate.id))]);
+        let published =
+            analyze_fixture_candidates(fixture.db(), &current_run, &[candidate], &provider)
+                .expect("AI assessment remains advisory");
+        let assessed = &published[0];
+        assert!(has_current_ai_assessment(fixture.db(), &assessed.id));
+        assert_eq!(assessed.tier, "review");
+        assert_eq!(assessed.action_kind, "reveal");
+        assert!(!assessed.executable);
+        let selection = crate::storage_analyzer::CleanupFindingSelection {
+            finding_id: assessed.id.clone(),
+            expected_revision: assessed.revision,
+            review_confirmation: None,
+        };
+        // The same resolver gates both command preview and execution.
+        let error =
+            resolve_analysis_candidates_for_cleanup(fixture.db(), &run.id, &[selection], true)
+                .expect_err("current AI and matching identity cannot prove basename safety");
+        assert!(
+            error.contains("no independent cleanup safety evidence"),
+            "{error}"
+        );
+        let path = Path::new(assessed.path_snapshot.as_ref().unwrap());
+        assert!(path.join("build-name-test.txt").exists());
+    }
+}
+
+#[test]
 fn ai_cannot_make_trash_disallowed_candidate_allowed() {
     let original = review_candidate("c1", "D:/Downloads/movie.mkv");
     let merged = merge_ai_cleanup_analysis(&original, &move_to_trash_output("c1"), None);

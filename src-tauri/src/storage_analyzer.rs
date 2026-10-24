@@ -1255,6 +1255,14 @@ pub(crate) fn authorize_cleanup_candidate(
     candidate: &mut StorageCandidate,
     review_confirmation: Option<&ReviewFindingConfirmation>,
 ) -> Result<(), String> {
+    // Saved Safe flags and acknowledged Review decisions are not evidence that
+    // an ambiguously named directory contains regenerable output.
+    if generated_output_requires_review(Path::new(&candidate.path)) {
+        return Err(format!(
+            "Generated output name has no independent cleanup safety evidence: {}",
+            finding.id
+        ));
+    }
     match finding.tier.as_str() {
         "safe" => {
             if finding.executable
@@ -1342,7 +1350,8 @@ pub(crate) fn storage_candidate_from_analysis_finding(
         .get("trashAllowed")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(finding.executable);
-    Ok(StorageCandidate {
+    let needs_review = generated_output_requires_review(path_ref);
+    let mut candidate = StorageCandidate {
         id: finding.id.clone(),
         path,
         name,
@@ -1354,7 +1363,21 @@ pub(crate) fn storage_candidate_from_analysis_finding(
         risk_note: finding.risk_note.clone(),
         trash_allowed,
         selected_by_default: finding.executable && finding.tier == "safe",
-    })
+    };
+    if needs_review {
+        if candidate.tier != CleanupTier::Caution {
+            let review =
+                classify_candidate_without_temp_text(Path::new(&candidate.path), candidate.size);
+            candidate.tier = review.tier;
+            candidate.category = review.category;
+            candidate.reason = review.reason;
+            candidate.suggested_action = review.suggested_action;
+            candidate.risk_note = review.risk_note;
+        }
+        candidate.trash_allowed = false;
+        candidate.selected_by_default = false;
+    }
+    Ok(candidate)
 }
 
 fn mark_analysis_candidates_consumed(db: &Database, ids: &[String]) {
@@ -3058,6 +3081,7 @@ pub fn cleanup_preview_items_for_candidates(
             candidate.tier == CleanupTier::Safe
                 && candidate.trash_allowed
                 && candidate.suggested_action == CleanupActionKind::MoveToTrash
+                && !generated_output_requires_review(Path::new(&candidate.path))
                 && !is_forbidden_storage_path(Path::new(&candidate.path), &[])
         })
         .map(cleanup_preview_item)
@@ -3095,6 +3119,7 @@ fn cleanup_candidate_can_enter_operation_preview(
     candidate.tier == CleanupTier::Safe
         && candidate.trash_allowed
         && candidate.suggested_action == CleanupActionKind::MoveToTrash
+        && !generated_output_requires_review(path)
         && path.exists()
         && !is_cleanup_execution_forbidden(path, app_data_dir)
 }
@@ -4112,17 +4137,6 @@ fn classify_candidate_with_temp_text(
             CleanupActionKind::MoveToTrash,
             None,
         )
-    } else if is_generated_dir_name(path) {
-        (
-            CleanupTier::Safe,
-            "Regenerable development output".to_string(),
-            "Build output can usually be recreated by the build tool.".to_string(),
-            CleanupActionKind::MoveToTrash,
-            Some(
-                "Confirm this is generated output before adding it to the cleanup list."
-                    .to_string(),
-            ),
-        )
     } else if is_package_cache_path(&lower, &lower_name) {
         (
             CleanupTier::Safe,
@@ -4130,6 +4144,17 @@ fn classify_candidate_with_temp_text(
             "Package-manager cache is explicitly regenerable.".to_string(),
             CleanupActionKind::MoveToTrash,
             None,
+        )
+    } else if is_generated_dir_name(path) {
+        (
+            CleanupTier::Review,
+            "Unverified development output".to_string(),
+            "A directory name alone does not prove its contents can be regenerated.".to_string(),
+            CleanupActionKind::Reveal,
+            Some(
+                "Open the location to review its contents; automated cleanup is unavailable."
+                    .to_string(),
+            ),
         )
     } else if is_installer_residue(&lower, &extension) {
         (
@@ -5321,6 +5346,33 @@ fn is_generated_dir_name(path: &Path) -> bool {
     )
 }
 
+// A narrow upgrade guard for the output basenames previously classified Safe.
+// Keep the existing dependency/cache policies and independently verified system
+// temp policy; neither a saved Finding nor an AI/review decision proves safety.
+fn generated_output_requires_review(path: &Path) -> bool {
+    if !is_generated_dir_name(path)
+        || path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("node_modules"))
+    {
+        return false;
+    }
+    if is_current_user_temp_path(path) {
+        let Ok(metadata) = fs::symlink_metadata(path) else {
+            return true;
+        };
+        let stats = collect_temp_tree_stats(path);
+        return !classify_system_temp_candidate(
+            path,
+            stats.size,
+            temp_entry_facts(path, metadata.is_dir(), stats),
+        )
+        .trash_allowed;
+    }
+    !classify_candidate_without_temp_text(path, 0).trash_allowed
+}
+
 fn is_package_cache_path(lower: &str, lower_name: &str) -> bool {
     matches!(
         lower_name,
@@ -6212,6 +6264,113 @@ mod analysis_cleanup_contract_tests {
             .expect("cleanup fixture finding exists");
         assert_eq!(completed_detector.status, "completed");
         finding
+    }
+
+    #[test]
+    fn output_name_guard_preserves_independent_temp_and_package_cache_safety() {
+        let root = std::env::temp_dir().join(new_job_id("verified-temp-output-name"));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("build");
+        fs::write(&path, b"old temporary content").unwrap();
+        let old = SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(old))
+            .unwrap();
+        assert!(!generated_output_requires_review(&path));
+        assert!(!is_cleanup_execution_forbidden(&path, None));
+        fs::remove_dir_all(root).unwrap();
+
+        for path in [
+            "C:/Users/zen/.cargo/registry/cache/build",
+            "C:/Users/zen/.gradle/caches/dist",
+            "C:/Users/zen/.m2/repository/target",
+        ] {
+            let candidate = classify_candidate_without_temp_text(Path::new(path), 100);
+            assert_eq!(candidate.tier, CleanupTier::Safe, "{path}");
+            assert!(candidate.trash_allowed);
+            assert!(candidate.selected_by_default);
+            assert!(!generated_output_requires_review(Path::new(path)));
+        }
+    }
+
+    #[test]
+    fn legacy_safe_output_findings_and_confirmed_review_cannot_authorize_cleanup() {
+        for name in [
+            "build", "dist", "target", ".next", ".nuxt", ".turbo", "BuIlD",
+        ] {
+            let root = std::env::current_dir()
+                .unwrap()
+                .join(".tmp-tests")
+                .join(new_job_id("legacy-output-finding"));
+            let path = root.join("Library").join(name);
+            fs::create_dir_all(&path).expect("create ordinary user output-named directory");
+            let manual_file = path.join("build-name-test.txt");
+            fs::write(&manual_file, b"manual user content").expect("write user fixture");
+            let db = Database::open(root.join("analysis.sqlite3")).expect("open fixture db");
+            let mut finding = durable_cleanup_finding(&db, &path, "safe", true);
+            assert!(crate::analysis::finding_identity_matches(&db, &finding));
+            assert_eq!(finding.confidence, "exact");
+            let selection = CleanupFindingSelection {
+                finding_id: finding.id.clone(),
+                expected_revision: finding.revision,
+                review_confirmation: None,
+            };
+            let candidates =
+                resolve_analysis_candidates_for_cleanup(&db, &finding.run_id, &[selection], false)
+                    .expect("legacy findings remain inspectable");
+            let mut candidate = candidates[0].clone();
+            assert_eq!(candidate.tier, CleanupTier::Review);
+            assert_eq!(candidate.suggested_action, CleanupActionKind::Reveal);
+            assert!(!candidate.trash_allowed);
+            assert!(!candidate.selected_by_default);
+            assert!(authorize_cleanup_candidate(&finding, &mut candidate, None).is_err());
+
+            // Even a caller holding the old Safe projection cannot bypass the
+            // independent authorization/preview/execution check.
+            candidate.tier = CleanupTier::Safe;
+            candidate.suggested_action = CleanupActionKind::MoveToTrash;
+            candidate.trash_allowed = true;
+            assert!(authorize_cleanup_candidate(&finding, &mut candidate, None).is_err());
+            assert!(cleanup_preview_items_for_candidates(
+                vec![candidate.id.clone()],
+                std::slice::from_ref(&candidate),
+            )
+            .unwrap()
+            .is_empty());
+            assert!(preview_cleanup_operations_for_candidates(
+                vec![candidate.id.clone()],
+                std::slice::from_ref(&candidate),
+                None,
+            )
+            .unwrap()
+            .previews
+            .is_empty());
+            assert!(!cleanup_candidate_can_enter_operation_preview(
+                &candidate, None
+            ));
+            assert!(
+                !is_cleanup_execution_forbidden(&path, None),
+                "ordinary user paths retain the separate explicit file-operation policy"
+            );
+
+            finding.tier = "review".to_string();
+            finding.decision = Some("acknowledged".to_string());
+            finding.decision_revision = Some(3);
+            assert!(authorize_cleanup_candidate(
+                &finding,
+                &mut candidate,
+                Some(&ReviewFindingConfirmation {
+                    decision_revision: 3
+                }),
+            )
+            .is_err());
+            assert_eq!(fs::read(&manual_file).unwrap(), b"manual user content");
+            drop(db);
+            fs::remove_dir_all(root).expect("remove only task fixture");
+        }
     }
 
     #[test]

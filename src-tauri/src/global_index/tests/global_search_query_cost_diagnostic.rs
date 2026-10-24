@@ -304,7 +304,7 @@ fn fts_phrase(query: &str) -> String {
     format!("\"{}\"", query.replace('"', "\"\""))
 }
 
-fn explain_details(conn: &Connection, sql: &str, values: &[SqlValue]) -> Vec<String> {
+pub(super) fn explain_details(conn: &Connection, sql: &str, values: &[SqlValue]) -> Vec<String> {
     let mut statement = conn
         .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
         .expect("prepare diagnostic EXPLAIN QUERY PLAN");
@@ -522,7 +522,7 @@ fn prefix_stage_sql(spec: PrefixQuery) -> Vec<(&'static str, String, Vec<SqlValu
     stages
 }
 
-fn map_search_result(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalSearchResult> {
+pub(super) fn map_search_result(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalSearchResult> {
     Ok(GlobalSearchResult {
         id: row.get(0)?,
         volume_id: row.get(1)?,
@@ -4003,7 +4003,7 @@ fn exact_sql_1m_tier_order(query: &str) -> Vec<&'static str> {
     tiers
 }
 
-fn exact_sql_1m_tier_parameters(tier: &str, query: &str, limit: u32) -> Vec<SqlValue> {
+pub(super) fn exact_sql_1m_tier_parameters(tier: &str, query: &str, limit: u32) -> Vec<SqlValue> {
     match tier {
         "exact_name" | "exact_extension" => vec![
             SqlValue::Text(query.to_string()),

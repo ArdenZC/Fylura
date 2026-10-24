@@ -15,6 +15,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 mod fts_diagnostic;
 #[path = "global_search_index_cost_benchmark.rs"]
 mod index_cost_benchmark;
+#[path = "global_search_path_stages.rs"]
+mod path_stages;
 #[path = "global_search_query_cost_diagnostic.rs"]
 mod query_cost_diagnostic;
 
@@ -1047,6 +1049,9 @@ fn global_search_synthetic_benchmark_baseline() {
     }));
 
     let inspection_connection = configured_connection(&path).expect("open query inspection reader");
+    if entries == 100_000 {
+        path_stages::profile_existing_fixture(&db, &inspection_connection, &context);
+    }
     for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
         let actual_count = actual_match_count(&inspection_connection, query_case);
         assert_eq!(

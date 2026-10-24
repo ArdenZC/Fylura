@@ -2672,9 +2672,9 @@ mod tests {
             "Design/build/new-logo.ai",
             b"not previously indexed",
         );
-        let newly_created_dist_file = fixture.write(
+        let manual_build_file = fixture.write(
             &main_root,
-            "Design/dist/dist-name-test.txt",
+            "Library/build/build-name-test.txt",
             b"manually created user content",
         );
         fixture.write(&main_root, "Project/package.json", b"{}");
@@ -2763,8 +2763,8 @@ mod tests {
         );
 
         assert!(
-            scan_seen_path(&db, &main_run.dto.id, &newly_created_dist_file),
-            "a new user dist descendant is discovered"
+            scan_seen_path(&db, &main_run.dto.id, &manual_build_file),
+            "the M1 user build fixture is discovered"
         );
 
         let main_health = db
@@ -2808,8 +2808,8 @@ mod tests {
         );
 
         assert!(
-            first_visible.contains(normalize_path(&newly_created_dist_file).as_str()),
-            "File Library returns newly scanned user dist data"
+            first_visible.contains(normalize_path(&manual_build_file).as_str()),
+            "File Library returns the M1 manually populated build path"
         );
 
         let deleted_ignored_id = normalize_path(&deleted_ignored);

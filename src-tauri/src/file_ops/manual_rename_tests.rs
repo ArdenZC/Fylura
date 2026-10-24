@@ -269,16 +269,37 @@ fn m1_r4_manual_rename_cancellation_keeps_original_file() {
 fn m1_r4_manual_rename_windows_sharing_denial_keeps_source() {
     use std::os::windows::fs::OpenOptionsExt;
     let fixture = Fixture::new();
+    let initial = fixture
+        .db
+        .get_manual_rename_operation_preview(&fixture.id, "next.txt")
+        .unwrap();
     let handle = fs::OpenOptions::new()
         .read(true)
         .share_mode(0)
         .open(&fixture.source)
         .unwrap();
-    assert!(fixture
+    // Windows can still expose read-only metadata through a sharing lock.
+    // The safety boundary is admission/journal/handle-based mutation, not stat.
+    let preview = fixture
         .db
         .get_manual_rename_operation_preview(&fixture.id, "next.txt")
-        .is_err());
-    assert!(fixture.db.get_operation_logs(Some(10)).unwrap().is_empty());
+        .unwrap_or(initial);
+    let denied = resolve_execute_selections(&fixture.db, fixture.selection(&preview))
+        .and_then(|request| execute_moves_with_persistence(&fixture.db, request));
+    if let Ok(result) = denied {
+        assert!(!result.logs.is_empty());
+        assert!(result
+            .logs
+            .iter()
+            .all(|log| log.status != "success" && !log.can_restore));
+    }
+    assert!(!Path::new(&preview.target_path).exists());
+    assert!(fixture
+        .db
+        .get_operation_logs(Some(10))
+        .unwrap()
+        .iter()
+        .all(|log| log.status != "success"));
     drop(handle);
     assert_eq!(fs::read(&fixture.source).unwrap(), b"owned fixture");
     fixture.finish();

@@ -2342,7 +2342,7 @@ mod tests {
                 .unwrap()
                 .as_secs() as i64;
             let normalized_path = crate::db::normalize_path_text(&file_path.to_string_lossy());
-            let deadline = Instant::now() + Duration::from_secs(20);
+            let deadline = Instant::now() + Duration::from_secs(12);
             loop {
                 let current = durable_state(db, root_id);
                 let root_health = db.get_scan_root_health(Some(root_id), None).unwrap();

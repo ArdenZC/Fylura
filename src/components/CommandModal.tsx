@@ -16,6 +16,7 @@ import { ModalPortal } from "./modal/ModalPortal";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
 import { completedSpotlightComposition, committedSpotlightInput } from "./spotlight/spotlightComposition";
 import { groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
+import { globalSearchFeedback } from "./spotlight/globalSearchFeedback";
 import { SpotlightQueryController } from "./spotlight/spotlightQueryController";
 import { settingsTargetForSection, type SearchSettingsTarget } from "../utils/searchNavigation";
 
@@ -181,6 +182,7 @@ export function CommandModal({
   const [search, setSearch] = useState("");
   const [committedSearch, setCommittedSearch] = useState("");
   const [globalResultState, setGlobalResultState] = useState<{ query: string; results: GlobalSearchResult[] }>({ query: "", results: [] });
+  const [feedback, setFeedback] = useState<ReturnType<typeof globalSearchFeedback> | null>(null);
   const [queryState, setQueryState] = useState<"idle" | "pending" | "complete" | "partial" | "empty" | "failed" | "no_source">("idle");
   const [commandError, setCommandError] = useState("");
   const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
@@ -222,6 +224,7 @@ export function CommandModal({
   const showResults = !isComposing && trimmedSearch.length > 0 && visibleResults.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
   const statusTitle =
+    feedback && queryState !== "pending" && queryState !== "failed" ? feedback.title :
     queryState === "pending"
       ? t("commandTypingTitle")
       : queryState === "no_source"
@@ -229,11 +232,12 @@ export function CommandModal({
       : queryState === "partial"
         ? t("globalIndexStatusPartial")
       : queryState === "failed"
-        ? t("commandFailedTitle")
+        ? feedback?.title ?? t("commandFailedTitle")
         : trimmedSearch
           ? t("commandNoResultsTitle")
           : t("commandIdleTitle");
   const statusDescription =
+    feedback && queryState !== "pending" && queryState !== "failed" ? feedback.description :
     queryState === "pending"
       ? t("commandSearching")
       : queryState === "no_source"
@@ -241,7 +245,7 @@ export function CommandModal({
       : queryState === "partial"
         ? t("globalSearchIndexMeta")
       : queryState === "failed"
-        ? commandError || t("commandSearchFailed")
+        ? commandError || feedback?.description || t("commandSearchFailed")
         : trimmedSearch
           ? t("commandNoResults")
           : t("commandIdleDesc");
@@ -253,7 +257,6 @@ export function CommandModal({
   const shouldShowStateBlock = !showResults && trimmedSearch.length > 0 && queryState !== "idle";
   const showGlobalIndexMeta = !isStandaloneCollapsed && Boolean(
     globalIndexStatus
-    && (globalIndexStatus.status !== "ready" || !globalIndexStatus.collectionComplete)
   );
   const globalSearchIndexMeta = globalIndexStatus
     ? `${t("globalSearchIndexMeta")} · ${t("globalIndexStatus")}: ${globalIndexStatusLabel(globalIndexStatus.status, t)}`
@@ -377,6 +380,7 @@ export function CommandModal({
     if (!committedTrimmedSearch) {
       setGlobalResultState({ query: "", results: [] });
       setQueryState("idle");
+      setFeedback(null);
       setCommandError("");
       setActiveIndex(0);
       return;
@@ -386,6 +390,7 @@ export function CommandModal({
     setCommandError("");
     setGlobalResultState({ query: committedTrimmedSearch, results: [] });
     setQueryState("pending");
+    setFeedback(null);
     const timer = window.setTimeout(() => {
       const request = queryControllerRef.current.nextRequest(committedTrimmedSearch, SEARCH_RESULT_LIMIT);
       tauriApi.searchGlobalEntries(request)
@@ -393,6 +398,7 @@ export function CommandModal({
           if (cancelled || !queryControllerRef.current.accepts(response)) return;
           setGlobalResultState({ query: response.normalizedQuery, results: response.results });
           setGlobalIndexStatus(response.indexStatus);
+          setFeedback(response.indexStatus.platform === "windows" ? globalSearchFeedback(response, t) : null);
           setQueryState(
             response.resultState === "complete"
               ? "complete"
@@ -555,7 +561,11 @@ export function CommandModal({
             closeSpotlight();
             return;
           }
-          if (event.key === "Tab" && visibleResults.length > 0) {
+          // Buttons retain native activation/focus behavior; Enter on Refresh
+          // must never open the currently highlighted file.
+          if (event.target instanceof Element && event.target.closest("button")) return;
+          const tabLeavesResults = event.shiftKey ? activeIndex === 0 : activeIndex === visibleResults.length - 1;
+          if (event.key === "Tab" && visibleResults.length > 0 && !tabLeavesResults) {
             event.preventDefault();
             setActiveIndex((index) => event.shiftKey
               ? Math.max(index - 1, 0)
@@ -677,8 +687,13 @@ export function CommandModal({
         {showGlobalIndexMeta && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--zc-divider)] px-4 py-2 text-[11px] leading-tight text-[var(--zc-text-secondary)]">
             <span className="min-w-0 truncate">{globalSearchIndexMeta}</span>
+            {trimmedSearch ? <button
+              className={cn("shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)] disabled:opacity-50", focusVisibleState)}
+              disabled={isComposing || queryState === "pending"}
+              onClick={() => setRevisionRefetchNonce((value) => value + 1)}
+            >{t("globalSearchRefreshResults")}</button> : null}
             <button
-              className={cn("hidden shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)]", focusVisibleState, "sm:inline")}
+              className={cn("shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)]", focusVisibleState)}
               onClick={openGlobalIndexSettings}
               aria-label={t("globalSearchManage")}
             >

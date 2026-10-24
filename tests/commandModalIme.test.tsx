@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandModal } from "../src/components/CommandModal";
 import { searchRuntimeApi as tauriApi } from "../src/api/searchRuntimeApi";
+import type { GlobalSearchRequest, GlobalSearchResponse } from "../src/types/domain";
+import { globalSearchFeedback } from "../src/components/spotlight/globalSearchFeedback";
 import { makeTranslator } from "../src/i18n";
 
 const t = makeTranslator("en");
@@ -15,6 +17,37 @@ function setInputValue(input: HTMLInputElement, value: string, composing = false
   Object.defineProperty(event, "keyCode", { configurable: true, value: composing ? 229 : 0 });
   input.dispatchEvent(event);
 }
+
+function scopeResponse(request: GlobalSearchRequest, sourceStatus: string): GlobalSearchResponse {
+  const ready = sourceStatus === "ready";
+  return {
+    version: 2, requestId: request.requestId, normalizedQuery: request.query,
+    results: [], sourceRevision: `scope-${sourceStatus}`,
+    resultState: ready ? "empty" : "pending", collectionComplete: ready,
+    sourceHealth: [{ sourceId: "fixture-source", enabled: true, provider: "windows_mft_usn", status: sourceStatus, lastError: null, updatedAt: 1 }],
+    indexStatus: { platform: "windows", enabled: true, status: ready ? "ready" : "partial",
+      processedEntries: ready ? 1 : 0, collectionComplete: ready, totalEntries: ready ? 1 : 0,
+      indexedVolumes: 1, readyVolumes: ready ? 1 : 0, pendingVolumes: ready ? 0 : 1, lastSyncAt: null, lastError: null }
+  };
+}
+
+it("distinguishes source readiness without declaring unindexed snapshots empty", () => {
+  const request = { version: 2 as const, requestId: "readiness", query: "fixture", limit: 20, offset: 0 };
+  for (const [status, title] of [
+    ["discovered", "globalSearchNotIndexedTitle"], ["indexing", "globalIndexStatusIndexing"],
+    ["paused", "globalIndexStatusPaused"], ["rebuild_required", "globalIndexStatusRebuildRequired"],
+    ["unavailable", "globalIndexStatusUnavailable"], ["permission_required", "globalIndexStatusUnavailable"]
+  ] as const) {
+    const feedback = globalSearchFeedback(scopeResponse(request, status), t);
+    expect(feedback.title).toBe(t(title));
+    expect(feedback.title).not.toBe(t("commandNoResultsTitle"));
+  }
+  expect(globalSearchFeedback(scopeResponse(request, "ready"), t).title).toBe(t("commandNoResultsTitle"));
+  const unverified = scopeResponse(request, "ready");
+  unverified.collectionComplete = false;
+  unverified.resultState = "pending";
+  expect(globalSearchFeedback(unverified, t).description).toBe(t("globalSearchUnverifiedDesc"));
+});
 
 describe("mounted CommandModal IME behavior", () => {
   let root: Root | null = null;
@@ -118,4 +151,65 @@ describe("mounted CommandModal IME behavior", () => {
     expect(searchGlobalEntries).toHaveBeenCalledTimes(1);
     expect(searchGlobalEntries.mock.calls[0][0].query).toBe("中");
   });
+  it("shows unindexed coverage, refreshes the same query after readiness, and activates only fixture IDs", async () => {
+    let sourceStatus = "discovered";
+    const query = vi.spyOn(tauriApi, "searchGlobalEntries").mockImplementation(async (request) => {
+      const response = scopeResponse(request, sourceStatus);
+      if (sourceStatus === "ready") {
+        response.resultState = "complete";
+        response.results = [{
+          id: "owned-fixture-id", volumeId: "fixture-source", platformFileId: "fixture-file", name: "m1-fixture-中文.txt",
+          path: "F:/owned-fixture/m1-fixture-中文.txt", extension: "txt", isDirectory: false, size: 1,
+          createdAtFs: 1, modifiedAtFs: 1, fileAttributes: 0, isHidden: false, isSystem: false,
+          sourceProvider: "windows_mft_usn", managed: false, rank: 0
+        }];
+      }
+      return response;
+    });
+    vi.spyOn(tauriApi, "onSearchWindowState").mockResolvedValue(() => undefined);
+    vi.spyOn(tauriApi, "getSearchWindowState").mockResolvedValue({ sessionId: 1, revision: 1, phase: "visible_collapsed" });
+    vi.spyOn(tauriApi, "resizeSearchWindow").mockResolvedValue({ sessionId: 1, revision: 2, phase: "visible_expanded" });
+    vi.spyOn(tauriApi, "hideSearchWindow").mockResolvedValue({ sessionId: 1, revision: 3, phase: "hidden" });
+    const open = vi.spyOn(tauriApi, "openGlobalSearchResult").mockResolvedValue();
+    const reveal = vi.spyOn(tauriApi, "revealGlobalSearchResult").mockResolvedValue();
+    const inputRef = { current: null } as RefObject<HTMLInputElement | null>;
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<CommandModal inputRef={inputRef} setView={vi.fn()} setSelectedFileId={vi.fn()} onClose={vi.fn()} platform="win32" t={t} standalone />);
+    });
+    const input = container.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+    await act(async () => { setInputValue(input, "m1-fixture"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(container.textContent).toContain(t("globalSearchNotIndexedTitle"));
+    expect(container.textContent).toContain(t("globalSearchNotIndexedDesc"));
+    expect(container.textContent).not.toContain(t("commandNoResultsTitle"));
+    expect(query).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(query).toHaveBeenCalledOnce();
+    sourceStatus = "ready";
+    const refresh = [...container.querySelectorAll("button")].find((button) => button.textContent === t("globalSearchRefreshResults"));
+    expect(refresh).toBeTruthy();
+    await act(async () => { refresh!.click(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(container.textContent).toContain("m1-fixture-中文.txt");
+    expect(container.textContent).not.toContain(t("globalSearchNotIndexedTitle"));
+    expect(query.mock.calls.every(([request]) => request.query === "m1-fixture")).toBe(true);
+    expect(query.mock.calls.length).toBeLessThanOrEqual(3);
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    await act(async () => { input.dispatchEvent(tab); });
+    expect(tab.defaultPrevented).toBe(false); // At the last result, Tab can reach controls.
+    const readyRefresh = [...container.querySelectorAll("button")].find((button) => button.textContent === t("globalSearchRefreshResults"))!;
+    const refreshEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => { readyRefresh.focus(); readyRefresh.dispatchEvent(refreshEnter); });
+    expect(refreshEnter.defaultPrevented).toBe(false); // Native button activation, not file navigation.
+    expect(open).not.toHaveBeenCalled();
+    await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true })); });
+    expect(reveal).toHaveBeenCalledWith("owned-fixture-id");
+    await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    expect(open).toHaveBeenCalledWith("owned-fixture-id");
+    expect(Object.keys(tauriApi)).not.toContain("rebuildGlobalIndexSource");
+    expect(Object.keys(tauriApi)).not.toContain("setGlobalIndexSourceEnabled");
+  });
+
 });

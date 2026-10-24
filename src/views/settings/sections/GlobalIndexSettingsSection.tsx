@@ -138,6 +138,9 @@ export function GlobalIndexSettingsSection({
               )}
             </div>
           ) : null}
+          {sources.some((source) => source.volume.platform === "windows") ? <SettingsInlineMessage tone="info" role="status">
+            {t("globalSearchWindowsScopeDesc")}
+          </SettingsInlineMessage> : null}
           <div data-global-index-sources-state={loadState === "loaded" ? hasSources ? "available" : "no_source" : "unknown"} className="grid gap-2">
             {sources.map((source) => (
               <div key={source.volume.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>

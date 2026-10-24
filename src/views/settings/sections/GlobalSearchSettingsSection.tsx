@@ -1,3 +1,4 @@
+import { requestSettingsSection } from "../../../components/spotlight/commandRegistry";
 import { FolderPlus, Keyboard, Play, Trash2 } from "lucide-react";
 import type { GlobalHotkeyStatus } from "../../../api/tauriApi";
 import type { SearchRootSetting, SearchScopeMode } from "../../../types/domain";
@@ -91,6 +92,13 @@ export function GlobalSearchSettingsSection({
           </button>
         ))}
       </div>
+      {platform === "win32" ? <SettingsInlineMessage tone="info" role="status">
+        <div className="grid justify-items-start gap-2">
+          <strong>{t("searchScopeSettings")}</strong>
+          <span>{t("globalSearchWindowsScopeDesc")}</span>
+          <button className={buttonSecondary} onClick={() => requestSettingsSection("settings-global-index")}>{t("globalSearchManage")}</button>
+        </div>
+      </SettingsInlineMessage> : <>
       <SettingsRow label={t("searchScopeSettings")} description={t("searchScopeSettingsDesc")}>
         <SettingsSegmentedControl
           value={searchScopeMode}
@@ -130,7 +138,8 @@ export function GlobalSearchSettingsSection({
           }) : <SettingsEmptyState title={t("searchScopeCustomRoots")} description={t("searchScopeCustomEmpty")} action={<button className={buttonSecondary} onClick={onAddSearchRoot}><FolderPlus size={15} /><span>{t("addSearchFolder")}</span></button>} />}
         </div>
       ) : null}
-      {(isBackgroundIndexing || pendingBackgroundRoots.length > 0 || completedBackgroundRoots.length > 0 || failedBackgroundRoots.length > 0) ? (
+      </>}
+      {platform !== "win32" && (isBackgroundIndexing || pendingBackgroundRoots.length > 0 || completedBackgroundRoots.length > 0 || failedBackgroundRoots.length > 0) ? (
         <SettingsInlineMessage tone={failedBackgroundRoots.length ? "warning" : isBackgroundIndexing ? "info" : "success"} role={failedBackgroundRoots.length ? "alert" : "status"}>
           <div className="flex flex-wrap items-center justify-between gap-2"><strong>{t("backgroundIndexingTitle")}</strong><span className="text-xs">{isBackgroundIndexing ? t("backgroundIndexingRunning") : t("backgroundIndexingIdle")}</span></div>
           {currentBackgroundRoot ? <span className={quietText}>{t("backgroundIndexingCurrent")}: {compactPath(currentBackgroundRoot, 76)}</span> : null}
@@ -139,7 +148,7 @@ export function GlobalSearchSettingsSection({
           {failedBackgroundRoots[0] ? <span className={quietText}>{t("backgroundIndexingFailed")}: {compactPath(failedBackgroundRoots[0].path, 76)}</span> : null}
         </SettingsInlineMessage>
       ) : null}
-      <span className={quietText}>{t("searchScopeDoesNotChangeLibrary")}</span>
+      {platform !== "win32" ? <span className={quietText}>{t("searchScopeDoesNotChangeLibrary")}</span> : null}
     </SettingsSection>
   );
 }

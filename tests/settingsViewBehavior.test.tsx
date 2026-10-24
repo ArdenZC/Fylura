@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
 import { act } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { GlobalSearchSettingsSection, type GlobalSearchSettingsSectionProps } from "../src/views/settings/sections/GlobalSearchSettingsSection";
+import { makeTranslator } from "../src/i18n";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AIProviderPreset, AISettings, FileLibraryDetail } from "../src/types/domain";
@@ -638,4 +641,24 @@ describe("settings view behavior", () => {
     await flushEffects();
     expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.type).toBe("password");
   });
+});
+
+
+it("does not offer Windows folder-index controls as Global Search coverage", () => {
+  const noop = vi.fn();
+  const t = makeTranslator("en");
+  const props: GlobalSearchSettingsSectionProps = {
+    t, platform: "win32", searchHotkey: "CmdOrCtrl+K", hotkey: "Ctrl K", isRecordingHotkey: false,
+    recordingHotkeyPreview: "", hotkeyCaptureRef: { current: null }, globalHotkeyError: "", globalHotkeyStatus: null,
+    searchScopeMode: "custom_roots", customSearchRoots: [{ id: "unindexed-f", path: "F:/owned-fixture", label: "F fixture", enabled: true, createdAt: "2026-10-24" }],
+    pendingBackgroundRoots: [], currentBackgroundRoot: null, isBackgroundIndexing: false, completedBackgroundRoots: ["F:/owned-fixture"], failedBackgroundRoots: [],
+    onStartRecording: noop, onUpdateHotkey: noop, onSearchScopeMode: noop, onAddSearchRoot: noop, onSetSearchRootEnabled: noop,
+    onIndexSearchRootNow: noop, onRequestDelete: noop, backgroundRootState: () => "completed"
+  };
+  const markup = renderToStaticMarkup(<GlobalSearchSettingsSection {...props} />);
+  expect(markup).toContain(t("globalSearchWindowsScopeDesc"));
+  expect(markup).toContain(t("globalSearchManage"));
+  expect(markup).not.toContain(t("indexNow"));
+  expect(markup).not.toContain(t("searchScopeCustomRoots"));
+  expect(noop).not.toHaveBeenCalled();
 });

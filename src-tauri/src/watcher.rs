@@ -2386,10 +2386,21 @@ mod tests {
                                     cursor: None,
                                 })
                                 .expect("query actual File Library DTO");
+                            let detail = db
+                                .get_file_library_detail(&id)
+                                .expect("read actual Details DTO");
+                            if !settled
+                                && detail.size == expected_size
+                                && detail.modified_at == expected_mtime
+                            {
+                                // Query V2 intentionally excludes an unavailable root;
+                                // do not weaken that scope/CAS boundary to inspect an
+                                // in-flight lease. The DB and Details remain inspectable.
+                                assert_ne!(page.scope_health.state, "healthy");
+                                assert!(page.files.is_empty());
+                                return current;
+                            }
                             if let Some(row) = page.files.iter().find(|row| row.id == id) {
-                                let detail = db
-                                    .get_file_library_detail(&id)
-                                    .expect("read actual Details DTO");
                                 if row.size == expected_size
                                     && row.modified_at == expected_mtime
                                     && detail.size == expected_size

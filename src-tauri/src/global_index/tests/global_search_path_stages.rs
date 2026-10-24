@@ -140,6 +140,33 @@ fn actual_request_with_control(
     )
 }
 
+// Companion boundary control executes the exact operations of the public
+// wrapper, with clocks around checkout/production route/release in this call.
+// It is not a replacement implementation of the search route.
+fn checkout_route_control(db: &Database, query: &str) -> (Vec<GlobalSearchResult>, JsonValue) {
+    let origin = Instant::now();
+    let conn = db.conn().unwrap();
+    let checkout = ms(origin);
+    let start = Instant::now();
+    let results = crate::global_index::search::search_global_entries_on_connection(
+        &conn,
+        query,
+        SEARCH_RESULT_LIMIT,
+        0,
+    )
+    .unwrap();
+    let route = ms(start);
+    let start = Instant::now();
+    drop(conn);
+    let release = ms(start);
+    (
+        results,
+        json!({"checkout_ms":checkout,"production_route_ms":route,
+        "release_ms":release,"total_ms":ms(origin),
+        "scope":"same-call boundary control of the public wrapper operations; actual production on-connection search; no trace callbacks or tier replay"}),
+    )
+}
+
 fn split_sql(
     conn: &Connection,
     sql: &str,
@@ -304,9 +331,7 @@ pub(super) fn profile_existing_fixture(db: &Database, conn: &Connection, context
         for sample in 0..10 {
             let (results, request) =
                 actual_request_with_control(db, case.query, 0, Some((&original, &values)));
-            let baseline = db
-                .search_global_entries(case.query, SEARCH_RESULT_LIMIT, 0)
-                .unwrap();
+            let (baseline, checkout_control) = checkout_route_control(db, case.query);
             assert_eq!(results, baseline);
             let (a, b) = if sample % 2 == 0 {
                 (
@@ -328,7 +353,7 @@ pub(super) fn profile_existing_fixture(db: &Database, conn: &Connection, context
             emit_record(
                 &json!({ "record_type": "search_path_same_call_sample", "context": context,
                 "query_class": case.class, "sample": sample, "tier": tier,
-                "actual_request": request, "sql_control": a.1, "sql_candidate": b.1,
+                "actual_request": request, "checkout_route_control":checkout_control, "sql_control": a.1, "sql_candidate": b.1,
                 "candidate_is_identity_control": original == candidate,
                 "full_objects_equal": true }),
             );

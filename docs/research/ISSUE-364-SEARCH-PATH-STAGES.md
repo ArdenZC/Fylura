@@ -33,6 +33,10 @@ intervals include intervening Rust mapping; they are not pure SQLite CPU time.
 The same-request remainder contains checkout, SQL construction/prepare,
 reset/finalize, dedup and paging. It must not be labelled pool wait alone.
 Tracing/string copying introduces observer overhead, especially for tiny queries.
+A companion call clocks checkout, the actual production on-connection route
+and release separately, executing the public wrapper's exact operations without
+reimplementing the route. Its results must equal the traced public call; its
+stages belong to that companion call, not to the earlier public timeline.
 
 Separate, explicitly labelled SQL controls time prepare, bind, every step,
 full result mapping, Rows drop and Statement finalize in a single execution.

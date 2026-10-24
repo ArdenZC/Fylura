@@ -3004,9 +3004,6 @@ pub fn is_forbidden_storage_path_for_test(path: &Path) -> bool {
 }
 
 pub fn is_cleanup_execution_forbidden(path: &Path, app_data_dir: Option<&Path>) -> bool {
-    if generated_output_requires_review(path) {
-        return true;
-    }
     if path.as_os_str().is_empty() {
         return true;
     }
@@ -3122,6 +3119,7 @@ fn cleanup_candidate_can_enter_operation_preview(
     candidate.tier == CleanupTier::Safe
         && candidate.trash_allowed
         && candidate.suggested_action == CleanupActionKind::MoveToTrash
+        && !generated_output_requires_review(path)
         && path.exists()
         && !is_cleanup_execution_forbidden(path, app_data_dir)
 }
@@ -6350,7 +6348,13 @@ mod analysis_cleanup_contract_tests {
             .unwrap()
             .previews
             .is_empty());
-            assert!(is_cleanup_execution_forbidden(&path, None));
+            assert!(!cleanup_candidate_can_enter_operation_preview(
+                &candidate, None
+            ));
+            assert!(
+                !is_cleanup_execution_forbidden(&path, None),
+                "ordinary user paths retain the separate explicit file-operation policy"
+            );
 
             finding.tier = "review".to_string();
             finding.decision = Some("acknowledged".to_string());

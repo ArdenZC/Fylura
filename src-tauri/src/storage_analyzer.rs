@@ -6303,7 +6303,10 @@ mod analysis_cleanup_contract_tests {
         for name in [
             "build", "dist", "target", ".next", ".nuxt", ".turbo", "BuIlD",
         ] {
-            let root = std::env::temp_dir().join(new_job_id("legacy-output-finding"));
+            let root = std::env::current_dir()
+                .unwrap()
+                .join(".tmp-tests")
+                .join(new_job_id("legacy-output-finding"));
             let path = root.join("Library").join(name);
             fs::create_dir_all(&path).expect("create ordinary user output-named directory");
             let manual_file = path.join("build-name-test.txt");

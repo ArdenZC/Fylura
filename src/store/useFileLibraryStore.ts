@@ -13,6 +13,7 @@ import type {
 } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
+import { refreshManagedFileLibraryProjection } from "./useFileLibraryV2Store";
 
 export const LIBRARY_PAGE_SIZE = 50;
 export const ORGANIZE_QUEUE_PAGE_SIZE = 500;
@@ -347,7 +348,11 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
   clearAIClassificationStatus: () => set({ aiClassificationStatus: "" }),
   refresh: async (query) => {
     const scope = get().scope;
-    await Promise.all([get().loadStats(scope), get().loadFirstPage(query, scope, get().libraryFilter)]);
+    await Promise.all([
+      get().loadStats(scope),
+      get().loadFirstPage(query, scope, get().libraryFilter),
+      refreshManagedFileLibraryProjection()
+    ]);
   }
 }));
 

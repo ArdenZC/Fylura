@@ -19,8 +19,23 @@ function detail(id: string, revision: number): FileLibraryDetail {
 
 describe("File Library Inspector ownership", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    useFileLibraryInspectorStore.getState().clear();
     useFileLibraryInspectorStore.setState({ detail: null, selectionSummary: null, selectedId: null, requestEpoch: 0, isLoading: false, error: null });
+  });
+
+  it("supersedes pre-watcher detail reads when metadata is invalidated", async () => {
+    const old = deferred<FileLibraryDetail>();
+    const fresh = deferred<FileLibraryDetail>();
+    api.getFileLibraryDetail.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+    const first = useFileLibraryInspectorStore.getState().loadDetail("file-a");
+    const refresh = useFileLibraryInspectorStore.getState().loadDetail("file-a", true);
+    expect(api.getFileLibraryDetail).toHaveBeenCalledTimes(2);
+    fresh.resolve({ ...detail("file-a", 2), size: 57, modifiedAt: 200 });
+    await refresh;
+    old.resolve({ ...detail("file-a", 1), size: 10, modifiedAt: 100 });
+    await first;
+    expect(useFileLibraryInspectorStore.getState().detail).toMatchObject({ size: 57, modifiedAt: 200 });
   });
 
   it("commits a refresh only while the expected Inspector owner and epoch remain current", () => {

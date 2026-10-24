@@ -274,7 +274,14 @@ jobs:
           $os = Get-CimInstance Win32_OperatingSystem
           $totalMemoryBytes = [long]$os.TotalVisibleMemorySize * 1024
           $freeMemoryBytes = [long]$os.FreePhysicalMemory * 1024
-          $databaseTempRoot = [System.IO.Path]::GetTempPath().TrimEnd([char[]]@('\', '/'))
+          # Preserve the known-good 1M baseline's workspace-local SQLite temp path.
+          # The system TEMP drive may have very different Hosted Windows I/O behavior.
+          $databaseTempRoot = Join-Path $env:GITHUB_WORKSPACE '.performance-temp'
+          New-Item -ItemType Directory -Force -Path $databaseTempRoot | Out-Null
+          $databaseTempRoot = (Resolve-Path -LiteralPath $databaseTempRoot).ProviderPath.TrimEnd([char[]]@('\', '/'))
+          # Propagate to later steps: preflight budgets and Rust temp_dir must agree.
+          "TEMP=$databaseTempRoot" >> $env:GITHUB_ENV
+          "TMP=$databaseTempRoot" >> $env:GITHUB_ENV
           $databaseTempDrive = Get-PSDrive -Name ($databaseTempRoot.Substring(0, 1))
           $freeDiskBytes = [long]$databaseTempDrive.Free
           $evidenceTempRoot = $env:RUNNER_TEMP.TrimEnd([char[]]@('\', '/'))

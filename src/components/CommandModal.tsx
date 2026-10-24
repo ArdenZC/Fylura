@@ -561,7 +561,11 @@ export function CommandModal({
             closeSpotlight();
             return;
           }
-          if (event.key === "Tab" && visibleResults.length > 0) {
+          // Buttons retain native activation/focus behavior; Enter on Refresh
+          // must never open the currently highlighted file.
+          if (event.target instanceof Element && event.target.closest("button")) return;
+          const tabLeavesResults = event.shiftKey ? activeIndex === 0 : activeIndex === visibleResults.length - 1;
+          if (event.key === "Tab" && visibleResults.length > 0 && !tabLeavesResults) {
             event.preventDefault();
             setActiveIndex((index) => event.shiftKey
               ? Math.max(index - 1, 0)
@@ -689,7 +693,7 @@ export function CommandModal({
               onClick={() => setRevisionRefetchNonce((value) => value + 1)}
             >{t("globalSearchRefreshResults")}</button> : null}
             <button
-              className={cn("hidden shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)]", focusVisibleState, "sm:inline")}
+              className={cn("shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)]", focusVisibleState)}
               onClick={openGlobalIndexSettings}
               aria-label={t("globalSearchManage")}
             >

@@ -93,9 +93,11 @@ export function GlobalSearchSettingsSection({
         ))}
       </div>
       {platform === "win32" ? <SettingsInlineMessage tone="info" role="status">
-        <strong>{t("searchScopeSettings")}</strong>
-        <span>{t("globalSearchWindowsScopeDesc")}</span>
-        <button className={buttonSecondary} onClick={() => requestSettingsSection("settings-global-index")}>{t("globalSearchManage")}</button>
+        <div className="grid justify-items-start gap-2">
+          <strong>{t("searchScopeSettings")}</strong>
+          <span>{t("globalSearchWindowsScopeDesc")}</span>
+          <button className={buttonSecondary} onClick={() => requestSettingsSection("settings-global-index")}>{t("globalSearchManage")}</button>
+        </div>
       </SettingsInlineMessage> : <>
       <SettingsRow label={t("searchScopeSettings")} description={t("searchScopeSettingsDesc")}>
         <SettingsSegmentedControl

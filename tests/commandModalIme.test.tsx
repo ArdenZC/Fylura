@@ -196,6 +196,14 @@ describe("mounted CommandModal IME behavior", () => {
     expect(container.textContent).not.toContain(t("globalSearchNotIndexedTitle"));
     expect(query.mock.calls.every(([request]) => request.query === "m1-fixture")).toBe(true);
     expect(query.mock.calls.length).toBeLessThanOrEqual(3);
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    await act(async () => { input.dispatchEvent(tab); });
+    expect(tab.defaultPrevented).toBe(false); // At the last result, Tab can reach controls.
+    const readyRefresh = [...container.querySelectorAll("button")].find((button) => button.textContent === t("globalSearchRefreshResults"))!;
+    const refreshEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => { readyRefresh.focus(); readyRefresh.dispatchEvent(refreshEnter); });
+    expect(refreshEnter.defaultPrevented).toBe(false); // Native button activation, not file navigation.
+    expect(open).not.toHaveBeenCalled();
     await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true })); });
     expect(reveal).toHaveBeenCalledWith("owned-fixture-id");
     await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });

@@ -8,6 +8,10 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+#[cfg(test)]
+#[path = "tests/snapshot_stage_probe.rs"]
+pub(crate) mod snapshot_stage_probe;
+
 static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1038,13 +1042,29 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> Result<GlobalSearchSnapshot, DbError> {
+        #[cfg(test)]
+        snapshot_stage_probe::start_call();
         let mut conn = self.conn()?;
+        #[cfg(test)]
+        snapshot_stage_probe::mark("pool");
+        #[cfg(test)]
+        let _trace = snapshot_stage_probe::TraceGuard::install(&conn);
         let transaction = conn.transaction()?;
+        #[cfg(test)]
+        snapshot_stage_probe::mark("begin");
         let results =
             super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
+        #[cfg(test)]
+        snapshot_stage_probe::mark("search");
         let (source_health, source_revision) = load_snapshot_source_health(&transaction)?;
+        #[cfg(test)]
+        snapshot_stage_probe::mark("source");
         let index_status = global_index_status_from_connection(&transaction)?;
+        #[cfg(test)]
+        snapshot_stage_probe::mark("status");
         transaction.commit()?;
+        #[cfg(test)]
+        snapshot_stage_probe::mark("commit");
         Ok(GlobalSearchSnapshot {
             results,
             source_health,
@@ -1154,6 +1174,8 @@ fn with_source_health_candidate_override<T>(
 fn global_index_status_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<GlobalIndexStatus, DbError> {
+    #[cfg(test)]
+    let sql_started = std::time::Instant::now();
     let GlobalIndexStatusCounts {
         total_entries,
         indexed_volumes,
@@ -1192,6 +1214,8 @@ fn global_index_status_from_connection(
         "#,
         [],
         |row| {
+            #[cfg(test)]
+            snapshot_stage_probe::status_sql(sql_started.elapsed());
             Ok(GlobalIndexStatusCounts {
                 total_entries: row.get(0)?,
                 indexed_volumes: row.get(1)?,
@@ -1258,10 +1282,17 @@ fn global_index_status_from_connection(
 fn load_global_search_sources_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
+    #[cfg(not(test))]
     let mut statement = conn.prepare(GLOBAL_SEARCH_SOURCE_HEALTH_SQL)?;
+    #[cfg(test)]
+    let mut statement = conn.prepare(snapshot_stage_probe::source_sql(
+        GLOBAL_SEARCH_SOURCE_HEALTH_SQL,
+    ))?;
     let mut facts = Vec::new();
     let mut source_health = Vec::new();
     let rows = statement.query_map([], |row| {
+        #[cfg(test)]
+        let _mapping = snapshot_stage_probe::MappingGuard(std::time::Instant::now());
         let source_id = row.get::<_, String>(0)?;
         let enabled = row.get::<_, i64>(1)? != 0;
         let provider = row.get::<_, String>(2)?;
@@ -1296,8 +1327,12 @@ fn load_global_search_sources_from_connection(
         source_health.push(health);
         facts.push(fact);
     }
+    #[cfg(test)]
+    let hash_started = std::time::Instant::now();
     let serialized = serde_json::to_vec(&facts).unwrap_or_default();
     let revision = blake3::hash(&serialized).to_hex().to_string();
+    #[cfg(test)]
+    snapshot_stage_probe::add_hash(hash_started.elapsed());
     Ok((source_health, revision))
 }
 

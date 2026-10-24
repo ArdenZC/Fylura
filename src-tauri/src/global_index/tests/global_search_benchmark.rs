@@ -478,6 +478,19 @@ fn populate_synthetic_database(
         let batch_elapsed = population_started.elapsed();
         population_time += batch_elapsed;
         transaction_samples_ms.push(batch_elapsed.as_secs_f64() * 1_000.0);
+        // Progress is emitted only for the manual exact-SQL diagnostic.
+        // Keep its 30-minute fail-closed budget, but avoid opaque fixture timeouts.
+        if env::var("ZC_GLOBAL_SEARCH_EXACT_SQL_DIAGNOSTIC_MODE")
+            .ok()
+            .as_deref()
+            == Some("exact_sql_1m_diagnostic")
+            && (batch_start / 25_000 != batch_end / 25_000 || batch_end == entries)
+        {
+            eprintln!(
+                "exact_sql_1m_fixture_progress committed_rows={batch_end} sqlite_population_ms={:.3}",
+                population_time.as_secs_f64() * 1_000.0
+            );
+        }
     }
 
     drop(conn);

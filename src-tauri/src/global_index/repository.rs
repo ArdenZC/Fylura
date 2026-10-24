@@ -1059,6 +1059,8 @@ impl Database {
         let (source_health, source_revision) = load_snapshot_source_health(&transaction)?;
         #[cfg(test)]
         snapshot_stage_probe::mark("source");
+        #[cfg(test)]
+        let _count_override = snapshot_stage_probe::prepare_snapshot_status(&transaction)?;
         let index_status = global_index_status_from_connection(&transaction)?;
         #[cfg(test)]
         snapshot_stage_probe::mark("status");
@@ -1174,6 +1176,8 @@ fn with_source_health_candidate_override<T>(
 fn global_index_status_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<GlobalIndexStatus, DbError> {
+    #[cfg(test)]
+    let conn = snapshot_stage_probe::StatusConnection::new(conn);
     #[cfg(test)]
     let sql_started = std::time::Instant::now();
     let GlobalIndexStatusCounts {
@@ -1301,6 +1305,8 @@ fn load_global_search_sources_from_connection(
         let updated_at = row.get::<_, i64>(5)?;
         let active_entry_count = row.get::<_, i64>(6)?;
         let max_last_seen_at = row.get::<_, Option<i64>>(7)?;
+        #[cfg(test)]
+        snapshot_stage_probe::observe_source_count(enabled, active_entry_count);
         Ok((
             GlobalSearchSourceHealth {
                 source_id: source_id.clone(),
@@ -1333,6 +1339,8 @@ fn load_global_search_sources_from_connection(
     let revision = blake3::hash(&serialized).to_hex().to_string();
     #[cfg(test)]
     snapshot_stage_probe::add_hash(hash_started.elapsed());
+    #[cfg(test)]
+    snapshot_stage_probe::source_facts(&serialized);
     Ok((source_health, revision))
 }
 

@@ -16,6 +16,9 @@ pub(crate) struct Probe {
     pub mapping_ms: f64,
     pub hash_ms: f64,
     pub status_sql_ms: f64,
+    pub null_correction_ms: f64,
+    pub revision_facts_json: Vec<u8>,
+    pub exact_count_parts: Option<(i64, i64)>,
     pub statements: Vec<Value>,
     collect_statements: bool,
 }
@@ -43,6 +46,7 @@ pub(crate) fn capture<T>(collect_statements: bool, call: impl FnOnce() -> T) -> 
     (result, probe)
 }
 pub(crate) fn start_call() {
+    ENABLED_COUNT.with(|sum| sum.set(EXACT_COUNT.with(std::cell::Cell::get).then_some(0)));
     PROBE.with(|slot| {
         if let Some(probe) = slot.borrow_mut().as_mut() {
             probe.last = Some(Instant::now());
@@ -120,7 +124,7 @@ impl TraceGuard {
         let result = unsafe {
             ffi::sqlite3_trace_v2(
                 handle,
-                ffi::SQLITE_TRACE_PROFILE as u32,
+                ffi::SQLITE_TRACE_PROFILE,
                 Some(profile),
                 std::ptr::null_mut(),
             )
@@ -229,7 +233,7 @@ pub(crate) fn linux_process_sample() -> Option<(f64, u64)> {
 
 /// Research only: exact COUNT(*) = enabled canonical COUNT(id) + active enabled
 /// NULL-id rows. Unlike #433, adds no COUNT(*) accumulator to the full source scan.
-/// This is not wired into status or claimed as a qualified Snapshot candidate.
+/// Untimed count-identity probe retained beside the test-only full Snapshot A/B.
 pub(crate) fn null_correction_evidence(conn: &Connection) -> Value {
     let facts = super::load_global_search_source_health_candidate(
         conn,
@@ -244,7 +248,7 @@ pub(crate) fn null_correction_evidence(conn: &Connection) -> Value {
         .filter(|fact| fact["enabled"].as_bool().unwrap())
         .map(|fact| fact["active_entry_count"].as_i64().unwrap())
         .sum();
-    let sql = "SELECT COUNT(*) FROM global_entries entry JOIN global_volumes volume ON volume.id = entry.volume_id WHERE entry.id IS NULL AND entry.is_stale = 0 AND volume.enabled = 1";
+    let sql = NULL_CORRECTION_SQL;
     let mut statement = conn.prepare(sql).unwrap();
     let null_rows: i64 = statement.query_row([], |row| row.get(0)).unwrap();
     let reference: i64 = conn.query_row("SELECT COUNT(*) FROM global_entries entry JOIN global_volumes volume ON volume.id = entry.volume_id WHERE entry.is_stale = 0 AND volume.enabled = 1",[],|row|row.get(0)).unwrap();
@@ -262,4 +266,177 @@ pub(crate) fn null_correction_evidence(conn: &Connection) -> Value {
         "sort_operations":statement.get_status(rusqlite::StatementStatus::Sort),
         "fullscan_steps":statement.get_status(rusqlite::StatementStatus::FullscanStep),
         "scope":"one untimed correction query; no full Snapshot A/B or latency-win claim"})
+}
+
+// These slots exist only in the repository's cfg(test) module. The count
+// override is armed only around Snapshot status, never standalone Status reads.
+thread_local! {
+    static EXACT_COUNT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static ENABLED_COUNT: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+    static STATUS_COUNT: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+}
+pub(crate) fn with_exact_count<T>(call: impl FnOnce() -> T) -> T {
+    struct Reset(bool, Option<i64>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            EXACT_COUNT.with(|slot| slot.set(self.0));
+            ENABLED_COUNT.with(|slot| slot.set(self.1));
+        }
+    }
+    let _reset = Reset(
+        EXACT_COUNT.with(|slot| slot.replace(true)),
+        ENABLED_COUNT.with(std::cell::Cell::get),
+    );
+    call()
+}
+pub(crate) fn observe_source_count(enabled: bool, count: i64) {
+    if enabled {
+        ENABLED_COUNT.with(|slot| {
+            if let Some(sum) = slot.get() {
+                slot.set(Some(
+                    sum.checked_add(count).expect("exact source count fits i64"),
+                ));
+            }
+        });
+    }
+}
+pub(crate) fn source_facts(bytes: &[u8]) {
+    PROBE.with(|slot| {
+        if let Some(probe) = slot.borrow_mut().as_mut() {
+            probe.revision_facts_json = bytes.to_vec();
+        }
+    });
+}
+
+const NULL_CORRECTION_SQL: &str = "SELECT COUNT(*) FROM global_entries entry JOIN global_volumes volume ON volume.id = entry.volume_id WHERE entry.id IS NULL AND entry.is_stale = 0 AND volume.enabled = 1";
+const ORIGINAL_STATUS_COUNT: &str = "(SELECT COUNT(*)
+             FROM global_entries entry
+             JOIN global_volumes volume ON volume.id = entry.volume_id
+             WHERE entry.is_stale = 0 AND volume.enabled = 1)";
+
+pub(crate) struct StatusCountGuard(Option<i64>);
+impl Drop for StatusCountGuard {
+    fn drop(&mut self) {
+        STATUS_COUNT.with(|slot| slot.set(self.0));
+    }
+}
+pub(crate) fn prepare_snapshot_status(
+    conn: &Connection,
+) -> Result<StatusCountGuard, crate::db::DbError> {
+    let previous = STATUS_COUNT.with(std::cell::Cell::get);
+    if EXACT_COUNT.with(std::cell::Cell::get) {
+        let started = Instant::now();
+        let null_rows: i64 = conn.query_row(NULL_CORRECTION_SQL, [], |row| row.get(0))?;
+        let elapsed = started.elapsed().as_secs_f64() * 1000.;
+        let nonnull = ENABLED_COUNT
+            .with(std::cell::Cell::get)
+            .expect("Snapshot initializes canonical count, including zero");
+        let total = nonnull
+            .checked_add(null_rows)
+            .expect("exact status count fits i64");
+        STATUS_COUNT.with(|slot| slot.set(Some(total)));
+        PROBE.with(|slot| {
+            if let Some(probe) = slot.borrow_mut().as_mut() {
+                probe.null_correction_ms = elapsed;
+                probe.exact_count_parts = Some((nonnull, null_rows));
+            }
+        });
+    }
+    Ok(StatusCountGuard(previous))
+}
+
+/// Reuses the original Status row mapper and state precedence without a test
+/// copy. Only Snapshot's first count expression changes; every other SQL byte
+/// and every standalone invocation retains the original behavior.
+pub(crate) struct StatusConnection<'a> {
+    conn: &'a Connection,
+}
+impl<'a> StatusConnection<'a> {
+    pub(crate) fn new(conn: &'a Connection) -> Self {
+        Self { conn }
+    }
+    pub(crate) fn query_row<T, P, F>(
+        &self,
+        sql: &str,
+        parameters: P,
+        mapper: F,
+    ) -> rusqlite::Result<T>
+    where
+        P: rusqlite::Params,
+        F: FnOnce(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+    {
+        if let Some(total) = STATUS_COUNT.with(std::cell::Cell::get) {
+            assert_eq!(sql.matches(ORIGINAL_STATUS_COUNT).count(), 1);
+            let sql = sql.replacen(ORIGINAL_STATUS_COUNT, "?1", 1);
+            self.conn.query_row(&sql, [total], mapper)
+        } else {
+            self.conn.query_row(sql, parameters, mapper)
+        }
+    }
+}
+
+/// Same database helpers on a caller-owned transaction, for pinned-reader and
+/// nullable shadow-table tests. Performance samples use the real Repository API.
+pub(crate) fn snapshot_on_connection(
+    conn: &Connection,
+    query: &str,
+) -> Result<super::GlobalSearchSnapshot, crate::db::DbError> {
+    start_call();
+    let results =
+        crate::global_index::search::search_global_entries_on_connection(conn, query, 80, 0)?;
+    let (source_health, source_revision) = super::load_snapshot_source_health(conn)?;
+    let _override = prepare_snapshot_status(conn)?;
+    let index_status = super::global_index_status_from_connection(conn)?;
+    Ok(super::GlobalSearchSnapshot {
+        results,
+        source_health,
+        source_revision,
+        index_status,
+    })
+}
+
+#[test]
+fn exact_count_override_preserves_standalone_status_and_zero_counts() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("CREATE TABLE global_volumes(id TEXT PRIMARY KEY, enabled INTEGER, provider TEXT, index_status TEXT, last_error TEXT, updated_at INTEGER, last_incremental_sync_at INTEGER);
+        CREATE TABLE global_entries(id TEXT PRIMARY KEY, volume_id TEXT, is_stale INTEGER, last_seen_at INTEGER);
+        INSERT INTO global_volumes VALUES ('a',1,'p','ready',NULL,1,NULL);
+        INSERT INTO global_entries VALUES ('1','a',0,10),(NULL,'a',0,30);").unwrap();
+    let reference = super::global_index_status_from_connection(&conn).unwrap();
+    assert_eq!(reference.total_entries, 2);
+    with_exact_count(|| {
+        start_call();
+        super::load_global_search_sources_from_connection(&conn).unwrap();
+        {
+            let _scope = prepare_snapshot_status(&conn).unwrap();
+            assert_eq!(STATUS_COUNT.with(std::cell::Cell::get), Some(2));
+            assert_eq!(
+                super::global_index_status_from_connection(&conn).unwrap(),
+                reference
+            );
+        }
+        conn.execute("INSERT INTO global_entries VALUES ('2','a',0,50)", [])
+            .unwrap();
+        // Still inside the candidate opt-in, but outside Snapshot status scope:
+        // a standalone call must see fresh SQL COUNT(*) rather than cached 2.
+        assert_eq!(
+            super::global_index_status_from_connection(&conn)
+                .unwrap()
+                .total_entries,
+            3
+        );
+        conn.execute("DELETE FROM global_entries", []).unwrap();
+        start_call();
+        super::load_global_search_sources_from_connection(&conn).unwrap();
+        let _scope = prepare_snapshot_status(&conn).unwrap();
+        assert_eq!(STATUS_COUNT.with(std::cell::Cell::get), Some(0));
+        assert_eq!(
+            super::global_index_status_from_connection(&conn)
+                .unwrap()
+                .total_entries,
+            0
+        );
+    });
+    assert_eq!(STATUS_COUNT.with(std::cell::Cell::get), None);
+    assert!(!EXACT_COUNT.with(std::cell::Cell::get));
 }

@@ -5765,7 +5765,7 @@ fn global_search_fts_key_only_cte_qualification() {
 #[ignore = "opt-in 100k/500k Snapshot attribution; never builds a 1M fixture"]
 fn global_search_snapshot_stage_attribution() {
     use crate::global_index::repository::snapshot_stage_probe::{
-        capture, linux_process_sample, with_sequential_source,
+        capture, linux_process_sample, with_exact_count,
     };
     let entries: u64 = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
         .unwrap()
@@ -5787,7 +5787,7 @@ fn global_search_snapshot_stage_attribution() {
         "generation_ms":generation_ms,"population_ms":population_ms,"database":database_metrics(&conn,&path),
         "sqlite_version":conn.query_row("SELECT sqlite_version()",[],|r|r.get::<_,String>(0)).unwrap(),
         "fixture":"existing deterministic production-schema generator, triggers and 512-row batches",
-        "candidate":"source aggregate NOT INDEXED; identical COUNT(id)/MAX and status SQL; no #433 count reuse",
+        "candidate":"enabled canonical COUNT(id) plus same-transaction NULL-id correction; source SQL unchanged; Snapshot-only Status count substitution",
         "timing":"actual Snapshot; trace disabled for latency samples; same-call disjoint stage spans; 5 warmups / 30 alternating pairs",
         "source_sql_drain_scope":"source helper minus measured row mapping and JSON/hash; includes prepare, stepping, vector growth and statement cleanup",
         "resource_scope":"process CPU boundaries (Linux getrusage / existing Windows sampler); Linux RSS is lifetime high-water after shared population, not per-variant allocation; SQLite temp bytes UNVERIFIED"}),
@@ -5820,7 +5820,7 @@ fn global_search_snapshot_stage_attribution() {
         assert_eq!(oracle.index_status, db.global_index_status().unwrap());
         let call = |candidate| {
             if candidate {
-                with_sequential_source(|| {
+                with_exact_count(|| {
                     db.search_global_entries_snapshot(case.query, SEARCH_RESULT_LIMIT, 0)
                 })
             } else {
@@ -5841,12 +5841,14 @@ fn global_search_snapshot_stage_attribution() {
                     measure_with_process_counters(|| capture(false, || call(variant == 1)));
                 let linux_after = linux_process_sample();
                 assert_snapshot_results_equal(&oracle, &snapshot.unwrap());
+                assert_eq!(probe.revision_facts_json, facts.revision_facts_json);
                 let mut stages = probe.stages;
                 let source = stages["source"];
-                stages.insert("status_sql", probe.status_sql_ms);
+                stages.insert("null_correction", probe.null_correction_ms);
+                stages.insert("status_sql", probe.status_sql_ms + probe.null_correction_ms);
                 stages.insert(
                     "status_mapping_cleanup",
-                    stages["status"] - probe.status_sql_ms,
+                    stages["status"] - probe.status_sql_ms - probe.null_correction_ms,
                 );
                 stages.insert("source_mapping", probe.mapping_ms);
                 stages.insert("source_json_hash", probe.hash_ms);
@@ -5864,6 +5866,7 @@ fn global_search_snapshot_stage_attribution() {
                     samples[variant].entry(stage).or_default().push(ms);
                 }
                 raw.push(json!({"round":round,"variant":variant,"ms":stages,
+                    "exact_count_parts":probe.exact_count_parts,
                     "linux_process_cpu_ms": linux_before.zip(linux_after).map(|(before,after)|after.0-before.0),
                     "linux_process_lifetime_peak_rss_bytes":linux_after.map(|sample|sample.1),
                     "windows_process_cpu_ms":resources.map(|sample|sample.cpu_time_ms),
@@ -5895,9 +5898,46 @@ fn global_search_snapshot_stage_attribution() {
                 .collect();
             work.push(json!({"variant":variant,"actual_same_call_statements":statements}));
         }
+        let source_work = |variant: usize| {
+            work[variant]["actual_same_call_statements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|statement| statement["stage"] == "source")
+                .map(|statement| (statement["sql"].clone(), statement["vm_steps"].clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            source_work(0),
+            source_work(1),
+            "canonical source SQL and VM work are unchanged"
+        );
+        let candidate_status = work[1]["actual_same_call_statements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|statement| statement["stage"] == "status")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            candidate_status.len(),
+            2,
+            "NULL correction plus original status with bound count"
+        );
+        assert!(candidate_status.iter().any(|statement| statement["sql"]
+            .as_str()
+            .unwrap()
+            .contains("entry.id IS NULL")));
+        assert!(
+            !candidate_status.iter().any(|statement| {
+                let sql = statement["sql"].as_str().unwrap();
+                sql.contains("entry.is_stale = 0 AND volume.enabled = 1")
+                    && !sql.contains("entry.id IS NULL")
+            }),
+            "candidate does not execute the original entries recount"
+        );
         emit_record(
             &json!({"record_type":"snapshot_stage_paired","context":context,"query_class":class,
-            "query":case.query,"variants":["master","sequential_source_scan"],"latency_ms":summaries,
+            "query":case.query,"variants":["master","exact_count_null_correction"],"latency_ms":summaries,
             "raw_paired_samples":raw,"executed_work":work,"all_snapshot_fields_and_independent_oracles_equal":true,
             "plans_scope":"EXPLAIN after timed call; expanded SQL and VM/Sort/Fullscan from a separate traced actual Snapshot call per variant; not separately replayed SQL counters"}),
         );

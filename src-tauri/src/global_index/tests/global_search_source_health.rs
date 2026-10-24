@@ -1,5 +1,8 @@
 use super::{test_db_path, test_entry, test_volume};
 use crate::db::Database;
+use crate::global_index::repository::snapshot_stage_probe::{
+    capture, snapshot_on_connection, with_exact_count,
+};
 use crate::global_index::repository::{
     diagnostic_compare_snapshot_queries_on_connection, load_global_search_source_health_candidate,
     GlobalSearchSourceHealthQueryCandidate as Query,
@@ -54,10 +57,23 @@ fn assert_candidate_matches_production(db: &Database, query: &str) {
         assert_snapshot_equal(&original, &optimized);
     }
 
+    let (count_candidate, count_probe) = capture(false, || {
+        with_exact_count(|| db.search_global_entries_snapshot(query, 80, 0))
+    });
+    assert_snapshot_equal(&original, &count_candidate.unwrap());
+    assert_eq!(
+        with_exact_count(|| db.global_index_status()).unwrap(),
+        original.index_status
+    );
+
     let mut conn = db.conn().expect("borrow database connection");
     let transaction = conn.transaction().expect("begin fact comparison snapshot");
     let baseline = load_global_search_source_health_candidate(&transaction, Query::Original)
         .expect("load baseline revision facts");
+    assert_eq!(
+        count_probe.revision_facts_json,
+        baseline.revision_facts_json
+    );
     for candidate in [
         Query::CorrelatedAggregates,
         Query::NarrowAggregate,
@@ -424,6 +440,23 @@ fn global_search_source_health_candidates_match_during_concurrent_writes() {
     db.upsert_global_entries_batch(&[changing.clone(), stable])
         .expect("insert concurrent fixture rows");
 
+    let mut null_entry = entry(
+        "gv_writer",
+        r"C:\Global\writer\nullable.bin",
+        "nullable.bin",
+        50,
+    );
+    null_entry.extension = "bin".to_string();
+    db.upsert_global_entries_batch(std::slice::from_ref(&null_entry))
+        .unwrap();
+    db.conn()
+        .unwrap()
+        .execute(
+            "UPDATE global_entries SET id = NULL WHERE id = ?1",
+            [null_entry.entry_id()],
+        )
+        .unwrap();
+
     let writer_start = Arc::new(Barrier::new(2));
     let writer_commit = Arc::new(Barrier::new(2));
     let worker_db = db.clone();
@@ -459,6 +492,14 @@ fn global_search_source_health_candidates_match_during_concurrent_writes() {
                     .upsert_global_entries_batch(std::slice::from_ref(&restored))
                     .expect("restore row while reader snapshots");
             }
+            worker_db
+                .conn()
+                .unwrap()
+                .execute(
+                    "UPDATE global_entries SET is_stale = ?1, last_seen_at = ?2 WHERE id IS NULL",
+                    params![i64::from(index % 2 == 0), 300 + index],
+                )
+                .unwrap();
             worker_commit.wait();
         }
     });
@@ -470,6 +511,7 @@ fn global_search_source_health_candidates_match_during_concurrent_writes() {
             .expect("begin consistent reader snapshot");
         super::super::search::search_global_entries_on_connection(&transaction, "txt", 80, 0)
             .expect("establish reader snapshot before concurrent writer commit");
+        let pinned_before = snapshot_on_connection(&transaction, "txt").unwrap();
         writer_start.wait();
         writer_commit.wait();
         for candidate in [
@@ -487,12 +529,147 @@ fn global_search_source_health_candidates_match_during_concurrent_writes() {
             .expect("compare both snapshots within one read transaction");
             assert_snapshot_equal(&original, &optimized);
         }
+        let (candidate, probe) = capture(false, || {
+            with_exact_count(|| snapshot_on_connection(&transaction, "txt"))
+        });
+        assert_snapshot_equal(&pinned_before, &candidate.unwrap());
+        let facts =
+            load_global_search_source_health_candidate(&transaction, Query::Original).unwrap();
+        assert_eq!(probe.revision_facts_json, facts.revision_facts_json);
+        assert_eq!(
+            pinned_before.index_status,
+            snapshot_on_connection(&transaction, "txt")
+                .unwrap()
+                .index_status
+        );
         transaction
             .commit()
             .expect("commit concurrent reader snapshot");
+        assert_ne!(
+            db.search_global_entries_snapshot("txt", 80, 0)
+                .unwrap()
+                .source_revision,
+            pinned_before.source_revision
+        );
     }
     worker.join().expect("join source-health writer");
 
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn exact_count_snapshot_preserves_nullable_max_orphans_and_all_source_states() {
+    let path = test_db_path();
+    let db = Database::open(&path).unwrap();
+    for source in [
+        volume("a", true),
+        volume("b", false),
+        volume("c", true),
+        volume("d", true),
+    ] {
+        db.upsert_global_volume(&source).unwrap();
+    }
+    let template = entry("a", r"C:\Global\template.txt", "template.txt", 1);
+    db.upsert_global_entries_batch(&[template]).unwrap();
+    let mut conn = db.conn().unwrap();
+    // Isolated temporary shadow retains the full search row shape, while
+    // allowing hostile NULL/MAX/orphan data that writers normally avoid.
+    conn.execute_batch(
+        "CREATE TEMP TABLE global_entries AS SELECT * FROM main.global_entries;
+        DELETE FROM temp.global_entries;
+        CREATE UNIQUE INDEX temp.idx_nullable_id ON global_entries(id);
+        CREATE INDEX temp.idx_global_entries_volume ON global_entries(volume_id,is_stale);
+        CREATE INDEX temp.idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC) WHERE is_stale=0;
+        CREATE INDEX temp.idx_global_entries_active_extension_order ON global_entries(extension,modified_at_fs DESC,id ASC) WHERE is_stale=0;",
+    )
+    .unwrap();
+    // Every row inherits a valid full search shape, then only facts are varied.
+    for (id, volume_id, stale, seen) in [
+        (Some("a1"), "a", 0, Some(10)),
+        (None, "a", 0, Some(30)),
+        (None, "a", 1, Some(999)),
+        (Some("b1"), "b", 0, None),
+        (None, "b", 0, Some(77)),
+        (Some("d1"), "d", 1, Some(88)),
+        (None, "orphan", 0, Some(100)),
+        (Some("orphan"), "orphan", 0, Some(200)),
+    ] {
+        conn.execute(
+            "INSERT INTO temp.global_entries SELECT * FROM main.global_entries",
+            [],
+        )
+        .unwrap();
+        conn.execute("UPDATE temp.global_entries SET id=?1, volume_id=?2, is_stale=?3, last_seen_at=?4 WHERE rowid = last_insert_rowid()",params![id,volume_id,stale,seen]).unwrap();
+    }
+    let tx = conn.transaction().unwrap();
+    for status in [
+        "ready",
+        "discovered",
+        "indexing",
+        "syncing",
+        "rebuild_required",
+        "spotlight_not_indexed",
+        "permission_required",
+        "spotlight_unavailable",
+        "spotlight_external_not_indexed",
+        "fsevents_unavailable",
+        "unavailable",
+        "error",
+        "paused",
+    ] {
+        tx.execute("UPDATE global_volumes SET index_status=?1, last_error='old error', updated_at=10, last_incremental_sync_at=123, entry_count=9999",[status]).unwrap();
+        tx.execute(
+            "UPDATE global_volumes SET last_error='latest error', updated_at=20 WHERE id='c'",
+            [],
+        )
+        .unwrap();
+        for enabled in [true, false] {
+            tx.execute(
+                "UPDATE global_volumes SET enabled=?1 WHERE id='b'",
+                [i64::from(enabled)],
+            )
+            .unwrap();
+            let (baseline, base_probe) =
+                capture(false, || snapshot_on_connection(&tx, "zzznomatchtoken"));
+            let baseline = baseline.unwrap();
+            let (candidate, probe) = capture(false, || {
+                with_exact_count(|| snapshot_on_connection(&tx, "zzznomatchtoken"))
+            });
+            assert_snapshot_equal(&baseline, &candidate.unwrap());
+            assert_eq!(probe.revision_facts_json, base_probe.revision_facts_json);
+            let reference =
+                load_global_search_source_health_candidate(&tx, Query::Original).unwrap();
+            assert_eq!(probe.revision_facts_json, reference.revision_facts_json);
+            assert_eq!(
+                probe.exact_count_parts,
+                Some((if enabled { 2 } else { 1 }, if enabled { 2 } else { 1 }))
+            );
+            assert_eq!(
+                baseline.index_status.last_error.as_deref(),
+                Some("latest error")
+            );
+        }
+    }
+    // Empty, all-disabled and all-stale cases must supply a real zero instead
+    // of accidentally invoking the original COUNT(*) branch.
+    for sql in [
+        "UPDATE global_volumes SET enabled=0",
+        "UPDATE global_volumes SET enabled=1; UPDATE global_entries SET is_stale=1",
+        "DELETE FROM global_entries",
+        "DELETE FROM global_volumes",
+    ] {
+        tx.execute_batch(sql).unwrap();
+        let baseline = snapshot_on_connection(&tx, "zzznomatchtoken").unwrap();
+        let (candidate, probe) = capture(false, || {
+            with_exact_count(|| snapshot_on_connection(&tx, "zzznomatchtoken"))
+        });
+        assert_snapshot_equal(&baseline, &candidate.unwrap());
+        assert_eq!(probe.exact_count_parts, Some((0, 0)));
+        assert_eq!(baseline.index_status.total_entries, 0);
+    }
+    tx.rollback().unwrap();
+    drop(conn);
     drop(db);
     let _ = std::fs::remove_file(path);
 }

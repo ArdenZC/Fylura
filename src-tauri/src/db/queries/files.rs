@@ -1699,7 +1699,7 @@ impl Database {
         file_id: &str,
         new_name: &str,
     ) -> Result<OperationPreviewDto, DbError> {
-        let invalid = |message: String| DbError::Validation(message);
+        let invalid = DbError::Validation;
         let mut row = self
             .get_indexed_file_rows_by_ids(&[file_id.to_string()])?
             .into_iter()

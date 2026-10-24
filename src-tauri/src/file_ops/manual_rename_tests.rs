@@ -93,7 +93,7 @@ fn m1_r4_manual_rename_preview_execute_history_restore_preserves_file_and_tags()
         })
         .unwrap();
         assert!(db
-            .get_operation_previews_by_file_ids(&[fixture.id.clone()])
+            .get_operation_previews_by_file_ids(std::slice::from_ref(&fixture.id))
             .unwrap()
             .is_empty());
         let preview = db
@@ -126,7 +126,7 @@ fn m1_r4_manual_rename_preview_execute_history_restore_preserves_file_and_tags()
         assert_eq!(logs.len(), 1);
         assert!(logs[0].can_restore);
         let restorable = db
-            .get_restorable_operation_logs_by_ids(&[logs[0].id.clone()])
+            .get_restorable_operation_logs_by_ids(std::slice::from_ref(&logs[0].id))
             .unwrap();
         let restored =
             restore_moves_with_persistence(db, RestoreMovesRequest { logs: restorable }).unwrap();

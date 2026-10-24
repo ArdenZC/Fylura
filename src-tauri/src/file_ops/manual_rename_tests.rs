@@ -12,6 +12,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_legacy_id(false)
+    }
+    fn with_legacy_id(legacy: bool) -> Self {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join(".tmp-tests")
             .join(format!("m1-r4-{}", uuid::Uuid::new_v4()));
@@ -21,7 +24,11 @@ impl Fixture {
         let source = root.join("folder.txt/original.txt");
         fs::write(&source, b"owned fixture").unwrap();
         let db = Database::open(root.join("fixture.sqlite3")).unwrap();
-        let id = format!("zen-canvas-source:{}", uuid::Uuid::new_v4());
+        let id = if legacy {
+            normalize_path(&source)
+        } else {
+            format!("zen-canvas-source:{}", uuid::Uuid::new_v4())
+        };
         let metadata = fs::metadata(&source).unwrap();
         db.insert_file(InsertFileRequest {
             id: id.clone(),
@@ -67,67 +74,74 @@ impl Fixture {
 
 #[test]
 fn m1_r4_manual_rename_preview_execute_history_restore_preserves_file_and_tags() {
-    let fixture = Fixture::new();
-    let db = &fixture.db;
-    let tag = db
-        .create_user_tag(CreateUserTagRequest {
-            display_name: "Owned fixture".into(),
-            color_token: "blue".into(),
+    for legacy in [false, true] {
+        let fixture = Fixture::with_legacy_id(legacy);
+        let db = &fixture.db;
+        let tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "Owned fixture".into(),
+                color_token: "blue".into(),
+            })
+            .unwrap();
+        db.mutate_file_user_tags(MutateFileUserTagsRequest {
+            selection: LibrarySelectionV1::Explicit {
+                file_ids: vec![fixture.id.clone()],
+            },
+            tag_ids: vec![tag.id.clone()],
+            operation: UserTagMutationOperation::Add,
+            expected_count: Some(1),
         })
         .unwrap();
-    db.mutate_file_user_tags(MutateFileUserTagsRequest {
-        selection: LibrarySelectionV1::Explicit {
-            file_ids: vec![fixture.id.clone()],
-        },
-        tag_ids: vec![tag.id.clone()],
-        operation: UserTagMutationOperation::Add,
-        expected_count: Some(1),
-    })
-    .unwrap();
-    assert!(db
-        .get_operation_previews_by_file_ids(&[fixture.id.clone()])
-        .unwrap()
-        .is_empty());
-    let preview = db
-        .get_manual_rename_operation_preview(&fixture.id, "手动重命名")
-        .unwrap();
-    assert_eq!(preview.operation_type, "rename");
-    assert_eq!(preview.new_name, "手动重命名.txt");
-    assert_eq!(
-        Path::new(&preview.target_path).parent(),
-        fixture.source.parent()
-    );
-    assert!(preview.requires_confirmation);
-    assert_eq!(preview.selected_by_default, Some(false));
-    assert!(db.get_operation_logs(Some(10)).unwrap().is_empty());
-    assert!(fixture.source.exists()); // Preview performs no filesystem write.
-    let request = resolve_execute_selections(db, fixture.selection(&preview)).unwrap();
-    let result = execute_moves_with_persistence(db, request).unwrap();
-    assert_eq!(result.logs[0].status, "success");
-    assert!(!fixture.source.exists());
-    assert_eq!(fs::read(&preview.target_path).unwrap(), b"owned fixture");
-    let detail = db.get_file_library_detail(&fixture.id).unwrap();
-    assert_eq!(detail.name, "手动重命名.txt");
-    assert_eq!(detail.tags[0].id, tag.id);
-    let logs = db.get_operation_logs(Some(10)).unwrap();
-    assert_eq!(logs.len(), 1);
-    assert!(logs[0].can_restore);
-    let restorable = db
-        .get_restorable_operation_logs_by_ids(&[logs[0].id.clone()])
-        .unwrap();
-    let restored =
-        restore_moves_with_persistence(db, RestoreMovesRequest { logs: restorable }).unwrap();
-    assert_eq!(restored.restored, 1);
-    assert_eq!(fs::read(&fixture.source).unwrap(), b"owned fixture");
-    assert!(!Path::new(&preview.target_path).exists());
-    let detail = db.get_file_library_detail(&fixture.id).unwrap();
-    assert_eq!(detail.name, "original.txt");
-    assert_eq!(detail.tags[0].id, tag.id);
-    assert_eq!(
-        db.get_operation_logs(Some(10)).unwrap()[0].restore_status,
-        "restored"
-    );
-    fixture.finish();
+        assert!(db
+            .get_operation_previews_by_file_ids(&[fixture.id.clone()])
+            .unwrap()
+            .is_empty());
+        let preview = db
+            .get_manual_rename_operation_preview(&fixture.id, "手动重命名")
+            .unwrap();
+        assert_eq!(preview.operation_type, "rename");
+        assert_eq!(preview.new_name, "手动重命名.txt");
+        assert_eq!(
+            Path::new(&preview.target_path).parent(),
+            fixture.source.parent()
+        );
+        assert!(preview.requires_confirmation);
+        assert_eq!(preview.selected_by_default, Some(false));
+        assert!(db.get_operation_logs(Some(10)).unwrap().is_empty());
+        assert!(fixture.source.exists()); // Preview performs no filesystem write.
+        let request = resolve_execute_selections(db, fixture.selection(&preview)).unwrap();
+        let result = execute_moves_with_persistence(db, request).unwrap();
+        assert_eq!(result.logs[0].status, "success");
+        assert!(!fixture.source.exists());
+        assert_eq!(fs::read(&preview.target_path).unwrap(), b"owned fixture");
+        let renamed_id = if legacy {
+            preview.target_path.clone()
+        } else {
+            fixture.id.clone()
+        };
+        let detail = db.get_file_library_detail(&renamed_id).unwrap();
+        assert_eq!(detail.name, "手动重命名.txt");
+        assert_eq!(detail.tags[0].id, tag.id);
+        let logs = db.get_operation_logs(Some(10)).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].can_restore);
+        let restorable = db
+            .get_restorable_operation_logs_by_ids(&[logs[0].id.clone()])
+            .unwrap();
+        let restored =
+            restore_moves_with_persistence(db, RestoreMovesRequest { logs: restorable }).unwrap();
+        assert_eq!(restored.restored, 1);
+        assert_eq!(fs::read(&fixture.source).unwrap(), b"owned fixture");
+        assert!(!Path::new(&preview.target_path).exists());
+        let detail = db.get_file_library_detail(&fixture.id).unwrap();
+        assert_eq!(detail.name, "original.txt");
+        assert_eq!(detail.tags[0].id, tag.id);
+        assert_eq!(
+            db.get_operation_logs(Some(10)).unwrap()[0].restore_status,
+            "restored"
+        );
+        fixture.finish();
+    }
 }
 
 #[test]

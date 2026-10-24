@@ -8,6 +8,9 @@ import { makeTranslator } from "../src/i18n";
 import type { FileLibrarySummary, OperationPreview } from "../src/types/domain";
 import { LibraryContextMenu } from "../src/views/fileLibrary/library/LibraryContextMenu";
 import { ManualRenameDialog } from "../src/views/fileLibrary/library/ManualRenameDialog";
+import { refreshRenamedSelection } from "../src/store/operationQueue/renameSelectionRefresh";
+import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../src/store/useFileLibraryV2Store";
+import type { FileLibraryDetail } from "../src/types/domain";
 
 const t = makeTranslator("en");
 const file = { id: "owned-file-id", name: "original.txt", isDirectory: false, isStale: false } as FileLibrarySummary;
@@ -15,10 +18,54 @@ const preview = { id: "op-manual-rename-owned", fileId: file.id, new_name: "ф╕нц
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  useFileLibrarySelectionStore.getState().clear();
+  useFileLibraryInspectorStore.getState().clear();
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+});
+
+it("rebinds legacy path IDs after rename and restore using backend-confirmed detail", async () => {
+  const oldPath = "F:/owned/original.txt"; const nextPath = "F:/owned/renamed.txt";
+  const selected = useFileLibrarySelectionStore.getState();
+  selected.setExplicit([oldPath], oldPath, 4);
+  useFileLibraryInspectorStore.setState({ selectedId: oldPath });
+  const detail = vi.spyOn(tauriApi, "getFileLibraryDetail")
+    // A replacement appeared at the original path; never select that object.
+    .mockResolvedValueOnce({ id: oldPath, path: oldPath, isStale: false } as FileLibraryDetail)
+    .mockResolvedValueOnce({ id: nextPath, path: nextPath, isStale: false } as FileLibraryDetail);
+  await refreshRenamedSelection(oldPath, nextPath);
+  expect(detail.mock.calls).toEqual([[oldPath], [nextPath]]);
+  expect(useFileLibrarySelectionStore.getState()).toMatchObject({ selection: { kind: "explicit", fileIds: [nextPath] }, focusedId: nextPath, anchorIndex: -1 });
+  expect(useFileLibraryInspectorStore.getState().selectedId).toBeNull();
+  detail.mockRejectedValueOnce(new Error("old ID retired"))
+    .mockResolvedValueOnce({ id: oldPath, path: oldPath, isStale: false } as FileLibraryDetail);
+  await refreshRenamedSelection(nextPath, oldPath);
+  expect(useFileLibrarySelectionStore.getState()).toMatchObject({ selection: { kind: "explicit", fileIds: [oldPath] }, focusedId: oldPath });
+});
+
+it("preserves a stable backend ID and does not steal a newer selection during refresh", async () => {
+  const store = useFileLibrarySelectionStore.getState();
+  store.setExplicit(["stable-id"], "stable-id");
+  const detail = vi.spyOn(tauriApi, "getFileLibraryDetail")
+    .mockResolvedValueOnce({ id: "stable-id", path: "F:/owned/next.txt", isStale: false } as FileLibraryDetail);
+  await refreshRenamedSelection("stable-id", "F:/owned/next.txt");
+  expect(useFileLibrarySelectionStore.getState().focusedId).toBe("stable-id");
+  let resolve!: (value: FileLibraryDetail) => void;
+  detail.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+  const pending = refreshRenamedSelection("stable-id", "F:/owned/next.txt");
+  store.setExplicit(["newer-user-selection"], "newer-user-selection");
+  resolve({ id: "stable-id", path: "F:/owned/next.txt", isStale: false } as FileLibraryDetail);
+  await pending;
+  expect(useFileLibrarySelectionStore.getState().focusedId).toBe("newer-user-selection");
+});
+
+it("clears an obsolete selection when no committed file identity can be resolved", async () => {
+  useFileLibrarySelectionStore.getState().setExplicit(["retired-id"], "retired-id", 5);
+  vi.spyOn(tauriApi, "getFileLibraryDetail").mockRejectedValue(new Error("unavailable"));
+  await refreshRenamedSelection("retired-id", "F:/owned/next.txt");
+  expect(useFileLibrarySelectionStore.getState()).toMatchObject({ selection: null, focusedId: "", anchorIndex: -1 });
 });
 afterEach(() => {
   act(() => root.unmount());

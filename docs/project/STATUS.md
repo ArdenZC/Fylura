@@ -14,7 +14,9 @@ Last verified: 2026-10-09
   are blocked without overwrite. Read-only/missing sources and stale/replaced
   files fail closed; stale consent reacquires the manual intent without retry.
   Existing managed refresh, user tags, neutral file IDs, History and Restore are
-  retained. No schema, SourceUID/RootEpoch algorithm, index/scan, AI default,
+  retained. Legacy path-ID selections are rebound only to backend-confirmed
+  detail after committed Rename/Restore, without stealing newer user selection.
+  No schema, SourceUID/RootEpoch algorithm, index/scan, AI default,
   filesystem strategy or release change. Tests use only disposable owned files.
   Move and interactive conflict resolution remain M1-R4B; case-only rename and
   directory rename are outside this slice. Normal PR CI owns hosted platform

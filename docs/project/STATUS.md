@@ -4,7 +4,18 @@ Last verified: 2026-10-09
 
 ## Current execution truth
 
-- **M1-R1 Windows Cleanup output-name safety — Draft / Owner review pending.**
+- **M1-R2 Windows Watcher metadata / scan occupancy — Draft / Owner review pending.**
+  Baseline: merged #458 `master@649c143` (2026-10-24), Schema 42 unchanged.
+  Watcher-triggered refresh now reaches managed Query V2 results, Details and
+  scope health; invalidation supersedes pre-publication in-flight reads.
+  Duplicate root-lease admission remains protected and is presented as a
+  nonfatal already-running notice, without claiming completion or caching
+  the root as indexed. Existing Windows real-Watcher regression covers
+  initial scan, modify/mtime, rename and changes under an active scan lease.
+  Normal PR CI owns Windows/macOS evidence; Windows 11 product requalification
+  remains Owner acceptance. No new polling, workers, roots or schema.
+
+- **M1-R1 Windows Cleanup output-name safety — MERGED #458 / Windows native requalification pending.**
   Based on latest fetched master `af316d4` (2026-10-24). Ordinary `build`, `dist`,
   `target`, `.next`, `.nuxt` and `.turbo` names now require Review/Reveal;
   historical Safe projections and cleanup authorization independently recheck

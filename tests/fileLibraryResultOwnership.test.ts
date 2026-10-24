@@ -2,20 +2,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cloneFileQuerySpec,
   defaultFileLibraryQuerySpec,
+  useFileLibraryInspectorStore,
+  useFileLibrarySelectionStore,
   useFileLibraryQueryStore,
   useFileLibraryResultStore
 } from "../src/store/useFileLibraryV2Store";
+import { useFileLibraryStore, emptyStats } from "../src/store/useFileLibraryStore";
 import type { FileQueryRequestV2, FileQueryResponseV2, FileQuerySpecV2 } from "../src/types/domain";
 
 const api = vi.hoisted(() => ({
   query: vi.fn(),
-  exactCount: vi.fn()
+  exactCount: vi.fn(),
+  detail: vi.fn(),
+  stats: vi.fn(),
+  legacy: vi.fn()
 }));
 
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
     queryFileLibraryV2: api.query,
-    resolveFileLibraryExactCountV2: api.exactCount
+    resolveFileLibraryExactCountV2: api.exactCount,
+    getFileLibraryDetail: api.detail,
+    getStatsSummary: api.stats,
+    getPagedFiles: api.legacy
   }
 }));
 
@@ -74,7 +83,12 @@ function resetStores() {
     scopeHealth: null
   });
   useFileLibraryResultStore.getState().clear();
+  useFileLibraryInspectorStore.getState().clear();
+  useFileLibrarySelectionStore.getState().clear();
   api.query.mockReset();
+  api.detail.mockReset();
+  api.stats.mockResolvedValue(emptyStats);
+  api.legacy.mockResolvedValue({ files: [], total: 0, limit: 50, offset: 0 });
   api.exactCount.mockReset();
 }
 
@@ -85,6 +99,54 @@ async function flushPromises() {
 beforeEach(resetStores);
 
 describe("File Library result ownership", () => {
+  it("refreshes the real Query V2 list, Details and sync health through the runtime watcher callback", async () => {
+    let published = false;
+    api.query.mockImplementation((request: FileQueryRequestV2) => {
+      const response = queryResponse(request, {
+        snapshotRevision: published ? 2 : 1,
+        scopeHealth: { state: published ? "healthy" : "reconciliation_required", roots: [], invalidReferences: [], message: null }
+      });
+      response.files[0] = { ...response.files[0], size: published ? 57 : 10, modifiedAt: published ? 200 : 100 };
+      return Promise.resolve(response);
+    });
+    api.detail.mockImplementation(async () => ({ id: "file-a", size: published ? 57 : 10, modifiedAt: published ? 200 : 100 }));
+    await useFileLibraryResultStore.getState().loadFirstPage();
+    await useFileLibraryInspectorStore.getState().loadDetail("file-a");
+    expect(useFileLibraryResultStore.getState().files[0].size).toBe(10);
+    expect(useFileLibraryInspectorStore.getState().detail?.size).toBe(10);
+    published = true;
+    // AppRuntimeProviders' useFsWatcher callback invokes this existing refresh.
+    await useFileLibraryStore.getState().refresh();
+    expect(useFileLibraryResultStore.getState().files[0]).toMatchObject({ size: 57, modifiedAt: 200 });
+    expect(useFileLibraryInspectorStore.getState().detail).toMatchObject({ size: 57, modifiedAt: 200 });
+    expect(useFileLibraryQueryStore.getState().scopeHealth?.state).toBe("healthy");
+  });
+
+  it("refreshes metadata and scope health even while the same query is in flight", async () => {
+    const old = deferred<FileQueryResponseV2>();
+    let oldRequest!: FileQueryRequestV2;
+    api.query.mockImplementationOnce((request: FileQueryRequestV2) => {
+      oldRequest = request;
+      return old.promise;
+    }).mockImplementation((request: FileQueryRequestV2) => {
+      const response = queryResponse(request, { snapshotRevision: 2 });
+      response.files[0] = { ...response.files[0], size: 57, modifiedAt: 200 };
+      return Promise.resolve(response);
+    });
+    const pending = useFileLibraryResultStore.getState().loadFirstPage();
+    await useFileLibraryResultStore.getState().refresh();
+    expect(api.query).toHaveBeenCalledTimes(2);
+    expect(useFileLibraryResultStore.getState().files[0]).toMatchObject({ size: 57, modifiedAt: 200 });
+    expect(useFileLibraryQueryStore.getState().scopeHealth?.state).toBe("healthy");
+    old.resolve(queryResponse(oldRequest, {
+      scopeHealth: { state: "reconciliation_required", roots: [], invalidReferences: [], message: null }
+    }));
+    await pending;
+    expect(useFileLibraryResultStore.getState().files[0]).toMatchObject({ size: 57, modifiedAt: 200 });
+    expect(useFileLibraryQueryStore.getState().snapshotRevision).toBe(2);
+    expect(useFileLibraryQueryStore.getState().scopeHealth?.state).toBe("healthy");
+  });
+
   it("ignores a pending first page after clear", async () => {
     const pending = deferred<FileQueryResponseV2>();
     api.query.mockReturnValueOnce(pending.promise);

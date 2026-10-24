@@ -2331,36 +2331,79 @@ mod tests {
             root_id: &str,
             previous: (i64, i64, i64, Option<i64>),
             file_path: &Path,
+            settled: bool,
         ) -> (i64, i64, i64, Option<i64>) {
-            let deadline = Instant::now() + Duration::from_secs(12);
+            let metadata = std::fs::metadata(file_path).expect("read external metadata");
+            let expected_size = metadata.len() as i64;
+            let expected_mtime = metadata
+                .modified()
+                .unwrap()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            let normalized_path = crate::db::normalize_path_text(&file_path.to_string_lossy());
+            let deadline = Instant::now() + Duration::from_secs(20);
             loop {
                 let current = durable_state(db, root_id);
+                let root_health = db.get_scan_root_health(Some(root_id), None).unwrap();
+                let persisted = db.conn().unwrap().query_row(
+                    "SELECT id, size, mtime FROM files WHERE path=?1 AND is_stale=0",
+                    [&normalized_path],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                );
                 if current.0 > previous.0
-                    && current.1 >= current.0
                     && current.2 > previous.2
                     && current.3.is_some()
+                    && (!settled
+                        || (current.1 >= current.0
+                            && !root_health.needs_reconciliation
+                            && root_health.active_run_id.is_none()
+                            && root_health.health_status == "healthy"))
                 {
-                    let normalized_path =
-                        crate::db::normalize_path_text(&file_path.to_string_lossy());
-                    let persisted_size = db
-                        .conn()
-                        .expect("open file publication connection")
-                        .query_row(
-                            "SELECT size FROM files WHERE path=?1 AND is_stale=0",
-                            [&normalized_path],
-                            |row| row.get::<_, i64>(0),
-                        )
-                        .expect("read persisted file size");
-                    assert_eq!(
-                        persisted_size,
-                        std::fs::metadata(file_path).unwrap().len() as i64
-                    );
-                    return current;
+                    if let Ok((id, size, mtime)) = persisted {
+                        if size == expected_size && mtime == expected_mtime {
+                            use crate::db::{
+                                FileLibraryScopeV2, FileQueryFiltersV2, FileQueryRequestV2,
+                                FileQuerySpecV2,
+                            };
+                            let page = db
+                                .query_file_library_v2(FileQueryRequestV2 {
+                                    version: 2,
+                                    request_id: "m1-r2-watcher-metadata".to_string(),
+                                    query: FileQuerySpecV2 {
+                                        scope: FileLibraryScopeV2::AllEnabledRoots,
+                                        text: None,
+                                        filters: FileQueryFiltersV2::default(),
+                                        sort: Default::default(),
+                                    },
+                                    page_size: 50,
+                                    cursor: None,
+                                })
+                                .expect("query actual File Library DTO");
+                            if let Some(row) = page.files.iter().find(|row| row.id == id) {
+                                let detail = db
+                                    .get_file_library_detail(&id)
+                                    .expect("read actual Details DTO");
+                                if row.size == expected_size
+                                    && row.modified_at == expected_mtime
+                                    && detail.size == expected_size
+                                    && detail.modified_at == expected_mtime
+                                    && (!settled || page.scope_health.state == "healthy")
+                                {
+                                    return current;
+                                }
+                            }
+                        }
+                    }
                 }
-                assert!(
-                    Instant::now() < deadline,
-                    "real RecommendedWatcher did not publish within the bounded deadline: current={current:?}, previous={previous:?}"
-                );
+                assert!(Instant::now() < deadline,
+                    "watcher publication did not settle: current={current:?}, previous={previous:?}, settled={settled}");
                 thread::sleep(Duration::from_millis(25));
             }
         }
@@ -2421,11 +2464,38 @@ mod tests {
         let manager = FileWatcherManager::default();
         let jobs = ScanJobManager::default();
         let dedupe_jobs = DedupeJobManager::default();
+        std::fs::write(root.join("initial.txt"), b"initial scan fixture").unwrap();
+        let initial = crate::scanner::start_performance_managed_scan(
+            app.handle().clone(),
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+            root.clone(),
+            format!("m1-r2-initial-{}", uuid::Uuid::new_v4()),
+            "background",
+        )
+        .expect("initial managed scan");
+        initial.worker.join().expect("initial scan completes");
+        assert_eq!(
+            db.get_scan_run_record(&initial.run_id).unwrap().dto.status,
+            "completed"
+        );
+        assert!(
+            !db.get_scan_root_health(Some(&root_config.id), None)
+                .unwrap()
+                .needs_reconciliation
+        );
         let watch_paths =
             existing_watch_paths_from_default_scan_folders(&settings.default_scan_folders);
         assert_eq!(watch_paths.len(), 1);
         assert!(manager
-            .restart_backend(app_handle, watch_paths, db.clone(), jobs, dedupe_jobs,)
+            .restart_backend(
+                app_handle,
+                watch_paths,
+                db.clone(),
+                jobs.clone(),
+                dedupe_jobs.clone(),
+            )
             .expect("start production backend watcher session"));
         assert_eq!(
             manager.active_roots().expect("active watcher roots"),
@@ -2435,7 +2505,8 @@ mod tests {
         let before_create = durable_state(&db, &root_config.id);
         let file_path = root.join("native-event.txt");
         std::fs::write(&file_path, b"first durable event").expect("create file through std::fs");
-        let after_create = wait_for_publication(&db, &root_config.id, before_create, &file_path);
+        let after_create =
+            wait_for_publication(&db, &root_config.id, before_create, &file_path, true);
 
         let mut file = std::fs::OpenOptions::new()
             .append(true)
@@ -2445,7 +2516,121 @@ mod tests {
         file.write_all(b" plus append")
             .expect("append through std::fs");
         drop(file);
-        let after_append = wait_for_publication(&db, &root_config.id, after_create, &file_path);
+        let after_append =
+            wait_for_publication(&db, &root_config.id, after_create, &file_path, true);
+
+        // Same-size external modification with a distinct filesystem mtime.
+        let same_size = std::fs::metadata(&file_path).unwrap().len() as usize;
+        std::fs::write(&file_path, vec![b'x'; same_size]).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file_path)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(UNIX_EPOCH + Duration::from_secs(1_900_000_000)),
+            )
+            .unwrap();
+        let after_modify =
+            wait_for_publication(&db, &root_config.id, after_append, &file_path, true);
+
+        let renamed = root.join("renamed.txt");
+        std::fs::rename(&file_path, &renamed).unwrap();
+        let after_rename = wait_for_publication(&db, &root_config.id, after_modify, &renamed, true);
+
+        // Hold an admitted running scan's durable lease while real Windows
+        // rename/write notifications are applied. Finalize it as superseded
+        // coverage, then run the same reconciliation admission used on completion.
+        let active_scan = db
+            .admit_managed_scan(&crate::db::scan::ScanAdmissionOptions {
+                request: crate::db::scan::ManagedScanRequest {
+                    roots: vec![root.to_string_lossy().into_owned()],
+                    request_key: Some("m1-r2-active-scan".to_string()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit active scan fixture");
+        let active_run = active_scan.runs[0].id.clone();
+        db.claim_queued_scan_run(&active_run)
+            .expect("claim the scan lease");
+        let final_path = root.join("renamed-during-scan.txt");
+        std::fs::rename(&renamed, &final_path).unwrap();
+        std::fs::write(&final_path, b"changed during the held scan").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&final_path)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(UNIX_EPOCH + Duration::from_secs(1_900_000_100)),
+            )
+            .unwrap();
+        wait_for_publication(&db, &root_config.id, after_rename, &final_path, false);
+        let pending = db
+            .get_scan_root_health(Some(&root_config.id), None)
+            .unwrap();
+        assert_eq!(pending.active_run_id.as_deref(), Some(active_run.as_str()));
+        assert!(
+            pending.needs_reconciliation,
+            "a held scan must not claim synchronization"
+        );
+        let competing = db
+            .admit_managed_scan(&crate::db::scan::ScanAdmissionOptions {
+                request: crate::db::scan::ManagedScanRequest {
+                    roots: vec![root.to_string_lossy().into_owned()],
+                    request_key: Some("m1-r2-competing".to_string()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect_err("the existing root lease must reject duplicate admission");
+        assert!(competing.to_string().contains("active run"));
+        assert_eq!(
+            db.get_scan_root_health(Some(&root_config.id), None)
+                .unwrap()
+                .active_run_id
+                .as_deref(),
+            Some(active_run.as_str())
+        );
+        let record = db.get_scan_run_record(&active_run).unwrap();
+        let finalized = db
+            .finalize_scan_run(
+                &active_run,
+                record.dto.revision,
+                record.root_revision,
+                record.session_revision,
+                &crate::db::scan::ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
+                },
+            )
+            .expect("finalize scan whose snapshot was superseded by watcher changes");
+        assert_eq!(finalized.run.dto.status, "completed_with_warnings");
+        assert!(
+            db.get_scan_root_health(Some(&root_config.id), None)
+                .unwrap()
+                .needs_reconciliation
+        );
+        crate::scanner::schedule_watcher_reconciliation_roots(
+            app.handle().clone(),
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+            vec![root_config.id.clone()],
+        )
+        .expect("admit or join reconciliation after the scan releases its lease");
+        let after_active_scan =
+            wait_for_publication(&db, &root_config.id, after_rename, &final_path, true);
+        let old_paths: i64 = db.conn().unwrap().query_row(
+            "SELECT COUNT(*) FROM files WHERE name IN ('native-event.txt','renamed.txt') AND is_stale=0", [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(old_paths, 0);
+        std::fs::write(&final_path, b"changed again after automatic reconciliation").unwrap();
+        wait_for_publication(&db, &root_config.id, after_active_scan, &final_path, true);
 
         assert!(after_create.0 > before_create.0);
         assert!(after_create.1 >= after_create.0);

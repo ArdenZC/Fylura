@@ -5,6 +5,7 @@ const runtimeMocks = vi.hoisted(() => ({
   cancelScanRun: vi.fn(),
   refresh: vi.fn(),
   showError: vi.fn(),
+  showToast: vi.fn(),
   isScanning: false
 }));
 
@@ -16,7 +17,7 @@ vi.mock("../src/api/tauriApi", () => ({
 }));
 
 vi.mock("../src/store/useAppStore", () => ({
-  useAppStore: { getState: () => ({ searchQuery: "", showError: runtimeMocks.showError }) }
+  useAppStore: { getState: () => ({ searchQuery: "", showError: runtimeMocks.showError, showToast: runtimeMocks.showToast, language: "zh" }) }
 }));
 
 vi.mock("../src/store/useFileLibraryStore", () => ({
@@ -36,6 +37,7 @@ describe("background indexer lifecycle", () => {
     runtimeMocks.cancelScanRun.mockReset().mockResolvedValue({});
     runtimeMocks.refresh.mockReset().mockResolvedValue(undefined);
     runtimeMocks.showError.mockReset();
+    runtimeMocks.showToast.mockReset();
     runtimeMocks.isScanning = false;
     useBackgroundIndexerStore.setState({
       pendingRoots: [],
@@ -44,6 +46,28 @@ describe("background indexer lifecycle", () => {
       failedRoots: [],
       completedRoots: []
     });
+  });
+
+  it.each([
+    "Scan root already has an active run: F:/busy-m1",
+    "Scan root overlaps an active root lease: F:/busy-m1 overlaps F:/busy-m1/child (run-1)"
+  ])("reports occupied admission as nonfatal without completing or caching the root: %s", async (message) => {
+    const root = `F:/busy-m1-${message.includes("overlaps") ? "overlap" : "same"}`;
+    runtimeMocks.startManagedScan.mockRejectedValueOnce(new Error(`Validation error: ${message}`));
+    useBackgroundIndexerStore.getState().enqueueRoot(root);
+    await flushPromises();
+    expect(useBackgroundIndexerStore.getState().failedRoots).toEqual([]);
+    expect(useBackgroundIndexerStore.getState().completedRoots).toEqual([]);
+    expect(useBackgroundIndexerStore.getState().isBackgroundIndexing).toBe(false);
+    expect(runtimeMocks.showError).not.toHaveBeenCalled();
+    expect(runtimeMocks.showToast).toHaveBeenCalledWith(expect.objectContaining({ type: "info" }));
+    expect(runtimeMocks.refresh).not.toHaveBeenCalled();
+
+    runtimeMocks.startManagedScan.mockResolvedValue(managedStart("completed", root));
+    useBackgroundIndexerStore.getState().enqueueRoot(root);
+    await flushPromises();
+    expect(runtimeMocks.startManagedScan).toHaveBeenCalledTimes(2);
+    expect(useBackgroundIndexerStore.getState().completedRoots).toEqual([root]);
   });
 
   it("ignores a stale scan completion after cancellation", async () => {

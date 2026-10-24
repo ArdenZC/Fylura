@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -245,3 +245,41 @@ function managedEvent(overrides: Partial<ManagedScanEvent> = {}): ManagedScanEve
     ...overrides
   };
 }
+
+
+describe("M1 scan admission occupancy", () => {
+  it.each([
+    "Scan root already has an active run: F:/Library",
+    "Scan root overlaps an active root lease: F:/Library overlaps F:/Library/child (run-1)"
+  ])("keeps foreground occupancy informational without cancelling another owner: %s", async (message) => {
+    const { tauriApi } = await import("../src/api/tauriApi");
+    const { useScanManagerStore } = await import("../src/store/useScanManagerStore");
+    const { useAppStore } = await import("../src/store/useAppStore");
+    useScanManagerStore.getState().reset();
+    const initialize = useScanManagerStore.getState().initializeScanListeners;
+    useScanManagerStore.setState({ initializeScanListeners: async () => {} });
+    const start = vi.spyOn(tauriApi, "startManagedScan").mockRejectedValue(new Error(message));
+    const cancel = vi.spyOn(tauriApi, "cancelScanRun");
+    try {
+      await useScanManagerStore.getState().scanPaths(["F:/Library"]);
+      expect(useScanManagerStore.getState().isScanning).toBe(false);
+      expect(useScanManagerStore.getState().scanState).toMatchObject({ status: "idle", error: null });
+      expect(useAppStore.getState().toast?.type).toBe("info");
+      expect(cancel).not.toHaveBeenCalled();
+    } finally {
+      start.mockRestore();
+      cancel.mockRestore();
+      useScanManagerStore.setState({ initializeScanListeners: initialize });
+      useScanManagerStore.getState().reset();
+      useAppStore.getState().clearToast();
+    }
+  });
+});
+
+
+it("does not reinterpret genuine scan errors as normal occupancy", async () => {
+  const { isScanAdmissionBusy } = await import("../src/utils/scanAdmission");
+  for (const error of ["sqlite error: database is locked", "permission denied", "Scan finalization lost root lease", "Scan root has an invalid path"]) {
+    expect(isScanAdmissionBusy(new Error(error))).toBe(false);
+  }
+});

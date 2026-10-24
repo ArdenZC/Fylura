@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { makeTranslator } from "../i18n";
+import { isScanAdmissionBusy } from "../utils/scanAdmission";
 import { tauriApi, type ManagedScanRequest, type ManagedScanStartDto, type ScanSessionDto } from "../api/tauriApi";
 import { normalizePathLike, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
@@ -176,6 +178,18 @@ async function processBackgroundQueue() {
       }
     } catch (error) {
       if (runGeneration === backgroundGeneration && activeBackgroundJobId === jobId) {
+        if (jobId === null && isScanAdmissionBusy(error)) {
+          // Another owner retains the lease. Do not fail or cache this root as
+          // indexed; a subsequent enqueue remains eligible after it finishes.
+          useBackgroundIndexerStore.setState((state) => ({
+            failedRoots: state.failedRoots.filter((item) => normalizeRoot(item.path) !== normalizeRoot(root))
+          }));
+          useAppStore.getState().showToast({
+            type: "info",
+            message: makeTranslator(useAppStore.getState().language)("scanAlreadyInProgress")
+          });
+          continue;
+        }
         const message = readableError(error);
         useBackgroundIndexerStore.setState((state) => ({
           failedRoots: [

@@ -138,7 +138,7 @@ interface ResultState {
   error: string | null;
   requestEpoch: number;
   activeQueryKey: string | null;
-  loadFirstPage: (spec?: FileQuerySpecV2) => Promise<void>;
+  loadFirstPage: (spec?: FileQuerySpecV2, invalidate?: boolean) => Promise<void>;
   loadNextPage: () => Promise<void>;
   refresh: () => Promise<void>;
   clear: () => void;
@@ -177,11 +177,11 @@ export const useFileLibraryResultStore = create<ResultState>((set, get) => ({
   error: null,
   requestEpoch: 0,
   activeQueryKey: null,
-  loadFirstPage: async (spec) => {
+  loadFirstPage: async (spec, invalidate = false) => {
     const queryStore = useFileLibraryQueryStore.getState();
     const nextSpec = spec ?? queryStore.spec;
     const activeQueryKey = JSON.stringify(nextSpec);
-    if (get().isLoading && get().activeQueryKey === activeQueryKey) return;
+    if (!invalidate && get().isLoading && get().activeQueryKey === activeQueryKey) return;
     const epoch = get().requestEpoch + 1;
     set({ isLoading: true, error: null, requestEpoch: epoch, activeQueryKey, files: [], nextCursor: null, hasMore: false, totalCount: 0, countState: "exact", countToken: null, isCountLoading: false });
     try {
@@ -280,7 +280,8 @@ export const useFileLibraryResultStore = create<ResultState>((set, get) => ({
       }
     }
   },
-  refresh: async () => get().loadFirstPage(),
+  // A filesystem publication invalidates even an identical in-flight query.
+  refresh: async () => get().loadFirstPage(undefined, true),
   clear: () => {
     const requestEpoch = get().requestEpoch + 1;
     set({
@@ -400,7 +401,7 @@ interface InspectorState {
   requestEpoch: number;
   isLoading: boolean;
   error: string | null;
-  loadDetail: (fileId: string | null) => Promise<InspectorDetailLoadResult>;
+  loadDetail: (fileId: string | null, invalidate?: boolean) => Promise<InspectorDetailLoadResult>;
   commitDetailIfCurrent: (fileId: string, detail: FileLibraryDetail, expectedEpoch: number) => boolean;
   loadSelectionSummary: (selection: LibrarySelectionV1 | null) => Promise<void>;
   clear: () => void;
@@ -416,7 +417,7 @@ export const useFileLibraryInspectorStore = create<InspectorState>((set, get) =>
   requestEpoch: 0,
   isLoading: false,
   error: null,
-  loadDetail: async (fileId) => {
+  loadDetail: async (fileId, invalidate = false) => {
     if (!fileId) {
       inFlightDetailRequest = null;
       const epoch = get().requestEpoch + 1;
@@ -425,7 +426,7 @@ export const useFileLibraryInspectorStore = create<InspectorState>((set, get) =>
     }
     const current = get();
     const existing = inFlightDetailRequest;
-    if (existing
+    if (!invalidate && existing
       && existing.fileId === fileId
       && existing.inspectorEpoch === current.requestEpoch
       && current.selectedId === fileId) return existing.promise;
@@ -476,6 +477,16 @@ export const useFileLibraryInspectorStore = create<InspectorState>((set, get) =>
   }
   };
 });
+
+/** Refresh the managed Query V2 projection after a durable filesystem publication. */
+export async function refreshManagedFileLibraryProjection(): Promise<void> {
+  const inspector = useFileLibraryInspectorStore.getState();
+  const selection = useFileLibrarySelectionStore.getState().selection;
+  const detail = inspector.selectedId !== null
+    ? inspector.loadDetail(inspector.selectedId, true)
+    : selection ? inspector.loadSelectionSummary(selection) : Promise.resolve();
+  await Promise.all([useFileLibraryResultStore.getState().refresh(), detail]);
+}
 
 interface TagState {
   tags: UserTag[];

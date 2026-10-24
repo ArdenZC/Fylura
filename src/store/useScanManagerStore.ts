@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { isScanAdmissionBusy } from "../utils/scanAdmission";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -597,6 +598,12 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
         useAppStore.getState().showError(session.errorMessage ?? t("unknown"));
       }
     } catch (error) {
+      if (activeManagedSessionId === null && isScanAdmissionBusy(error)) {
+        activeManagedRequest = null;
+        set({ scanState: initialScanState });
+        useAppStore.getState().showToast({ type: "info", message: t("scanAlreadyInProgress") });
+        return;
+      }
       const message = readableError(error);
       set((state) => ({
         scanState: { ...state.scanState, status: "error", error: message }

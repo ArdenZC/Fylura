@@ -34,7 +34,7 @@ unsafe extern "C" fn trace_callback(
         let Ok(mut slot) = slot.try_borrow_mut() else { return };
         let Some(trace) = slot.as_mut() else { return };
         let stmt = statement.cast::<ffi::sqlite3_stmt>();
-        if event == ffi::SQLITE_TRACE_STMT as u32 {
+        if event == ffi::SQLITE_TRACE_STMT {
             let ptr = unsafe { ffi::sqlite3_sql(stmt) };
             if ptr.is_null() { return; }
             let sql = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
@@ -44,7 +44,7 @@ unsafe extern "C" fn trace_callback(
             if top && trace.active.is_none() {
                 trace.active = Some((sql, ms(trace.origin), None, 0));
             }
-        } else if event == ffi::SQLITE_TRACE_ROW as u32 {
+        } else if event == ffi::SQLITE_TRACE_ROW {
             if let Some((sql, _, first, count)) = trace.active.as_mut() {
                 let ptr = unsafe { ffi::sqlite3_sql(stmt) };
                 if !ptr.is_null() && unsafe { CStr::from_ptr(ptr) }.to_bytes() == sql.as_bytes() {
@@ -52,7 +52,7 @@ unsafe extern "C" fn trace_callback(
                     *count += 1;
                 }
             }
-        } else if event == ffi::SQLITE_TRACE_PROFILE as u32 {
+        } else if event == ffi::SQLITE_TRACE_PROFILE {
             let ptr = unsafe { ffi::sqlite3_sql(stmt) };
             let matches = trace.active.as_ref().is_some_and(|(sql, ..)| {
                 !ptr.is_null() && unsafe { CStr::from_ptr(ptr) }.to_bytes() == sql.as_bytes()
@@ -93,7 +93,7 @@ fn actual_request_with_control(
         assert_eq!(
             ffi::sqlite3_trace_v2(
                 conn.handle(),
-                (ffi::SQLITE_TRACE_STMT | ffi::SQLITE_TRACE_ROW | ffi::SQLITE_TRACE_PROFILE) as u32,
+                ffi::SQLITE_TRACE_STMT | ffi::SQLITE_TRACE_ROW | ffi::SQLITE_TRACE_PROFILE,
                 Some(trace_callback),
                 std::ptr::null_mut()
             ),
@@ -360,13 +360,24 @@ pub(super) fn profile_existing_fixture(db: &Database, conn: &Connection, context
         }
         for limit in [1, 80, 200, 4096] {
             let values = exact_sql_1m_tier_parameters(tier, case.query, limit);
-            assert_eq!(
-                split_sql(conn, &original, &values).0,
-                split_sql(conn, &candidate, &values).0
+            let original_window = split_sql(conn, &original, &values);
+            let candidate_window = split_sql(conn, &candidate, &values);
+            assert_eq!(original_window.0, candidate_window.0);
+            emit_record(
+                &json!({"record_type":"search_path_window_control", "context":context,
+                "query_class":case.class,"tier":tier,"sql_limit":limit,
+                "original":original_window.1,"candidate":candidate_window.1,
+                "result_count":original_window.0.len(),"full_objects_equal":true,
+                "policy":"one exploratory execution per bound limit; no tail claim"}),
             );
         }
         for offset in [0, 40, 4016, 4096] {
-            let (observed, _) = actual_request(db, case.query, offset);
+            let (observed, request) = actual_request(db, case.query, offset);
+            emit_record(
+                &json!({"record_type":"search_path_page_trace", "context":context,
+                "query_class":case.class,"candidate_scope":tier,"offset":offset,
+                "actual_request":request,"result_count":observed.len()}),
+            );
             assert_eq!(
                 observed,
                 candidate_route(conn, case.query, tier, offset),

@@ -4,6 +4,22 @@ Last verified: 2026-10-25
 
 ## Current execution truth
 
+- **M1-W1 Watcher persistent warning — Draft / Owner review and fresh Windows acceptance pending (#381).**
+  Baseline: `master@eb81c63fcfeb8541734476709915d1755be1d361`.
+  Owner's isolated Windows snapshot reports completed reconciliation with healthy
+  root revision 37, watcher/applied revisions 11/11 and no active run or errors,
+  while the old global error toast remains. Durable Watcher warnings now project
+  directly from the existing revision-ordered root store into the shell alert;
+  status and structured-warning events share that ordering. A completed root
+  no longer leaves a one-shot error behind. Other roots' unresolved permission,
+  partial, retry-exhausted and reconciliation warnings remain; unrelated errors
+  and legacy warnings keep their existing lifetime. Query V2 List/Details refresh
+  remains on the existing callback. Focused producer/store/mounted-alert and
+  refresh regressions cover completion, delayed hydration and reordered events.
+  No backend, lease, schema, polling, identity, History/Restore, F1, Index Scope,
+  permission or CI workflow change. Normal PR CI owns hosted validation; a fresh
+  executable still requires Owner Windows QA. No native PASS is claimed.
+
 - **M1-R4B File Library manual Move + non-overwrite conflicts — Draft / Owner review pending (#462).**
   Baseline: merged #463 `master@d94f439a58658c8d0685660115862d19fd5b2f29`,
   postmerge CI [40153269701](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40153269701) SUCCESS;

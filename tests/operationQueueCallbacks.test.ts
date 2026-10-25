@@ -4,6 +4,7 @@ import { operationConfirmationTone, operationNeedsCleanupConfirmation, previewsF
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRulesStore } from "../src/store/useRulesStore";
 import { useAppStore } from "../src/store/useAppStore";
+import { useFileLibrarySelectionStore } from "../src/store/useFileLibraryV2Store";
 import { useOrganizeDecisionStore } from "../src/store/useOrganizeDecisionStore";
 
 const apiMocks = vi.hoisted(() => ({
@@ -12,6 +13,8 @@ const apiMocks = vi.hoisted(() => ({
   getOperationPreviewsForScope: vi.fn(),
   getOperationPreviewsForSelection: vi.fn(),
   getOperationPreviewsByFileIds: vi.fn(),
+  getManualMoveOperationPreview: vi.fn(),
+  getFileLibraryDetail: vi.fn(),
   getManualRenameOperationPreview: vi.fn(),
   getPermanentDeleteOperationPreview: vi.fn(),
   getOperationLogs: vi.fn(),
@@ -29,6 +32,8 @@ vi.mock("../src/api/tauriApi", () => ({
     getOperationPreviewsForScope: apiMocks.getOperationPreviewsForScope,
     getOperationPreviewsForSelection: apiMocks.getOperationPreviewsForSelection,
     getOperationPreviewsByFileIds: apiMocks.getOperationPreviewsByFileIds,
+    getManualMoveOperationPreview: apiMocks.getManualMoveOperationPreview,
+    getFileLibraryDetail: apiMocks.getFileLibraryDetail,
     getManualRenameOperationPreview: apiMocks.getManualRenameOperationPreview,
     getPermanentDeleteOperationPreview: apiMocks.getPermanentDeleteOperationPreview,
     getOperationLogs: apiMocks.getOperationLogs,
@@ -63,7 +68,10 @@ function preview(id: string, selectedByDefault: boolean, fileId = `file-${id}`):
 
 describe("operation queue store callbacks", () => {
   beforeEach(() => {
+    useFileLibrarySelectionStore.getState().clear();
+    apiMocks.getFileLibraryDetail.mockReset();
     apiMocks.getManualRenameOperationPreview.mockReset();
+    apiMocks.getManualMoveOperationPreview.mockReset();
     apiMocks.executeRulesForScopeV2.mockReset().mockResolvedValue({
       summary: { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 },
       catalogRevision: 1,
@@ -641,6 +649,53 @@ describe("operation queue store callbacks", () => {
     await useOperationQueueStore.getState().executeSelected(true);
     expect(apiMocks.executeMoves).toHaveBeenCalledTimes(2);
     expect(apiMocks.executeMoves).toHaveBeenNthCalledWith(2, [refreshed]);
+  });
+
+  it("rebinds a legacy path ID after manual Move and History Restore with Windows journal paths", async () => {
+    const oldPath = "F:/Downloads/owned.txt";
+    const nextPath = "F:/chosen/owned.txt";
+    const operation: OperationPreview = { ...preview("op-manual-move-owned", false, oldPath),
+      source_path: oldPath, target_path: nextPath, old_name: "owned.txt", new_name: "owned.txt", editable_new_name: false };
+    const moved = { ...log("owned", "success", true), source_path: `//?/${oldPath}`, target_path: `//?/${nextPath}`,
+      path_before: `//?/${oldPath}`, path_after: `//?/${nextPath}` };
+    apiMocks.executeMoves.mockResolvedValueOnce({ logs: [moved], batchId: "batch-owned" });
+    apiMocks.getFileLibraryDetail.mockRejectedValueOnce(new Error("old ID retired"))
+      .mockResolvedValueOnce({ id: nextPath, path: nextPath, isStale: false });
+    useFileLibrarySelectionStore.getState().setExplicit([oldPath], oldPath, 4);
+    useOperationQueueStore.setState({ previews: [operation], displayPreviews: [operation], previewScope: null,
+      selectedOperationIds: new Set([operation.id]) });
+    await useOperationQueueStore.getState().executeSelected(false);
+    expect(apiMocks.executeMoves).not.toHaveBeenCalled();
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(useFileLibrarySelectionStore.getState()).toMatchObject({ focusedId: nextPath, anchorIndex: -1 });
+    expect(useOperationQueueStore.getState().operationLogs).toContainEqual(moved);
+    apiMocks.getOperationLogs.mockResolvedValue([moved]);
+    apiMocks.restoreMoves.mockResolvedValueOnce({ logs: [{ ...moved, restore_status: "restored", can_restore: false }] });
+    apiMocks.getFileLibraryDetail.mockRejectedValueOnce(new Error("moved ID retired"))
+      .mockResolvedValueOnce({ id: oldPath, path: oldPath, isStale: false });
+    const intent = await useOperationQueueStore.getState().prepareOperationRestoreIntent([moved.id]);
+    expect(intent).not.toBeNull();
+    await useOperationQueueStore.getState().confirmOperationRestore(intent!.sessionId);
+    expect(apiMocks.restoreMoves).toHaveBeenCalledWith([moved]);
+    expect(useFileLibrarySelectionStore.getState()).toMatchObject({ focusedId: oldPath, anchorIndex: -1 });
+  });
+
+  it("reacquires a stale manual Move and requires new selection/confirmation without falling back to suggestions", async () => {
+    const operation: OperationPreview = { ...preview("op-manual-move-owned", false, "owned-file"),
+      operation_type: "move", old_name: "owned.txt", new_name: "owned.txt", target_path: "F:/chosen/owned.txt", editable_new_name: false };
+    const blocked = { ...operation, is_executable: false, blocking_reason: "manual_file_target_exists", operationFingerprint: "new-conflict-fingerprint" };
+    apiMocks.executeMoves.mockRejectedValueOnce(new Error("operation_preview_stale"));
+    apiMocks.getManualMoveOperationPreview.mockResolvedValueOnce(blocked);
+    useOperationQueueStore.setState({ previews: [operation], displayPreviews: [operation], previewScope: { kind: "all" }, selectedOperationIds: new Set([operation.id]) });
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(apiMocks.executeMoves).toHaveBeenCalledOnce();
+    expect(apiMocks.getManualMoveOperationPreview).toHaveBeenCalledWith(operation.fileId, "F:/chosen", "owned.txt");
+    expect(apiMocks.getOperationPreviewsForScope).not.toHaveBeenCalled();
+    expect(apiMocks.getManualRenameOperationPreview).not.toHaveBeenCalled();
+    expect(useOperationQueueStore.getState().previews).toEqual([blocked]);
+    expect(useOperationQueueStore.getState().selectedOperationIds.size).toBe(0);
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(apiMocks.executeMoves).toHaveBeenCalledOnce();
   });
 
   it("reacquires manual rename consent without substituting AI suggestions or retrying execution", async () => {

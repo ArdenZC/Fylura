@@ -33,6 +33,8 @@ pub struct OperationSelection {
     pub expected_revision: String,
     #[serde(default, alias = "newName")]
     pub new_name: Option<String>,
+    #[serde(default, alias = "destinationDirectory")]
+    pub destination_directory: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

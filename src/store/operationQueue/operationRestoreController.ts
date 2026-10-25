@@ -1,5 +1,4 @@
-import { refreshRenamedSelection } from "./renameSelectionRefresh";
-import { samePathLike } from "../../utils/viewHelpers";
+import { refreshRenamedSelection, sameJournalLibraryPath } from "./renameSelectionRefresh";
 import { explicitSingleSelectionId, useFileLibrarySelectionStore } from "../useFileLibraryV2Store";
 import { tauriApi } from "../../api/tauriApi";
 import type { OperationLog } from "../../types/domain";
@@ -126,9 +125,9 @@ export async function confirmOperationRestore(
       restoreError: "",
       restoreTechnicalError: ""
     }));
-    for (const log of result.logs.filter((item) => item.operation_type === "rename" && item.restore_status === "restored")) {
+    for (const log of result.logs.filter((item) => (item.operation_type === "rename" || item.operation_type === "move" || item.operation_type === "move_rename") && item.restore_status === "restored")) {
       const selectedId = explicitSingleSelectionId(useFileLibrarySelectionStore.getState().selection);
-      if (selectedId && samePathLike(selectedId, log.path_after)) await refreshRenamedSelection(selectedId, log.path_before);
+      if (selectedId && sameJournalLibraryPath(selectedId, log.path_after)) await refreshRenamedSelection(selectedId, log.path_before);
     }
     await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery).catch(() => undefined);
     const previewScope = get().previewScope;

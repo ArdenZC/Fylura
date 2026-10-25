@@ -8,9 +8,12 @@ import { makeTranslator } from "../src/i18n";
 import type { FileLibrarySummary, OperationPreview } from "../src/types/domain";
 import { LibraryContextMenu } from "../src/views/fileLibrary/library/LibraryContextMenu";
 import { ManualRenameDialog } from "../src/views/fileLibrary/library/ManualRenameDialog";
-import { refreshRenamedSelection } from "../src/store/operationQueue/renameSelectionRefresh";
+import { refreshRenamedSelection, libraryPathFromJournal } from "../src/store/operationQueue/renameSelectionRefresh";
 import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../src/store/useFileLibraryV2Store";
 import type { FileLibraryDetail } from "../src/types/domain";
+
+const picker = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: picker.open }));
 
 const t = makeTranslator("en");
 const file = { id: "owned-file-id", name: "original.txt", isDirectory: false, isStale: false } as FileLibrarySummary;
@@ -18,6 +21,7 @@ const preview = { id: "op-manual-rename-owned", fileId: file.id, new_name: "中�
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  picker.open.mockReset();
   useFileLibrarySelectionStore.getState().clear();
   useFileLibraryInspectorStore.getState().clear();
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -35,14 +39,20 @@ it("rebinds legacy path IDs after rename and restore using backend-confirmed det
     // A replacement appeared at the original path; never select that object.
     .mockResolvedValueOnce({ id: oldPath, path: oldPath, isStale: false } as FileLibraryDetail)
     .mockResolvedValueOnce({ id: nextPath, path: nextPath, isStale: false } as FileLibraryDetail);
-  await refreshRenamedSelection(oldPath, nextPath);
+  await refreshRenamedSelection(oldPath, `//?/${nextPath}`);
   expect(detail.mock.calls).toEqual([[oldPath], [nextPath]]);
   expect(useFileLibrarySelectionStore.getState()).toMatchObject({ selection: { kind: "explicit", fileIds: [nextPath] }, focusedId: nextPath, anchorIndex: -1 });
   expect(useFileLibraryInspectorStore.getState().selectedId).toBeNull();
   detail.mockRejectedValueOnce(new Error("old ID retired"))
     .mockResolvedValueOnce({ id: oldPath, path: oldPath, isStale: false } as FileLibraryDetail);
-  await refreshRenamedSelection(nextPath, oldPath);
+  await refreshRenamedSelection(nextPath, `//?/${oldPath}`);
   expect(useFileLibrarySelectionStore.getState()).toMatchObject({ selection: { kind: "explicit", fileIds: [oldPath] }, focusedId: oldPath });
+});
+
+it("projects only recognized Windows journal prefixes for library lookup", () => {
+  expect(libraryPathFromJournal("\\\\?\\UNC\\server\\share\\file.txt")).toBe("//server/share/file.txt");
+  expect(libraryPathFromJournal("//?/F:/owned/file.txt")).toBe("F:/owned/file.txt");
+  expect(libraryPathFromJournal("//?/Volume{opaque}/file.txt")).toBe("//?/Volume{opaque}/file.txt");
 });
 
 it("preserves a stable backend ID and does not steal a newer selection during refresh", async () => {
@@ -147,5 +157,61 @@ it("does not submit during IME composition and Escape cancels without requesting
   expect(enter.defaultPrevented).toBe(true);
   await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   expect(close).toHaveBeenCalledOnce();
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("requires an explicit folder choice and keeps a move conflict editable until a new preview", async () => {
+  const moved = { ...preview, id: "op-manual-move-fresh", new_name: "original.txt", target_path: "F:/owned/other/original.txt", is_executable: true };
+  const blocked = { ...moved, id: "op-manual-move-conflict", target_path: "F:/owned/destination/original.txt", is_executable: false, blocking_reason: "manual_file_target_exists" };
+  const request = vi.spyOn(tauriApi, "getManualMoveOperationPreview").mockResolvedValueOnce(blocked).mockResolvedValueOnce(moved);
+  const execute = vi.spyOn(tauriApi, "executeMoves"); const onPreview = vi.fn();
+  picker.open.mockResolvedValueOnce(null).mockResolvedValueOnce("F:/owned/destination").mockResolvedValueOnce("F:/owned/other");
+  await act(async () => root.render(<ManualRenameDialog file={file} mode="move" t={t} restoreFocus={() => container} onClose={vi.fn()} onPreview={onPreview} />));
+  const button = (label: string) => [...document.querySelectorAll("button")].find((item) => item.textContent === label)!;
+  expect(button(t("libraryMovePreview")).disabled).toBe(true);
+  await act(async () => button(t("libraryMoveChooseDestination")).click());
+  expect(request).not.toHaveBeenCalled();
+  expect(button(t("libraryMovePreview")).disabled).toBe(true);
+  await act(async () => button(t("libraryMoveChooseDestination")).click());
+  expect(picker.open).toHaveBeenLastCalledWith({ directory: true, multiple: false });
+  await submit();
+  expect(request).toHaveBeenLastCalledWith(file.id, "F:/owned/destination", "original.txt");
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain(t("libraryManualConflict"));
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain(t("libraryManualConflictNext"));
+  expect(onPreview).not.toHaveBeenCalled();
+  await act(async () => button(t("libraryMoveChooseDestination")).click());
+  await submit();
+  expect(request).toHaveBeenLastCalledWith(file.id, "F:/owned/other", "original.txt");
+  expect(onPreview).toHaveBeenCalledWith(moved);
+  expect(execute).not.toHaveBeenCalled();
+});
+
+it("resolves a rename conflict only through a changed name and a fresh backend preview", async () => {
+  const request = vi.spyOn(tauriApi, "getManualRenameOperationPreview")
+    .mockResolvedValueOnce({ ...preview, is_executable: false, blocking_reason: "manual_file_target_exists", target_path: "F:/owned/中文.txt" })
+    .mockResolvedValueOnce({ ...preview, new_name: "different.txt", operationFingerprint: "fresh-consent" });
+  const onPreview = vi.fn();
+  await act(async () => root.render(<ManualRenameDialog file={file} t={t} restoreFocus={() => container} onClose={vi.fn()} onPreview={onPreview} />));
+  await name("中文.txt"); await submit();
+  expect(onPreview).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain(t("libraryManualConflict"));
+  await name("different.txt"); await submit();
+  expect(request).toHaveBeenLastCalledWith(file.id, "different.txt");
+  expect(onPreview).toHaveBeenCalledOnce();
+  expect(onPreview.mock.calls[0][0].operationFingerprint).toBe("fresh-consent");
+});
+
+it("ignores a native picker result after cancellation", async () => {
+  let resolve!: (path: string) => void;
+  picker.open.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+  const request = vi.spyOn(tauriApi, "getManualMoveOperationPreview");
+  const close = vi.fn();
+  await act(async () => root.render(<ManualRenameDialog file={file} mode="move" t={t} restoreFocus={() => container} onClose={close} onPreview={vi.fn()} />));
+  const buttons = [...document.querySelectorAll("button")];
+  await act(async () => buttons.find((item) => item.textContent === t("libraryMoveChooseDestination"))!.click());
+  await act(async () => buttons.find((item) => item.textContent === t("cancel"))!.click());
+  await act(async () => resolve("F:/owned/late-destination"));
+  expect(close).toHaveBeenCalledOnce();
+  expect(document.body.textContent).not.toContain("late-destination");
   expect(request).not.toHaveBeenCalled();
 });

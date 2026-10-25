@@ -1,3 +1,5 @@
+import { ManualRenameDialog } from "../fileLibrary/library/ManualRenameDialog";
+import { manualMoveDestinationDirectory } from "../../api/operationApi";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CheckCircle2, CircleSlash2, Folder, Play, TriangleAlert, X } from "lucide-react";
 import { useRef, useState } from "react";
@@ -44,11 +46,14 @@ export function TimelineView() {
   const operationProgress = useOperationQueueStore((state) => state.operationProgress);
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
+  const [editingManual, setEditingManual] = useState<OperationPreview | null>(null);
+  const adjustManualRef = useRef<HTMLButtonElement | null>(null);
   const [confirmExecute, setConfirmExecute] = useState(false);
   const [showSafetyDetails, setShowSafetyDetails] = useState(false);
   const mutationUnavailable = useFileMutationUnavailableCode();
   const executeButtonRef = useRef<HTMLButtonElement | null>(null);
   const visiblePreviews = previewsForExecutionIntent(displayPreviews, executionIntent);
+  const manualPreview = visiblePreviews.length === 1 && /^op-manual-(rename|move)-/.test(visiblePreviews[0].id) ? visiblePreviews[0] : null;
   function toggle(id: string) {
     const preview = visiblePreviews.find((item) => item.id === id);
     if (!preview || (!selectedIds.has(id) && !resolvePreviewEligibility(preview, executionIntent).executable)) return;
@@ -124,6 +129,13 @@ export function TimelineView() {
         </div>
 
         <div className="mb-4 grid gap-3">
+          {manualPreview && !isExecuting ? <NoticeBanner tone={manualPreview.blocking_reason ? "warning" : "info"}>
+            <p>{manualPreview.blocking_reason === "manual_file_target_exists" ? t("libraryManualConflict") : t("libraryManualAdjustDescription")}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button ref={adjustManualRef} className={buttonSecondary} onClick={() => { setSelectedIds(new Set()); setConfirmExecute(false); setEditingManual(manualPreview); }}>{t("libraryManualAdjust")}</button>
+              <button className={buttonSecondary} onClick={() => { setSelectedIds(new Set()); setView("library"); }}>{t("cancel")}</button>
+            </div>
+          </NoticeBanner> : null}
           {mutationUnavailable && <NoticeBanner tone="warning">{t("errorMacosFileMutationSourceBindingUnsupported")}</NoticeBanner>}
           {executionIntent?.source === "organize" && visiblePreviews.length < executionIntent.initialAllowedCount ? <NoticeBanner tone="warning">{t("organizePreviewInvalidated")}</NoticeBanner> : null}
           <NoticeBanner tone="warning" title={t("previewSafetyTitle")}>
@@ -280,6 +292,19 @@ export function TimelineView() {
           </div>
         )}
       </section>
+      {editingManual ? <ManualRenameDialog
+        key={editingManual.id}
+        file={{ id: editingManual.fileId, name: editingManual.old_name }}
+        mode={editingManual.id.startsWith("op-manual-move-") ? "move" : "rename"}
+        initialDirectory={editingManual.id.startsWith("op-manual-move-") ? manualMoveDestinationDirectory(editingManual) : ""}
+        initialName={editingManual.new_name}
+        t={t} restoreFocus={() => adjustManualRef.current}
+        onClose={() => setEditingManual(null)}
+        onPreview={(preview) => {
+          useOperationQueueStore.getState().setPreviewResult({ previews: [preview], total: 1, limit: 1, offset: 0, truncated: false, hasMore: false }, previewScope ?? { kind: "all" });
+          setEditingManual(null);
+        }}
+      /> : null}
       <ConfirmDialog
         open={confirmExecute}
         tone={confirmationTone}

@@ -93,6 +93,9 @@ pub(crate) fn persist_pending_operation_journal(
         .iter()
         .enumerate()
         .map(|(index, operation)| {
+            if operation.id.starts_with("op-manual-move-") {
+                manual_move::revalidate(operation)?;
+            }
             #[cfg(target_os = "macos")]
             ensure_macos_mutation_eligible_before_journal(operation)?;
             // PREPARED is a namespace-only durability record on macOS.  Copy

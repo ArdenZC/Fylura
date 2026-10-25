@@ -2161,6 +2161,7 @@ export interface ExecuteOperationRequest {
     operationFingerprint: string;
     expectedRevision: string;
     newName?: string;
+    destinationDirectory?: string;
   }>;
 }
 

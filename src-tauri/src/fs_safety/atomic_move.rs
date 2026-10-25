@@ -320,6 +320,33 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation_w
     operation: AtomicMoveOperation,
     actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_move_with_verified_destination(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel,
+        observer,
+        operation,
+        actual_path_observer,
+        None,
+    )
+}
+
+/// Optional consent-bound destination guard for the bounded manual Move intent.
+/// Ordinary operations keep their existing behavior through the None wrapper.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn atomic_move_with_verified_destination(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    operation: AtomicMoveOperation,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    expected_target_parent: Option<&super::DirectoryIdentity>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
         crate::platform::macos::strategy::with_mutation_strategy(
@@ -350,6 +377,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation_w
                     observer,
                     operation,
                     actual_path_observer,
+                    expected_target_parent,
                 )
             },
         )
@@ -366,6 +394,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer_for_operation_w
             observer,
             operation,
             actual_path_observer,
+            expected_target_parent,
         )
     }
 }
@@ -380,6 +409,7 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     operation: AtomicMoveOperation,
     actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    expected_target_parent: Option<&super::DirectoryIdentity>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     let _ = operation;
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
@@ -390,6 +420,25 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
     let target_parent =
         VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
+    if let Some(expected) = expected_target_parent {
+        if target_parent.identity() != expected {
+            return Err(AtomicMoveError::TargetParentIdentityChanged);
+        }
+        if expected_identity.and_then(|source| source.platform_volume_id.as_deref())
+            != Some(expected.volume_id.as_str())
+        {
+            return Err(AtomicMoveError::CrossDevice);
+        }
+        #[cfg(target_os = "macos")]
+        if !matches!(
+            crate::platform::macos::strategy::select(source, target_parent.path()),
+            crate::platform::macos::strategy::MacMutationStrategy::LocalApfs
+        ) {
+            return Err(AtomicMoveError::MacMutationNotSupported(
+                "manual_move_local_same_volume_required",
+            ));
+        }
+    }
     #[cfg(target_os = "macos")]
     crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
         .map_err(AtomicMoveError::MacMutationNotSupported)?;
@@ -520,6 +569,14 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         &claim_path,
     );
 
+    if expected_target_parent.is_some()
+        && claim.original_volume_id() != target_parent.identity().volume_id
+    {
+        return Err(rollback_after_failure(
+            &mut claim,
+            SourceClaimError::CrossDevice,
+        ));
+    }
     if claim.original_volume_id() == target_parent.identity().volume_id {
         #[cfg(target_os = "macos")]
         let target_parent_path = target_parent.path().to_path_buf();
@@ -596,7 +653,9 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
             }
             Err(error) => {
                 #[cfg(target_os = "macos")]
-                if matches!(error, SourceClaimError::AtomicSourceBindingUnsupported) {
+                if expected_target_parent.is_none()
+                    && matches!(error, SourceClaimError::AtomicSourceBindingUnsupported)
+                {
                     let fallback_parent = VerifiedDirectory::open_existing(&target_parent_path)
                         .map_err(map_directory_error)?;
                     if fallback_parent.identity() != &target_parent_identity {

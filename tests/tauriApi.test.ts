@@ -107,6 +107,18 @@ describe("tauriApi", () => {
     expect(apiMocks.invoke).not.toHaveBeenCalled();
   });
 
+  it("sends same-volume Move intent parameters without renderer execution flags or paths", async () => {
+    await tauriApi.getManualMoveOperationPreview("file-id", "F:/chosen", "chosen.txt");
+    expect(apiMocks.invoke).toHaveBeenLastCalledWith("get_manual_move_operation_preview", { fileId: "file-id", destinationDirectory: "F:/chosen", newName: "chosen.txt" });
+    for (const target_path of ["F:/chosen/name.txt", "F:/name.txt", "/name.txt"]) {
+      await tauriApi.executeMoves([{ id: "op-manual-move-owned", fileId: "file-id", old_name: "name.txt", new_name: "name.txt", target_path, operationFingerprint: "consent" } as never]);
+      const operation = (apiMocks.invoke.mock.lastCall![1] as { request: { operations: Array<Record<string, unknown>> } }).request.operations[0];
+      expect(Object.keys(operation).sort()).toEqual(["id", "fileId", "operationFingerprint", "expectedRevision", "newName", "destinationDirectory"].sort());
+      expect(operation.destinationDirectory).toBe(target_path === "/name.txt" ? "/" : target_path === "F:/name.txt" ? "F:/" : "F:/chosen");
+    }
+    await expect(mockInvokeCommand("get_manual_move_operation_preview", { fileId: "file-id", destinationDirectory: "F:/chosen" })).rejects.toThrow("file_mutation_unsupported_in_browser");
+  });
+
   it("requests a manual rename using only file identity and a basename", async () => {
     await tauriApi.getManualRenameOperationPreview("file-id", "中文.txt");
     expect(apiMocks.invoke).toHaveBeenCalledWith("get_manual_rename_operation_preview", { fileId: "file-id", newName: "中文.txt" });

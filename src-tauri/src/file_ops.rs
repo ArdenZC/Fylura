@@ -24,6 +24,9 @@ mod authority;
 mod execution;
 mod identity;
 mod journal;
+pub(crate) mod manual_move;
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+mod manual_move_tests;
 #[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
 mod manual_rename_tests;
 mod preview;
@@ -134,6 +137,7 @@ mod r_fl_01_macos_tests {
                     operation_fingerprint: fingerprint.clone(),
                     expected_revision: fingerprint,
                     new_name: None,
+                    destination_directory: None,
                 }],
             },
         )
@@ -209,6 +213,7 @@ mod r_fl_01_macos_tests {
                     operation_fingerprint: fingerprint.clone(),
                     expected_revision: fingerprint,
                     new_name: None,
+                    destination_directory: None,
                 }],
             },
         )
@@ -1166,6 +1171,7 @@ mod tests {
                         .expect("fingerprint"),
                     expected_revision: preview.operation_fingerprint.clone().expect("fingerprint"),
                     new_name: None,
+                    destination_directory: None,
                 }],
             },
         )
@@ -1221,6 +1227,7 @@ mod tests {
                         .expect("fingerprint"),
                     expected_revision: preview.operation_fingerprint.clone().expect("fingerprint"),
                     new_name: Some("Install_Package".to_string()),
+                    destination_directory: None,
                 }],
             },
         )
@@ -1242,6 +1249,7 @@ mod tests {
                         .expect("fingerprint"),
                     expected_revision: preview.operation_fingerprint.clone().expect("fingerprint"),
                     new_name: Some("Install_Package.exe".to_string()),
+                    destination_directory: None,
                 }],
             },
         )
@@ -1266,6 +1274,7 @@ mod tests {
                     operation_fingerprint: String::new(),
                     expected_revision: String::new(),
                     new_name: None,
+                    destination_directory: None,
                 }],
             },
         )
@@ -3697,6 +3706,7 @@ mod tests {
             operation_fingerprint: fingerprint.clone(),
             expected_revision: fingerprint,
             new_name: new_name.map(str::to_string),
+            destination_directory: None,
         }
     }
 

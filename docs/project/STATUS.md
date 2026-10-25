@@ -19,9 +19,9 @@ Last verified: 2026-10-25
   identity, injected final journal failure and fingerprint/digest mismatch.
   The original QA timing cannot be reconstructed from its later Watcher snapshot;
   Windows retained-handle unreadability remains an unproven alternative.
-  Focused History frontend tests pass in Cloud. Cargo is unavailable in this Cloud
-  workspace; normal Windows/macOS PR CI owns Rust evidence. Fresh QA executable
-  requalification remains Owner acceptance. No schema, identity algorithm, root
+  Focused History frontend tests pass in Cloud. Rust execution is blocked by
+  unavailable Cloud dependencies; normal Windows/macOS PR CI owns Rust evidence.
+  Fresh QA executable requalification remains Owner acceptance. No schema, identity algorithm, root
   epoch policy, recovery strategy, permissions, workflow or release change.
 
 - **M1-R4B File Library manual Move + non-overwrite conflicts — Draft / Owner review pending (#462).**

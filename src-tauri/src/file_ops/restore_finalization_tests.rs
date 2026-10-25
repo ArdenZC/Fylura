@@ -20,14 +20,13 @@ fn managed_fixture() -> (Fixture, String, String) {
     crate::settings::save_app_settings(&f.db, &settings).unwrap();
     f.db.sync_file_library_watcher_roots(&settings.default_scan_folders)
         .unwrap();
-    let root_id = f
-        .db
-        .list_watcher_root_configs()
-        .unwrap()
-        .into_iter()
-        .find(|root| root.path == library)
-        .unwrap()
-        .id;
+    let root_id =
+        f.db.list_watcher_root_configs()
+            .unwrap()
+            .into_iter()
+            .find(|root| root.path == library)
+            .unwrap()
+            .id;
     let revision = f.db.begin_watcher_revision(&root_id).unwrap().unwrap();
     f.db.apply_watcher_exact_mutations(
         &root_id,
@@ -97,9 +96,8 @@ fn m1_h1_outside_root_move_restore_reobserves_retired_uid_and_fails_closed() {
         for fault in ["none", "journal", "source_digest", "fingerprint"] {
             let (f, library, uid) = managed_fixture();
             let original = file_identity_fingerprint(&f.source).unwrap();
-            let tag = f
-                .db
-                .create_user_tag(CreateUserTagRequest {
+            let tag =
+                f.db.create_user_tag(CreateUserTagRequest {
                     display_name: "H1 retained fact".into(),
                     color_token: "blue".into(),
                 })
@@ -116,10 +114,9 @@ fn m1_h1_outside_root_move_restore_reobserves_retired_uid_and_fails_closed() {
             let destination = f.root.join("Destination");
             fs::create_dir(&destination).unwrap();
             assert!(!destination.starts_with(Path::new(&library)));
-            let preview = f
-                .db
-                .get_manual_move_operation_preview(&f.id, &normalize_path(&destination), None)
-                .unwrap();
+            let preview =
+                f.db.get_manual_move_operation_preview(&f.id, &normalize_path(&destination), None)
+                    .unwrap();
             let mut selected = f.selection(&preview);
             selected.operations[0].destination_directory = Some(normalize_path(&destination));
             let request = resolve_execute_selections(&f.db, selected).unwrap();
@@ -159,14 +156,14 @@ fn m1_h1_outside_root_move_restore_reobserves_retired_uid_and_fails_closed() {
                 )
                 .unwrap();
             }
-            let mut logs = f
-                .db
-                .get_restorable_operation_logs_by_ids(&[moved.logs[0].id.clone()])
-                .unwrap();
+            let mut logs =
+                f.db.get_restorable_operation_logs_by_ids(&[moved.logs[0].id.clone()])
+                    .unwrap();
             if fault == "fingerprint" {
                 logs[0].target_full_hash = Some("injected-mismatch".into());
             }
-            let result = restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs }).unwrap();
+            let result =
+                restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs }).unwrap();
             // This is the fresh backend History read, not the command's cached projection.
             let history = f.db.get_operation_logs(Some(10)).unwrap();
             assert_eq!(history[0].restore_status, result.logs[0].restore_status);
@@ -185,7 +182,10 @@ fn m1_h1_outside_root_move_restore_reobserves_retired_uid_and_fails_closed() {
                 assert_eq!(restored.full_hash, original.full_hash);
                 assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
                 assert!(!Path::new(&preview.target_path).exists());
-                assert_eq!(f.db.get_file_library_detail(&f.id).unwrap().tags[0].id, tag.id);
+                assert_eq!(
+                    f.db.get_file_library_detail(&f.id).unwrap().tags[0].id,
+                    tag.id
+                );
                 let restored_uid: String = conn
                     .query_row(
                         "SELECT source_uid FROM library_source_incarnations WHERE source_uid = ?1 AND verification_state = 'verified'",

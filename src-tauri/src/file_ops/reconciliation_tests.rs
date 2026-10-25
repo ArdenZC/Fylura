@@ -83,6 +83,46 @@ fn issue375_m1_w2_move_restore_wakes_admissible_root_in_same_session() {
         let logs =
             f.db.get_restorable_operation_logs_by_ids(&[moved.logs[0].id.clone()])
                 .unwrap();
+        // Reuse the existing write hook to hold a real legacy scan's lease
+        // after enumeration. Restore must join it, then completion must wake
+        // reconciliation for the newly restored file missed by that snapshot.
+        let held = if wake {
+            use crate::db::scan::{set_managed_scan_write_test_hook, ManagedScanWriteTestPoint};
+            fs::write(Path::new(&library).join("lease-anchor.txt"), b"anchor").unwrap();
+            let job_id = format!("issue345-d4-w2-{}", uuid::Uuid::new_v4());
+            let expected = job_id.clone();
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let release_rx = std::sync::Mutex::new(release_rx);
+            let once = AtomicBool::new(false);
+            set_managed_scan_write_test_hook(Some(Arc::new(move |id, point| {
+                if id == expected
+                    && point == ManagedScanWriteTestPoint::AfterCommit
+                    && !once.swap(true, Ordering::SeqCst)
+                {
+                    entered_tx.send(()).unwrap();
+                    release_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(20))
+                        .unwrap();
+                }
+            })));
+            let scan = crate::scanner::start_performance_managed_scan(
+                app.handle().clone(),
+                f.db.clone(),
+                jobs.clone(),
+                dedupe_jobs.clone(),
+                PathBuf::from(&library),
+                job_id,
+                "background",
+            )
+            .unwrap();
+            entered_rx.recv_timeout(Duration::from_secs(15)).unwrap();
+            Some((scan, release_tx))
+        } else {
+            None
+        };
         let restore = || restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs });
         let restored = if wake {
             super::reconciliation::with_reconciliation_wake(app.handle(), &f.db, &paths, restore)
@@ -91,6 +131,14 @@ fn issue375_m1_w2_move_restore_wakes_admissible_root_in_same_session() {
         }
         .unwrap();
         assert_eq!(restored.restored, 1, "{:?}", restored.logs);
+        if let Some((scan, release)) = held {
+            let pending = f.db.get_scan_root_health(Some(&root_id), None).unwrap();
+            assert!(pending.needs_reconciliation);
+            assert_eq!(pending.active_run_id.as_deref(), Some(scan.run_id.as_str()));
+            release.send(()).unwrap();
+            scan.worker.join().unwrap();
+            crate::db::scan::set_managed_scan_write_test_hook(None);
+        }
         if !wake {
             // Model a delivered exact watcher batch as well: equal counters
             // cannot clear the mutation fence or supply the missing dispatch.

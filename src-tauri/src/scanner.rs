@@ -1070,13 +1070,13 @@ fn run_managed_session<R: Runtime>(
         mut guards,
         legacy,
     } = work;
-    let watcher_root_ids = if legacy.is_none() {
-        runs.iter()
-            .map(|run| run.scan_root_id.clone())
-            .collect::<HashSet<_>>()
-    } else {
-        HashSet::new()
-    };
+    // Legacy scan_directory can own the same durable root lease. A user
+    // mutation's wake may have joined that lease, so every completion must
+    // re-evaluate its roots through the existing scheduler.
+    let watcher_root_ids = runs
+        .iter()
+        .map(|run| run.scan_root_id.clone())
+        .collect::<HashSet<_>>();
     for run in runs {
         let Some(guard) = guards.remove(&run.id) else {
             continue;

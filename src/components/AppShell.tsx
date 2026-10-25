@@ -25,6 +25,8 @@ import { AmbientMesh, CloseChoiceDialog, WorkspaceTopActions } from "./ShellChro
 import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useCommandContext, useI18nContext, useNavigationContext, useWindowContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
+import { useWatcherStatusStore } from "../store/useWatcherStatusStore";
+import { deriveWatcherPresentation, watcherPresentationNeedsAttention } from "../utils/watcherPresentation";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../store/useFileLibraryV2Store";
 import { organizationPlanPendingReview, useOrganizationPlanStore } from "../store/useOrganizationPlanStore";
@@ -353,8 +355,10 @@ export function ShellViewHeading({
   return <PageHeader title={activeLabel} description={headingDescription} actions={actions} />;
 }
 
-const ToastContainer = memo(function ToastContainer() {
+export const ToastContainer = memo(function ToastContainer() {
   const toast = useAppStore((state) => state.toast);
+  const watcherRoots = useWatcherStatusStore((state) => state.roots);
+  const { t } = useI18nContext();
   const clearToast = useAppStore((state) => state.clearToast);
   const { view } = useNavigationContext();
   const previousViewRef = useRef(view);
@@ -372,19 +376,26 @@ const ToastContainer = memo(function ToastContainer() {
     }
   }, [clearToast, toast, view]);
 
-  if (!toast) return null;
+  // Durable warnings are a projection, not one-shot global errors. A newer
+  // healthy snapshot removes only its root's warning; unrelated errors retain
+  // their existing lifetime and take priority over the watcher projection.
+  const watcherWarning = Object.values(watcherRoots)
+    .map(deriveWatcherPresentation)
+    .find(watcherPresentationNeedsAttention);
+  const visibleToast = toast ?? (watcherWarning ? { message: t(watcherWarning.messageKey), type: "error" as const } : null);
+  if (!visibleToast) return null;
 
-  if (toast.type === "success") {
+  if (visibleToast.type === "success") {
     return (
       <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)]" role="status">
-        {toast.message}
+        {visibleToast.message}
       </div>
     );
   }
 
   return (
-    <div className={cn(statusToast, toastTone(toast.type))} role={toast.type === "error" ? "alert" : "status"}>
-      {toast.message}
+    <div className={cn(statusToast, toastTone(visibleToast.type))} role={visibleToast.type === "error" ? "alert" : "status"}>
+      {visibleToast.message}
     </div>
   );
 });

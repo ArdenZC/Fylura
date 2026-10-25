@@ -1070,13 +1070,7 @@ fn run_managed_session<R: Runtime>(
         mut guards,
         legacy,
     } = work;
-    // Legacy scan_directory can own the same durable root lease. A user
-    // mutation's wake may have joined that lease, so every completion must
-    // re-evaluate its roots through the existing scheduler.
-    let watcher_root_ids = runs
-        .iter()
-        .map(|run| run.scan_root_id.clone())
-        .collect::<HashSet<_>>();
+    let mut watcher_root_ids = HashSet::new();
     for run in runs {
         let Some(guard) = guards.remove(&run.id) else {
             continue;
@@ -1109,6 +1103,17 @@ fn run_managed_session<R: Runtime>(
             {
                 eprintln!("Managed scan run {} failed: {error}", run.id);
             }
+        }
+        // A mutation/watcher fence can supersede a legacy scan's snapshot
+        // while its lease prevents immediate reconciliation. Recheck that
+        // pending work on completion, but do not restart an ordinary cancelled
+        // or interrupted legacy scan just because it retained incomplete coverage.
+        if legacy.is_none()
+            || db.get_scan_run_record(&run.id).is_ok_and(|record| {
+                record.current_watcher_revision > record.dto.watcher_revision_at_start
+            })
+        {
+            watcher_root_ids.insert(run.scan_root_id);
         }
     }
     if !watcher_root_ids.is_empty() {

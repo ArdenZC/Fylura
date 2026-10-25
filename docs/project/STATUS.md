@@ -11,8 +11,10 @@ Last verified: 2026-10-25
   successful journal, but durable needs remained until startup scanning.
   Execute/Restore now resolve their managed endpoint roots before mutation and
   issue one root-aware wake after persistence through the existing scheduler,
-  including partial-batch errors. Existing lease completion and bounded backoff
-  re-evaluate admission; needs/health, retry exhaustion, rule recovery and
+  including partial-batch errors. Legacy lease completion rechecks roots whose
+  watcher revision advanced during the scan, preserving ordinary cancellation
+  rather than restarting incomplete scans without a new fence. Existing bounded
+  backoff re-evaluates admission; needs/health, retry exhaustion, rule recovery and
   SourceUID/RootEpoch authority are unchanged. The existing normal PR backend
   characterization lane includes a same-process old/no-wake versus new/wake
   Move/Restore regression with missed notifications and preserved identity.

@@ -20,6 +20,26 @@ Last verified: 2026-10-25
   permission or CI workflow change. Normal PR CI owns hosted validation; a fresh
   executable still requires Owner Windows QA. No native PASS is claimed.
 
+- **M1-H1 Move Restore finalization — Draft / Owner review and native recheck pending (#462).**
+  Based on `master@eb81c63fcfeb8541734476709915d1755be1d361`, separate from W1.
+  The reported failure is class C: filesystem commit followed by final transaction
+  identity validation failure; the historical manual-review journal/claim must be
+  retained without retry. A bounded source-confirmed failure path is Move outside
+  the last managed root, scan retirement, then Restore checking for an already
+  verified incarnation before reobserving the restored physical object. Finalization
+  now reobserves through the existing root authority before requiring the legacy
+  attribution and complete physical identity to verify against the same SourceUID.
+  Missing/conflicting evidence and final journal failure still fail closed.
+  Regressions cover isolated same-volume out-of-root Move/Restore with and without
+  intervening scan retirement, fresh History/DB consistency, tags/content/physical
+  identity, injected final journal failure and fingerprint/digest mismatch.
+  The original QA timing cannot be reconstructed from its later Watcher snapshot;
+  Windows retained-handle unreadability remains an unproven alternative.
+  Focused History frontend tests pass in Cloud. Rust execution is blocked by
+  unavailable Cloud dependencies; normal Windows/macOS PR CI owns Rust evidence.
+  Fresh QA executable requalification remains Owner acceptance. No schema, identity algorithm, root
+  epoch policy, recovery strategy, permissions, workflow or release change.
+
 - **M1-R4B File Library manual Move + non-overwrite conflicts — Draft / Owner review pending (#462).**
   Baseline: merged #463 `master@d94f439a58658c8d0685660115862d19fd5b2f29`,
   postmerge CI [40153269701](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40153269701) SUCCESS;

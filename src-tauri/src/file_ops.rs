@@ -33,6 +33,8 @@ mod preview;
 mod progress;
 mod recovery;
 mod restore;
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+mod restore_finalization_tests;
 mod reveal;
 mod types;
 mod validation;

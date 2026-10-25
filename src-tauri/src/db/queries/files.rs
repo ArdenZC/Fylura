@@ -506,12 +506,6 @@ impl Database {
         };
         let target_roots = managed_root_ids_for_path_tx(&tx, &normalized_target)?;
         let source_tracking_required = !old_claim_roots.is_empty() || !target_roots.is_empty();
-        if source_tracking_required && current_id.is_some() && prior_source_uid.is_none() {
-            return Err(DbError::Validation(
-                "Restore source identity is unverified; legacy facts were retained for owner review."
-                    .to_string(),
-            ));
-        }
         let mut root_epochs = HashMap::<String, (i64, i64)>::new();
         for root_id in &old_claim_roots {
             let owner_revision = fence_source_root_for_user_mutation_tx(&tx, root_id, restored_at)?;
@@ -578,6 +572,25 @@ impl Database {
                 ));
             }
             restored_source_uid = Some(outcome.source_uid);
+        }
+        // Moving out of the last managed root can retire an incarnation before
+        // Restore runs. Reobserve the restored object through the existing root
+        // authority first: it can reactivate that same complete physical claim.
+        // Then require the legacy attribution to verify against the live object
+        // and the observed UID, within this transaction. Missing or conflicting
+        // evidence still rolls back both the observation and final journal.
+        if source_tracking_required && current_id.is_some() {
+            let verified_source_uid = current_id
+                .as_deref()
+                .map(|file_id| verify_legacy_source_identity_tx(&tx, file_id, physical.as_ref()))
+                .transpose()?
+                .flatten();
+            if verified_source_uid.is_none() || verified_source_uid != restored_source_uid {
+                return Err(DbError::Validation(
+                    "Restore source identity is unverified; legacy facts were retained for owner review."
+                        .to_string(),
+                ));
+            }
         }
         if let Some(watcher_target_id) = watcher_target_id {
             let deleted = tx.execute(

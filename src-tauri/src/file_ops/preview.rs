@@ -61,6 +61,9 @@ pub(crate) fn execute_preview_operation_with_app_data(
         ))
     } else {
         match operation.operation_type.as_str() {
+            "move" | "move_rename" if operation.id.starts_with("op-manual-move-") => {
+                manual_move::execute(operation, context)
+            }
             "rename" => rename_file_with_identity(
                 operation.source_path.clone(),
                 operation.new_name.clone(),

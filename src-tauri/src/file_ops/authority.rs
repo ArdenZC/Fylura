@@ -39,6 +39,22 @@ pub(crate) fn resolve_execute_selections(
         {
             return Err(OPERATION_PREVIEW_STALE.to_string());
         }
+        if selection.id.starts_with("op-manual-move-") {
+            let directory = selection
+                .destination_directory
+                .as_deref()
+                .ok_or_else(|| OPERATION_PREVIEW_STALE.to_string())?;
+            let preview = db
+                .get_manual_move_operation_preview(
+                    &selection.file_id,
+                    directory,
+                    selection.new_name.as_deref(),
+                )
+                .map_err(|_| OPERATION_PREVIEW_STALE.to_string())?;
+            previews_by_identity.insert((preview.file_id.clone(), preview.id.clone()), preview);
+        } else if selection.destination_directory.is_some() {
+            return Err(OPERATION_PREVIEW_STALE.to_string());
+        }
         if selection.id.starts_with("op-manual-rename-") {
             let name = selection
                 .new_name

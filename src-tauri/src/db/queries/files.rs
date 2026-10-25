@@ -1699,6 +1699,24 @@ impl Database {
         file_id: &str,
         new_name: &str,
     ) -> Result<OperationPreviewDto, DbError> {
+        self.get_manual_file_operation_preview(file_id, Some(new_name), None)
+    }
+
+    pub fn get_manual_move_operation_preview(
+        &self,
+        file_id: &str,
+        destination_directory: &str,
+        new_name: Option<&str>,
+    ) -> Result<OperationPreviewDto, DbError> {
+        self.get_manual_file_operation_preview(file_id, new_name, Some(destination_directory))
+    }
+
+    fn get_manual_file_operation_preview(
+        &self,
+        file_id: &str,
+        proposed_name: Option<&str>,
+        destination_directory: Option<&str>,
+    ) -> Result<OperationPreviewDto, DbError> {
         let invalid = DbError::Validation;
         let mut row = self
             .get_indexed_file_rows_by_ids(&[file_id.to_string()])?
@@ -1716,6 +1734,7 @@ impl Database {
         }
         crate::file_ops::ensure_general_file_operation_allowed(source).map_err(invalid)?;
         crate::file_ops::file_namespace_fingerprint(source).map_err(invalid)?;
+        let new_name = proposed_name.unwrap_or(&row.name);
         if new_name.trim().is_empty() {
             return Err(invalid("manual_rename_name_required".to_string()));
         }
@@ -1728,12 +1747,26 @@ impl Database {
         )
         .map_err(invalid)?;
         crate::file_ops::validate_safe_file_name(&name).map_err(invalid)?;
-        row.suggested_action = "Rename".to_string();
-        row.suggested_target_path = parent_directory(&row.path);
+        let preview_id = if let Some(directory) = destination_directory {
+            let snapshot = crate::file_ops::manual_move::snapshot(
+                &row.id,
+                source,
+                Path::new(directory),
+                &name,
+            )
+            .map_err(invalid)?;
+            row.suggested_target_path = snapshot.directory;
+            row.suggested_action = "Move".to_string();
+            snapshot.intent_id
+        } else {
+            row.suggested_target_path = parent_directory(&row.path);
+            row.suggested_action = "Rename".to_string();
+            operation_preview_id_for_intent(&row.id, "manual-rename")
+        };
         row.suggested_name = name;
         row.requires_confirmation = true;
-        row.classification_reason = "Manual rename requested by the user.".to_string();
-        let mut preview = operation_preview_from_indexed_with_intent(row, Some("manual-rename"))
+        row.classification_reason = "Manual file operation requested by the user.".to_string();
+        let mut preview = operation_preview_from_indexed_with_id(row, Some(preview_id))
             .ok_or_else(|| invalid("manual_rename_name_unchanged".to_string()))?;
         preview.editable_new_name = Some(false);
         Ok(preview)
@@ -2119,12 +2152,12 @@ fn post_join_where_clause(clause: Option<&str>) -> String {
 }
 
 pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPreviewDto> {
-    operation_preview_from_indexed_with_intent(row, None)
+    operation_preview_from_indexed_with_id(row, None)
 }
 
-fn operation_preview_from_indexed_with_intent(
+fn operation_preview_from_indexed_with_id(
     row: IndexedFileRow,
-    intent: Option<&str>,
+    preview_id: Option<String>,
 ) -> Option<OperationPreviewDto> {
     let source_directory = parent_directory(&row.path);
     let proposed_name = if row.suggested_name.trim().is_empty() {
@@ -2158,7 +2191,7 @@ fn operation_preview_from_indexed_with_intent(
         "Copy" | "Duplicate" | "Replace" => row.suggested_target_path.clone(),
         _ => String::new(),
     };
-    if let Some((parent, file_name)) = intent
+    if let Some((parent, file_name)) = preview_id
         .is_none()
         .then(|| split_filename_from_target_directory(&target_directory, &row.extension))
         .flatten()
@@ -2217,10 +2250,8 @@ fn operation_preview_from_indexed_with_intent(
         Path::new(&row.path),
         Path::new(&target_path),
     );
-    let preview_id = intent.map_or_else(
-        || operation_preview_id(&row.id),
-        |intent| operation_preview_id_for_intent(&row.id, intent),
-    );
+    let manual_intent = preview_id.is_some();
+    let preview_id = preview_id.unwrap_or_else(|| operation_preview_id(&row.id));
     let source_identity_fingerprint = operation_source_identity_fingerprint(Path::new(&row.path));
     let provider_identity_fingerprint =
         operation_provider_identity_fingerprint(Path::new(&row.path));
@@ -2244,7 +2275,11 @@ fn operation_preview_from_indexed_with_intent(
         })
         .or_else(|| {
             (target_exists && !replace_operation).then(|| {
-                "Target path already exists; Zen Canvas will not overwrite it.".to_string()
+                if manual_intent {
+                    "manual_file_target_exists".to_string()
+                } else {
+                    "Target path already exists; Zen Canvas will not overwrite it.".to_string()
+                }
             })
         })
         .or_else(|| semantics.runtime_blocking_reason.map(str::to_string));

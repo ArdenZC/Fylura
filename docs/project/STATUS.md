@@ -1,10 +1,31 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-09
+Last verified: 2026-10-25
 
 ## Current execution truth
 
-- **M1-R4A File Library manual Rename → History → Restore — Draft / Owner review pending (#462).**
+- **M1-R4B File Library manual Move + non-overwrite conflicts — Draft / Owner review pending (#462).**
+  Baseline: merged #463 `master@d94f439a58658c8d0685660115862d19fd5b2f29`,
+  postmerge CI [40153269701](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40153269701) SUCCESS;
+  Schema 42 unchanged. One regular file can choose a native destination folder,
+  obtain a read-only backend Move intent, then use existing explicit preview,
+  consent, journal, History and Restore. The rederived intent binds source and
+  destination identities, canonical directory and final basename. The existing
+  atomic no-replace path verifies the bound destination handle and rejects
+  cross-volume fallback. Conflicts expose change-folder/name and Cancel; changes
+  require a fresh preview and confirmation. Source/destination replacement,
+  links/junctions, locks and stale consent fail closed. Existing tags, stable IDs
+  and backend-confirmed legacy path-ID selection refresh are retained, including
+  Windows extended journal paths, without stealing a newer selection.
+  Cross-volume, directory/bulk, Replace and macOS provider/portable-copy moves
+  are deferred; macOS manual Move is local APFS only. No schema, index/Watcher,
+  SourceUID/RootEpoch, AI, F1, release or CI configuration change.
+  Focused frontend checks pass locally; native Rust execution is unavailable in
+  this Linux workspace (missing GLib), so normal Windows/macOS PR CI owns that
+  evidence. One consolidated Windows 11 GUI smoke of R1–R4 remains Owner native
+  acceptance after review/merge and a fresh executable; native M1 green is not claimed.
+
+- **M1-R4A File Library manual Rename → History → Restore — MERGED #463 / Windows native requalification pending (#462).**
   Baseline: merged #461 `master@1c70367`, Schema 42 unchanged.
   A regular-file context action accepts a new basename without AI suggestions,
   obtains a backend-issued manual Rename preview and opens the existing Operation

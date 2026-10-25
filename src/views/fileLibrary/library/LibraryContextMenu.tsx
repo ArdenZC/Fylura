@@ -113,6 +113,7 @@ export function LibraryContextMenu({
   onPreview,
   onReveal,
   onRename,
+  onMove,
   onOpenContent,
   onViewOperations,
   onViewSuggestions,
@@ -124,6 +125,7 @@ export function LibraryContextMenu({
   onPreview: (trigger: HTMLElement | null) => void;
   onReveal: () => void;
   onRename?: () => void;
+  onMove?: () => void;
   onOpenContent: () => void;
   onViewOperations: () => void;
   onViewSuggestions: () => void;
@@ -131,6 +133,7 @@ export function LibraryContextMenu({
 }) {
   const items: Array<{ label: string; action: (trigger: HTMLElement | null) => void }> = [
     { label: t("libraryPreview"), action: onPreview },
+    ...(onMove ? [{ label: t("libraryManualMove"), action: () => onMove() }] : []),
     ...(onRename ? [{ label: t("libraryManualRename"), action: () => onRename() }] : []),
     { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
     { label: t("contentOpen"), action: () => onOpenContent() },

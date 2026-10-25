@@ -4,17 +4,17 @@ use crate::db::{
     UserTagMutationOperation,
 };
 
-struct Fixture {
-    root: PathBuf,
-    db: Database,
-    source: PathBuf,
-    id: String,
+pub(super) struct Fixture {
+    pub(super) root: PathBuf,
+    pub(super) db: Database,
+    pub(super) source: PathBuf,
+    pub(super) id: String,
 }
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self::with_legacy_id(false)
     }
-    fn with_legacy_id(legacy: bool) -> Self {
+    pub(super) fn with_legacy_id(legacy: bool) -> Self {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join(".tmp-tests")
             .join(format!("m1-r4-{}", uuid::Uuid::new_v4()));
@@ -54,7 +54,10 @@ impl Fixture {
             id,
         }
     }
-    fn selection(&self, preview: &crate::db::OperationPreviewDto) -> ExecuteMovesByIdRequest {
+    pub(super) fn selection(
+        &self,
+        preview: &crate::db::OperationPreviewDto,
+    ) -> ExecuteMovesByIdRequest {
         let fingerprint = preview.operation_fingerprint.clone().unwrap();
         ExecuteMovesByIdRequest {
             operations: vec![OperationSelection {
@@ -63,10 +66,11 @@ impl Fixture {
                 operation_fingerprint: fingerprint.clone(),
                 expected_revision: fingerprint,
                 new_name: Some(preview.new_name.clone()),
+                destination_directory: None,
             }],
         }
     }
-    fn finish(self) {
+    pub(super) fn finish(self) {
         drop(self.db);
         fs::remove_dir_all(self.root).unwrap();
     }

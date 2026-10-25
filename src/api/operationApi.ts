@@ -16,6 +16,14 @@ import type {
 import { rejectUnavailableFileMutation } from "../utils/fileMutationCapability";
 import type { OperationProgressPayload } from "./types";
 
+/** A backend-published target supplies a destination intent, never an executable path. */
+export function manualMoveDestinationDirectory(operation: Pick<OperationPreview, "target_path">): string {
+  const path = operation.target_path.replace(/\\/g, "/");
+  const slash = path.lastIndexOf("/");
+  if (slash < 0) throw new Error("operation_preview_stale");
+  return path.slice(0, slash === 0 || (slash === 2 && path[1] === ":") ? slash + 1 : slash);
+}
+
 export const operationApi = {
   executeMoves(operations: OperationPreview[]): Promise<ExecuteOperationResult> {
     const unavailable = rejectUnavailableFileMutation<ExecuteOperationResult>();
@@ -30,7 +38,8 @@ export const operationApi = {
         fileId: operation.fileId,
         operationFingerprint: operationFingerprints[index],
         expectedRevision: operationFingerprints[index],
-        ...(operation.new_name !== operation.old_name ? { newName: operation.new_name } : {})
+        ...(operation.new_name !== operation.old_name || operation.id.startsWith("op-manual-move-") ? { newName: operation.new_name } : {}),
+        ...(operation.id.startsWith("op-manual-move-") ? { destinationDirectory: manualMoveDestinationDirectory(operation) } : {})
       }))
     };
     return invokeCommand<ExecuteOperationResult>("execute_moves", { request });
@@ -93,6 +102,9 @@ export const operationApi = {
   },
   getOperationPreviewsByFileIds(fileIds: string[]): Promise<OperationPreview[]> {
     return invokeCommand<OperationPreview[]>("get_operation_previews_by_file_ids", { fileIds });
+  },
+  getManualMoveOperationPreview(fileId: string, destinationDirectory: string, newName: string): Promise<OperationPreview> {
+    return invokeCommand<OperationPreview>("get_manual_move_operation_preview", { fileId, destinationDirectory, newName });
   },
   getManualRenameOperationPreview(fileId: string, newName: string): Promise<OperationPreview> {
     return invokeCommand<OperationPreview>("get_manual_rename_operation_preview", { fileId, newName });

@@ -59,6 +59,7 @@ export function LibraryMode() {
     locations: experienceState.workspace.locations
   });
   useApplyLibraryNavigationTarget({ currentTarget, source });
+  const [manualMode, setManualMode] = useState<"rename" | "move">("rename");
   const [renameFile, setRenameFile] = useState<FileLibrarySummary | null>(null);
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -211,6 +212,13 @@ export function LibraryMode() {
     const context = contextMenu;
     closeContextMenu("dialog-handoff");
     await content.openContentForFile(fileId, context?.restoreFocusElement ?? undefined);
+  }
+
+  function openManualFileOperation(file: FileLibrarySummary, mode: "rename" | "move") {
+    closeContextMenu("dialog-handoff");
+    source.setExplicitSelection([file.id], file.id);
+    setManualMode(mode);
+    setRenameFile(file);
   }
 
   async function openOperationsPreview(targetFileIds?: ReadonlySet<string>) {
@@ -402,7 +410,8 @@ export function LibraryMode() {
           />
       </div>
       {renameFile ? <ManualRenameDialog
-        key={renameFile.id}
+        key={`${manualMode}-${renameFile.id}`}
+        mode={manualMode}
         file={renameFile}
         t={t}
         onClose={() => setRenameFile(null)}
@@ -424,12 +433,8 @@ export function LibraryMode() {
             closeContextMenu("dialog-handoff");
             openLibraryPreview(fileId, trigger);
           }}
-          onRename={capabilities?.renameAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => {
-            const file = contextMenu.file;
-            closeContextMenu("dialog-handoff");
-            source.setExplicitSelection([file.id], file.id);
-            setRenameFile(file);
-          } : undefined}
+          onMove={capabilities?.sameVolumeMoveAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => openManualFileOperation(contextMenu.file, "move") : undefined}
+          onRename={capabilities?.renameAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => openManualFileOperation(contextMenu.file, "rename") : undefined}
           onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)}
           onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)}
           onViewOperations={() => void openOperationsPreview(new Set([contextMenu.file.id])).catch(() => undefined)}

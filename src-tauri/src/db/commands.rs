@@ -429,6 +429,22 @@ pub fn get_operation_previews_by_file_ids(
 }
 
 #[tauri::command]
+pub async fn get_manual_move_operation_preview(
+    db: State<'_, Database>,
+    file_id: String,
+    destination_directory: String,
+    new_name: Option<String>,
+) -> Result<OperationPreviewDto, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        db.get_manual_move_operation_preview(&file_id, &destination_directory, new_name.as_deref())
+            .map_err(command_error)
+    })
+    .await
+    .map_err(|error| format!("manual move preview task failed: {error}"))?
+}
+
+#[tauri::command]
 pub fn get_manual_rename_operation_preview(
     db: State<'_, Database>,
     file_id: String,

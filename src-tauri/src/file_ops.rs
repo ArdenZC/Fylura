@@ -31,6 +31,13 @@ mod manual_move_tests;
 mod manual_rename_tests;
 mod preview;
 mod progress;
+mod reconciliation;
+#[cfg(all(
+    test,
+    feature = "performance-test-tauri",
+    any(target_os = "windows", target_os = "macos")
+))]
+mod reconciliation_tests;
 mod recovery;
 mod restore;
 #[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
@@ -324,20 +331,27 @@ pub async fn execute_moves<R: Runtime>(
     require_main_window(&window)?;
     let db = db.inner().clone();
     let request = resolve_execute_selections(&db, request)?;
+    let paths = request
+        .operations
+        .iter()
+        .flat_map(|operation| [operation.source_path.clone(), operation.target_path.clone()])
+        .collect::<Vec<_>>();
     let app_data_dir = app.path().app_data_dir().ok();
     let guard = cancel.begin()?;
     let cancel_flag = Arc::clone(&cancel.cancel);
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        let emitter = TauriOperationProgressEmitter::new(app);
-        execute_moves_with_persistence_with_progress_and_app_data(
-            &db,
-            request,
-            cancel_flag,
-            &emitter,
-            app_data_dir,
-            None,
-        )
+        let emitter = TauriOperationProgressEmitter::new(app.clone());
+        reconciliation::with_reconciliation_wake(&app, &db, &paths, || {
+            execute_moves_with_persistence_with_progress_and_app_data(
+                &db,
+                request,
+                cancel_flag,
+                &emitter,
+                app_data_dir,
+                None,
+            )
+        })
     })
     .await
     .map_err(|error| format!("operation task failed: {error}"))?
@@ -633,12 +647,19 @@ pub async fn restore_moves<R: Runtime>(
         );
     }
     let request = RestoreMovesRequest { logs };
+    let paths = request
+        .logs
+        .iter()
+        .flat_map(|log| [log.path_before.clone(), log.path_after.clone()])
+        .collect::<Vec<_>>();
     let guard = cancel.begin()?;
     let cancel_flag = Arc::clone(&cancel.cancel);
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        let emitter = TauriOperationProgressEmitter::new(app);
-        restore_moves_with_persistence_with_progress(&db, request, cancel_flag, &emitter)
+        let emitter = TauriOperationProgressEmitter::new(app.clone());
+        reconciliation::with_reconciliation_wake(&app, &db, &paths, || {
+            restore_moves_with_persistence_with_progress(&db, request, cancel_flag, &emitter)
+        })
     })
     .await
     .map_err(|error| format!("restore task failed: {error}"))?

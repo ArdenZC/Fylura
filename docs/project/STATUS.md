@@ -4,6 +4,25 @@ Last verified: 2026-10-25
 
 ## Current execution truth
 
+- **M1-W2 runtime reconciliation wake — Draft / Owner review and Windows native recheck pending (#381, #462).**
+  Base `master@872513e4bf3105505460ce106b87cf81476fc2eb`, tree
+  `ace448ed82a36d139289c9c49034d8b6c1c8327e`. Owner's combined native verdict
+  is H1 PASS and W1 PARTIAL: Move/Restore preserved contents, NTFS identity and
+  successful journal, but durable needs remained until startup scanning.
+  Execute/Restore now resolve their managed endpoint roots before mutation and
+  issue one root-aware wake after persistence through the existing scheduler,
+  including partial-batch errors. Legacy lease completion rechecks roots whose
+  watcher revision advanced during the scan, preserving ordinary cancellation
+  rather than restarting incomplete scans without a new fence. Existing bounded
+  backoff re-evaluates admission; needs/health, retry exhaustion, rule recovery and
+  SourceUID/RootEpoch authority are unchanged. The existing normal PR backend
+  characterization lane includes a same-process old/no-wake versus new/wake
+  Move/Restore regression with missed notifications and preserved identity.
+  Cloud frontend focused checks pass; Cloud Rust execution is blocked by missing
+  dependencies and an unreachable configured proxy. Normal PR CI owns hosted
+  Rust results. The isolated Windows no-restart/no-manual-scan W2 recheck remains
+  Owner acceptance; no native PASS or release GO is claimed. Both issues stay open.
+
 - **M1-W1 Watcher persistent warning — Draft / Owner review and fresh Windows acceptance pending (#381).**
   Baseline: `master@eb81c63fcfeb8541734476709915d1755be1d361`.
   Owner's isolated Windows snapshot reports completed reconciliation with healthy

@@ -95,6 +95,23 @@ struct SearchMatchSql {
 }
 
 impl Database {
+    /// Resolve both sides before a user mutation can retire the source claim.
+    pub(crate) fn managed_root_ids_for_operation_paths(
+        &self,
+        paths: &[String],
+    ) -> Result<Vec<String>, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let mut roots = std::collections::BTreeSet::new();
+        for path in paths {
+            let path = normalize_path_text(path);
+            for (root_id, _) in managed_root_ids_for_path_tx(&tx, &path)? {
+                roots.insert(root_id);
+            }
+        }
+        Ok(roots.into_iter().collect())
+    }
+
     pub fn verify_indexed_file_identity(&self, file_id: &str) -> Result<(), DbError> {
         let conn = self.conn()?;
         let (path, expected_size, expected_mtime): (String, i64, i64) = conn.query_row(

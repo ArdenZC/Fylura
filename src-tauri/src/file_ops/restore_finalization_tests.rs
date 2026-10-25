@@ -6,7 +6,7 @@ use crate::db::{
 };
 use rusqlite::{params, Connection};
 
-fn managed_fixture() -> (Fixture, String, String) {
+pub(super) fn managed_fixture() -> (Fixture, String, String) {
     let mut f = Fixture::with_legacy_id(true);
     let library = normalize_path(f.source.parent().unwrap());
     let mut settings = crate::settings::get_app_settings(&f.db).unwrap();

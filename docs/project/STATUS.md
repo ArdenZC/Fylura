@@ -4,7 +4,26 @@ Last verified: 2026-10-09
 
 ## Current execution truth
 
-- **M1-R3 Windows Global Search scope readiness — Draft / Owner review pending (#460).**
+- **M1-R4A File Library manual Rename → History → Restore — Draft / Owner review pending (#462).**
+  Baseline: merged #461 `master@1c70367`, Schema 42 unchanged.
+  A regular-file context action accepts a new basename without AI suggestions,
+  obtains a backend-issued manual Rename preview and opens the existing Operation
+  Preview/confirmation surface. Execute re-derives that intent and verifies its
+  fingerprint before entering the existing journal/identity/commit authority.
+  Targets stay in the source directory, extensions are preserved, and conflicts
+  are blocked without overwrite. Read-only/missing sources and stale/replaced
+  files fail closed; stale consent reacquires the manual intent without retry.
+  Existing managed refresh, user tags, neutral file IDs, History and Restore are
+  retained. Legacy path-ID selections are rebound only to backend-confirmed
+  detail after committed Rename/Restore, without stealing newer user selection.
+  No schema, SourceUID/RootEpoch algorithm, index/scan, AI default,
+  filesystem strategy or release change. Tests use only disposable owned files.
+  Move and interactive conflict resolution remain M1-R4B; case-only rename and
+  directory rename are outside this slice. Normal PR CI owns hosted platform
+  checks. One consolidated Windows GUI smoke of R1–R4 on a new executable remains
+  Owner native acceptance, including History visibility and fixture-only Restore.
+
+- **M1-R3 Windows Global Search scope readiness — MERGED #461 / Windows native requalification pending (#460).**
   Baseline: merged #459 `master@2ed18e1` (2026-10-24), Schema 42 unchanged.
   Windows Search Scope no longer presents Managed Scan folder controls as a
   Global Index configuration. The current Windows provider indexes NTFS volumes,

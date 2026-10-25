@@ -4,6 +4,7 @@ import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
 import { cloneFileQuerySpec, explicitSingleSelectionId } from "../../../store/useFileLibraryV2Store";
 import type {
+  FileLibrarySummary,
   FileLibraryDetail,
   FileQueryFiltersV2
 } from "../../../types/domain";
@@ -13,6 +14,7 @@ import { NoticeBanner, StateBlock, pageFrame } from "../../shared/ui";
 import { FileLibraryFilterPopover } from "../../vault/components/FileLibraryFilterPopover";
 import { ContentUnderstandingSheet } from "../../vault/components/ContentUnderstandingSheet";
 import { LibraryMetadataManagerDialog } from "../../vault/components/LibraryMetadataManagerDialog";
+import { ManualRenameDialog } from "./ManualRenameDialog";
 import { LibraryContextMenu } from "./LibraryContextMenu";
 import { useLibrarySourceOwner } from "./librarySourceOwner";
 import { useLibraryContextMenu } from "./useLibraryContextMenu";
@@ -57,6 +59,7 @@ export function LibraryMode() {
     locations: experienceState.workspace.locations
   });
   useApplyLibraryNavigationTarget({ currentTarget, source });
+  const [renameFile, setRenameFile] = useState<FileLibrarySummary | null>(null);
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -398,6 +401,19 @@ export function LibraryMode() {
             restoreFocus={restoreContextFocus}
           />
       </div>
+      {renameFile ? <ManualRenameDialog
+        key={renameFile.id}
+        file={renameFile}
+        t={t}
+        onClose={() => setRenameFile(null)}
+        restoreFocus={() => document.querySelector<HTMLElement>('[data-library-source-owner="query-v2"] [role="listbox"]')}
+        onPreview={(preview) => {
+          source.clearExecutionIntent();
+          source.setPreviewResult({ previews: [preview], total: 1, limit: 1, offset: 0, truncated: false, hasMore: false }, source.scope);
+          setRenameFile(null);
+          setView("preview");
+        }}
+      /> : null}
       {contextMenu ? (
         <LibraryContextMenu
           context={contextMenu}
@@ -408,6 +424,12 @@ export function LibraryMode() {
             closeContextMenu("dialog-handoff");
             openLibraryPreview(fileId, trigger);
           }}
+          onRename={capabilities?.renameAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => {
+            const file = contextMenu.file;
+            closeContextMenu("dialog-handoff");
+            source.setExplicitSelection([file.id], file.id);
+            setRenameFile(file);
+          } : undefined}
           onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)}
           onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)}
           onViewOperations={() => void openOperationsPreview(new Set([contextMenu.file.id])).catch(() => undefined)}

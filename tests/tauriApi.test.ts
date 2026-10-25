@@ -107,6 +107,13 @@ describe("tauriApi", () => {
     expect(apiMocks.invoke).not.toHaveBeenCalled();
   });
 
+  it("requests a manual rename using only file identity and a basename", async () => {
+    await tauriApi.getManualRenameOperationPreview("file-id", "中文.txt");
+    expect(apiMocks.invoke).toHaveBeenCalledWith("get_manual_rename_operation_preview", { fileId: "file-id", newName: "中文.txt" });
+    await expect(mockInvokeCommand("get_manual_rename_operation_preview", { fileId: "file-id", newName: "中文.txt" }))
+      .rejects.toThrow("file_mutation_unsupported_in_browser");
+  });
+
   it("requests permanent-delete previews through the backend command", async () => {
     await tauriApi.getPermanentDeleteOperationPreview("file-id");
     expect(apiMocks.invoke).toHaveBeenCalledWith("get_permanent_delete_operation_preview", { fileId: "file-id" });

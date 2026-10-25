@@ -24,6 +24,8 @@ mod authority;
 mod execution;
 mod identity;
 mod journal;
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+mod manual_rename_tests;
 mod preview;
 mod progress;
 mod recovery;

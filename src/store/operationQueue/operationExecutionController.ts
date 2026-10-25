@@ -1,3 +1,4 @@
+import { refreshRenamedSelection } from "./renameSelectionRefresh";
 import { tauriApi } from "../../api/tauriApi";
 import { makeTranslator } from "../../i18n";
 import type {
@@ -6,7 +7,7 @@ import type {
   OperationPreviewResult,
   RuleExecutionSummary
 } from "../../types/domain";
-import { applyPreviewNameOverride, localizedStableError, readableError } from "../../utils/viewHelpers";
+import { applyPreviewNameOverride, localizedStableError, readableError, samePathLike } from "../../utils/viewHelpers";
 import { useAppStore } from "../useAppStore";
 import { useFileLibraryStore } from "../useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../useFileLibraryV2Store";
@@ -54,7 +55,7 @@ async function reacquireStaleOperationPreviews(
   const state = get();
   const previewScope = state.previewScope ?? useFileLibraryStore.getState().scope;
   const ordinaryOperations = staleOperations.filter(
-    (operation) => operation.operation_type !== "permanent_delete"
+    (operation) => operation.operation_type !== "permanent_delete" && !operation.id.startsWith("op-manual-rename-")
   );
   const permanentFileIds = [
     ...new Set(
@@ -71,10 +72,12 @@ async function reacquireStaleOperationPreviews(
       : await get().refreshPreviewsForScope(previewScope);
   }
 
-  if (!permanentFileIds.length) return;
+  const manualRenames = staleOperations.filter((operation) => operation.id.startsWith("op-manual-rename-"));
+  if (!permanentFileIds.length && !manualRenames.length) return;
 
   const refreshedPermanent = await Promise.all(
-    permanentFileIds.map((fileId) => tauriApi.getPermanentDeleteOperationPreview(fileId))
+    [...permanentFileIds.map((fileId) => tauriApi.getPermanentDeleteOperationPreview(fileId)),
+      ...manualRenames.map((operation) => tauriApi.getManualRenameOperationPreview(operation.fileId, operation.new_name))]
   );
   if (refreshedOrdinary) {
     get().setPreviewResult(
@@ -260,6 +263,10 @@ export async function executeSelected(
       lastExecutionLogs: result.logs,
       selectedOperationIds: new Set()
     }));
+    for (const operation of operations.filter((item) => item.id.startsWith("op-manual-rename-"))) {
+      const log = result.logs.find((item) => item.status === "success" && item.operation_type === "rename" && item.new_name === operation.new_name && samePathLike(item.source_path, operation.source_path));
+      if (log) await refreshRenamedSelection(operation.fileId, log.path_after);
+    }
     await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
     const previewScope = get().previewScope;
     if (previewScope) await get().refreshPreviewsForScope(previewScope);
@@ -279,6 +286,9 @@ export async function executeSelected(
   } catch (error) {
     const stale = isAuthoritativePreviewStale(error);
     if (stale) {
+      if (operations.some((operation) => operation.id.startsWith("op-manual-rename-"))) {
+        set({ selectedOperationIds: new Set() });
+      }
       // A stale batch is fail-closed: reacquire only the current authoritative
       // previews and leave the next execution to a new explicit user action.
       await reacquireStaleOperationPreviews({ get, set }, operations).catch(() => undefined);

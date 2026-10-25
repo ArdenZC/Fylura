@@ -1692,6 +1692,53 @@ impl Database {
             .collect())
     }
 
+    /// A user-specified basename is an intent, never a renderer-specified path.
+    /// Rebuilt at execute admission so the existing fingerprint binds consent.
+    pub fn get_manual_rename_operation_preview(
+        &self,
+        file_id: &str,
+        new_name: &str,
+    ) -> Result<OperationPreviewDto, DbError> {
+        let invalid = DbError::Validation;
+        let mut row = self
+            .get_indexed_file_rows_by_ids(&[file_id.to_string()])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| invalid("manual_rename_source_unavailable".to_string()))?;
+        self.verify_indexed_file_identity(file_id)?;
+        let source = Path::new(&row.path);
+        let metadata = fs::symlink_metadata(source)?;
+        if row.is_dir || !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(invalid("manual_rename_regular_file_required".to_string()));
+        }
+        if metadata.permissions().readonly() {
+            return Err(invalid("manual_rename_source_read_only".to_string()));
+        }
+        crate::file_ops::ensure_general_file_operation_allowed(source).map_err(invalid)?;
+        crate::file_ops::file_namespace_fingerprint(source).map_err(invalid)?;
+        if new_name.trim().is_empty() {
+            return Err(invalid("manual_rename_name_required".to_string()));
+        }
+        let name = normalize_proposed_file_name(
+            &row.name,
+            &row.extension,
+            new_name,
+            false,
+            ExtensionChangePolicy::Preserve,
+        )
+        .map_err(invalid)?;
+        crate::file_ops::validate_safe_file_name(&name).map_err(invalid)?;
+        row.suggested_action = "Rename".to_string();
+        row.suggested_target_path = parent_directory(&row.path);
+        row.suggested_name = name;
+        row.requires_confirmation = true;
+        row.classification_reason = "Manual rename requested by the user.".to_string();
+        let mut preview = operation_preview_from_indexed_with_intent(row, Some("manual-rename"))
+            .ok_or_else(|| invalid("manual_rename_name_unchanged".to_string()))?;
+        preview.editable_new_name = Some(false);
+        Ok(preview)
+    }
+
     pub fn get_permanent_delete_operation_preview(
         &self,
         file_id: &str,
@@ -2072,6 +2119,13 @@ fn post_join_where_clause(clause: Option<&str>) -> String {
 }
 
 pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPreviewDto> {
+    operation_preview_from_indexed_with_intent(row, None)
+}
+
+fn operation_preview_from_indexed_with_intent(
+    row: IndexedFileRow,
+    intent: Option<&str>,
+) -> Option<OperationPreviewDto> {
     let source_directory = parent_directory(&row.path);
     let proposed_name = if row.suggested_name.trim().is_empty() {
         row.name.clone()
@@ -2104,8 +2158,10 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         "Copy" | "Duplicate" | "Replace" => row.suggested_target_path.clone(),
         _ => String::new(),
     };
-    if let Some((parent, file_name)) =
-        split_filename_from_target_directory(&target_directory, &row.extension)
+    if let Some((parent, file_name)) = intent
+        .is_none()
+        .then(|| split_filename_from_target_directory(&target_directory, &row.extension))
+        .flatten()
     {
         target_directory = parent;
         if row.suggested_name.trim().is_empty() || row.suggested_name == row.name {
@@ -2161,7 +2217,10 @@ pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<Oper
         Path::new(&row.path),
         Path::new(&target_path),
     );
-    let preview_id = operation_preview_id(&row.id);
+    let preview_id = intent.map_or_else(
+        || operation_preview_id(&row.id),
+        |intent| operation_preview_id_for_intent(&row.id, intent),
+    );
     let source_identity_fingerprint = operation_source_identity_fingerprint(Path::new(&row.path));
     let provider_identity_fingerprint =
         operation_provider_identity_fingerprint(Path::new(&row.path));
@@ -2629,7 +2688,6 @@ fn operation_preview_id(file_id: &str) -> String {
     format!("op-{}", &digest[..16])
 }
 
-#[cfg(target_os = "macos")]
 fn operation_preview_id_for_intent(file_id: &str, intent: &str) -> String {
     let digest = blake3::hash(format!("operation-preview-id:v1\0{intent}\0{file_id}").as_bytes())
         .to_hex()

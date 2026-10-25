@@ -12,6 +12,7 @@ const apiMocks = vi.hoisted(() => ({
   getOperationPreviewsForScope: vi.fn(),
   getOperationPreviewsForSelection: vi.fn(),
   getOperationPreviewsByFileIds: vi.fn(),
+  getManualRenameOperationPreview: vi.fn(),
   getPermanentDeleteOperationPreview: vi.fn(),
   getOperationLogs: vi.fn(),
   onOperationProgress: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("../src/api/tauriApi", () => ({
     getOperationPreviewsForScope: apiMocks.getOperationPreviewsForScope,
     getOperationPreviewsForSelection: apiMocks.getOperationPreviewsForSelection,
     getOperationPreviewsByFileIds: apiMocks.getOperationPreviewsByFileIds,
+    getManualRenameOperationPreview: apiMocks.getManualRenameOperationPreview,
     getPermanentDeleteOperationPreview: apiMocks.getPermanentDeleteOperationPreview,
     getOperationLogs: apiMocks.getOperationLogs,
     onOperationProgress: apiMocks.onOperationProgress,
@@ -61,6 +63,7 @@ function preview(id: string, selectedByDefault: boolean, fileId = `file-${id}`):
 
 describe("operation queue store callbacks", () => {
   beforeEach(() => {
+    apiMocks.getManualRenameOperationPreview.mockReset();
     apiMocks.executeRulesForScopeV2.mockReset().mockResolvedValue({
       summary: { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 },
       catalogRevision: 1,
@@ -638,6 +641,35 @@ describe("operation queue store callbacks", () => {
     await useOperationQueueStore.getState().executeSelected(true);
     expect(apiMocks.executeMoves).toHaveBeenCalledTimes(2);
     expect(apiMocks.executeMoves).toHaveBeenNthCalledWith(2, [refreshed]);
+  });
+
+  it("reacquires manual rename consent without substituting AI suggestions or retrying execution", async () => {
+    const operation: OperationPreview = { ...preview("op-manual-rename-fixture", false, "owned-file"),
+      operation_type: "rename", new_name: "chosen.txt", target_path: "F:/Downloads/chosen.txt", editable_new_name: false };
+    const fresh = { ...operation, operationFingerprint: "fresh-manual-fingerprint" };
+    apiMocks.executeMoves.mockRejectedValueOnce(new Error("operation_preview_stale"));
+    apiMocks.getManualRenameOperationPreview.mockResolvedValueOnce(fresh);
+    useOperationQueueStore.setState({ previews: [operation], displayPreviews: [operation], previewScope: { kind: "all" }, selectedOperationIds: new Set([operation.id]) });
+    await useOperationQueueStore.getState().executeSelected(false);
+    expect(apiMocks.executeMoves).not.toHaveBeenCalled();
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(apiMocks.executeMoves).toHaveBeenCalledOnce();
+    expect(apiMocks.getManualRenameOperationPreview).toHaveBeenCalledWith(operation.fileId, "chosen.txt");
+    expect(apiMocks.getOperationPreviewsForScope).not.toHaveBeenCalled();
+    expect(apiMocks.getPermanentDeleteOperationPreview).not.toHaveBeenCalled();
+    expect(useOperationQueueStore.getState().previews).toEqual([fresh]);
+    expect(useOperationQueueStore.getState().selectedOperationIds.size).toBe(0);
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(apiMocks.executeMoves).toHaveBeenCalledOnce();
+    const log = { id: "manual-log", status: "success", can_restore: true } as OperationLog;
+    apiMocks.executeMoves.mockResolvedValueOnce({ logs: [log], batch_id: "manual-batch" });
+    useOperationQueueStore.getState().setSelectedOperationIds(new Set([fresh.id]));
+    await useOperationQueueStore.getState().executeSelected(false);
+    expect(apiMocks.executeMoves).toHaveBeenCalledOnce();
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(apiMocks.executeMoves).toHaveBeenLastCalledWith([fresh]);
+    expect(useOperationQueueStore.getState().operationLogs).toContainEqual(log);
+    expect(useOperationQueueStore.getState().selectedOperationIds.size).toBe(0);
   });
 
   it("reacquires stale Permanent Delete previews through its dedicated backend owner", async () => {

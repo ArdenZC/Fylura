@@ -94,6 +94,9 @@ export const operationApi = {
   getOperationPreviewsByFileIds(fileIds: string[]): Promise<OperationPreview[]> {
     return invokeCommand<OperationPreview[]>("get_operation_previews_by_file_ids", { fileIds });
   },
+  getManualRenameOperationPreview(fileId: string, newName: string): Promise<OperationPreview> {
+    return invokeCommand<OperationPreview>("get_manual_rename_operation_preview", { fileId, newName });
+  },
   getPermanentDeleteOperationPreview(fileId: string): Promise<OperationPreview> {
     return invokeCommand<OperationPreview>("get_permanent_delete_operation_preview", { fileId });
   },

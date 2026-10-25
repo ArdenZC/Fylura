@@ -5,7 +5,7 @@ import { useAppStore } from "../store/useAppStore";
 import { useWatcherStatusStore } from "../store/useWatcherStatusStore";
 import { registerListenerGroup } from "../utils/registerListenerGroup";
 import { readableError } from "../utils/viewHelpers";
-import { deriveWatcherPresentation, watcherPresentationNeedsAttention } from "../utils/watcherPresentation";
+import { deriveWatcherPresentation } from "../utils/watcherPresentation";
 import {
   WatcherRetryQueue,
   WATCHER_QUEUE_BATCH_LIMIT,
@@ -34,10 +34,6 @@ function isWatcherStatusSnapshot(payload: FsWatcherWarningEvent | WatcherReconci
     && "healthStatus" in payload;
 }
 
-function watcherMessageForStatus(status: WatcherReconciliationStatus) {
-  return makeTranslator(useAppStore.getState().language)(deriveWatcherPresentation(status).messageKey);
-}
-
 const WATCHER_FLUSH_DELAY_MS = 500;
 export function useFsWatcher({
   onRefreshData,
@@ -51,7 +47,6 @@ export function useFsWatcher({
     let statusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
     let legacyCleanup: (() => void | Promise<void>) | undefined;
     let backendCleanup: (() => void | Promise<void>) | undefined;
-    const knownRootRevisions = new Map<string, number>();
 
     const refreshProjection = () => {
       if (statusRefreshTimer !== undefined) clearTimeout(statusRefreshTimer);
@@ -61,9 +56,19 @@ export function useFsWatcher({
       }, 100);
     };
 
+    // Both status channels share the durable store's revision ordering, including
+    // snapshots retained across effect restarts and delayed hydration responses.
+    const applyStatus = (status: WatcherReconciliationStatus) => {
+      const store = useWatcherStatusStore.getState();
+      const previous = store.roots[status.scanRootId];
+      if (previous && status.rootRevision <= previous.rootRevision) return;
+      store.upsert(status);
+      refreshProjection();
+    };
+
     const warningHandler = (payload: FsWatcherWarningEvent | WatcherReconciliationStatus) => {
       if (disposed) return;
-      if (isWatcherStatusSnapshot(payload)) onError?.(watcherMessageForStatus(payload));
+      if (isWatcherStatusSnapshot(payload)) applyStatus(payload);
       else onError?.(watcherPartialIndexWarningMessage());
     };
 
@@ -195,12 +200,9 @@ export function useFsWatcher({
       if (typeof tauriApi.listScanRoots === "function") {
         void tauriApi.listScanRoots().then((roots) => {
           if (isDisposed()) return;
-          let pending = false;
-          for (const root of roots) {
-            knownRootRevisions.set(root.id, root.revision);
-            pending = pending || root.needsReconciliation || root.watcherRevision > root.watcherAppliedRevision;
-          }
           useWatcherStatusStore.getState().hydrate(roots);
+          const pending = Object.values(useWatcherStatusStore.getState().roots)
+            .some((root) => root.needsReconciliation || root.watcherRevision > root.watcherAppliedRevision);
           if (pending) refreshProjection();
         }).catch((error) => {
           if (!isDisposed()) onError?.(readableError(error));
@@ -209,15 +211,7 @@ export function useFsWatcher({
       void registerListenerGroup([
         () => tauriApi.onWatcherReconciliationStatus((payload) => {
           if (!payload || isDisposed()) return;
-          useWatcherStatusStore.getState().upsert(payload);
-          const previousRevision = knownRootRevisions.get(payload.scanRootId);
-          if (previousRevision !== undefined && payload.rootRevision <= previousRevision) return;
-          const hasRevisionGap = previousRevision !== undefined && payload.rootRevision > previousRevision + 1;
-          knownRootRevisions.set(payload.scanRootId, payload.rootRevision);
-          const presentation = deriveWatcherPresentation(payload);
-          if (watcherPresentationNeedsAttention(presentation)) onError?.(watcherMessageForStatus(payload));
-          if (hasRevisionGap) refreshProjection();
-          refreshProjection();
+          applyStatus(payload);
         }),
         () => tauriApi.onFsWatcherWarning<FsWatcherWarningEvent>((payload) => warningHandler(payload))
       ]).then((cleanup) => {

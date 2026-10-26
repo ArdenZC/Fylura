@@ -43,6 +43,7 @@ on:
           - source_health_topology_diagnostic
           - index_cost
           - exact_sql_1m_diagnostic
+          - covering_indexes
 
 permissions:
   contents: read
@@ -55,7 +56,7 @@ jobs:
   # Keep manual baseline/diagnostic modes and the two branch-scoped diagnostics;
   # ordinary PRs use only the bounded 1k-row smoke in the index-cost job below.
   synthetic-global-search:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost' && inputs.mode != 'exact_sql_1m_diagnostic') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost' && inputs.mode != 'exact_sql_1m_diagnostic' && inputs.mode != 'covering_indexes') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
     name: Global Search ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
@@ -386,5 +387,57 @@ jobs:
             ${{ runner.temp }}/global-search-exact-sql-1m.jsonl
             ${{ runner.temp }}/global-search-exact-sql-1m-semantic.jsonl
             ${{ runner.temp }}/global-search-exact-sql-1m.sha256
+          if-no-files-found: warn
+          retention-days: 90
+
+  covering-index-pair:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'covering_indexes' }}
+    name: Covering indexes paired (${{ inputs.entries }} rows)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ inputs.entries }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ runner.temp }}/covering-index-pair.jsonl
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check bounded scale and record identity
+        shell: pwsh
+        run: |
+          if ($env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES -notin @('100000','1000000')) { throw 'Only 100k preflight or one controlled 1M run is supported.' }
+          $tree = git rev-parse 'HEAD^{tree}'
+          "ZEN_CANVAS_BENCHMARK_SOURCE_TREE=$tree" >> $env:GITHUB_ENV
+          "source=${{ github.sha }} tree=$tree" >> $env:GITHUB_STEP_SUMMARY
+          $drive = Get-PSDrive -Name $env:RUNNER_TEMP.Substring(0,1)
+          if ($drive.Free -lt 10GB) { throw 'Need 10 GiB free for controlled SQLite copies.' }
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-global-search-benchmark-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Schema 43 migration and rollback checks
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib schema43 -- --nocapture --test-threads=1
+      - name: Existing source semantics and concurrent transaction checks
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_search_source_health -- --nocapture --test-threads=1
+      - name: Hostile covering-index contract check
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::tests::global_search_benchmark::covering_indexes::covering_indexes_preserve_hostile_source_and_search_contracts -- --exact --nocapture --test-threads=1
+      - name: Run single-fixture covering-index pair
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib
+          global_index::tests::global_search_benchmark::covering_indexes::global_search_covering_index_pair
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Upload complete or partial paired evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: covering-index-pair-${{ inputs.entries }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/covering-index-pair.jsonl
           if-no-files-found: warn
           retention-days: 90

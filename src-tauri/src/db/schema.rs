@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 42;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 43;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -998,8 +998,26 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             super::schema_global_generations::install(conn)?;
             set_schema_version(conn, 42)?;
         }
+        if version < 43 {
+            migrate_global_search_covering_indexes(conn)?;
+        }
         Ok(())
     })
+}
+
+fn migrate_global_search_covering_indexes(conn: &Connection) -> Result<(), DbError> {
+    // IF NOT EXISTS cannot upgrade the three-column index in installed databases.
+    // DDL and user_version commit (or roll back) under the migration write lock.
+    conn.execute_batch(
+        "DROP INDEX IF EXISTS idx_global_entries_active_name_order;
+         CREATE INDEX idx_global_entries_active_name_order
+         ON global_entries(name_normalized, modified_at_fs DESC, id ASC, volume_id)
+         WHERE is_stale = 0;
+         CREATE INDEX IF NOT EXISTS idx_global_entries_active_source_facts
+         ON global_entries(volume_id, last_seen_at, id)
+         WHERE is_stale = 0;",
+    )?;
+    set_schema_version(conn, 43)
 }
 
 fn migrate_library_source_physical_lookup_index(conn: &Connection) -> Result<(), DbError> {
@@ -2350,7 +2368,7 @@ fn ensure_global_index_hardening(conn: &Connection) -> Result<(), DbError> {
         -- existing database; the *_order indexes avoid a temp sort for exact
         -- name/extension tiers and for their high-cardinality prefix cases.
         CREATE INDEX IF NOT EXISTS idx_global_entries_active_name_order
-            ON global_entries(name_normalized, modified_at_fs DESC, id ASC)
+            ON global_entries(name_normalized, modified_at_fs DESC, id ASC, volume_id)
             WHERE is_stale = 0;
         CREATE INDEX IF NOT EXISTS idx_global_entries_active_extension_order
             ON global_entries(extension, modified_at_fs DESC, id ASC)
@@ -3327,6 +3345,65 @@ mod issue381_b4_p0_tests {
             "zen-canvas-issue381-{label}-{}-{timestamp}.sqlite3",
             std::process::id()
         ))
+    }
+
+    fn schema43_index_sql(conn: &Connection) -> Vec<String> {
+        conn.prepare("SELECT sql FROM sqlite_schema WHERE name IN ('idx_global_entries_active_name_order', 'idx_global_entries_active_source_facts') ORDER BY name")
+            .unwrap().query_map([], |row| row.get(0)).unwrap()
+            .collect::<Result<Vec<_>, _>>().unwrap()
+    }
+
+    fn restore_schema42_indexes(conn: &Connection) {
+        conn.execute_batch(
+            "DROP INDEX idx_global_entries_active_name_order;
+            DROP INDEX idx_global_entries_active_source_facts;
+            CREATE INDEX idx_global_entries_active_name_order
+            ON global_entries(name_normalized, modified_at_fs DESC, id ASC) WHERE is_stale = 0;
+            PRAGMA user_version = 42;",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn schema43_rebuilds_installed_indexes_and_reopens_idempotently() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let fresh = schema43_index_sql(&conn);
+        restore_schema42_indexes(&conn);
+        migrate(&conn).unwrap();
+        let upgraded = schema43_index_sql(&conn);
+        // Compare index keys, DESC flag and partial predicate, ignoring DDL whitespace.
+        let normalize = |sql: &str| sql.split_whitespace().collect::<String>();
+        assert_eq!(
+            fresh.iter().map(|s| normalize(s)).collect::<Vec<_>>(),
+            upgraded.iter().map(|s| normalize(s)).collect::<Vec<_>>()
+        );
+        assert!(upgraded[0].contains("id ASC, volume_id"));
+        assert!(upgraded[1].contains("volume_id, last_seen_at, id"));
+        assert_eq!(schema_version(&conn).unwrap(), 43);
+        migrate(&conn).unwrap();
+        assert_eq!(schema43_index_sql(&conn), upgraded);
+        conn.execute_batch("PRAGMA user_version = 44").unwrap();
+        assert!(migrate(&conn).is_err());
+        assert_eq!(schema_version(&conn).unwrap(), 44);
+    }
+
+    #[test]
+    fn schema43_failure_restores_old_index_and_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        restore_schema42_indexes(&conn);
+        let old = schema43_index_sql(&conn);
+        let result = with_migration_transaction(&conn, |conn| {
+            migrate_global_search_covering_indexes(conn)?;
+            conn.execute_batch("SELECT * FROM schema43_injected_missing_table")?;
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert_eq!(schema43_index_sql(&conn), old);
+        assert_eq!(schema_version(&conn).unwrap(), 42);
+        migrate(&conn).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), 43);
     }
 
     fn remove_identity_foundation(conn: &Connection, version: i32) {

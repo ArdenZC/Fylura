@@ -4,6 +4,15 @@ Last verified: 2026-10-26
 
 ## Current execution truth
 
+- **Global Search covering-index repair — production candidate / validation pending.**
+  Base `master@8ffc7d04a8c392e28299445b845d39e606f43f5c`, Schema 42→43.
+  Owner authorized only Name Prefix volume coverage and active Source Facts
+  coverage. Search/source/status SQL and COUNT(id), revision/hash and read
+  transaction contracts remain intact. One shared-fixture A0–A3 comparison per
+  scale: 100k preflight before one controlled Hosted 1M run. Existing 100ms
+  target is unchanged. Draft only; no merge or Codex Review. See the
+  [scope, migration risks and paired protocol](../research/GLOBAL_SEARCH_COVERING_INDEX_REPAIR.md).
+
 - **U1 File Management Workspace — complete workflow candidate / Draft Owner review pending.**
   Base `master@8e6179aad2a7cea25718ba0e4ebaf79d77834ffa`. Dependency order:
   backend [#470](https://github.com/ArdenZC/Zen-Canvas/pull/470), then its dependent

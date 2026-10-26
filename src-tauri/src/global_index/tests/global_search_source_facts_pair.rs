@@ -453,7 +453,9 @@ fn source_facts_schema44_migrates_populated43_and_reopens_without_recount() {
                 .unwrap(),
         );
     }
-    let conn = db.conn().unwrap();
+    // PROFILE tracing reserves all eight pooled handles. Inspect facts using
+    // a separate connection so this fixture cannot exhaust its own pool.
+    let conn = configured_connection(&path).unwrap();
     let rows:i64=conn.query_row("SELECT active_rows-active_ids FROM global_entry_source_facts WHERE volume_id='gv_test'",[],|r|r.get(0)).unwrap();
     assert_eq!(rows, 1);
     let traces = super::covering_indexes::trace_snapshot(&db, &conn, "zzznomatchtoken");

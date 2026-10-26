@@ -4,13 +4,15 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **Global Search 1M Phase 2 — #474 production slice A / qualification in progress.**
+- **Global Search 1M Phase 2 — Draft #478 / final CI in progress.**
   Integrated master `a47672182ea2d92784e226496b6f2d2be8cafe2c`, Schema43 after
   merged #473. Schema44 candidate maintains exact per-volume COUNT(id), active
   rows and MAX in existing write transactions; Snapshot and standalone Status
   retain precise nullable-ID and source revision/read transaction contracts.
-  100k complete semantics/read and real writer preflight passed; one 1M pair
-  is in progress. Native rank/tie-frontier failed 100k performance and stays
+  100k and the single 1M pair passed full semantics; no-result Snapshot p95
+  at 1M is 216.397→1.246ms, name-prefix 299.060→68.729ms. Pooled/Snapshot
+  p95 remain 10/12; FTS is >100ms and extension pooled p99 +26.10% remains
+  a material tail risk. Native rank/tie-frontier failed 100k performance and stays
   test-only, with no 1M rerun; BM258:2:1
   and ordering unchanged. #417/F1 stays independent. Draft only, Owner merges.
   See [scope, producer audit and bounded protocol](../research/ISSUE_474_EXACT_SOURCE_FACTS.md).

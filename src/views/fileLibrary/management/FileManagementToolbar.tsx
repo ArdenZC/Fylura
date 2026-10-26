@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Star, X, FolderOpen } from "lucide-react";
+import { Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Star, X, FolderOpen, MoreHorizontal, Package, File, Check, AlertTriangle, ChevronRight } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fileManagementApi as api, type TransferAction, type TransferPreview, type TransferTicket, type SavedPlace } from "../../../api/fileManagementApi";
 import { tauriApi } from "../../../api/tauriApi";
@@ -27,7 +27,47 @@ export function FileManagementToolbar() {
   const [previewPage, setPreviewPage] = useState(0); const [basketPage, setBasketPage] = useState(0); const [resultPage, setResultPage] = useState(0);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   const [places, setPlaces] = useState<SavedPlace[]>([]); const [currentPath, setCurrentPath] = useState("");
-  const [locationInput, setLocationInput] = useState(""); const [placesOpen, setPlacesOpen] = useState(false);
+  const [locationInput, setLocationInput] = useState("");
+  const [panel, setPanel] = useState<"more" | "places" | "results" | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const panelTriggerRef = useRef<HTMLElement | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const panelOpen = state.basketOpen || panel !== null;
+  function closePanel(restore = true) {
+    useFileManagementStore.setState({ basketOpen: false }); setPanel(null);
+    if (restore) panelTriggerRef.current?.focus();
+  }
+  function openPanel(next: "more" | "places" | "results" | "basket", trigger?: HTMLElement) {
+    if (trigger) panelTriggerRef.current = trigger;
+    useFileManagementStore.setState({ basketOpen: next === "basket" });
+    setPanel(next === "basket" ? null : next);
+  }
+  useEffect(() => {
+    if (!panelOpen) return;
+    const element = panelRef.current;
+    element?.querySelector<HTMLElement>("button:not(:disabled), input")?.focus();
+    const workspace = element?.closest(".file-library-workspace");
+    const fitPanel = () => {
+      if (element && workspace) element.style.maxHeight = `${Math.max(80, Math.min(480, workspace.getBoundingClientRect().bottom - element.getBoundingClientRect().top - 8))}px`;
+    };
+    fitPanel();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fitPanel);
+    if (workspace) observer?.observe(workspace);
+    if (element?.parentElement) observer?.observe(element.parentElement);
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closePanel(); }
+    };
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !panelRef.current?.contains(event.target) && !panelTriggerRef.current?.contains(event.target)) closePanel(false);
+    };
+    const focusOutside = (event: FocusEvent) => {
+      if (event.target instanceof Node && !panelRef.current?.contains(event.target) && !panelTriggerRef.current?.contains(event.target)) closePanel(false);
+    };
+    document.addEventListener("keydown", keydown);
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("focusin", focusOutside);
+    return () => { observer?.disconnect(); document.removeEventListener("keydown", keydown); document.removeEventListener("pointerdown", outside); document.removeEventListener("focusin", focusOutside); };
+  }, [panelOpen, panel, state.basketOpen]);
   const [transfer, setTransfer] = useState<{ tickets: TransferTicket[]; action: TransferAction; origin: "selection" | "clipboard" | "basket" } | null>(null);
   const [destination, setDestination] = useState(""); const [plan, setPlan] = useState<TransferPreview | null>(null);
   const [skip, setSkip] = useState<string[]>([]); const [keepBoth, setKeepBoth] = useState<string[]>([]);
@@ -76,7 +116,8 @@ export function FileManagementToolbar() {
       const old = useFileManagementStore.getState();
       if (action === "basket") {
         const merged = new Map(old.basket.map((ticket) => [ticket.id, ticket])); tickets.forEach((ticket) => merged.set(ticket.id, ticket));
-        useFileManagementStore.setState({ basket: [...merged.values()], basketOpen: true });
+        useFileManagementStore.setState({ basket: [...merged.values()], basketOpen: false });
+        closePanel();
       } else {
         useFileManagementStore.setState({ clipboard: { action: action === "cut" ? "move" : "copy", tickets } });
         await releaseUnused(old.clipboard?.tickets.map((ticket) => ticket.id) ?? []);
@@ -86,6 +127,8 @@ export function FileManagementToolbar() {
   }
   function begin(tickets: TransferTicket[], action: TransferAction, origin: "selection" | "clipboard" | "basket") {
     if (!tickets.length) return;
+    closePanel(false);
+    setCancelling(false);
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     useFileManagementStore.setState({ results: [] }); setPreviewPage(0); setResultPage(0);
     setTransfer({ tickets, action, origin }); setDestination(currentPath); setPlan(null); setSkip([]); setKeepBoth([]); setError("");
@@ -127,7 +170,7 @@ export function FileManagementToolbar() {
         const firstProblem = next.rows.find((row) => row.error && !row.skipped);
         if (firstProblem) setPreviewPage(Math.floor(Math.max(0, transfer.tickets.findIndex((ticket) => ticket.id === firstProblem.ticketId)) / PAGE_SIZE));
         const statuses = { ...useFileManagementStore.getState().statuses };
-        next.rows.forEach((row) => { if (row.error) statuses[row.ticketId] = describeError(row.error); });
+        next.rows.forEach((row) => { if (row.error) statuses[row.ticketId] = describeError(row.error); else delete statuses[row.ticketId]; });
         useFileManagementStore.setState({ statuses });
       }
     });
@@ -154,6 +197,7 @@ export function FileManagementToolbar() {
         useFileManagementStore.setState({ results: result.logs, statuses, basketOpen: false,
           ...(acceptedTransfer.action === "move" ? { basket: current.basket.filter((ticket) => !succeeded.has(ticket.id)), clipboard: current.clipboard ? { ...current.clipboard, tickets: current.clipboard.tickets.filter((ticket) => !succeeded.has(ticket.id)) } : null } : {}) });
         setTransfer(null); setPlan(null); setNotice(t("fmFinished"));
+        if (result.logs.some((log) => log.status !== "success")) setPanel("results");
         previewController.close("escape");
         const currentSurface = useFileManagementStore.getState().surface?.(); currentSurface?.clear();
         try { await currentSurface?.refresh(); await useOperationQueueStore.getState().refreshOperationLogs(); } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
@@ -168,7 +212,7 @@ export function FileManagementToolbar() {
       if (platform !== "win32" && platform !== "darwin") throw Error("workspace_platform_not_supported");
       previewController.close("escape");
       const admitted = await controller.openBrowse({ platform: platform === "win32" ? "windows" : "macos", routingHint: path, displayHint: path });
-      if (!admitted) throw Error("browse_admission_superseded"); setPlacesOpen(false);
+      if (!admitted) throw Error("browse_admission_superseded"); closePanel();
     });
   }
   const effectiveBasketPage = Math.min(basketPage, Math.max(0, Math.ceil(state.basket.length / PAGE_SIZE) - 1));
@@ -176,42 +220,91 @@ export function FileManagementToolbar() {
   const selected = surface?.count === null ? t("fmAllResults") : String(surface?.count ?? 0);
   const disabled = busy || !surface || surface.count === 0;
   const rowsReady = plan && plan.rows.some((row) => !row.skipped && row.preview) && plan.rows.every((row) => row.skipped || !row.error);
+  const readyCount = plan?.rows.filter((row) => !row.skipped && row.preview && !row.error).length ?? 0;
+  const skippedCount = skip.length;
+  const panelTitle = t(state.basketOpen ? "fmBasket" : panel === "places" ? "fmPlaces" : panel === "results" ? "fmResultsSummary" : "fmMore");
+  const resultsSummary = `${t("fmResults")} · ${state.results.filter((log) => log.status === "success").length}/${state.results.length}`;
+  const resolution = (id: string, value: string) => {
+    setSkip((current) => value === "skip" ? [...current.filter((item) => item !== id), id] : current.filter((item) => item !== id));
+    setKeepBoth((current) => value === "both" ? [...current.filter((item) => item !== id), id] : current.filter((item) => item !== id));
+    preparing.current++; setPlan(null);
+  };
+  const placeGroup = (favorite: boolean) => <section className="fm-place-group">
+    <h3>{t(favorite ? "fmFavorites" : "fmRecent")}</h3>
+    <ul className="fm-places">{places.filter((place) => place.favorite === favorite).map((place) => <li key={place.id}>
+      <button className={cn(buttonGhost, "fm-place-link")} disabled={busy || place.unavailable} onClick={() => void go(place.routingHint)}>
+        {favorite ? <Star size={14}/> : <FolderOpen size={14}/>}<span><strong>{place.name}</strong><small title={place.routingHint}>{place.unavailable ? t("fmUnavailable") : place.routingHint}</small></span>
+      </button>
+      <button className={buttonGhost} disabled={busy} aria-label={`${t(place.favorite ? "fmUnfavorite" : "fmRemove")} ${place.name}`} onClick={() => void run(async () => setPlaces(await api.fileLibraryPlaces({ removeId: place.id })))}><X size={14}/></button>
+    </li>)}</ul>
+    {!places.some((place) => place.favorite === favorite) && <p className="fm-muted">{t("fmEmptyPlaces")}</p>}
+  </section>;
   return <section className="fm-workflow" aria-label={t("fmActions")} data-file-management>
-    <div className="fm-toolbar">
-      <span className="text-xs text-[var(--zc-text-secondary)]" aria-live="polite">{t("fmSelection")} {selected}</span>
-      <button className={buttonGhost} disabled={busy || !surface?.selectAll} onClick={() => surface?.selectAll?.()}>{t(surface?.selectionScope === "loaded" ? "fmSelectLoaded" : "fmSelectAll")}</button>
+    <div className="fm-toolbar fm-primary-toolbar">
+      <span className="fm-selection" data-has-selection={!disabled} aria-live="polite">{t("fmSelection")} <strong>{selected}</strong></span>
       <button className={buttonGhost} disabled={disabled} onClick={() => collect("copy")}><Copy size={14}/>{t("fmCopy")}</button>
       <button className={buttonGhost} disabled={disabled} onClick={() => collect("cut")}><Scissors size={14}/>{t("fmCut")}</button>
       <button className={buttonGhost} disabled={busy || !state.clipboard?.tickets.length} onClick={paste}><ClipboardPaste size={14}/>{t("fmPaste")}{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
       <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
-      <button className={buttonGhost} disabled={disabled} onClick={() => collect("basket")}><PackagePlus size={14}/>{t("fmAddBasket")}</button>
-      <button className={buttonGhost} aria-expanded={state.basketOpen} onClick={() => useFileManagementStore.setState({ basketOpen: !state.basketOpen })}>{t("fmBasket")} ({state.basket.length})</button>
-      <button className={buttonGhost} aria-expanded={placesOpen} onClick={() => setPlacesOpen(!placesOpen)}><Star size={14}/>{t("fmPlaces")}</button>
+      <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls="fm-auxiliary-panel" onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basket.length > 0 && <span className="fm-count">{state.basket.length}</span>}</button>
+      {!!state.results.length && <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "results"} onClick={(event) => panel === "results" ? closePanel() : openPanel("results", event.currentTarget)}>{state.results.some((log) => log.status !== "success") ? <AlertTriangle size={14}/> : <Check size={14}/>}<span>{resultsSummary}</span></button>}
     </div>
-    {(error || notice) && <div className="fm-notice" role={error ? "alert" : "status"}>{error || notice}<button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => { setError(""); setNotice(""); }}><X size={14}/></button></div>}
-    {placesOpen && <div className="fm-panel" aria-label={t("fmPlaces")}>
-      <form className="fm-toolbar" onSubmit={(event) => { event.preventDefault(); void go(locationInput); }}><label className="text-sm">{t("fmGoFolder")}<input value={locationInput} onChange={(event) => setLocationInput(event.target.value)} placeholder={t("fmPathHint")} /></label><button className={buttonSecondary} disabled={busy || !locationInput.trim()}>{t("fmGo")}</button></form>
-      <button className={buttonSecondary} disabled={busy || !surface?.browse} onClick={() => void run(async () => { setPlaces(await api.fileLibraryPlaces({ ...surface!.browse!, favorite: true })); })}>{t("fmFavoriteCurrent")}</button>
-      <p className="text-xs text-[var(--zc-text-secondary)]">{t("fmRecentDesc")}</p>
-      <ul className="fm-places">{places.map((place) => <li key={place.id}><button className={buttonGhost} disabled={busy || place.unavailable} onClick={() => void go(place.routingHint)}><Star size={12} fill={place.favorite ? "currentColor" : "none"}/><span title={place.routingHint}>{place.name}{place.unavailable ? ` · ${t("fmUnavailable")}` : ""}</span></button><button className={buttonGhost} onClick={() => void run(async () => setPlaces(await api.fileLibraryPlaces({ removeId: place.id })))}>{t(place.favorite ? "fmUnfavorite" : "fmRemove")}</button></li>)}</ul>
+    {(error && !transfer || notice) && <div className="fm-notice" role={error ? "alert" : "status"}>{error || notice}<button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => { setError(""); setNotice(""); }}><X size={14}/></button></div>}
+    {panelOpen && <div ref={panelRef} id="fm-auxiliary-panel" className="fm-panel" role="region" aria-label={panelTitle}>
+      <div className="fm-panel-heading"><h2>{panelTitle}{state.basketOpen ? ` (${state.basket.length})` : ""}</h2><button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => closePanel()}><X size={16}/></button></div>
+      <div className="fm-panel-body">
+      {panel === "more" && <div className="fm-more-actions">
+        <button className={buttonGhost} disabled={disabled} onClick={() => collect("basket")}><PackagePlus size={16}/>{t("fmAddBasket")}</button>
+        <button className={buttonGhost} onClick={() => openPanel("basket")}><Package size={16}/>{t("fmBasket")} ({state.basket.length})<ChevronRight size={14}/></button>
+        <button className={buttonGhost} onClick={() => openPanel("places")}><Star size={16}/>{t("fmPlaces")}<ChevronRight size={14}/></button>
+        <hr/>
+        <button className={buttonGhost} disabled={busy || !surface?.selectAll} onClick={() => { surface?.selectAll?.(); closePanel(); }}>{t(surface?.selectionScope === "loaded" ? "fmSelectLoaded" : "fmSelectAll")}</button>
+        <button className={buttonGhost} disabled={disabled} onClick={() => { surface?.clear(); closePanel(); }}>{t("fmClearSelection")}</button>
+      </div>}
+      {panel === "places" && <>
+        <form className="fm-location-form" onSubmit={(event) => { event.preventDefault(); void go(locationInput); }}><label>{t("fmGoFolder")}<input value={locationInput} onChange={(event) => setLocationInput(event.target.value)} placeholder={t("fmPathHint")} /></label><button className={buttonSecondary} disabled={busy || !locationInput.trim()}>{t("fmGo")}</button></form>
+        <button className={buttonSecondary} disabled={busy || !surface?.browse} onClick={() => void run(async () => { setPlaces(await api.fileLibraryPlaces({ ...surface!.browse!, favorite: true })); })}><Star size={14}/>{t("fmFavoriteCurrent")}</button>
+        {placeGroup(true)}{placeGroup(false)}
+      </>}
+      {state.basketOpen && <>
+        <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy || !state.basket.length} onClick={() => begin(state.basket, "copy", "basket")}>{t("fmCopyBasket")}</button><button className={buttonSecondary} disabled={busy || !state.basket.length} onClick={() => begin(state.basket, "move", "basket")}>{t("fmMoveBasket")}</button><button className={buttonGhost} disabled={busy || !state.basket.length} onClick={() => void run(async () => { const ids = state.basket.map((ticket) => ticket.id); useFileManagementStore.setState({ basket: [] }); await releaseUnused(ids); })}>{t("fmClearBasket")}</button></div>
+        <p className="fm-muted">{t("fmSessionOnly")}</p>
+        {!state.basket.length && <p className="fm-empty">{t("fmEmptyBasket")}</p>}
+        <ul className="fm-basket">{state.basket.slice(effectiveBasketPage * PAGE_SIZE, (effectiveBasketPage + 1) * PAGE_SIZE).map((ticket) => <li key={ticket.id}><File size={16}/><div className="min-w-0"><strong>{ticket.name}</strong><p className="fm-path" title={ticket.path}>{ticket.path}</p>{state.statuses[ticket.id] && <p className="fm-item-status">{state.statuses[ticket.id]}</p>}</div><button className={buttonGhost} disabled={busy} aria-label={`${t("fmRemove")} ${ticket.name}`} onClick={() => void run(async () => { useFileManagementStore.setState((current) => ({ basket: current.basket.filter((item) => item.id !== ticket.id) })); await releaseUnused([ticket.id]); })}><X size={14}/></button></li>)}</ul>
+        {pageControls(state.basket.length, effectiveBasketPage, setBasketPage)}
+      </>}
+      {panel === "results" && <>
+        <p className="fm-muted">{resultsSummary}</p>
+        <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{log.status === "success" ? t("fmSucceeded") : log.status === "skipped" ? t("fmSkipped") : t("fmFailed")}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{log.error_message}</p>}</li>)}</ul>
+        {pageControls(state.results.length, resultPage, setResultPage)}
+        <div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} onClick={() => void go(state.results[0]!.path_after.replace(/[/\\][^/\\]+$/, ""))}>{t("fmOpenDestination")}</button><button className={buttonGhost} onClick={() => { useFileManagementStore.setState({ results: [] }); closePanel(); }}>{t("fmDismiss")}</button></div>
+        <p className="fm-muted">{t("fmRestoreHelp")}</p>
+      </>}
+      </div>
     </div>}
-    {state.basketOpen && <div className="fm-panel" aria-label={t("fmBasket")}>
-      <p className="text-xs text-[var(--zc-text-secondary)]">{t("fmSessionOnly")}</p>
-      <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy || !state.basket.length} onClick={() => begin(state.basket, "copy", "basket")}>{t("fmCopyBasket")}</button><button className={buttonSecondary} disabled={busy || !state.basket.length} onClick={() => begin(state.basket, "move", "basket")}>{t("fmMoveBasket")}</button><button className={buttonGhost} disabled={busy || !state.basket.length} onClick={() => void run(async () => { const ids = state.basket.map((ticket) => ticket.id); useFileManagementStore.setState({ basket: [] }); await releaseUnused(ids); })}>{t("fmClearBasket")}</button></div>
-      <ul className="fm-basket">{state.basket.slice(effectiveBasketPage * PAGE_SIZE, (effectiveBasketPage + 1) * PAGE_SIZE).map((ticket) => <li key={ticket.id}><div className="min-w-0"><strong>{ticket.name}</strong><p className="truncate text-xs text-[var(--zc-text-secondary)]" title={ticket.path}>{ticket.path}</p>{state.statuses[ticket.id] && <p className="text-xs">{state.statuses[ticket.id]}</p>}</div><button className={buttonGhost} disabled={busy} onClick={() => void run(async () => { useFileManagementStore.setState((current) => ({ basket: current.basket.filter((item) => item.id !== ticket.id) })); await releaseUnused([ticket.id]); })}>{t("fmRemove")}</button></li>)}</ul>
-      {pageControls(state.basket.length, effectiveBasketPage, setBasketPage)}
-    </div>}
-    {!!state.results.length && <details className="fm-panel" open={state.results.some((log) => log.status !== "success")}><summary>{t("fmResults")} · {state.results.filter((log) => log.status === "success").length}/{state.results.length}</summary><ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong> · {log.status === "success" ? t("fmSucceeded") : log.status === "skipped" ? t("fmSkipped") : t("fmFailed")}<p className="break-all text-xs">{log.path_after}</p>{log.error_message && <p role="alert" className="text-sm">{log.error_message}</p>}</li>)}</ul>{pageControls(state.results.length, resultPage, setResultPage)}<div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} onClick={() => void go(state.results[0]!.path_after.replace(/[/\\][^/\\]+$/, ""))}>{t("fmOpenDestination")}</button><button className={buttonGhost} onClick={() => useFileManagementStore.setState({ results: [] })}>{t("fmDismiss")}</button></div><p className="text-xs text-[var(--zc-text-secondary)]">{t("fmRestoreHelp")}</p></details>}
-    {transfer && <ModalPortal initialFocusRef={destinationRef} restoreFocus={() => restoreRef.current} onEscape={() => { if (!progress) closeTransfer(); }}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby="fm-transfer-title" aria-busy={busy}>
-      <h2 id="fm-transfer-title" className="text-lg font-semibold">{t(transfer.action === "copy" ? "fmCopyPreview" : "fmMovePreview")} ({transfer.tickets.length})</h2>
-      <p className="text-sm text-[var(--zc-text-secondary)]">{t("fmPreviewHelp")}</p>
-      <label className="grid gap-1 text-sm">{t("fmDestination")}<input ref={destinationRef} value={destination} disabled={busy} onChange={(event) => { preparing.current++; setDestination(event.target.value); setPlan(null); }} placeholder={t("fmPathHint")}/></label>
-      <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy} onClick={() => void run(chooseDestination)}><FolderOpen size={14}/>{t("fmChooseFolder")}</button><select aria-label={t("fmFavoriteDestination")} value="" disabled={busy} onChange={(event) => { preparing.current++; setDestination(event.target.value); setPlan(null); }}><option value="">{t("fmFavoriteDestination")}</option>{places.filter((place) => place.favorite).map((place) => <option key={place.id} value={place.routingHint} disabled={place.unavailable}>{place.name}{place.unavailable ? ` · ${t("fmUnavailable")}` : ""}</option>)}</select><button className={buttonSecondary} disabled={busy || !destination.trim()} onClick={() => void prepare()}>{t("fmPrepare")}</button></div>
-      {error && <p role="alert" className="text-sm">{error}</p>}
-      <ul className="fm-preview">{transfer.tickets.slice(previewPage * PAGE_SIZE, (previewPage + 1) * PAGE_SIZE).map((ticket) => { const row = plan?.rows.find((item) => item.ticketId === ticket.id); return <li key={ticket.id}><strong>{ticket.name}</strong><p className="break-all text-xs text-[var(--zc-text-secondary)]">{ticket.path}</p>{row?.preview && <p className="break-all text-xs">→ {row.preview.target_path}</p>}{row?.error && !row.skipped && <p role="alert" className="text-sm">{describeError(row.error)}</p>}<div className="fm-toolbar"><label className="text-xs"><input type="checkbox" disabled={busy} checked={skip.includes(ticket.id)} onChange={(event) => { const next = event.target.checked ? [...skip, ticket.id] : skip.filter((id) => id !== ticket.id); setSkip(next); setPlan(null); }}/>{t("fmSkip")}</label><label className="text-xs"><input type="checkbox" disabled={busy} checked={keepBoth.includes(ticket.id)} onChange={(event) => { const next = event.target.checked ? [...keepBoth, ticket.id] : keepBoth.filter((id) => id !== ticket.id); setKeepBoth(next); setPlan(null); }}/>{t("fmKeepBoth")}</label></div></li>; })}</ul>
-      {pageControls(transfer.tickets.length, previewPage, setPreviewPage)}
-      {progress && <div role="status" className="grid gap-1 text-sm"><progress max={progress.total || 1} value={progress.processed}/><span>{progress.processed}/{progress.total} · {progress.currentPath}</span></div>}
-      <div className="fm-toolbar justify-end"><button className={buttonSecondary} onClick={() => { if (progress) { cancelRequested.current = true; if (executionSent.current) void tauriApi.cancelOperations().catch((value) => setError(describeError(value))); } else closeTransfer(); }}>{t(progress ? "fmCancelRunning" : "fmCancel")}</button><button className={cn(buttonPrimary)} disabled={busy || !rowsReady} onClick={() => void execute()}>{t("fmConfirm")}</button></div>
+    {transfer && <ModalPortal initialFocusRef={destinationRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={() => { if (!progress) closeTransfer(); }}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby="fm-transfer-title" aria-busy={busy}>
+      <header className="fm-dialog-header">
+        <div className="fm-dialog-title">{transfer.action === "copy" ? <Copy size={21}/> : <FolderInput size={21}/>}<div><h2 id="fm-transfer-title">{t(transfer.action === "copy" ? "fmCopyPreview" : "fmMovePreview")}</h2><p className="fm-muted">{transfer.tickets.length} {t("fmFiles")} · {t("fmNoOverwrite")}</p></div></div>
+        <label className="fm-destination">{t("fmDestination")}<input ref={destinationRef} value={destination} disabled={busy} onChange={(event) => { preparing.current++; setDestination(event.target.value); setPlan(null); }} placeholder={t("fmPathHint")}/></label>
+        <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy} onClick={() => void run(chooseDestination)}><FolderOpen size={14}/>{t("fmChooseFolder")}</button><select aria-label={t("fmFavoriteDestination")} value="" disabled={busy} onChange={(event) => { preparing.current++; setDestination(event.target.value); setPlan(null); }}><option value="">{t("fmFavoriteDestination")}</option>{[true, false].map((favorite) => <optgroup key={String(favorite)} label={t(favorite ? "fmFavorites" : "fmRecent")}>{places.filter((place) => place.favorite === favorite).map((place) => <option key={place.id} value={place.routingHint} disabled={place.unavailable}>{place.name}{place.unavailable ? ` · ${t("fmUnavailable")}` : ""}</option>)}</optgroup>)}</select><button className={buttonSecondary} disabled={busy || !destination.trim()} onClick={() => void prepare()}>{t("fmPrepare")}</button></div>
+        {error && <p role="alert" className="fm-item-error">{error}</p>}
+      </header>
+      <div className="fm-dialog-body">
+        <ul className="fm-preview">{transfer.tickets.slice(previewPage * PAGE_SIZE, (previewPage + 1) * PAGE_SIZE).map((ticket) => {
+          const row = plan?.rows.find((item) => item.ticketId === ticket.id);
+          return <li key={ticket.id} data-skipped={skip.includes(ticket.id)}>
+            <div className="fm-preview-file"><File size={17}/><div><strong>{ticket.name}</strong><p className="fm-path" title={ticket.path}>{t("fmSource")} {ticket.path.replace(/[/\\][^/\\]+$/, "")}</p>{row?.preview && <p className="fm-path" title={row.preview.target_path}>{t("fmDestinationName")} · {row.preview.new_name}</p>}</div></div>
+            <select aria-label={`${ticket.name} · ${t("fmResolution")}`} disabled={busy} value={skip.includes(ticket.id) ? "skip" : keepBoth.includes(ticket.id) ? "both" : "original"} onChange={(event) => resolution(ticket.id, event.target.value)}><option value="original">{t("fmDefaultResolution")}</option><option value="skip">{t("fmSkip")}</option><option value="both">{t("fmKeepBothShort")}</option></select>
+            {row?.error && !row.skipped && <p role="alert" className="fm-item-error">{describeError(row.error)}</p>}
+            <details className="fm-path-details"><summary>{t("fmDetails")}</summary><p>{ticket.path}</p>{row?.preview && <p>→ {row.preview.target_path}</p>}</details>
+          </li>;
+        })}</ul>
+        {pageControls(transfer.tickets.length, previewPage, setPreviewPage)}
+      </div>
+      <footer className="fm-dialog-footer">
+        {progress && <div role="status" className="fm-progress"><progress max={progress.total || 1} value={progress.processed}/><span>{cancelling ? t("fmCancelPending") : `${progress.processed}/${progress.total}`} · {progress.currentPath}</span></div>}
+        <div className="fm-toolbar fm-confirm-bar"><p role="status" className="fm-transfer-summary">{plan ? `${t("fmReadyCount")} ${readyCount} / ${transfer.tickets.length} · ${t("fmSkipped")} ${skippedCount}` : t(skip.length || keepBoth.length ? "fmReviewAgain" : "fmNeedsPreview")}</p><button className={buttonSecondary} disabled={cancelling} onClick={() => { if (progress) { setCancelling(true); cancelRequested.current = true; if (executionSent.current) void tauriApi.cancelOperations().catch((value) => { setError(describeError(value)); setCancelling(false); }); } else closeTransfer(); }}>{t(progress ? "fmCancelRunning" : "fmCancel")}</button><button className={buttonPrimary} disabled={busy || !rowsReady} onClick={() => void execute()}>{t("fmConfirm")}</button></div>
+      </footer>
     </section></div></ModalPortal>}
   </section>;
 }

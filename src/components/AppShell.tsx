@@ -8,6 +8,8 @@ import {
   LoaderCircle,
   LockKeyhole,
   Minus,
+  PanelLeftClose,
+  PanelLeftOpen,
   Radar,
   Search,
   Settings,
@@ -91,6 +93,8 @@ export function AppShell() {
   const { t } = useI18nContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
+  const sidebarHidden = useAppStore((state) => state.sidebarHidden);
+  const setSidebarHidden = useAppStore((state) => state.setSidebarHidden);
   const density = useAppStore((state) => state.density);
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
@@ -127,11 +131,14 @@ export function AppShell() {
         <div className={appRoot} data-density={density}>
           <AmbientMesh />
           <WindowChrome />
-          <div id={APP_SHELL_CONTENT_ID} className={cn(workspaceShell, "zc-app-shell-content")}>
-            <Sidebar groups={groups} />
+          <div id={APP_SHELL_CONTENT_ID} className={cn(workspaceShell, "zc-app-shell-content")} data-sidebar-hidden={sidebarHidden}>
+            {!sidebarHidden && <Sidebar groups={groups} />}
             <div className="zc-app-workspace">
               <header className={titlebar}>
                 <div className="flex min-w-0 items-center gap-1.5 truncate text-[var(--zc-text-secondary)]">
+                  <button type="button" className={cn("zc-sidebar-toggle grid h-8 w-8 shrink-0 place-items-center rounded-md hover:bg-[var(--zc-surface-hover)]", noDrag, focusVisibleState)} aria-label={t(sidebarHidden ? "shellShowSidebar" : "shellHideSidebar")} title={t(sidebarHidden ? "shellShowSidebar" : "shellHideSidebar")} aria-expanded={!sidebarHidden} aria-controls="zc-main-sidebar" onClick={() => setSidebarHidden(!sidebarHidden)}>
+                    {sidebarHidden ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+                  </button>
                   <strong className="truncate text-[13px]">{activeLabel}</strong>
                   <span aria-hidden="true" className="text-[var(--zc-text-tertiary)]">/</span>
                   <span className="truncate text-[11px] text-[var(--zc-text-tertiary)]">{topbarContext(view, t)}</span>
@@ -299,7 +306,7 @@ export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] })
   }
 
   return (
-    <aside className={sidebarClass}>
+    <aside id="zc-main-sidebar" className={sidebarClass}>
       <div className="zc-sidebar-brand flex items-center gap-2.5">
         <span className="zc-sidebar-brand-mark" aria-hidden="true">Z</span>
         <strong className="block text-sm font-semibold">{t("appName")}</strong>

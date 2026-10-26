@@ -10,6 +10,7 @@ interface AppStore {
   language: Language;
   theme: ThemeMode;
   density: Density;
+  sidebarHidden: boolean;
   view: View;
   automationSurface: AutomationSurface;
   searchQuery: string;
@@ -18,6 +19,7 @@ interface AppStore {
   setLanguage: (language: Language) => void;
   setTheme: (theme: ThemeMode) => void;
   setDensity: (density: Density) => void;
+  setSidebarHidden: (hidden: boolean) => void;
   setView: (view: View) => void;
   setAutomationSurface: (surface: AutomationSurface) => void;
   setSearchQuery: (searchQuery: string) => void;
@@ -32,6 +34,7 @@ export const useAppStore = create<AppStore>((set) => ({
   language: preferredLanguage(),
   theme: preferredTheme(),
   density: preferredDensity(),
+  sidebarHidden: preferredSidebarHidden(),
   view: initialMainView(),
   automationSurface: "intents",
   searchQuery: "",
@@ -48,6 +51,10 @@ export const useAppStore = create<AppStore>((set) => ({
   setDensity: (density) => {
     set({ density });
     try { window.localStorage.setItem("zc-density", density); } catch { /* optional preference */ }
+  },
+  setSidebarHidden: (sidebarHidden) => {
+    set({ sidebarHidden });
+    try { window.localStorage.setItem("zc-sidebar-hidden", String(sidebarHidden)); } catch { /* optional preference */ }
   },
   setView: (view) => set((state) => {
     const canonicalView = normalizeViewInput(view) ?? "scanner";
@@ -74,4 +81,9 @@ function preferredDensity(): Density {
   } catch {
     return "default";
   }
+}
+
+function preferredSidebarHidden(): boolean {
+  try { return window.localStorage.getItem("zc-sidebar-hidden") === "true"; }
+  catch { return false; }
 }

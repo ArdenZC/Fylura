@@ -19,11 +19,12 @@
 .browse-mode-header {
   display: flex;
   min-width: 0;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-radius: var(--zc-radius-row);
-  padding: 14px 16px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
 }
 
 .browse-mode-title,
@@ -366,7 +367,7 @@
 
 @media (max-width: 1100px) {
   .browse-mode-header {
-    flex-direction: column;
+    flex-wrap: wrap;
   }
 
   .browse-mode-actions {
@@ -392,3 +393,7 @@
     animation: none;
   }
 }
+
+.browse-mode-help { font-size: 11px; color: var(--zc-text-secondary); }
+.browse-mode-help summary { cursor: pointer; }
+.browse-mode-help summary:focus-visible { outline: 2px solid var(--zc-primary); outline-offset: 2px; }

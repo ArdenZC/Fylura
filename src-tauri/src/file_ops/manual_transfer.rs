@@ -282,9 +282,9 @@ impl FileWorkspaceRuntime {
                     &name,
                     request.action,
                 )?;
-                reserved.insert(name.to_lowercase());
                 let preview = preview_dto(&operation);
                 if !skipped {
+                    reserved.insert(name.to_lowercase());
                     operations.push(operation);
                 }
                 Ok(preview)

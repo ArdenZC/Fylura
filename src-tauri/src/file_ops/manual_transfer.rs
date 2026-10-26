@@ -245,7 +245,7 @@ impl FileWorkspaceRuntime {
                     directory.join(name).symlink_metadata().is_ok()
                         || reserved.contains(&name.to_lowercase())
                 };
-                if request.keep_both.contains(&id) {
+                if request.keep_both.contains(&id) && conflict(&name, &reserved) {
                     let original = Path::new(&source.ticket.name);
                     let stem = if source.ticket.is_directory {
                         source.ticket.name.clone()
@@ -384,7 +384,7 @@ fn snapshot(
         }
         #[cfg(target_os = "macos")]
         if !matches!(
-            crate::platform::macos::strategy::select(&source, &directory.join(name)),
+            crate::platform::macos::strategy::select(&source, &canonical_directory),
             crate::platform::macos::strategy::MacMutationStrategy::LocalApfs
         ) {
             return Err("manual_move_local_same_volume_required".into());

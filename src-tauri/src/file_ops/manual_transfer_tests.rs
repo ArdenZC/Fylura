@@ -102,7 +102,7 @@ fn u1_batch_collects_managed_and_disposed_browse_sources_then_copies_with_journa
         tickets.iter().map(|t| t.id.clone()).collect(),
         &target,
         TransferAction::Copy,
-        vec![],
+        tickets.iter().map(|ticket| ticket.id.clone()).collect(),
         vec![],
     );
     assert!(plan.rows.iter().all(|r| r.error.is_none()));
@@ -437,7 +437,7 @@ fn u1_partial_batch_cancellation_preserves_unprocessed_sources_and_durable_resul
         result
             .logs
             .iter()
-            .filter(|log| log.status == "canceled")
+            .filter(|log| log.status == "skipped")
             .count(),
         1
     );

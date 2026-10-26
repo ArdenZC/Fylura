@@ -93,6 +93,9 @@ pub(crate) fn persist_pending_operation_journal(
         .iter()
         .enumerate()
         .map(|(index, operation)| {
+            if operation.id.starts_with("op-transfer-") {
+                manual_transfer::revalidate(operation)?;
+            }
             if operation.id.starts_with("op-manual-move-") {
                 manual_move::revalidate(operation)?;
             }

@@ -1,3 +1,4 @@
+import { managementFixturePage } from "./fileManagementMock";
 import type {
   BrowseEntry,
   BrowseOpenRequest,
@@ -73,6 +74,7 @@ interface MockEntry {
 }
 
 interface MockBrowseSession {
+  routingHint?: string;
   sessionId: string;
   location: BrowseOpenResponse["location"];
   rootPathRef: { id: string };
@@ -510,7 +512,9 @@ function openBrowse(request: BrowseOpenRequest): BrowseOpenResponse {
   if (!request || typeof request.routingHint !== "string" || request.routingHint.length === 0) {
     throw new Error("browse_routing_hint_invalid");
   }
-  return newBrowseSession(request.displayHint?.trim() || "Browse", true);
+  const response = newBrowseSession(request.displayHint?.trim() || request.routingHint, true);
+  getSession(response.sessionId).routingHint = request.routingHint.replace(/\\/g, "/");
+  return response;
 }
 
 function browseLocation(request: LocationBrowseRequest): BrowseOpenResponse {
@@ -657,6 +661,14 @@ function makePage(
   pageSize: number,
   query: BrowseQuerySpecV1
 ): BrowsePage {
+  const fixtureEntries = session.routingHint && managementFixturePage(session.sessionId, session.routingHint, enumerationId);
+  if (fixtureEntries) {
+    for (const entry of fixtureEntries) {
+      managementEntries.set(entry.ref.entryId, entry);
+      session.entries.set(entry.ref.entryId, { enumerationId });
+    }
+    return { sessionId: session.sessionId, requestId, enumerationId, entries: fixtureEntries, completion: "complete", knownCount: fixtureEntries.length };
+  }
   if (isW303QueryGap(query)) {
     return makeW303QueryPage(session, requestId, enumerationId);
   }
@@ -1020,6 +1032,7 @@ function makePage(
     };
   }
   for (const entry of entries) {
+    managementEntries.set(entry.ref.entryId, entry);
     if (entry.pathRef !== undefined) session.pathRefs.add(entry.pathRef.id);
     session.entries.set(entry.ref.entryId, {
       enumerationId,
@@ -1142,6 +1155,7 @@ function makeW211Page(
     };
   }
   for (const entry of entries) {
+    managementEntries.set(entry.ref.entryId, entry);
     if (entry.pathRef !== undefined) session.pathRefs.add(entry.pathRef.id);
     session.entries.set(entry.ref.entryId, {
       enumerationId,
@@ -2548,4 +2562,18 @@ export function mockSearchParent(entry: GlobalSearchResult): BrowseOpenResponse 
   response.initialPage = page;
   // Existing browser index fixtures have only path identities, hence no selection.
   return response;
+}
+
+const managementEntries = new Map<string, BrowseEntry>();
+export function resolveManagementMockEntry(ref: import("../types/fileWorkspace").EntryRef) {
+  if (ref.kind !== "ephemeral") throw Error("browse_entry_ref_invalid");
+  const session = getSession(ref.browseSessionId);
+  const entry = managementEntries.get(ref.entryId);
+  if (!entry || !session.entries.has(ref.entryId)) throw Error("browse_entry_ref_invalid");
+  return { name: entry.name, path: entry.displayPath, isDirectory: entry.kind === "directory" };
+}
+
+export function resolveManagementMockLocation(sessionId: string) {
+  const session = getSession(sessionId);
+  return session.routingHint ?? session.location.displayName;
 }

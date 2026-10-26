@@ -110,6 +110,7 @@ impl ThumbnailReservationGate {
 
 pub(crate) struct RuntimeInner {
     pub(crate) database: Database,
+    pub(crate) transfers: Mutex<crate::file_ops::manual_transfer::TransferState>,
     pub(crate) browse: Arc<BrowseService>,
     pub(crate) read_gate: Arc<MaterializationReadGate>,
     // Retain the exact global scheduler reference as part of the integration
@@ -264,6 +265,7 @@ impl FileWorkspaceRuntime {
 
         Ok(Self {
             inner: Arc::new(RuntimeInner {
+                transfers: Mutex::new(Default::default()),
                 database,
                 browse,
                 read_gate,

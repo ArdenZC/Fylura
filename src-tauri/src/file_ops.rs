@@ -29,6 +29,9 @@ pub(crate) mod manual_move;
 mod manual_move_tests;
 #[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
 mod manual_rename_tests;
+pub(crate) mod manual_transfer;
+#[cfg(all(test, any(windows, target_os = "macos")))]
+mod manual_transfer_tests;
 mod preview;
 mod progress;
 mod reconciliation;

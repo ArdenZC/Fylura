@@ -59,10 +59,10 @@ pub(super) fn capture(path: &Path, guard: &Guard) -> Result<Snapshot, DbError> {
 fn capture_tx(conn: &Connection, guard: &mut Guard) -> Result<Snapshot, DbError> {
     match conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? {
         41 => {}
-        // Schema42 adds dormant Global Index objects; Schema43 changes only
+        // Schema42 adds dormant Global Index objects; Schema43/44 change only
         // Global Search indexes. Both retain the same File Library authority.
         // Validate the full dormant signature without migrating/writing source.
-        42 | 43 => crate::db::schema_global_generations::validate(conn)?,
+        42 | 43 | 44 => crate::db::schema_global_generations::validate(conn)?,
         _ => return Err(unavailable("source_schema_unsupported")),
     }
     let mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;

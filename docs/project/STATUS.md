@@ -1,10 +1,20 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-26
+Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **Global Search covering-index repair — READY_FOR_OWNER_REVIEW / Draft; performance not fully qualified.**
+- **Global Search 1M Phase 2 — #474 production slice A / qualification in progress.**
+  Latest master `9bc4aa9e3fb2c6bb557192383be168517a182651`, Schema43 after
+  merged #473. Schema44 candidate maintains exact per-volume COUNT(id), active
+  rows and MAX in existing write transactions; Snapshot and standalone Status
+  retain precise nullable-ID and source revision/read transaction contracts.
+  Real producer/WAL costs and 100k preflight precede any single 1M pair. FTS
+  native rank/tie-frontier remains test-only pending qualification; BM258:2:1
+  and ordering unchanged. #417/F1 stays independent. Draft only, Owner merges.
+  See [scope, producer audit and bounded protocol](../research/ISSUE_474_EXACT_SOURCE_FACTS.md).
+
+- **Global Search covering-index repair — MERGED #473; bounded performance risks retained.**
   Latest integrated base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`,
   Schema 42→43. [Draft #473](https://github.com/ArdenZC/Zen-Canvas/pull/473)
   rebuilds Name order coverage and adds active Source Facts coverage. Production
@@ -13,7 +23,7 @@ Last verified: 2026-10-26
   12/12 correctness and both covering plans pass. Source/integration CI pass.
   1M pooled p95 passes 10/12 in every variant; FTS report/invoice remain above
   the unchanged 100ms target. Retain 100k punctuation Snapshot and 1M extension
-  pooled p99 regressions; no blanket tail acceptance. OPEN/Draft, unmerged;
+  pooled p99 regressions; no blanket tail acceptance. Owner merged as `9bc4aa9`;
   no extra 1M run or Codex Review. Owner decides merge/next phase. See
   [paired data, plans, costs and migration risks](../research/GLOBAL_SEARCH_COVERING_INDEX_REPAIR.md).
 

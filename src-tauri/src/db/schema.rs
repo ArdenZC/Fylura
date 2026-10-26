@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 43;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 44;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -256,6 +256,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             )));
         }
         if version == CURRENT_SCHEMA_VERSION {
+            super::schema_global_source_facts::validate(conn)?;
             super::schema_global_generations::validate(conn)?;
             validate_library_identity_schema(conn)?;
             validate_library_source_writer_schema(conn)?;
@@ -1000,6 +1001,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         }
         if version < 43 {
             migrate_global_search_covering_indexes(conn)?;
+        }
+        if version < 44 {
+            super::schema_global_source_facts::install(conn)?;
+            set_schema_version(conn, 44)?;
         }
         Ok(())
     })
@@ -2376,13 +2381,22 @@ fn ensure_global_index_hardening(conn: &Connection) -> Result<(), DbError> {
         DROP INDEX IF EXISTS idx_global_entries_active_name;
         DROP INDEX IF EXISTS idx_global_entries_active_extension;
 
-        UPDATE global_volumes
-        SET entry_count = (
-            SELECT COUNT(*) FROM global_entries entry
-            WHERE entry.volume_id = global_volumes.id AND entry.is_stale = 0
-        );
         "#,
     )?;
+    let has_facts: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE name='global_entry_source_facts')",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_facts {
+        conn.execute_batch("UPDATE global_volumes SET entry_count=COALESCE(
+            (SELECT active_rows FROM global_entry_source_facts WHERE volume_id=global_volumes.id),0)")?;
+    } else {
+        conn.execute_batch(
+            "UPDATE global_volumes SET entry_count=(SELECT COUNT(*) FROM global_entries
+            WHERE volume_id=global_volumes.id AND is_stale=0)",
+        )?;
+    }
     Ok(())
 }
 
@@ -3380,12 +3394,12 @@ mod issue381_b4_p0_tests {
         );
         assert!(upgraded[0].contains("id ASC, volume_id"));
         assert!(upgraded[1].contains("volume_id, last_seen_at, id"));
-        assert_eq!(schema_version(&conn).unwrap(), 43);
+        assert_eq!(schema_version(&conn).unwrap(), 44);
         migrate(&conn).unwrap();
         assert_eq!(schema43_index_sql(&conn), upgraded);
-        conn.execute_batch("PRAGMA user_version = 44").unwrap();
+        conn.execute_batch("PRAGMA user_version = 45").unwrap();
         assert!(migrate(&conn).is_err());
-        assert_eq!(schema_version(&conn).unwrap(), 44);
+        assert_eq!(schema_version(&conn).unwrap(), 45);
     }
 
     #[test]
@@ -3403,7 +3417,7 @@ mod issue381_b4_p0_tests {
         assert_eq!(schema43_index_sql(&conn), old);
         assert_eq!(schema_version(&conn).unwrap(), 42);
         migrate(&conn).unwrap();
-        assert_eq!(schema_version(&conn).unwrap(), 43);
+        assert_eq!(schema_version(&conn).unwrap(), 44);
     }
 
     fn remove_identity_foundation(conn: &Connection, version: i32) {
@@ -3901,7 +3915,7 @@ mod issue381_b4_p0_tests {
         holder.execute_batch("COMMIT").unwrap();
         a.resume.send(()).unwrap();
         let after_a = a.thread.join().unwrap().expect("first migration succeeds");
-        assert_eq!(after_a.version, 43);
+        assert_eq!(after_a.version, 44);
         b.resume.send(()).unwrap();
         let after_b = b
             .thread
@@ -3951,7 +3965,7 @@ mod issue381_b4_p0_tests {
         for (label, mutation, expected_error) in [
             (
                 "issue441-future",
-                "PRAGMA user_version=44",
+                "PRAGMA user_version=45",
                 "newer than this app supports",
             ),
             (

@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "tests/fts_rank_frontier.rs"]
+pub(crate) mod rank_frontier;
+
 use super::models::GlobalSearchResult;
 use crate::db::{Database, DbError};
 use rusqlite::{params, Connection, Params};
@@ -512,6 +516,10 @@ fn search_fts(
     query: &str,
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    #[cfg(test)]
+    if rank_frontier::enabled() {
+        return rank_frontier::run(conn, query, limit);
+    }
     #[cfg(test)]
     if legacy_fts_search_candidate_enabled() {
         let sql = diagnostic_legacy_fts_sql();

@@ -21,6 +21,9 @@ mod query_cost_diagnostic;
 #[path = "global_search_covering_indexes.rs"]
 mod covering_indexes;
 
+#[path = "global_search_source_facts_pair.rs"]
+mod source_facts_pair;
+
 const DEFAULT_ENTRIES: u64 = 100_000;
 const ALLOWED_ENTRIES: [u64; 5] = [100_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
 const INSERT_BATCH_SIZE: u64 = 512;

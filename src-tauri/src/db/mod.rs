@@ -9,6 +9,7 @@ mod learning;
 mod queries;
 mod schema;
 mod schema_global_generations;
+pub(crate) mod schema_global_source_facts;
 mod types;
 
 #[cfg(test)]

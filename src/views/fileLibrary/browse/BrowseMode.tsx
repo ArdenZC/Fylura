@@ -1,6 +1,7 @@
+import { createPortal } from "react-dom";
 import { usePaneQuerySelector, usePane } from "../workbench/PaneContext";
 import { ChevronRight, Folder, FolderOpen, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useLayoutEffect, useState } from "react";
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
@@ -30,6 +31,8 @@ import "./browseMode.css";
 export function BrowseMode() {
   const query = usePaneQuerySelector();
   const pane = usePane();
+  const [breadcrumbHost, setBreadcrumbHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => { setBreadcrumbHost(pane ? document.getElementById(`wb-crumbs-${pane.id}`) : null); }, [pane?.id]);
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
   const { platform } = useCommandContext();
@@ -256,6 +259,28 @@ export function BrowseMode() {
     }
   ];
 
+  const breadcrumbNavigation = (<nav className="browse-breadcrumbs" data-browse-breadcrumbs="true" aria-label={t("browseBreadcrumbLabel")}>
+          {source.breadcrumbs.length === 0
+            ? <span className="browse-breadcrumb" aria-current="page">{t("browseCurrentFolder")}</span>
+            : source.breadcrumbs.map((breadcrumb, index) => {
+              const current = index === source.breadcrumbs.length - 1;
+              return (
+                <span className="inline-flex min-w-0 items-center gap-1" key={`${breadcrumb.sessionId}:${breadcrumb.pathRef.id}`}>
+                  {index > 0 ? <ChevronRight className="browse-breadcrumb-separator" size={14} aria-hidden="true" /> : null}
+                  <button
+                    className="browse-breadcrumb"
+                    type="button"
+                    disabled={current}
+                    aria-current={current ? "page" : undefined}
+                    onClick={() => source.navigateToBreadcrumb(breadcrumb)}
+                  >
+                    {breadcrumb.label}
+                  </button>
+                </span>
+              );
+            })}
+        </nav>);
+
   return (
     <div
       className="browse-mode"
@@ -302,30 +327,10 @@ export function BrowseMode() {
         </div>
       </header>
 
-      <div className="browse-mode-toolbar" data-browse-breadcrumbs="true">
-        <nav className="browse-breadcrumbs" aria-label={t("browseBreadcrumbLabel")}>
-          {source.breadcrumbs.length === 0
-            ? <span className="browse-breadcrumb" aria-current="page">{t("browseCurrentFolder")}</span>
-            : source.breadcrumbs.map((breadcrumb, index) => {
-              const current = index === source.breadcrumbs.length - 1;
-              return (
-                <span className="inline-flex min-w-0 items-center gap-1" key={`${breadcrumb.sessionId}:${breadcrumb.pathRef.id}`}>
-                  {index > 0 ? <ChevronRight className="browse-breadcrumb-separator" size={14} aria-hidden="true" /> : null}
-                  <button
-                    className="browse-breadcrumb"
-                    type="button"
-                    disabled={current}
-                    aria-current={current ? "page" : undefined}
-                    onClick={() => source.navigateToBreadcrumb(breadcrumb)}
-                  >
-                    {breadcrumb.label}
-                  </button>
-                </span>
-              );
-            })}
-        </nav>
+      {breadcrumbHost ? createPortal(breadcrumbNavigation, breadcrumbHost) : <div className="browse-mode-toolbar">
+        {breadcrumbNavigation}
         <span className="browse-selection-summary">{selectionText}</span>
-      </div>
+      </div>}
 
       <div className={cn("browse-mode-body", contextOpen && contextProjection.kind !== "none" && "has-context")}>
         <div className="file-library-browse-context-layout">

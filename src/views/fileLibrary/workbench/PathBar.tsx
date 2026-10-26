@@ -186,6 +186,7 @@ export function PathBar() {
         >
           <ArrowRight size={15} />
         </button>
+        {pane && <div id={`wb-crumbs-${pane.id}`} className="wb-crumbs" hidden={editing || state.mode !== "browse"} />}
         {editing ? (
           <form
             className="wb-path-edit"
@@ -227,7 +228,7 @@ export function PathBar() {
           </form>
         ) : (
           <>
-            <nav className="wb-crumbs" aria-label={t("browseBreadcrumbLabel")}>
+            <nav className="wb-crumbs" hidden={!!pane && state.mode === "browse"} aria-label={t("browseBreadcrumbLabel")}>
               <FolderOpen size={14} />
               {pane?.routingHint ? (
                 pathCrumbs(pane.routingHint).map((crumb, index, crumbs) => (

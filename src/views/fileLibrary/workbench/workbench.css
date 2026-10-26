@@ -261,3 +261,30 @@
   width: min(900px, calc(100% - 12px));
   height: calc(100% - 70px);
 }
+
+/* Keep Library metadata controls compact beside the result summary. */
+.wb-pane .file-library-library-mode-chrome > section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 10px;
+}
+.wb-pane .file-library-library-mode-chrome > section > :first-child {
+  flex: 1 1 100%;
+}
+.wb-pane .file-library-library-mode-chrome button {
+  min-height: 26px;
+  padding-block: 2px;
+  font-size: 12px;
+}
+.wb-pane .file-library-library-mode-chrome [data-library-result-status] {
+  margin-left: auto;
+}
+.wb-pane .file-library-command-actions > button,
+.wb-pane .file-library-command-actions > div > button,
+.wb-pane .file-library-command-actions > select {
+  min-height: 30px;
+  padding-block: 3px;
+  font-size: 12px;
+}

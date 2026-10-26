@@ -152,6 +152,8 @@ fn schema_upgrade_production_shape_cost() {
                 .unwrap();
                 // Historical short model had one short gv_test source. Keep
                 // all four enabled/stale groups while changing only key width.
+                conn.execute_batch("BEGIN; PRAGMA defer_foreign_keys=ON;")
+                    .unwrap();
                 for (i, v) in volumes.iter().enumerate() {
                     let id = format!("gv_short_{i}");
                     conn.execute(
@@ -165,6 +167,7 @@ fn schema_upgrade_production_shape_cost() {
                     )
                     .unwrap();
                 }
+                conn.execute_batch("COMMIT").unwrap();
             }
             conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
                 .unwrap();

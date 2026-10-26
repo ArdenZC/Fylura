@@ -274,7 +274,7 @@ pub(crate) fn migrate_with_cancellation(
             )?;
             if file_backed {
                 let resources = super::upgrade::inspect_resources(conn)?;
-                eprintln!("database_upgrade resources={resources:?}");
+                eprintln!("database_upgrade rows={} key_bytes={} page_size={} page_count={} freelist_pages={} database_reserve={} temporary_reserve={} available_memory={}",resources.active_rows,resources.key_bytes,resources.page_size,resources.page_count,resources.freelist_pages,resources.database_required_bytes,resources.temporary_required_bytes,resources.available_memory_bytes);
             }
         }
         if version == CURRENT_SCHEMA_VERSION {

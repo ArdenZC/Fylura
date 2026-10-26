@@ -34,6 +34,7 @@ fn historical_fixture(path: &Path) -> Connection {
             "gv_{}",
             blake3::hash(b"Volume{A0C934B1-073A-4A24-B72C-99AAB23D8771}").to_hex()
         );
+        conn.execute("INSERT INTO global_volumes(id,platform,stable_volume_id,display_name,mount_path,filesystem_type,drive_kind,provider,created_at,updated_at) VALUES(?1,'windows','fixture-volume','Fixture','C:/Fixture','ntfs','fixed','recursive_fallback',1,1)",[&volume]).unwrap();
         for i in 0..3000 {
             let id = format!("ge_{}", blake3::hash(format!("{i}").as_bytes()).to_hex());
             stmt.execute(rusqlite::params![

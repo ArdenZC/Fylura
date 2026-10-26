@@ -15,6 +15,7 @@ pub type UpgradeCancellation = Arc<AtomicBool>;
 
 #[derive(Debug, Clone)]
 pub struct UpgradeResources {
+    pub available_memory_bytes: u64,
     pub page_size: u64,
     pub page_count: u64,
     pub freelist_pages: u64,
@@ -49,6 +50,12 @@ fn budgets(name: u64, source: u64, page: u64) -> Result<(u64, u64), DbError> {
 }
 
 pub fn inspect_resources(conn: &Connection) -> Result<UpgradeResources, DbError> {
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    let available_memory_bytes = system.available_memory();
+    if available_memory_bytes < 128 * 1024 * 1024 {
+        return Err(DbError::Validation("Not enough available memory for the database upgrade (128 MiB working reserve required). Close other applications and retry. No schema changes were committed.".into()));
+    }
     let page_size: u64 = conn.query_row("PRAGMA page_size", [], |r| {
         r.get::<_, i64>(0).map(|v| v as u64)
     })?;
@@ -87,6 +94,7 @@ pub fn inspect_resources(conn: &Connection) -> Result<UpgradeResources, DbError>
             database_free_bytes >> 20, required >> 20, temporary_free_bytes >> 20, temporary_required_bytes >> 20)));
     }
     Ok(UpgradeResources {
+        available_memory_bytes,
         page_size,
         page_count,
         freelist_pages,
@@ -132,6 +140,7 @@ fn sqlite_temporary_directory(conn: &Connection) -> Result<PathBuf, DbError> {
         .ok_or_else(|| DbError::Validation("SQLite temporary path has no parent".into()))
 }
 
+#[cfg(test)]
 pub(crate) fn storage_free_bytes(path: &Path) -> Result<u64, DbError> {
     free_space(path).map(|(free, _)| free)
 }

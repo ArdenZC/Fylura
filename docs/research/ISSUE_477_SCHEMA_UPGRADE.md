@@ -38,6 +38,9 @@ of the largest external sort and a 64 MiB reserve on each storage role. Free
 pages are not credited. SQLite's VFS supplies the actual temporary filename;
 space is checked on that volume and on the database volume, combined when they
 are the same filesystem. No universal “database size × 2” guarantee is made.
+A 128 MiB available-memory working reserve is checked before the key scan;
+low memory asks users to close other apps and retry. This is a policy reserve,
+not a prediction or hard limit for process RSS.
 Other processes can consume free space after preflight: SQLITE_FULL still must
 roll back and reach visible recovery. Native allocator and OS caches remain
 outside these SQLite settings.

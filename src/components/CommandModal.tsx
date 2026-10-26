@@ -504,6 +504,7 @@ export function CommandModal({
   }
 
   function clearSearch() {
+    if (standalone && libraryActionPending) return;
     setSearch("");
     setCommittedSearch("");
     setActiveIndex(0);
@@ -541,6 +542,7 @@ export function CommandModal({
   }
 
   function chooseResult(result: SpotlightResult) {
+    if (libraryActionPending) return;
     if (result.kind === "global") void chooseGlobalEntry(result.entry);
     else void chooseCommand(result);
   }
@@ -717,6 +719,7 @@ export function CommandModal({
             <IconButton
               className="h-8 w-8 rounded-lg border-transparent bg-transparent text-[var(--zc-text-secondary)] shadow-none hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]"
               onClick={clearSearch}
+              disabled={standalone && libraryActionPending}
               aria-label={t("commandClearSearch")}
               title={t("commandClearSearch")}
             >
@@ -733,11 +736,12 @@ export function CommandModal({
             <span className="min-w-0 truncate">{globalSearchIndexMeta}</span>
             {trimmedSearch ? <button
               className={cn("shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)] disabled:opacity-50", focusVisibleState)}
-              disabled={isComposing || queryState === "pending"}
+              disabled={isComposing || queryState === "pending" || libraryActionPending}
               onClick={() => setRevisionRefetchNonce((value) => value + 1)}
             >{t("globalSearchRefreshResults")}</button> : null}
             <button
               className={cn("shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)]", focusVisibleState)}
+              disabled={libraryActionPending}
               onClick={openGlobalIndexSettings}
               aria-label={t("globalSearchManage")}
             >

@@ -55,6 +55,18 @@ describe("mounted CommandModal IME behavior", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    // Happy DOM 21 eagerly creates Animation.finished. Cancellation during
+    // unmount rejects it even when Motion never observes that native promise.
+    // Handle only the expected abort on animations in this mounted fixture;
+    // unexpected animation errors and unrelated unhandled rejections still fail.
+    const nativeAnimate = Element.prototype.animate;
+    vi.spyOn(Element.prototype, "animate").mockImplementation(function (this: Element, keyframes, options) {
+      const animation = nativeAnimate.call(this, keyframes, options);
+      void animation.finished.catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) throw error;
+      });
+      return animation;
+    });
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div");
     document.body.appendChild(container);

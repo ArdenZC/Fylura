@@ -77,6 +77,13 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, DbError> {
+        Self::open_with_upgrade_cancellation(path, Arc::new(AtomicBool::new(false)))
+    }
+
+    pub fn open_with_upgrade_cancellation(
+        path: impl AsRef<Path>,
+        cancel: super::upgrade::UpgradeCancellation,
+    ) -> Result<Self, DbError> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -89,7 +96,7 @@ impl Database {
             .build(manager)?;
         {
             let conn = pool.get()?;
-            migrate(&conn)?;
+            super::schema::migrate_with_cancellation(&conn, cancel)?;
         }
 
         Ok(Self {

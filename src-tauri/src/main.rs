@@ -3,6 +3,8 @@
     windows_subsystem = "windows"
 )]
 
+mod startup_upgrade;
+
 use std::io;
 
 use tauri::{Emitter, Manager};
@@ -10,7 +12,7 @@ use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
     dedupe::DedupeJobManager,
     global_index::{GlobalIndexCoordinator, ManagedAiWorker},
-    open_database, settings,
+    settings,
     watcher::{
         reload_file_watcher_for_settings, suspend_file_watcher_for_lifecycle, FileWatcherManager,
     },
@@ -71,6 +73,10 @@ fn main() {
             );
             match classification.action {
                 zen_canvas_tauri::app_control::SecondInstanceAction::ActivateMain => {
+                    if app.try_state::<zen_canvas_tauri::db::Database>().is_none() {
+                        eprintln!("ui_runtime single_instance_main_activation deferred=database_startup");
+                        return;
+                    }
                     match zen_canvas_tauri::app_control::show_main_window(app) {
                         Ok(()) => {
                             let generation = app
@@ -103,7 +109,8 @@ fn main() {
         ))
         .setup(move |app| {
             qualification_startup_checkpoint("tauri_setup_entered");
-            let db = open_database(app.handle()).map_err(io::Error::other)?;
+            let database_path = zen_canvas_tauri::database_path(app.handle()).map_err(io::Error::other)?;
+            let db = startup_upgrade::open(database_path, background_launch).map_err(io::Error::other)?;
             qualification_startup_checkpoint("database_ready");
             db.recover_dedupe_runs().map_err(io::Error::other)?;
             db.recover_analysis_runs().map_err(io::Error::other)?;

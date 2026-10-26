@@ -245,7 +245,18 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<(), DbError> {
 }
 
 pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
+    migrate_with_cancellation(
+        conn,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+}
+
+pub(crate) fn migrate_with_cancellation(
+    conn: &Connection,
+    cancel: super::upgrade::UpgradeCancellation,
+) -> Result<(), DbError> {
     assert_fts5_available(conn)?;
+    let guard = super::upgrade::UpgradeGuard::new(conn, cancel)?;
     // Read and decide under the same write lock. Another opener may finish an
     // upgrade while this connection waits for BEGIN IMMEDIATE.
     with_migration_transaction(conn, |conn| {
@@ -254,6 +265,17 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             return Err(DbError::Validation(format!(
                 "Database schema version {version} is newer than this app supports ({CURRENT_SCHEMA_VERSION})."
             )));
+        }
+        if version == 42 {
+            let file_backed: bool = conn.query_row(
+                "SELECT length(file)>0 FROM pragma_database_list WHERE name='main'",
+                [],
+                |r| r.get(0),
+            )?;
+            if file_backed {
+                let resources = super::upgrade::inspect_resources(conn)?;
+                eprintln!("database_upgrade resources={resources:?}");
+            }
         }
         if version == CURRENT_SCHEMA_VERSION {
             super::schema_global_generations::validate(conn)?;
@@ -999,8 +1021,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             set_schema_version(conn, 42)?;
         }
         if version < 43 {
+            guard.check_cancelled()?;
             migrate_global_search_covering_indexes(conn)?;
         }
+        guard.check_cancelled()?;
         Ok(())
     })
 }
@@ -1122,7 +1146,10 @@ fn with_migration_transaction(
     conn.execute_batch("BEGIN IMMEDIATE")?;
     match migration(conn) {
         Ok(()) => {
-            conn.execute_batch("COMMIT")?;
+            if let Err(error) = conn.execute_batch("COMMIT") {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(error.into());
+            }
             Ok(())
         }
         Err(error) => {
@@ -3981,3 +4008,7 @@ mod issue381_b4_p0_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "schema_upgrade_recovery_tests.rs"]
+mod upgrade_recovery_tests;

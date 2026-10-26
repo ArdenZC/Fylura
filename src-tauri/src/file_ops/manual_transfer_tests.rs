@@ -491,3 +491,110 @@ fn u1_locked_source_never_publishes_a_destination() {
     assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
     runtime.dispose();
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn u1_macos_directory_copy_move_and_restore_reuse_the_existing_tree_transaction() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let parent = f.root.join("folders");
+    let source = parent.join("tree");
+    fs::create_dir_all(source.join("nested")).unwrap();
+    fs::write(source.join("nested/content.txt"), b"owned directory bytes").unwrap();
+    let admitted = runtime
+        .open_browse(BrowseOpenRequest {
+            platform: WorkspacePlatform::Macos,
+            routing_hint: normalize_path(&parent),
+            display_hint: None,
+            global_entry_id: None,
+        })
+        .unwrap();
+    let page = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: admitted.session_id,
+            request_id: "folder".into(),
+            path_ref: admitted.root_path_ref,
+            page_size: 32,
+            query: Default::default(),
+        })
+        .unwrap();
+    let reference = match page
+        .entries
+        .into_iter()
+        .find(|entry| entry.name == "tree")
+        .unwrap()
+        .entry_ref
+    {
+        crate::file_workspace::BrowseEntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        } => EntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        },
+    };
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![reference],
+            selection: None,
+            release_ids: vec![],
+        })
+        .unwrap()
+        .remove(0);
+    for action in [TransferAction::Copy, TransferAction::Move] {
+        let target = f.root.join(if action == TransferAction::Copy {
+            "folder-copy"
+        } else {
+            "folder-move"
+        });
+        fs::create_dir(&target).unwrap();
+        let plan = preview(
+            &runtime,
+            vec![ticket.id.clone()],
+            &target,
+            action,
+            vec![],
+            vec![],
+        );
+        assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+        let executed = execute_moves_with_persistence(
+            &f.db,
+            runtime
+                .take_transfer(TransferExecuteRequest {
+                    preview_id: plan.id,
+                    confirmed: true,
+                })
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            executed.logs[0].status, "success",
+            "{:?}",
+            executed.logs[0].error_message
+        );
+        assert_eq!(
+            fs::read(target.join("tree/nested/content.txt")).unwrap(),
+            b"owned directory bytes"
+        );
+        if action == TransferAction::Move {
+            assert!(!source.exists());
+            let restored = restore_moves_with_persistence(
+                &f.db,
+                RestoreMovesRequest {
+                    logs: executed.logs,
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                restored.logs[0].restore_status, "restored",
+                "{:?}",
+                restored.logs[0].restore_error
+            );
+        }
+        assert_eq!(
+            fs::read(source.join("nested/content.txt")).unwrap(),
+            b"owned directory bytes"
+        );
+    }
+    runtime.dispose();
+}

@@ -687,7 +687,7 @@ fn u1_skipped_same_name_does_not_reserve_a_batch_destination() {
     assert_eq!(execution.operations.len(), 1);
     assert_eq!(
         execution.operations[0].source_path,
-        normalize_path(&other.join("original.txt"))
+        normalize_path(&other.join("original.txt").canonicalize().unwrap())
     );
     assert!(f.source.exists());
     assert!(!target.join("original.txt").exists());

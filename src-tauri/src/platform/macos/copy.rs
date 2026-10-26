@@ -401,11 +401,15 @@ pub(crate) fn copy_commit_source_stable(
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     retire_source: bool,
     mut actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    expected_target_parent: Option<&crate::fs_safety::DirectoryIdentity>,
 ) -> Result<(), AtomicMoveError> {
     let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
     let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
     let target_parent = VerifiedDirectory::open_existing(target_parent_path)
         .map_err(|_| AtomicMoveError::TargetParentIdentityChanged)?;
+    if expected_target_parent.is_some_and(|expected| expected != target_parent.identity()) {
+        return Err(AtomicMoveError::UnsafePath);
+    }
     target_parent
         .ensure_unchanged()
         .map_err(|_| AtomicMoveError::TargetParentIdentityChanged)?;

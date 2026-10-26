@@ -126,7 +126,7 @@ pub struct PagedFilesResult {
     pub offset: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct OperationPreviewDto {
     pub id: String,
     #[serde(rename = "fileId")]

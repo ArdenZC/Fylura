@@ -61,6 +61,9 @@ pub(crate) fn execute_preview_operation_with_app_data(
         ))
     } else {
         match operation.operation_type.as_str() {
+            "copy" | "move" if operation.id.starts_with("op-transfer-") => {
+                manual_transfer::execute(operation, context)
+            }
             "move" | "move_rename" if operation.id.starts_with("op-manual-move-") => {
                 manual_move::execute(operation, context)
             }

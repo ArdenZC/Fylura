@@ -194,6 +194,10 @@ const explicitContracts: CommandContract[] = [
     "require_main_window",
     "src-tauri/src/file_workspace/integration/commands.rs",
     [
+      "file_workspace_transfer_capture",
+      "file_workspace_transfer_preview",
+      "file_workspace_transfer_execute",
+      "file_workspace_places",
       "file_workspace_browse_open",
       "file_workspace_browse_restore",
       "file_workspace_location_browse",
@@ -656,6 +660,10 @@ describe("Tauri command permission contract", () => {
 
   it("keeps all File Workspace commands async and isolates blocking work", () => {
     const commands = [
+      "file_workspace_transfer_capture",
+      "file_workspace_transfer_preview",
+      "file_workspace_transfer_execute",
+      "file_workspace_places",
       "file_workspace_browse_open",
       "file_workspace_browse_restore",
       "file_workspace_location_browse",
@@ -691,12 +699,14 @@ describe("Tauri command permission contract", () => {
       "file_workspace_preview_dispose",
     ]);
 
-    expect(commands).toHaveLength(25);
+    expect(commands).toHaveLength(29);
     for (const command of commands) {
       const parsed = functionBody(fileWorkspaceCommandsSource, command);
       expect(parsed, `${command} function body`).not.toBeNull();
       expect(fileWorkspaceCommandsSource).toMatch(new RegExp(`pub async fn ${command}\\b`));
-      if (directCancellationCommands.has(command)) {
+      if (command === "file_workspace_transfer_execute") {
+        expect(parsed?.body).toContain("execute_registered(");
+      } else if (directCancellationCommands.has(command)) {
         expect(parsed?.body).not.toContain("spawn_runtime(");
       } else {
         expect(parsed?.body).toContain("spawn_runtime(");

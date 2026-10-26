@@ -1,3 +1,4 @@
+import { fileManagementApi } from "./fileManagementApi";
 import { automationApi } from "./automationApi";
 import { aiApi } from "./aiApi";
 import { analysisApi } from "./analysisApi";
@@ -37,6 +38,7 @@ export type {
 } from "./types";
 
 export const tauriApi = {
+  ...fileManagementApi,
   ...automationApi,
   ...libraryApi,
   ...organizationApi,

@@ -472,6 +472,7 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
                     observer,
                     true,
                     actual_path_observer,
+                    expected_target_parent,
                 )
                 .map(|_| AtomicMoveOutcome {
                     method: AtomicMoveMethod::CrossVolumeCopyCommit,
@@ -732,6 +733,31 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer_with_actual_pat
     observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_copy_with_verified_destination(
+        source,
+        target,
+        operation,
+        expected_identity,
+        planned_claim_path,
+        cancel,
+        observer,
+        actual_path_observer,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn atomic_copy_with_verified_destination(
+    source: &Path,
+    target: &Path,
+    operation: &str,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    expected_target_parent: Option<&super::DirectoryIdentity>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
         crate::platform::macos::strategy::with_mutation_strategy(
@@ -751,6 +777,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer_with_actual_pat
                     cancel,
                     observer,
                     actual_path_observer,
+                    expected_target_parent,
                 )
             },
         )
@@ -767,6 +794,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer_with_actual_pat
             cancel,
             observer,
             actual_path_observer,
+            expected_target_parent,
         )
     }
 }
@@ -1252,6 +1280,7 @@ fn replacement_namespace_path(path: &Path) -> std::path::PathBuf {
     path.to_path_buf()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn atomic_copy_noreplace_uncoordinated(
     source: &Path,
     target: &Path,
@@ -1266,6 +1295,7 @@ fn atomic_copy_noreplace_uncoordinated(
     #[cfg(not(target_os = "macos"))] actual_path_observer: Option<
         &mut crate::fs_safety::ActualPathObserver<'_>,
     >,
+    expected_target_parent: Option<&super::DirectoryIdentity>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
     if is_cancelled(cancel) {
@@ -1276,6 +1306,9 @@ fn atomic_copy_noreplace_uncoordinated(
         let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
         let target_parent =
             VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
+        if expected_target_parent.is_some_and(|expected| expected != target_parent.identity()) {
+            return Err(AtomicMoveError::UnsafePath);
+        }
         crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
             .map_err(AtomicMoveError::MacMutationNotSupported)?;
         crate::platform::macos::copy::copy_commit_source_stable(
@@ -1287,6 +1320,7 @@ fn atomic_copy_noreplace_uncoordinated(
             observer,
             false,
             actual_path_observer,
+            expected_target_parent,
         )
         .map(|_| AtomicMoveOutcome {
             method: AtomicMoveMethod::CrossVolumeCopyCommit,
@@ -1299,6 +1333,9 @@ fn atomic_copy_noreplace_uncoordinated(
         let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
         let target_parent =
             VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
+        if expected_target_parent.is_some_and(|expected| expected != target_parent.identity()) {
+            return Err(AtomicMoveError::UnsafePath);
+        }
         if std::fs::symlink_metadata(target).is_ok() {
             return Err(AtomicMoveError::TargetExists);
         }

@@ -40,6 +40,10 @@
 | `reveal_file_library_entry` | `read_only` | main | Reveal a durable file ID after backend path resolution | default | no | File Library V2 reveal tests |
 | `request_macos_thumbnail` | `read_only` | main | Request a bounded, managed-file Quick Look thumbnail through the macOS safety adapter | default | yes | macOS thumbnail safety tests |
 | `cancel_macos_thumbnail` | `read_only` | main | Cancel one bounded Quick Look thumbnail request by its in-memory request ID | default | yes | macOS thumbnail cancellation tests |
+| `file_workspace_transfer_capture` | `main_state_mutation` | main | Resolve managed/Browse references into bounded session identity tickets | default | yes | U1 transfer regressions |
+| `file_workspace_transfer_preview` | `main_state_mutation` | main | Prepare identity-bound manual Copy/Move previews and non-overwrite conflicts | default | yes | U1 transfer regressions |
+| `file_workspace_transfer_execute` | `filesystem_mutation` | main | Execute confirmed opaque preview through existing cancellation, journal and reconciliation | default | yes | U1 transfer regressions |
+| `file_workspace_places` | `main_state_mutation` | main | Store navigation hints in existing SQLite settings and recheck availability | default | yes | U1 transfer regressions |
 | `file_workspace_browse_open` | `main_state_mutation` | main | Admit one user-intent Browse location, or a backend-revalidated Global Index result parent, into fresh opaque session refs | default | yes | W1-10 integration tests |
 | `file_workspace_browse_restore` | `main_state_mutation` | main | Re-resolve a non-authoritative Browse restore locator into fresh opaque refs | default | yes | W1-10 integration tests |
 | `file_workspace_location_browse` | `main_state_mutation` | main | Re-admit one backend-owned LocationRef into a fresh Browse session without renderer path authority | default | yes | W2-R3 integration tests |

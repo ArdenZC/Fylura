@@ -1,3 +1,5 @@
+import { isManagementCommand, managementMock } from "./fileManagementMock";
+import { resolveManagementMockEntry, resolveManagementMockLocation } from "./fileWorkspaceMockApi";
 import { createAutomationMock } from "./automationMock";
 import type {
   AIConnectionTestResult,
@@ -816,6 +818,14 @@ const mockContentPolicy = (rootId: string, enabled = false): ContentScopePolicy 
 });
 
 export async function mockInvokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (isManagementCommand(command)) {
+    return managementMock(command, args?.request ?? {}, (ref) => {
+      if (ref.kind === "ephemeral") return resolveManagementMockEntry(ref);
+      const file = mockFiles.find((file) => file.id === ref.fileId);
+      if (!file) throw Error("library_file_not_found");
+      return { name: file.name, path: file.path.replace(/\\/g, "/"), isDirectory: false };
+    }, resolveManagementMockLocation) as T;
+  }
   if (isFileWorkspaceMockCommand(command)) {
     if (command === "file_workspace_browse_open") {
       const request = args?.request as { globalEntryId?: string } | undefined;

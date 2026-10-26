@@ -466,3 +466,60 @@ pub async fn file_workspace_preview_asset_request<R: Runtime>(
     .await?;
     Ok(tauri::ipc::Response::new(payload))
 }
+
+#[tauri::command]
+pub async fn file_workspace_transfer_capture<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::CaptureRequest,
+) -> Result<Vec<crate::file_ops::manual_transfer::TransferTicket>, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(
+        runtime.clone(),
+        "workspace_transfer_capture",
+        move |runtime| runtime.capture_transfer(request),
+    )
+    .await
+}
+#[tauri::command]
+pub async fn file_workspace_transfer_preview<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::TransferPreviewRequest,
+) -> Result<crate::file_ops::manual_transfer::TransferPreview, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(
+        runtime.clone(),
+        "workspace_transfer_preview",
+        move |runtime| runtime.preview_transfer(request),
+    )
+    .await
+}
+#[tauri::command]
+pub async fn file_workspace_transfer_execute<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: tauri::AppHandle<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    cancel: State<'_, crate::file_ops::OperationCancellationToken>,
+    request: crate::file_ops::manual_transfer::TransferExecuteRequest,
+) -> Result<crate::file_ops::ExecuteMovesResult, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    crate::file_ops::manual_transfer::execute_registered(app, runtime, cancel.inner(), request)
+        .await
+}
+#[tauri::command]
+pub async fn file_workspace_places<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: super::places::PlacesRequest,
+) -> Result<Vec<super::places::SavedPlace>, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_places", move |runtime| {
+        runtime.places(request)
+    })
+    .await
+}

@@ -225,6 +225,10 @@
     "allow-update-automation-intent",
     "allow-set-automation-intent-enabled",
     "allow-archive-automation-intent",
-    "allow-run-automation-intent-manual"
+    "allow-run-automation-intent-manual",
+    "allow-file-workspace-transfer-capture",
+    "allow-file-workspace-transfer-preview",
+    "allow-file-workspace-transfer-execute",
+    "allow-file-workspace-places"
   ]
 }

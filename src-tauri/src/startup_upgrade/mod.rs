@@ -10,8 +10,15 @@ use std::{
 use zen_canvas_tauri::db::Database;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(feature = "native-qa")]
+mod qa;
 #[cfg(windows)]
 mod windows;
+
+#[cfg(feature = "native-qa")]
+pub fn run_native_qa() -> Result<(), String> {
+    qa::run()
+}
 
 const TITLE: &str = "Zen Canvas — Database upgrade";
 const MESSAGE: &str = "Preparing your local search database";
@@ -38,12 +45,16 @@ impl Worker {
         if self.receiver.is_some() || self.result.is_some() {
             return;
         }
+        #[cfg(feature = "native-qa")]
+        qa::starting();
         let path = self.path.clone();
         let cancel = self.cancel.clone();
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         std::thread::spawn(move || {
             eprintln!("database_upgrade worker_started");
+            #[cfg(feature = "native-qa")]
+            qa::delay_worker();
             let result=std::panic::catch_unwind(||Database::open_with_upgrade_cancellation(path,cancel))
                 .map_err(|_|"The database upgrade worker stopped unexpectedly. Restart Zen Canvas to retry. SQLite will recover its transaction.".to_string())
                 .and_then(|r|r.map_err(|e|e.to_string()));

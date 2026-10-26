@@ -24,8 +24,18 @@ unsafe extern "system" fn callback(
                 unsafe {
                     UpdateWindow(hwnd);
                 }
+                #[cfg(feature = "native-qa")]
+                unsafe {
+                    qa::displayed(IsWindowVisible(hwnd) != 0);
+                }
                 eprintln!("database_upgrade native_dialog_displayed platform=windows");
                 worker.start();
+            }
+            #[cfg(feature = "native-qa")]
+            if qa::cancel_on_tick() {
+                unsafe {
+                    SendMessageW(hwnd, TDM_CLICK_BUTTON as u32, IDCANCEL as usize, 0);
+                }
             }
             if worker.poll() {
                 unsafe {
@@ -89,6 +99,10 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
             Ok(db) => return Ok(db),
             Err(error) => {
                 let message = wide(&recovery_message(&error));
+                #[cfg(feature = "native-qa")]
+                if qa::active() {
+                    schedule_retry();
+                }
                 let action = unsafe {
                     MessageBoxW(
                         std::ptr::null_mut(),
@@ -103,4 +117,27 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
             }
         }
     }
+}
+
+#[cfg(feature = "native-qa")]
+fn schedule_retry() {
+    std::thread::spawn(|| {
+        let title = wide(TITLE);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while std::time::Instant::now() < deadline {
+            let hwnd = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+            if !hwnd.is_null()
+                && unsafe { !GetDlgItem(hwnd, IDRETRY).is_null() && IsWindowVisible(hwnd) != 0 }
+            {
+                qa::retried();
+                unsafe {
+                    PostMessageW(hwnd, WM_COMMAND, IDRETRY as usize, 0);
+                }
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // Do not leave an unattended native modal loop running forever.
+        std::process::exit(3);
+    });
 }

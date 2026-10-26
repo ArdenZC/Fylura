@@ -32,6 +32,11 @@ on:
           - "1000"
           - "10000"
           - "100000"
+      upgrade_measure:
+        description: Measure migration cost (disable for focused native UI/recovery validation)
+        required: false
+        type: boolean
+        default: true
       mode:
         description: Run the official benchmark or a focused diagnostic
         required: true
@@ -450,7 +455,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-14]
+        os: ${{ inputs.entries == '1000000' && fromJSON('["windows-latest"]') || fromJSON('["windows-latest","macos-14"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
@@ -488,7 +493,13 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib upgrade -- --nocapture --test-threads=1
       - name: Existing schema43 and search semantics
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib schema43 -- --nocapture --test-threads=1
+      - name: Native upgrade visibility, cancellation and retry
+        timeout-minutes: 3
+        env:
+          ZC_UPGRADE_UI_OUTPUT: ${{ github.workspace }}/ci-evidence/schema-upgrade-ui.json
+        run: cargo run --manifest-path src-tauri/Cargo.toml --features desktop-runtime,native-qa --bin zen-canvas -- --schema-upgrade-ui-qa
       - name: Bounded installed-schema migration measurement
+        if: ${{ inputs.upgrade_measure }}
         run: >-
           cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib
           global_index::tests::global_search_benchmark::schema_upgrade_cost::schema_upgrade_production_shape_cost
@@ -498,6 +509,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: schema-upgrade-${{ runner.os }}-${{ inputs.entries }}-${{ github.run_id }}
-          path: ${{ github.workspace }}/ci-evidence/schema-upgrade.jsonl
+          path: |
+            ${{ github.workspace }}/ci-evidence/schema-upgrade.jsonl
+            ${{ github.workspace }}/ci-evidence/schema-upgrade-ui.json
           if-no-files-found: warn
           retention-days: 90

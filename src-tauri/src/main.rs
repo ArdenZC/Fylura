@@ -55,6 +55,18 @@ fn main() {
         std::process::exit(0);
     }
 
+    #[cfg(feature = "native-qa")]
+    if launch_args
+        .get(1)
+        .is_some_and(|arg| arg == "--schema-upgrade-ui-qa")
+    {
+        if let Err(error) = startup_upgrade::run_native_qa() {
+            eprintln!("Native upgrade QA failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let background_launch = zen_canvas_tauri::app_control::is_background_launch_args(&launch_args);
 
     tauri::Builder::default()

@@ -14,14 +14,24 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
         alert.setInformativeText(&NSString::from_str(DETAILS));
         let cancel = alert.addButtonWithTitle(&NSString::from_str("Cancel upgrade"));
         let tick_worker = worker.clone();
+        #[cfg(feature = "native-qa")]
+        let tick_cancel = cancel.clone();
         let tick_app = application.clone();
         let tick_alert = alert.clone();
         let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSTimer>| {
             let mut worker = tick_worker.borrow_mut();
             if worker.receiver.is_none() {
                 tick_alert.window().displayIfNeeded();
+                #[cfg(feature = "native-qa")]
+                qa::displayed(tick_alert.window().isVisible());
                 eprintln!("database_upgrade native_dialog_displayed platform=macos");
                 worker.start();
+            }
+            #[cfg(feature = "native-qa")]
+            if qa::cancel_on_tick() {
+                unsafe {
+                    tick_cancel.performClick(None);
+                }
             }
             if worker.poll() {
                 tick_app.stopModalWithCode(1002);
@@ -56,9 +66,37 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
                 let recovery = NSAlert::new(mtm);
                 recovery.setMessageText(&NSString::from_str(TITLE));
                 recovery.setInformativeText(&NSString::from_str(&recovery_message(&error)));
-                recovery.addButtonWithTitle(&NSString::from_str("Retry"));
+                let retry = recovery.addButtonWithTitle(&NSString::from_str("Retry"));
+                #[cfg(not(feature = "native-qa"))]
+                let _ = retry;
+                #[cfg(feature = "native-qa")]
+                let retry_timer = if qa::active() {
+                    let retry_block =
+                        block2::RcBlock::new(move |timer: std::ptr::NonNull<NSTimer>| {
+                            qa::retried();
+                            unsafe {
+                                timer.as_ref().invalidate();
+                                retry.performClick(None);
+                            }
+                        });
+                    let timer = unsafe {
+                        NSTimer::timerWithTimeInterval_repeats_block(0.2, false, &retry_block)
+                    };
+                    unsafe {
+                        NSRunLoop::currentRunLoop()
+                            .addTimer_forMode(&timer, NSModalPanelRunLoopMode);
+                    }
+                    Some(timer)
+                } else {
+                    None
+                };
                 recovery.addButtonWithTitle(&NSString::from_str("Exit"));
-                if recovery.runModal() != 1000 {
+                let response = recovery.runModal();
+                #[cfg(feature = "native-qa")]
+                if let Some(timer) = retry_timer {
+                    timer.invalidate();
+                }
+                if response != 1000 {
                     return Err(error);
                 }
             }

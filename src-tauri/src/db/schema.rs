@@ -256,7 +256,14 @@ pub(crate) fn migrate_with_cancellation(
     cancel: super::upgrade::UpgradeCancellation,
 ) -> Result<(), DbError> {
     assert_fts5_available(conn)?;
-    let guard = super::upgrade::UpgradeGuard::new(conn, cancel)?;
+    // This unlocked read chooses connection resource policy only. The schema
+    // decision/future-version check is still repeated under BEGIN IMMEDIATE.
+    let observed_version = schema_version(conn)?;
+    let guard = super::upgrade::UpgradeGuard::new(
+        conn,
+        cancel,
+        observed_version > 0 && observed_version < CURRENT_SCHEMA_VERSION,
+    )?;
     // Read and decide under the same write lock. Another opener may finish an
     // upgrade while this connection waits for BEGIN IMMEDIATE.
     with_migration_transaction(conn, |conn| {

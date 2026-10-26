@@ -51,7 +51,7 @@ impl Worker {
         let cancel = self.cancel.clone();
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
-        std::thread::spawn(move || {
+        let spawn=std::thread::Builder::new().name("database-upgrade".into()).spawn(move || {
             eprintln!("database_upgrade worker_started");
             #[cfg(feature = "native-qa")]
             qa::delay_worker();
@@ -60,6 +60,11 @@ impl Worker {
                 .and_then(|r|r.map_err(|e|e.to_string()));
             let _ = sender.send(result);
         });
+        if let Err(error) = spawn {
+            self.result = Some(Err(format!(
+                "Cannot start the database upgrade worker: {error}"
+            )));
+        }
     }
     fn poll(&mut self) -> bool {
         if self.result.is_some() {

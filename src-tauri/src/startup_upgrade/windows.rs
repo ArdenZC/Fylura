@@ -1,4 +1,5 @@
 use super::*;
+use std::cell::RefCell;
 use windows_sys::Win32::Graphics::Gdi::UpdateWindow;
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
@@ -14,13 +15,15 @@ unsafe extern "system" fn callback(
     _lparam: LPARAM,
     data: isize,
 ) -> i32 {
-    let worker = unsafe { &mut *(data as *mut Worker) };
+    // Task Dialog messages can synchronously re-enter this callback. Never
+    // retain a mutable Worker reference/borrow across SendMessage/painting.
+    let state = unsafe { &*(data as *const RefCell<Worker>) };
     match notification as i32 {
         TDN_DIALOG_CONSTRUCTED => unsafe {
             SendMessageW(hwnd, TDM_SET_PROGRESS_BAR_MARQUEE as u32, 1, 0);
         },
         TDN_TIMER => {
-            if worker.receiver.is_none() {
+            if state.borrow().receiver.is_none() {
                 unsafe {
                     UpdateWindow(hwnd);
                 }
@@ -29,7 +32,7 @@ unsafe extern "system" fn callback(
                     qa::displayed(IsWindowVisible(hwnd) != 0);
                 }
                 eprintln!("database_upgrade native_dialog_displayed platform=windows");
-                worker.start();
+                state.borrow_mut().start();
             }
             #[cfg(feature = "native-qa")]
             if qa::cancel_on_tick() {
@@ -37,14 +40,15 @@ unsafe extern "system" fn callback(
                     SendMessageW(hwnd, TDM_CLICK_BUTTON as u32, IDCANCEL as usize, 0);
                 }
             }
-            if worker.poll() {
+            let finished = state.borrow_mut().poll();
+            if finished {
                 unsafe {
                     SendMessageW(hwnd, TDM_CLICK_BUTTON as u32, IDCANCEL as usize, 0);
                 }
             }
         }
-        TDN_BUTTON_CLICKED if wparam == IDCANCEL as usize && worker.result.is_none() => {
-            worker.cancel();
+        TDN_BUTTON_CLICKED if wparam == IDCANCEL as usize && state.borrow().result.is_none() => {
+            state.borrow().cancel();
             let stopping = wide("Cancelling upgrade — waiting for SQLite to roll back…");
             unsafe {
                 SendMessageW(
@@ -61,8 +65,17 @@ unsafe extern "system" fn callback(
     0
 }
 pub(super) fn open(path: PathBuf) -> Result<Database, String> {
+    let controls = INITCOMMONCONTROLSEX {
+        dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+        dwICC: ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS,
+    };
+    if unsafe { InitCommonControlsEx(&controls) } == 0 {
+        return Err(
+            "Cannot initialize native upgrade controls. The database was not opened.".into(),
+        );
+    }
     loop {
-        let mut worker = Worker::new(path.clone());
+        let mut worker = RefCell::new(Worker::new(path.clone()));
         let title = wide(TITLE);
         let heading = wide(MESSAGE);
         let details = wide(DETAILS);
@@ -77,7 +90,7 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
             pszMainInstruction: heading.as_ptr(),
             pszContent: details.as_ptr(),
             pfCallback: Some(callback),
-            lpCallbackData: (&mut worker as *mut Worker) as isize,
+            lpCallbackData: (&worker as *const RefCell<Worker>) as isize,
             ..Default::default()
         };
         let hr = unsafe {
@@ -92,6 +105,7 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
             return Err(format!("Cannot display the native upgrade window (HRESULT {hr:#x}). The upgrade was not started."));
         }
         match worker
+            .get_mut()
             .result
             .take()
             .unwrap_or_else(|| Err("Upgrade window closed before the database was opened.".into()))

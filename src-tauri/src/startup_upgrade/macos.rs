@@ -19,13 +19,12 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
         let tick_app = application.clone();
         let tick_alert = alert.clone();
         let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSTimer>| {
-            let mut worker = tick_worker.borrow_mut();
-            if worker.receiver.is_none() {
+            if tick_worker.borrow().receiver.is_none() {
                 tick_alert.window().displayIfNeeded();
                 #[cfg(feature = "native-qa")]
                 qa::displayed(tick_alert.window().isVisible());
                 eprintln!("database_upgrade native_dialog_displayed platform=macos");
-                worker.start();
+                tick_worker.borrow_mut().start();
             }
             #[cfg(feature = "native-qa")]
             if qa::cancel_on_tick() {
@@ -33,7 +32,7 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
                     tick_cancel.performClick(None);
                 }
             }
-            if worker.poll() {
+            if tick_worker.borrow_mut().poll() {
                 tick_app.stopModalWithCode(1002);
             }
         });

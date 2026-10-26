@@ -81,8 +81,8 @@ pub fn inspect_resources(conn: &Connection) -> Result<UpgradeResources, DbError>
     )?;
     let database_directory = Path::new(&database_path).parent().unwrap_or(Path::new("."));
     let temporary_directory = sqlite_temporary_directory(conn)?;
-    let (database_free_bytes, database_device) = free_space(database_directory)?;
-    let (temporary_free_bytes, temporary_device) = free_space(&temporary_directory)?;
+    let (database_free_bytes, database_device) = checked_space(database_directory)?;
+    let (temporary_free_bytes, temporary_device) = checked_space(&temporary_directory)?;
     let required = if database_device == temporary_device {
         database_required_bytes.saturating_add(temporary_required_bytes)
     } else {
@@ -138,6 +138,26 @@ fn sqlite_temporary_directory(conn: &Connection) -> Result<PathBuf, DbError> {
     path.parent()
         .map(Path::to_path_buf)
         .ok_or_else(|| DbError::Validation("SQLite temporary path has no parent".into()))
+}
+
+#[cfg(test)]
+thread_local! { static TEST_CAPACITY: std::cell::Cell<Option<u64>> = const {std::cell::Cell::new(None)}; }
+#[cfg(test)]
+pub(crate) fn with_test_capacity<T>(bytes: u64, run: impl FnOnce() -> T) -> T {
+    struct Reset(Option<u64>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_CAPACITY.with(|v| v.set(self.0));
+        }
+    }
+    let _reset = Reset(TEST_CAPACITY.with(|v| v.replace(Some(bytes))));
+    run()
+}
+fn checked_space(path: &Path) -> Result<(u64, u64), DbError> {
+    let (free, device) = free_space(path)?;
+    #[cfg(test)]
+    let free = TEST_CAPACITY.with(|v| v.get()).unwrap_or(free);
+    Ok((free, device))
 }
 
 #[cfg(test)]
@@ -212,9 +232,14 @@ pub(crate) struct UpgradeGuard<'a> {
     cache: i64,
     mmap: i64,
     threads: i64,
+    bounded: bool,
 }
 impl<'a> UpgradeGuard<'a> {
-    pub(crate) fn new(conn: &'a Connection, cancel: UpgradeCancellation) -> Result<Self, DbError> {
+    pub(crate) fn new(
+        conn: &'a Connection,
+        cancel: UpgradeCancellation,
+        bounded: bool,
+    ) -> Result<Self, DbError> {
         let value = |name: &str| -> rusqlite::Result<i64> {
             conn.query_row(&format!("PRAGMA {name}"), [], |r| r.get(0))
         };
@@ -227,8 +252,11 @@ impl<'a> UpgradeGuard<'a> {
                 .query_row("PRAGMA mmap_size", [], |r| r.get(0))
                 .unwrap_or(0),
             threads: value("threads")?,
+            bounded,
         };
-        conn.execute_batch("PRAGMA temp_store=FILE; PRAGMA cache_size=-8192; PRAGMA mmap_size=0; PRAGMA threads=0;")?;
+        if bounded {
+            conn.execute_batch("PRAGMA temp_store=FILE; PRAGMA cache_size=-8192; PRAGMA mmap_size=0; PRAGMA threads=0;")?;
+        }
         unsafe {
             ffi::sqlite3_progress_handler(
                 conn.handle(),
@@ -251,6 +279,9 @@ impl<'a> UpgradeGuard<'a> {
 impl Drop for UpgradeGuard<'_> {
     fn drop(&mut self) {
         unsafe { ffi::sqlite3_progress_handler(self.conn.handle(), 0, None, std::ptr::null_mut()) };
+        if !self.bounded {
+            return;
+        }
         let _ = self.conn.execute_batch(&format!(
             "PRAGMA temp_store={}; PRAGMA cache_size={}; PRAGMA mmap_size={}; PRAGMA threads={};",
             self.temp, self.cache, self.mmap, self.threads
@@ -275,7 +306,7 @@ mod tests {
             .query_row("PRAGMA temp_store", [], |r| r.get(0))
             .unwrap();
         {
-            let _guard = UpgradeGuard::new(&conn, cancel.clone()).unwrap();
+            let _guard = UpgradeGuard::new(&conn, cancel.clone(), true).unwrap();
             cancel.store(true, Ordering::Release);
             let result=conn.execute_batch("WITH RECURSIVE n(x) AS (VALUES(0) UNION ALL SELECT x+1 FROM n WHERE x<100000) SELECT sum(x) FROM n");
             assert!(result.is_err());

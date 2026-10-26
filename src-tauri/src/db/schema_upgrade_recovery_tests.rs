@@ -49,6 +49,23 @@ fn historical_fixture(path: &Path) -> Connection {
         .unwrap();
     conn
 }
+fn user_fingerprint(conn: &Connection) -> String {
+    let mut hash = blake3::Hasher::new();
+    for table in ["global_entries", "global_volumes"] {
+        let mut statement = conn
+            .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+            .unwrap();
+        let columns = statement.column_count();
+        let mut rows = statement.query([]).unwrap();
+        while let Some(row) = rows.next().unwrap() {
+            for i in 0..columns {
+                hash.update(format!("{:?}\n", row.get_ref(i).unwrap()).as_bytes());
+            }
+        }
+    }
+    hash.finalize().to_hex().to_string()
+}
+
 fn assert_original(conn: &Connection) {
     assert_eq!(schema_version(conn).unwrap(), 42);
     let sql: String = conn
@@ -76,6 +93,7 @@ fn cleanup(path: &Path) {
 fn schema_upgrade_full_rolls_back_and_retry_rebuilds_indexes() {
     let path = path("full");
     let conn = historical_fixture(&path);
+    let before = user_fingerprint(&conn);
     let pages: i64 = conn
         .query_row("PRAGMA page_count", [], |r| r.get(0))
         .unwrap();
@@ -87,6 +105,7 @@ fn schema_upgrade_full_rolls_back_and_retry_rebuilds_indexes() {
     );
     assert!(conn.is_autocommit());
     assert_original(&conn);
+    assert_eq!(user_fingerprint(&conn), before);
     drop(conn);
     let conn = Connection::open(&path).unwrap();
     conn.pragma_update(None, "max_page_count", 2_147_483_646_i64)
@@ -102,9 +121,10 @@ fn schema_upgrade_full_rolls_back_and_retry_rebuilds_indexes() {
 fn schema_upgrade_cancel_after_drop_rolls_back_and_restores_settings() {
     let path = path("cancel");
     let conn = historical_fixture(&path);
+    let before = user_fingerprint(&conn);
     let cancel = Arc::new(AtomicBool::new(false));
     {
-        let guard = super::super::upgrade::UpgradeGuard::new(&conn, cancel.clone()).unwrap();
+        let guard = super::super::upgrade::UpgradeGuard::new(&conn, cancel.clone(), true).unwrap();
         let error = with_migration_transaction(&conn, |conn| {
             conn.execute_batch("DROP INDEX idx_global_entries_active_name_order")?;
             cancel.store(true, Ordering::Release);
@@ -119,6 +139,7 @@ fn schema_upgrade_cancel_after_drop_rolls_back_and_restores_settings() {
     }
     assert!(conn.is_autocommit());
     assert_original(&conn);
+    assert_eq!(user_fingerprint(&conn), before);
     migrate(&conn).unwrap();
     drop(conn);
     cleanup(&path);
@@ -151,7 +172,9 @@ fn schema_upgrade_killed_child() {
 #[test]
 fn schema_upgrade_process_death_recovers_on_restart() {
     let path = path("kill");
-    drop(historical_fixture(&path));
+    let conn = historical_fixture(&path);
+    let before = user_fingerprint(&conn);
+    drop(conn);
     let marker = path.with_extension("marker");
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
@@ -182,6 +205,7 @@ fn schema_upgrade_process_death_recovers_on_restart() {
     );
     let conn = Connection::open(&path).unwrap();
     assert_original(&conn);
+    assert_eq!(user_fingerprint(&conn), before);
     migrate(&conn).unwrap();
     assert_eq!(schema_version(&conn).unwrap(), 43);
     migrate(&conn).unwrap();
@@ -217,4 +241,44 @@ fn schema_upgrade_readonly_failure_preserves_installed_schema() {
     migrate(&conn).unwrap();
     drop(conn);
     cleanup(&path);
+}
+
+#[test]
+fn schema_upgrade_preflight_rejects_capacity_before_any_schema_change() {
+    let path = path("capacity");
+    let conn = historical_fixture(&path);
+    let before = user_fingerprint(&conn);
+    let result = super::super::upgrade::with_test_capacity(0, || migrate(&conn));
+    assert!(
+        matches!(result,Err(DbError::Validation(ref message)) if message.contains("Not enough free space")),
+        "{result:?}"
+    );
+    assert!(conn.is_autocommit());
+    assert_original(&conn);
+    assert_eq!(user_fingerprint(&conn), before);
+    migrate(&conn).unwrap();
+    drop(conn);
+    cleanup(&path);
+}
+#[test]
+fn schema_upgrade_current_reopen_preserves_temp_objects_and_policy() {
+    let conn = Connection::open_in_memory().unwrap();
+    migrate(&conn).unwrap();
+    conn.execute_batch("PRAGMA temp_store=MEMORY; PRAGMA cache_size=-321; CREATE TEMP TABLE startup_probe(value); INSERT INTO startup_probe VALUES(37)").unwrap();
+    migrate(&conn).unwrap();
+    assert_eq!(
+        conn.query_row::<i64, _, _>("SELECT value FROM startup_probe", [], |r| r.get(0))
+            .unwrap(),
+        37
+    );
+    assert_eq!(
+        conn.query_row::<i64, _, _>("PRAGMA cache_size", [], |r| r.get(0))
+            .unwrap(),
+        -321
+    );
+    assert_eq!(
+        conn.query_row::<i64, _, _>("PRAGMA temp_store", [], |r| r.get(0))
+            .unwrap(),
+        2
+    );
 }

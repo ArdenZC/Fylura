@@ -85,6 +85,35 @@ Final authority:
 - [V26 Freeze Manifest](../design/w6-06/07-V26-FREEZE-MANIFEST.md)
 - [W6-07 Implementation Handoff](../design/w6-06/07-W6-07-IMPLEMENTATION-HANDOFF.md)
 
+## Next product direction — one File Library for everyday file management
+
+**Owner product-structure choice (2026-10-15):** the existing **文件库 /
+File Library** is the *only* top-level home for day-to-day file
+management. Reuse `FileLibraryWorkspace` (current Files route) with
+Library/Browse modes; integrate tabs, panes, copy/move, File Basket,
+Compare, details/notes and Preview **within that module**. Search
+remains cross-cutting; Organize/Cleanup/History keep their canonical
+specialized owners. Source justification: user-provided
+`Zen Canvas 统一产品蓝图 V2: Pulse × Oil Find × AI-only` (2026-10-15),
+summarized in [Product Map](PRODUCT_MAP.md) and
+[Master Development Plan](MASTER_DEVELOPMENT_PLAN.md).
+
+**Not yet an activated production initiative.** The owner-approved
+product destination does not silently remove the currently recorded
+active defect work, assign Schema versions, create a second file
+authority, merge old research PRs or authorize a File Manager rewrite.
+The first implementation when explicitly assigned should be one
+small, usable File Library browsing/navigation improvement—not another
+cross-product research program. The detailed U1→U4 plus optional AI
+delivery sequence is in the Master Plan section 2.5 and can be
+interleaved with independent current fixes.
+
+**Development approach:** reuse the merged delivery-first
+[workflow](DEVELOPMENT_WORKFLOW.md#delivery-first-operating-rule):
+focused tests and existing required CI; no extra proof-only matrices,
+manual hash manifests or optional F1/T10 native fault work for unrelated
+UI/file-management tasks.
+
 ## Current
 
 ### Post-#323 Historical Audit Residual & Technical Debt Reconciliation — Owner Gate

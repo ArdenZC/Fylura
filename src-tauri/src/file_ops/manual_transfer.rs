@@ -176,6 +176,18 @@ impl FileWorkspaceRuntime {
         for id in request.release_ids {
             state.sources.remove(&id);
         }
+        let mut unique = HashSet::new();
+        let additions = captured
+            .iter()
+            .filter(|source| {
+                !state.sources.values().any(|old| {
+                    old.ticket.path == source.ticket.path && old.identity == source.identity
+                }) && unique.insert((source.ticket.path.clone(), format!("{:?}", source.identity)))
+            })
+            .count();
+        if state.sources.len() + additions > LIMIT {
+            return Err("transfer_selection_limit_1000".into());
+        }
         let mut tickets = Vec::new();
         for source in captured {
             if let Some(old) = state.sources.values().find(|old| {

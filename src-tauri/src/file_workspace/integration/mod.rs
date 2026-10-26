@@ -10,7 +10,7 @@ mod change;
 pub mod commands;
 mod folder;
 mod location;
-mod places;
+pub(crate) mod places;
 mod preview;
 mod runtime;
 mod runtime_owner;

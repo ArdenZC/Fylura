@@ -275,3 +275,219 @@ fn u1_cut_move_restore_preserves_identity_and_changed_source_or_destination_reje
     );
     runtime.dispose();
 }
+
+#[test]
+fn u1_favorites_survive_runtime_recreation_and_unavailable_locations_are_hints_only() {
+    use crate::file_workspace::integration::places::PlacesRequest;
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let folder = f.root.join("favorite");
+    fs::create_dir(&folder).unwrap();
+    let admitted = runtime
+        .open_browse(BrowseOpenRequest {
+            platform: if cfg!(windows) {
+                WorkspacePlatform::Windows
+            } else {
+                WorkspacePlatform::Macos
+            },
+            routing_hint: normalize_path(&folder),
+            display_hint: None,
+            global_entry_id: None,
+        })
+        .unwrap();
+    let saved = runtime
+        .places(PlacesRequest {
+            session_id: Some(admitted.session_id),
+            path_ref: Some(admitted.root_path_ref),
+            favorite: Some(true),
+            remove_id: None,
+        })
+        .unwrap();
+    assert!(saved[0].favorite && saved[0].current && !saved[0].unavailable);
+    runtime.dispose();
+    drop(runtime);
+    fs::rename(&folder, f.root.join("retired-favorite")).unwrap();
+    let next = FileWorkspaceRuntime::new(
+        f.db.clone(),
+        MacThumbnailService::new(f.root.join("legacy-next")),
+        f.root.join("cache-next"),
+    )
+    .unwrap();
+    let saved = next
+        .places(PlacesRequest {
+            session_id: None,
+            path_ref: None,
+            favorite: None,
+            remove_id: None,
+        })
+        .unwrap();
+    assert!(saved[0].favorite && saved[0].unavailable);
+    assert!(next
+        .open_browse(BrowseOpenRequest {
+            platform: if cfg!(windows) {
+                WorkspacePlatform::Windows
+            } else {
+                WorkspacePlatform::Macos
+            },
+            routing_hint: saved[0].routing_hint.clone(),
+            display_hint: None,
+            global_entry_id: None
+        })
+        .is_err());
+    next.dispose();
+}
+
+#[test]
+fn u1_partial_batch_cancellation_preserves_unprocessed_sources_and_durable_results() {
+    struct CancelAtTen(Arc<AtomicBool>);
+    impl OperationProgressEmitter for CancelAtTen {
+        fn emit_progress(&self, payload: OperationProgressPayload) {
+            if payload.processed >= 10 {
+                self.0.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    for number in 0..10 {
+        fs::write(
+            f.source
+                .parent()
+                .unwrap()
+                .join(format!("batch-{number}.txt")),
+            b"batch owned bytes",
+        )
+        .unwrap();
+    }
+    let admitted = runtime
+        .open_browse(BrowseOpenRequest {
+            platform: if cfg!(windows) {
+                WorkspacePlatform::Windows
+            } else {
+                WorkspacePlatform::Macos
+            },
+            routing_hint: normalize_path(f.source.parent().unwrap()),
+            display_hint: None,
+            global_entry_id: None,
+        })
+        .unwrap();
+    let page = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: admitted.session_id,
+            request_id: "batch".into(),
+            path_ref: admitted.root_path_ref,
+            page_size: 32,
+            query: Default::default(),
+        })
+        .unwrap();
+    let refs = page
+        .entries
+        .into_iter()
+        .map(|entry| match entry.entry_ref {
+            crate::file_workspace::BrowseEntryRef::Ephemeral {
+                browse_session_id,
+                entry_id,
+            } => EntryRef::Ephemeral {
+                browse_session_id,
+                entry_id,
+            },
+        })
+        .collect();
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs,
+            selection: None,
+            release_ids: vec![],
+        })
+        .unwrap();
+    assert_eq!(tickets.len(), 11);
+    let target = f.root.join("batch-target");
+    fs::create_dir(&target).unwrap();
+    let plan = preview(
+        &runtime,
+        tickets.iter().map(|t| t.id.clone()).collect(),
+        &target,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let result = execute_moves_with_persistence_with_progress(
+        &f.db,
+        request,
+        Arc::clone(&cancel),
+        &CancelAtTen(cancel),
+    )
+    .unwrap();
+    assert_eq!(
+        result
+            .logs
+            .iter()
+            .filter(|log| log.status == "success")
+            .count(),
+        10
+    );
+    assert_eq!(
+        result
+            .logs
+            .iter()
+            .filter(|log| log.status == "canceled")
+            .count(),
+        1
+    );
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 10);
+    assert!(tickets
+        .iter()
+        .all(|ticket| Path::new(&ticket.path).exists()));
+    assert_eq!(f.db.get_operation_logs(Some(20)).unwrap().len(), 11);
+    runtime.dispose();
+}
+
+#[cfg(windows)]
+#[test]
+fn u1_locked_source_never_publishes_a_destination() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let ticket = capture(&runtime, &f).remove(0);
+    let target = f.root.join("locked-target");
+    fs::create_dir(&target).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id],
+        &target,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    let locked = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&f.source)
+        .unwrap();
+    let result = execute_moves_with_persistence(&f.db, request);
+    assert!(
+        result.is_err()
+            || result
+                .unwrap()
+                .logs
+                .iter()
+                .all(|log| log.status != "success")
+    );
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+    drop(locked);
+    assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
+    runtime.dispose();
+}

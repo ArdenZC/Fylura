@@ -318,6 +318,7 @@ const SharedFileRow = memo(function SharedFileRow({
         missingLabel && "is-missing"
       )}
       style={style}
+      data-file-entry-kind={entry.entryKind}
       draggable={selected}
       role="option"
       tabIndex={-1}

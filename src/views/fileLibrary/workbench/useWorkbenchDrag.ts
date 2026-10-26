@@ -24,6 +24,19 @@ export function useWorkbenchDrag({
     signature: string;
     tickets: Promise<TransferTicket[]>;
   } | null>(null);
+  async function release(tickets: TransferTicket[]) {
+    const state = useFileManagementStore.getState();
+    const retained = new Set(
+      [...state.basket, ...(state.clipboard?.tickets ?? [])].map(
+        (ticket) => ticket.id,
+      ),
+    );
+    await fileManagementApi.captureTransfer({
+      releaseIds: tickets
+        .filter((ticket) => !retained.has(ticket.id))
+        .map((ticket) => ticket.id),
+    });
+  }
   async function startDrag(event: DragEvent, pane: WorkbenchPane) {
     const row =
       event.target instanceof Element
@@ -55,14 +68,23 @@ export function useWorkbenchDrag({
     event.preventDefault();
     const captured = drag.current;
     drag.current = null;
+    const folderRow =
+      event.target instanceof Element &&
+      event.target.closest('[data-file-entry-kind="directory"]');
     if (
       locked ||
+      folderRow ||
       !captured ||
       event.dataTransfer.getData(DRAG_TYPE) !== captured.token ||
       captured.sourceId === pane.id ||
       !pane.path
     ) {
-      useAppStore.getState().showError(t("wbUnsupportedDrop"));
+      useAppStore
+        .getState()
+        .showError(
+          t(folderRow ? "wbFolderDropUnsupported" : "wbUnsupportedDrop"),
+        );
+      if (captured) await captured.tickets.then(release).catch(() => undefined);
       return;
     }
     const action = event.shiftKey ? "move" : "copy";
@@ -75,7 +97,8 @@ export function useWorkbenchDrag({
       tickets = await captured.tickets;
       if (
         useFileManagementStore.getState().transferOpen ||
-        useFileManagementStore.getState().surfaces[pane.id]?.read().visible === false ||
+        useFileManagementStore.getState().surfaces[pane.id]?.read().visible ===
+          false ||
         useFileManagementStore.getState().surfaces[captured.sourceId]?.read()
           .signature !== captured.signature ||
         useFileManagementStore.getState().surfaces[pane.id]?.read()
@@ -94,42 +117,14 @@ export function useWorkbenchDrag({
         },
       });
     } catch (cause) {
-      const retained = new Set(
-        [
-          ...useFileManagementStore.getState().basket,
-          ...(useFileManagementStore.getState().clipboard?.tickets ?? []),
-        ].map((ticket) => ticket.id),
-      );
-      if (tickets.length)
-        await fileManagementApi
-          .captureTransfer({
-            releaseIds: tickets
-              .filter((ticket) => !retained.has(ticket.id))
-              .map((ticket) => ticket.id),
-          })
-          .catch(() => undefined);
+      if (tickets.length) await release(tickets).catch(() => undefined);
       useAppStore.getState().showError(String(cause));
     }
   }
   const endDrag = () => {
     const abandoned = drag.current;
     drag.current = null;
-    if (abandoned)
-      void abandoned.tickets
-        .then((tickets) => {
-          const retained = new Set(
-            [
-              ...useFileManagementStore.getState().basket,
-              ...(useFileManagementStore.getState().clipboard?.tickets ?? []),
-            ].map((ticket) => ticket.id),
-          );
-          return fileManagementApi.captureTransfer({
-            releaseIds: tickets
-              .filter((ticket) => !retained.has(ticket.id))
-              .map((ticket) => ticket.id),
-          });
-        })
-        .catch(() => undefined);
+    if (abandoned) void abandoned.tickets.then(release).catch(() => undefined);
   };
 
   return { startDrag, drop, endDrag };

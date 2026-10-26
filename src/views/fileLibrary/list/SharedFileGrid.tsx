@@ -416,6 +416,7 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
     <div
       id={gridCellDomId(entry, pane?.id)}
       className={cn("shared-file-grid-cell", selected && "is-selected", focused && "is-focused", missingLabel && "is-missing")}
+      data-file-entry-kind={entry.entryKind}
       draggable={selected}
       role="gridcell"
       tabIndex={-1}

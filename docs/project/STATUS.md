@@ -31,20 +31,28 @@ Last verified: 2026-10-27
   CI gate or performance threshold change; no Full Validation or million-file run.
 
 
-- **Global Search covering-index repair — READY_FOR_OWNER_REVIEW / Draft; performance not fully qualified.**
-  Latest integrated base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`,
-  Schema 42→43. [Draft #473](https://github.com/ArdenZC/Zen-Canvas/pull/473)
-  rebuilds Name order coverage and adds active Source Facts coverage. Production
-  search/source/status SQL, COUNT(id), revision/hash and read transaction remain
-  intact. One generated fixture plus controlled copies at each of 100k and 1M:
-  12/12 correctness and both covering plans pass. Source/integration CI pass.
-  1M pooled p95 passes 10/12 in every variant; FTS report/invoice remain above
-  the unchanged 100ms target. Retain 100k punctuation Snapshot and 1M extension
-  pooled p99 regressions; no blanket tail acceptance. OPEN/Draft, unmerged;
-  no extra 1M run or Codex Review. Owner decides merge/next phase. See
-  [paired data, plans, costs and migration risks](../research/GLOBAL_SEARCH_COVERING_INDEX_REPAIR.md).
+- **Global Search covering-index repair — MERGED #473 / performance not fully qualified.**
+  Current merged master `9bc4aa9e3fb2c6bb557192383be168517a182651`, Schema 43;
+  [PR #473](https://github.com/ArdenZC/Zen-Canvas/pull/473) squash-merged
+  2026-10-26. Name order and Source Facts covering indexes are active.
+  Original 1M pooled Search p95 gate passes **10/12** in the one paired Hosted
+  diagnostic; FTS report/invoice remain 175.343/179.552ms (>100ms).
+  Name-prefix pooled p95 A0→A3 79.280→42.333ms and complete Snapshot p95
+  587.343→187.207ms; the full Snapshot remains O(active entries).
+  A3 retained 1M extension-prefix pooled p99 +27.61% and 100k punctuation
+  Snapshot p99 +26.60%; no blanket performance PASS or gate relaxation.
+  [#474](https://github.com/ArdenZC/Zen-Canvas/issues/474) tracks the next
+  Source Facts/FTS production phase independently of this merged repair.
+  **Schema 43 release/upgrade NOT QUALIFIED:** the production-shape-ID
+  migration cost and no-window startup behavior remain unqualified. The ~30s
+  DDL / ~44.29 MiB B-tree increment are synthetic short-ID fixture numbers,
+  not production-shape limits. Upgrade runs while database opens during Tauri
+  setup before showing Main; avoid any release claim until bounded migration
+  resource, startup UX and failure/retry contracts are accepted.
+  [Paired 100k/1M evidence and limitations](../research/GLOBAL_SEARCH_COVERING_INDEX_REPAIR.md).
 
-- **U1 File Library UX and space utilization — MERGED #472; native GUI acceptance UNVERIFIED.**
+
+- **U1 File Library UX and space utilization — MERGED #472; native GUI acceptance remains unverified.**
   Base `master@8ffc7d04a8c392e28299445b845d39e606f43f5c` (normal CI
   [40298939633](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40298939633)
   SUCCESS). Main navigation can fully hide and restore through the existing
@@ -65,7 +73,7 @@ Last verified: 2026-10-27
   normal PR CI owns backend validation. No schema, identity, journal/Restore,
   indexing/scheduling, AI, permission or CI policy change; no Full Validation.
 
-- **U1 File Management Workspace — MERGED #470 / #471; native GUI acceptance remains Owner-owned.**
+- **U1 File Management Workspace — MERGED backend #470 and UI #471; native acceptance remains unverified.**
   Base `master@8e6179aad2a7cea25718ba0e4ebaf79d77834ffa`. Dependency order:
   backend [#470](https://github.com/ArdenZC/Zen-Canvas/pull/470), then its dependent
   File Library workflow UI PR. Library/Browse reuse source-owned selection;

@@ -304,7 +304,7 @@ fn fts_phrase(query: &str) -> String {
     format!("\"{}\"", query.replace('"', "\"\""))
 }
 
-fn explain_details(conn: &Connection, sql: &str, values: &[SqlValue]) -> Vec<String> {
+pub(super) fn explain_details(conn: &Connection, sql: &str, values: &[SqlValue]) -> Vec<String> {
     let mut statement = conn
         .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
         .expect("prepare diagnostic EXPLAIN QUERY PLAN");
@@ -3983,7 +3983,7 @@ fn exact_sql_1m_resource_limits() -> ExactSql1mResourceLimits {
     limits
 }
 
-fn exact_sql_1m_tier_order(query: &str) -> Vec<&'static str> {
+pub(super) fn exact_sql_1m_tier_order(query: &str) -> Vec<&'static str> {
     let mut tiers = vec![
         "exact_name",
         "name_prefix",
@@ -4003,7 +4003,7 @@ fn exact_sql_1m_tier_order(query: &str) -> Vec<&'static str> {
     tiers
 }
 
-fn exact_sql_1m_tier_parameters(tier: &str, query: &str, limit: u32) -> Vec<SqlValue> {
+pub(super) fn exact_sql_1m_tier_parameters(tier: &str, query: &str, limit: u32) -> Vec<SqlValue> {
     match tier {
         "exact_name" | "exact_extension" => vec![
             SqlValue::Text(query.to_string()),
@@ -5758,4 +5758,14 @@ fn global_search_fts_key_only_cte_qualification() {
         "macos_native_measurement": "NOT VERIFIED: qualification executes on Windows Hosted; macOS quality remains a separate CI lane",
         "temporary_btree_byte_measurement": "NOT VERIFIED"
     }));
+}
+
+// The covering-index experiment reuses the exact current-SQL mapper and counters.
+pub(super) fn covering_index_sql_sample(
+    conn: &Connection,
+    sql: &str,
+    values: &[SqlValue],
+) -> (Vec<GlobalSearchResult>, f64, JsonValue) {
+    let (rows, elapsed, counters, _) = execute_search_sql_with_counters(conn, sql, values);
+    (rows, elapsed, counters)
 }

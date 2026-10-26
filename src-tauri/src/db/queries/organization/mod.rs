@@ -5108,7 +5108,7 @@ pub(crate) mod tests {
             edited_filename: None,
         };
         let before = snapshot(&db);
-        assert_eq!(before.0, 42);
+        assert_eq!(before.0, 43);
         for (revision, safe_batch, mutations, expected_error) in [
             (
                 0,

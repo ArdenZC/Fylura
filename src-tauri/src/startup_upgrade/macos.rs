@@ -62,43 +62,48 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
         match result {
             Ok(db) => return Ok(db),
             Err(error) => {
-                let recovery = NSAlert::new(mtm);
-                recovery.setMessageText(&NSString::from_str(TITLE));
-                recovery.setInformativeText(&NSString::from_str(&recovery_message(&error)));
-                let retry = recovery.addButtonWithTitle(&NSString::from_str("Retry"));
-                #[cfg(not(feature = "native-qa"))]
-                let _ = retry;
-                #[cfg(feature = "native-qa")]
-                let retry_timer = if qa::active() {
-                    let retry_block =
-                        block2::RcBlock::new(move |timer: std::ptr::NonNull<NSTimer>| {
-                            qa::retried();
-                            unsafe {
-                                timer.as_ref().invalidate();
-                                retry.performClick(None);
-                            }
-                        });
-                    let timer = unsafe {
-                        NSTimer::timerWithTimeInterval_repeats_block(0.2, false, &retry_block)
-                    };
-                    unsafe {
-                        NSRunLoop::currentRunLoop()
-                            .addTimer_forMode(&timer, NSModalPanelRunLoopMode);
-                    }
-                    Some(timer)
-                } else {
-                    None
-                };
-                recovery.addButtonWithTitle(&NSString::from_str("Exit"));
-                let response = recovery.runModal();
-                #[cfg(feature = "native-qa")]
-                if let Some(timer) = retry_timer {
-                    timer.invalidate();
-                }
-                if response != 1000 {
+                if !recover(&error) {
                     return Err(error);
                 }
             }
         }
     }
+}
+
+pub(super) fn recover(error: &str) -> bool {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let recovery = NSAlert::new(mtm);
+    recovery.setMessageText(&NSString::from_str(TITLE));
+    recovery.setInformativeText(&NSString::from_str(&recovery_message(error)));
+    let retry = recovery.addButtonWithTitle(&NSString::from_str("Retry"));
+    #[cfg(not(feature = "native-qa"))]
+    let _ = retry;
+    #[cfg(feature = "native-qa")]
+    let retry_timer = if qa::active() {
+        let retry_block = block2::RcBlock::new(move |timer: std::ptr::NonNull<NSTimer>| {
+            qa::retried();
+            unsafe {
+                timer.as_ref().invalidate();
+                retry.performClick(None);
+            }
+        });
+        let timer =
+            unsafe { NSTimer::timerWithTimeInterval_repeats_block(0.2, false, &retry_block) };
+        unsafe {
+            NSRunLoop::currentRunLoop().addTimer_forMode(&timer, NSModalPanelRunLoopMode);
+        }
+        Some(timer)
+    } else {
+        None
+    };
+    recovery.addButtonWithTitle(&NSString::from_str("Exit"));
+    let response = recovery.runModal();
+    #[cfg(feature = "native-qa")]
+    if let Some(timer) = retry_timer {
+        timer.invalidate();
+    }
+
+    response == 1000
 }

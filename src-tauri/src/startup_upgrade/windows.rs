@@ -102,7 +102,18 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
             )
         };
         if hr < 0 {
-            return Err(format!("Cannot display the native upgrade window (HRESULT {hr:#x}). The upgrade was not started."));
+            let error=format!("Cannot display the native upgrade window (HRESULT {hr:#x}). Reopen Zen Canvas to retry. A completed commit is retained; SQLite recovers an interrupted upgrade.");
+            drop(worker); // cancellation/worker completion precedes the final error notice
+            let message = wide(&error);
+            unsafe {
+                MessageBoxW(
+                    std::ptr::null_mut(),
+                    message.as_ptr(),
+                    title.as_ptr(),
+                    MB_OK | MB_ICONERROR | MB_SETFOREGROUND,
+                );
+            }
+            return Err(error);
         }
         match worker
             .get_mut()
@@ -112,25 +123,66 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
         {
             Ok(db) => return Ok(db),
             Err(error) => {
-                let message = wide(&recovery_message(&error));
-                #[cfg(feature = "native-qa")]
-                if qa::active() {
-                    schedule_retry();
-                }
-                let action = unsafe {
-                    MessageBoxW(
-                        std::ptr::null_mut(),
-                        message.as_ptr(),
-                        title.as_ptr(),
-                        MB_RETRYCANCEL | MB_ICONERROR | MB_SETFOREGROUND,
-                    )
-                };
-                if action != IDRETRY {
+                if !recover(&error) {
                     return Err(error);
                 }
             }
         }
     }
+}
+
+pub(super) fn recover(error: &str) -> bool {
+    let title = wide(TITLE);
+    let heading = wide("The database could not be opened");
+    let message = wide(&recovery_message(error));
+    let retry = wide("Retry");
+    let exit = wide("Exit");
+    let buttons = [
+        TASKDIALOG_BUTTON {
+            nButtonID: IDRETRY,
+            pszButtonText: retry.as_ptr(),
+        },
+        TASKDIALOG_BUTTON {
+            nButtonID: IDCANCEL,
+            pszButtonText: exit.as_ptr(),
+        },
+    ];
+    let config = TASKDIALOGCONFIG {
+        cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
+        dwFlags: TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT,
+        pszWindowTitle: title.as_ptr(),
+        pszMainInstruction: heading.as_ptr(),
+        pszContent: message.as_ptr(),
+        cButtons: 2,
+        pButtons: buttons.as_ptr(),
+        nDefaultButton: IDCANCEL,
+        ..Default::default()
+    };
+    #[cfg(feature = "native-qa")]
+    if qa::active() {
+        schedule_retry();
+    }
+    let mut button = 0;
+    let hr = unsafe {
+        TaskDialogIndirect(
+            &config,
+            &mut button,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if hr < 0 {
+        unsafe {
+            MessageBoxW(
+                std::ptr::null_mut(),
+                message.as_ptr(),
+                title.as_ptr(),
+                MB_OK | MB_ICONERROR | MB_SETFOREGROUND,
+            );
+        }
+        return false;
+    }
+    button == IDRETRY
 }
 
 #[cfg(feature = "native-qa")]
@@ -145,7 +197,7 @@ fn schedule_retry() {
             {
                 qa::retried();
                 unsafe {
-                    PostMessageW(hwnd, WM_COMMAND, IDRETRY as usize, 0);
+                    PostMessageW(hwnd, TDM_CLICK_BUTTON as u32, IDRETRY as usize, 0);
                 }
                 return;
             }

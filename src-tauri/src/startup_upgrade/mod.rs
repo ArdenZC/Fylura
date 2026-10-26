@@ -88,9 +88,24 @@ impl Worker {
     }
 }
 
+impl Drop for Worker {
+    fn drop(&mut self) {
+        // Even an unexpected native dialog failure must not leave an invisible
+        // migration running after the recovery/exit decision.
+        if self.result.is_none() {
+            self.cancel();
+            if let Some(receiver) = &self.receiver {
+                let _ = receiver.recv();
+            }
+        }
+    }
+}
+
 fn needs_upgrade(path: &std::path::Path) -> bool {
-    if !path.exists() {
-        return false;
+    match path.try_exists() {
+        Ok(false) => return false,
+        Err(_) => return true,
+        Ok(true) => {}
     }
     // Probe only; no DDL, journal-mode change or pool/worker startup. An invalid
     // or future database is shown through the same explicit recovery dialog.
@@ -103,7 +118,23 @@ fn needs_upgrade(path: &std::path::Path) -> bool {
 
 pub fn open(path: PathBuf, background: bool) -> Result<Database, String> {
     if !needs_upgrade(&path) {
-        return Database::open(path).map_err(|e| e.to_string());
+        match Database::open(&path) {
+            Ok(db) => return Ok(db),
+            Err(error) => {
+                let error = error.to_string();
+                if background {
+                    return Err(error);
+                }
+                #[cfg(windows)]
+                if !windows::recover(&error) {
+                    return Err(error);
+                }
+                #[cfg(target_os = "macos")]
+                if !macos::recover(&error) {
+                    return Err(error);
+                }
+            }
+        }
     }
     if background {
         // An autostart/tray launch must not start an invisible multi-minute

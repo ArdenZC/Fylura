@@ -379,13 +379,52 @@ fn covering_indexes_preserve_hostile_source_and_search_contracts() {
             )
             .unwrap();
     }
+    // Compare every source/status projection with COUNT(id) nullable semantics,
+    // disabled sources, all-disabled and empty volumes retained in the same DB.
+    for status in [
+        "discovered",
+        "indexing",
+        "syncing",
+        "rebuild_required",
+        "ready",
+        "spotlight_not_indexed",
+        "permission_required",
+        "spotlight_unavailable",
+        "spotlight_external_not_indexed",
+        "fsevents_unavailable",
+        "unavailable",
+        "error",
+        "paused",
+    ] {
+        conn.execute("UPDATE global_volumes SET index_status=?1, last_error='fixture error' WHERE id='gv_test'",[status]).unwrap();
+        for enabled in [0, 1] {
+            conn.execute("UPDATE global_volumes SET enabled=?1", [enabled])
+                .unwrap();
+            install(&conn, 0);
+            let original = db
+                .search_global_entries_snapshot("zzznomatchtoken", 80, 0)
+                .unwrap();
+            let original_facts =
+                load_global_search_source_health_candidate(&conn, Candidate::NarrowAggregate)
+                    .unwrap();
+            for v in 1..4 {
+                install(&conn, v);
+                assert_snapshot(
+                    &original,
+                    &db.search_global_entries_snapshot("zzznomatchtoken", 80, 0)
+                        .unwrap(),
+                );
+                assert_eq!(
+                    load_global_search_source_health_candidate(&conn, Candidate::NarrowAggregate)
+                        .unwrap(),
+                    original_facts
+                );
+            }
+        }
+    }
 }
 
-pub(super) fn rollback_insert_samples(
-    conn: &Connection,
-    samples: usize,
-    rows_per_sample: u64,
-) -> Vec<f64> {
+fn write_samples(conn: &Connection, entries: u64) -> Vec<f64> {
     let rows = (0..256)
         .map(|offset| super::generated_entry(entries + 10_000 + offset))
         .collect::<Vec<_>>();

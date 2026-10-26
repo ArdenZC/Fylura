@@ -938,7 +938,7 @@ fn schema41_and_schema42_build_verify_query_and_qualify_without_main_writes() {
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            42
+            43
         );
         if version == 41 {
             crate::db::schema_global_generations::drop_for_test(&conn);

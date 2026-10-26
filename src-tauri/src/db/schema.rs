@@ -3901,7 +3901,7 @@ mod issue381_b4_p0_tests {
         holder.execute_batch("COMMIT").unwrap();
         a.resume.send(()).unwrap();
         let after_a = a.thread.join().unwrap().expect("first migration succeeds");
-        assert_eq!(after_a.version, 42);
+        assert_eq!(after_a.version, 43);
         b.resume.send(()).unwrap();
         let after_b = b
             .thread
@@ -3951,7 +3951,7 @@ mod issue381_b4_p0_tests {
         for (label, mutation, expected_error) in [
             (
                 "issue441-future",
-                "PRAGMA user_version=43",
+                "PRAGMA user_version=44",
                 "newer than this app supports",
             ),
             (

@@ -226,8 +226,7 @@ impl FileWorkspaceRuntime {
                 .collect::<Vec<_>>()
         };
         let directory = PathBuf::from(&request.destination_directory);
-        let destination =
-            VerifiedDirectory::open_existing(&directory).map_err(|e| e.to_string())?;
+        VerifiedDirectory::open_existing(&directory).map_err(|e| e.to_string())?;
         let directory = directory.canonicalize().map_err(|e| e.to_string())?;
         ensure_general_file_operation_allowed(&directory)?;
         let mut operations = Vec::new();

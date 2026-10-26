@@ -2479,6 +2479,33 @@ fn escape_like_pattern(value: &str) -> String {
     result
 }
 
+impl Database {
+    pub(crate) fn manual_transfer_selection_ids(
+        &self,
+        selection: &LibrarySelectionV1,
+    ) -> Result<Vec<String>, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let revision = current_library_revision(&tx)?;
+        let (predicate, values, missing, _, _) = selection_where(&tx, selection, revision)?;
+        if missing > 0 || selection_stale_count(&tx, selection)? > 0 {
+            return Err(DbError::Validation("transfer_source_unavailable".into()));
+        }
+        let mut stmt = tx.prepare(&format!(
+            "SELECT f.id FROM files AS f WHERE {predicate} ORDER BY f.id LIMIT 1001"
+        ))?;
+        let ids = stmt
+            .query_map(rusqlite::params_from_iter(values), |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        if ids.len() > 1000 {
+            return Err(DbError::Validation("transfer_selection_limit_1000".into()));
+        }
+        Ok(ids)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3389,32 +3416,5 @@ mod tests {
             },
             sort: FileLibrarySortV2::default(),
         }
-    }
-}
-
-impl Database {
-    pub(crate) fn manual_transfer_selection_ids(
-        &self,
-        selection: &LibrarySelectionV1,
-    ) -> Result<Vec<String>, DbError> {
-        let mut conn = self.conn()?;
-        let tx = conn.transaction()?;
-        let revision = current_library_revision(&tx)?;
-        let (predicate, values, missing, _, _) = selection_where(&tx, selection, revision)?;
-        if missing > 0 || selection_stale_count(&tx, selection)? > 0 {
-            return Err(DbError::Validation("transfer_source_unavailable".into()));
-        }
-        let mut stmt = tx.prepare(&format!(
-            "SELECT f.id FROM files AS f WHERE {predicate} ORDER BY f.id LIMIT 1001"
-        ))?;
-        let ids = stmt
-            .query_map(rusqlite::params_from_iter(values), |row| {
-                row.get::<_, String>(0)
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        if ids.len() > 1000 {
-            return Err(DbError::Validation("transfer_selection_limit_1000".into()));
-        }
-        Ok(ids)
     }
 }

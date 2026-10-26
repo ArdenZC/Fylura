@@ -746,6 +746,7 @@ pub(crate) fn atomic_copy_noreplace_with_claim_path_and_observer_with_actual_pat
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn atomic_copy_with_verified_destination(
     source: &Path,
     target: &Path,
@@ -1279,6 +1280,7 @@ fn replacement_namespace_path(path: &Path) -> std::path::PathBuf {
     path.to_path_buf()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn atomic_copy_noreplace_uncoordinated(
     source: &Path,
     target: &Path,

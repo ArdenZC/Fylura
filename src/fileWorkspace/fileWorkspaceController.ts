@@ -169,9 +169,9 @@ export class FileWorkspaceController {
   async openBrowse(request: BrowseOpenRequest, accept: () => boolean | Promise<boolean> = () => true): Promise<BrowseOpenResponse | null> {
     const searchAdmission = request.globalEntryId !== undefined;
     if ((this.suspendedValue && !searchAdmission) || this.session.disposed) return null;
-    if (searchAdmission && this.suspensionPromise) await this.suspensionPromise;
-    if (this.session.disposed || (searchAdmission && !(await accept()))) return null;
     const token = this.session.beginRequest();
+    if (searchAdmission && this.suspensionPromise) await this.suspensionPromise;
+    if ((searchAdmission && !(await accept())) || !this.session.canPublish(token)) return null;
     const response = await this.api.browseOpen(request);
     let accepted: boolean;
     try {

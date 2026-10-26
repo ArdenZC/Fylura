@@ -994,6 +994,18 @@ describe("Global Search parent Browse admission", () => {
     expect(controller.getState().session.currentTarget?.kind).toBe("browse");
     await controller.dispose();
   });
+  it("does not overtake navigation while the pre-admission guard is pending", async () => {
+    const guard = deferred<boolean>();
+    const open = vi.fn(fakeApi().browseOpen);
+    const controller = new FileWorkspaceController(fakeApi({ browseOpen: open }));
+    const pending = controller.openBrowse(intent, () => guard.promise);
+    controller.navigate({ kind: "library", source: "custom", key: "newer-navigation" });
+    guard.resolve(true);
+    expect(await pending).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    expect(controller.getState().session.currentTarget).toMatchObject({ key: "newer-navigation" });
+    await controller.dispose();
+  });
   it("keeps the complete current workspace unchanged on source/admission rejection", async () => {
     const controller = new FileWorkspaceController(fakeApi({ browseOpen: async () => { throw new Error("browse_directory_permission_denied"); } }));
     controller.navigate({ kind: "library", source: "custom", key: "existing" });

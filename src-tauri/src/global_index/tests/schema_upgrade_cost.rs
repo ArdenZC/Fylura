@@ -138,6 +138,7 @@ fn schema_upgrade_production_shape_cost() {
         for short in [false, true] {
             let path = test_db_path();
             let _cleanup = BenchmarkCleanup(path.clone());
+            let preparation_started = Instant::now();
             fs::copy(&base_path, &path).unwrap();
             let conn = configured_connection(&path).unwrap();
             if count < entries {
@@ -169,8 +170,16 @@ fn schema_upgrade_production_shape_cost() {
                 }
                 conn.execute_batch("COMMIT").unwrap();
             }
+            // The single 1M contrast controls fragmentation as well as key
+            // shape. Initial 100k/200k observations retain post-reshape free
+            // pages and are explicitly labelled in the evidence report.
+            let compacted = entries == 1_000_000;
+            if compacted {
+                conn.execute_batch("VACUUM").unwrap();
+            }
             conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
                 .unwrap();
+            let preparation_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
             let resources = crate::db::upgrade::inspect_resources(&conn).unwrap();
             let indexes_before: Vec<(String, i64)> = conn
                 .prepare("SELECT name,SUM(pgsize) FROM dbstat GROUP BY name ORDER BY name")
@@ -195,7 +204,11 @@ fn schema_upgrade_production_shape_cost() {
                 let mut min_db_free = u64::MAX;
                 let mut min_temp_free = u64::MAX;
                 while !monitor_done.load(Ordering::Acquire) {
-                    system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+                    system.refresh_processes_specifics(
+                        sysinfo::ProcessesToUpdate::Some(&[pid]),
+                        true,
+                        sysinfo::ProcessRefreshKind::new().with_memory(),
+                    );
                     peak_rss = peak_rss.max(system.process(pid).map_or(0, |p| p.memory()));
                     for (peak, size) in peak_files.iter_mut().zip(sizes(&monitor_path)) {
                         *peak = (*peak).max(size);
@@ -241,7 +254,7 @@ fn schema_upgrade_production_shape_cost() {
                 .unwrap();
             let plan:Vec<String>=conn.prepare("EXPLAIN QUERY PLAN SELECT id,volume_id FROM global_entries INDEXED BY idx_global_entries_active_name_order WHERE is_stale=0 AND name_normalized GLOB 'quarterly*' ORDER BY name_normalized,modified_at_fs DESC,id LIMIT 80").unwrap().query_map([],|r|r.get(3)).unwrap().collect::<Result<_,_>>().unwrap();
             emit_record(
-                &json!({"record_type":"upgrade_sample","rows":count,"short_ids":short,"open_ms":elapsed_ms,"preflight":{"key_bytes":resources.key_bytes,"page_size":resources.page_size,"page_count":resources.page_count,"freelist_pages":resources.freelist_pages,"db_reserved":resources.database_required_bytes,"temp_reserved":resources.temporary_required_bytes,"db_free":resources.database_free_bytes,"temp_free":resources.temporary_free_bytes},"files_before":before,"files_after":sizes(&path),"sampled_peak_files":peak_files,"sampled_process_rss":peak_rss,"samples_20ms":samples,"minimum_database_free_bytes":min_db_free,"minimum_temp_free_bytes":min_temp_free,"memory_scope":"sampled process-wide current RSS; includes fixture/cache memory; not an OS peak or migration-attributed bound","indexes_before":indexes_before,"indexes_after":indexes_after,"name_plan":plan}),
+                &json!({"record_type":"upgrade_sample","rows":count,"short_ids":short,"open_ms":elapsed_ms,"preflight":{"available_memory_bytes":resources.available_memory_bytes,"key_bytes":resources.key_bytes,"page_size":resources.page_size,"page_count":resources.page_count,"freelist_pages":resources.freelist_pages,"db_reserved":resources.database_required_bytes,"temp_reserved":resources.temporary_required_bytes,"db_free":resources.database_free_bytes,"temp_free":resources.temporary_free_bytes},"files_before":before,"files_after":sizes(&path),"sampled_peak_files":peak_files,"sampled_process_rss":peak_rss,"samples":samples,"poll_sleep_ms":20,"controlled_copy_compacted":compacted,"copy_reshape_checkpoint_ms":preparation_ms,"minimum_database_free_bytes":min_db_free,"minimum_temp_free_bytes":min_temp_free,"memory_scope":"sampled process-wide current RSS; includes fixture/cache memory; not an OS peak or migration-attributed bound","indexes_before":indexes_before,"indexes_after":indexes_after,"name_plan":plan}),
             );
             drop(conn);
             drop(db);

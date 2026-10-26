@@ -978,3 +978,57 @@ describe("File Workspace browser mock", () => {
     await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: other.sessionId } });
   });
 });
+
+describe("Global Search parent Browse admission", () => {
+  const intent = { platform: "windows" as const, routingHint: "", globalEntryId: "global-index-id" };
+  it("admits from a suspended workspace without turning a global ID into managed selection or a restore path", async () => {
+    const api = fakeApi();
+    const admitted = await api.browseOpen(intent);
+    const initialPage: BrowsePage = { sessionId: admitted.sessionId, requestId: "search", enumerationId: "fresh", entries: [], completion: "complete" };
+    const open = vi.fn(async () => ({ ...admitted, initialPage }));
+    const controller = new FileWorkspaceController(fakeApi({ browseOpen: open }));
+    await controller.suspend();
+    expect(await controller.openBrowse(intent)).toMatchObject({ sessionId: "session" });
+    expect(open).toHaveBeenCalledWith(intent);
+    expect(controller.getState()).toMatchObject({ suspended: false, page: initialPage });
+    expect(controller.getState().session.currentTarget?.kind).toBe("browse");
+    await controller.dispose();
+  });
+  it("does not overtake navigation while the pre-admission guard is pending", async () => {
+    const guard = deferred<boolean>();
+    const open = vi.fn(fakeApi().browseOpen);
+    const controller = new FileWorkspaceController(fakeApi({ browseOpen: open }));
+    const pending = controller.openBrowse(intent, () => guard.promise);
+    controller.navigate({ kind: "library", source: "custom", key: "newer-navigation" });
+    guard.resolve(true);
+    expect(await pending).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    expect(controller.getState().session.currentTarget).toMatchObject({ key: "newer-navigation" });
+    await controller.dispose();
+  });
+  it("keeps the complete current workspace unchanged on source/admission rejection", async () => {
+    const controller = new FileWorkspaceController(fakeApi({ browseOpen: async () => { throw new Error("browse_directory_permission_denied"); } }));
+    controller.navigate({ kind: "library", source: "custom", key: "existing" });
+    await controller.suspend();
+    const before = controller.getState();
+    await expect(controller.openBrowse(intent)).rejects.toThrow("browse_directory_permission_denied");
+    expect(controller.getState()).toEqual(before);
+    await controller.dispose();
+  });
+  it.each(["expired", "query-changed"])("disposes a delayed %s admission without publishing", async () => {
+    const admission = deferred<Awaited<ReturnType<FileWorkspaceApi["browseOpen"]>>>();
+    const dispose = vi.fn(async () => undefined);
+    const controller = new FileWorkspaceController(fakeApi({ browseOpen: () => admission.promise, browseDispose: dispose }));
+    controller.navigate({ kind: "library", source: "custom", key: "existing" });
+    let accepted = true;
+    const pending = controller.openBrowse(intent, () => accepted);
+    await Promise.resolve();
+    const before = controller.getState();
+    accepted = false;
+    admission.resolve(await fakeApi().browseOpen(intent));
+    expect(await pending).toBeNull();
+    expect(controller.getState()).toEqual(before);
+    expect(dispose).toHaveBeenCalledWith({ sessionId: "session" });
+    await controller.dispose();
+  });
+});

@@ -20,7 +20,8 @@ export const searchRuntimeApi = {
     view: View,
     fileId: string | null,
     snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">,
-    settingsTarget?: SearchSettingsTarget | null
+    settingsTarget?: SearchSettingsTarget | null,
+    globalEntryId?: string
   ): Promise<void> {
     return invokeCommand<void>("activate_search_result", {
       request: {
@@ -28,7 +29,8 @@ export const searchRuntimeApi = {
         expectedRevision: snapshot?.revision ?? null,
         view,
         fileId,
-        settingsTarget: settingsTarget ?? null
+        settingsTarget: settingsTarget ?? null,
+        ...(globalEntryId === undefined ? {} : { globalEntryId })
       }
     });
   },

@@ -92,6 +92,7 @@ fn open_sources(
 ) -> (String, PreviewSourceRef, PreviewSourceRef, PreviewSourceRef) {
     let opened = runtime
         .open_browse(BrowseOpenRequest {
+            global_entry_id: None,
             platform: platform(),
             routing_hint: fixture.root.to_string_lossy().into_owned(),
             display_hint: Some("W4-01 native fixture".to_string()),

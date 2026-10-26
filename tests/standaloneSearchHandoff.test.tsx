@@ -43,9 +43,10 @@ const activateFile = (id: string) => { projectAcceptedFileLibraryActivation(id, 
   loadDetail: useFileLibraryInspectorStore.getState().loadDetail
 }); };
 const reportError = vi.fn();
+const openGlobalEntry = vi.fn(async (_id: string, accept: () => boolean | Promise<boolean>) => await accept());
 function Main() {
   const view = useAppStore((state) => state.view);
-  useSearchNavigationHandoff(false, useAppStore.getState().setView, activateFile, reportError);
+  useSearchNavigationHandoff(false, useAppStore.getState().setView, activateFile, reportError, openGlobalEntry);
   return <main data-view={view}>{view === "automation" ? <AutomationWorkspace /> : <div>{view}</div>}</main>;
 }
 
@@ -72,7 +73,7 @@ describe("standalone Search to mounted Main commit handoff", () => {
     searchVisible = true; nonce = 0; observedAck = undefined;
     readyAck = deferred<void>(); navigationAck = deferred<SearchNavigationAcknowledgement>(); releaseCommit = deferred<void>();
     afterReady = () => undefined;
-    reportError.mockReset(); transport.listeners.clear(); transport.invoke.mockReset();
+    reportError.mockReset(); openGlobalEntry.mockClear(); transport.listeners.clear(); transport.invoke.mockReset();
     useAppStore.setState({ view: "scanner", automationSurface: "advanced-policies" });
     useFileLibraryStore.setState({ selectedFileId: "old" });
     useFileLibrarySelectionStore.getState().setExplicit(["old"], "old");
@@ -108,7 +109,7 @@ describe("standalone Search to mounted Main commit handoff", () => {
         transport.listeners.get("search-main-ready-request")! (binding);
         await readyAck.promise;
         afterReady();
-        transport.listeners.get("search-navigate")! ({ ...binding, view: request.view, fileId: request.fileId, settingsTarget: request.settingsTarget });
+        transport.listeners.get("search-navigate")! ({ ...binding, view: request.view, fileId: request.fileId, settingsTarget: request.settingsTarget, globalEntryId: request.globalEntryId, expiresAt: Date.now() + 3000 });
         const ack = await navigationAck.promise;
         if (!ack.applied) throw new Error("search_navigation_rejected");
         searchVisible = false;
@@ -122,6 +123,40 @@ describe("standalone Search to mounted Main commit handoff", () => {
     await act(async () => { root.render(<Main />); });
   });
   afterEach(() => { act(() => root.unmount()); vi.restoreAllMocks(); });
+
+  it("routes a global result by ID and ACKs only after Browse admission", async () => {
+    let resolve!: (value: boolean) => void;
+    openGlobalEntry.mockImplementationOnce(async (_id, accept) => {
+      await new Promise<boolean>((r) => { resolve = r; });
+      return await accept();
+    });
+    let activation!: Promise<void>;
+    await act(async () => { activation = searchRuntimeApi.activateSearchResult("library", null, snapshot, null, "global-id"); await Promise.resolve(); });
+    expect(openGlobalEntry).toHaveBeenCalledWith("global-id", expect.any(Function));
+    expect(observedAck).toBeUndefined();
+    expect(searchVisible).toBe(true);
+    await act(async () => { resolve(true); await Promise.resolve(); });
+    expect(observedAck?.applied).toBe(true);
+    expect(useAppStore.getState().view).toBe("library");
+    expect(useFileLibraryStore.getState().selectedFileId).toBe("old");
+    releaseCommit.resolve(); await activation;
+    expect(searchVisible).toBe(false);
+  });
+
+  it("rejects a delayed global admission after newer Main navigation", async () => {
+    let resolve!: () => void;
+    openGlobalEntry.mockImplementationOnce(async (_id, accept) => {
+      await new Promise<void>((r) => { resolve = r; });
+      return await accept();
+    });
+    let activation!: Promise<void>;
+    await act(async () => { activation = searchRuntimeApi.activateSearchResult("library", null, snapshot, null, "global-id"); await Promise.resolve(); });
+    await act(async () => { useAppStore.getState().setView("settings"); resolve(); await Promise.resolve(); });
+    expect(observedAck?.applied).toBe(false);
+    releaseCommit.resolve(); await expect(activation).rejects.toThrow("search_navigation_rejected");
+    expect(searchVisible).toBe(true);
+    expect(useAppStore.getState().view).toBe("settings");
+  });
 
   it("commits Overview to Automation Intents despite unrelated selection churn, then closes Search", async () => {
     afterReady = () => {

@@ -24,6 +24,8 @@ pub struct BrowseOpenRequest {
     pub routing_hint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_entry_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -32,6 +34,10 @@ pub struct BrowseOpenResponse {
     pub session_id: String,
     pub location: LocationDescriptor,
     pub root_path_ref: BrowsePathRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_page: Option<BrowsePageDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_entry_ref: Option<BrowseEntryRef>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

@@ -40,7 +40,7 @@
 | `reveal_file_library_entry` | `read_only` | main | Reveal a durable file ID after backend path resolution | default | no | File Library V2 reveal tests |
 | `request_macos_thumbnail` | `read_only` | main | Request a bounded, managed-file Quick Look thumbnail through the macOS safety adapter | default | yes | macOS thumbnail safety tests |
 | `cancel_macos_thumbnail` | `read_only` | main | Cancel one bounded Quick Look thumbnail request by its in-memory request ID | default | yes | macOS thumbnail cancellation tests |
-| `file_workspace_browse_open` | `main_state_mutation` | main | Admit one user-intent Browse location into fresh opaque session refs | default | yes | W1-10 integration tests |
+| `file_workspace_browse_open` | `main_state_mutation` | main | Admit one user-intent Browse location, or a backend-revalidated Global Index result parent, into fresh opaque session refs | default | yes | W1-10 integration tests |
 | `file_workspace_browse_restore` | `main_state_mutation` | main | Re-resolve a non-authoritative Browse restore locator into fresh opaque refs | default | yes | W1-10 integration tests |
 | `file_workspace_location_browse` | `main_state_mutation` | main | Re-admit one backend-owned LocationRef into a fresh Browse session without renderer path authority | default | yes | W2-R3 integration tests |
 | `file_workspace_browse_start_enumeration` | `main_state_mutation` | main | Start one bounded ephemeral Browse enumeration by opaque path ref | default | yes | W1-10 integration tests |
@@ -223,3 +223,18 @@ The search capability intentionally contains no settings save, credential, rule 
 `activate_search_result` accepts `sessionId`, `expectedRevision`, `view`, `fileId`, and an optional `settingsTarget`. The target is a Rust-deserialized fixed enum (`search-scope`, `global-index`, `appearance`, or `ai`); arbitrary DOM selectors, paths, command IDs, and native commands are rejected. The emitted `search-main-ready-request` and `search-navigate` payloads carry the nonce plus the optional session/revision context and the same fixed target. Both event payloads bind Main generation as well as nonce and Search session/revision. Main requires the current view to match its readiness snapshot. For non-null `fileId`, selected ID, Library selection identity and focused ID must also match; file-less commands ignore unrelated selection projection churn. An illegal fixed target, view/file combination or stale binding fails closed. Main sends `acknowledge_search_navigation` only with the armed fixed binding and an explicit applied/rejected outcome; a positive outcome follows synchronous navigation/selection mutation and mounted React commit. Rust revalidates the original Search session/revision/visible phase after readiness ACK before navigation emission, then waits at most three seconds for the commit ACK and revalidates before scoped hide using the original session/revision. Rejection, timeout, stale Main or changed Search returns an error without hiding Search. Search receives no new permission; the ACK has no Rule, filesystem or navigation-target authority.
 
 The browser mock validates the same target field but performs no native window or navigation mutation. Search-window resize/show/hide native side effects are serialized by one Rust lifecycle operation owner, and a native failure restores the prior durable phase for retry.
+
+### U1-S1 Global Search parent handoff
+
+`activate_search_result` accepts an optional `globalEntryId` only with the
+Library route and no managed `fileId` or Settings target. The existing
+session/revision/generation/nonce handshake and three-second commit ACK remain
+in force; Search has no Browse permission. Main resolves the ID through
+`file_workspace_browse_open` with optional `globalEntryId`; renderer routing and
+display hints are ignored for this intent. The backend reuses Global Index
+open/reveal revalidation and BrowseService admission/enumeration. Only fresh
+opaque refs and an optional matching native-object focus ref are returned.
+Main checks the original visible Search revision and expiry before publication;
+rejected or timed-out admission disposes the candidate session. No scan, index,
+managed identity or mutation authority is granted. Standalone query edits pause
+while this bounded handoff is pending; Escape still cancels the Search session.

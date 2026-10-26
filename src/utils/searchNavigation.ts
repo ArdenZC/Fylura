@@ -29,6 +29,8 @@ export interface SearchNavigatePayload {
   sessionId?: unknown;
   revision?: unknown;
   settingsTarget?: unknown;
+  globalEntryId?: unknown;
+  expiresAt?: unknown;
 }
 
 export interface PendingSearchNavigation {
@@ -79,6 +81,12 @@ function isValidSearchNavigatePayload(payload: SearchNavigatePayload) {
   if (payload.settingsTarget !== undefined
     && payload.settingsTarget !== null
     && !isSearchSettingsTarget(payload.settingsTarget)) return false;
+  if (payload.globalEntryId != null) {
+    return view === "library" && payload.fileId == null && payload.settingsTarget == null
+      && typeof payload.globalEntryId === "string" && payload.globalEntryId.length > 0
+      && payload.globalEntryId.length <= 256 && typeof payload.expiresAt === "number"
+      && Number.isSafeInteger(payload.expiresAt) && Date.now() + 100 < payload.expiresAt;
+  }
   return payload.settingsTarget == null
     ? true
     : view === "settings" && payload.fileId == null;
@@ -109,7 +117,7 @@ export function shouldApplySearchNavigation(
     && matchesSearchNavigationBinding(payload, pending)
     && isValidSearchNavigatePayload(payload)
     && current.view === pending.view
-    && (payload.fileId == null || (
+    && ((payload.fileId == null && payload.globalEntryId == null) || (
       current.selectedFileId === pending.selectedFileId
       && current.librarySelection === pending.librarySelection
       && current.libraryFocusedId === pending.libraryFocusedId
@@ -124,7 +132,7 @@ export function applySearchNavigation(
   requestSettingsSection?: (sectionId: string) => void,
   activateFileLibraryFile?: (id: string) => void
 ) {
-  if (!isValidSearchNavigatePayload(payload)) return false;
+  if (!isValidSearchNavigatePayload(payload) || payload.globalEntryId != null) return false;
   const view = normalizeViewInput(payload.view);
   if (!view) return false;
   setView(view);

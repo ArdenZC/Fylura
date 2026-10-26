@@ -155,6 +155,7 @@ export function CommandModal({
   setView,
   setSelectedFileId,
   activateFileLibraryFile,
+  openGlobalEntry,
   onClose,
   platform,
   t,
@@ -167,6 +168,7 @@ export function CommandModal({
   setView: (view: View) => void;
   setSelectedFileId: (id: string) => void;
   activateFileLibraryFile?: (id: string) => void;
+  openGlobalEntry?: (id: string, accept: () => boolean | Promise<boolean>) => Promise<boolean>;
   onClose: () => void;
   platform: NodeJS.Platform | "browser";
   t: Translator;
@@ -192,6 +194,12 @@ export function CommandModal({
   const [inputFocused, setInputFocused] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const isComposingRef = useRef(false);
+  const queryIntentRef = useRef(search);
+  queryIntentRef.current = search;
+  const libraryActionRef = useRef(0);
+  const [libraryActionPending, setLibraryActionPending] = useState(false);
+  const libraryActionButtonRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => () => { libraryActionRef.current += 1; }, []);
   const standaloneActivationRef = useRef({ pending: 0, epoch: 0 });
   const trackStandaloneActivation = useCallback((pending: boolean) => {
     if (pending) {
@@ -435,6 +443,7 @@ export function CommandModal({
   }, [activeIndex, activeResultId, showResults]);
 
   async function chooseGlobalEntry(entry: GlobalSearchResult) {
+    if (libraryActionPending) return;
     try {
       await tauriApi.openGlobalSearchResult(entry.id);
       closeSpotlight();
@@ -442,6 +451,35 @@ export function CommandModal({
       const message = readableError(error);
       setCommandError(message);
       onError?.(message);
+    }
+  }
+
+  async function showInFileLibrary(entry: GlobalSearchResult) {
+    if (isComposingRef.current || libraryActionPending) return;
+    const action = ++libraryActionRef.current;
+    const query = queryIntentRef.current;
+    const accept = () => libraryActionRef.current === action && queryIntentRef.current === query;
+    setLibraryActionPending(true);
+    trackStandaloneActivation(true);
+    setCommandError("");
+    try {
+      if (standalone) {
+        await tauriApi.activateSearchResult("library", null, searchWindowSnapshot ?? undefined, null, entry.id);
+      } else if (await openGlobalEntry?.(entry.id, accept)) {
+        setView("library");
+        closeSpotlight();
+      } else if (accept()) {
+        throw new Error("search_navigation_rejected");
+      }
+    } catch (error) {
+      if (accept()) {
+        const message = `${t("globalSearchLibraryFailed")} ${readableError(error)}`;
+        setCommandError(message);
+        onError?.(message);
+      }
+    } finally {
+      trackStandaloneActivation(false);
+      if (libraryActionRef.current === action) setLibraryActionPending(false);
     }
   }
 
@@ -466,6 +504,7 @@ export function CommandModal({
   }
 
   function clearSearch() {
+    if (standalone && libraryActionPending) return;
     setSearch("");
     setCommittedSearch("");
     setActiveIndex(0);
@@ -503,6 +542,7 @@ export function CommandModal({
   }
 
   function chooseResult(result: SpotlightResult) {
+    if (libraryActionPending) return;
     if (result.kind === "global") void chooseGlobalEntry(result.entry);
     else void chooseCommand(result);
   }
@@ -601,6 +641,7 @@ export function CommandModal({
             event.preventDefault();
             setActiveIndex((index) => Math.max(index - 1, 0));
           }
+          if (libraryActionPending) return;
           const activeResult = visibleResults[activeIndex];
           if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && activeResult?.kind === "global") {
             event.preventDefault();
@@ -640,6 +681,8 @@ export function CommandModal({
             aria-controls="command-results"
             aria-activedescendant={activeResultId}
             value={search}
+            readOnly={standalone && libraryActionPending}
+            aria-busy={libraryActionPending}
             placeholder={t("commandPlaceholder")}
             onChange={(event) => {
               const value = event.target.value;
@@ -676,6 +719,7 @@ export function CommandModal({
             <IconButton
               className="h-8 w-8 rounded-lg border-transparent bg-transparent text-[var(--zc-text-secondary)] shadow-none hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]"
               onClick={clearSearch}
+              disabled={standalone && libraryActionPending}
               aria-label={t("commandClearSearch")}
               title={t("commandClearSearch")}
             >
@@ -684,16 +728,20 @@ export function CommandModal({
           )}
           <kbd className={cn(keyBadge, "hidden sm:inline-flex")}>ESC</kbd>
         </div>
+        {commandError && queryState !== "failed" && (
+          <div className="px-4 py-2 text-sm text-[var(--zc-text-primary)]" role="alert">{commandError}</div>
+        )}
         {showGlobalIndexMeta && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--zc-divider)] px-4 py-2 text-[11px] leading-tight text-[var(--zc-text-secondary)]">
             <span className="min-w-0 truncate">{globalSearchIndexMeta}</span>
             {trimmedSearch ? <button
               className={cn("shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)] disabled:opacity-50", focusVisibleState)}
-              disabled={isComposing || queryState === "pending"}
+              disabled={isComposing || queryState === "pending" || libraryActionPending}
               onClick={() => setRevisionRefetchNonce((value) => value + 1)}
             >{t("globalSearchRefreshResults")}</button> : null}
             <button
               className={cn("shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)]", focusVisibleState)}
+              disabled={libraryActionPending}
               onClick={openGlobalIndexSettings}
               aria-label={t("globalSearchManage")}
             >
@@ -716,7 +764,21 @@ export function CommandModal({
                 t={t}
                 onChoose={chooseResult}
                 onActivate={setActiveIndex}
+                onContextAction={(index) => {
+                  setActiveIndex(index);
+                  requestAnimationFrame(() => libraryActionButtonRef.current?.focus());
+                }}
               />
+              {visibleResults[activeIndex]?.kind === "global" && (
+                <button ref={libraryActionButtonRef} type="button"
+                  className={cn("mt-2 rounded-md px-3 py-2 text-xs text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)] disabled:opacity-50", focusVisibleState)}
+                  disabled={isComposing || libraryActionPending}
+                  onClick={() => {
+                    const result = visibleResults[activeIndex];
+                    if (result?.kind === "global") void showInFileLibrary(result.entry);
+                  }}
+                ><Folder size={14} className="mr-1 inline" aria-hidden="true" />{t("globalSearchShowInLibrary")}</button>
+              )}
             </div>
             <div className={commandFooter}>
               <span>{formatCount(t, visibleResults.length, { zero: "matchesFoundZero", one: "matchesFoundOne", other: "matchesFoundOther" })}</span>
@@ -767,7 +829,8 @@ function SpotlightResultGroups({
   highlight,
   t,
   onChoose,
-  onActivate
+  onActivate,
+  onContextAction
 }: {
   groups: ReturnType<typeof groupSpotlightResults>;
   results: SpotlightResult[];
@@ -776,6 +839,7 @@ function SpotlightResultGroups({
   t: Translator;
   onChoose: (result: SpotlightResult) => void;
   onActivate: (index: number) => void;
+  onContextAction: (index: number) => void;
 }) {
   return (
     <div id="command-results" role="listbox" className="grid gap-2">
@@ -819,6 +883,12 @@ function SpotlightResultGroups({
                   role="option"
                   aria-selected={active}
                   data-result-kind="global"
+                  onContextMenu={(event) => { event.preventDefault(); onContextAction(index); }}
+                  onKeyDown={(event) => {
+                    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                      event.preventDefault(); onContextAction(index);
+                    }
+                  }}
                   className={cn(commandResultItemBase, active ? commandResultItemActive : commandResultItemInactive)}
                   onMouseMove={() => onActivate(index)}
                   onClick={() => onChoose(result)}

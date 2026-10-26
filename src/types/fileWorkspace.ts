@@ -177,12 +177,17 @@ export interface BrowseOpenRequest {
   /** Admission/routing input only; never a live NavigationTarget authority. */
   routingHint: string;
   displayHint?: string;
+  /** ID-only search intent; backend ignores renderer routing/display hints. */
+  globalEntryId?: string;
 }
 
 export interface BrowseOpenResponse {
   sessionId: string;
   location: LocationDescriptor;
   rootPathRef: BrowsePathRef;
+  /** Bounded, freshly enumerated Browse authority from search admission. */
+  initialPage?: BrowsePage;
+  focusEntryRef?: BrowseEntryRef;
 }
 
 export interface BrowseRestoreRequest {

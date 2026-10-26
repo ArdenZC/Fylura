@@ -66,9 +66,9 @@ export class FileLibraryExperienceController {
     return changed;
   }
 
-  async openBrowse(request: BrowseOpenRequest): Promise<BrowseOpenResponse | null> {
+  async openBrowse(request: BrowseOpenRequest, accept?: () => boolean | Promise<boolean>): Promise<BrowseOpenResponse | null> {
     if (this.disposedValue) return null;
-    const response = await this.workspace.openBrowse(request);
+    const response = await this.workspace.openBrowse(request, accept);
     if (response !== null) {
       this.modeValue = "browse";
       this.detachedBrowseValue = false;

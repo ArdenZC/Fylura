@@ -94,6 +94,7 @@ fn platform() -> WorkspacePlatform {
 fn open_root(runtime: &FileWorkspaceRuntime, fixture: &Fixture) -> (String, BrowsePageDto) {
     let opened = runtime
         .open_browse(BrowseOpenRequest {
+            global_entry_id: None,
             platform: platform(),
             routing_hint: fixture.root.to_string_lossy().into_owned(),
             display_hint: Some("W3-07 folder lifecycle".to_string()),

@@ -23,6 +23,9 @@ impl FileWorkspaceRuntime {
     ) -> Result<BrowseOpenResponse, String> {
         self.ensure_live()?;
         validate_platform(request.platform)?;
+        if let Some(entry_id) = &request.global_entry_id {
+            return self.open_global_search_parent(entry_id, request.platform);
+        }
         let routing_hint = validate_routing_hint(&request.routing_hint)?;
         let directory =
             BackendResolvedDirectory::from_backend_path(routing_hint).map_err(map_browse_error)?;
@@ -43,6 +46,81 @@ impl FileWorkspaceRuntime {
         )
     }
 
+    fn open_global_search_parent(
+        &self,
+        entry_id: &str,
+        platform: WorkspacePlatform,
+    ) -> Result<BrowseOpenResponse, String> {
+        use crate::file_workspace::browse::BrowseQuerySpecV1;
+        use crate::fs_safety::capture_source_object_identity;
+        use crate::global_index::commands::revalidated_global_entry;
+        let entry = revalidated_global_entry(&self.inner.database, entry_id)?;
+        let path = PathBuf::from(&entry.path);
+        let evidence = capture_source_object_identity(&path)
+            .map_err(|_| "global_search_result_identity_changed".to_string())?;
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .ok_or_else(|| "global_search_parent_unavailable".to_string())?;
+        let mut response = self.open_browse(BrowseOpenRequest {
+            platform,
+            routing_hint: parent.to_string_lossy().into_owned(),
+            display_hint: Some(
+                parent
+                    .file_name()
+                    .unwrap_or(parent.as_os_str())
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            global_entry_id: None,
+        })?;
+        let admitted = (|| {
+            // Probe directory readability before publishing any frontend state.
+            let page = self
+                .inner
+                .browse
+                .start_enumeration_with_query(
+                    &response.session_id,
+                    format!("search-handoff-{}", uuid::Uuid::new_v4()),
+                    &response.root_path_ref,
+                    32,
+                    BrowseQuerySpecV1::default(),
+                )
+                .map_err(map_browse_error)?;
+            let current = revalidated_global_entry(&self.inner.database, entry_id)?;
+            let actual = capture_source_object_identity(&path)
+                .map_err(|_| "global_search_result_identity_changed".to_string())?;
+            if current.path != entry.path
+                || current.platform_file_id != entry.platform_file_id
+                || actual.physical_key.is_none()
+                || actual != evidence
+            {
+                return Err("global_search_result_identity_changed".to_string());
+            }
+            // A path-only index identity cannot prove the indexed object is the
+            // same object. Parent-only navigation is intentional in that case.
+            if !entry.platform_file_id.starts_with("path:") {
+                response.focus_entry_ref = page.entries.iter().find_map(|candidate| {
+                    let resolved = self.inner.browse.resolve_entry(&candidate.entry_ref).ok()?;
+                    if resolved.path != path {
+                        return None;
+                    }
+                    let fresh = capture_source_object_identity(&resolved.path).ok()?;
+                    (fresh == evidence).then(|| candidate.entry_ref.clone())
+                });
+            }
+            response.initial_page = Some(BrowsePageDto::from_internal(page));
+            Ok(())
+        })();
+        if let Err(error) = admitted {
+            let _ = self.dispose_browse(BrowseSessionRequest {
+                session_id: response.session_id,
+            });
+            return Err(error);
+        }
+        Ok(response)
+    }
+
     pub(crate) fn restore_browse(
         &self,
         request: BrowseRestoreRequest,
@@ -54,6 +132,7 @@ impl FileWorkspaceRuntime {
                 routing_hint,
                 display_hint,
             } => self.open_browse(BrowseOpenRequest {
+                global_entry_id: None,
                 platform,
                 routing_hint,
                 display_hint,
@@ -256,6 +335,8 @@ impl FileWorkspaceRuntime {
         }
         let session_id = info.session_id.clone();
         let response = BrowseOpenResponse {
+            focus_entry_ref: None,
+            initial_page: None,
             session_id: session_id.clone(),
             location: descriptor,
             root_path_ref: info.root_path_ref.clone(),

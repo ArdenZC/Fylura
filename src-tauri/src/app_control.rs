@@ -66,6 +66,10 @@ pub struct SearchNavigatePayload {
     pub session_id: Option<u64>,
     pub revision: Option<u64>,
     pub settings_target: Option<SearchSettingsTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub global_entry_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -251,6 +255,7 @@ pub struct ActivateSearchResultRequest {
     pub view: SearchView,
     pub file_id: Option<String>,
     pub settings_target: Option<SearchSettingsTarget>,
+    pub global_entry_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -313,6 +318,8 @@ impl SearchNavigatePayload {
             session_id: None,
             revision: None,
             settings_target: None,
+            global_entry_id: None,
+            expires_at: None,
         }
     }
 
@@ -922,6 +929,15 @@ fn handoff_search_navigation(
             validate_active_search(&lifecycle.snapshot_locked()?, request)?;
         }
         readiness.begin_navigation(binding.clone())?;
+        if payload.global_entry_id.is_some() {
+            payload.expires_at = Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| "search_navigation_clock_unavailable".to_string())?
+                    .as_millis()
+                    .saturating_add(timeout.as_millis()) as u64,
+            );
+        }
         if let Err(error) = emit_navigation(&payload) {
             readiness.cancel_navigation(&binding);
             return Err(error);
@@ -1235,11 +1251,23 @@ pub async fn activate_search_result<R: Runtime>(
     } else {
         require_main_window(&window)?;
     }
-    let payload = SearchNavigatePayload::new(request.view, request.file_id).with_window_context(
-        request.session_id,
-        request.expected_revision,
-        request.settings_target,
-    );
+    if let Some(entry_id) = &request.global_entry_id {
+        if request.view != SearchView::Library
+            || request.file_id.is_some()
+            || request.settings_target.is_some()
+            || entry_id.trim().is_empty()
+            || entry_id.len() > 256
+        {
+            return Err("search_navigation_global_entry_invalid".to_string());
+        }
+    }
+    let mut payload = SearchNavigatePayload::new(request.view, request.file_id)
+        .with_window_context(
+            request.session_id,
+            request.expected_revision,
+            request.settings_target,
+        );
+    payload.global_entry_id = request.global_entry_id;
     // Renderer ACKs must be deliverable while this bounded handshake waits.
     tauri::async_runtime::spawn_blocking(move || {
         activate_search_result_payload(

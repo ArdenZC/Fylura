@@ -87,7 +87,7 @@ import type {
 } from "../types/domain";
 import type { View } from "../types/ui";
 import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
-import { isFileWorkspaceMockCommand, mockFileWorkspaceInvoke } from "./fileWorkspaceMockApi";
+import { isFileWorkspaceMockCommand, mockFileWorkspaceInvoke, mockSearchParent } from "./fileWorkspaceMockApi";
 import type {
   GlobalHotkeyStatus,
   ManagedScanRequest,
@@ -817,6 +817,14 @@ const mockContentPolicy = (rootId: string, enabled = false): ContentScopePolicy 
 
 export async function mockInvokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (isFileWorkspaceMockCommand(command)) {
+    if (command === "file_workspace_browse_open") {
+      const request = args?.request as { globalEntryId?: string } | undefined;
+      if (request?.globalEntryId !== undefined) {
+        const entry = mockGlobalEntries.find((item) => item.id === request.globalEntryId);
+        if (!entry) throw new Error("global_search_result_not_found");
+        return mockSearchParent(entry) as T;
+      }
+    }
     return mockFileWorkspaceInvoke<T>(command, args);
   }
   switch (command) {

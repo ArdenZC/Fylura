@@ -24,6 +24,7 @@ import type {
   ThumbnailRequest
 } from "../types/fileWorkspace";
 import { parsePreviewSnapshot } from "./fileWorkspacePreviewWire";
+import type { GlobalSearchResult } from "../types/domain";
 import type { FolderSummaryPayloadV1 } from "./folderPreviewWire";
 
 const FILE_WORKSPACE_COMMANDS = new Set([
@@ -2524,4 +2525,27 @@ function getPreview(previewId: string) {
 function id(prefix: string) {
   nextId += 1;
   return `mock-${prefix}-${nextId}`;
+}
+
+/** Browser fixture only: no native identity or filesystem acceptance claim. */
+export function mockSearchParent(entry: GlobalSearchResult): BrowseOpenResponse {
+  const parent = entry.path.replace(/[/\\][^/\\]+$/, "");
+  const response = newBrowseSession(parent, true);
+  const session = getSession(response.sessionId);
+  const enumerationId = `${response.sessionId}-search-enumeration`;
+  const ref = { kind: "ephemeral" as const, browseSessionId: response.sessionId, entryId: `${enumerationId}-target` };
+  const pathRef = entry.isDirectory ? { id: `${enumerationId}-directory` } : undefined;
+  const page: BrowsePage = {
+    sessionId: response.sessionId, requestId: "search-admission", enumerationId,
+    entries: [{ ref, pathRef, name: entry.name, displayPath: entry.path,
+      kind: entry.isDirectory ? "directory" : "file", materialization: "unknown" }],
+    completion: "complete", knownCount: 1
+  };
+  session.entries.set(ref.entryId, { enumerationId, ...(pathRef ? { pathRefId: pathRef.id } : {}) });
+  if (pathRef) session.pathRefs.add(pathRef.id);
+  session.enumeration = { requestId: page.requestId, enumerationId, generation: 1,
+    query: { text: null, entryKind: "all" }, pathRefId: response.rootPathRef.id, nextIndex: 1 };
+  response.initialPage = page;
+  // Existing browser index fixtures have only path identities, hence no selection.
+  return response;
 }

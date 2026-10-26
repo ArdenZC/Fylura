@@ -15,7 +15,8 @@ export function useSearchNavigationHandoff(
   isSearchMode: boolean,
   setView: (view: View) => void,
   activateFileLibraryFile: (id: string) => void,
-  showError: (error: string) => void
+  showError: (error: string) => void,
+  openGlobalEntry?: (id: string, accept: () => boolean | Promise<boolean>) => Promise<boolean>
 ) {
   useEffect(() => {
     if (isSearchMode) return;
@@ -30,31 +31,47 @@ export function useSearchNavigationHandoff(
     void (async () => {
       // Both listeners must exist before Rust can consider this Main ready.
       disposeNavigation = await tauriApi.onSearchNavigate((payload) => {
-        if (disposed || !pending || !matchesSearchNavigationBinding(payload, pending)) return;
-        const context = pending;
-        const currentLibrary = useFileLibraryStore.getState();
-        const currentSelection = useFileLibrarySelectionStore.getState();
-        let applied = false;
-        try {
-          if (shouldApplySearchNavigation(payload, context, {
-            view: useAppStore.getState().view,
-            selectedFileId: currentLibrary.selectedFileId,
-            librarySelection: currentSelection.selection,
-            libraryFocusedId: currentSelection.focusedId
-          })) {
-            // Zustand writes are synchronous; flushSync also commits the mounted
-            // Main surface before the positive ACK can permit native Search hide.
-            applied = flushSync(() => applySearchNavigation(payload, setView,
-              useFileLibraryStore.getState().setSelectedFileId,
-              requestSettingsSection,
-              activateFileLibraryFile));
-          }
-        } catch (error) { report(error); }
-        pending = null;
-        void tauriApi.acknowledgeSearchNavigation({
-          generation: context.generation, nonce: context.nonce,
-          sessionId: context.sessionId, revision: context.revision, applied
-        }).catch(report);
+        void (async () => {
+          if (disposed || !pending || !matchesSearchNavigationBinding(payload, pending)) return;
+          const context = pending;
+          const currentLibrary = useFileLibraryStore.getState();
+          const currentSelection = useFileLibrarySelectionStore.getState();
+          let applied = false;
+          try {
+            if (shouldApplySearchNavigation(payload, context, {
+              view: useAppStore.getState().view,
+              selectedFileId: currentLibrary.selectedFileId,
+              librarySelection: currentSelection.selection,
+              libraryFocusedId: currentSelection.focusedId
+            })) {
+              // Zustand writes are synchronous; flushSync also commits the mounted
+              // Main surface before the positive ACK can permit native Search hide.
+              if (typeof payload.globalEntryId === "string") {
+                const accept = async () => {
+                  const snapshot = payload.sessionId == null ? null : await tauriApi.getSearchWindowState();
+                  return (snapshot === null || (snapshot.sessionId === payload.sessionId
+                    && snapshot.revision === payload.revision && snapshot.phase.startsWith("visible_")))
+                    && !disposed && pending === context && shouldApplySearchNavigation(payload, context, {
+                      view: useAppStore.getState().view,
+                      selectedFileId: useFileLibraryStore.getState().selectedFileId,
+                      librarySelection: useFileLibrarySelectionStore.getState().selection,
+                      libraryFocusedId: useFileLibrarySelectionStore.getState().focusedId
+                    });
+                };
+                applied = await openGlobalEntry?.(payload.globalEntryId, accept) ?? false;
+                if (applied) flushSync(() => setView("library"));
+              } else applied = flushSync(() => applySearchNavigation(payload, setView,
+                useFileLibraryStore.getState().setSelectedFileId,
+                requestSettingsSection,
+                activateFileLibraryFile));
+            }
+          } catch (error) { report(error); }
+          if (pending === context) pending = null;
+          void tauriApi.acknowledgeSearchNavigation({
+            generation: context.generation, nonce: context.nonce,
+            sessionId: context.sessionId, revision: context.revision, applied
+          }).catch(report);
+        })().catch(report);
       });
       if (disposed) { disposeNavigation(); return; }
       disposeReadiness = await installMainReadinessListenerBeforeReady(
@@ -84,5 +101,5 @@ export function useSearchNavigationHandoff(
       disposeReadiness?.();
       void tauriApi.markMainWindowReady(false).catch(() => undefined);
     };
-  }, [activateFileLibraryFile, isSearchMode, setView, showError]);
+  }, [activateFileLibraryFile, isSearchMode, openGlobalEntry, setView, showError]);
 }

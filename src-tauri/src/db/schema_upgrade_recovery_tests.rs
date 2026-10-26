@@ -130,6 +130,8 @@ fn schema_upgrade_killed_child() {
         return;
     };
     let conn = Connection::open(&path).unwrap();
+    conn.execute_batch("PRAGMA cache_size=8; PRAGMA cache_spill=ON;")
+        .unwrap();
     with_migration_transaction(&conn, |conn| {
         migrate_global_search_covering_indexes(conn)?;
         std::fs::write(
@@ -170,9 +172,14 @@ fn schema_upgrade_process_death_recovers_on_restart() {
         std::thread::sleep(Duration::from_millis(20));
     }
     let reached = marker.exists();
+    let wal_bytes = std::fs::metadata(format!("{}-wal", path.display())).map_or(0, |m| m.len());
     child.kill().unwrap();
     child.wait().unwrap();
     assert!(reached, "child did not reach precommit checkpoint");
+    assert!(
+        wal_bytes > 32,
+        "child must spill uncommitted frames before termination"
+    );
     let conn = Connection::open(&path).unwrap();
     assert_original(&conn);
     migrate(&conn).unwrap();
@@ -192,6 +199,22 @@ fn schema_upgrade_resource_preflight_uses_real_vfs_and_keys() {
     assert!(resources.key_bytes > 3000 * 200);
     assert!(resources.temporary_directory.is_dir());
     assert_original(&conn);
+    drop(conn);
+    cleanup(&path);
+}
+
+#[test]
+fn schema_upgrade_readonly_failure_preserves_installed_schema() {
+    let path = path("readonly");
+    drop(historical_fixture(&path));
+    let conn =
+        Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    assert!(migrate(&conn).is_err());
+    assert!(conn.is_autocommit());
+    assert_original(&conn);
+    drop(conn);
+    let conn = Connection::open(&path).unwrap();
+    migrate(&conn).unwrap();
     drop(conn);
     cleanup(&path);
 }

@@ -146,6 +146,7 @@ pub(crate) fn storage_free_bytes(path: &Path) -> Result<u64, DbError> {
 }
 
 #[cfg(unix)]
+#[allow(clippy::unnecessary_cast)] // statvfs field widths differ between Unix targets.
 fn free_space(path: &Path) -> Result<(u64, u64), DbError> {
     use std::os::unix::{ffi::OsStrExt, fs::MetadataExt};
     let path_c = std::ffi::CString::new(path.as_os_str().as_bytes())

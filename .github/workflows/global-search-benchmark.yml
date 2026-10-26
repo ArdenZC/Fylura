@@ -452,7 +452,7 @@ jobs:
       ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ inputs.entries }}
       ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/source-facts-pair.jsonl
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.sha }}
-      ZC_FACTS_FTS_FRONTIER: "1"
+      ZC_FACTS_FTS_FRONTIER: "0"
     steps:
       - name: Checkout exact source head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

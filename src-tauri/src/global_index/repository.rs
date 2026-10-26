@@ -116,6 +116,49 @@ pub(crate) enum GlobalSearchSourceHealthQueryCandidate {
     GroupByVolumeId,
 }
 
+const UPSERT_GLOBAL_ENTRY_SQL: &str = r#"
+                INSERT INTO global_entries (
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, is_stale,
+                    source_provider, last_seen_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 0, ?17, ?18)
+                ON CONFLICT(id) DO UPDATE SET
+                    volume_id = excluded.volume_id,
+                    platform_file_id = excluded.platform_file_id,
+                    parent_platform_file_id = excluded.parent_platform_file_id,
+                    name = excluded.name,
+                    name_normalized = excluded.name_normalized,
+                    path = excluded.path,
+                    path_normalized = excluded.path_normalized,
+                    extension = excluded.extension,
+                    is_directory = excluded.is_directory,
+                    size = excluded.size,
+                    created_at_fs = excluded.created_at_fs,
+                    modified_at_fs = excluded.modified_at_fs,
+                    file_attributes = excluded.file_attributes,
+                    is_hidden = excluded.is_hidden,
+                    is_system = excluded.is_system,
+                    is_stale = 0,
+                    source_provider = excluded.source_provider,
+                    last_seen_at = excluded.last_seen_at
+                "#;
+
+fn execute_entry_upsert(
+    _transaction: &rusqlite::Transaction<'_>,
+    statement: &mut rusqlite::Statement<'_>,
+    values: &[&dyn rusqlite::ToSql],
+) -> Result<usize, DbError> {
+    #[cfg(test)]
+    if CANONICAL_FACTS_READ.with(std::cell::Cell::get) {
+        // Exact previous producer preparation strategy for the paired writer
+        // baseline; production reuses one compiled statement for the batch.
+        return Ok(_transaction.execute(UPSERT_GLOBAL_ENTRY_SQL, values)?);
+    }
+    Ok(statement.execute(values)?)
+}
+
 const PREPARED_SOURCE_HEALTH_SQL: &str = r#"
     SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
            COALESCE(f.active_ids, 0), f.max_last_seen_at, COALESCE(f.active_rows, 0), f.volume_id
@@ -862,37 +905,12 @@ impl Database {
         let scope_policies = load_enabled_scope_policies(&transaction)?;
         let mut count = 0;
         let mut has_eligible_pending_work = false;
+        let mut statement = transaction.prepare(UPSERT_GLOBAL_ENTRY_SQL)?;
         for entry in entries {
             let entry_id = entry.entry_id();
-            transaction.execute(
-                r#"
-                INSERT INTO global_entries (
-                    id, volume_id, platform_file_id, parent_platform_file_id,
-                    name, name_normalized, path, path_normalized, extension,
-                    is_directory, size, created_at_fs, modified_at_fs,
-                    file_attributes, is_hidden, is_system, is_stale,
-                    source_provider, last_seen_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 0, ?17, ?18)
-                ON CONFLICT(id) DO UPDATE SET
-                    volume_id = excluded.volume_id,
-                    platform_file_id = excluded.platform_file_id,
-                    parent_platform_file_id = excluded.parent_platform_file_id,
-                    name = excluded.name,
-                    name_normalized = excluded.name_normalized,
-                    path = excluded.path,
-                    path_normalized = excluded.path_normalized,
-                    extension = excluded.extension,
-                    is_directory = excluded.is_directory,
-                    size = excluded.size,
-                    created_at_fs = excluded.created_at_fs,
-                    modified_at_fs = excluded.modified_at_fs,
-                    file_attributes = excluded.file_attributes,
-                    is_hidden = excluded.is_hidden,
-                    is_system = excluded.is_system,
-                    is_stale = 0,
-                    source_provider = excluded.source_provider,
-                    last_seen_at = excluded.last_seen_at
-                "#,
+            execute_entry_upsert(
+                &transaction,
+                &mut statement,
                 params![
                     entry_id,
                     entry.volume_id,
@@ -922,6 +940,7 @@ impl Database {
             )?;
             count += 1;
         }
+        drop(statement);
         transaction.commit()?;
         if has_eligible_pending_work {
             self.notify_managed_ai_work();

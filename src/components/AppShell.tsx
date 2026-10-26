@@ -18,7 +18,7 @@ import {
   TriangleAlert,
   X
 } from "lucide-react";
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tauriApi } from "../api/tauriApi";
 import { CommandModal } from "./CommandModal";
 import { OnboardingDialog } from "./OnboardingDialog";
@@ -90,6 +90,8 @@ export function AppShell() {
   const { isSearchMode, setIsCommandOpen, hotkeyLabel, isCommandOpen } = useCommandContext();
   const { isCloseChoiceOpen, onCancelCloseChoice, requestClose, resolveCloseChoice } = useWindowContext();
   const { view } = useNavigationContext();
+  const [hasOpenedLibrary, setHasOpenedLibrary] = useState(view === "library");
+  useEffect(() => { if (view === "library") setHasOpenedLibrary(true); }, [view]);
   const { t } = useI18nContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
@@ -125,7 +127,7 @@ export function AppShell() {
   const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
 
   return (
-    <FileLibraryExperienceProvider active={!isSearchMode && view === "library"}>
+    <FileLibraryExperienceProvider active={!isSearchMode && (view === "library" || hasOpenedLibrary)}>
       {!isSearchMode && <SearchLibraryHandoff />}
       {isSearchMode ? <SearchWindow /> : (
         <div className={appRoot} data-density={density}>
@@ -160,9 +162,12 @@ export function AppShell() {
                 ) : null}
                 <ToastContainer />
                 <div className={viewStageClass}>
-                  <ViewErrorBoundary key={view}>
+                  {(hasOpenedLibrary || view === "library") && <div hidden={view !== "library"} className="h-full min-h-0 min-w-0">
+                    <ViewErrorBoundary><Suspense fallback={<div className={softPanel}>{t("loading")}</div>}><FileLibraryWorkspace active={view === "library"}/></Suspense></ViewErrorBoundary>
+                  </div>}
+                  {view !== "library" && <ViewErrorBoundary key={view}>
                     <AppViewContent />
-                  </ViewErrorBoundary>
+                  </ViewErrorBoundary>}
                 </div>
               </main>
             </div>
@@ -419,7 +424,6 @@ const AppViewContent = memo(function AppViewContent() {
   if (view === "scanner") content = <ScannerView />;
   else if (view === "cleanup") content = <StorageCleanupView />;
   else if (view === "organize") content = <OrganizeSuggestionsView />;
-  else if (view === "library") content = <FileLibraryWorkspace />;
   else if (view === "preview") content = <TimelineView />;
   else if (view === "automation") content = <AutomationWorkspace />;
   else if (view === "restore") content = <RestoreView />;

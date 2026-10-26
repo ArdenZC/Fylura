@@ -1,3 +1,4 @@
+import { usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Translator } from "../../../types/ui";
@@ -176,6 +177,8 @@ export function useBrowseSourceOwner({
   t: Translator;
   platform?: NodeJS.Platform | "browser";
 }): BrowseSourceOwner {
+  const visible = usePane()?.visible ?? true;
+  useEffect(() => { void controller.workspace.setObservationActive?.(visible); }, [controller.workspace, visible]);
   const locations = state.workspace.locations;
   const browse = state.workspace.browse;
   const currentTarget = state.workspace.session.currentTarget;
@@ -380,6 +383,10 @@ export function useBrowseSourceOwner({
   useEffect(() => {
     if (queryTargetKey === targetKey) return;
     setQueryTargetKey(targetKey);
+    // Never leave rows or selection from a different target visible during admission failure.
+    generationRef.current++;
+    setEntries([]); setActivePage(null); setSelectedIds(new Set()); setFocusedId(null);
+    setEnumerationState("idle");
     // An admitted target can also arrive from Places, search or navigation.
     // Close the picker only for a new target; opening it on this target stays local.
     if (targetKey !== null) setShowLocationPicker(false);
@@ -423,6 +430,7 @@ export function useBrowseSourceOwner({
   }, [beginEnumeration, browse, currentPathRef, mergePage, prepareEnumerationPublication, query, queryTargetKey, sessionId, state.mode, state.workspace.page, target, targetKey]);
 
   useEffect(() => {
+    if (!visible) { activeChangeTargetKeyRef.current = null; return; }
     if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null || currentPathRef === null) {
       if (targetKey === null) {
         activeChangeTargetKeyRef.current = null;
@@ -459,7 +467,7 @@ export function useBrowseSourceOwner({
       setChangeState("failed");
       setChangeError(true);
     });
-  }, [browse, canWatch, controller.workspace, currentPathRef, sessionId, state.mode, state.workspace.change, target, targetKey]);
+  }, [visible, browse, canWatch, controller.workspace, currentPathRef, sessionId, state.mode, state.workspace.change, target, targetKey]);
 
   useEffect(() => {
     if (targetKey !== null) return;
@@ -632,7 +640,7 @@ export function useBrowseSourceOwner({
       && enumerationState === "partial"
       && entries.length === 0
       && activePage?.nextCursor !== undefined;
-    if (state.mode !== "browse" || !emptyPartialQuery) return;
+    if (!visible || state.mode !== "browse" || !emptyPartialQuery) return;
 
     let timer: number | null = window.setTimeout(() => {
       timer = null;
@@ -641,7 +649,7 @@ export function useBrowseSourceOwner({
     return () => {
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [activePage?.nextCursor, entries.length, enumerationState, isQueryActive, loadNextQueryPage, state.mode]);
+  }, [visible, activePage?.nextCursor, entries.length, enumerationState, isQueryActive, loadNextQueryPage, state.mode]);
 
   const navigateInto = useCallback((entry: BrowsePresentationEntry) => {
     if (entry.entryKind !== "directory" || entry.pathRef === undefined || target === null || sessionId === null) return false;

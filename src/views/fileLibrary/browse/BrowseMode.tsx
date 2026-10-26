@@ -1,3 +1,4 @@
+import { usePaneQuerySelector, usePane } from "../workbench/PaneContext";
 import { ChevronRight, Folder, FolderOpen, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
@@ -27,6 +28,8 @@ import { useBrowseManagementSurface } from "../management/useManagementSurfaces"
 import "./browseMode.css";
 
 export function BrowseMode() {
+  const query = usePaneQuerySelector();
+  const pane = usePane();
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
   const { platform } = useCommandContext();
@@ -67,7 +70,7 @@ export function BrowseMode() {
       target.focus();
       if (document.activeElement === target) return;
     }
-    document.querySelector<HTMLElement>(
+    query(
       '[data-shared-file-list-source="browse"], [data-shared-file-grid-source="browse"]'
     )?.focus();
   }, []);
@@ -137,7 +140,7 @@ export function BrowseMode() {
     controller.setContextOpen(false);
   }
 
-  const restoreContextFocus = () => document.querySelector<HTMLElement>("[data-file-library-context-toggle]");
+  const restoreContextFocus = () => query("[data-file-library-context-toggle]");
 
   if (source.showLocationPicker || source.target === null || source.browse === null) {
     return (
@@ -145,7 +148,7 @@ export function BrowseMode() {
         <BrowseLocationPicker detached={state.detachedBrowse} source={source} t={t} />
         <ContextPanel
           projection={contextProjection}
-          open={contextOpen}
+          open={contextOpen && (pane?.visible ?? true)}
           onClose={closeContextPanel}
           restoreFocus={restoreContextFocus}
         />
@@ -171,7 +174,7 @@ export function BrowseMode() {
         />
         <ContextPanel
           projection={contextProjection}
-          open={contextOpen}
+          open={contextOpen && (pane?.visible ?? true)}
           onClose={closeContextPanel}
           restoreFocus={restoreContextFocus}
         />
@@ -418,7 +421,7 @@ export function BrowseMode() {
           )}
           <ContextPanel
             projection={contextProjection}
-            open={contextOpen}
+            open={contextOpen && (pane?.visible ?? true)}
             onClose={closeContextPanel}
             restoreFocus={restoreContextFocus}
           />

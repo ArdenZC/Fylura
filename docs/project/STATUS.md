@@ -1,10 +1,37 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-26
+Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **U1 File Library UX and space utilization — Draft / Owner review pending.**
+- **U2 File Library tabs and dual-pane workspace — Draft / Owner review pending.**
+  Base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`, normal master CI
+  [40320096881](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40320096881)
+  SUCCESS. One Files destination now hosts session-local tabs and optional
+  independent left/right panes. Each pane reuses WorkspaceSession and the existing
+  Query V2 projection implementation, with isolated history, selection, query,
+  view and Preview ownership. The original Main compatibility controller remains
+  available for existing activation callers; Global Search production is unchanged.
+  Editable paths, breadcrumbs and Ctrl/Cmd+L use fresh Browse admission. Back/Forward
+  re-admits fully restorable released history with fresh opaque refs; history
+  without safe restore metadata stays retained. Closing tabs disposes their owned
+  controllers; hidden panes stop observers, thumbnail demand and preview work.
+  Tabs survive in-app route changes; app restart starts a fresh workspace rather
+  than reviving old Browse Session IDs. Normal new-tab creation is bounded to eight.
+  Dual-pane controls target the peer's admitted location. Internal selected-item
+  drag/drop defaults to Copy (Shift selects Move); external/unowned drops are
+  refused explicitly. Shared U1 clipboard, basket, saved places, preview/conflict
+  review, confirmation, progress/results and History remain on their existing APIs.
+  Transfers release all pane preview handles and refresh affected projections only.
+  Narrow windows show one active pane with explicit left/right switching.
+  Focused ownership and workflow tests plus browser mock interactions provide
+  renderer evidence. Normal PR CI owns platform backend/build evidence; U2 native
+  Windows/macOS GUI remains UNVERIFIED and Owner-owned. No schema, filesystem
+  identity, journal/Restore, scanning/scheduling, F1/T10, new backend permission,
+  CI gate or performance threshold change; no Full Validation or million-file run.
+
+
+- **U1 File Library UX and space utilization — MERGED #472; native GUI acceptance UNVERIFIED.**
   Base `master@8ffc7d04a8c392e28299445b845d39e606f43f5c` (normal CI
   [40298939633](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40298939633)
   SUCCESS). Main navigation can fully hide and restore through the existing
@@ -25,7 +52,7 @@ Last verified: 2026-10-26
   normal PR CI owns backend validation. No schema, identity, journal/Restore,
   indexing/scheduling, AI, permission or CI policy change; no Full Validation.
 
-- **U1 File Management Workspace — complete workflow candidate / Draft Owner review pending.**
+- **U1 File Management Workspace — MERGED #470 / #471; native GUI acceptance remains Owner-owned.**
   Base `master@8e6179aad2a7cea25718ba0e4ebaf79d77834ffa`. Dependency order:
   backend [#470](https://github.com/ArdenZC/Zen-Canvas/pull/470), then its dependent
   File Library workflow UI PR. Library/Browse reuse source-owned selection;

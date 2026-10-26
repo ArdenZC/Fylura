@@ -1,0 +1,263 @@
+.wb-workbench {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--zc-text-primary);
+}
+.wb-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 2px 6px;
+  border-bottom: 1px solid var(--zc-divider);
+  flex: 0 0 auto;
+}
+.wb-tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.wb-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 220px;
+  border-radius: var(--zc-radius-control);
+  color: var(--zc-text-secondary);
+  background: var(--zc-surface-subtle);
+}
+.wb-tab[data-active="true"] {
+  color: var(--zc-text-primary);
+  background: var(--zc-surface-selected);
+  box-shadow: inset 0 -2px var(--zc-primary);
+}
+.wb-tab > [role="tab"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 40px;
+  max-width: 180px;
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wb-tab-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 26px;
+  margin-right: 3px;
+  border-radius: 4px;
+}
+.wb-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 30px;
+  min-height: 30px;
+  border-radius: var(--zc-radius-control);
+  color: var(--zc-text-secondary);
+}
+.wb-split-button,
+.wb-side-button,
+.wb-cross-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: var(--zc-radius-control);
+  white-space: nowrap;
+}
+.wb-side-button[aria-pressed="true"],
+.wb-split-button[aria-pressed="true"] {
+  background: var(--zc-surface-selected);
+  color: var(--zc-text-primary);
+}
+.wb-workbench button:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+}
+.wb-workbench button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.wb-workbench :is(button, input):focus-visible {
+  outline: 2px solid var(--zc-primary);
+  outline-offset: -2px;
+}
+.wb-pane-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--zc-divider);
+  flex: 0 0 auto;
+}
+.wb-pane-hint {
+  flex: 1;
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--zc-text-tertiary);
+}
+.wb-tab-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.wb-tab-panel[data-dual="true"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.wb-workbench [hidden] {
+  display: none !important;
+}
+.wb-pane {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  padding-top: 6px;
+}
+.wb-tab-panel[data-dual="true"] > .wb-pane {
+  border-inline: 1px solid var(--zc-divider);
+  padding-inline: 6px;
+}
+.wb-tab-panel[data-dual="true"] > .wb-pane[data-focused="true"] {
+  border-top: 2px solid var(--zc-primary);
+  padding-top: 4px;
+}
+.wb-path-section {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.wb-pathbar {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  min-height: 34px;
+  min-width: 0;
+}
+.wb-path-edit {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+.wb-path-edit input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--zc-border-strong);
+  background: var(--zc-surface);
+  border-radius: var(--zc-radius-control);
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--zc-text-primary);
+}
+.wb-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+  padding: 2px 6px;
+  min-height: 30px;
+  background: var(--zc-surface-subtle);
+  border-radius: var(--zc-radius-control);
+  overflow: hidden;
+}
+.wb-crumbs > svg {
+  flex-shrink: 0;
+  color: var(--zc-text-secondary);
+}
+.wb-crumbs button {
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 3px;
+}
+.wb-crumbs button + button::before {
+  content: "/";
+  margin-right: 5px;
+  color: var(--zc-text-tertiary);
+}
+.wb-path-error {
+  font-size: 12px;
+  color: var(--zc-danger-text);
+  overflow-wrap: anywhere;
+  padding: 4px;
+}
+.wb-pane .file-library-workspace {
+  gap: 6px;
+}
+.wb-pane .file-library-history-controls,
+.wb-pane .browse-mode-toolbar {
+  display: none;
+}
+.wb-pane .fm-workflow {
+  padding-inline: 3px;
+}
+.wb-pane .browse-mode {
+  gap: 6px;
+}
+.wb-pane .file-library-command-bar {
+  padding-bottom: 5px;
+}
+.wb-pane {
+  container-type: inline-size;
+}
+@container (max-width: 700px) {
+  .shared-file-list-header,
+  .shared-file-list-row {
+    grid-template-columns: minmax(0, 1fr) 70px;
+    gap: 8px;
+  }
+  .shared-file-list-header > :nth-child(2),
+  .shared-file-list-header > :nth-child(3),
+  .shared-file-list-kind,
+  .shared-file-list-modified {
+    display: none;
+  }
+  .wb-crumbs > button {
+    font-size: 11px;
+  }
+}
+
+.wb-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Pinned preview belongs to its pane; the peer's file list stays reachable. */
+.wb-pane .zc-quick-preview-pinned-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  padding: 6px;
+}
+.wb-pane .zc-quick-preview-pinned-backdrop > .zc-quick-preview-card {
+  width: min(900px, calc(100% - 12px));
+  height: calc(100% - 70px);
+}

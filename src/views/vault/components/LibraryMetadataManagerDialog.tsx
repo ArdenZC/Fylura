@@ -1,3 +1,4 @@
+import { usePaneProjection } from "../../fileLibrary/workbench/PaneContext";
 import { ArrowDown, ArrowUp, Bookmark, Pencil, Plus, RefreshCw, Save, Tag, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
@@ -85,6 +86,7 @@ function TagManager({
   onMutated: () => void | Promise<void>;
   t: Translator;
 }) {
+  const { useFileLibraryTagStore } = usePaneProjection();
   const tags = useFileLibraryTagStore((state) => state.tags);
   const isLoading = useFileLibraryTagStore((state) => state.isLoading);
   const storeError = useFileLibraryTagStore((state) => state.error);
@@ -262,6 +264,7 @@ function SavedViewManager({
   onApplyView: (view: LibrarySavedView) => void;
   t: Translator;
 }) {
+  const { useFileLibrarySavedViewStore } = usePaneProjection();
   const views = useFileLibrarySavedViewStore((state) => state.views);
   const isLoading = useFileLibrarySavedViewStore((state) => state.isLoading);
   const storeError = useFileLibrarySavedViewStore((state) => state.error);

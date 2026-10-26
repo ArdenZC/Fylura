@@ -32,7 +32,7 @@ The normal direction is **durable backend authority → API → replaceable fron
 | Managed file browsing | File Library Query V2 | Query projection, cursor/snapshot handling, inspector and interaction |
 | Cross-page selection | `LibrarySelectionV1` plus backend resolution | Selection intent/projection |
 | Ephemeral filesystem browsing | W1 `BrowseService` session/request/enumeration/opaque refs | Current target/page presentation, loaded-entry interaction and cancellation projection |
-| Workspace navigation/presentation | `WorkspaceSession` disposable navigation/history/presentation contract plus source owners | Back/Forward, organization/presentation mode, focus and transient workspace interaction |
+| Workspace navigation/presentation | Per-pane `WorkspaceSession` disposable navigation/history/presentation contract plus source owners | File Library tabs/dual panes, Back/Forward, presentation, focus and transient workspace interaction |
 | Preview lifecycle / provider publication | W1 Rust `PreviewSession`, SourceResolver/sourceVersion, Provider Registry/fallback and typed `PreviewRepresentation` contracts | Floating/Pinned host presentation, command context, request epoch/focus restoration and representation rendering only |
 | Preview byte-read eligibility/access | W1 `MaterializationReadGate` plus existing authoritative platform/content open/revalidation boundary | Eligibility/materialization state projection; no general renderer byte-read lease/path authority |
 | Expensive Preview/Thumbnail/Foundation work | existing global `WorkScheduler` resource admission | Work priority/request intent projection only |
@@ -65,6 +65,17 @@ Cleanup AI provider access is additionally gated by a distinct feature-level dat
 Cleanup AI enrichment remains attached to the existing Analysis Finding authority. A provider request is bound to the exact backend candidate IDs, Finding revisions, Analysis Run/source snapshot, detector revisions and persisted AI settings fingerprint. After provider work, live identity and policy are revalidated; publication then checks those same preconditions again in one immediate database transaction and updates only Findings whose IDs were returned exactly once. Missing, duplicated, malformed, unknown or stale responses do not create current AI assessment evidence. Cleanup `size` remains a reclaim estimate; when it differs from a file's logical length (including macOS allocated-size behavior), the identity snapshot records `logicalSize` separately and live revalidation compares that value to filesystem metadata. Analysis Finding decisions, Operation Preview, explicit confirmation, Safe Trash journals and Restore remain the mutation/recovery chain; no schema migration or second AI queue is introduced.
 
 `ai_assessment` evidence exists != current AI assessment. The backend-only `crate::ai::cleanup::has_current_ai_assessment(db, finding_id)` predicate reloads the durable Finding and returns false unless the current Finding is active, its live source identity still matches, the candidate appears exactly once in a unique requested set with matching fingerprints, the Finding revision relation and `published` / `compareAndSwap: succeeded` markers match, the completed Cleanup Analysis Run is still at the captured pre-publication revision plus its single transactional aggregate refresh with unchanged source-snapshot and detector-set hashes, the detector remains completed at its recorded revision, persisted provider settings still match, and exactly one durable `ai_assessment` evidence row matches `evidence_summary.aiAssessment`. PM-01 Cleanup gating must call this predicate or a richer backend status API; renderer code must not infer currentness from raw evidence JSON. This predicate is not a Tauri renderer command and grants no filesystem-mutation authority.
+
+U2's `FileWorkbenchModel` owns only Main-window UI instances and their cleanup.
+`createFileLibraryProjection` instantiates the existing Query V2/selection/inspector
+projection per pane; the default export remains the Main compatibility projection.
+It does not create another backend query, file identity or permission authority.
+Hidden panes pause observation while retaining their current opaque Browse refs.
+History with complete existing restore locators may release inactive sessions;
+Back/Forward obtains fresh backend admission instead of reviving released refs.
+U1 transfer tickets, clipboard/basket, Operation Preview, confirmation, journal and
+History/Restore remain shared through their existing APIs. Only the focused pane
+owns keyboard intent; mutation refresh is routed to affected pane projections.
 
 ## W1-to-W2 consumer boundary
 

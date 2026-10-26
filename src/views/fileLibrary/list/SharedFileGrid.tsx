@@ -1,3 +1,4 @@
+import { usePane } from "../workbench/PaneContext";
 import { AlertTriangle, FileText, Folder, FolderOpen, LoaderCircle } from "lucide-react";
 import { memo, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -107,6 +108,7 @@ export function SharedFileGrid({
   onOpenContextMenu?: (entry: PresentationEntry, index: number) => void;
   onEscape?: () => boolean;
 }) {
+  const pane = usePane();
   const gridRef = useRef<HTMLDivElement | null>(null);
   const loadMoreInFlightRef = useRef(false);
   const [width, setWidth] = useState(0);
@@ -232,7 +234,7 @@ export function SharedFileGrid({
         aria-rowcount={interaction.source === "browse" && interaction.hasMore ? undefined : rowCount}
         aria-colcount={columns}
         aria-busy={interaction.isLoadingMore}
-        aria-activedescendant={focusedEntry === undefined ? undefined : gridCellDomId(focusedEntry)}
+        aria-activedescendant={focusedEntry === undefined ? undefined : gridCellDomId(focusedEntry, pane?.id)}
         data-shared-file-grid="true"
         data-shared-file-grid-source={interaction.source}
         data-file-library-grid-columns={columns}
@@ -340,11 +342,12 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
   onContextMenu: (event: MouseEvent<HTMLDivElement>) => void;
   onActivate: () => void;
 }) {
+  const pane = usePane();
   const [thumbnail, setThumbnail] = useState<ThumbnailState>({ kind: "idle" });
   const devicePixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
   const variant = thumbnailVariantForCell(cellWidth, devicePixelRatio);
   const sourceKey = presentationSourceKey(entry);
-  const canRequest = canRequestThumbnail(entry);
+  const canRequest = (pane?.visible ?? true) && canRequestThumbnail(entry);
 
   useEffect(() => {
     let alive = true;
@@ -411,8 +414,9 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
 
   return (
     <div
-      id={gridCellDomId(entry)}
+      id={gridCellDomId(entry, pane?.id)}
       className={cn("shared-file-grid-cell", selected && "is-selected", focused && "is-focused", missingLabel && "is-missing")}
+      draggable={selected}
       role="gridcell"
       tabIndex={-1}
       aria-selected={selected}
@@ -532,8 +536,9 @@ function rowStyle(start: number, size: number): CSSProperties {
   return { height: `${size}px`, transform: `translateY(${start}px)` };
 }
 
-function gridCellDomId(entry: PresentationEntry) {
+function gridCellDomId(entry: PresentationEntry, paneId?: string) {
+  const prefix = paneId ? `${paneId}-` : "";
   return entry.source === "library"
-    ? `library-grid-cell-${entry.entryRef.fileId}`
-    : `browse-grid-cell-${entry.entryRef.entryId}`;
+    ? `${prefix}library-grid-cell-${entry.entryRef.fileId}`
+    : `${prefix}browse-grid-cell-${entry.entryRef.entryId}`;
 }

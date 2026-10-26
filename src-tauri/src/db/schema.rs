@@ -3912,7 +3912,7 @@ mod issue381_b4_p0_tests {
         issue441_assert_current(&holder, &original);
         let reopened = Database::open(&path).unwrap();
         assert_eq!(issue441_snapshot(&reopened.conn().unwrap()), after_a);
-        eprintln!("[issue441] both observed36 before lock; A committed42; B reread42; identical schema/rows/FTS, legacy Authority, dormant Schema42");
+        eprintln!("[issue441] both observed36 before lock; A committed current; B reread current; identical schema/rows/FTS, legacy Authority, dormant Schema42");
     }
 
     #[test]
@@ -3966,7 +3966,7 @@ mod issue381_b4_p0_tests {
             let holder = issue441_connection(&path);
             let waiter = issue441_connection(&path);
             holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-            let waiter = issue441_opener(waiter, 42);
+            let waiter = issue441_opener(waiter, CURRENT_SCHEMA_VERSION);
             waiter
                 .entered
                 .recv_timeout(std::time::Duration::from_secs(30))

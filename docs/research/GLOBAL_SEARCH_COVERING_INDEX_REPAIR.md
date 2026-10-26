@@ -60,3 +60,49 @@ Run 100k first; inspect correctness/performance before dispatching a single
 merge, or run Codex Review. The natural PR CI remains authoritative for normal
 required checks. Prior macOS SIGBUS #446 is historical, not assumed to explain
 any new failure. Results and remaining bottlenecks will be appended after runs.
+
+## 100k preflight (Windows Hosted, debug)
+
+[Run 40317166095](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40317166095),
+source `d2bc7fdab1453fa783e455781b3c3ad5a1033317`, tree
+`c85420a31d053fcaeb1fc320fa52ca3acaa24598`.
+[Raw JSONL](evidence/covering-indexes/100k.jsonl.gz) includes all samples, exact
+SQL/plans/counters, costs and source identity;
+[all-stage percentile CSV](evidence/covering-indexes/100k-summary.csv).
+12/12 correctness, full fields/BM25, pages, source revision/status equality and
+both covering-plan assertions passed. Schema migration/rollback, existing
+Source Health tests and the hostile multi-source/concurrent test passed.
+Original pooled 100ms gates pass 12/12 for all four configurations at this scale.
+
+Representative values in ms, p50 / p95 / p99:
+
+| Path / query | A0 | A1 | A2 | A3 |
+|---|---|---|---|---|
+| Pooled name_prefix | 11.879 / 18.448 / 23.997 | 7.898 / 9.324 / 11.161 | 11.973 / 13.044 / 26.364 | 7.906 / 13.740 / 28.155 |
+| Source Health (name_prefix samples) | 50.645 / 69.999 / 77.133 | 51.103 / 58.424 / 61.038 | 18.717 / 20.456 / 21.576 | 18.682 / 21.287 / 61.454 |
+| Snapshot name_prefix | 70.180 / 90.490 / 107.990 | 66.325 / 72.794 / 80.389 | 38.449 / 45.130 / 66.591 | 34.244 / 59.125 / 104.032 |
+| Pooled extension_prefix | 10.508 / 11.487 / 12.125 | 10.322 / 11.567 / 14.577 | 10.662 / 12.283 / 13.170 | 10.413 / 11.168 / 12.301 |
+| Snapshot punctuation_prefix | 70.643 / 82.347 / 100.126 | 66.296 / 77.059 / 89.157 | 38.544 / 44.602 / 46.573 | 34.161 / 45.149 / 126.760 |
+
+Do not describe these as tail-qualified: A3 punctuation Snapshot p99 increases
+26.60%, +26.634ms; A3 name-prefix pooled p99 increases 17.33%, +4.158ms.
+A3 exact-extension pooled p95/p99 rise 1.494/1.593→2.149/2.494ms (small
+absolute cost, retained). No outliers are removed, no noise attribution is
+proved, and no run will be repeated to obtain a green tail. The controlled 1M
+run is a single further scale comparison, not a claim that this preflight meets
+all acceptance requirements.
+
+Source SQL remains COUNT(id)/MAX and O(active rows): executed work falls
+1,500,077→1,200,075 VM Steps, while FullscanStep remains 99,999, Sort 0. Status
+is unchanged at 300,261 VM Steps / 0 Fullscan / 1 Sort. The covering index removes
+wide-table lookups; it does not remove per-request aggregation or status recount.
+
+Natural PR CI 40317317201 exposed Schema43 compatibility omissions: the dormant
+read-only File Library shadow reader admitted only 41/42; a concurrent-opener
+test still expected 42; prepared fixture Rust/JS identities still said 42.
+These are corrected without relaxing unknown/future-schema rejection, dormant
+signature validation or read-only behavior. Versions 41/42/43 remain explicitly
+admitted, 40/44 rejected; fixture cache identity now uses 43. This is required
+Schema43 plumbing, not new shadow functionality. Global Search SQL/measurement
+inputs are unchanged from the successful 100k source. One next natural CI on
+the compatibility fix is required; the failed run is retained, not retried.

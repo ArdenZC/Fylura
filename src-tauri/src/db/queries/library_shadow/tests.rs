@@ -930,9 +930,9 @@ fn main_bytes(f: &Fixture) -> (Vec<u8>, Option<Vec<u8>>) {
 }
 
 #[test]
-fn schema41_and_schema42_build_verify_query_and_qualify_without_main_writes() {
+fn schema41_through_schema43_build_verify_query_and_qualify_without_main_writes() {
     let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
-    for version in [41, 42] {
+    for version in [41, 42, 43] {
         let f = fixture();
         let conn = f.db.conn().unwrap();
         assert_eq!(
@@ -942,8 +942,9 @@ fn schema41_and_schema42_build_verify_query_and_qualify_without_main_writes() {
         );
         if version == 41 {
             crate::db::schema_global_generations::drop_for_test(&conn);
-            conn.execute_batch("PRAGMA user_version=41").unwrap();
         }
+        conn.execute_batch(&format!("PRAGMA user_version={version}"))
+            .unwrap();
         let before_version: i64 = conn
             .query_row("PRAGMA data_version", [], |r| r.get(0))
             .unwrap();
@@ -1017,9 +1018,9 @@ fn assert_capture_rejected_without_main_write(f: &Fixture, reason: &str) {
 }
 
 #[test]
-fn schema40_and_schema43_sources_are_rejected_before_shadow_build() {
+fn schema40_and_schema44_sources_are_rejected_before_shadow_build() {
     let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
-    for version in [40, 43] {
+    for version in [40, 44] {
         let f = fixture();
         let conn = f.db.conn().unwrap();
         crate::db::schema_global_generations::drop_for_test(&conn);

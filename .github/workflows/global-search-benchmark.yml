@@ -397,7 +397,7 @@ jobs:
     timeout-minutes: 180
     env:
       ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ inputs.entries }}
-      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ runner.temp }}/covering-index-pair.jsonl
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/covering-index-pair.jsonl
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.sha }}
     steps:
       - name: Checkout exact source head
@@ -438,6 +438,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: covering-index-pair-${{ inputs.entries }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/covering-index-pair.jsonl
+          path: ${{ github.workspace }}/ci-evidence/covering-index-pair.jsonl
           if-no-files-found: warn
           retention-days: 90

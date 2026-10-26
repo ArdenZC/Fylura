@@ -91,9 +91,44 @@ describe("File Library manual management workflow", () => {
     expect(useFileManagementStore.getState().statuses.one).toContain(t("fmStale"));
     await click(t("fmCancel"));expect(api.executeTransfer).not.toHaveBeenCalled();expect(useFileManagementStore.getState().basket).toHaveLength(2);
   });
+  it("keeps auxiliary controls on demand and restores focus without clearing selection", async () => {
+    await render();
+    expect(document.querySelector("#fm-auxiliary-panel")).toBeNull();
+    button(t("fmMore")).focus();
+    await click(t("fmMore"));
+    expect(document.querySelector("#fm-auxiliary-panel")).toBeTruthy();
+    await click(t("fmAddBasket"));
+    expect(useFileManagementStore.getState().basket).toHaveLength(2);
+    expect(useFileManagementStore.getState().basketOpen).toBe(false);
+    expect(document.querySelector("#fm-auxiliary-panel")).toBeNull();
+    await click(`${t("fmMore")}2`);
+    await click(`${t("fmBasket")} (2)`);
+    expect(document.querySelector("#fm-auxiliary-panel")?.getAttribute("aria-label")).toBe(t("fmBasket"));
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+    expect(document.querySelector("#fm-auxiliary-panel")).toBeNull();
+    expect(document.activeElement?.textContent).toContain(t("fmMore"));
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("makes conflict resolutions exclusive and requires fresh backend consent after every change", async () => {
+    useFileManagementStore.setState({ clipboard: {action:"copy", tickets} });
+    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare"));
+    const resolution = document.querySelector<HTMLSelectElement>(".fm-preview select")!;
+    await act(async () => { resolution.value = "skip"; resolution.dispatchEvent(new Event("change", {bubbles:true})); });
+    expect(button(t("fmConfirm")).disabled).toBe(true);
+    await click(t("fmPrepare"));
+    expect(api.previewTransfer).toHaveBeenLastCalledWith(expect.objectContaining({skip:["one"],keepBoth:[]}));
+    await act(async () => { resolution.value = "both"; resolution.dispatchEvent(new Event("change", {bubbles:true})); });
+    expect(button(t("fmConfirm")).disabled).toBe(true);
+    await click(t("fmPrepare"));
+    expect(api.previewTransfer).toHaveBeenLastCalledWith(expect.objectContaining({skip:[],keepBoth:["one"]}));
+    await click(t("fmCancel"));
+    expect(api.executeTransfer).not.toHaveBeenCalled();
+  });
+
   it("marks unavailable favorite locations and keeps them out of destination selection", async()=>{
     vi.mocked(api.fileLibraryPlaces).mockResolvedValue([{id:"offline",name:"Offline disk",routingHint:"Z:/Gone",favorite:true,current:false,visitedAt:1,unavailable:true}]);
-    await render();await click(t("fmPlaces"));expect(document.body.textContent).toContain(t("fmUnavailable"));
+    await render();await click(t("fmMore"));await click(t("fmPlaces"));expect(document.body.textContent).toContain(t("fmUnavailable"));
     const offline=[...document.querySelectorAll<HTMLButtonElement>("button")].find((b)=>b.textContent?.includes("Offline disk"))!;expect(offline.disabled).toBe(true);expect(mocks.navigate).not.toHaveBeenCalled();
   });
 });

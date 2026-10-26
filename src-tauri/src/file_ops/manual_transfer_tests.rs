@@ -598,3 +598,97 @@ fn u1_macos_directory_copy_move_and_restore_reuse_the_existing_tree_transaction(
     }
     runtime.dispose();
 }
+
+#[test]
+fn u1_skipped_same_name_does_not_reserve_a_batch_destination() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let other = f.root.join("other");
+    fs::create_dir(&other).unwrap();
+    fs::write(other.join("original.txt"), b"other source").unwrap();
+    let browse = runtime
+        .open_browse(BrowseOpenRequest {
+            platform: if cfg!(windows) {
+                WorkspacePlatform::Windows
+            } else {
+                WorkspacePlatform::Macos
+            },
+            routing_hint: normalize_path(&other),
+            display_hint: None,
+            global_entry_id: None,
+        })
+        .unwrap();
+    let page = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: browse.session_id,
+            request_id: "same-name".into(),
+            path_ref: browse.root_path_ref,
+            page_size: 32,
+            query: Default::default(),
+        })
+        .unwrap();
+    let reference = match page.entries[0].entry_ref.clone() {
+        crate::file_workspace::BrowseEntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        } => EntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        },
+    };
+    let mut tickets = capture(&runtime, &f);
+    tickets.extend(
+        runtime
+            .capture_transfer(CaptureRequest {
+                refs: vec![reference],
+                selection: None,
+                release_ids: vec![],
+            })
+            .unwrap(),
+    );
+    let target = f.root.join("target");
+    fs::create_dir(&target).unwrap();
+    let ids = tickets
+        .iter()
+        .map(|ticket| ticket.id.clone())
+        .collect::<Vec<_>>();
+    let conflict = preview(
+        &runtime,
+        ids.clone(),
+        &target,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    assert_eq!(
+        conflict.rows[1].error.as_deref(),
+        Some("transfer_target_exists")
+    );
+    let plan = preview(
+        &runtime,
+        ids,
+        &target,
+        TransferAction::Copy,
+        vec![],
+        vec![tickets[0].id.clone()],
+    );
+    assert!(plan.rows[0].skipped);
+    assert!(plan.rows[1].error.is_none());
+    assert_eq!(
+        plan.rows[1].preview.as_ref().unwrap().new_name,
+        "original.txt"
+    );
+    let execution = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    assert_eq!(execution.operations.len(), 1);
+    assert_eq!(
+        execution.operations[0].source_path,
+        normalize_path(&other.join("original.txt").canonicalize().unwrap())
+    );
+    assert!(f.source.exists());
+    assert!(!target.join("original.txt").exists());
+}

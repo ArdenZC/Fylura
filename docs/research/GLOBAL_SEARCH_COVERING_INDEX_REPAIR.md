@@ -106,3 +106,13 @@ admitted, 40/44 rejected; fixture cache identity now uses 43. This is required
 Schema43 plumbing, not new shadow functionality. Global Search SQL/measurement
 inputs are unchanged from the successful 100k source. One next natural CI on
 the compatibility fix is required; the failed run is retained, not retried.
+
+## Moving master during validation
+
+Master advanced through unrelated UI PR #472 to
+`b7a505fdddd7f248c4260edf783b5bae42a93ec5`, tree
+`990655287de662fdfbb40b6ab7c7e32de751edb1`, still Schema 42. The candidate
+merges this base to resolve only the STATUS.md conflict, preserving both task
+records. No Global Search, Schema43 DDL, benchmark or query inputs differ from
+the sampled `f89412b` source. The 1M run remains bound to that exact source/tree;
+it is not repeated. Natural integration CI validates the updated branch.

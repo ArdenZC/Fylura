@@ -512,7 +512,7 @@ function openBrowse(request: BrowseOpenRequest): BrowseOpenResponse {
   if (!request || typeof request.routingHint !== "string" || request.routingHint.length === 0) {
     throw new Error("browse_routing_hint_invalid");
   }
-  const response = newBrowseSession(request.displayHint?.trim() || request.routingHint, true);
+  const response = newBrowseSession(request.displayHint?.trim() || "Browse", true);
   getSession(response.sessionId).routingHint = request.routingHint.replace(/\\/g, "/");
   return response;
 }

@@ -205,7 +205,7 @@ fn source_facts_snapshot_pair() {
                 });
             }
         }
-        for v in 0..variants {
+        for (v, variant_samples) in samples.iter().enumerate().take(variants) {
             let physical = usize::from(v != 0);
             variant(v, || {
                 for (i, name) in [
@@ -220,7 +220,7 @@ fn source_facts_snapshot_pair() {
                 {
                     emit_record(
                         &json!({"record_type":"facts_summary","context":context,"query_class":case.class,"variant":v,
-      "stage":name,"latency_ms":summarize_samples(&samples[v][i])}),
+      "stage":name,"latency_ms":summarize_samples(&variant_samples[i])}),
                     );
                 }
                 for (limit, offset) in [(1, 0), (80, 40), (200, 4016), (80, 4096)] {
@@ -381,4 +381,97 @@ fn prepared_source_facts_preserve_real_snapshot_contracts() {
     check();
     conn.execute_batch("DELETE FROM global_volumes").unwrap();
     check();
+}
+
+#[test]
+fn source_facts_schema44_migrates_populated43_and_reopens_without_recount() {
+    let path = test_db_path();
+    let _cleanup = BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).unwrap();
+    db.upsert_global_volume(&test_volume()).unwrap();
+    let mut disabled = test_volume();
+    disabled.id = "disabled".into();
+    disabled.stable_volume_id = "disabled".into();
+    disabled.enabled = false;
+    db.upsert_global_volume(&disabled).unwrap();
+    let mut empty = test_volume();
+    empty.id = "empty".into();
+    empty.stable_volume_id = "empty".into();
+    db.upsert_global_volume(&empty).unwrap();
+    let entries = (0..2048)
+        .map(|n| {
+            let mut e = input(n);
+            e.volume_id = if n.is_multiple_of(4) {
+                "disabled"
+            } else {
+                "gv_test"
+            }
+            .into();
+            e
+        })
+        .collect::<Vec<_>>();
+    db.upsert_global_entries_batch(&entries).unwrap();
+    let conn = configured_connection(&path).unwrap();
+    conn.execute_batch(
+        "UPDATE global_entries SET id=NULL WHERE rowid=2;
+        UPDATE global_entries SET is_stale=1 WHERE rowid%13=0;
+        UPDATE global_volumes SET entry_count=987654;
+        DROP TRIGGER global_entry_source_facts_ai;
+        DROP TRIGGER global_entry_source_facts_ad;
+        DROP TRIGGER global_entry_source_facts_au;
+        DROP TRIGGER global_entry_source_facts_volume_ai;
+        DROP TRIGGER global_entry_source_facts_volume_au;
+        DROP TABLE global_entry_source_facts;
+        PRAGMA user_version=43;",
+    )
+    .unwrap();
+    let before = with_canonical_source_facts(|| {
+        QUERY_MATRIX
+            .iter()
+            .map(|case| {
+                db.search_global_entries_snapshot(case.query, 80, 0)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>()
+    });
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .unwrap();
+    drop(conn);
+    drop(db);
+    let db = Database::open(&path).unwrap();
+    assert_eq!(
+        db.conn()
+            .unwrap()
+            .query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap(),
+        44
+    );
+    for (case, before) in QUERY_MATRIX.iter().zip(&before) {
+        same(
+            before,
+            &db.search_global_entries_snapshot(case.query, 80, 0)
+                .unwrap(),
+        );
+    }
+    let conn = db.conn().unwrap();
+    let rows:i64=conn.query_row("SELECT active_rows-active_ids FROM global_entry_source_facts WHERE volume_id='gv_test'",[],|r|r.get(0)).unwrap();
+    assert_eq!(rows, 1);
+    let traces = super::covering_indexes::trace_snapshot(&db, &conn, "zzznomatchtoken");
+    assert!(
+        !traces.iter().any(|r| r["sql"]
+            .as_str()
+            .unwrap_or("")
+            .contains("active_volume_facts")),
+        "ordinary snapshots must not use the canonical aggregate"
+    );
+    drop(conn);
+    drop(db);
+    let db = Database::open(&path).unwrap();
+    for (case, before) in QUERY_MATRIX.iter().zip(&before) {
+        same(
+            before,
+            &db.search_global_entries_snapshot(case.query, 80, 0)
+                .unwrap(),
+        );
+    }
 }

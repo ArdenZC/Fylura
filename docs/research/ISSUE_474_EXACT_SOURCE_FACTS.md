@@ -126,8 +126,43 @@ writer loop improvement outweighs added facts maintenance for these measured
 upsert stages; retirement cost remains explicit. No cost-free materialization
 claim is made.
 
-The one controlled 1M Source Facts pair is run 40371160127 on the same production
-candidate. Its results are pending. No repeated 1M fixture or failed FTS rerun.
+The one controlled 1M Source Facts pair [40371160127](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40371160127)
+completed SUCCESS on the same 70b1dff / 8dab75d source/tree. All 12 complete
+result/page/BM25/health/revision/status contracts matched. No repeated 1M fixture
+or failed FTS rerun. Later production changes only rewrite a contiguous schema
+match pattern to a Rust range (same admitted versions); remaining corrections
+are tests, dependency security, documentation and latest-master status integration.
+
+| 1M path | Canonical p95 / p99 ms | Prepared p95 / p99 ms |
+| --- | ---: | ---: |
+| no-result Snapshot | 216.397 / 218.985 | 1.246 / 1.306 |
+| name-prefix Snapshot | 299.060 / 303.289 | 68.729 / 78.157 |
+| name-prefix Source Health | 170.844 / 173.001 | 0.234 / 0.239 |
+| name-prefix Index Status | 76.676 / 90.086 | 0.344 / 0.358 |
+| extension-prefix Snapshot | 327.342 / 347.110 | 92.805 / 99.502 |
+| extension-prefix pooled | 91.163 / 94.806 | 91.560 / 119.551 |
+| report FTS pooled | 219.387 / 220.993 | 220.633 / 224.379 |
+| invoice FTS pooled | 233.000 / 243.448 | 233.568 / 234.479 |
+| report FTS Snapshot | 426.874 / 430.205 | 220.977 / 221.505 |
+| invoice FTS Snapshot | 439.191 / 440.673 | 234.237 / 235.194 |
+
+Pooled p95 remains 10/12 under the unchanged 100ms target; complete Snapshot
+now also passes 10/12. FTS report/invoice remain over target. This is a paired
+comparison, not a claim that historical machine timings are directly comparable.
+Extension-prefix pooled p99 +26.10% remains a material tail risk despite improved
+full Snapshot p99. No search SQL or wide-row route was changed, and no extra 1M
+run is used to chase this tail. Owner must assess this retained risk; do not
+label the entire phase or every tail accepted.
+
+Real 1M-fixture 512-row writer p95 insert 264.109→165.143ms, metadata
+144.339→73.049ms, identical replay 146.926→63.137ms, rename
+329.379→223.927ms. Descending-max retirement p95/p99
+24.758/30.739→24.052/25.646ms; median 3.493→5.812ms still exposes maintenance
+CPU. Remaining-volume retirement 776.204→907.701ms (+16.9%). Insert WAL
+9,274,152→9,282,392 bytes and metadata WAL 4,993,472→5,005,832; replay WAL is
+unchanged. These are actual Repository commits, not a claim of long-running
+Watcher/event-storm qualification. One-time Schema43→44 backfill time at 1M
+was not separately measured and remains an upgrade planning limitation.
 
 ## FTS algorithm decision
 
@@ -146,3 +181,15 @@ samples are in [evidence/source-facts](evidence/source-facts). #477 separately
 addresses Schema43 upgrade UX. Owner should review upgrade integration/merge
 order before shipping Schema44; this PR does not claim installer or visible
 startup qualification for the new facts backfill.
+
+
+## CI corrections and security
+
+The first normal CI (40373263933) passed release compiles and applicable
+performance domains but stopped Rust quality on three Clippy findings: a
+contiguous version OR-pattern, a test modulo expression and a test summary
+range loop. They are corrected without changing admitted schemas or benchmark
+semantics. A newly published high-severity happy-dom advisory
+GHSA-834v-8h66-3h79 also affects the unchanged baseline. The dev dependency is
+updated to patched 21.0.4; no audit level, ignore list or CI gate is relaxed.
+Final applicable CI remains required before READY_FOR_OWNER_REVIEW.

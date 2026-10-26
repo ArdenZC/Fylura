@@ -83,7 +83,7 @@ fn source_facts_randomized_updates_match_canonical_after_every_statement() {
             0=>format!("DELETE FROM global_entries WHERE id='r{id}'"),
             1=>format!("UPDATE global_entries SET volume_id='v{volume}' WHERE id='r{id}'"),
             2=>format!("UPDATE global_entries SET is_stale=1-is_stale WHERE id='r{id}'"),
-            3=>format!("UPDATE global_entries SET last_seen_at={} WHERE id='r{id}'",if seen%7==0 {"NULL".into()} else {seen.to_string()}),
+            3=>format!("UPDATE global_entries SET last_seen_at={} WHERE id='r{id}'",if seen.is_multiple_of(7) {"NULL".into()} else {seen.to_string()}),
             _=>format!("INSERT INTO global_entries VALUES('r{id}','v{volume}',{}, {seen}) ON CONFLICT(id) DO UPDATE SET volume_id=excluded.volume_id,is_stale=excluded.is_stale,last_seen_at=excluded.last_seen_at",step%2),
         };
         c.execute_batch(&sql).unwrap();

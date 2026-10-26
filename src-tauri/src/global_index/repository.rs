@@ -112,6 +112,7 @@ pub(crate) enum GlobalSearchSourceHealthQueryCandidate {
     Original,
     CorrelatedAggregates,
     NarrowAggregate,
+    LegacyNarrowAggregate,
     #[cfg(test)]
     GroupByVolumeId,
 }
@@ -120,6 +121,7 @@ const GLOBAL_SEARCH_SOURCE_HEALTH_SQL: &str = r#"
     WITH active_volume_facts AS (
         SELECT volume_id,
                COUNT(id) AS active_entry_count,
+               COUNT(*) AS active_row_count,
                MAX(last_seen_at) AS max_last_seen_at
         FROM global_entries
         WHERE is_stale = 0
@@ -127,7 +129,10 @@ const GLOBAL_SEARCH_SOURCE_HEALTH_SQL: &str = r#"
     )
     SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
            COALESCE(active_volume_facts.active_entry_count, 0),
-           active_volume_facts.max_last_seen_at
+           active_volume_facts.max_last_seen_at,
+           CASE WHEN gv.enabled = 1
+                THEN COALESCE(active_volume_facts.active_row_count, 0)
+                ELSE 0 END
     FROM global_volumes gv
     LEFT JOIN active_volume_facts ON active_volume_facts.volume_id = gv.id
     ORDER BY gv.id ASC
@@ -167,6 +172,21 @@ impl GlobalSearchSourceHealthQueryCandidate {
                 "#
             }
             Self::NarrowAggregate => GLOBAL_SEARCH_SOURCE_HEALTH_SQL,
+            Self::LegacyNarrowAggregate => {
+                r#"
+                WITH active_volume_facts AS (
+                    SELECT volume_id, COUNT(id) AS active_entry_count,
+                           MAX(last_seen_at) AS max_last_seen_at
+                    FROM global_entries WHERE is_stale = 0 GROUP BY volume_id
+                )
+                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+                       COALESCE(active_volume_facts.active_entry_count, 0),
+                       active_volume_facts.max_last_seen_at
+                FROM global_volumes gv
+                LEFT JOIN active_volume_facts ON active_volume_facts.volume_id = gv.id
+                ORDER BY gv.id ASC
+            "#
+            }
             #[cfg(test)]
             Self::GroupByVolumeId => {
                 r#"
@@ -1042,13 +1062,14 @@ impl Database {
         let transaction = conn.transaction()?;
         let results =
             super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
-        let (source_health, source_revision) = load_snapshot_source_health(&transaction)?;
-        let index_status = global_index_status_from_connection(&transaction)?;
+        let source = load_snapshot_source_health(&transaction)?;
+        let index_status =
+            global_index_status_with_entry_count(&transaction, source.enabled_active_rows)?;
         transaction.commit()?;
         Ok(GlobalSearchSnapshot {
             results,
-            source_health,
-            source_revision,
+            source_health: source.source_health,
+            source_revision: source.source_revision,
             index_status,
         })
     }
@@ -1151,8 +1172,39 @@ fn with_source_health_candidate_override<T>(
     })
 }
 
+const GLOBAL_INDEX_STATUS_SQL: &str = r#"
+        SELECT
+            COALESCE(?1, (SELECT COUNT(*)
+             FROM global_entries entry
+             JOIN global_volumes volume ON volume.id = entry.volume_id
+             WHERE entry.is_stale = 0 AND volume.enabled = 1)),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_not_indexed'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'permission_required'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_unavailable'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
+            (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
+            (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
+        "#;
+
 fn global_index_status_from_connection(
     conn: &rusqlite::Connection,
+) -> Result<GlobalIndexStatus, DbError> {
+    global_index_status_with_entry_count(conn, None)
+}
+
+// Only Snapshot supplies a count, computed from its source facts in the same
+// read transaction. COALESCE short-circuits the entries scan when it is present;
+// standalone status callers still execute the original COUNT(*) join.
+fn global_index_status_with_entry_count(
+    conn: &rusqlite::Connection,
+    enabled_active_rows: Option<i64>,
 ) -> Result<GlobalIndexStatus, DbError> {
     let GlobalIndexStatusCounts {
         total_entries,
@@ -1170,27 +1222,8 @@ fn global_index_status_from_connection(
         last_sync_at,
         last_error,
     } = conn.query_row(
-        r#"
-        SELECT
-            (SELECT COUNT(*)
-             FROM global_entries entry
-             JOIN global_volumes volume ON volume.id = entry.volume_id
-             WHERE entry.is_stale = 0 AND volume.enabled = 1),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_not_indexed'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'permission_required'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_unavailable'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
-            (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
-            (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
-        "#,
-        [],
+        GLOBAL_INDEX_STATUS_SQL,
+        params![enabled_active_rows],
         |row| {
             Ok(GlobalIndexStatusCounts {
                 total_entries: row.get(0)?,
@@ -1255,12 +1288,22 @@ fn global_index_status_from_connection(
     })
 }
 
+struct SnapshotSourceHealth {
+    source_health: Vec<GlobalSearchSourceHealth>,
+    source_revision: String,
+    // COUNT(*) is private status data; canonical revision facts keep COUNT(id).
+    enabled_active_rows: Option<i64>,
+    #[cfg(test)]
+    revision_facts_json: Vec<u8>,
+}
+
 fn load_global_search_sources_from_connection(
     conn: &rusqlite::Connection,
-) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
+) -> Result<SnapshotSourceHealth, DbError> {
     let mut statement = conn.prepare(GLOBAL_SEARCH_SOURCE_HEALTH_SQL)?;
     let mut facts = Vec::new();
     let mut source_health = Vec::new();
+    let mut enabled_active_rows = 0;
     let rows = statement.query_map([], |row| {
         let source_id = row.get::<_, String>(0)?;
         let enabled = row.get::<_, i64>(1)? != 0;
@@ -1289,27 +1332,41 @@ fn load_global_search_sources_from_connection(
                 active_entry_count,
                 max_last_seen_at,
             },
+            row.get::<_, i64>(8)?,
         ))
     })?;
     for row in rows {
-        let (health, fact) = row?;
+        let (health, fact, active_rows) = row?;
+        enabled_active_rows += active_rows;
         source_health.push(health);
         facts.push(fact);
     }
     let serialized = serde_json::to_vec(&facts).unwrap_or_default();
     let revision = blake3::hash(&serialized).to_hex().to_string();
-    Ok((source_health, revision))
+    Ok(SnapshotSourceHealth {
+        source_health,
+        source_revision: revision,
+        enabled_active_rows: Some(enabled_active_rows),
+        #[cfg(test)]
+        revision_facts_json: serialized,
+    })
 }
 
 fn load_snapshot_source_health(
     conn: &rusqlite::Connection,
-) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
+) -> Result<SnapshotSourceHealth, DbError> {
     #[cfg(test)]
-    if let Some(candidate) =
-        GLOBAL_SEARCH_SOURCE_HEALTH_CANDIDATE_OVERRIDE.with(std::cell::Cell::get)
+    if let Some(candidate) = GLOBAL_SEARCH_SOURCE_HEALTH_CANDIDATE_OVERRIDE
+        .with(std::cell::Cell::get)
+        .filter(|candidate| *candidate != GlobalSearchSourceHealthQueryCandidate::NarrowAggregate)
     {
         let health = load_global_search_source_health_candidate(conn, candidate)?;
-        return Ok((health.source_health, health.source_revision));
+        return Ok(SnapshotSourceHealth {
+            source_health: health.source_health,
+            source_revision: health.source_revision,
+            enabled_active_rows: None,
+            revision_facts_json: health.revision_facts_json,
+        });
     }
 
     load_global_search_sources_from_connection(conn)
@@ -1368,6 +1425,34 @@ pub(crate) fn load_global_search_source_health_candidate(
 }
 
 #[cfg(test)]
+pub(crate) fn diagnostic_snapshot_status(
+    conn: &rusqlite::Connection,
+    count: Option<i64>,
+) -> Result<GlobalIndexStatus, DbError> {
+    global_index_status_with_entry_count(conn, count)
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_snapshot_status_sql() -> &'static str {
+    GLOBAL_INDEX_STATUS_SQL
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_snapshot_source_health(
+    conn: &rusqlite::Connection,
+) -> Result<(DiagnosticSourceHealth, i64), DbError> {
+    let source = load_global_search_sources_from_connection(conn)?;
+    Ok((
+        DiagnosticSourceHealth {
+            source_health: source.source_health,
+            source_revision: source.source_revision,
+            revision_facts_json: source.revision_facts_json,
+        },
+        source.enabled_active_rows.expect("production source count"),
+    ))
+}
+
+#[cfg(test)]
 pub(crate) fn diagnostic_compare_snapshot_queries_on_connection(
     conn: &rusqlite::Connection,
     query: &str,
@@ -1382,6 +1467,13 @@ pub(crate) fn diagnostic_compare_snapshot_queries_on_connection(
     )?;
     let candidate_source_health = load_global_search_source_health_candidate(conn, candidate)?;
     let index_status = global_index_status_from_connection(conn)?;
+    let candidate_index_status =
+        if candidate == GlobalSearchSourceHealthQueryCandidate::NarrowAggregate {
+            let (_, count) = diagnostic_snapshot_source_health(conn)?;
+            global_index_status_with_entry_count(conn, Some(count))?
+        } else {
+            index_status.clone()
+        };
     Ok((
         GlobalSearchSnapshot {
             results: results.clone(),
@@ -1393,7 +1485,7 @@ pub(crate) fn diagnostic_compare_snapshot_queries_on_connection(
             results,
             source_health: candidate_source_health.source_health,
             source_revision: candidate_source_health.source_revision,
-            index_status,
+            index_status: candidate_index_status,
         },
     ))
 }

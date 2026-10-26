@@ -561,7 +561,12 @@
 }
 
 .file-library-workspace[data-layout="compact"] .file-library-command-bar {
-  align-items: stretch;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-library-workspace[data-layout="compact"] :is(.file-library-history-controls, .file-library-nav-toggle, .file-library-view-switch, .file-library-context-toggle) span {
+  display: none;
 }
 
 .file-library-workspace[data-layout="compact"] .file-library-view-switch {
@@ -570,12 +575,16 @@
 
 .file-library-workspace[data-layout="compact"] .file-library-command-search {
   order: 5;
-  flex-basis: 100%;
+  flex: 1 1 260px;
+}
+
+.file-library-workspace[data-layout="compact"] .file-library-command-actions {
+  order: 6;
 }
 
 .file-library-workspace[data-layout="compact"] .file-library-command-target {
-  flex-basis: calc(100% - 8px);
-  order: 3;
+  flex: 1 1 70px;
+  order: 0;
   padding: 0 2px;
 }
 

@@ -273,8 +273,10 @@ export function BrowseMode() {
     >
       <header className="browse-mode-header">
         <div className="min-w-0">
-          <h2 className="browse-mode-title truncate text-base font-semibold">{t("fileLibraryBrowseTargetTitle")}</h2>
-          <p className="browse-mode-description">{t("fileLibraryBrowseTargetDesc")}</p>
+          <details className="browse-mode-help">
+            <summary>{t("fmBrowseHelp")}</summary>
+            <p className="browse-mode-description">{t("fileLibraryBrowseTargetDesc")}</p>
+          </details>
         </div>
         <div className="browse-mode-actions">
           <button className="browse-action" type="button" onClick={source.openLocationPicker}>

@@ -380,6 +380,9 @@ export function useBrowseSourceOwner({
   useEffect(() => {
     if (queryTargetKey === targetKey) return;
     setQueryTargetKey(targetKey);
+    // An admitted target can also arrive from Places, search or navigation.
+    // Close the picker only for a new target; opening it on this target stays local.
+    if (targetKey !== null) setShowLocationPicker(false);
     activeTargetKeyRef.current = targetKey;
     activeEnumerationKeyRef.current = null;
     const restoredQuery = state.workspace.session.presentation.browseQuery ?? { text: null, entryKind: "all" as const };

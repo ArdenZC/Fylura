@@ -40,7 +40,7 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
         const dot = name.lastIndexOf("."); const stem = dot > 0 ? name.slice(0, dot) : name; const ext = dot > 0 ? name.slice(dot) : "";
         let n = 2; do { name = `${stem} (${n++})${ext}`; target = `${request.destinationDirectory}/${name}`; } while (files.has(target) || reserved.has(target));
       }
-      const conflict = files.has(target) || reserved.has(target); reserved.add(target);
+      const conflict = files.has(target) || reserved.has(target); if (!skipped && !conflict) reserved.add(target);
       const preview = { id: `op-transfer-mock-${++serial}`, fileId: ticketId, operation_type: request.action, source_path: ticket.path, target_path: target, old_name: ticket.name, new_name: name, reason: "Browser fixture manual transfer", status: "pending", risk_level: "Normal", confidence: 1, requires_confirmation: true, suggested_action: request.action, is_executable: !conflict, operationFingerprint: `mock-${serial}` } as OperationPreview;
       return { ticketId, skipped, preview: conflict ? null : preview, error: conflict ? "transfer_target_exists" : null };
     });

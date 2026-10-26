@@ -4,6 +4,27 @@ Last verified: 2026-10-26
 
 ## Current execution truth
 
+- **U1 File Library UX and space utilization — Draft / Owner review pending.**
+  Base `master@8ffc7d04a8c392e28299445b845d39e606f43f5c` (normal CI
+  [40298939633](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40298939633)
+  SUCCESS). Main navigation can fully hide and restore through the existing
+  app UI preference store without remounting the workspace. Both shell columns
+  and the topbar adapt; File Library navigation remains independent. Frequent
+  transfer actions stay in a compact toolbar; selection tools, basket and Places
+  open on demand. A single nonmodal auxiliary panel hosts basket, grouped
+  favorite/recent locations and paged operation results without moving the list.
+  Transfer review separates destination, paged/scrolling rows, exclusive conflict
+  choices and fixed confirmation/progress; changing options invalidates consent.
+  Skipped sources no longer reserve batch destination names. Places admission
+  closes the old location picker only when a fresh target is accepted.
+  Acceptance: sidebar gains real width, preference survives routes/restart,
+  selection/session/preview remain intact, narrow light/dark transfer workflows
+  preserve backend preview/confirmation and outcomes. Browser mock checks cover
+  820/980/1280/1440/1600 widths, 680–720 heights, basket, Places, copy conflicts,
+  keyboard Cut/Paste and results. Native Windows/macOS GUI remains UNVERIFIED;
+  normal PR CI owns backend validation. No schema, identity, journal/Restore,
+  indexing/scheduling, AI, permission or CI policy change; no Full Validation.
+
 - **U1 File Management Workspace — complete workflow candidate / Draft Owner review pending.**
   Base `master@8e6179aad2a7cea25718ba0e4ebaf79d77834ffa`. Dependency order:
   backend [#470](https://github.com/ArdenZC/Zen-Canvas/pull/470), then its dependent

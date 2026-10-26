@@ -1255,6 +1255,13 @@ fn global_index_status_from_connection(
     })
 }
 
+#[cfg(test)]
+pub(crate) fn diagnostic_load_production_source_health(
+    conn: &rusqlite::Connection,
+) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
+    load_global_search_sources_from_connection(conn)
+}
+
 fn load_global_search_sources_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {

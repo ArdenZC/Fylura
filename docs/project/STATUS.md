@@ -31,6 +31,19 @@ Last verified: 2026-10-27
   CI gate or performance threshold change; no Full Validation or million-file run.
 
 
+- **Global Search covering-index repair — READY_FOR_OWNER_REVIEW / Draft; performance not fully qualified.**
+  Latest integrated base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`,
+  Schema 42→43. [Draft #473](https://github.com/ArdenZC/Zen-Canvas/pull/473)
+  rebuilds Name order coverage and adds active Source Facts coverage. Production
+  search/source/status SQL, COUNT(id), revision/hash and read transaction remain
+  intact. One generated fixture plus controlled copies at each of 100k and 1M:
+  12/12 correctness and both covering plans pass. Source/integration CI pass.
+  1M pooled p95 passes 10/12 in every variant; FTS report/invoice remain above
+  the unchanged 100ms target. Retain 100k punctuation Snapshot and 1M extension
+  pooled p99 regressions; no blanket tail acceptance. OPEN/Draft, unmerged;
+  no extra 1M run or Codex Review. Owner decides merge/next phase. See
+  [paired data, plans, costs and migration risks](../research/GLOBAL_SEARCH_COVERING_INDEX_REPAIR.md).
+
 - **U1 File Library UX and space utilization — MERGED #472; native GUI acceptance UNVERIFIED.**
   Base `master@8ffc7d04a8c392e28299445b845d39e606f43f5c` (normal CI
   [40298939633](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40298939633)

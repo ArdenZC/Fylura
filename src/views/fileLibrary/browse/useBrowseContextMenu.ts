@@ -15,7 +15,7 @@ type BrowseContextSource = Pick<
   "entries" | "focusedId" | "selectedIds" | "selectEntry"
 >;
 
-type CloseReason = "escape" | "outside-pointer" | "action" | "source-change";
+type CloseReason = "escape" | "outside-pointer" | "action" | "source-change" | "dialog-handoff";
 
 export function useBrowseContextMenu({
   source,
@@ -65,7 +65,7 @@ export function useBrowseContextMenu({
   ) => {
     const restoreTarget = contextMenu?.restoreFocusElement ?? null;
     setContextMenu(null);
-    if (reason === "source-change") return;
+    if (reason === "source-change" || reason === "dialog-handoff") return;
     requestAnimationFrame(() => {
       if (reason === "outside-pointer") {
         const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;

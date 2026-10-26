@@ -16,6 +16,7 @@ import {
   type FileLibraryCommandBarSurface,
   type FileLibraryCommandBarSurfaceOwner
 } from "./fileLibraryCommandBarSurface";
+import { FileManagementToolbar } from "./management/FileManagementToolbar";
 import "./fileLibraryWorkspace.css";
 
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
@@ -143,6 +144,7 @@ export function FileLibraryWorkspace() {
               t={t}
             />
 
+            <FileManagementToolbar />
             <ContextPanelPresentationProvider layout={layout}>
               <div className="file-library-workspace-body">
                 <aside

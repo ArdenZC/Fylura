@@ -305,8 +305,8 @@ describe("spotlight search navigation", () => {
     expect(appShell).toContain("useFileLibraryInspectorStore");
     expect(appShell).toContain("activateFileLibraryFile={activateFileLibraryFile}");
     expect(commandModal).toContain("activateFileLibraryFile?.(fileId)");
-    expect(runtimeProviders).toContain("projectAcceptedFileLibraryActivation");
-    expect(runtimeProviders).toContain("requestSettingsSection,\n              activateFileLibraryFile");
+    expect(appShell).toContain("projectAcceptedFileLibraryActivation");
+    expect(runtimeProviders).toMatch(/requestSettingsSection,\s+activateFileLibraryFile/);
   });
 
   it("acknowledges Rust-owned main-window navigation readiness", () => {

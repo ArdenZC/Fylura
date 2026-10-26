@@ -283,7 +283,10 @@ fn parse_search_cursor(cursor: &str) -> Result<u32, String> {
         .map_err(|_| "global_search_cursor_invalid".to_string())
 }
 
-fn revalidated_global_entry(db: &Database, entry_id: &str) -> Result<GlobalEntry, String> {
+pub(crate) fn revalidated_global_entry(
+    db: &Database,
+    entry_id: &str,
+) -> Result<GlobalEntry, String> {
     if entry_id.trim().is_empty() || entry_id.len() > 256 {
         return Err("global_search_entry_id_invalid".to_string());
     }
@@ -557,5 +560,106 @@ mod tests {
         assert!(!trusted_global_provider("renderer-cache"));
         assert!(path_is_same_or_child("/volume/reports/a.txt", "/volume"));
         assert!(!path_is_same_or_child("/volume-escape/a.txt", "/volume"));
+    }
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn global_search_parent_browse_reuses_admission_and_rejects_stale_sources() {
+        use crate::file_workspace::integration::{types::BrowseOpenRequest, FileWorkspaceRuntime};
+        use crate::file_workspace::WorkspacePlatform;
+        use crate::platform::macos::quick_look::MacThumbnailService;
+        let root = std::env::temp_dir().join(format!("u1-s1-{}", uuid::Uuid::new_v4()));
+        let parent = root.join("fixtures");
+        fs::create_dir_all(parent.join("child-folder")).unwrap();
+        fs::write(parent.join("target.txt"), b"owned fixture").unwrap();
+        let db = Database::open(root.join("index.sqlite3")).unwrap();
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.mount_path = parent.to_string_lossy().into_owned();
+        volume.provider = PROVIDER_RECURSIVE_FALLBACK.into();
+        db.upsert_global_volume(&volume).unwrap();
+        let runtime = FileWorkspaceRuntime::new(
+            db.clone(),
+            MacThumbnailService::new(root.join("legacy")),
+            root.join("cache"),
+        )
+        .unwrap();
+        let platform = if cfg!(windows) {
+            WorkspacePlatform::Windows
+        } else {
+            WorkspacePlatform::Macos
+        };
+        for name in ["target.txt", "child-folder"] {
+            let path = parent.join(name);
+            let mut input =
+                GlobalEntryInput::from_path(&volume.id, &path, PROVIDER_RECURSIVE_FALLBACK);
+            // Native platform IDs exercise exact-object focus; path fallback
+            // deliberately exercises parent-only routing on other platforms.
+            let native_id = live_native_file_id(&input.path, &fs::symlink_metadata(&path).unwrap());
+            if let Some(id) = &native_id {
+                input.platform_file_id = id.clone();
+            }
+            db.upsert_global_entries_batch(&[input.clone()]).unwrap();
+            let result = db
+                .search_global_entries_snapshot(name, 10, 0)
+                .unwrap()
+                .results
+                .remove(0);
+            let request = || BrowseOpenRequest {
+                platform,
+                routing_hint: "renderer-forged-path".into(),
+                display_hint: Some("forged".into()),
+                global_entry_id: Some(result.id.clone()),
+            };
+            let opened = runtime.open_browse(request()).unwrap();
+            let page = opened.initial_page.as_ref().unwrap();
+            assert!(page.entries.iter().any(|entry| entry.name == name));
+            if native_id.is_some() {
+                let focused = opened.focus_entry_ref.as_ref().unwrap();
+                let resolved = runtime.inner.browse.resolve_entry(focused).unwrap();
+                assert_eq!(resolved.path, path);
+            } else {
+                assert!(opened.focus_entry_ref.is_none());
+            }
+            assert_ne!(opened.location.display_name, "forged");
+            assert_ne!(
+                opened.session_id,
+                runtime.open_browse(request()).unwrap().session_id
+            );
+            db.set_global_volume_enabled(&volume.id, false).unwrap();
+            assert_eq!(
+                runtime.open_browse(request()).unwrap_err(),
+                "global_search_source_disabled"
+            );
+            db.set_global_volume_enabled(&volume.id, true).unwrap();
+            db.mark_global_entry_stale(&result.id).unwrap();
+            assert_eq!(
+                runtime.open_browse(request()).unwrap_err(),
+                "global_search_result_not_found"
+            );
+            db.upsert_global_entries_batch(&[input]).unwrap();
+            fs::rename(&path, parent.join(format!("retired-{name}"))).unwrap();
+            assert_eq!(
+                runtime.open_browse(request()).unwrap_err(),
+                "global_search_result_missing"
+            );
+            if name.ends_with(".txt") {
+                fs::write(&path, b"replacement").unwrap();
+                if native_id.is_some() {
+                    assert_eq!(
+                        runtime.open_browse(request()).unwrap_err(),
+                        "global_search_result_identity_changed"
+                    );
+                } else {
+                    assert!(runtime
+                        .open_browse(request())
+                        .unwrap()
+                        .focus_entry_ref
+                        .is_none());
+                }
+            }
+        }
+        runtime.dispose();
+        drop(runtime);
+        drop(db);
+        fs::remove_dir_all(root).unwrap();
     }
 }

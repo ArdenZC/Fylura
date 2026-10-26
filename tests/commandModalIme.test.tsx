@@ -172,6 +172,7 @@ describe("mounted CommandModal IME behavior", () => {
     vi.spyOn(tauriApi, "hideSearchWindow").mockResolvedValue({ sessionId: 1, revision: 3, phase: "hidden" });
     const open = vi.spyOn(tauriApi, "openGlobalSearchResult").mockResolvedValue();
     const reveal = vi.spyOn(tauriApi, "revealGlobalSearchResult").mockResolvedValue();
+    const activation = vi.spyOn(tauriApi, "activateSearchResult").mockRejectedValue(new Error("search_navigation_rejected"));
     const inputRef = { current: null } as RefObject<HTMLInputElement | null>;
     await act(async () => {
       root = createRoot(container);
@@ -208,6 +209,12 @@ describe("mounted CommandModal IME behavior", () => {
     expect(reveal).toHaveBeenCalledWith("owned-fixture-id");
     await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
     expect(open).toHaveBeenCalledWith("owned-fixture-id");
+    const libraryAction = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes(t("globalSearchShowInLibrary")))!;
+    expect(libraryAction).toBeTruthy();
+    await act(async () => { libraryAction.click(); });
+    expect(activation).toHaveBeenCalledWith("library", null, expect.objectContaining({ sessionId: 1 }), null, "owned-fixture-id");
+    expect(container.textContent).toContain(t("globalSearchLibraryFailed"));
+    expect(input.readOnly).toBe(false);
     expect(Object.keys(tauriApi)).not.toContain("rebuildGlobalIndexSource");
     expect(Object.keys(tauriApi)).not.toContain("setGlobalIndexSourceEnabled");
   });

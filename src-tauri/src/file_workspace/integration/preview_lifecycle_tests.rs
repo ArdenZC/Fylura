@@ -373,6 +373,7 @@ fn run_lifecycle_race(action: LifecycleAction) {
     let (browse_session_id, preview_source) = if action == LifecycleAction::BrowseTeardown {
         let opened = runtime
             .open_browse(BrowseOpenRequest {
+                global_entry_id: None,
                 platform: platform(),
                 routing_hint: fixture.root.to_string_lossy().into_owned(),
                 display_hint: Some("Preview race fixture".to_string()),

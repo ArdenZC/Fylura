@@ -217,7 +217,7 @@ describe("app render architecture", () => {
     );
     const hotkeyFailureIndex = runtimeProviders.indexOf("tauriApi.onGlobalHotkeyRegistrationFailed");
     const searchNavigateHandler = read("src/hooks/useSearchNavigationHandoff.ts");
-    expect(runtimeProviders).toContain("useSearchNavigationHandoff(isSearchMode,");
+    expect(read("src/components/AppShell.tsx")).toContain("{!isSearchMode && <SearchLibraryHandoff />}");
     const hotkeyFailureHandler = runtimeProviders.slice(
       runtimeProviders.lastIndexOf("useEffect", hotkeyFailureIndex),
       runtimeProviders.indexOf("const setCloseBehavior")

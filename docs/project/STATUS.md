@@ -1,8 +1,24 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-25
+Last verified: 2026-10-26
 
 ## Current execution truth
+
+- **U1-S1 Global Search → File Library — Draft / Owner review pending (#468).**
+  Base `master@648107ae22826d9dbb3b41d767ffabd0ee44d1a7`.
+  Search results expose Show in File Library; the existing Main/standalone
+  activation handshake carries only the Global Index ID. Main revalidates the
+  result and source, then reuses BrowseService and the existing experience
+  controller for fresh parent-directory admission. A bounded initial Browse
+  page selects/focuses only a matching native object; path-only identities or
+  targets outside that page navigate parent-only without false selection.
+  Rejected/stale/expired admission leaves the previous File Library state intact.
+  Enter/open, Ctrl+Enter/Explorer Reveal and IME behavior remain on existing paths.
+  No scan/index activation, managed-ID promotion, file mutation, permission,
+  schema, F1, multi-pane or CI workflow change. Focused frontend and browser-mock
+  checks provide functional evidence; normal PR CI owns Windows/macOS backend
+  validation. Native GUI acceptance remains Owner-owned; no installer or release
+  qualification is claimed.
 
 - **M1-W2 runtime reconciliation wake — Draft / Owner review and Windows native recheck pending (#381, #462).**
   Base `master@872513e4bf3105505460ce106b87cf81476fc2eb`, tree

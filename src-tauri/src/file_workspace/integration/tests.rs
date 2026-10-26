@@ -210,6 +210,7 @@ fn platform() -> WorkspacePlatform {
 
 fn open_request(fixture: &Fixture) -> BrowseOpenRequest {
     BrowseOpenRequest {
+        global_entry_id: None,
         platform: platform(),
         routing_hint: fixture.root.to_string_lossy().into_owned(),
         display_hint: Some("Integration fixture".to_string()),
@@ -581,6 +582,7 @@ fn location_browse_rejects_unknown_forged_disposed_and_unavailable_refs() {
     fs::create_dir(&unavailable_root).expect("unavailable source root");
     let unavailable_source = runtime
         .open_browse(BrowseOpenRequest {
+            global_entry_id: None,
             platform: platform(),
             routing_hint: unavailable_root.to_string_lossy().into_owned(),
             display_hint: Some("Unavailable source".to_string()),

@@ -39,7 +39,8 @@ import { formatDate } from "../utils/format";
 import { cn, focusVisibleState, selectedFocusVisibleState, selectedSurface, statusToast, toastTone } from "../utils/tw";
 import { libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
-import { FileLibraryExperienceProvider } from "../views/fileLibrary/FileLibraryExperienceProvider";
+import { useSearchNavigationHandoff } from "../hooks/useSearchNavigationHandoff";
+import { FileLibraryExperienceProvider, useFileLibraryExperience } from "../views/fileLibrary/FileLibraryExperienceProvider";
 import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
 import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
 
@@ -121,6 +122,7 @@ export function AppShell() {
 
   return (
     <FileLibraryExperienceProvider active={!isSearchMode && view === "library"}>
+      {!isSearchMode && <SearchLibraryHandoff />}
       {isSearchMode ? <SearchWindow /> : (
         <div className={appRoot} data-density={density}>
           <AmbientMesh />
@@ -206,6 +208,7 @@ function CommandLauncher({
   const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
   const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
+  const openGlobalEntry = useOpenSearchParent();
   const activateFileLibraryFile = useCallback(
     (fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
       setExplicitSelection: useFileLibrarySelectionStore.getState().setExplicit,
@@ -223,6 +226,7 @@ function CommandLauncher({
       inputRef={commandInputRef}
       setView={setView}
       setSelectedFileId={setSelectedFileId}
+      openGlobalEntry={openGlobalEntry}
       activateFileLibraryFile={activateFileLibraryFile}
       onClose={closeCommand}
       platform={platform}
@@ -578,4 +582,28 @@ function sidebarMode(
   if (mode === "disabled") return { id: mode, title: t("modeAIDisabled"), description: t("modeAIDisabledDesc") };
   if (mode === "local") return { id: mode, title: t("modeAILocal"), description: t("modeAILocalDesc") };
   return { id: mode, title: t("modeAICloud"), description: t("modeAICloudDesc") };
+}
+
+function useOpenSearchParent() {
+  const { controller } = useFileLibraryExperience();
+  const { platform } = useCommandContext();
+  return useCallback(async (id: string, accept: () => boolean | Promise<boolean>) => {
+    if (platform !== "win32" && platform !== "darwin" && platform !== "browser") return false;
+    return (await controller.openBrowse({
+      platform: platform === "darwin" ? "macos" : "windows",
+      routingHint: "", globalEntryId: id
+    }, accept)) !== null;
+  }, [controller, platform]);
+}
+
+function SearchLibraryHandoff() {
+  const setView = useAppStore((state) => state.setView);
+  const showError = useAppStore((state) => state.showError);
+  const openGlobalEntry = useOpenSearchParent();
+  const activateFile = useCallback((fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
+    setExplicitSelection: useFileLibrarySelectionStore.getState().setExplicit,
+    loadDetail: useFileLibraryInspectorStore.getState().loadDetail
+  }), []);
+  useSearchNavigationHandoff(false, setView, activateFile, showError, openGlobalEntry);
+  return null;
 }

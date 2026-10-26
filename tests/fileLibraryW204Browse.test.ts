@@ -644,3 +644,32 @@ describe("W2-04 Browse source owner contracts", () => {
     expect(list).not.toContain("displayPath.split");
   });
 });
+
+describe("Search admission Browse projection", () => {
+  it.each([true, false])("uses only fresh enumeration authority and selects only with a verified ref (%s)", async (verified) => {
+    const initialPage = pageFor("search-session", "search-admission", "search-target");
+    const response = { ...browseResponse("search-session", false), initialPage,
+      ...(verified ? { focusEntryRef: initialPage.entries[0]!.ref } : {}) };
+    const fixture = sourceOwnerApi({ canWatch: false, responses: [response] });
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => { await mounted.experience.openBrowse({ platform: "windows", routingHint: "", globalEntryId: "index-id" }); });
+    await settleSourceOwner();
+    expect(fixture.browseStartEnumeration).not.toHaveBeenCalled();
+    expect(mounted.source().entries).toHaveLength(1);
+    expect(mounted.source().selectedCount).toBe(verified ? 1 : 0);
+    expect(mounted.source().focusedId).toBe(verified ? initialPage.entries[0]!.ref.entryId : null);
+    await act(async () => { await mounted.source().refreshEnumeration(); });
+    expect(fixture.browseStartEnumeration).toHaveBeenCalledOnce();
+    expect(mounted.source().selectedCount).toBe(0);
+  });
+  it("ignores a ref outside the admitted enumeration", async () => {
+    const initialPage = pageFor("search-session", "search-admission", "search-target");
+    const response = { ...browseResponse("search-session", false), initialPage,
+      focusEntryRef: { ...initialPage.entries[0]!.ref, browseSessionId: "other-session" } };
+    const fixture = sourceOwnerApi({ canWatch: false, responses: [response] });
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => { await mounted.experience.openBrowse({ platform: "windows", routingHint: "", globalEntryId: "index-id" }); });
+    await settleSourceOwner();
+    expect(mounted.source().selectedCount).toBe(0);
+  });
+});

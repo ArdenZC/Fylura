@@ -25,8 +25,23 @@ export const windowApi = {
   enterBackground(lastView: View): Promise<void> {
     return invokeCommand<void>("enter_background", { lastView });
   },
-  activateSearchResult(view: View, fileId: string | null, snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">, settingsTarget?: SearchSettingsTarget | null): Promise<void> {
-    return invokeCommand<void>("activate_search_result", { request: { sessionId: snapshot?.sessionId ?? null, expectedRevision: snapshot?.revision ?? null, view, fileId, settingsTarget: settingsTarget ?? null } });
+  activateSearchResult(
+    view: View,
+    fileId: string | null,
+    snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">,
+    settingsTarget?: SearchSettingsTarget | null,
+    globalEntryId?: string
+  ): Promise<void> {
+    return invokeCommand<void>("activate_search_result", {
+      request: {
+        sessionId: snapshot?.sessionId ?? null,
+        expectedRevision: snapshot?.revision ?? null,
+        view,
+        fileId,
+        settingsTarget: settingsTarget ?? null,
+        ...(globalEntryId === undefined ? {} : { globalEntryId })
+      }
+    });
   },
   getSearchWindowState(): Promise<SearchWindowSnapshot> {
     return invokeCommand<SearchWindowSnapshot>("get_search_window_state");

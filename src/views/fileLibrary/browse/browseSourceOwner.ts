@@ -209,6 +209,7 @@ export function useBrowseSourceOwner({
   const activeTargetKeyRef = useRef<string | null>(null);
   const [queryTargetKey, setQueryTargetKey] = useState<string | null>(null);
   const activeEnumerationKeyRef = useRef<string | null>(null);
+  const consumedAdmissionPageRef = useRef<BrowsePage | null>(null);
   const activeChangeTargetKeyRef = useRef<string | null>(null);
   const selectionAnchorRef = useRef<string | null>(null);
   const locationLoadStartedRef = useRef(false);
@@ -398,8 +399,25 @@ export function useBrowseSourceOwner({
     const enumerationKey = `${targetKey}:${JSON.stringify(query)}`;
     if (activeEnumerationKeyRef.current === enumerationKey) return;
     activeEnumerationKeyRef.current = enumerationKey;
+    const initial = browse.initialPage;
+    if (initial && consumedAdmissionPageRef.current !== initial && state.workspace.page === initial
+      && currentPathRef.id === browse.rootPathRef.id
+      && !query.text && query.entryKind === "all") {
+      consumedAdmissionPageRef.current = initial;
+      const generation = prepareEnumerationPublication();
+      mergePage(initial, generation, targetKey);
+      const focus = browse.focusEntryRef;
+      const targetEntry = focus && initial.entries.find((entry) =>
+        entry.ref.browseSessionId === focus.browseSessionId && entry.ref.entryId === focus.entryId);
+      if (targetEntry) {
+        setSelectedIds(new Set([targetEntry.ref.entryId]));
+        setFocusedId(targetEntry.ref.entryId);
+        selectionAnchorRef.current = targetEntry.ref.entryId;
+      }
+      return;
+    }
     void beginEnumeration(currentPathRef, targetKey, query);
-  }, [beginEnumeration, browse, currentPathRef, query, queryTargetKey, sessionId, state.mode, target, targetKey]);
+  }, [beginEnumeration, browse, currentPathRef, mergePage, prepareEnumerationPublication, query, queryTargetKey, sessionId, state.mode, state.workspace.page, target, targetKey]);
 
   useEffect(() => {
     if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null || currentPathRef === null) {

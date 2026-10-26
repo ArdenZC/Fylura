@@ -166,17 +166,28 @@ export class FileWorkspaceController {
     return () => this.listeners.delete(listener);
   }
 
-  async openBrowse(request: BrowseOpenRequest): Promise<BrowseOpenResponse | null> {
-    if (this.suspendedValue || this.session.disposed) return null;
+  async openBrowse(request: BrowseOpenRequest, accept: () => boolean | Promise<boolean> = () => true): Promise<BrowseOpenResponse | null> {
+    const searchAdmission = request.globalEntryId !== undefined;
+    if ((this.suspendedValue && !searchAdmission) || this.session.disposed) return null;
+    if (searchAdmission && this.suspensionPromise) await this.suspensionPromise;
+    if (this.session.disposed || (searchAdmission && !(await accept()))) return null;
     const token = this.session.beginRequest();
     const response = await this.api.browseOpen(request);
-    if (!this.session.canPublish(token)) {
+    let accepted: boolean;
+    try {
+      accepted = await accept();
+    } catch (error) {
+      this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
+      throw error;
+    }
+    if (!accepted || !this.session.canPublish(token)) {
       this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
       return null;
     }
+    if (searchAdmission) this.suspendedValue = false;
     return this.publishBrowseAdmission(
       response,
-      browseRestoreLocator(request),
+      searchAdmission ? undefined : browseRestoreLocator(request),
       token,
       false
     );
@@ -758,6 +769,7 @@ export class FileWorkspaceController {
     this.updateBrowseHistoryOwnership();
     this.finalizeBrowseHistoryOwnership();
     this.browseResponse = response;
+    if (response.initialPage) this.publishPage(response.initialPage);
     this.emit();
     return response;
   }

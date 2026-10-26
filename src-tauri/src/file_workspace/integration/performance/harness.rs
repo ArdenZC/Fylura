@@ -100,6 +100,7 @@ pub(super) fn try_open_path(
     display_hint: &str,
 ) -> Result<crate::file_workspace::integration::types::BrowseOpenResponse, String> {
     runtime.open_browse(BrowseOpenRequest {
+        global_entry_id: None,
         platform: platform(),
         routing_hint: path.to_string_lossy().into_owned(),
         display_hint: Some(display_hint.to_string()),

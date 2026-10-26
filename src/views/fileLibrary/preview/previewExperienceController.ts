@@ -417,6 +417,13 @@ export class PreviewExperienceController {
     return true;
   }
 
+  /** Release the existing preview owner before a confirmed namespace operation. */
+  async closeForFileOperation() {
+    const previewId = this.stateValue.previewId;
+    this.close("button");
+    if (previewId !== null) await this.workspace.disposePreview(previewId);
+  }
+
   restoreFocusTarget() {
     if (isRestorableFocusTarget(this.originFocus)) return this.originFocus;
     return document.querySelector<HTMLElement>(

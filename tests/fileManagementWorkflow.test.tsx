@@ -1,0 +1,99 @@
+// @vitest-environment happy-dom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeTranslator } from "../src/i18n";
+import { FileManagementToolbar } from "../src/views/fileLibrary/management/FileManagementToolbar";
+import { useFileManagementStore } from "../src/views/fileLibrary/management/fileManagementStore";
+import { fileManagementApi as api, type TransferTicket, type TransferPreview } from "../src/api/fileManagementApi";
+import { tauriApi } from "../src/api/tauriApi";
+import type { OperationLog } from "../src/types/domain";
+const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), refreshHistory: vi.fn(async () => []) }));
+vi.mock("../src/contexts/AppContexts", async () => {
+  const { makeTranslator } = await import("../src/i18n"); const t = makeTranslator("en");
+  return { useI18nContext: () => ({ t, language: "en" }), useChromeContext: () => ({ platform: "win32" }), useNavigationContext: () => ({ setView: vi.fn() }) };
+});
+vi.mock("../src/views/fileLibrary/FileLibraryExperienceProvider", () => ({ useFileLibraryExperience: () => ({ controller: { openBrowse: mocks.navigate } }) }));
+vi.mock("../src/views/fileLibrary/preview/PreviewExperienceProvider", () => ({ usePreviewExperience: () => ({ controller: { close: mocks.close, closeForFileOperation: mocks.close } }) }));
+vi.mock("../src/store/useOperationQueueStore", () => ({ useOperationQueueStore: { getState: () => ({ refreshOperationLogs: mocks.refreshHistory }) } }));
+const t = makeTranslator("en");
+const tickets: TransferTicket[] = [{id:"one",name:"one.txt",path:"C:/Source/one.txt",isDirectory:false},{id:"two",name:"two.txt",path:"C:/Other/two.txt",isDirectory:false}];
+function plan(): TransferPreview { return { id: "authority-preview", destinationDirectory: "C:/Target", rows: tickets.map((ticket) => ({ticketId: ticket.id, error: null, skipped: false, preview: { id: `op-${ticket.id}`, fileId: ticket.id, operation_type:"copy",source_path:ticket.path,target_path:`C:/Target/${ticket.name}`,old_name:ticket.name,new_name:ticket.name,status:"pending",risk_level:"Normal",confidence:1,requires_confirmation:true,suggested_action:"Copy",reason:"manual",operationFingerprint:"bound-proof"} })) }; }
+function result(statuses: string[]): OperationLog[] { return tickets.map((ticket,index) => ({ id:`log-${ticket.id}`,batch_id:"batch",operation_type:"move",source_path:ticket.path,target_path:`C:/Target/${ticket.name}`,old_name:ticket.name,new_name:ticket.name,status:statuses[index],error_message:statuses[index]==="failed"?"source_locked":null,created_at:"2026-10-26",can_undo:false,path_before:ticket.path,path_after:`C:/Target/${ticket.name}`,name_before:ticket.name,name_after:ticket.name,can_restore:false,restored_at:null,restore_status:"not_restored",restore_error:null } as OperationLog)); }
+let root: Root; let host: HTMLDivElement;
+const refresh = vi.fn(async () => undefined); const clear = vi.fn();
+const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text)!;
+async function click(text: string) { await act(async () => { button(text).click(); }); }
+async function render() { await act(async () => { root.render(<FileManagementToolbar/>); }); }
+beforeEach(() => {
+  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  document.body.innerHTML = '<main id="app-shell-content"></main>'; host = document.createElement("div"); document.body.querySelector("main")!.appendChild(host); root = createRoot(host);
+  vi.spyOn(api,"captureTransfer").mockResolvedValue(tickets);
+  vi.spyOn(api,"fileLibraryPlaces").mockResolvedValue([{id:"place",name:"Target",routingHint:"C:/Target",favorite:true,current:true,visitedAt:1,unavailable:false}]);
+  vi.spyOn(api,"previewTransfer").mockResolvedValue(plan());
+  vi.spyOn(api,"executeTransfer").mockResolvedValue({batch_id:"batch",logs:result(["success","success"])});
+  vi.spyOn(tauriApi,"onOperationProgress").mockResolvedValue(() => undefined);
+  vi.spyOn(tauriApi,"cancelOperations").mockResolvedValue();
+  useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},refresh,clear}),basket:[],clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null});
+  refresh.mockClear();clear.mockClear();mocks.close.mockClear();
+});
+afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
+describe("File Library manual management workflow", () => {
+  it.each(["Control", "Meta"])("uses backend IDs for %s shortcuts, leaves text editing alone, and confirms only a prepared preview", async (modifier) => {
+    await render();
+    const input=document.createElement("input");document.body.appendChild(input);input.focus();
+    await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown",{key:"c",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
+    expect(api.captureTransfer).not.toHaveBeenCalled();
+    await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown",{key:"c",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
+    expect(api.captureTransfer).toHaveBeenCalledWith({selection:{kind:"explicit",fileIds:["managed-one","managed-two"]}});
+    await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown",{key:"v",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();expect(api.executeTransfer).not.toHaveBeenCalled();
+    expect(button(t("fmConfirm")).disabled).toBe(true);
+    await click(t("fmPrepare"));expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
+    await click(t("fmConfirm"));expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
+    expect(refresh).toHaveBeenCalledOnce();expect(clear).toHaveBeenCalledOnce();expect(mocks.close).toHaveBeenCalled();
+  });
+  it("waits for preview handle release before invoking a mutation", async () => {
+    useFileManagementStore.setState({clipboard:{action:"copy",tickets}});
+    let release!: () => void;
+    mocks.close.mockImplementationOnce(() => new Promise<void>((resolve) => { release=resolve; }));
+    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare")); await click(t("fmConfirm"));
+    expect(api.executeTransfer).not.toHaveBeenCalled();
+    await act(async () => { release(); });
+    expect(api.executeTransfer).toHaveBeenCalledOnce();
+  });
+  it("cancels preview preparation without canceling unrelated file operations", async () => {
+    useFileManagementStore.setState({clipboard:{action:"copy",tickets}});
+    let resolve!: (value: TransferPreview) => void;
+    vi.mocked(api.previewTransfer).mockImplementationOnce(() => new Promise((r) => { resolve=r; }));
+    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare")); await click(t("fmCancel"));
+    expect(tauriApi.cancelOperations).not.toHaveBeenCalled();
+    await act(async () => { resolve(plan()); });
+    expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(api.executeTransfer).not.toHaveBeenCalled();
+  });
+
+  it.each(["failed", "skipped"])("keeps %s cut/basket references after partial success and requests normal cancellation", async (remainingStatus) => {
+    useFileManagementStore.setState({basket:tickets,clipboard:{action:"move",tickets},basketOpen:true});
+    let resolve!: (value: any) => void;vi.mocked(api.executeTransfer).mockImplementation(() => new Promise((r)=>{resolve=r;}));
+    await render();await click(`${t("fmPaste")} (2)`);await click(t("fmPrepare"));
+    await click(t("fmConfirm"));await click(t("fmCancelRunning"));expect(tauriApi.cancelOperations).toHaveBeenCalledOnce();
+    await act(async()=>{resolve({batch_id:"batch",logs:result(["success",remainingStatus])});});
+    expect(useFileManagementStore.getState().basket.map((ticket)=>ticket.id)).toEqual(["two"]);
+    expect(useFileManagementStore.getState().clipboard?.tickets.map((ticket)=>ticket.id)).toEqual(["two"]);
+    expect(useFileManagementStore.getState().statuses.two).toContain(remainingStatus === "failed" ? "source_locked" : t("fmSkipped"));
+  });
+  it("blocks stale/conflicting references, invalidates consent when options change, and cancels without execute", async()=>{
+    useFileManagementStore.setState({basket:tickets,basketOpen:true});
+    const conflict=plan();conflict.rows[0]={ticketId:"one",preview:null,error:"transfer_source_changed",skipped:false};
+    vi.mocked(api.previewTransfer).mockResolvedValue(conflict);
+    await render();await click(t("fmCopyBasket"));await click(t("fmPrepare"));
+    expect(button(t("fmConfirm")).disabled).toBe(true);expect(document.body.textContent).toContain(t("fmStale"));
+    expect(useFileManagementStore.getState().statuses.one).toContain(t("fmStale"));
+    await click(t("fmCancel"));expect(api.executeTransfer).not.toHaveBeenCalled();expect(useFileManagementStore.getState().basket).toHaveLength(2);
+  });
+  it("marks unavailable favorite locations and keeps them out of destination selection", async()=>{
+    vi.mocked(api.fileLibraryPlaces).mockResolvedValue([{id:"offline",name:"Offline disk",routingHint:"Z:/Gone",favorite:true,current:false,visitedAt:1,unavailable:true}]);
+    await render();await click(t("fmPlaces"));expect(document.body.textContent).toContain(t("fmUnavailable"));
+    const offline=[...document.querySelectorAll<HTMLButtonElement>("button")].find((b)=>b.textContent?.includes("Offline disk"))!;expect(offline.disabled).toBe(true);expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+});

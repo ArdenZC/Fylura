@@ -1,4 +1,4 @@
-import { isManagementCommand, managementMock } from "./fileManagementMock";
+import { isManagementCommand, managementMock, managementHistory } from "./fileManagementMock";
 import { resolveManagementMockEntry, resolveManagementMockLocation } from "./fileWorkspaceMockApi";
 import { createAutomationMock } from "./automationMock";
 import type {
@@ -1156,7 +1156,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "resolve_operation_recovery":
       return mockResolveOperationRecovery(args) as T;
     case "get_operation_logs":
-      return mockOperationLogs().slice(0, Number(args?.limit ?? 500)) as T;
+      return [...managementHistory, ...mockOperationLogs()].slice(0, Number(args?.limit ?? 500)) as T;
     case "get_operation_previews_for_scope":
       return mockOperationPreviews(args) as T;
     case "get_operation_previews_by_file_ids": {

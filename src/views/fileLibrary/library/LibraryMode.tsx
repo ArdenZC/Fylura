@@ -35,6 +35,8 @@ import {
   useRegisterLibraryNavigationSurface
 } from "./libraryNavigationSurface";
 import { useFileLibraryLibrarySearchSurface } from "../fileLibraryCommandBarSurface";
+import { useFileManagementStore } from "../management/fileManagementStore";
+import { useLibraryManagementSurface } from "../management/useManagementSurfaces";
 import "./libraryMode.css";
 
 /**
@@ -50,6 +52,8 @@ export function LibraryMode() {
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
+  useLibraryManagementSurface(source);
+
   const currentTarget = experienceState.workspace.session.currentTarget;
   useRegisterLibraryNavigationSurface({
     controller,
@@ -59,7 +63,6 @@ export function LibraryMode() {
     locations: experienceState.workspace.locations
   });
   useApplyLibraryNavigationTarget({ currentTarget, source });
-  const [manualMode, setManualMode] = useState<"rename" | "move">("rename");
   const [renameFile, setRenameFile] = useState<FileLibrarySummary | null>(null);
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -212,13 +215,6 @@ export function LibraryMode() {
     const context = contextMenu;
     closeContextMenu("dialog-handoff");
     await content.openContentForFile(fileId, context?.restoreFocusElement ?? undefined);
-  }
-
-  function openManualFileOperation(file: FileLibrarySummary, mode: "rename" | "move") {
-    closeContextMenu("dialog-handoff");
-    source.setExplicitSelection([file.id], file.id);
-    setManualMode(mode);
-    setRenameFile(file);
   }
 
   async function openOperationsPreview(targetFileIds?: ReadonlySet<string>) {
@@ -410,8 +406,8 @@ export function LibraryMode() {
           />
       </div>
       {renameFile ? <ManualRenameDialog
-        key={`${manualMode}-${renameFile.id}`}
-        mode={manualMode}
+        key={`rename-${renameFile.id}`}
+        mode="rename"
         file={renameFile}
         t={t}
         onClose={() => setRenameFile(null)}
@@ -433,8 +429,13 @@ export function LibraryMode() {
             closeContextMenu("dialog-handoff");
             openLibraryPreview(fileId, trigger);
           }}
-          onMove={capabilities?.sameVolumeMoveAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => openManualFileOperation(contextMenu.file, "move") : undefined}
-          onRename={capabilities?.renameAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => openManualFileOperation(contextMenu.file, "rename") : undefined}
+          onMove={() => { closeContextMenu("dialog-handoff"); useFileManagementStore.getState().requestAction("move"); }}
+          transferItems={(["copy", "cut", "paste", "basket"] as const).map((action) => ({ label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : "fmPaste"), action: () => { closeContextMenu(action === "paste" ? "dialog-handoff" : "action"); useFileManagementStore.getState().requestAction(action); } }))}
+          onRename={capabilities?.renameAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => {
+            closeContextMenu("dialog-handoff");
+            source.setExplicitSelection([contextMenu.file.id], contextMenu.file.id);
+            setRenameFile(contextMenu.file);
+          } : undefined}
           onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)}
           onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)}
           onViewOperations={() => void openOperationsPreview(new Set([contextMenu.file.id])).catch(() => undefined)}

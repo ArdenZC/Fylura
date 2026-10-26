@@ -12,6 +12,7 @@ const tickets = new Map<string, TransferTicket>();
 const previews = new Map<string, TransferPreview>();
 const places: SavedPlace[] = [];
 let serial = 0;
+export const managementHistory: OperationLog[] = [];
 const parent = (path: string) => path.slice(0, path.lastIndexOf("/"));
 export function managementFixturePage(sessionId: string, directory: string, enumerationId: string): BrowseEntry[] | null {
   if (!directory.replace(/\\/g, "/").startsWith("C:/U1/")) return null;
@@ -25,16 +26,17 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
   if (command.endsWith("_capture")) {
     for (const id of request.releaseIds ?? []) tickets.delete(id);
     const refs: EntryRef[] = request.selection?.kind === "explicit" ? request.selection.fileIds.map((fileId: string) => ({ kind: "managed", fileId })) : request.refs ?? [];
-    return refs.map((ref) => { const entry = resolve(ref); const ticket = { id: `ticket-${++serial}`, ...entry }; tickets.set(ticket.id, ticket); return ticket; });
+    return refs.map((ref) => { const entry = resolve(ref); const old = [...tickets.values()].find((ticket) => ticket.path === entry.path); if (old) return old; const ticket = { id: `ticket-${++serial}`, ...entry }; tickets.set(ticket.id, ticket); return ticket; });
   }
   if (command.endsWith("_preview")) {
     const reserved = new Set<string>();
     const rows = request.ticketIds.map((ticketId: string) => {
       const ticket = tickets.get(ticketId); const skipped = request.skip?.includes(ticketId) ?? false;
       if (!ticket) return { ticketId, skipped, preview: null, error: "transfer_reference_expired" };
+      if (ticket.path.startsWith("C:/U1/") && !files.has(ticket.path)) return { ticketId, skipped, preview: null, error: "transfer_source_changed" };
       let name = ticket.name;
       let target = `${request.destinationDirectory}/${name}`;
-      if (request.keepBoth?.includes(ticketId)) {
+      if (request.keepBoth?.includes(ticketId) && (files.has(target) || reserved.has(target))) {
         const dot = name.lastIndexOf("."); const stem = dot > 0 ? name.slice(0, dot) : name; const ext = dot > 0 ? name.slice(dot) : "";
         let n = 2; do { name = `${stem} (${n++})${ext}`; target = `${request.destinationDirectory}/${name}`; } while (files.has(target) || reserved.has(target));
       }
@@ -48,11 +50,14 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
   if (command.endsWith("_execute")) {
     const preview = previews.get(request.previewId); previews.delete(request.previewId);
     if (!request.confirmed || !preview || preview.rows.some((row) => !row.skipped && row.error)) throw Error("operation_preview_stale");
-    return { batch_id: `batch-${++serial}`, logs: preview.rows.filter((row) => !row.skipped).map((row) => {
+    const batchId = `batch-${++serial}`;
+    const result = { batch_id: batchId, logs: preview.rows.filter((row) => !row.skipped).map((row) => {
       const op = row.preview!; const source = files.get(op.source_path) ?? { id: `copied-${++serial}`, version: 1 };
       files.set(op.target_path, { ...source, id: `published-${++serial}` }); if (op.operation_type === "move") files.delete(op.source_path);
-      return { id: `log-${++serial}`, batch_id: `batch-${serial}`, operation_type: op.operation_type, source_path: op.source_path, target_path: op.target_path, path_before: op.source_path, path_after: op.target_path, name_before: op.old_name, name_after: op.new_name, old_name: op.old_name, new_name: op.new_name, error_message: null, restored_at: null, restore_error: null, status: "success", can_restore: false, can_undo: false, restore_status: "not_restored", operation_phase: "completed", created_at: new Date().toISOString() } as OperationLog;
+      return { id: `log-${++serial}`, batch_id: batchId, operation_type: op.operation_type, source_path: op.source_path, target_path: op.target_path, path_before: op.source_path, path_after: op.target_path, name_before: op.old_name, name_after: op.new_name, old_name: op.old_name, new_name: op.new_name, error_message: null, restored_at: null, restore_error: null, status: "success", can_restore: false, can_undo: false, restore_status: "not_restored", operation_phase: "completed", created_at: new Date().toISOString() } as OperationLog;
     }) };
+    managementHistory.unshift(...result.logs);
+    return result;
   }
   if (request.sessionId) {
     const path = resolveLocation(request.sessionId);

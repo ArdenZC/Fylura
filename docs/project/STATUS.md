@@ -4,7 +4,30 @@ Last verified: 2026-10-26
 
 ## Current execution truth
 
-- **U1-S1 Global Search → File Library — Draft / Owner review pending (#468).**
+- **U1 File Management Workspace — complete workflow candidate / Draft Owner review pending.**
+  Base `master@8e6179aad2a7cea25718ba0e4ebaf79d77834ffa`. Dependency order:
+  backend [#470](https://github.com/ArdenZC/Zen-Canvas/pull/470), then its dependent
+  File Library workflow UI PR. Library/Browse reuse source-owned selection;
+  toolbar/context menus and Ctrl/Cmd+C/X/V prepare backend-bound manual transfers.
+  The session File Basket collects across folders; one destination, skip/keep-both,
+  explicit preview/confirmation, progress, partial outcomes and History remain on
+  the existing journal/executor/Restore/reconciliation chain. Preview handles are
+  released before mutation. Favorite/recent folder hints use SQLite app_settings
+  and fresh Browse admission; no new access authority or background monitor.
+  Each transfer is bounded to 1,000 items; review/basket/results render 40 per page.
+  Windows directory mutation is explicitly unavailable until directory staging and
+  restore support are reliable; regular-file same/cross-volume Copy and same-volume
+  Move are connected. macOS retains existing eligible directory/Copy support and
+  local APFS same-volume Move admission. Cross-volume Move directs users to Copy;
+  Copy has no delete-based undo. Basket/Zen clipboard references last only for the
+  Main window session, and are revalidated before execution. No AI, new scan roots,
+  F1, million-file fixture, new scheduler, installer or Full Validation work.
+  Browser-mock light/dark workflows cover cross-directory basket Copy, conflicts,
+  keyboard Cut/Paste, refreshed results and History; native GUI/real second-volume
+  acceptance remains Owner-owned. Normal PR CI owns platform backend evidence.
+
+
+- **U1-S1 Global Search → File Library — MERGED #469 (#468).**
   Base `master@648107ae22826d9dbb3b41d767ffabd0ee44d1a7`.
   Search results expose Show in File Library; the existing Main/standalone
   activation handshake carries only the Global Index ID. Main revalidates the

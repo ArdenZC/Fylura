@@ -22,6 +22,8 @@ import { createPreviewSiblingNavigation } from "../preview/previewSiblingNavigat
 import { FileLibraryContextMenu } from "../library/LibraryContextMenu";
 import { isFileLibraryFocusTarget } from "../fileLibraryInteraction";
 import { useBrowseContextMenu } from "./useBrowseContextMenu";
+import { useFileManagementStore } from "../management/fileManagementStore";
+import { useBrowseManagementSurface } from "../management/useManagementSurfaces";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -29,6 +31,7 @@ export function BrowseMode() {
   const { language, t } = useI18nContext();
   const { platform } = useCommandContext();
   const source = useBrowseSourceOwner({ controller, state, t, platform });
+  useBrowseManagementSurface(source);
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
   const focusedPreviewSource = useMemo(() => {
@@ -221,6 +224,10 @@ export function BrowseMode() {
   }
 
   const browseContextItems = contextMenu === null ? [] : [
+    ...(["copy", "cut", "paste", "move", "basket"] as const).map((action) => ({
+      label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : action === "paste" ? "fmPaste" : "fmMove"),
+      action: () => { closeContextMenu(action === "paste" || action === "move" ? "dialog-handoff" : "action"); useFileManagementStore.getState().requestAction(action); }
+    })),
     ...(contextMenu.entry.entryKind === "directory"
       ? [{
           label: t("browseOpenFolder"),

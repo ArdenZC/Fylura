@@ -46,6 +46,7 @@ on:
           - baseline
           - baseline_release
           - fts_diagnostic
+          - fts_boundary_release
           - source_health_diagnostic
           - source_health_topology_diagnostic
           - index_cost
@@ -133,6 +134,16 @@ jobs:
         if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'fts_diagnostic' }}
         run: >-
           cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::fts_diagnostic::global_search_fts_latency_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      # Test-only Release-mode rank boundary preflight. The existing FTS
+      # adversarial fixture and full production-result oracles are unchanged.
+      - name: Run Release FTS rank-boundary feasibility diagnostic
+        if: ${{ github.event_name == 'workflow_dispatch' && env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'fts_boundary_release' }}
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
           --features desktop-runtime
           --lib
           global_index::tests::global_search_benchmark::fts_diagnostic::global_search_fts_latency_diagnostic

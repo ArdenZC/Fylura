@@ -466,6 +466,129 @@ fn assert_fts_is_only_match_tier(conn: &Connection, query: &str) {
     }
 }
 
+// Bounded, read-only preflight; NEVER used to retrieve production results.
+// The 513th rank is a lookahead. If at least 80 ACTIVE hits in the first 512
+// score strictly ahead of this boundary, no unseen hit can enter the top 80.
+// Otherwise early LIMIT is *not proven safe*: this diagnostic records fallback.
+const FTS_RANK_ONLY_BOUNDARY_SQL: &str = "
+    SELECT global_entries_fts.rowid, global_entries_fts.rank
+    FROM global_entries_fts
+    WHERE global_entries_fts MATCH ?1
+      AND global_entries_fts.rank MATCH 'bm25(8.0, 2.0, 1.0)'
+    ORDER BY global_entries_fts.rank ASC
+    LIMIT ?2
+";
+
+fn read_fts_rank_boundary(conn: &Connection, query: &str) -> Vec<(i64, f64)> {
+    let mut stmt = conn
+        .prepare(FTS_RANK_ONLY_BOUNDARY_SQL)
+        .expect("prepare FTS-only rank probe");
+    stmt.query_map(params![fts_phrase(query), 513_i64], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+    })
+    .expect("query first 513 native ranked FTS hits")
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .expect("collect rank boundary")
+}
+
+fn profile_fts_rank_boundary(
+    conn: &Connection,
+    context: &JsonValue,
+    query_class: &str,
+    query: &str,
+    production: &[GlobalSearchResult],
+) {
+    let (samples, raw, policy) = measure(|| read_fts_rank_boundary(conn, query));
+    let rowids = raw.iter().take(512).map(|(id, _)| *id).collect::<Vec<_>>();
+    let ids = serde_json::to_string(&rowids).expect("serialize candidate rowids");
+    // A single filtered batch, in the same read connection. It is metadata
+    // projection only. No LIMIT ahead of stale/enabled filters is treated as
+    // authoritative, and no production FTS SQL is modified.
+    let eligible = conn
+        .prepare(
+            "SELECT ge.rowid, ge.modified_at_fs, ge.id
+             FROM json_each(?1) pick
+             CROSS JOIN global_entries ge
+             CROSS JOIN global_volumes gv
+             WHERE ge.rowid = CAST(pick.value AS INTEGER)
+               AND gv.id = ge.volume_id
+               AND gv.enabled = 1 AND ge.is_stale = 0",
+        )
+        .expect("prepare active-candidate metadata hydration")
+        .query_map([ids], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .expect("filter candidates before selecting top 80")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect filtered candidate metadata");
+    let scores = raw
+        .iter()
+        .copied()
+        .collect::<std::collections::HashMap<i64, f64>>();
+    let mut ordered = eligible
+        .into_iter()
+        .map(|(rowid, mtime, id)| (rowid, scores[&rowid], mtime, id))
+        .collect::<Vec<_>>();
+    ordered.sort_by(|a, b| {
+        a.1.total_cmp(&b.1)
+            .then_with(|| b.2.cmp(&a.2))
+            .then_with(|| a.3.cmp(&b.3))
+    });
+    let page_limit = SEARCH_RESULT_LIMIT as usize;
+    let cutoff_rank = ordered.get(page_limit.saturating_sub(1)).map(|row| row.1);
+    let lookahead = raw.get(512).map(|row| row.1);
+    let all_hits_exhausted = raw.len() < 513;
+    let cutoff_strictly_safe = cutoff_rank
+        .zip(lookahead)
+        .is_some_and(|(cutoff, next)| cutoff < next);
+    let certifiable = all_hits_exhausted || cutoff_strictly_safe;
+    let prefiltered_top = ordered
+        .iter()
+        .take(page_limit)
+        .map(|row| (row.3.clone(), row.1))
+        .collect::<Vec<_>>();
+    if certifiable {
+        let actual = production
+            .iter()
+            .map(|row| (row.id.clone(), row.rank))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            prefiltered_top, actual,
+            "certified bounded rank frontier must equal complete production id, order and weighted BM25 for {query}"
+        );
+    }
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "fts_rank_boundary_preflight",
+        "context": context,
+        "query_class": query_class,
+        "query": query,
+        "candidate_budget": 512,
+        "lookahead_budget": 1,
+        "raw_fts_ranked_rows": raw.len(),
+        "eligible_after_enabled_stale": ordered.len(),
+        "dropped_by_enabled_stale": rowids.len().saturating_sub(ordered.len()),
+        "required_page_count": page_limit,
+        "rank_at_80th_eligible": cutoff_rank,
+        "lookahead_rank": lookahead,
+        "boundary_strictly_above_cutoff": cutoff_strictly_safe,
+        "all_ranked_hits_exhausted": all_hits_exhausted,
+        "certifiable_top80_without_full_scan": certifiable,
+        "certified_results_equal_production": if certifiable { Some(true) } else { None },
+        "fallback_required": !certifiable,
+        "rank_only_sql": FTS_RANK_ONLY_BOUNDARY_SQL,
+        "rank_only_plan": explain_details(conn, FTS_RANK_ONLY_BOUNDARY_SQL,
+            &[SqlValue::Text(fts_phrase(query)), SqlValue::Integer(513)]),
+        "rank_only_latency_ms": summarize_samples(&samples),
+        "sample_policy": policy,
+        "scope": "diagnostic-only. Does not include metadata hydration cost in rank-only samples. Cannot certify a production speedup."
+    }));
+}
+
 fn profile_fts_query(
     conn: &Connection,
     context: &JsonValue,
@@ -509,6 +632,7 @@ fn profile_fts_query(
     if query == "report" {
         assert_adversarial_results(&results);
     }
+    profile_fts_rank_boundary(conn, context, query_class, query, &results);
     emit_stage_record(
         context,
         query_class,

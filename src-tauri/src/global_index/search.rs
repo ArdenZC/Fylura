@@ -1,4 +1,8 @@
 #[cfg(test)]
+#[path = "tests/extension_recency_probe.rs"]
+pub(crate) mod extension_recency_probe;
+
+#[cfg(test)]
 #[path = "tests/fts_rank_frontier.rs"]
 pub(crate) mod rank_frontier;
 
@@ -148,6 +152,8 @@ pub(crate) fn search_global_entries_on_connection(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    #[cfg(test)]
+    extension_recency_probe::page(limit, offset);
     let query = query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
@@ -487,6 +493,10 @@ fn search_extension_prefix(
     query: &str,
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    #[cfg(test)]
+    if extension_recency_probe::mode() != 0 {
+        return extension_recency_probe::dispatch(conn, query, limit);
+    }
     #[cfg(test)]
     if key_only_cte_search_candidate_enabled() {
         let sql = key_only_extension_prefix_sql();

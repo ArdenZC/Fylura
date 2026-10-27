@@ -1,12 +1,12 @@
 use super::{
-    benchmark_context, candidate_plan_sql, configured_connection, emit_record,
-    populate_synthetic_database, summarize_samples, BenchmarkCleanup, SEARCH_RESULT_LIMIT,
+    benchmark_context, configured_connection, emit_record, populate_synthetic_database,
+    summarize_samples, BenchmarkCleanup, SEARCH_RESULT_LIMIT,
 };
 use crate::db::Database;
 use crate::global_index::models::GlobalSearchResult;
 use crate::global_index::search::{
     diagnostic_search_fts, diagnostic_search_fts_sql, diagnostic_search_tier,
-    search_global_entries_on_connection,
+    diagnostic_search_tier_sql, search_global_entries_on_connection,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection};
@@ -534,23 +534,14 @@ fn no_result_tier_sql(tier: &str, query: &str) -> (String, Vec<SqlValue>) {
         .replace('[', "[[]");
     match tier {
         "exact_name" => (
-            candidate_plan_sql(
-                "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-                "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
-                "ge.modified_at_fs DESC, ge.id ASC",
-                "0.0",
-                "?2",
-            ),
-            vec![SqlValue::Text(query.to_string()), SqlValue::Integer(SEARCH_RESULT_LIMIT as i64)],
+            diagnostic_search_tier_sql("exact_name"),
+            vec![
+                SqlValue::Text(query.to_string()),
+                SqlValue::Integer(SEARCH_RESULT_LIMIT as i64),
+            ],
         ),
         "name_prefix" => (
-            candidate_plan_sql(
-                "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-                "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
-                "ge.modified_at_fs DESC, ge.id ASC",
-                "0.0",
-                "?3",
-            ),
+            diagnostic_search_tier_sql("name_prefix"),
             vec![
                 SqlValue::Text(query.to_string()),
                 SqlValue::Text(format!("{escaped}*")),
@@ -558,23 +549,14 @@ fn no_result_tier_sql(tier: &str, query: &str) -> (String, Vec<SqlValue>) {
             ],
         ),
         "exact_extension" => (
-            candidate_plan_sql(
-                "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-                "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
-                "ge.modified_at_fs DESC, ge.id ASC",
-                "0.0",
-                "?2",
-            ),
-            vec![SqlValue::Text(query.to_string()), SqlValue::Integer(SEARCH_RESULT_LIMIT as i64)],
+            diagnostic_search_tier_sql("exact_extension"),
+            vec![
+                SqlValue::Text(query.to_string()),
+                SqlValue::Integer(SEARCH_RESULT_LIMIT as i64),
+            ],
         ),
         "extension_prefix" => (
-            candidate_plan_sql(
-                "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-                "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
-                "ge.modified_at_fs DESC, ge.id ASC",
-                "1.0",
-                "?3",
-            ),
+            diagnostic_search_tier_sql("extension_prefix"),
             vec![
                 SqlValue::Text(query.to_string()),
                 SqlValue::Text(format!("{escaped}*")),
@@ -583,7 +565,10 @@ fn no_result_tier_sql(tier: &str, query: &str) -> (String, Vec<SqlValue>) {
         ),
         "fts" => (
             diagnostic_search_fts_sql(),
-            vec![SqlValue::Text(fts_phrase(query)), SqlValue::Integer(SEARCH_RESULT_LIMIT as i64)],
+            vec![
+                SqlValue::Text(fts_phrase(query)),
+                SqlValue::Integer(SEARCH_RESULT_LIMIT as i64),
+            ],
         ),
         _ => panic!("unknown no-result tier: {tier}"),
     }

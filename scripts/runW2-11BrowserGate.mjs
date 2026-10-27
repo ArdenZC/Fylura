@@ -557,9 +557,26 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
   page.setDefaultTimeout(60_000);
   page.setDefaultNavigationTimeout(60_000);
   const consoleErrors = [];
+  const consoleErrorLocations = [];
   const pageErrors = [];
-  page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
+  const missingFileRequests = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      consoleErrors.push(message.text());
+      consoleErrorLocations.push({ text: message.text(), location: message.location() });
+    }
+  });
   page.on("pageerror", (error) => pageErrors.push(String(error)));
+  let missingFileRequestCount = 0;
+  page.on("requestfailed", (request) => {
+    const failure = request.failure();
+    if (failure?.errorText?.includes("ERR_FILE_NOT_FOUND")) {
+      missingFileRequestCount += 1;
+      if (missingFileRequests.length < 25) {
+        missingFileRequests.push({ url: request.url(), resourceType: request.resourceType(), errorText: failure.errorText });
+      }
+    }
+  });
   const metrics = {
     viewport,
     deviceScaleFactor,
@@ -805,6 +822,10 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     return metrics;
   } catch (error) {
     metrics.failure = String(error);
+    metrics.consoleErrorLocations = consoleErrorLocations;
+    metrics.pageErrors = pageErrors;
+    metrics.missingFileRequestCount = missingFileRequestCount;
+    metrics.missingFileRequests = missingFileRequests;
     metrics.resources = await readResourceSnapshot(page).catch(() => ({}));
     metrics.fixtureStats = await readStats(page).catch(() => ({}));
     const artifactStem = `w2-11-${viewport.width}x${viewport.height}-dpr-${String(deviceScaleFactor).replace(".", "_")}`;

@@ -7,8 +7,7 @@ import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } f
 import { cloneFileQuerySpec, explicitSingleSelectionId } from "../../../store/useFileLibraryV2Store";
 import type {
   FileLibrarySummary,
-  FileLibraryDetail,
-  FileQueryFiltersV2
+  FileLibraryDetail
 } from "../../../types/domain";
 import { libraryScopeLabel, readableError } from "../../../utils/viewHelpers";
 import { buttonGhost, buttonSecondary, buttonSubtle, cn, buttonPrimary, raisedSurface } from "../../../utils/tw";
@@ -26,9 +25,11 @@ import { SharedFileList } from "../list/SharedFileList";
 import { SharedFileGrid } from "../list/SharedFileGrid";
 import type { LibraryPresentationEntry, PresentationEntry } from "../presentation/contracts";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
+import { PersonalFiles } from "../context/FilePersonalMetadata";
 import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
+import { SELECTED_PREVIEW_LIMIT, useSelectedPreview } from "../preview/useSelectedPreview";
 import { previewSourceFromEntry } from "../preview/previewSource";
 import { createPreviewSiblingNavigation } from "../preview/previewSiblingNavigation";
 import { adaptLibrarySummary } from "../presentation/adapters";
@@ -39,6 +40,7 @@ import {
 import { useFileLibraryLibrarySearchSurface } from "../fileLibraryCommandBarSurface";
 import { useFileManagementStore } from "../management/fileManagementStore";
 import { useLibraryManagementSurface } from "../management/useManagementSurfaces";
+import { countActiveFilters, scopeHealthLabel, replaceCopy } from "./libraryModeCopy";
 import "./libraryMode.css";
 
 /**
@@ -67,6 +69,8 @@ export function LibraryMode() {
     locations: experienceState.workspace.locations
   });
   useApplyLibraryNavigationTarget({ currentTarget, source });
+  const [personalOpen, setPersonalOpen] = useState(false);
+  const personalTrigger = useRef<HTMLButtonElement | null>(null);
   const [renameFile, setRenameFile] = useState<FileLibrarySummary | null>(null);
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -161,13 +165,18 @@ export function LibraryMode() {
 
   useEffect(() => { previewController.setSiblingNavigation(siblingNavigation); return () => previewController.setSiblingNavigation(null); }, [previewController, siblingNavigation]);
 
+  const previewSelected = useSelectedPreview(previewController, source.selectedFiles.slice(0, SELECTED_PREVIEW_LIMIT).filter((file) => !file.isStale).flatMap((file) => {
+    const projected = previewSourceFromEntry(adaptLibrarySummary(file), source.collection);
+    return projected ? [projected] : [];
+  }));
+
   const openLibraryPreview = useCallback((fileId: string, trigger: HTMLElement | null) => {
-    const file = source.files.find((item) => item.id === fileId);
+    const file = source.files.find((item) => item.id === fileId) ?? (source.detail?.id === fileId ? { ...source.detail, displayDirectory: source.detail.directory, tagCount: source.detail.tags.length } : undefined);
     const nextSource = previewSourceFromEntry(file === undefined ? undefined : adaptLibrarySummary(file), source.collection);
     if (nextSource === null) return false;
     if (contextMenu) closeContextMenu("dialog-handoff");
     return previewController.open(nextSource, trigger);
-  }, [closeContextMenu, contextMenu, previewController, source.collection, source.files]);
+  }, [closeContextMenu, contextMenu, previewController, source.collection, source.files, source.detail]);
 
   const handleLibraryPreviewKey = useCallback((entry: PresentationEntry, trigger: HTMLElement, event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (entry.source !== "library") return false;
@@ -317,7 +326,8 @@ export function LibraryMode() {
     error: source.inspectorError,
     language,
     t,
-    onPreview: (event, file) => { openLibraryPreview(file.id, event.currentTarget); },
+    onPreviewSelection: (id, trigger) => { previewSelected(source.selectedFiles.slice(0, SELECTED_PREVIEW_LIMIT).filter((file) => !file.isStale).findIndex((file) => file.id === id), query("[data-file-library-context-toggle]") ?? trigger); },
+    onPreview: (event, file) => { openLibraryPreview(file.id, query("[data-file-library-context-toggle]") ?? event.currentTarget); },
     onReveal: (fileId) => void revealFile(fileId).catch(() => undefined),
     onViewSuggestions: () => setView("organize"),
     onViewOperations: () => void openOperationsPreview().catch(() => undefined),
@@ -357,13 +367,18 @@ export function LibraryMode() {
               <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void source.chooseFolders().catch(() => undefined)}><FolderSearch size={15} />{t("switchScanDirectory")}</button>
             </div>
           </div>
-          {showLibraryControls ? <div className="flex flex-wrap items-center gap-2"><button data-library-manager="saved_views" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("saved_views")}><Bookmark size={14} />{t("libraryManageSavedViews")}</button><button data-library-manager="tags" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("tags")}><Tag size={14} />{t("libraryManageTags")}{source.tags.length ? ` · ${source.tags.length}` : ""}</button></div> : null}
+          <div className="flex flex-wrap items-center gap-2"><button ref={personalTrigger} className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setPersonalOpen(true)}>{t("u4MyFiles")}</button>{showLibraryControls ? <><button data-library-manager="saved_views" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("saved_views")}><Bookmark size={14} />{t("libraryManageSavedViews")}</button><button data-library-manager="tags" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("tags")}><Tag size={14} />{t("libraryManageTags")}{source.tags.length ? ` · ${source.tags.length}` : ""}</button></> : null}</div>
           {showLibraryControls ? <div className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}><span className="text-xs text-[var(--zc-text-tertiary)]">{activeFilterCount ? replaceCopy(t("libraryFiltersAppliedCount"), { count: activeFilterCount }) : t("libraryFilterAllOptions")}</span>{activeFilterCount ? <button className="text-xs text-[var(--zc-primary)] underline" onClick={source.clearFilters}>{t("libraryFilterClear")}</button> : null}</div> : null}
           {showLibraryControls ? <p className="text-xs text-[var(--zc-text-tertiary)]" data-library-result-status aria-live="polite">{t("libraryResultCountLabel")}: {resultCountLabel} · {t("librarySelectionLabel")}: {selectionLabel}</p> : null}
           {showLibraryControls && source.selection?.kind === "explicit" && source.selectedIds.size === source.files.length && source.totalCount !== null && source.totalCount > source.files.length ? <button className="justify-self-start text-xs text-[var(--zc-primary)] underline" onClick={source.selectAllMatching}>{t("librarySelectAllMatching")}</button> : null}
         </section>
         {source.resultState === "snapshot_expired" || source.error === "library_snapshot_expired" ? <NoticeBanner tone="warning" title={t("librarySnapshotExpiredTitle")} action={<button className={buttonSecondary} onClick={() => void source.refreshResults().catch(() => undefined)}>{t("librarySnapshotRefresh")}</button>}>{t("librarySnapshotExpiredDesc")}</NoticeBanner> : null}
       </div>
+      <PersonalFiles open={personalOpen} t={t} onClose={() => setPersonalOpen(false)} restoreFocus={() => personalTrigger.current} onSelect={(id) => {
+        source.setExplicitSelection([id], id);
+        controller.setContextOpen(true);
+        setPersonalOpen(false);
+      }} />
       <div className={cn("file-library-library-mode-result", contextOpen && contextProjection.kind !== "none" && "has-context") }>
         <section className={cn(raisedSurface, "h-full min-h-0 max-[1100px]:min-h-[340px] overflow-hidden")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : viewMode === "grid" ? <SharedFileGrid
           interaction={interaction}
@@ -465,32 +480,4 @@ export function LibraryMode() {
       />
     </div>
   );
-}
-
-function countActiveFilters(filters: FileQueryFiltersV2) {
-  return filters.fileTypes.length
-    + filters.purposes.length
-    + filters.lifecycles.length
-    + filters.risks.length
-    + filters.tagsAllOf.length
-    + filters.tagsAnyOf.length
-    + filters.tagsNoneOf.length
-    + Number(filters.sizeMin !== null || filters.sizeMax !== null)
-    + Number(filters.modifiedFrom !== null || filters.modifiedTo !== null)
-    + Number(filters.createdFrom !== null || filters.createdTo !== null)
-    + Number(filters.duplicate !== "any")
-    + Number(filters.review !== "any");
-}
-
-function scopeHealthLabel(state: string, t: ReturnType<typeof useI18nContext>["t"]) {
-  if (state === "permission_required") return t("libraryScopeHealthPermission");
-  if (state === "reconciliation_required") return t("libraryScopeHealthReconciliation");
-  if (state === "partial" || state === "degraded") return t("libraryScopeHealthPartial");
-  if (state === "retry_exhausted") return t("libraryScopeHealthRetry");
-  return t("libraryScopeHealthUnavailable");
-}
-
-
-function replaceCopy(template: string, values: Record<string, string | number>) {
-  return Object.entries(values).reduce((copy, [key, value]) => copy.replaceAll(`{${key}}`, String(value)), template);
 }

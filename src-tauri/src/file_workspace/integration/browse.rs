@@ -17,6 +17,22 @@ use crate::file_workspace::{
 use std::path::PathBuf;
 
 impl FileWorkspaceRuntime {
+    /// Read-only OS Reveal: the owning session resolves the path, never the renderer.
+    pub(crate) fn resolve_browse_reveal_path(
+        &self,
+        request: super::types::BrowseRevealRequest,
+    ) -> Result<PathBuf, String> {
+        self.ensure_live()?;
+        let entry = self
+            .inner
+            .browse
+            .resolve_entry(&request.entry_ref)
+            .map_err(map_browse_error)?;
+        std::fs::symlink_metadata(&entry.path)
+            .map_err(|_| "workspace_reveal_entry_unavailable".to_string())?;
+        Ok(entry.path)
+    }
+
     pub(crate) fn open_browse(
         &self,
         request: BrowseOpenRequest,

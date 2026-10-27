@@ -52,7 +52,8 @@
     "verify:security": "npm run security:audit && npm run security:audit:rust",
     "verify": "npm run verify:frontend && npm run verify:rust && npm run verify:security",
     "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1",
-    "test:browser:u3": "node scripts/runU3FileLibraryBrowser.mjs"
+    "test:browser:u3": "node scripts/runU3FileLibraryBrowser.mjs",
+    "test:browser:u4": "node scripts/runU4FileLibraryBrowser.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.3",

@@ -12,8 +12,10 @@ use rusqlite::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod personal;
 mod saved_views;
 mod tags;
+pub use personal::*;
 
 const LIBRARY_QUERY_VERSION: i32 = 2;
 const LIBRARY_CURSOR_VERSION: i32 = 2;

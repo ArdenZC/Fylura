@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useLayoutEffect, useState } fr
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
+import { revealBrowseEntry } from "../../../api/fileWorkspaceApi";
 import { cn } from "../../../utils/tw";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import {
@@ -19,6 +20,7 @@ import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
+import { SELECTED_PREVIEW_LIMIT, useSelectedPreview } from "../preview/useSelectedPreview";
 import { previewSourceFromEntry } from "../preview/previewSource";
 import { createPreviewSiblingNavigation } from "../preview/previewSiblingNavigation";
 import { FileLibraryContextMenu } from "../library/LibraryContextMenu";
@@ -35,9 +37,11 @@ export function BrowseMode() {
   useLayoutEffect(() => { setBreadcrumbHost(pane ? document.getElementById(`wb-crumbs-${pane.id}`) : null); }, [pane?.id]);
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
+  const [revealError, setRevealError] = useState<string | null>(null);
   const { platform } = useCommandContext();
   const source = useBrowseSourceOwner({ controller, state, t, platform });
   useBrowseManagementSurface(source);
+  useEffect(() => setRevealError(null), [source.focusedId]);
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
   const focusedPreviewSource = useMemo(() => {
@@ -139,13 +143,22 @@ export function BrowseMode() {
 
   useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
+  const selectedPreviewEntries = source.entries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId)).slice(0, SELECTED_PREVIEW_LIMIT);
+  const previewSelected = useSelectedPreview(previewController, selectedPreviewEntries.flatMap((entry) => {
+    const projected = previewSourceFromEntry(entry, source.collection);
+    return projected ? [projected] : [];
+  }));
+
   const contextOpen = state.workspace.session.presentation.contextOpen === true;
   const contextProjection = createBrowseContextProjection({
     entries: source.entries,
     selectedIds: source.selectedIds,
     locationLabel: source.browse?.location.displayName ?? t("fileLibraryModeBrowse"),
     language,
-    t
+    t,
+    actionError: revealError,
+    onReveal: (entry) => { setRevealError(null); void revealBrowseEntry(entry.entryRef).catch(() => setRevealError(t("u4RevealUnavailable"))); },
+    onPreview: (entry, trigger) => { previewSelected(selectedPreviewEntries.findIndex((item) => item.entryRef.entryId === entry.entryRef.entryId), query("[data-file-library-context-toggle]") ?? trigger); }
   });
 
   function closeContextPanel() {

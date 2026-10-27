@@ -70,6 +70,25 @@ where
 }
 
 #[tauri::command]
+pub async fn file_workspace_browse_reveal<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: super::types::BrowseRevealRequest,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_browse_reveal", move |runtime| {
+        let path = runtime.resolve_browse_reveal_path(request)?;
+        crate::file_ops::reveal_in_folder(
+            path.to_str()
+                .ok_or("workspace_reveal_path_unrepresentable")?
+                .to_string(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn file_workspace_browse_open<R: Runtime>(
     window: WebviewWindow<R>,
     runtime: State<'_, FileWorkspaceRuntimeOwner>,

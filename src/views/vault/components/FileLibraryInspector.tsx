@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Info, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { FilePersonalMetadataEditor } from "../../fileLibrary/context/FilePersonalMetadata";
 import { libraryApi } from "../../../api/libraryApi";
 import { useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
 import type { FileLibraryDetail, FileLibrarySelectionSummary, FileLibrarySummary, LibrarySelectionV1, UserTag } from "../../../types/domain";
@@ -26,6 +27,7 @@ export interface FileLibraryInspectorProps {
   language: Language;
   t: Translator;
   onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void;
+  onPreviewSelection?: (fileId: string, trigger: HTMLElement) => void;
   onReveal: (fileId: string) => void;
   onViewSuggestions: () => void;
   onViewOperations: () => void;
@@ -175,19 +177,16 @@ function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onViewOp
 
 function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, onViewOperations, onPermanentDelete, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; onViewOperations: () => void; onPermanentDelete?: (file: FileLibraryDetail) => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
   const missing = detail.isStale;
+  const [showThumbnail, setShowThumbnail] = useState(false);
   const selectedTagIds = new Set(detail.tags.map((tag) => tag.id));
   return (
     <div className="grid gap-4">
-      <InspectorQuickLookPreview file={detail} t={t} />
       <div className="min-w-0 border-b border-[var(--zc-divider)] pb-3"><h3 className="break-words text-lg font-semibold text-[var(--zc-text-primary)]">{detail.name}</h3><p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{detail.fileType} · {detail.purpose}</p></div>
-      <dl className="grid gap-3 text-sm">
-        <InspectorField label={t("libraryCurrentStatus")} value={missing ? t("libraryFileNotFound") : t("libraryReady")} tone={missing ? "warning" : "normal"} />
-        <InspectorField label={t("libraryClassification")} value={detail.suggestedAction || t("unknown")} />
-        <InspectorField label={t("lifecycle")} value={detail.lifecycle} />
-        <InspectorField label={t("risk")} value={detail.risk} />
-        <InspectorField label={t("libraryClassificationReason")} value={detail.classificationReason || t("unknown")} />
-        <InspectorField label={t("confidence")} value={confidenceLabel(detail.confidence, t)} />
-        <InspectorField label={t("fileModified")} value={formatDate(String(detail.modifiedAt), language)} />
+      <dl className="grid grid-cols-2 gap-3 text-sm">
+        <InspectorField label={t("libraryCurrentStatus")} value={missing ? t("libraryFileNotFound") : detail.nativeSemantics ? nativeAvailabilityLabel(detail.nativeSemantics.contentAvailability, t) : t("browseUnknownValue")} tone={missing ? "warning" : "normal"} />
+        <InspectorField label={t("fileLibraryContextSize")} value={formatBytes(detail.size)} />
+        <InspectorField label={t("fileLibraryContextCreated")} value={detail.createdAt > 0 ? formatDate(String(detail.createdAt), language) : t("browseUnknownValue")} />
+        <InspectorField label={t("fileModified")} value={detail.modifiedAt > 0 ? formatDate(String(detail.modifiedAt), language) : t("browseUnknownValue")} />
         <InspectorField label={t("fileLocation")} value={compactPath(formatDisplayPath(detail.path), 44)} title={formatDisplayPath(detail.path)} />
         {detail.nativeSemantics ? <>
           {detail.nativeSemantics.isPackage ? <InspectorField label={t("libraryNativePackage")} value={t("libraryNativePackageValue")} /> : null}
@@ -195,14 +194,24 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
           <InspectorField label={t("libraryNativeAvailability")} value={nativeAvailabilityLabel(detail.nativeSemantics.contentAvailability, t)} />
         </> : null}
       </dl>
-      <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3" aria-labelledby="content-understanding-title">
+      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button></div>
+      <FilePersonalMetadataEditor key={detail.id} fileId={detail.id} t={t} />
+      <details onToggle={(event) => setShowThumbnail(event.currentTarget.open)}><summary className="cursor-pointer text-sm font-semibold">{t("libraryPreview")}</summary>{showThumbnail ? <InspectorQuickLookPreview file={detail} t={t} /> : null}</details>
+      <details><summary className="cursor-pointer text-sm font-semibold">{t("libraryClassification")}</summary><dl className="mt-3 grid gap-3 text-sm">
+        <InspectorField label={t("libraryClassification")} value={detail.suggestedAction || t("unknown")} />
+        <InspectorField label={t("lifecycle")} value={detail.lifecycle} />
+        <InspectorField label={t("risk")} value={detail.risk} />
+        <InspectorField label={t("libraryClassificationReason")} value={detail.classificationReason || t("unknown")} />
+        <InspectorField label={t("confidence")} value={confidenceLabel(detail.confidence, t)} />
+      </dl></details>
+      <details><summary className="cursor-pointer text-sm font-semibold">{t("contentUnderstandingTitle")}</summary><section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3" aria-labelledby="content-understanding-title">
         <div><h3 id="content-understanding-title" className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("contentUnderstandingTitle")}</h3><p className="mt-1 text-xs leading-5 text-[var(--zc-text-secondary)]">{t("contentSourceUnchanged")}</p></div>
         <InspectorField label={t("contentStatus")} value={contentStatusLabel(detail.contentStatus, t)} />
         <InspectorField label={t("contentPolicy")} value={detail.contentPolicy ? contentPolicyLabel(detail.contentPolicy, t) : t("contentPolicyPerRoot")} />
         <button type="button" className={buttonSecondary} onClick={(event) => onOpenContentUnderstanding(detail, event.currentTarget)}>{t("contentOpen")}</button>
-      </section>
+      </section></details>
       {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryTags")}</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-[var(--zc-radius-control)] border px-2 py-1 text-xs", active ? selectedFocusVisibleState : focusVisibleState, active ? selectedSurface : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
-      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={buttonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>{onPermanentDelete && !missing ? <button className="text-sm font-medium text-[var(--zc-danger-text)] underline-offset-2 hover:underline" onClick={() => onPermanentDelete(detail)}>{t("libraryPermanentDelete")}</button> : null}<button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
+      <div className="flex flex-wrap gap-2"><button className={buttonPrimary} onClick={onViewOperations}>{t("libraryReviewOperations")}</button>{onPermanentDelete && !missing ? <button className="text-sm font-medium text-[var(--zc-danger-text)] underline-offset-2 hover:underline" onClick={() => onPermanentDelete(detail)}>{t("libraryPermanentDelete")}</button> : null}<button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
   );
 }

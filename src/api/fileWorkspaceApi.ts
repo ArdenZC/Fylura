@@ -183,3 +183,8 @@ export const fileWorkspaceApi: FileWorkspaceApi = {
     await command<ArrayBuffer>("file_workspace_preview_asset_request", request)
   )
 };
+
+/** Reveal uses only a live source-owned ref; it never accepts a renderer path. */
+export function revealBrowseEntry(entryRef: import("../types/fileWorkspace").BrowseEntryRef): Promise<void> {
+  return invokeCommand("file_workspace_browse_reveal", { request: { entryRef } });
+}

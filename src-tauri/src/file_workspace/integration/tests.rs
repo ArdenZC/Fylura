@@ -1624,3 +1624,52 @@ fn shared_thumbnail_surface_is_explicitly_unsupported_without_native_renderer() 
     assert_eq!(error, "thumbnail_renderer_unsupported");
     runtime.dispose();
 }
+
+#[test]
+fn u4_browse_reveal_resolves_only_owned_live_refs_without_index_admission() {
+    use super::types::{BrowseRevealRequest, BrowseSessionRequest};
+    let fixture = Fixture::new("u4-reveal");
+    let runtime = fixture.runtime();
+    let opened = runtime.open_browse(open_request(&fixture)).unwrap();
+    let page = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: "u4-reveal".into(),
+            path_ref: opened.root_path_ref,
+            page_size: 16,
+            query: Default::default(),
+        })
+        .unwrap();
+    let entry = page
+        .entries
+        .iter()
+        .find(|entry| entry.name == "entry.txt")
+        .unwrap();
+    let request = BrowseRevealRequest {
+        entry_ref: entry.entry_ref.clone(),
+    };
+    assert_eq!(
+        runtime.resolve_browse_reveal_path(request.clone()).unwrap(),
+        fixture.root.join("entry.txt")
+    );
+    // This tests backend resolution only; it never launches the OS GUI.
+    assert!(serde_json::from_value::<BrowseRevealRequest>(
+        serde_json::json!({"entryRef":entry.entry_ref.clone(),"path":"arbitrary-renderer-path"})
+    )
+    .is_err());
+    let conn = runtime.inner.database.conn().unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+    drop(conn);
+    fs::remove_file(fixture.root.join("entry.txt")).unwrap();
+    assert!(runtime.resolve_browse_reveal_path(request.clone()).is_err());
+    runtime
+        .dispose_browse(BrowseSessionRequest {
+            session_id: opened.session_id,
+        })
+        .unwrap();
+    assert!(runtime.resolve_browse_reveal_path(request).is_err());
+    runtime.dispose();
+}

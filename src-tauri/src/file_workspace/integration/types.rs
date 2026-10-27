@@ -19,6 +19,12 @@ const MAX_REQUEST_TEXT_LENGTH: usize = 4096;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseRevealRequest {
+    pub entry_ref: BrowseEntryRef,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseOpenRequest {
     pub platform: WorkspacePlatform,
     pub routing_hint: String,

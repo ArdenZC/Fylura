@@ -46,6 +46,7 @@ on:
           - baseline
           - baseline_release
           - fts_diagnostic
+          - fts_recency_release
           - source_health_diagnostic
           - source_health_topology_diagnostic
           - index_cost
@@ -136,6 +137,16 @@ jobs:
           --features desktop-runtime
           --lib
           global_index::tests::global_search_benchmark::fts_diagnostic::global_search_fts_latency_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      # Not a production ranking-equivalent alternative; this is an explicit
+      # 100k-only Release experiment with match-set and top-80 difference logs.
+      - name: Run experimental recency-first FTS alternative (100k Release)
+        if: ${{ github.event_name == 'workflow_dispatch' && env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'fts_recency_release' }}
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::fts_recency_alternative::experimental_recent_first_substring_vs_exact_bm25
           -- --ignored --exact --nocapture --test-threads=1
       - name: Run single-fixture 500k query-cost diagnostic
         if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'query_cost_diagnostic' }}

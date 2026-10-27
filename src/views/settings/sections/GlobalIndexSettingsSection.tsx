@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { Play } from "lucide-react";
 import type { GlobalIndexSource, GlobalIndexStatus } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { buttonSecondary, cn } from "../../../utils/tw";
 import { compactPath } from "../../../utils/viewHelpers";
-import { compactInteractiveRow, quietText } from "../../shared/ui";
+import { compactInteractiveRow, ConfirmDialog, quietText } from "../../shared/ui";
 import type { GlobalIndexLoadState } from "../controllers/useSettingsGlobalIndexController";
 import { SettingsEmptyState, SettingsInlineMessage, SettingsSection, SettingsSwitchControl } from "../components/SettingsPrimitives";
 
@@ -48,6 +49,7 @@ export function GlobalIndexSettingsSection({
   errorText,
   onAction
 }: GlobalIndexSettingsSectionProps) {
+  const [authorizationSourceId, setAuthorizationSourceId] = useState<string | null>(null);
   const hasSources = sources.length > 0;
   const isFullVolumeAuthorizationTarget = (source: GlobalIndexSource) =>
     source.volume.platform === "windows"
@@ -85,11 +87,7 @@ export function GlobalIndexSettingsSection({
     const needsAuthorization = isFullVolumeAuthorizationTarget(source)
       && source.volume.scopeAuthorizationState !== "authorized";
     if (enabled && needsAuthorization) {
-      if (!window.confirm(t("globalIndexFullDiskConfirm"))) return;
-      onAction(
-        () => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.authorizeGlobalIndexSource(source.volume.id, true)),
-        t("globalIndexAuthorizationSaved")
-      );
+      setAuthorizationSourceId(source.volume.id);
       return;
     }
     onAction(
@@ -111,6 +109,25 @@ export function GlobalIndexSettingsSection({
         <SettingsEmptyState title={t("globalIndexLoading")} description={t("globalIndexLoadingDesc")} />
       ) : (
         <>
+          <ConfirmDialog
+            open={authorizationSourceId !== null}
+            tone="warning"
+            title={t("globalIndexAuthorizeTitle")}
+            description={t("globalIndexFullDiskConfirm")}
+            confirmLabel={t("globalIndexAuthorizeAction")}
+            cancelLabel={t("cancel")}
+            isProcessing={isUpdating}
+            onCancel={() => setAuthorizationSourceId(null)}
+            onConfirm={() => {
+              const sourceId = authorizationSourceId;
+              setAuthorizationSourceId(null);
+              if (!sourceId) return;
+              onAction(
+                () => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.authorizeGlobalIndexSource(sourceId, true)),
+                t("globalIndexAuthorizationSaved")
+              );
+            }}
+          />
           {!hasSources ? (
             <SettingsInlineMessage tone="warning" role="status" status="no_source">
               <div className="flex flex-wrap items-center justify-between gap-2">

@@ -44,10 +44,18 @@ select differences and review a batch transfer to the opposite pane. Issue
 
 ## Validation
 
-- Full frontend suite: 183 files / 1,972 tests passed before final focused
-  interaction refinements. Final focused checks: 7 files / 49 tests pass. Hosted
-  Windows/macOS results are recorded in the PR. Typecheck and frontend build pass; existing CSS optimization warning
-  about `var(...)` remains unrelated to this feature.
+- Final full frontend suite: **184 files / 1,974 tests pass**, with no unhandled
+  errors. Typecheck, frontend build, documentation/governance, performance
+  architecture (30 tests), Cargo format and diff checks pass. Existing CSS
+  optimization warning about `var(...)` is unrelated to this feature.
+- The existing high-severity dependency audit exposed
+  [GHSA-834v-8h66-3h79](https://github.com/advisories/GHSA-834v-8h66-3h79).
+  Current master supplies development-only Happy DOM 21.0.4; `npm run security:audit`
+  reports zero vulnerabilities. The IME test teardown observes expected WAAPI
+  cancellation and still fails on any other error. No Global Search production
+  code changes. Existing W2-08/W2-10 browser assertions now exercise backend
+  sorting instead of requiring the pre-U3 unavailable control; gate thresholds
+  and CI routing are unchanged.
 - Rust regressions cover 138 entries over 17-entry pages, all four sort fields
   and both directions, tie-breaking, stale refs, empty progress before EOF,
   capacity rejection and skipped-child coverage. Local Cargo execution is

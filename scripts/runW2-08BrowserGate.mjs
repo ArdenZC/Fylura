@@ -47,7 +47,7 @@ try {
 
     try {
       await page.goto(`${baseUrl}?w2-04-browser-fixture=source-owner&w2-05-browser-fixture=interaction&w2-05-browser-stale=true`, { waitUntil: "commit" });
-      await page.getByRole("button", { name: "File Library", exact: true }).click();
+      await page.getByRole("button", { name: "Files", exact: true }).click();
       await page.waitForSelector('.file-library-workspace[data-mode="library"]');
 
       const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
@@ -85,7 +85,7 @@ try {
       await page.getByRole("button", { name: /context/iu }).first().click();
       await page.waitForFunction(() => document.querySelector('.file-library-workspace')?.getAttribute("data-context-open") === "false");
 
-      await page.getByRole("tab", { name: "Browse", exact: true }).click();
+      await page.getByRole("tab", { name: "Browse Folder", exact: true }).click();
       await page.waitForSelector('.file-library-workspace[data-mode="browse"]');
       if (await page.locator('[data-browse-state="current-folder"]').count() === 0) {
         const openableLocation = page.locator('[data-browse-location="true"][data-browse-location-openable="true"]');
@@ -99,9 +99,12 @@ try {
       await browseSearch.fill("notes");
       if (await browseSearch.inputValue() !== "notes") throw new Error("Browse current-folder search did not retain the committed text");
       await page.locator('select[data-browse-query-kind]').selectOption("file");
-      const unavailableSort = page.locator('button[data-browse-sort-capability="unavailable"]');
-      await unavailableSort.waitFor({ state: "visible" });
-      if (await unavailableSort.isEnabled()) throw new Error("Browse exposed a false whole-folder sort action");
+      const browseSort = page.locator('select[data-browse-sort]');
+      await browseSort.waitFor({ state: "visible" });
+      if (!(await browseSort.isEnabled())) throw new Error("Browse backend sorting remained disabled");
+      await browseSort.selectOption("name");
+      await page.locator('[data-browse-entry]').filter({ hasText: "notes.md" }).waitFor({ state: "visible" });
+      if (await browseSort.inputValue() !== "name") throw new Error("Browse did not retain backend sorting");
       await page.waitForFunction(() => document.querySelector('[data-browse-query="notes"][data-browse-query-kind="file"]') !== null);
 
       const overflow = await page.evaluate(() => ({

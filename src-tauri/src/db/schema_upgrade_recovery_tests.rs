@@ -163,10 +163,17 @@ fn schema_upgrade_killed_child() {
     conn.execute_batch("PRAGMA cache_size=8; PRAGMA cache_spill=ON;")
         .unwrap();
     super::super::schema_global_source_facts::with_backfill_hook(
-        |_, stage| {
+        |conn, stage| {
             if stage != "after" {
                 return Ok(());
             }
+            // UpgradeGuard intentionally restores the bounded 8MiB policy, so
+            // the tiny fixture may fit. Force dirty pages to WAL without COMMIT
+            // instead of depending on cache eviction or weakening the assertion.
+            assert_eq!(
+                unsafe { rusqlite::ffi::sqlite3_db_cacheflush(conn.handle()) },
+                rusqlite::ffi::SQLITE_OK
+            );
             std::fs::write(
                 std::env::var_os("ZC_SCHEMA_UPGRADE_MARKER").unwrap(),
                 b"uncommitted44",
@@ -371,8 +378,9 @@ fn schema_upgrade_42_43_backfill_faults_rollback_and_restart() {
                 migrate_global_search_covering_indexes(&conn).unwrap();
             }
             if fault == "full" {
-                conn.execute_batch("UPDATE global_entries SET volume_id='orphan_'||id")
-                    .unwrap();
+                conn.execute_batch("INSERT INTO global_volumes(id,platform,stable_volume_id,display_name,mount_path,filesystem_type,drive_kind,provider,created_at,updated_at)
+                    SELECT 'many_'||id,'windows','many_'||id,'Many','C:/Many','ntfs','fixed','recursive_fallback',1,1 FROM global_entries;
+                    UPDATE global_entries SET volume_id='many_'||id;").unwrap();
             }
             conn.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE)")
                 .unwrap();
@@ -387,7 +395,7 @@ fn schema_upgrade_42_43_backfill_faults_rollback_and_restart() {
                             let pages: i64 =
                                 conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
                             conn.pragma_update(None, "max_page_count", pages)?;
-                            // 3000 distinct orphan sources force facts leaf pages;
+                            // 3000 distinct registered sources force facts leaf pages;
                             // the actual INSERT backfill must hit SQLITE_FULL.
                         }
                         Ok(())

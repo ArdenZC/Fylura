@@ -16,6 +16,8 @@ const OBJECTS: [&str; 6] = [
 pub(crate) fn install(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(DDL)?;
     validate(conn)?;
+    #[cfg(test)]
+    backfill_hook(conn, "before")?;
     // One migration/explicit repair scan, never an ordinary startup/read scan.
     conn.execute_batch(
         "DELETE FROM global_entry_source_facts;
@@ -25,7 +27,29 @@ pub(crate) fn install(conn: &Connection) -> Result<(), DbError> {
         INSERT INTO global_entry_source_facts(volume_id,active_rows,active_ids,max_last_seen_at)
         SELECT id,0,0,NULL FROM global_volumes WHERE true ON CONFLICT(volume_id) DO NOTHING;",
     )?;
+    #[cfg(test)]
+    backfill_hook(conn, "after")?;
     Ok(())
+}
+
+#[cfg(test)]
+type BackfillHook = fn(&Connection, &str) -> Result<(), DbError>;
+#[cfg(test)]
+thread_local! { static BACKFILL_HOOK: std::cell::Cell<Option<BackfillHook>> = const { std::cell::Cell::new(None) }; }
+#[cfg(test)]
+fn backfill_hook(conn: &Connection, stage: &str) -> Result<(), DbError> {
+    BACKFILL_HOOK.with(|hook| hook.get().map_or(Ok(()), |f| f(conn, stage)))
+}
+#[cfg(test)]
+pub(crate) fn with_backfill_hook<T>(hook: BackfillHook, run: impl FnOnce() -> T) -> T {
+    struct Reset(Option<BackfillHook>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            BACKFILL_HOOK.with(|h| h.set(self.0));
+        }
+    }
+    let _reset = Reset(BACKFILL_HOOK.with(|h| h.replace(Some(hook))));
+    run()
 }
 
 pub(crate) fn validate(conn: &Connection) -> Result<(), DbError> {

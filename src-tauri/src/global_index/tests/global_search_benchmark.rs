@@ -21,6 +21,8 @@ mod query_cost_diagnostic;
 #[path = "global_search_covering_indexes.rs"]
 mod covering_indexes;
 
+#[path = "schema_upgrade_cost.rs"]
+mod schema_upgrade_cost;
 #[path = "global_search_source_facts_pair.rs"]
 mod source_facts_pair;
 

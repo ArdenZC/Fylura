@@ -4,9 +4,9 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **Global Search 1M Phase 2 — Draft #478 / Owner review and merge decision pending.**
-  Integrated master `1098af35727cdd3bea042deba41bb59238be586e`, Schema43 after
-  merged #473. Schema44 candidate maintains exact per-volume COUNT(id), active
+- **Global Search Schema44 / merged #479 integration — Draft #478, focused validation in progress.**
+  Integrated master `f302f5da8ab86f7d121b5cad9a71e5e552b720b6`, Schema43 after
+  merged #479. Capacity/cancel/recovery now cover the43→44 facts backfill. Schema44 candidate maintains exact per-volume COUNT(id), active
   rows and MAX in existing write transactions; Snapshot and standalone Status
   retain precise nullable-ID and source revision/read transaction contracts.
   100k and the single 1M pair passed full semantics; no-result Snapshot p95
@@ -16,6 +16,15 @@ Last verified: 2026-10-27
   test-only, with no 1M rerun; BM258:2:1
   and ordering unchanged. #417/F1 stays independent. Draft only, Owner merges.
   See [scope, producer audit and bounded protocol](../research/ISSUE_474_EXACT_SOURCE_FACTS.md).
+- **Schema 42→43 startup upgrade — MERGED #479; Schema44 integration in Draft #478.**
+  Integrated master 1098af35727cdd3bea042deba41bb59238be586e;
+  native pre-database upgrade/recovery UI, FILE sort/cache policy, storage and
+  low-memory preflight, cancellation and atomic failure/restart recovery are
+  validated by focused Windows/macOS automation. One 1M production-ID open
+  measured 10.906s and net +202.67 MiB indexes; these are Hosted observations,
+  not user-device limits. Native human/Owner Windows acceptance and the existing
+  #446 SIGBUS release blocker remain unqualified. [Scope, risks and validation](../research/ISSUE_477_SCHEMA_UPGRADE.md).
+  #478 now integrates this startup contract through Schema44; no #417 F1 cutover.
 
 - **U2 File Library tabs and dual-pane workspace — Draft / Owner review pending.**
   Base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`, normal master CI

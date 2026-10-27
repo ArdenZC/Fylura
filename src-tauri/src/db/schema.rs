@@ -245,7 +245,25 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<(), DbError> {
 }
 
 pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
+    migrate_with_cancellation(
+        conn,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+}
+
+pub(crate) fn migrate_with_cancellation(
+    conn: &Connection,
+    cancel: super::upgrade::UpgradeCancellation,
+) -> Result<(), DbError> {
     assert_fts5_available(conn)?;
+    // This unlocked read chooses connection resource policy only. The schema
+    // decision/future-version check is still repeated under BEGIN IMMEDIATE.
+    let observed_version = schema_version(conn)?;
+    let guard = super::upgrade::UpgradeGuard::new(
+        conn,
+        cancel,
+        observed_version > 0 && observed_version < CURRENT_SCHEMA_VERSION,
+    )?;
     // Read and decide under the same write lock. Another opener may finish an
     // upgrade while this connection waits for BEGIN IMMEDIATE.
     with_migration_transaction(conn, |conn| {
@@ -254,6 +272,20 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             return Err(DbError::Validation(format!(
                 "Database schema version {version} is newer than this app supports ({CURRENT_SCHEMA_VERSION})."
             )));
+        }
+        if (25..CURRENT_SCHEMA_VERSION).contains(&version) {
+            let file_backed: bool = conn.query_row(
+                "SELECT length(file)>0 FROM pragma_database_list WHERE name='main'",
+                [],
+                |r| r.get(0),
+            )?;
+            if file_backed {
+                let resources = super::upgrade::inspect_resources(conn)?;
+                eprintln!("database_upgrade rows={} key_bytes={} facts_key_bytes={} page_size={} page_count={} freelist_pages={} database_reserve={} temporary_reserve={} available_memory={}",resources.active_rows,resources.key_bytes,resources.facts_key_bytes,resources.page_size,resources.page_count,resources.freelist_pages,resources.database_required_bytes,resources.temporary_required_bytes,resources.available_memory_bytes);
+            }
+        }
+        if version >= 43 {
+            validate_global_search_covering_indexes(conn)?;
         }
         if version == CURRENT_SCHEMA_VERSION {
             super::schema_global_source_facts::validate(conn)?;
@@ -1000,14 +1032,31 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             set_schema_version(conn, 42)?;
         }
         if version < 43 {
+            guard.check_cancelled()?;
             migrate_global_search_covering_indexes(conn)?;
         }
         if version < 44 {
+            guard.check_cancelled()?;
             super::schema_global_source_facts::install(conn)?;
             set_schema_version(conn, 44)?;
         }
+        guard.check_cancelled()?;
         Ok(())
     })
+}
+
+fn validate_global_search_covering_indexes(conn: &Connection) -> Result<(), DbError> {
+    for (name, definition) in [
+        ("idx_global_entries_active_name_order", "CREATE INDEX idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC,volume_id) WHERE is_stale=0"),
+        ("idx_global_entries_active_source_facts", "CREATE INDEX idx_global_entries_active_source_facts ON global_entries(volume_id,last_seen_at,id) WHERE is_stale=0"),
+    ] {
+        let actual: Option<String> = conn.query_row("SELECT sql FROM main.sqlite_schema WHERE type='index' AND name=?1", [name], |r|r.get(0)).optional()?;
+        let signature = |s: &str| schema_sql_signature(s).replace("ifnotexists", "");
+        if actual.as_deref().map(signature) != Some(signature(definition)) {
+            return Err(DbError::Validation(format!("global_search_covering_index_conflict:{name}")));
+        }
+    }
+    Ok(())
 }
 
 fn migrate_global_search_covering_indexes(conn: &Connection) -> Result<(), DbError> {
@@ -1127,7 +1176,10 @@ fn with_migration_transaction(
     conn.execute_batch("BEGIN IMMEDIATE")?;
     match migration(conn) {
         Ok(()) => {
-            conn.execute_batch("COMMIT")?;
+            if let Err(error) = conn.execute_batch("COMMIT") {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(error.into());
+            }
             Ok(())
         }
         Err(error) => {
@@ -3995,3 +4047,7 @@ mod issue381_b4_p0_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "schema_upgrade_recovery_tests.rs"]
+mod upgrade_recovery_tests;

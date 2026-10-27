@@ -1,3 +1,55 @@
+## Final integration with merged #479 (Owner rereview)
+
+The existing Draft #478 integrates `master@f302f5da8ab86f7d121b5cad9a71e5e552b720b6`
+(tree `1bb9e6ee83381c4cbe3a7be8d64542c2e814a510`, normal CI
+[40432147790](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40432147790) SUCCESS).
+Schema44 retains the native foreground worker/modal, background deferral,
+128MiB available-memory reserve, FILE temporary storage, 8MiB main cache,
+zero mmap/auxiliary sort workers, SQLite cancellation, Retry/Exit, rollback
+and future-version rejection. No production search/BM25/order contract changes.
+
+The installed-database capacity gate now covers 25..43, including both 42→44
+and 43→44, under the original `BEGIN IMMEDIATE` before migration DDL.
+A streaming GROUP BY on the existing volume index (42) or active Source Facts
+covering index (43) estimates distinct active source key bytes plus all
+registered keys, including orphan and empty sources. Registered/active overlap
+is deliberately overcounted. Facts table/WAL and potential temporary-sort space
+use the existing conservative payload policy and 64MiB reserve per storage
+role; 42 additionally reserves both index rebuilds. This is a capacity planning
+margin, not an allocation guarantee or RSS cap. Same-volume reserves combine;
+free pages are not credited. Preflight and backfill remain cancellable.
+Schema43/44 also validate both required covering-index signatures before
+proceeding; missing/forged indexes fail closed rather than being silently repaired.
+Schema44 reopen neither scans capacity nor repeats the facts backfill.
+
+Focused integration tests exercise populated42/43→44 and44 reopen with exact
+complete Snapshot fields, nullable IDs, disabled/stale and empty sources,
+canonical facts, source revision/status, and no repeated install hook. Actual
+SQLite FULL at the new backfill, insufficient capacity, cancellation before/after
+backfill, injected SQL failure and a killed process after facts spill must retain
+the installed version/indexes/user-data fingerprints and permit a fresh open.
+Native QA covers both42 and43 visibility-before-worker, native cancel/retry and
+real background Tauri deferral. These tests/measurements are pending on the
+integrated candidate; results will be recorded before handoff.
+
+The existing manual `schema_upgrade` mode now uses one200k production-shaped
+fixture per native platform and controlled100k/200k copies for42 and43 routes.
+It measures actual `Database::open`, the backfill SQL interval separately,
+main/WAL/SHM files, dbstat, sampled process RSS and free-volume low watermarks;
+fixture population/copy/compaction/index preparation are excluded. It checks
+all12 complete before/after snapshots for equality without running the latency
+matrix. Normal44 reopen is timed separately with a hook that rejects backfill.
+No new1M fixture or search benchmark is authorized by this integration run.
+
+Historical evidence below belongs to its named prior source, not the integrated
+HEAD. FTS>100ms, extension-prefix pooled p99+26.10%, whole-volume retirement
++16.9%, sustained Watcher qualification and unmeasured1M Schema44 backfill
+remain disclosed. Human keyboard/screen-reader/contrast, packaged first upgrade,
+Owner Windows acceptance, actual hardware IOERR/separate-temp-drive exhaustion
+and existing #446 SIGBUS release qualification remain outside automated proof.
+
+---
+
 # Issue 474 — exact Source Facts production slice
 
 Owner contract: [#474](https://github.com/ArdenZC/Zen-Canvas/issues/474).

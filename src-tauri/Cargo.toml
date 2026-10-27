@@ -79,6 +79,8 @@ windows-sys = { version = "0.61.2", features = [
     "Wdk_Storage_FileSystem",
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
@@ -98,7 +100,7 @@ block2 = "0.6.2"
 fsevent-sys = "4.1.0"
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSResponder", "NSView", "NSWorkspace"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSResponder", "NSView", "NSWorkspace", "NSAlert", "NSButton", "NSControl", "NSWindow"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["CFRunLoop", "objc2"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
     "NSArray",
@@ -117,6 +119,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
     "NSProcessInfo",
     "NSRange",
     "NSRunLoop",
+    "NSTimer",
     "NSString",
     "NSValue",
     "NSURL",

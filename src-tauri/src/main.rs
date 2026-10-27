@@ -3,6 +3,8 @@
     windows_subsystem = "windows"
 )]
 
+mod startup_upgrade;
+
 use std::io;
 
 use tauri::{Emitter, Manager};
@@ -10,7 +12,7 @@ use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
     dedupe::DedupeJobManager,
     global_index::{GlobalIndexCoordinator, ManagedAiWorker},
-    open_database, settings,
+    settings,
     watcher::{
         reload_file_watcher_for_settings, suspend_file_watcher_for_lifecycle, FileWatcherManager,
     },
@@ -53,9 +55,23 @@ fn main() {
         std::process::exit(0);
     }
 
+    #[cfg(feature = "native-qa")]
+    if launch_args
+        .get(1)
+        .is_some_and(|arg| arg == "--schema-upgrade-ui-qa")
+    {
+        if let Err(error) = startup_upgrade::run_native_qa() {
+            eprintln!("Native upgrade QA failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let background_launch = zen_canvas_tauri::app_control::is_background_launch_args(&launch_args);
 
-    tauri::Builder::default()
+    let startup_aborted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let abort_on_setup = startup_aborted.clone();
+    let application = tauri::Builder::default()
         .manage(zen_canvas_tauri::exit_intent::ExitIntentState::default())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             let classification =
@@ -71,6 +87,10 @@ fn main() {
             );
             match classification.action {
                 zen_canvas_tauri::app_control::SecondInstanceAction::ActivateMain => {
+                    if app.try_state::<zen_canvas_tauri::db::Database>().is_none() {
+                        eprintln!("ui_runtime single_instance_main_activation deferred=database_startup");
+                        return;
+                    }
                     match zen_canvas_tauri::app_control::show_main_window(app) {
                         Ok(()) => {
                             let generation = app
@@ -103,7 +123,18 @@ fn main() {
         ))
         .setup(move |app| {
             qualification_startup_checkpoint("tauri_setup_entered");
-            let db = open_database(app.handle()).map_err(io::Error::other)?;
+            let database_path = zen_canvas_tauri::database_path(app.handle()).map_err(io::Error::other)?;
+            let db = match startup_upgrade::open(database_path, background_launch) {
+                Ok(db)=>db,
+                Err(error)=>{
+                    // A deferred background upgrade or an acknowledged native
+                    // Exit is a normal startup outcome, not a crash/relaunch.
+                    abort_on_setup.store(true,std::sync::atomic::Ordering::Release);
+                    eprintln!("Database startup deferred or cancelled: {error}");
+                    app.handle().exit(0);
+                    return Ok(());
+                }
+            };
             qualification_startup_checkpoint("database_ready");
             db.recover_dedupe_runs().map_err(io::Error::other)?;
             db.recover_analysis_runs().map_err(io::Error::other)?;
@@ -582,9 +613,24 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::restore_cleanup_trash_items,
             zen_canvas_tauri::storage_analyzer::cancel_cleanup_restore
         ])
-        .build(tauri::generate_context!())
-        .expect("failed to build Zen Canvas")
-        .run(|app, event| {
+        .build(tauri::generate_context!());
+    let application = match application {
+        Ok(application) => application,
+        Err(error) => {
+            if startup_aborted.load(std::sync::atomic::Ordering::Acquire) {
+                eprintln!("Database startup deferred or cancelled: {error}");
+                return;
+            }
+            panic!("failed to build Zen Canvas: {error}");
+        }
+    };
+    application.run(move |app, event| {
+            if startup_aborted.load(std::sync::atomic::Ordering::Acquire) {
+                // Setup can run on Ready in the native runtime. Keep this
+                // acknowledged exit out of normal resident/activation handlers.
+                if matches!(event, tauri::RunEvent::Ready) {app.exit(0);}
+                return;
+            }
             match event {
                 tauri::RunEvent::Resumed => {
                     if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {

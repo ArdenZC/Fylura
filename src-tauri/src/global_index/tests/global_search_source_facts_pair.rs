@@ -385,35 +385,36 @@ fn prepared_source_facts_preserve_real_snapshot_contracts() {
 
 #[test]
 fn source_facts_schema44_migrates_populated43_and_reopens_without_recount() {
-    let path = test_db_path();
-    let _cleanup = BenchmarkCleanup(path.clone());
-    let db = Database::open(&path).unwrap();
-    db.upsert_global_volume(&test_volume()).unwrap();
-    let mut disabled = test_volume();
-    disabled.id = "disabled".into();
-    disabled.stable_volume_id = "disabled".into();
-    disabled.enabled = false;
-    db.upsert_global_volume(&disabled).unwrap();
-    let mut empty = test_volume();
-    empty.id = "empty".into();
-    empty.stable_volume_id = "empty".into();
-    db.upsert_global_volume(&empty).unwrap();
-    let entries = (0..2048)
-        .map(|n| {
-            let mut e = input(n);
-            e.volume_id = if n.is_multiple_of(4) {
-                "disabled"
-            } else {
-                "gv_test"
-            }
-            .into();
-            e
-        })
-        .collect::<Vec<_>>();
-    db.upsert_global_entries_batch(&entries).unwrap();
-    let conn = configured_connection(&path).unwrap();
-    conn.execute_batch(
-        "UPDATE global_entries SET id=NULL WHERE rowid=2;
+    for starting_schema in [42, 43] {
+        let path = test_db_path();
+        let _cleanup = BenchmarkCleanup(path.clone());
+        let db = Database::open(&path).unwrap();
+        db.upsert_global_volume(&test_volume()).unwrap();
+        let mut disabled = test_volume();
+        disabled.id = "disabled".into();
+        disabled.stable_volume_id = "disabled".into();
+        disabled.enabled = false;
+        db.upsert_global_volume(&disabled).unwrap();
+        let mut empty = test_volume();
+        empty.id = "empty".into();
+        empty.stable_volume_id = "empty".into();
+        db.upsert_global_volume(&empty).unwrap();
+        let entries = (0..2048)
+            .map(|n| {
+                let mut e = input(n);
+                e.volume_id = if n.is_multiple_of(4) {
+                    "disabled"
+                } else {
+                    "gv_test"
+                }
+                .into();
+                e
+            })
+            .collect::<Vec<_>>();
+        db.upsert_global_entries_batch(&entries).unwrap();
+        let conn = configured_connection(&path).unwrap();
+        conn.execute_batch(
+            "UPDATE global_entries SET id=NULL WHERE rowid=2;
         UPDATE global_entries SET is_stale=1 WHERE rowid%13=0;
         UPDATE global_volumes SET entry_count=987654;
         DROP TRIGGER global_entry_source_facts_ai;
@@ -423,57 +424,67 @@ fn source_facts_schema44_migrates_populated43_and_reopens_without_recount() {
         DROP TRIGGER global_entry_source_facts_volume_au;
         DROP TABLE global_entry_source_facts;
         PRAGMA user_version=43;",
-    )
-    .unwrap();
-    let before = with_canonical_source_facts(|| {
-        QUERY_MATRIX
-            .iter()
-            .map(|case| {
-                db.search_global_entries_snapshot(case.query, 80, 0)
-                    .unwrap()
-            })
-            .collect::<Vec<_>>()
-    });
-    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        )
         .unwrap();
-    drop(conn);
-    drop(db);
-    let db = Database::open(&path).unwrap();
-    assert_eq!(
-        db.conn()
-            .unwrap()
-            .query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
-            .unwrap(),
-        44
-    );
-    for (case, before) in QUERY_MATRIX.iter().zip(&before) {
-        same(
-            before,
-            &db.search_global_entries_snapshot(case.query, 80, 0)
+        if starting_schema == 42 {
+            conn.execute_batch("DROP INDEX idx_global_entries_active_name_order;
+            DROP INDEX idx_global_entries_active_source_facts;
+            CREATE INDEX idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC) WHERE is_stale=0;
+            PRAGMA user_version=42;").unwrap();
+        }
+        let before = with_canonical_source_facts(|| {
+            QUERY_MATRIX
+                .iter()
+                .map(|case| {
+                    db.search_global_entries_snapshot(case.query, 80, 0)
+                        .unwrap()
+                })
+                .collect::<Vec<_>>()
+        });
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+            .unwrap();
+        drop(conn);
+        drop(db);
+        let db = Database::open(&path).unwrap();
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
                 .unwrap(),
+            44
         );
-    }
-    // PROFILE tracing reserves all eight pooled handles. Inspect facts using
-    // a separate connection so this fixture cannot exhaust its own pool.
-    let conn = configured_connection(&path).unwrap();
-    let rows:i64=conn.query_row("SELECT active_rows-active_ids FROM global_entry_source_facts WHERE volume_id='gv_test'",[],|r|r.get(0)).unwrap();
-    assert_eq!(rows, 1);
-    let traces = super::covering_indexes::trace_snapshot(&db, &conn, "zzznomatchtoken");
-    assert!(
-        !traces.iter().any(|r| r["sql"]
-            .as_str()
-            .unwrap_or("")
-            .contains("active_volume_facts")),
-        "ordinary snapshots must not use the canonical aggregate"
-    );
-    drop(conn);
-    drop(db);
-    let db = Database::open(&path).unwrap();
-    for (case, before) in QUERY_MATRIX.iter().zip(&before) {
-        same(
-            before,
-            &db.search_global_entries_snapshot(case.query, 80, 0)
-                .unwrap(),
+        for (case, before) in QUERY_MATRIX.iter().zip(&before) {
+            same(
+                before,
+                &db.search_global_entries_snapshot(case.query, 80, 0)
+                    .unwrap(),
+            );
+        }
+        // PROFILE tracing reserves all eight pooled handles. Inspect facts using
+        // a separate connection so this fixture cannot exhaust its own pool.
+        let conn = configured_connection(&path).unwrap();
+        let rows:i64=conn.query_row("SELECT active_rows-active_ids FROM global_entry_source_facts WHERE volume_id='gv_test'",[],|r|r.get(0)).unwrap();
+        assert_eq!(rows, 1);
+        let traces = super::covering_indexes::trace_snapshot(&db, &conn, "zzznomatchtoken");
+        assert!(
+            !traces.iter().any(|r| r["sql"]
+                .as_str()
+                .unwrap_or("")
+                .contains("active_volume_facts")),
+            "ordinary snapshots must not use the canonical aggregate"
         );
+        drop(conn);
+        drop(db);
+        let db = crate::db::schema_global_source_facts::with_backfill_hook(
+            |_, _| panic!("Schema44 reopen must not backfill"),
+            || Database::open(&path).unwrap(),
+        );
+        for (case, before) in QUERY_MATRIX.iter().zip(&before) {
+            same(
+                before,
+                &db.search_global_entries_snapshot(case.query, 80, 0)
+                    .unwrap(),
+            );
+        }
     }
 }

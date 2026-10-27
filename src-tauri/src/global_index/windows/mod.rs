@@ -10,8 +10,8 @@ pub mod volumes;
 
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use crate::global_index::models::{
-    GlobalSourceDescriptor, INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_UNAVAILABLE,
-    PROVIDER_WINDOWS_MFT_USN,
+    GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_UNAVAILABLE,
+    PROVIDER_WINDOWS_MFT_USN, SCOPE_AUTHORIZATION_AUTHORIZED,
 };
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use crate::global_index::{SourceOperationKind, SourceOperationRoute};
@@ -51,6 +51,7 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
         sink: &mut dyn GlobalIndexSink,
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
+        ensure_source_authorized(&source.volume)?;
         if source.volume.provider != PROVIDER_WINDOWS_MFT_USN {
             let message = format!(
                 "windows_global_index_unsupported_filesystem:{}",
@@ -74,6 +75,7 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
         sink: &mut dyn GlobalIndexSink,
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
+        ensure_source_authorized(&source.volume)?;
         if source.volume.provider != PROVIDER_WINDOWS_MFT_USN {
             let message = format!(
                 "windows_global_index_unsupported_filesystem:{}",
@@ -98,6 +100,17 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         Ok(())
     }
+}
+
+fn ensure_source_authorized(volume: &GlobalVolume) -> Result<(), GlobalIndexError> {
+    if volume.platform == "windows"
+        && volume.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED
+    {
+        return Err(GlobalIndexError::Provider(
+            "global_index_source_authorization_required".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn finish_incremental_result(
@@ -324,6 +337,7 @@ impl WindowsGlobalIndexProvider {
             &mut dyn GlobalIndexSink,
         ) -> Result<(), GlobalIndexError>,
     ) -> Result<(), GlobalIndexError> {
+        ensure_source_authorized(&source.volume)?;
         self.ensure_native_change_watcher(source)?;
         self.run_with_fallback(request, sink, direct)
     }
@@ -340,6 +354,7 @@ impl WindowsGlobalIndexProvider {
         let source = request.source.as_ref().ok_or_else(|| {
             GlobalIndexError::ServiceProtocol("Direct operation source absent".into())
         })?;
+        ensure_source_authorized(source)?;
         let kind = match &request.command {
             IndexServiceCommand::StartInitialIndex { .. } => SourceOperationKind::Initial,
             IndexServiceCommand::ResumeIncrementalSync { .. } => SourceOperationKind::Incremental,
@@ -592,58 +607,10 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
     }
 
     fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
-        #[cfg(test)]
-        if self.force_direct {
-            return self.direct.discover_sources();
-        }
-        let request = IndexServiceRequest::new(IndexServiceCommand::DiscoverSources, None);
-        let mut sources = None;
-        match service::call_index_service_admitted(&request, |event| {
-            let IndexServiceEvent::Sources {
-                sources: discovered,
-            } = event
-            else {
-                return Err(service::IndexServiceCallError::Protocol(
-                    "unexpected discovery event".into(),
-                ));
-            };
-            if sources.is_some() {
-                return Err(service::IndexServiceCallError::Protocol(
-                    "duplicate discovery result".into(),
-                ));
-            }
-            let mut ids = std::collections::HashSet::new();
-            for source in &discovered {
-                service::validate_source_snapshot(source)
-                    .map_err(service::IndexServiceCallError::Protocol)?;
-                if !ids.insert(source.id.clone()) {
-                    return Err(service::IndexServiceCallError::Protocol(
-                        "duplicate discovery source identity".into(),
-                    ));
-                }
-            }
-            sources = Some(discovered);
-            Ok(None)
-        }) {
-            Ok(response) if response.ok => {
-                self.service_connected();
-                Ok(sources
-                    .ok_or_else(|| {
-                        GlobalIndexError::ServiceProtocol(
-                            "discovery success without Sources".into(),
-                        )
-                    })?
-                    .into_iter()
-                    .map(|volume| GlobalSourceDescriptor { volume })
-                    .collect())
-            }
-            Ok(response) => Err(Self::service_response_error(&response)),
-            Err(service::IndexServiceCallError::NotSent(_)) => {
-                self.service_failed();
-                self.direct.discover_sources()
-            }
-            Err(error) => Err(error.into_global()),
-        }
+        // Topology discovery reads volume identities only. Keep it in the
+        // desktop so startup never contacts the index service before source
+        // authorization has been checked by the coordinator.
+        self.direct.discover_sources()
     }
 
     fn start_initial_index(
@@ -764,6 +731,7 @@ mod tests {
     use crate::global_index::models::{
         GlobalEntry, GlobalEntryInput, GlobalVolume, INDEX_STATUS_PERMISSION_REQUIRED,
         INDEX_STATUS_READY, INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_SYNCING,
+        SCOPE_AUTHORIZATION_NOT_AUTHORIZED,
     };
     use std::collections::VecDeque;
     use std::sync::mpsc::{self, Sender};
@@ -808,6 +776,7 @@ mod tests {
                 filesystem_type: "ntfs".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
                 index_status: "ready".to_string(),
                 last_error: None,
@@ -1955,6 +1924,42 @@ mod tests {
     }
 
     #[test]
+    fn unauthorized_source_cannot_start_watcher_service_or_direct_fallback() {
+        let provider = WindowsGlobalIndexProvider::with_fake_change_watchers();
+        let mut source = windows_source();
+        source.volume.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_AUTHORIZED.to_string();
+        let request = WindowsGlobalIndexProvider::source_request(
+            IndexServiceCommand::StartInitialIndex {
+                source_id: source.volume.id.clone(),
+            },
+            &source,
+        );
+        let mut sink = SourceStateSink::default();
+        let direct_calls = std::sync::atomic::AtomicUsize::new(0);
+        let error = provider
+            .run_source_request(&request, &source, &mut sink, |_direct, _sink| {
+                direct_calls.fetch_add(1, Ordering::AcqRel);
+                Ok(())
+            })
+            .expect_err("unapproved full-volume work must fail closed");
+
+        assert!(
+            matches!(error, GlobalIndexError::Provider(message) if message == "global_index_source_authorization_required")
+        );
+        assert_eq!(provider.test_watcher_start_count.load(Ordering::Acquire), 0);
+        assert!(provider.change_watchers.lock().unwrap().is_empty());
+        assert_eq!(direct_calls.load(Ordering::Acquire), 0);
+
+        let direct = DirectWindowsGlobalIndexProvider::new();
+        let direct_error = direct
+            .start_initial_index(&source, &mut sink, &AtomicBool::new(false))
+            .expect_err("direct provider also enforces source authorization");
+        assert!(
+            matches!(direct_error, GlobalIndexError::Provider(message) if message == "global_index_source_authorization_required")
+        );
+    }
+
+    #[test]
     fn failed_change_watcher_is_replaced_and_source_request_continues() {
         let provider = WindowsGlobalIndexProvider::with_fake_change_watchers();
         let source = windows_source();
@@ -2039,6 +2044,7 @@ mod tests {
                 filesystem_type: "ntfs".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
                 index_status: "ready".to_string(),
                 last_error: None,

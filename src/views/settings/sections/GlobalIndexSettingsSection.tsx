@@ -25,6 +25,7 @@ function statusNeedsAttention(status: GlobalIndexStatus | null) {
   return Boolean(
     status?.status === "error"
       || status?.status === "permission_required"
+      || status?.status === "authorization_required"
       || status?.status === "spotlight_not_indexed"
       || status?.status === "spotlight_external_not_indexed"
       || status?.status === "spotlight_unavailable"
@@ -48,12 +49,21 @@ export function GlobalIndexSettingsSection({
   onAction
 }: GlobalIndexSettingsSectionProps) {
   const hasSources = sources.length > 0;
-  const hasEnabledSource = sources.some((source) => source.volume.enabled);
+  const isFullVolumeAuthorizationTarget = (source: GlobalIndexSource) =>
+    source.volume.platform === "windows"
+      && source.volume.driveKind === "fixed"
+      && source.volume.filesystemType.trim().toLowerCase() === "ntfs";
+  const sourceAuthorized = (source: GlobalIndexSource) =>
+    source.volume.platform !== "windows" || source.volume.scopeAuthorizationState === "authorized";
+  const hasEnabledSource = sources.some((source) => source.volume.enabled && sourceAuthorized(source));
+  const hasUnconfirmedWindowsSource = sources.some((source) =>
+    isFullVolumeAuthorizationTarget(source) && source.volume.scopeAuthorizationState !== "authorized"
+  );
   const showLoading = isLoading || loadState === "loading";
   const sourceState = !hasSources
     ? "no_source"
     : !hasEnabledSource
-      ? "unavailable"
+      ? hasUnconfirmedWindowsSource ? "authorization_required" : "unavailable"
       : status?.status ?? "unknown";
   const attention = !hasEnabledSource || !status || statusNeedsAttention(status);
   const partial = Boolean(
@@ -61,6 +71,32 @@ export function GlobalIndexSettingsSection({
       || (status && !status.collectionComplete && status.status !== "indexing" && status.status !== "syncing")
       || (status && status.pendingVolumes > 0)
   );
+  const sourceStatusText = (source: GlobalIndexSource) => {
+    if (isFullVolumeAuthorizationTarget(source)) {
+      if (source.volume.scopeAuthorizationState === "not_authorized") return t("globalIndexSourceDiscoveredNotEnabled");
+      if (source.volume.scopeAuthorizationState === "legacy_confirmation_required") return t("globalIndexSourceLegacyConfirmationRequired");
+      if (source.volume.scopeAuthorizationState === "authorized" && source.volume.enabled && source.volume.indexStatus === "discovered") {
+        return t("globalIndexSourceAuthorizedWaiting");
+      }
+    }
+    return statusText(source.volume.indexStatus);
+  };
+  const setSourceEnabled = (source: GlobalIndexSource, enabled: boolean) => {
+    const needsAuthorization = isFullVolumeAuthorizationTarget(source)
+      && source.volume.scopeAuthorizationState !== "authorized";
+    if (enabled && needsAuthorization) {
+      if (!window.confirm(t("globalIndexFullDiskConfirm"))) return;
+      onAction(
+        () => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.authorizeGlobalIndexSource(source.volume.id, true)),
+        t("globalIndexAuthorizationSaved")
+      );
+      return;
+    }
+    onAction(
+      () => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.setGlobalIndexSourceEnabled(source.volume.id, enabled)),
+      t("settingsSavedInline")
+    );
+  };
   return (
     <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")} progressiveDisclosure>
       {loadState === "error" ? (
@@ -92,13 +128,13 @@ export function GlobalIndexSettingsSection({
               {status?.lastError ? <span className={quietText}>{errorText(status.lastError)}</span> : null}
             </SettingsInlineMessage>
           ) : !hasEnabledSource ? (
-            <SettingsInlineMessage tone="warning" role="status" status="unavailable">
+            <SettingsInlineMessage tone="warning" role="status" status={hasUnconfirmedWindowsSource ? "authorization_required" : "unavailable"}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <strong>{t("globalIndexStatus")}</strong>
-                <span>{t("globalIndexStatusUnavailable")}</span>
+                <span>{hasUnconfirmedWindowsSource ? t("globalIndexStatusAuthorizationRequired") : t("globalIndexStatusUnavailable")}</span>
               </div>
-              <span className={quietText}>{t("globalIndexAllSourcesDisabled")}</span>
-              <span className={quietText}>{t("globalIndexAllSourcesDisabledDesc")}</span>
+              <span className={quietText}>{hasUnconfirmedWindowsSource ? t("globalIndexAuthorizationRequiredDesc") : t("globalIndexAllSourcesDisabled")}</span>
+              {!hasUnconfirmedWindowsSource ? <span className={quietText}>{t("globalIndexAllSourcesDisabledDesc")}</span> : null}
             </SettingsInlineMessage>
           ) : status?.providerStatus?.includes("service_unavailable") ? (
             <SettingsInlineMessage tone="warning" role="alert">
@@ -148,18 +184,19 @@ export function GlobalIndexSettingsSection({
                   <div className="min-w-0 text-left">
                     <strong className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{source.volume.displayName}</strong>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={source.volume.mountPath}>
-                      {compactPath(source.volume.mountPath, 72)} · {statusText(source.volume.indexStatus)} · {source.volume.entryCount.toLocaleString()}
+                      {compactPath(source.volume.mountPath, 72)} · {sourceStatusText(source)} · {source.volume.entryCount.toLocaleString()}
                     </span>
                   </div>
                   {loadState === "loaded" ? (
                     <div className="flex flex-wrap items-center justify-start gap-2 min-[841px]:justify-end">
                       <SettingsSwitchControl
                         id={`global-index-source-${source.volume.id}`}
-                        checked={source.volume.enabled}
-                        label={source.volume.enabled ? t("globalIndexEnabled") : t("globalIndexDisabled")}
-                        onChange={(enabled) => onAction(() => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.setGlobalIndexSourceEnabled(source.volume.id, enabled)), t("settingsSavedInline"))}
+                        checked={source.volume.enabled && (sourceAuthorized(source) || !isFullVolumeAuthorizationTarget(source))}
+                        label={source.volume.enabled && (sourceAuthorized(source) || !isFullVolumeAuthorizationTarget(source)) ? t("globalIndexEnabled") : isFullVolumeAuthorizationTarget(source) && source.volume.scopeAuthorizationState !== "authorized" ? t("globalIndexAuthorizationRequiredDesc") : t("globalIndexDisabled")}
+                        disabled={isUpdating || (source.volume.platform === "windows" && !isFullVolumeAuthorizationTarget(source) && !source.volume.enabled)}
+                        onChange={(enabled) => setSourceEnabled(source, enabled)}
                       />
-                      <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => onAction(() => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.rebuildGlobalIndexSource(source.volume.id)), t("globalIndexRebuild"))} disabled={isUpdating || !source.canRebuild}>
+                      <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => onAction(() => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.rebuildGlobalIndexSource(source.volume.id)), t("globalIndexRebuild"))} disabled={isUpdating || !source.canRebuild || !sourceAuthorized(source)}>
                         <Play size={14} />
                         <span>{t("globalIndexRebuild")}</span>
                       </button>

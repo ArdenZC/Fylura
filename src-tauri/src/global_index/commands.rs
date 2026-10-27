@@ -204,6 +204,19 @@ pub fn set_global_index_source_enabled<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn authorize_global_index_source<R: Runtime>(
+    window: WebviewWindow<R>,
+    coordinator: State<'_, GlobalIndexCoordinator>,
+    source_id: String,
+    confirmed: bool,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    coordinator
+        .authorize_source(&source_id, confirmed)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn open_global_search_result(db: State<'_, Database>, entry_id: String) -> Result<(), String> {
     let entry = revalidated_global_entry(db.inner(), &entry_id)?;
     open_path(&entry.path)
@@ -518,6 +531,23 @@ mod tests {
         assert_eq!(
             global_search_result_state(true, false, true, &ready, false),
             "pending"
+        );
+        assert_eq!(
+            global_search_result_state(
+                true,
+                false,
+                true,
+                &GlobalIndexStatus {
+                    enabled: true,
+                    status: "authorization_required".to_string(),
+                    indexed_volumes: 1,
+                    pending_volumes: 1,
+                    ..ready.clone()
+                },
+                false
+            ),
+            "pending",
+            "an unconfirmed legacy source must not turn an empty cache into a zero-result claim"
         );
         assert_eq!(
             global_search_result_state(false, false, true, &ready, false),

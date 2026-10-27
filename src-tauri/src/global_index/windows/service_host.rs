@@ -13,6 +13,7 @@ use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, Gl
 use crate::global_index::models::{
     GlobalEntry, GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_PAUSED,
     INDEX_STATUS_READY, PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
+    SCOPE_AUTHORIZATION_AUTHORIZED,
 };
 use std::path::Path;
 use std::ptr;
@@ -307,6 +308,12 @@ impl ServiceRuntime {
         if snapshot.id != source_id {
             return Err("index_service_source_id_mismatch".to_string());
         }
+        if snapshot.platform == "windows"
+            && (snapshot.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED
+                || !snapshot.enabled)
+        {
+            return Err("index_service_source_authorization_required".to_string());
+        }
         let discovered = self
             .provider
             .discover_sources()
@@ -339,6 +346,7 @@ impl ServiceRuntime {
 
 fn merge_durable_source_state(mut current: GlobalVolume, snapshot: &GlobalVolume) -> GlobalVolume {
     current.enabled = snapshot.enabled;
+    current.scope_authorization_state = snapshot.scope_authorization_state.clone();
     current.index_status = snapshot.index_status.clone();
     current.journal_id = snapshot.journal_id.clone();
     current.journal_cursor = snapshot.journal_cursor.clone();
@@ -945,6 +953,39 @@ mod tests {
     }
 
     #[test]
+    fn service_host_rejects_unconfirmed_source_before_discovery() {
+        let runtime = ServiceRuntime::new();
+        let mut legacy = GlobalVolume {
+            id: "v".into(),
+            platform: "windows".into(),
+            stable_volume_id: "native-v".into(),
+            display_name: "test".into(),
+            mount_path: "Z:\\".into(),
+            filesystem_type: "NTFS".into(),
+            drive_kind: "fixed".into(),
+            enabled: true,
+            scope_authorization_state: SCOPE_AUTHORIZATION_AUTHORIZED.into(),
+            provider: PROVIDER_WINDOWS_MFT_USN.into(),
+            index_status: INDEX_STATUS_READY.into(),
+            last_error: None,
+            journal_id: None,
+            journal_cursor: None,
+            last_full_index_at: None,
+            last_incremental_sync_at: None,
+            entry_count: 0,
+            created_at: 0,
+            updated_at: 0,
+        };
+        legacy.scope_authorization_state =
+            crate::global_index::models::SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+                .to_string();
+        let error = runtime
+            .validated_source(&legacy.id, Some(&legacy))
+            .expect_err("service entry must fail closed on unknown historical consent");
+        assert_eq!(error, "index_service_source_authorization_required");
+    }
+
+    #[test]
     fn same_source_start_resume_and_rebuild_contenders_get_busy_without_service_fault_state() {
         let runtime = ServiceRuntime::new();
         let active = index_request(
@@ -1030,6 +1071,7 @@ mod tests {
             filesystem_type: "ntfs".to_string(),
             drive_kind: "fixed".to_string(),
             enabled: true,
+            scope_authorization_state: "authorized".to_string(),
             provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
             index_status: INDEX_STATUS_DISCOVERED.to_string(),
             last_error: None,

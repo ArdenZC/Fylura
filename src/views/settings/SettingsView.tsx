@@ -133,6 +133,7 @@ function readDeveloperMode() {
 function globalIndexStatusText(status: string, t: Translator) {
   const statusKeys: Record<string, Parameters<Translator>[0]> = {
     discovered: "globalIndexStatusDiscovered",
+    authorization_required: "globalIndexStatusAuthorizationRequired",
     indexing: "globalIndexStatusIndexing",
     syncing: "globalIndexStatusSyncing",
     ready: "globalIndexStatusReady",

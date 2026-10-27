@@ -273,6 +273,7 @@ struct GlobalIndexStatusCounts {
     indexed_volumes: i64,
     ready_volumes: i64,
     pending_volumes: i64,
+    authorization_required_volumes: i64,
     spotlight_not_indexed_volumes: i64,
     permission_required_volumes: i64,
     spotlight_unavailable_volumes: i64,
@@ -292,17 +293,23 @@ impl Database {
             r#"
             INSERT INTO global_volumes (
                 id, platform, stable_volume_id, display_name, mount_path,
-                filesystem_type, drive_kind, enabled, provider, index_status,
+                filesystem_type, drive_kind, enabled, scope_authorization_state,
+                provider, index_status,
                 last_error, journal_id, journal_cursor, last_full_index_at,
                 last_incremental_sync_at, entry_count, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
             ON CONFLICT(stable_volume_id) DO UPDATE SET
                 platform = excluded.platform,
                 display_name = excluded.display_name,
                 mount_path = excluded.mount_path,
                 filesystem_type = excluded.filesystem_type,
                 drive_kind = excluded.drive_kind,
-                provider = excluded.provider,
+                provider = CASE
+                    WHEN global_volumes.platform = 'windows'
+                     AND global_volumes.scope_authorization_state != 'authorized'
+                    THEN global_volumes.provider
+                    ELSE excluded.provider
+                END,
                 operation_revision = operation_revision + CASE WHEN
                     platform IS NOT excluded.platform OR
                     mount_path IS NOT excluded.mount_path OR
@@ -363,6 +370,7 @@ impl Database {
                 volume.filesystem_type,
                 volume.drive_kind,
                 bool_to_i64(volume.enabled),
+                volume.scope_authorization_state,
                 volume.provider,
                 volume.index_status,
                 volume.last_error,
@@ -383,7 +391,8 @@ impl Database {
         let mut statement = conn.prepare(
             r#"
             SELECT id, platform, stable_volume_id, display_name, mount_path,
-                   filesystem_type, drive_kind, enabled, provider, index_status,
+                   filesystem_type, drive_kind, enabled, scope_authorization_state,
+                   provider, index_status,
                    last_error, journal_id, journal_cursor, last_full_index_at,
                    last_incremental_sync_at, entry_count, created_at, updated_at
             FROM global_volumes
@@ -399,7 +408,8 @@ impl Database {
         conn.query_row(
             r#"
             SELECT id, platform, stable_volume_id, display_name, mount_path,
-                   filesystem_type, drive_kind, enabled, provider, index_status,
+                   filesystem_type, drive_kind, enabled, scope_authorization_state,
+                   provider, index_status,
                    last_error, journal_id, journal_cursor, last_full_index_at,
                    last_incremental_sync_at, entry_count, created_at, updated_at
             FROM global_volumes WHERE id = ?1
@@ -453,6 +463,7 @@ impl Database {
                     ELSE rebuild_intent_revision
                 END
             WHERE id = ?1 AND enabled = 1
+              AND (platform != 'windows' OR scope_authorization_state = 'authorized')
             "#,
             params![id],
         )?;
@@ -833,6 +844,19 @@ impl Database {
 
     pub fn set_global_volume_enabled(&self, id: &str, enabled: bool) -> Result<(), DbError> {
         let conn = self.conn()?;
+        let state = conn
+            .query_row(
+                "SELECT platform, scope_authorization_state FROM global_volumes WHERE id = ?1",
+                [id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| DbError::Validation("global_index_source_missing".into()))?;
+        if enabled && state.0 == "windows" && state.1 != "authorized" {
+            return Err(DbError::Validation(
+                "global_index_source_authorization_required".into(),
+            ));
+        }
         conn.execute(
             r#"
             UPDATE global_volumes
@@ -850,6 +874,33 @@ impl Database {
             params![id, bool_to_i64(enabled), unix_now()],
         )?;
         Ok(())
+    }
+
+    pub fn authorize_global_volume(&self, id: &str, confirmed: bool) -> Result<(), DbError> {
+        if !confirmed {
+            return Err(DbError::Validation(
+                "global_index_scope_confirmation_required".into(),
+            ));
+        }
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET scope_authorization_state = 'authorized', enabled = 1,
+                updated_at = ?2
+            WHERE id = ?1 AND platform = 'windows' AND drive_kind = 'fixed'
+              AND lower(filesystem_type) = 'ntfs'
+              AND provider = 'windows_mft_usn'
+            "#,
+            params![id, unix_now()],
+        )?;
+        if changed == 1 {
+            Ok(())
+        } else {
+            Err(DbError::Validation(
+                "global_index_source_not_authorizable".into(),
+            ))
+        }
     }
 
     pub fn update_global_volume_provider(&self, id: &str, provider: &str) -> Result<(), DbError> {
@@ -1231,6 +1282,7 @@ fn global_index_status_with_total(
         indexed_volumes,
         ready_volumes,
         pending_volumes,
+        authorization_required_volumes,
         spotlight_not_indexed_volumes,
         permission_required_volumes,
         spotlight_unavailable_volumes,
@@ -1247,7 +1299,8 @@ fn global_index_status_with_total(
             CASE WHEN ?1 >= 0 THEN ?1 ELSE {exact_count} END,
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND (index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required') OR (platform = 'windows' AND scope_authorization_state != 'authorized'))),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND platform = 'windows' AND scope_authorization_state != 'authorized'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_not_indexed'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'permission_required'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_unavailable'),
@@ -1266,16 +1319,17 @@ fn global_index_status_with_total(
                 indexed_volumes: row.get(1)?,
                 ready_volumes: row.get(2)?,
                 pending_volumes: row.get(3)?,
-                spotlight_not_indexed_volumes: row.get(4)?,
-                permission_required_volumes: row.get(5)?,
-                spotlight_unavailable_volumes: row.get(6)?,
-                spotlight_external_not_indexed_volumes: row.get(7)?,
-                fsevents_unavailable_volumes: row.get(8)?,
-                unavailable_volumes: row.get(9)?,
-                error_volumes: row.get(10)?,
-                paused_volumes: row.get(11)?,
-                last_sync_at: row.get(12)?,
-                last_error: row.get(13)?,
+                authorization_required_volumes: row.get(4)?,
+                spotlight_not_indexed_volumes: row.get(5)?,
+                permission_required_volumes: row.get(6)?,
+                spotlight_unavailable_volumes: row.get(7)?,
+                spotlight_external_not_indexed_volumes: row.get(8)?,
+                fsevents_unavailable_volumes: row.get(9)?,
+                unavailable_volumes: row.get(10)?,
+                error_volumes: row.get(11)?,
+                paused_volumes: row.get(12)?,
+                last_sync_at: row.get(13)?,
+                last_error: row.get(14)?,
             })
         },
     )?;
@@ -1284,6 +1338,8 @@ fn global_index_status_with_total(
     }
     let status = if indexed_volumes == 0 {
         INDEX_STATUS_UNAVAILABLE
+    } else if authorization_required_volumes > 0 {
+        "authorization_required"
     } else if ready_volumes == indexed_volumes {
         INDEX_STATUS_READY
     } else if ready_volumes > 0 {
@@ -1315,6 +1371,7 @@ fn global_index_status_with_total(
         processed_entries: total_entries,
         collection_complete: indexed_volumes > 0
             && pending_volumes == 0
+            && authorization_required_volumes == 0
             && unavailable_volumes == 0
             && error_volumes == 0
             && paused_volumes == 0,
@@ -1820,16 +1877,17 @@ fn map_global_volume(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalVolume> 
         filesystem_type: row.get(5)?,
         drive_kind: row.get(6)?,
         enabled: row.get::<_, i64>(7)? != 0,
-        provider: row.get(8)?,
-        index_status: row.get(9)?,
-        last_error: row.get(10)?,
-        journal_id: row.get(11)?,
-        journal_cursor: row.get(12)?,
-        last_full_index_at: row.get(13)?,
-        last_incremental_sync_at: row.get(14)?,
-        entry_count: row.get(15)?,
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        scope_authorization_state: row.get(8)?,
+        provider: row.get(9)?,
+        index_status: row.get(10)?,
+        last_error: row.get(11)?,
+        journal_id: row.get(12)?,
+        journal_cursor: row.get(13)?,
+        last_full_index_at: row.get(14)?,
+        last_incremental_sync_at: row.get(15)?,
+        entry_count: row.get(16)?,
+        created_at: row.get(17)?,
+        updated_at: row.get(18)?,
     })
 }
 
@@ -1844,6 +1902,7 @@ pub(super) fn ensure_source_operation_owner_tx(
             WHERE id = ?1 AND operation_revision = ?2
               AND operation_owner_id = ?3 AND operation_state = 'running'
               AND enabled = 1
+              AND (platform != 'windows' OR scope_authorization_state = 'authorized')
         )
         "#,
         params![owner.volume_id, owner.revision, owner.operation_id],
@@ -1876,6 +1935,7 @@ fn query_global_index_operation_claim_snapshot(
                operation_state
         FROM global_volumes
         WHERE id = ?1 AND stable_volume_id = ?2 AND provider = ?3 AND enabled = 1
+          AND (platform != 'windows' OR scope_authorization_state = 'authorized')
         "#,
         params![volume.id, volume.stable_volume_id, volume.provider],
         |row| {

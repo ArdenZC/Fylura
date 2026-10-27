@@ -9,6 +9,11 @@ pub const PROVIDER_MACOS_SPOTLIGHT: &str = "macos_spotlight";
 pub const PROVIDER_MACOS_FSEVENTS_RECONCILE: &str = "macos_fsevents_reconcile";
 pub const PROVIDER_RECURSIVE_FALLBACK: &str = "recursive_fallback";
 
+pub const SCOPE_AUTHORIZATION_NOT_REQUIRED: &str = "not_required";
+pub const SCOPE_AUTHORIZATION_NOT_AUTHORIZED: &str = "not_authorized";
+pub const SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED: &str = "legacy_confirmation_required";
+pub const SCOPE_AUTHORIZATION_AUTHORIZED: &str = "authorized";
+
 // These bits reuse the existing durable `file_attributes` column so package,
 // backing and byte-availability metadata can be projected without a schema
 // migration. They are descriptive flags, never mutation authorization.
@@ -52,6 +57,8 @@ pub struct GlobalVolume {
     pub filesystem_type: String,
     pub drive_kind: String,
     pub enabled: bool,
+    #[serde(default = "default_scope_authorization_state")]
+    pub scope_authorization_state: String,
     pub provider: String,
     pub index_status: String,
     pub last_error: Option<String>,
@@ -62,6 +69,10 @@ pub struct GlobalVolume {
     pub entry_count: i64,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+fn default_scope_authorization_state() -> String {
+    SCOPE_AUTHORIZATION_NOT_AUTHORIZED.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -363,6 +374,7 @@ impl GlobalVolume {
                 .unwrap_or_else(|| "unknown".to_string()),
             drive_kind: "fixed".to_string(),
             enabled: true,
+            scope_authorization_state: SCOPE_AUTHORIZATION_NOT_REQUIRED.to_string(),
             provider: PROVIDER_MACOS_SPOTLIGHT.to_string(),
             index_status: INDEX_STATUS_DISCOVERED.to_string(),
             last_error: None,

@@ -102,7 +102,7 @@ mod tests {
             };
             let json = serde_json::to_value(&response).unwrap();
             assert_eq!(json.as_object().unwrap().len(), 6);
-            assert_eq!(json["protocol_version"], 3);
+            assert_eq!(json["protocol_version"], IPC_PROTOCOL_VERSION);
             let decoded = decode(&serde_json::from_value(json).unwrap());
             assert_eq!(
                 std::mem::discriminant(&decoded),

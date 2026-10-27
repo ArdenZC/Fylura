@@ -9,8 +9,8 @@
 use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
 use serde::{Deserialize, Serialize};
 
-pub const IPC_PROTOCOL_VERSION: u16 = 3;
-pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v3";
+pub const IPC_PROTOCOL_VERSION: u16 = 4;
+pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v4";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1239,9 +1239,9 @@ mod tests {
     }
 
     #[test]
-    fn v3_service_protocol_and_event_frame_shape_remain_stable() {
-        assert_eq!(IPC_PROTOCOL_VERSION, 3);
-        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\ZenCanvas.GlobalIndex.v3");
+    fn v4_service_protocol_and_event_frame_shape_remain_stable() {
+        assert_eq!(IPC_PROTOCOL_VERSION, 4);
+        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\ZenCanvas.GlobalIndex.v4");
 
         let request = IndexServiceRequest {
             protocol_version: IPC_PROTOCOL_VERSION,
@@ -1252,7 +1252,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(request).expect("serialize v3 request"),
             serde_json::json!({
-                "protocol_version": 3,
+                "protocol_version": 4,
                 "request_id": "request-1",
                 "command": "status",
                 "source": null,

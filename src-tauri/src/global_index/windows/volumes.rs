@@ -1,7 +1,7 @@
 use crate::global_index::coordinator::GlobalIndexError;
 use crate::global_index::models::{
     GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_DISCOVERED, INDEX_STATUS_UNAVAILABLE,
-    PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_UNSUPPORTED,
+    PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_UNSUPPORTED, SCOPE_AUTHORIZATION_NOT_AUTHORIZED,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW, GetVolumeNameForVolumeMountPointW,
@@ -88,6 +88,7 @@ fn describe_volume(mount_path: &str, drive_kind_code: u32) -> Option<GlobalSourc
             filesystem_type: filesystem_type.clone(),
             drive_kind: drive_kind(drive_kind_code).to_string(),
             enabled: source_enabled_by_default(drive_kind_code, is_ntfs),
+            scope_authorization_state: SCOPE_AUTHORIZATION_NOT_AUTHORIZED.to_string(),
             provider: provider.to_string(),
             index_status: if is_ntfs {
                 INDEX_STATUS_DISCOVERED.to_string()
@@ -107,8 +108,8 @@ fn describe_volume(mount_path: &str, drive_kind_code: u32) -> Option<GlobalSourc
     })
 }
 
-fn source_enabled_by_default(drive_kind_code: u32, native_provider_supported: bool) -> bool {
-    drive_kind_code == DRIVE_FIXED && native_provider_supported
+fn source_enabled_by_default(_drive_kind_code: u32, _native_provider_supported: bool) -> bool {
+    false
 }
 
 fn volume_guid(mount_path: &str) -> Option<String> {
@@ -163,8 +164,8 @@ mod tests {
     }
 
     #[test]
-    fn only_native_supported_fixed_volumes_are_enabled_by_default() {
-        assert!(source_enabled_by_default(DRIVE_FIXED, true));
+    fn windows_volumes_wait_for_explicit_authorization() {
+        assert!(!source_enabled_by_default(DRIVE_FIXED, true));
         assert!(!source_enabled_by_default(DRIVE_FIXED, false));
         assert!(!source_enabled_by_default(DRIVE_REMOVABLE, true));
         assert!(!source_enabled_by_default(DRIVE_REMOTE, true));

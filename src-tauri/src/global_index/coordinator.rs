@@ -262,12 +262,15 @@ impl GlobalIndexCoordinator {
         if let Some(id) = source_id {
             if !self.db.request_global_index_rebuild(&id)? {
                 return Err(GlobalIndexError::Provider(
-                    "rebuild source is missing or disabled".into(),
+                    "rebuild source is missing, disabled, or awaiting authorization".into(),
                 ));
             }
         } else {
             for volume in self.db.list_global_volumes()? {
-                if volume.enabled {
+                if volume.enabled
+                    && (volume.platform != "windows"
+                        || volume.scope_authorization_state == SCOPE_AUTHORIZATION_AUTHORIZED)
+                {
                     self.db.request_global_index_rebuild(&volume.id)?;
                 }
             }
@@ -282,6 +285,17 @@ impl GlobalIndexCoordinator {
     ) -> Result<(), GlobalIndexError> {
         self.db.set_global_volume_enabled(source_id, enabled)?;
         self.provider.source_enabled_changed(source_id, enabled);
+        self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
+        Ok(())
+    }
+
+    pub fn authorize_source(
+        &self,
+        source_id: &str,
+        confirmed: bool,
+    ) -> Result<(), GlobalIndexError> {
+        self.db.authorize_global_volume(source_id, confirmed)?;
+        self.provider.source_enabled_changed(source_id, true);
         self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
         Ok(())
     }
@@ -646,6 +660,8 @@ fn run_index_cycle_with_topology(
         let legacy_recursive_fallback_needs_rebuild = existing.as_ref().is_some_and(|current| {
             current.provider == PROVIDER_WINDOWS_RECURSIVE_FALLBACK
                 && source.volume.provider == PROVIDER_WINDOWS_MFT_USN
+                && (current.platform != "windows"
+                    || current.scope_authorization_state == SCOPE_AUTHORIZATION_AUTHORIZED)
         });
         db.upsert_global_volume(&source.volume)?;
         if legacy_recursive_fallback_needs_rebuild {
@@ -694,6 +710,11 @@ fn run_index_cycle_with_topology(
         if !volume.enabled {
             continue;
         }
+        if volume.platform == "windows"
+            && volume.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED
+        {
+            continue;
+        }
         let Some(discovered_source) = discovered_by_id.get(&volume.id) else {
             if volume.index_status != INDEX_STATUS_UNAVAILABLE
                 || volume.last_error.as_deref() != Some("global_index_source_unavailable")
@@ -713,6 +734,7 @@ fn run_index_cycle_with_topology(
             && volume.last_error.as_deref() == Some("global_index_source_unavailable");
         let mut source = discovered_source.clone();
         source.volume.enabled = volume.enabled;
+        source.volume.scope_authorization_state = volume.scope_authorization_state.clone();
         source.volume.index_status = volume.index_status.clone();
         source.volume.last_error = volume.last_error.clone();
         source.volume.journal_id = volume.journal_id.clone();
@@ -860,7 +882,7 @@ fn run_index_cycle_with_topology(
     Ok(topology)
 }
 
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(test)]
 pub(crate) fn run_index_cycle_for_test(
     provider: &dyn GlobalIndexProvider,
     db: &Database,
@@ -1082,6 +1104,7 @@ impl GlobalIndexProvider for RecursiveFallbackProvider {
                 filesystem_type: "unknown".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_RECURSIVE_FALLBACK.to_string(),
                 index_status: INDEX_STATUS_DISCOVERED.to_string(),
                 last_error: None,
@@ -1689,6 +1712,7 @@ mod tests {
                 filesystem_type: "test".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: "control_test".to_string(),
                 index_status: INDEX_STATUS_READY.to_string(),
                 last_error: None,
@@ -2213,6 +2237,7 @@ mod tests {
                 filesystem_type: "ntfs".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
                 index_status: INDEX_STATUS_DISCOVERED.to_string(),
                 last_error: None,

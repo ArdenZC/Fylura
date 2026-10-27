@@ -451,7 +451,7 @@ fn schema_upgrade_42_43_backfill_faults_rollback_and_restart() {
             assert_eq!(user_fingerprint(&conn), before);
             drop(conn);
             let db = crate::db::Database::open(&path).unwrap();
-            assert_eq!(schema_version(&db.conn().unwrap()).unwrap(), 44);
+            assert_eq!(schema_version(&db.conn().unwrap()).unwrap(), 45);
             drop(db);
             cleanup(&path);
         }

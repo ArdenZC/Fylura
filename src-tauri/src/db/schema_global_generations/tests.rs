@@ -180,7 +180,7 @@ fn schema42_fresh_reopen_signature_drift_and_future_version_fail_closed() {
         "do not repair away signature drift"
     );
     let conn = Connection::open(&path.0).unwrap();
-    conn.execute_batch("PRAGMA user_version=45").unwrap();
+    conn.execute_batch("PRAGMA user_version=46").unwrap();
     drop(conn);
     let error = Database::open(&path.0).err().unwrap();
     assert!(error.to_string().contains("newer than this app supports"));

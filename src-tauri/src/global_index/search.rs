@@ -584,10 +584,7 @@ fn search_extension_prefix(
                 // (modified_at_fs DESC, id ASC) suffix is already the final
                 // tier order. Keep every original predicate before LIMIT.
                 let mut statement = read.prepare(&extension_prefix_single_key_sql())?;
-                return collect_candidates(
-                    &mut statement,
-                    params![query, &glob, limit, extension],
-                );
+                return collect_candidates(&mut statement, params![query, &glob, limit, extension]);
             }
             search_extension_prefix_legacy(read, query, &glob, limit)
         }

@@ -62,11 +62,7 @@ fn database() -> Connection {
     conn
 }
 
-fn legacy(
-    conn: &Connection,
-    query: &str,
-    limit: u32,
-) -> Result<Vec<GlobalSearchResult>, DbError> {
+fn legacy(conn: &Connection, query: &str, limit: u32) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = extension_prefix_legacy_sql();
     let mut statement = conn.prepare(&sql)?;
     collect_candidates(
@@ -105,7 +101,9 @@ fn single_key_zero_sparse_multi_volume_ties_and_window_match_legacy() {
     conn.execute_batch("ROLLBACK").unwrap();
 
     let (probe, exact) = diagnostic_extension_prefix_strategy_sqls();
-    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {probe}")).unwrap();
+    let mut stmt = conn
+        .prepare(&format!("EXPLAIN QUERY PLAN {probe}"))
+        .unwrap();
     let plan = stmt
         .query_map(params!["jp", "jp*"], |row| row.get::<_, String>(3))
         .unwrap()
@@ -113,7 +111,9 @@ fn single_key_zero_sparse_multi_volume_ties_and_window_match_legacy() {
         .unwrap();
     assert!(plan.iter().any(|part| part.contains("COVERING INDEX")));
 
-    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {exact}")).unwrap();
+    let mut stmt = conn
+        .prepare(&format!("EXPLAIN QUERY PLAN {exact}"))
+        .unwrap();
     let plan = stmt
         .query_map(params!["jp", "jp*", 80, "jpg"], |row| {
             row.get::<_, String>(3)
@@ -121,12 +121,12 @@ fn single_key_zero_sparse_multi_volume_ties_and_window_match_legacy() {
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap();
-    assert!(plan.iter().any(|part| {
-        part.contains("idx_global_entries_active_extension_order")
-    }));
-    assert!(!plan.iter().any(|part| {
-        part.contains("USE TEMP B-TREE FOR ORDER BY")
-    }));
+    assert!(plan
+        .iter()
+        .any(|part| { part.contains("idx_global_entries_active_extension_order") }));
+    assert!(!plan
+        .iter()
+        .any(|part| { part.contains("USE TEMP B-TREE FOR ORDER BY") }));
 }
 
 #[test]
@@ -145,8 +145,7 @@ fn nullable_id_and_dynamic_extension_values_preserve_production_errors() {
     )
     .unwrap();
     let expected = legacy(&conn, "jp", 80).map_err(|e| e.to_string());
-    let actual = search_extension_prefix(&conn, "jp", 80)
-        .map_err(|e| e.to_string());
+    let actual = search_extension_prefix(&conn, "jp", 80).map_err(|e| e.to_string());
     assert_eq!(actual, expected);
 
     // GLOB may accept a non-TEXT extension after SQLite coercion. If found,
@@ -158,7 +157,6 @@ fn nullable_id_and_dynamic_extension_values_preserve_production_errors() {
     )
     .unwrap();
     let expected = legacy(&conn, "jp", 80).map_err(|e| e.to_string());
-    let actual = search_extension_prefix(&conn, "jp", 80)
-        .map_err(|e| e.to_string());
+    let actual = search_extension_prefix(&conn, "jp", 80).map_err(|e| e.to_string());
     assert_eq!(actual, expected);
 }

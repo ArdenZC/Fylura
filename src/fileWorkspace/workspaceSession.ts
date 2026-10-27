@@ -581,6 +581,13 @@ export class WorkspaceSession {
     return metadata === null ? null : cloneRestoreLocator(metadata.locator);
   }
 
+  /** Only fully re-admissible history may release its opaque process-local refs. */
+  canReadmitBrowseSession(sessionId: string) {
+    const entries = this.historyEntries.filter((entry) => entry.target.kind === "browse"
+      && entry.target.location.kind === "ephemeral" && entry.target.location.browseSessionId === sessionId);
+    return entries.length > 0 && entries.every((entry) => entry.restoreLocator?.kind === "browse");
+  }
+
   private currentEntry() {
     return this.historyIndex < 0 ? undefined : this.historyEntries[this.historyIndex];
   }

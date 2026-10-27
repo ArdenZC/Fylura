@@ -1,3 +1,4 @@
+import { usePane, usePaneQuerySelector } from "../../fileLibrary/workbench/PaneContext";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { FileQueryFiltersV2, FileType, Lifecycle, RiskLevel, UserTag } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
@@ -8,7 +9,7 @@ const FILTER_POPOVER_ANCHOR_GAP = 8;
 const FILTER_POPOVER_MAX_WIDTH = 380;
 const FILTER_POPOVER_MAX_HEIGHT = 560;
 const FILTER_POPOVER_FLIP_THRESHOLD = 320;
-const FILTER_POPOVER_TRIGGER_SELECTOR = '[aria-controls="library-filter-popover"][aria-expanded="true"]';
+const FILTER_POPOVER_TRIGGER_SELECTOR = '[aria-controls^="library-filter-popover"][aria-expanded="true"]';
 const FILTER_POPOVER_FOCUSABLE_SELECTOR = "button:not([disabled]), select:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
 
 type RectLike = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
@@ -69,16 +70,19 @@ export function FileLibraryFilterPopover({
   onClear: () => void;
   onClose: () => void;
 }) {
+  const query = usePaneQuerySelector();
+  const pane = usePane();
+  const titleId = pane ? `library-filter-title-${pane.id}` : "library-filter-title";
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [placement, setPlacement] = useState<FilterPopoverPlacement | null>(null);
 
   useLayoutEffect(() => {
-    const trigger = document.querySelector<HTMLElement>(FILTER_POPOVER_TRIGGER_SELECTOR);
+    const trigger = query(FILTER_POPOVER_TRIGGER_SELECTOR);
     if (!trigger) return undefined;
     const boundary = trigger.closest<HTMLElement>(".file-library-workspace");
 
     const updatePlacement = () => {
-      const nextTrigger = document.querySelector<HTMLElement>(FILTER_POPOVER_TRIGGER_SELECTOR);
+      const nextTrigger = query(FILTER_POPOVER_TRIGGER_SELECTOR);
       if (!nextTrigger) return;
       const nextBoundary = nextTrigger.closest<HTMLElement>(".file-library-workspace") ?? boundary;
       const boundaryRect = nextBoundary?.getBoundingClientRect() ?? {
@@ -112,7 +116,7 @@ export function FileLibraryFilterPopover({
       window.visualViewport?.removeEventListener("resize", updatePlacement);
       window.visualViewport?.removeEventListener("scroll", updatePlacement);
     };
-  }, []);
+  }, [query]);
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
@@ -150,11 +154,11 @@ export function FileLibraryFilterPopover({
         ...(placement.side === "below" ? { top: placement.top } : { bottom: placement.bottom })
       }}
       role="dialog"
-      aria-labelledby="library-filter-title"
+      aria-labelledby={titleId}
       data-filter-popover-placement={placement.side}
       onKeyDown={handleKeyDown}
     >
-      <div className="flex items-start justify-between gap-3"><div><h2 id="library-filter-title" className="text-sm font-semibold">{t("libraryFilterTitle")}</h2><p className="mt-1 text-xs text-[var(--zc-text-secondary)]">{t("libraryScopeHint")}</p></div><button type="button" className={buttonGhost} onClick={onClear}>{t("libraryFilterClear")}</button></div>
+      <div className="flex items-start justify-between gap-3"><div><h2 id={titleId} className="text-sm font-semibold">{t("libraryFilterTitle")}</h2><p className="mt-1 text-xs text-[var(--zc-text-secondary)]">{t("libraryScopeHint")}</p></div><button type="button" className={buttonGhost} onClick={onClear}>{t("libraryFilterClear")}</button></div>
       <div className="mt-4 grid gap-3">
         <FilterSelect autoFocus label={t("libraryFilterFileType")} value={filters.fileTypes[0] ?? "all"} onChange={(value) => onFiltersChange({ fileTypes: value === "all" ? [] : [value as FileType] })} options={fileTypeOptions(t)} />
         <FilterSelect label={t("libraryFilterLifecycle")} value={filters.lifecycles[0] ?? "all"} onChange={(value) => onFiltersChange({ lifecycles: value === "all" ? [] : [value as Lifecycle] })} options={lifecycleOptions(t)} />

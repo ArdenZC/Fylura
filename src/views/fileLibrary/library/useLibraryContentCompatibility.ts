@@ -1,3 +1,4 @@
+import { usePaneProjection, usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { explicitSingleSelectionId, useFileLibraryInspectorStore, type InspectorDetailLoadResult } from "../../../store/useFileLibraryV2Store";
@@ -27,6 +28,7 @@ export function useLibraryContentCompatibility({
   onError: (message: string) => void;
   restoreFocus: (target: HTMLElement | null) => void;
 }) {
+  const { useFileLibraryInspectorStore } = usePaneProjection();
   const [contentDetail, setContentDetail] = useState<FileLibraryDetail | null>(null);
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const contentTriggerRef = useRef<HTMLElement | null>(null);

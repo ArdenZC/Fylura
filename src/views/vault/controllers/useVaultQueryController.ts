@@ -1,3 +1,4 @@
+import { usePaneProjection, usePane } from "../../fileLibrary/workbench/PaneContext";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDebounce as useDebouncedValue } from "../../../hooks/useDebounce";
 import {
@@ -35,6 +36,9 @@ export function useVaultQueryController({
   clearSelection,
   clearSelectionOnMount = true
 }: VaultQueryControllerInput) {
+  const { useFileLibraryQueryStore } = usePaneProjection();
+  const visible = usePane()?.visible ?? true;
+  const lastLoadedQuery = useRef("");
   const [librarySearch, setLibrarySearch] = useState(() => querySpec.text ?? "");
   const [scopeReady, setScopeReady] = useState(false);
   const debouncedSearchQuery = useDebouncedValue(librarySearch, 300);
@@ -48,6 +52,7 @@ export function useVaultQueryController({
     let cancelled = false;
     setScopeReady(false);
     if (isEmptyCurrentScanScope) {
+      lastLoadedQuery.current = "";
       clearResults();
       setScopeReady(true);
       return () => { cancelled = true; };
@@ -66,7 +71,7 @@ export function useVaultQueryController({
   }, [clearResults, isEmptyCurrentScanScope, legacyScope, onError, scopeSignature, setQuerySpec]);
 
   useEffect(() => {
-    if (!scopeReady || isEmptyCurrentScanScope) return;
+    if (!visible || !scopeReady || isEmptyCurrentScanScope) return;
     const waitingForSavedViewSearch = pendingSavedViewQuerySignature.current === querySpecSignature
       && debouncedSearchQuery.trim() !== (querySpec.text ?? "").trim();
     if (waitingForSavedViewSearch) return;
@@ -83,8 +88,10 @@ export function useVaultQueryController({
       setQuerySpec(spec);
       return;
     }
+    if (lastLoadedQuery.current === querySpecSignature) return;
+    lastLoadedQuery.current = querySpecSignature;
     void loadFirstPage().catch(() => undefined);
-  }, [debouncedSearchQuery, isEmptyCurrentScanScope, loadFirstPage, querySpec, querySpecSignature, scopeReady, setQuerySpec]);
+  }, [visible, debouncedSearchQuery, isEmptyCurrentScanScope, loadFirstPage, querySpec, querySpecSignature, scopeReady, setQuerySpec]);
 
   useEffect(() => {
     const previous = previousSelectionBoundary.current;

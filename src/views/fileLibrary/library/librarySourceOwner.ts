@@ -1,3 +1,4 @@
+import { usePaneProjection, usePane } from "../workbench/PaneContext";
 import { useCallback, useMemo } from "react";
 import { useFileLibraryStore } from "../../../store/useFileLibraryStore";
 import { useScanManagerStore } from "../../../store/useScanManagerStore";
@@ -106,9 +107,13 @@ export interface LibrarySourceOwner {
 }
 
 export function useLibrarySourceOwner({ onError }: { onError: (error: unknown) => void }): LibrarySourceOwner {
-  const scope = useFileLibraryStore((state) => state.scope);
+  const { useFileLibraryQueryStore, useFileLibraryResultStore, useFileLibrarySelectionStore, useFileLibraryInspectorStore, useFileLibraryTagStore, useFileLibrarySavedViewStore } = usePaneProjection();
+  const pane = usePane();
+  const globalScope = useFileLibraryStore((state) => state.scope);
+  const scope = pane?.scope ?? globalScope;
   const stats = useFileLibraryStore((state) => state.stats);
-  const setScope = useFileLibraryStore((state) => state.setScope);
+  const globalSetScope = useFileLibraryStore((state) => state.setScope);
+  const setScope = pane?.setScope ?? globalSetScope;
   const chooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
 
   const querySpec = useFileLibraryQueryStore((state) => state.spec);

@@ -1,3 +1,7 @@
+import { FileLibraryWorkbench } from "./workbench/FileLibraryWorkbench";
+import { PathBar } from "./workbench/PathBar";
+import { usePane, usePaneQuerySelector } from "./workbench/PaneContext";
+import { usePreviewExperience } from "./preview/PreviewExperienceProvider";
 import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { lazy, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
@@ -30,7 +34,11 @@ export const layoutForWidth = (width: number): FileLibraryLayout => {
   return "compact";
 };
 
-export function FileLibraryWorkspace() {
+export function FileLibraryWorkspace({ active = true }: { active?: boolean }) { return <FileLibraryWorkbench Pane={FileLibraryPane} active={active}/>; }
+
+function FileLibraryPane() {
+  const pane = usePane();
+  const query = usePaneQuerySelector();
   const { controller, state } = useFileLibraryExperience();
   const { t } = useI18nContext();
   const { platform } = useChromeContext();
@@ -98,11 +106,11 @@ export function FileLibraryWorkspace() {
 
   useEffect(() => {
     const handleLocalSearchShortcut = (event: globalThis.KeyboardEvent) => {
-      focusLocalFileLibrarySearch(event, commandBarSurface);
+      if (!pane || pane.focused && pane.visible) focusLocalFileLibrarySearch(event, commandBarSurface);
     };
     window.addEventListener("keydown", handleLocalSearchShortcut);
     return () => window.removeEventListener("keydown", handleLocalSearchShortcut);
-  }, [commandBarSurface]);
+  }, [commandBarSurface, pane?.focused, pane?.visible]);
 
   return (
     <LibraryNavigationSurfaceProvider>
@@ -124,6 +132,7 @@ export function FileLibraryWorkspace() {
             data-context-open={contextOpen ? "true" : "false"}
             data-file-library-navigation-open={navigationOpen ? "true" : "false"}
           >
+            <PathBar />
             <WorkspaceCommandBar
               mode={state.mode}
               targetLabel={targetLabel}
@@ -148,12 +157,12 @@ export function FileLibraryWorkspace() {
             <ContextPanelPresentationProvider layout={layout}>
               <div className="file-library-workspace-body">
                 <aside
-                  id="file-library-navigation-slot"
+                  id={pane ? `file-library-navigation-slot-${pane.id}` : "file-library-navigation-slot"}
                   className="file-library-navigation-slot"
                   data-workspace-slot="navigation"
                   aria-hidden={!navigationOpen}
                 >
-                  {navigationOpen ? (
+                  {navigationOpen && (pane?.visible ?? true) ? (
                     <FileLibraryNavigation
                       controller={controller}
                       state={state}
@@ -179,6 +188,7 @@ export function FileLibraryWorkspace() {
               </div>
             </ContextPanelPresentationProvider>
           </div>
+          <PanePreviewLifecycle />
           <ZenFloatingQuickPreview />
           <ZenPinnedPreview />
         </PreviewExperienceProvider>
@@ -241,12 +251,14 @@ export function WorkspaceCommandBar({
   onContextToggle = () => undefined,
   t
 }: WorkspaceCommandBarProps) {
+  const pane = usePane();
+  const query = usePaneQuerySelector();
   const handleModeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     const nextMode = nextFileLibraryModeForKey(event.key);
     if (nextMode === null) return;
     event.preventDefault();
     onModeChange(nextMode);
-    document.querySelector<HTMLButtonElement>(`[data-file-library-mode="${nextMode}"]`)?.focus();
+    query(`[data-file-library-mode="${nextMode}"]`)?.focus();
   };
 
   return (
@@ -307,7 +319,7 @@ export function WorkspaceCommandBar({
         type="button"
         aria-label={navigationOpen ? t("fileLibraryNavigationClose") : t("fileLibraryNavigationOpen")}
         aria-expanded={navigationOpen}
-        aria-controls="file-library-navigation-slot"
+        aria-controls={pane ? `file-library-navigation-slot-${pane.id}` : "file-library-navigation-slot"}
         data-file-library-nav-toggle="true"
         onClick={onNavigationToggle}
       >
@@ -373,4 +385,12 @@ function LibrarySourceSlot() {
       <LibraryMode />
     </div>
   );
+}
+
+function PanePreviewLifecycle() {
+  const pane = usePane(); const { controller } = usePreviewExperience();
+  const register = pane?.registerPreview;
+  useEffect(() => { register?.(controller); return () => register?.(null); }, [controller, register]);
+  useEffect(() => { if (pane && !pane.focused) controller.close("escape"); }, [controller, pane?.focused]);
+  return null;
 }

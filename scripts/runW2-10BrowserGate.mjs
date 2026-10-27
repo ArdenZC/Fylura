@@ -71,7 +71,7 @@ async function assertSearchShortcut(page, commandSearch) {
   const filterButton = page.locator('[data-file-library-source-actions="true"] button[aria-haspopup="dialog"]');
   if (await filterButton.count() > 0) {
     await filterButton.click();
-    const filterDialog = page.locator('#library-filter-popover [role="dialog"]');
+    const filterDialog = page.locator('[data-file-library-source-actions="true"] [role="dialog"]');
     await filterDialog.waitFor({ state: "visible" });
     const filterSelect = filterDialog.locator("select").first();
     if (await filterSelect.count() > 0) {

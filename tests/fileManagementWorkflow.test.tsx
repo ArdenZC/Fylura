@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, useState } from "react";
+import { PaneContext, type PaneContextValue } from "../src/views/fileLibrary/workbench/PaneContext";
+import { defaultFileLibraryProjection } from "../src/store/useFileLibraryV2Store";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTranslator } from "../src/i18n";
@@ -34,7 +36,7 @@ beforeEach(() => {
   vi.spyOn(api,"executeTransfer").mockResolvedValue({batch_id:"batch",logs:result(["success","success"])});
   vi.spyOn(tauriApi,"onOperationProgress").mockResolvedValue(() => undefined);
   vi.spyOn(tauriApi,"cancelOperations").mockResolvedValue();
-  useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},refresh,clear}),basket:[],clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null});
+  useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},refresh,clear}),basket:[],clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null,surfaces:{},activePaneId:null,pendingTransfer:null,transferOpen:false});
   refresh.mockClear();clear.mockClear();mocks.close.mockClear();
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
@@ -124,6 +126,33 @@ describe("File Library manual management workflow", () => {
     expect(api.previewTransfer).toHaveBeenLastCalledWith(expect.objectContaining({skip:[],keepBoth:["one"]}));
     await click(t("fmCancel"));
     expect(api.executeTransfer).not.toHaveBeenCalled();
+  });
+
+  it("binds cross-pane Copy to the source selection and target directory, releasing all previews before confirmed execution", async () => {
+    const beforeMutation = vi.fn(async () => undefined);
+    const afterMutation = vi.fn(async () => undefined);
+    const clearTarget = vi.fn();
+    const source = {signature:"left-selected",count:2,selection:{kind:"explicit" as const,fileIds:["managed-one","managed-two"]},browse:{sessionId:"left-session",pathRef:{id:"left-root"}},routingHint:"C:/Source",refresh,clear};
+    const target = {signature:"right-empty",count:0,refs:[],browse:{sessionId:"right-session",pathRef:{id:"right-root"}},routingHint:"C:/Target",refresh,clear:clearTarget};
+    useFileManagementStore.setState({activePaneId:"left",surface:()=>source,surfaces:{left:{owner:"left",read:()=>source},right:{owner:"right",read:()=>target}}});
+    function TwoPanes() {
+      const [active,setActive] = useState("left");
+      const value = (id: string): PaneContextValue => ({id,visible:true,focused:active===id,rootRef:{current:host},projection:defaultFileLibraryProjection,scope:{kind:"all"},setScope:vi.fn(),routingHint:id==="left"?"C:/Source":"C:/Target",updateLocation:vi.fn(),activate:()=>setActive(id),peerId:id==="left"?"right":"left",activatePeer:()=>{setActive(id==="left"?"right":"left");useFileManagementStore.getState().activatePane(id==="left"?"right":"left");},registerPreview:vi.fn(),beforeMutation,afterMutation});
+      return <><PaneContext.Provider value={value("left")}><FileManagementToolbar/></PaneContext.Provider><PaneContext.Provider value={value("right")}><FileManagementToolbar/></PaneContext.Provider></>;
+    }
+    await act(async () => root.render(<TwoPanes/>));
+    await act(async () => useFileManagementStore.getState().requestAction("copy_other"));
+    expect(api.captureTransfer).toHaveBeenCalledWith({selection:source.selection});
+    expect(document.querySelector<HTMLInputElement>(".fm-dialog input")?.value).toBe("C:/Target");
+    expect(api.previewTransfer).not.toHaveBeenCalled();expect(api.executeTransfer).not.toHaveBeenCalled();
+    await click(t("fmPrepare"));
+    expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
+    await click(t("fmConfirm"));
+    expect(beforeMutation).toHaveBeenCalledOnce();
+    expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
+    expect(afterMutation).toHaveBeenCalledWith(["C:/Target","C:/Source","C:/Other"]);
+    expect(clear).toHaveBeenCalledOnce();expect(clearTarget).not.toHaveBeenCalled();
+    expect(useFileManagementStore.getState().transferOpen).toBe(false);
   });
 
   it("marks unavailable favorite locations and keeps them out of destination selection", async()=>{

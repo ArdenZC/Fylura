@@ -1,3 +1,4 @@
+import { usePaneQuerySelector, usePane } from "../workbench/PaneContext";
 import {
   Bookmark,
   CircleAlert,
@@ -109,6 +110,8 @@ export function FileLibraryNavigation({
     return () => { cancelled = true; };
   }, [controller.workspace, locations.length]);
 
+  const query = usePaneQuerySelector();
+  const pane = usePane();
   const navigation = (
     <nav
       className="file-library-navigation-panel"
@@ -135,9 +138,9 @@ export function FileLibraryNavigation({
         </div>
       </section> : null}
 
-      <section className="file-library-navigation-section" aria-labelledby="file-library-navigation-locations-heading">
+      <section className="file-library-navigation-section" aria-labelledby={pane ? `file-library-navigation-locations-heading-${pane.id}` : "file-library-navigation-locations-heading"}>
         <div className="file-library-navigation-section-heading">
-          <h3 id="file-library-navigation-locations-heading" className="file-library-navigation-section-title">{state.mode === "library" ? t("fileLibraryNavigationLibraryLocations") : t("fileLibraryNavigationLocations")}</h3>
+          <h3 id={pane ? `file-library-navigation-locations-heading-${pane.id}` : "file-library-navigation-locations-heading"} className="file-library-navigation-section-title">{state.mode === "library" ? t("fileLibraryNavigationLibraryLocations") : t("fileLibraryNavigationLocations")}</h3>
           <MapPin size={15} aria-hidden="true" />
         </div>
         {locationsLoading && locations.length === 0 ? <p className="file-library-navigation-muted" role="status">{t("fileLibraryNavigationLocationsLoading")}</p> : null}
@@ -185,7 +188,7 @@ export function FileLibraryNavigation({
         closeLabel={t("fileLibraryNavigationClose")}
         side="left"
         modalId="file-library-navigation"
-        restoreFocus={() => document.querySelector<HTMLElement>("[data-file-library-nav-toggle]")}
+        restoreFocus={() => query("[data-file-library-nav-toggle]")}
       >
         {navigation}
       </SideSheet>

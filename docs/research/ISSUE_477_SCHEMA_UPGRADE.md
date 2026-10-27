@@ -1,11 +1,16 @@
 # Schema 42 → 43 visible startup upgrade
 
 Owner contract: [Issue #477](https://github.com/ArdenZC/Zen-Canvas/issues/477).
-Base master a47672182ea2d92784e226496b6f2d2be8cafe2c,
+Task-start master a47672182ea2d92784e226496b6f2d2be8cafe2c,
 tree 765e9b3cd03b391def839e035948baeb89059d78 (Schema 43).
 Baseline master CI [40366243976](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40366243976)
 completed SUCCESS; the preceding production master CI 40361605473 also passed.
 Source Facts/Snapshot/FTS work in #474 is an independent branch and delivery.
+Latest integrated master 1098af35727cdd3bea042deba41bb59238be586e, tree
+e0346ea07d8a917f634516c5848daa564d10d0cd, remains Schema43. Its normal CI
+40425918531 completed SUCCESS. The upstream U2 merge changes frontend code and
+status documentation; it does not change search/migration Rust or require
+another 1M fixture. Status-only merge conflicts were resolved by retaining U2.
 
 ## Result and scope
 
@@ -171,7 +176,7 @@ failure requests cancellation and waits for the worker before returning.
 The patched happy-dom21.0.4 dev dependency removes GHSA-834v-8h66-3h79 without
 changing audit policy. Its expected native animation cancellation is handled
 only in the mounted IME test fixture; unexpected errors remain failures.
-All 179 frontend files / 1953 tests, typecheck and 30 architecture checks passed
-locally. Applicable final CI and exact final HEAD/tree are recorded on Draft
+Before U2 integration, all 179 frontend files / 1953 tests, typecheck and
+30 architecture checks passed locally. Applicable final CI and exact final HEAD/tree are recorded on Draft
 #479. Native QA is not Owner Windows or human accessibility acceptance. #474
 Schema44 integration/backfill resource qualification remains a separate decision.

@@ -139,6 +139,7 @@ export class FileWorkspaceController {
   private pageKeys = new WeakMap<BrowsePage, string>();
   private nextPageKey = 0;
   private suspendedValue = false;
+  private observationActive = true;
   private suspensionPromise: Promise<void> | null = null;
 
   constructor(api: FileWorkspaceApi = fileWorkspaceApi, session = new WorkspaceSession()) {
@@ -385,8 +386,28 @@ export class FileWorkspaceController {
     }
   }
 
+  /** Release only inactive history that can be freshly admitted by the existing restore seam. */
+  async releaseReadmittableHistorySessions() {
+    const target = this.currentBrowseTarget();
+    const currentId = target?.location.kind === "ephemeral" ? target.location.browseSessionId : null;
+    for (const owner of [...this.ownedBrowseSessions.values()]) {
+      if (owner.response.sessionId !== currentId && this.session.canReadmitBrowseSession(owner.response.sessionId)) this.disposeOwnedBrowseSession(owner);
+    }
+    await Promise.allSettled([...this.pendingCleanup]);
+  }
+
+  /** Pause observers for a hidden pane without invalidating its retained Browse refs. */
+  async setObservationActive(active: boolean) {
+    this.observationActive = active;
+    if (active) return;
+    const monitorIds = [...this.ownedMonitors.keys()];
+    this.ownedMonitors.clear(); this.changeResponse = null; this.pendingChangeValue = null;
+    this.emit();
+    await Promise.all(monitorIds.map((monitorId) => this.cleanupCall(() => this.api.changeDispose({ monitorId }))));
+  }
+
   async startChange(pathRef: BrowsePathRef): Promise<ChangeStartResponse | null> {
-    if (this.suspendedValue || this.session.disposed) return null;
+    if (!this.observationActive || this.suspendedValue || this.session.disposed) return null;
     const target = this.currentBrowseTarget();
     if (target === null || target.location.kind !== "ephemeral") return null;
     const token = this.session.beginRequest();
@@ -394,7 +415,7 @@ export class FileWorkspaceController {
       sessionId: target.location.browseSessionId,
       pathRef
     });
-    if (!this.session.canPublish(token)) {
+    if (!this.observationActive || !this.session.canPublish(token)) {
       this.trackCleanup(this.cleanupCall(() => this.api.changeDispose({ monitorId: response.monitorId })));
       return null;
     }

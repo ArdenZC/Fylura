@@ -14,11 +14,13 @@ const FileLibraryExperienceContext = createContext<FileLibraryExperienceContextV
 export function FileLibraryExperienceProvider({
   active,
   children,
-  controller: suppliedController
+  controller: suppliedController,
+  disposeOnUnmount = true
 }: {
   active: boolean;
   children: ReactNode;
   controller?: FileLibraryExperienceController;
+  disposeOnUnmount?: boolean;
 }) {
   const [controller] = useState(
     () => suppliedController ?? new FileLibraryExperienceController()
@@ -58,6 +60,7 @@ export function FileLibraryExperienceProvider({
       pendingDisposeRef.current = null;
     }
     return () => {
+      if (!disposeOnUnmount) return;
       // React StrictMode replays effects during development. Deferring final
       // disposal by one task keeps that replay from destroying the AppShell-
       // lifetime owner while still disposing it after the real owner unmounts.
@@ -66,7 +69,7 @@ export function FileLibraryExperienceProvider({
         void controller.dispose();
       }, 0);
     };
-  }, [controller]);
+  }, [controller, disposeOnUnmount]);
 
   const value = useMemo(() => ({ controller, state }), [controller, state]);
   return <FileLibraryExperienceContext.Provider value={value}>{children}</FileLibraryExperienceContext.Provider>;

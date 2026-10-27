@@ -1,3 +1,4 @@
+import { usePane } from "../workbench/PaneContext";
 import { AlertTriangle, FileText, Folder, FolderOpen } from "lucide-react";
 import { memo, useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -90,6 +91,7 @@ export function SharedFileList({
   onOpenContextMenu?: (entry: PresentationEntry, index: number) => void;
   onEscape?: () => boolean;
 }) {
+  const pane = usePane();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreInFlightRef = useRef(false);
   const rowVirtualizer = useVirtualizer({
@@ -198,7 +200,7 @@ export function SharedFileList({
         aria-label={ariaLabel}
         aria-multiselectable="true"
         aria-busy={interaction.isLoadingMore}
-        aria-activedescendant={activeDescendant === undefined ? undefined : rowDomId(activeDescendant)}
+        aria-activedescendant={activeDescendant === undefined ? undefined : rowDomId(activeDescendant, pane?.id)}
         data-shared-file-list="true"
         data-shared-file-list-source={interaction.source}
         data-file-library-scroll-owner="tanstack-virtualizer"
@@ -294,6 +296,7 @@ const SharedFileRow = memo(function SharedFileRow({
   onContextMenu: (event: MouseEvent<HTMLDivElement>) => void;
   onActivate: () => void;
 }) {
+  const pane = usePane();
   const isDirectory = entry.entryKind === "directory";
   const kindLabel = isDirectory ? t("browseFolder") : t("browseFile");
   const missingLabel = entry.source === "library" && entry.availability === "missing"
@@ -307,7 +310,7 @@ const SharedFileRow = memo(function SharedFileRow({
 
   return (
     <div
-      id={rowDomId(entry)}
+      id={rowDomId(entry, pane?.id)}
       className={cn(
         "shared-file-list-row",
         selected && "is-selected",
@@ -315,6 +318,8 @@ const SharedFileRow = memo(function SharedFileRow({
         missingLabel && "is-missing"
       )}
       style={style}
+      data-file-entry-kind={entry.entryKind}
+      draggable={selected}
       role="option"
       tabIndex={-1}
       aria-selected={selected}
@@ -450,10 +455,11 @@ function rowStyle(start: number, size: number): React.CSSProperties {
   return { height: `${size}px`, transform: `translateY(${start}px)` };
 }
 
-function rowDomId(entry: PresentationEntry) {
+function rowDomId(entry: PresentationEntry, paneId?: string) {
+  const prefix = paneId ? `${paneId}-` : "";
   return entry.source === "library"
-    ? `library-row-${entry.entryRef.fileId}`
-    : `browse-row-${entry.entryRef.entryId}`;
+    ? `${prefix}library-row-${entry.entryRef.fileId}`
+    : `${prefix}browse-row-${entry.entryRef.entryId}`;
 }
 
 function materializationLabel(

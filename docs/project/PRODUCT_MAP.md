@@ -25,8 +25,9 @@ This map describes product ownership. Durable implementation authority is define
 
 ```text
 Files
-├─ Library
-└─ Browse Folder
+└─ Workspace tabs
+   ├─ Single pane: Library or Browse Folder
+   └─ Dual panes: independent Library or Browse Folder locations
 ```
 
 - **Library** is the managed Files mode. It uses File Library Query V2,

@@ -116,17 +116,26 @@ export function BrowseMode() {
         <option value="file">{t("browseFilterFiles")}</option>
         <option value="directory">{t("browseFilterDirectories")}</option>
       </select>
-      <button
-        className="file-library-command-button min-h-9 px-2 py-1.5 text-xs"
-        type="button"
-        disabled
-        aria-label={t("browseSortUnavailableLabel")}
-        data-browse-sort-capability="unavailable"
-      >
-        {t("browseSortUnavailableLabel")}
-      </button>
+      <select className="file-library-command-button" aria-label={t("u3Sort")}
+        value={source.query.sort?.field ?? "native"} data-browse-sort
+        onChange={(event) => source.setSort(event.target.value === "native" ? undefined : {
+          field: event.target.value as "name" | "type" | "size" | "modified",
+          direction: source.query.sort?.direction ?? "asc", foldersFirst: source.query.sort?.foldersFirst ?? true
+        })}>
+        <option value="native">{t("u3NativeOrder")}</option>
+        <option value="name">{t("u3Name")}</option><option value="type">{t("u3Type")}</option>
+        <option value="size">{t("u3Size")}</option><option value="modified">{t("u3Modified")}</option>
+      </select>
+      <button className="file-library-command-button" disabled={!source.query.sort}
+        aria-label={t("u3Direction")} onClick={() => source.query.sort && source.setSort({
+          ...source.query.sort, direction: source.query.sort.direction === "asc" ? "desc" : "asc"
+        })}>{source.query.sort?.direction === "desc" ? t("u3Desc") : t("u3Asc")}</button>
+      <label className="u3-folders-first"><input type="checkbox" disabled={!source.query.sort}
+        checked={source.query.sort?.foldersFirst ?? true} onChange={(event) => source.query.sort && source.setSort({
+          ...source.query.sort, foldersFirst: event.target.checked
+        })}/>{t("u3FoldersFirst")}</label>
     </div>
-  ), [source.queryEntryKind, source.setQueryEntryKind, t]);
+  ), [source.queryEntryKind, source.setQueryEntryKind, source.query.sort, source.setSort, t]);
 
   useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
@@ -297,13 +306,13 @@ export function BrowseMode() {
       data-browse-query-kind={source.queryEntryKind}
       data-browse-search-state={source.isQueryActive ? source.enumerationState : "inactive"}
       data-browse-query-empty-partial={emptyPartialQuery ? "true" : "false"}
-      data-browse-sort-capability="unavailable"
+      data-browse-sort-capability="backend-snapshot"
     >
       <header className="browse-mode-header">
         <div className="min-w-0">
           <details className="browse-mode-help">
             <summary>{t("fmBrowseHelp")}</summary>
-            <p className="browse-mode-description">{t("fileLibraryBrowseTargetDesc")}</p>
+            <p className="browse-mode-description">{t("fileLibraryBrowseTargetDesc")} {t("u3SortLimit")}</p>
           </details>
         </div>
         <div className="browse-mode-actions">
@@ -334,11 +343,12 @@ export function BrowseMode() {
 
       <div className={cn("browse-mode-body", contextOpen && contextProjection.kind !== "none" && "has-context")}>
         <div className="file-library-browse-context-layout">
+          {source.skippedEntries > 0 ? <NoticeBanner tone="warning" title={t("u3Incomplete")}>{t("u3Skipped").replace("{count}", String(source.skippedEntries))}</NoticeBanner> : null}
           {source.enumerationError ? (
             <StateBlock
               tone="error"
               title={t("browseEnumerationFailedTitle")}
-              description={t("browseEnumerationFailedDesc")}
+              description={source.query.sort ? t("u3SortFailure") : t("browseEnumerationFailedDesc")}
               primaryAction={(
                 <button className="browse-action" type="button" onClick={() => void source.refreshEnumeration()}>
                   <RefreshCw size={15} aria-hidden="true" />

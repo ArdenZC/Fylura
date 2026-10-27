@@ -304,6 +304,7 @@ fn map_browse_error(error: BrowseError) -> PreviewFolderEnumerationError {
         | BrowseError::EntryUnavailable
         | BrowseError::InvalidCursor
         | BrowseError::InvalidRequest
+        | BrowseError::SortCapacityExceeded
         | BrowseError::InvalidPageSize
         | BrowseError::InvalidLimits
         | BrowseError::StateUnavailable

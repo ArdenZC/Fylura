@@ -144,6 +144,8 @@ pub(crate) enum BrowseError {
     Cancelled,
     #[error("browse_request_invalid")]
     InvalidRequest,
+    #[error("browse_sort_capacity_exceeded")]
+    SortCapacityExceeded,
     #[error("browse_page_size_invalid")]
     InvalidPageSize,
     #[error("browse_limits_invalid")]
@@ -177,6 +179,30 @@ pub enum BrowseQueryEntryKind {
     Directory,
 }
 
+/// Sorting is an opt-in bounded metadata snapshot, never a page-local reorder.
+pub(crate) const MAX_SORT_ENTRIES: usize = 20_000;
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowseSortField {
+    Name,
+    Type,
+    Size,
+    Modified,
+}
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowseSortDirection {
+    Asc,
+    Desc,
+}
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseSortSpec {
+    pub(crate) field: BrowseSortField,
+    pub(crate) direction: BrowseSortDirection,
+    pub(crate) folders_first: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseQuerySpecV1 {
@@ -184,6 +210,8 @@ pub struct BrowseQuerySpecV1 {
     pub(crate) text: Option<String>,
     #[serde(default)]
     pub(crate) entry_kind: BrowseQueryEntryKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) sort: Option<BrowseSortSpec>,
 }
 
 impl Default for BrowseQuerySpecV1 {
@@ -191,6 +219,7 @@ impl Default for BrowseQuerySpecV1 {
         Self {
             text: None,
             entry_kind: BrowseQueryEntryKind::All,
+            sort: None,
         }
     }
 }
@@ -210,6 +239,7 @@ impl BrowseQuerySpecV1 {
         Ok(Self {
             text,
             entry_kind: self.entry_kind,
+            sort: self.sort,
         })
     }
 }
@@ -247,6 +277,9 @@ pub(crate) struct BrowsePage {
     pub(crate) completion: BrowseCompletion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) known_count: Option<usize>,
+    /// Cumulative omitted children: never interpret completion as full coverage.
+    #[serde(default)]
+    pub(crate) skipped_entries: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1023,6 +1056,7 @@ impl BrowseService {
                 BrowseCompletion::Partial
             },
             known_count: complete.then_some(emitted_count),
+            skipped_entries: enumeration.skipped_entries.load(Ordering::Acquire),
         })
     }
 
@@ -1128,6 +1162,7 @@ struct EnumerationState {
     cursor: Mutex<CursorState>,
     cancel_reason: AtomicU8,
     emitted_count: AtomicUsize,
+    skipped_entries: AtomicUsize,
 }
 
 impl EnumerationState {
@@ -1145,11 +1180,14 @@ impl EnumerationState {
             query,
             source: Mutex::new(EnumerationSource {
                 read_dir: source,
+                sort_ready: false,
+                sort_scanned: 0,
                 buffered: VecDeque::new(),
             }),
             cursor: Mutex::new(CursorState::Initial),
             cancel_reason: AtomicU8::new(CancelReason::None as u8),
             emitted_count: AtomicUsize::new(0),
+            skipped_entries: AtomicUsize::new(0),
         }
     }
 
@@ -1248,6 +1286,8 @@ impl EnumerationState {
 #[derive(Debug)]
 struct EnumerationSource {
     read_dir: ReadDir,
+    sort_ready: bool,
+    sort_scanned: usize,
     buffered: VecDeque<PendingEntry>,
 }
 
@@ -1312,6 +1352,43 @@ fn read_entries(
         .source
         .lock()
         .map_err(|_| BrowseError::StateUnavailable)?;
+    if let Some(sort) = &enumeration.query.sort {
+        if !source.sort_ready {
+            let mut eof = false;
+            for _ in 0..RAW_DIRECTORY_SCAN_BUDGET {
+                ensure_not_cancelled(enumeration)?;
+                let Some(entry) = next_dir_entry(&mut source)? else {
+                    eof = true;
+                    break;
+                };
+                source.sort_scanned += 1;
+                if source.sort_scanned > MAX_SORT_ENTRIES {
+                    return Err(BrowseError::SortCapacityExceeded);
+                }
+                match read_entry(entry) {
+                    Ok(entry) if entry_matches_query(&entry, &enumeration.query) => {
+                        source.buffered.push_back(entry)
+                    }
+                    Ok(_) => {}
+                    Err(error) if is_skippable_child_error(error) => {
+                        enumeration.skipped_entries.fetch_add(1, Ordering::AcqRel);
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            if !eof {
+                return Ok((Vec::new(), false));
+            }
+            source
+                .buffered
+                .make_contiguous()
+                .sort_by(|a, b| compare_pending(a, b, sort));
+            source.sort_ready = true;
+        }
+        let count = page_size.min(source.buffered.len());
+        let entries = source.buffered.drain(..count).collect();
+        return Ok((entries, source.buffered.is_empty()));
+    }
     let mut entries = Vec::with_capacity(page_size);
     let mut raw_scanned = 0;
 
@@ -1330,13 +1407,44 @@ fn read_entries(
         match read_entry(entry) {
             Ok(entry) if entry_matches_query(&entry, &enumeration.query) => entries.push(entry),
             Ok(_) => continue,
-            Err(error) if is_skippable_child_error(error) => continue,
+            Err(error) if is_skippable_child_error(error) => {
+                enumeration.skipped_entries.fetch_add(1, Ordering::AcqRel);
+                continue;
+            }
             Err(error) => return Err(error),
         }
     }
 
     ensure_not_cancelled(enumeration)?;
     Ok((entries, false))
+}
+
+fn compare_pending(
+    a: &PendingEntry,
+    b: &PendingEntry,
+    sort: &BrowseSortSpec,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    if sort.folders_first && a.kind != b.kind {
+        return if a.kind == BrowseEntryKind::Directory {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+    }
+    let value = match sort.field {
+        BrowseSortField::Name => a.name.cmp(&b.name),
+        BrowseSortField::Type => a.extension.cmp(&b.extension),
+        BrowseSortField::Size => a.size.cmp(&b.size),
+        BrowseSortField::Modified => a.modified_at.cmp(&b.modified_at),
+    }
+    .then_with(|| a.name.cmp(&b.name))
+    .then_with(|| a.path.cmp(&b.path));
+    if sort.direction == BrowseSortDirection::Desc {
+        value.reverse()
+    } else {
+        value
+    }
 }
 
 fn entry_matches_query(entry: &PendingEntry, query: &BrowseQuerySpecV1) -> bool {
@@ -1969,6 +2077,159 @@ mod tests {
         BrowseService::new(limits).expect("valid limits")
     }
 
+    #[test]
+    fn sorted_pages_cover_whole_directory_with_stable_ties_and_directions() {
+        let fixture = Fixture::new();
+        for i in (0..137).rev() {
+            let path = fixture.root.join(format!(
+                "item-{i:03}.{}",
+                if i % 2 == 0 { "md" } else { "txt" }
+            ));
+            fs::write(path, vec![b'x'; i % 7]).expect("file");
+        }
+        fs::create_dir(fixture.root.join("folder")).expect("directory");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        for field in [
+            BrowseSortField::Name,
+            BrowseSortField::Type,
+            BrowseSortField::Size,
+            BrowseSortField::Modified,
+        ] {
+            for direction in [BrowseSortDirection::Asc, BrowseSortDirection::Desc] {
+                let mut page = service
+                    .start_enumeration_with_query(
+                        &session.session_id,
+                        opaque_id(),
+                        &session.root_path_ref,
+                        17,
+                        BrowseQuerySpecV1 {
+                            text: None,
+                            entry_kind: BrowseQueryEntryKind::All,
+                            sort: Some(BrowseSortSpec {
+                                field,
+                                direction,
+                                folders_first: true,
+                            }),
+                        },
+                    )
+                    .expect("first");
+                let mut entries = page.entries.clone();
+                while let Some(cursor) = page.next_cursor.clone() {
+                    page = service
+                        .next_page(&session.session_id, &cursor, 17)
+                        .expect("next");
+                    entries.extend(page.entries.clone());
+                }
+                assert_eq!(entries.len(), 138);
+                assert_eq!(page.known_count, Some(138));
+                assert_eq!(entries[0].name, "folder");
+                for pair in entries[1..].windows(2) {
+                    let key = |e: &EphemeralBrowseEntry| match field {
+                        BrowseSortField::Name => e.name.clone(),
+                        BrowseSortField::Type => {
+                            format!("{}:{}", e.extension.as_deref().unwrap_or(""), e.name)
+                        }
+                        BrowseSortField::Size => format!("{:020}:{}", e.size.unwrap(), e.name),
+                        BrowseSortField::Modified => {
+                            format!("{:020}:{}", e.modified_at.unwrap(), e.name)
+                        }
+                    };
+                    assert!(if direction == BrowseSortDirection::Asc {
+                        key(&pair[0]) < key(&pair[1])
+                    } else {
+                        key(&pair[0]) > key(&pair[1])
+                    });
+                }
+                let old = &entries[1].entry_ref;
+                // A refresh cannot keep old enumeration refs alive.
+                service
+                    .start_enumeration(&session.session_id, opaque_id(), &session.root_path_ref, 17)
+                    .expect("refresh");
+                assert_eq!(
+                    service.resolve_entry(old),
+                    Err(BrowseError::InvalidEntryRef)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sorting_yields_empty_progress_until_eof_and_fails_closed_at_capacity() {
+        let fixture = Fixture::new();
+        create_fixture_files(&fixture, RAW_DIRECTORY_SCAN_BUDGET + 5);
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let query = BrowseQuerySpecV1 {
+            sort: Some(BrowseSortSpec {
+                field: BrowseSortField::Name,
+                direction: BrowseSortDirection::Asc,
+                folders_first: false,
+            }),
+            ..Default::default()
+        };
+        let first = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "sort",
+                &session.root_path_ref,
+                10,
+                query,
+            )
+            .expect("first");
+        assert!(first.entries.is_empty());
+        assert_eq!(first.completion, BrowseCompletion::Partial);
+        assert_eq!(first.known_count, None);
+        let active = service
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&session.session_id)
+            .unwrap()
+            .active
+            .clone()
+            .unwrap();
+        active.source.lock().unwrap().sort_scanned = MAX_SORT_ENTRIES;
+        assert_eq!(
+            service.next_page(
+                &session.session_id,
+                first.next_cursor.as_deref().unwrap(),
+                10
+            ),
+            Err(BrowseError::SortCapacityExceeded)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sorted_coverage_reports_unsupported_children_instead_of_claiming_full_coverage() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("ok.txt"), b"data").unwrap();
+        std::os::unix::fs::symlink(fixture.root.join("missing"), fixture.root.join("link"))
+            .unwrap();
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).unwrap();
+        let page = service
+            .start_enumeration_with_query(
+                &session.session_id,
+                "sort",
+                &session.root_path_ref,
+                10,
+                BrowseQuerySpecV1 {
+                    sort: Some(BrowseSortSpec {
+                        field: BrowseSortField::Name,
+                        direction: BrowseSortDirection::Asc,
+                        folders_first: true,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.skipped_entries, 1);
+        assert_eq!(page.completion, BrowseCompletion::Complete);
+    }
+
     fn create_fixture_files(fixture: &Fixture, count: usize) {
         for index in 0..count {
             fs::File::create(fixture.root.join(format!("entry-{index:06}.txt")))
@@ -2049,6 +2310,7 @@ mod tests {
         let query = BrowseQuerySpecV1 {
             text: Some("SENTINEL".to_string()),
             entry_kind: BrowseQueryEntryKind::All,
+            sort: None,
         };
 
         let first = service
@@ -2107,6 +2369,7 @@ mod tests {
                 BrowseQuerySpecV1 {
                     text: None,
                     entry_kind: BrowseQueryEntryKind::Directory,
+                    sort: None,
                 },
             )
             .expect("directory page");
@@ -2158,6 +2421,7 @@ mod tests {
                 BrowseQuerySpecV1 {
                     text: Some("query-that-cannot-match".to_string()),
                     entry_kind: BrowseQueryEntryKind::All,
+                    sort: None,
                 },
             )
             .expect("bounded query page");
@@ -2178,6 +2442,7 @@ mod tests {
         let query = BrowseQuerySpecV1 {
             text: Some("late-sentinel".to_string()),
             entry_kind: BrowseQueryEntryKind::All,
+            sort: None,
         };
 
         let mut page = service
@@ -2321,6 +2586,7 @@ mod tests {
                 BrowseQuerySpecV1 {
                     text: Some("alpha".to_string()),
                     entry_kind: BrowseQueryEntryKind::All,
+                    sort: None,
                 },
             )
         });
@@ -2334,6 +2600,7 @@ mod tests {
                 BrowseQuerySpecV1 {
                     text: Some("beta".to_string()),
                     entry_kind: BrowseQueryEntryKind::All,
+                    sort: None,
                 },
             )
             .expect("query B page");

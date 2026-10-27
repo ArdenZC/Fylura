@@ -4,7 +4,26 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **U2 File Library tabs and dual-pane workspace — Draft / Owner review pending.**
+- **U3 File Library sorting, comparison and batch workflow — Draft / Owner review pending (#480).**
+  Base `master@1098af35727cdd3bea042deba41bb59238be586e` (merged U2 #475).
+  Browse query now supports backend-wide name/type/size/modified sorting,
+  direction and folders-first, with stable cursor pages published after bounded
+  metadata collection (20,000 raw children maximum). Native enumeration remains
+  available for larger folders. Each pane/history owns its sort state.
+  Optional current-level comparison progressively completes both source-owned
+  Browse projections, bounds each side to 10,000 visible entries, distinguishes
+  metadata matches from content equality and unvisited subdirectories, and
+  exposes coverage failures instead of complete-directory claims. Exact filename
+  comparison is explicit; no OS-wide case-folding assumption is made.
+  Filtered selection, locate, basket and directional Copy/Move reuse U1/U2 refs,
+  transfer tickets, preview/confirmation, identity revalidation, executor and
+  History/Restore. No new commands, permissions, schema, index, mutation or
+  recovery authority. Browser mock evidence is separate from native acceptance;
+  Windows/macOS GUI remains Owner-owned and UNVERIFIED. See
+  [U3 delivery and validation](tasks/U3-FILE-LIBRARY.md).
+
+
+- **U2 File Library tabs and dual-pane workspace — MERGED #475; native GUI acceptance remains unverified.**
   Base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`, normal master CI
   [40320096881](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40320096881)
   SUCCESS. One Files destination now hosts session-local tabs and optional

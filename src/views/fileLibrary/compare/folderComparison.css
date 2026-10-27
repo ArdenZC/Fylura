@@ -1,0 +1,25 @@
+.u3-comparison { flex: 0 0 auto; min-width: 0; padding: 8px 12px; border-bottom: 1px solid var(--zc-border); font-size: 12px; max-height: 42%; overflow: auto; }
+.u3-compare-controls, .u3-compare-filters { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.u3-comparison button { border:1px solid var(--zc-border); border-radius:6px; padding:4px 8px; background:var(--zc-surface); color:inherit; cursor:pointer; }
+.u3-comparison button:disabled { opacity:.45; cursor:default; }
+.u3-comparison button[aria-pressed="true"] { background:var(--zc-surface-selected); }
+.u3-comparison label { display:flex; align-items:center; gap:5px; min-width:0; }
+.u3-compare-help { margin:6px 0; opacity:.7; line-height:1.5; }
+.u3-compare-filters { margin:8px 0; }
+.u3-batch-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.u3-batch-actions > div { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+.u3-compare-table { max-height:200px; overflow:auto; border:1px solid var(--zc-border); border-radius:7px; margin:8px 0; }
+.u3-compare-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(110px,.6fr) minmax(0,1fr); border-bottom:1px solid var(--zc-border); }
+.u3-compare-row > span { padding:6px 8px; min-width:0; }
+.u3-compare-row label > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.u3-status-different,.u3-status-unknown { color:var(--zc-warning); }
+.u3-folders-first { display:flex; align-items:center; gap:3px; font-size:11px; }
+@media(max-width:1000px) { .u3-batch-actions { grid-template-columns:1fr; } .u3-comparison { max-height:42%; } }
+
+.u3-comparison :is(button, input):focus-visible { outline:2px solid var(--zc-primary); outline-offset:2px; }
+
+.u3-comparison input, .u3-folders-first input { accent-color:var(--zc-primary); }
+.u3-compare-help summary { cursor:pointer; }
+
+.u3-compare-row > [role="cell"] { display:flex; align-items:center; justify-content:space-between; gap:4px; }
+.u3-comparison .u3-locate { border:0; padding:3px; flex:none; color:var(--zc-text-secondary); }

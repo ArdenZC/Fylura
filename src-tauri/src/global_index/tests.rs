@@ -159,7 +159,7 @@ fn migration_creates_global_and_managed_domains_separately() {
     let version: i32 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version");
-    assert_eq!(version, 43);
+    assert_eq!(version, 44);
     drop(conn);
     drop(db);
     let _ = std::fs::remove_file(path);

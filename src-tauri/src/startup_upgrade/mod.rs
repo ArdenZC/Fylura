@@ -22,7 +22,7 @@ pub fn run_native_qa() -> Result<(), String> {
 
 const TITLE: &str = "Zen Canvas — Database upgrade";
 const MESSAGE: &str = "Preparing your local search database";
-const DETAILS: &str = "Checking available storage and rebuilding search indexes. This may take several minutes. Your files are not changed.\n\nYou can cancel and retry when you next open Zen Canvas. Please keep the app open until cancellation finishes.";
+const DETAILS: &str = "Checking available storage, updating search indexes and preparing exact source statistics. This may take several minutes. Your files are not changed.\n\nYou can cancel and retry when you next open Zen Canvas. Please keep the app open until cancellation finishes.";
 
 struct Worker {
     path: PathBuf,

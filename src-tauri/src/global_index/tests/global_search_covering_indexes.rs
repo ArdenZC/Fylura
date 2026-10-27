@@ -67,7 +67,7 @@ unsafe extern "C" fn profile_callback(
     0
 }
 
-fn trace_snapshot(db: &Database, conn: &Connection, query: &str) -> Vec<JsonValue> {
+pub(super) fn trace_snapshot(db: &Database, conn: &Connection, query: &str) -> Vec<JsonValue> {
     let records = Mutex::new(Vec::<JsonValue>::new());
     // Pool max_size is eight. Hold every handle while registering/unregistering.
     let handles = (0..8).map(|_| db.conn().unwrap()).collect::<Vec<_>>();
@@ -101,7 +101,10 @@ fn trace_snapshot(db: &Database, conn: &Connection, query: &str) -> Vec<JsonValu
     for row in &mut rows {
         let sql = row["sql"].as_str().unwrap();
         // Only top-level source/status/search SELECTs can be explained here.
-        if sql.contains("active_volume_facts")
+        if sql.contains("global_entry_source_facts")
+            || sql.contains("global_entries_fts.rank")
+            || sql.contains("CASE WHEN")
+            || sql.contains("active_volume_facts")
             || sql.contains("SELECT COUNT(*)\n             FROM global_entries entry")
         {
             row["query_plan"] = json!(explain_details(conn, sql, &[]));

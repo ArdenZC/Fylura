@@ -50,6 +50,7 @@ on:
           - index_cost
           - exact_sql_1m_diagnostic
           - covering_indexes
+          - source_facts_pair
           - schema_upgrade
 
 permissions:
@@ -63,7 +64,7 @@ jobs:
   # Keep manual baseline/diagnostic modes and the two branch-scoped diagnostics;
   # ordinary PRs use only the bounded 1k-row smoke in the index-cost job below.
   synthetic-global-search:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost' && inputs.mode != 'exact_sql_1m_diagnostic' && inputs.mode != 'covering_indexes' && inputs.mode != 'schema_upgrade') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost' && inputs.mode != 'exact_sql_1m_diagnostic' && inputs.mode != 'covering_indexes' && inputs.mode != 'source_facts_pair' && inputs.mode != 'schema_upgrade') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
     name: Global Search ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
@@ -449,6 +450,65 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  source-facts-pair:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'source_facts_pair' }}
+    name: Source Facts and FTS paired (${{ inputs.entries }} rows)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ inputs.entries }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/source-facts-pair.jsonl
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.sha }}
+      ZC_FACTS_FTS_FRONTIER: "0"
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check bounded scale and record identity
+        shell: pwsh
+        run: |
+          if ($env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES -notin @('100000','1000000')) { throw 'Only 100k preflight or one controlled 1M run is supported.' }
+          $tree = git rev-parse 'HEAD^{tree}'
+          "ZEN_CANVAS_BENCHMARK_SOURCE_TREE=$tree" >> $env:GITHUB_ENV
+          "source=${{ github.sha }} tree=$tree" >> $env:GITHUB_STEP_SUMMARY
+          $fixtureRoot = Join-Path $env:GITHUB_WORKSPACE '.performance-temp/issue474'
+          New-Item -ItemType Directory -Force -Path $fixtureRoot | Out-Null
+          "TEMP=$fixtureRoot" >> $env:GITHUB_ENV
+          "TMP=$fixtureRoot" >> $env:GITHUB_ENV
+          $drive = Get-PSDrive -Name $fixtureRoot.Substring(0,1)
+          if ($drive.Free -lt 10GB) { throw 'Need 10 GiB free for controlled SQLite copies.' }
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-global-search-benchmark-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Source Facts schema/core correctness checks
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib schema_global_source_facts -- --nocapture --test-threads=1
+      - name: Existing source semantics and concurrent transaction checks
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_search_source_health -- --nocapture --test-threads=1
+      - name: Real Source Facts snapshot and concurrent writer contracts
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib prepared_source_facts_preserve_real_snapshot_contracts -- --nocapture --test-threads=1
+      - name: Hostile covering-index contract check
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::tests::global_search_benchmark::covering_indexes::covering_indexes_preserve_hostile_source_and_search_contracts -- --exact --nocapture --test-threads=1
+      - name: Run single-fixture covering-index pair
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib
+          global_index::tests::global_search_benchmark::source_facts_pair::source_facts_snapshot_pair
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Upload complete or partial paired evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: source-facts-pair-${{ inputs.entries }}-${{ github.run_id }}
+          path: ${{ github.workspace }}/ci-evidence/source-facts-pair.jsonl
+          if-no-files-found: warn
+          retention-days: 90
+
   schema-upgrade:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'schema_upgrade' }}
     name: Schema upgrade (${{ matrix.os }})
@@ -493,6 +553,10 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib upgrade -- --nocapture --test-threads=1
       - name: Existing schema43 and search semantics
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib schema43 -- --nocapture --test-threads=1
+      - name: Integrated 42 and 43 to 44 snapshots and current reopen
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib source_facts_schema44_migrates_populated42_43_and_reopens_without_recount -- --nocapture --test-threads=1
+      - name: Exact Source Facts writer and nullable ID contracts
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib schema_global_source_facts -- --nocapture --test-threads=1
       - name: Native upgrade visibility, cancellation and retry
         timeout-minutes: 3
         env:

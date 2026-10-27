@@ -22,6 +22,15 @@ fn historical_fixture(path: &Path) -> Connection {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch("PRAGMA journal_mode=WAL").unwrap();
     migrate(&conn).unwrap();
+    conn.execute_batch(
+        "DROP TRIGGER global_entry_source_facts_ai;
+        DROP TRIGGER global_entry_source_facts_ad;
+        DROP TRIGGER global_entry_source_facts_au;
+        DROP TRIGGER global_entry_source_facts_volume_ai;
+        DROP TRIGGER global_entry_source_facts_volume_au;
+        DROP TABLE global_entry_source_facts;",
+    )
+    .unwrap();
     // Historical fixture construction only. Production never lowers a version.
     conn.execute_batch("DROP INDEX idx_global_entries_active_name_order;
         DROP INDEX idx_global_entries_active_source_facts;
@@ -111,7 +120,7 @@ fn schema_upgrade_full_rolls_back_and_retry_rebuilds_indexes() {
     conn.pragma_update(None, "max_page_count", 2_147_483_646_i64)
         .unwrap();
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 43);
+    assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
     assert_eq!(conn.query_row::<i64,_,_>("SELECT COUNT(*) FROM global_entries INDEXED BY idx_global_entries_active_name_order WHERE is_stale=0",[],|r|r.get(0)).unwrap(),3000);
     drop(conn);
     cleanup(&path);
@@ -153,65 +162,81 @@ fn schema_upgrade_killed_child() {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch("PRAGMA cache_size=8; PRAGMA cache_spill=ON;")
         .unwrap();
-    with_migration_transaction(&conn, |conn| {
-        migrate_global_search_covering_indexes(conn)?;
-        std::fs::write(
-            std::env::var_os("ZC_SCHEMA_UPGRADE_MARKER").unwrap(),
-            b"uncommitted43",
-        )
-        .unwrap();
-        // Parent kills the process here, after both new indexes and user_version
-        // are dirty but before COMMIT. No unwind or graceful rollback runs.
-        loop {
-            std::thread::park_timeout(Duration::from_secs(1));
-        }
-    })
+    super::super::schema_global_source_facts::with_backfill_hook(
+        |conn, stage| {
+            if stage != "after" {
+                return Ok(());
+            }
+            // UpgradeGuard intentionally restores the bounded 8MiB policy, so
+            // the tiny fixture may fit. Force dirty pages to WAL without COMMIT
+            // instead of depending on cache eviction or weakening the assertion.
+            assert_eq!(
+                unsafe { rusqlite::ffi::sqlite3_db_cacheflush(conn.handle()) },
+                rusqlite::ffi::SQLITE_OK
+            );
+            std::fs::write(
+                std::env::var_os("ZC_SCHEMA_UPGRADE_MARKER").unwrap(),
+                b"uncommitted44",
+            )
+            .unwrap();
+            // Kill after facts/index/version writes have spilled, before COMMIT.
+            loop {
+                std::thread::park_timeout(Duration::from_secs(1));
+            }
+        },
+        || migrate(&conn),
+    )
     .unwrap();
 }
 
 #[test]
 fn schema_upgrade_process_death_recovers_on_restart() {
-    let path = path("kill");
-    let conn = historical_fixture(&path);
-    let before = user_fingerprint(&conn);
-    drop(conn);
-    let marker = path.with_extension("marker");
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "db::schema::upgrade_recovery_tests::schema_upgrade_killed_child",
-            "--nocapture",
-        ])
-        .env("ZC_SCHEMA_UPGRADE_CHILD", &path)
-        .env("ZC_SCHEMA_UPGRADE_MARKER", &marker)
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while !marker.exists() && Instant::now() < deadline {
-        if child.try_wait().unwrap().is_some() {
-            panic!("migration child exited before precommit marker");
+    for starting_schema in [42, 43] {
+        let path = path("kill");
+        let conn = historical_fixture(&path);
+        if starting_schema == 43 {
+            migrate_global_search_covering_indexes(&conn).unwrap();
         }
-        std::thread::sleep(Duration::from_millis(20));
+        let before = user_fingerprint(&conn);
+        drop(conn);
+        let marker = path.with_extension("marker");
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "db::schema::upgrade_recovery_tests::schema_upgrade_killed_child",
+                "--nocapture",
+            ])
+            .env("ZC_SCHEMA_UPGRADE_CHILD", &path)
+            .env("ZC_SCHEMA_UPGRADE_MARKER", &marker)
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !marker.exists() && Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                panic!("migration child exited before precommit marker");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let reached = marker.exists();
+        let wal_bytes = std::fs::metadata(format!("{}-wal", path.display())).map_or(0, |m| m.len());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(reached, "child did not reach precommit checkpoint");
+        assert!(
+            wal_bytes > 32,
+            "child must spill uncommitted frames before termination"
+        );
+        let conn = Connection::open(&path).unwrap();
+        assert_installed(&conn, starting_schema);
+        assert_eq!(user_fingerprint(&conn), before);
+        migrate(&conn).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+        migrate(&conn).unwrap();
+        drop(conn);
+        cleanup(&path);
+        let _ = std::fs::remove_file(marker);
     }
-    let reached = marker.exists();
-    let wal_bytes = std::fs::metadata(format!("{}-wal", path.display())).map_or(0, |m| m.len());
-    child.kill().unwrap();
-    child.wait().unwrap();
-    assert!(reached, "child did not reach precommit checkpoint");
-    assert!(
-        wal_bytes > 32,
-        "child must spill uncommitted frames before termination"
-    );
-    let conn = Connection::open(&path).unwrap();
-    assert_original(&conn);
-    assert_eq!(user_fingerprint(&conn), before);
-    migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 43);
-    migrate(&conn).unwrap();
-    drop(conn);
-    cleanup(&path);
-    let _ = std::fs::remove_file(marker);
 }
 
 #[test]
@@ -310,4 +335,146 @@ fn schema_upgrade_filesystem_io_failure_is_retryable_without_touching_parent() {
     drop(db);
     cleanup(&database_path);
     std::fs::remove_dir(parent).unwrap();
+}
+
+fn assert_installed(conn: &Connection, version: i32) {
+    assert_eq!(schema_version(conn).unwrap(), version);
+    if version == 42 {
+        assert_original(conn);
+    } else {
+        validate_global_search_covering_indexes(conn).unwrap();
+    }
+    assert_eq!(
+        conn.query_row::<i64, _, _>(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name='global_entry_source_facts'",
+            [],
+            |r| r.get(0)
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        conn.query_row::<String, _, _>("PRAGMA integrity_check", [], |r| r.get(0))
+            .unwrap(),
+        "ok"
+    );
+}
+thread_local! { static BACKFILL_CANCEL: std::cell::RefCell<Option<Arc<AtomicBool>>> = const { std::cell::RefCell::new(None) }; }
+
+#[test]
+fn schema_upgrade_42_43_backfill_faults_rollback_and_restart() {
+    use super::super::schema_global_source_facts::with_backfill_hook;
+    for version in [42, 43] {
+        for fault in [
+            "capacity",
+            "full",
+            "before_cancel",
+            "after_cancel",
+            "failure",
+        ] {
+            let path = path(fault);
+            let conn = historical_fixture(&path);
+            if version == 43 {
+                migrate_global_search_covering_indexes(&conn).unwrap();
+            }
+            if fault == "full" {
+                conn.execute_batch("INSERT INTO global_volumes(id,platform,stable_volume_id,display_name,mount_path,filesystem_type,drive_kind,provider,created_at,updated_at)
+                    SELECT 'many_'||id,'windows','many_'||id,'Many','C:/Many','ntfs','fixed','recursive_fallback',1,1 FROM global_entries;
+                    UPDATE global_entries SET volume_id='many_'||id;").unwrap();
+            }
+            conn.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE)")
+                .unwrap();
+            let before = user_fingerprint(&conn);
+            let cancel = Arc::new(AtomicBool::new(false));
+            BACKFILL_CANCEL.with(|v| *v.borrow_mut() = Some(cancel.clone()));
+            let result = match fault {
+                "capacity" => super::super::upgrade::with_test_capacity(0, || migrate(&conn)),
+                "full" => with_backfill_hook(
+                    |conn, stage| {
+                        if stage == "before" {
+                            let pages: i64 =
+                                conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+                            conn.pragma_update(None, "max_page_count", pages)?;
+                            // 3000 distinct registered sources force facts leaf pages;
+                            // the actual INSERT backfill must hit SQLITE_FULL.
+                        }
+                        Ok(())
+                    },
+                    || migrate(&conn),
+                ),
+                "before_cancel" | "after_cancel" => {
+                    let hook: fn(&Connection, &str) -> Result<(), DbError> =
+                        if fault == "before_cancel" {
+                            |_, stage| {
+                                if stage == "before" {
+                                    BACKFILL_CANCEL.with(|v| {
+                                        v.borrow().as_ref().unwrap().store(true, Ordering::Release)
+                                    });
+                                }
+                                Ok(())
+                            }
+                        } else {
+                            |_, stage| {
+                                if stage == "after" {
+                                    BACKFILL_CANCEL.with(|v| {
+                                        v.borrow().as_ref().unwrap().store(true, Ordering::Release)
+                                    });
+                                }
+                                Ok(())
+                            }
+                        };
+                    with_backfill_hook(hook, || migrate_with_cancellation(&conn, cancel))
+                }
+                _ => with_backfill_hook(
+                    |conn, stage| {
+                        if stage == "after" {
+                            conn.execute_batch("SELECT * FROM injected_backfill_failure")?;
+                        }
+                        Ok(())
+                    },
+                    || migrate(&conn),
+                ),
+            };
+            BACKFILL_CANCEL.with(|v| *v.borrow_mut() = None);
+            let error = result.unwrap_err();
+            if fault == "full" {
+                assert!(
+                    matches!(error,DbError::Sqlite(rusqlite::Error::SqliteFailure(ref e,_)) if e.code==rusqlite::ErrorCode::DiskFull),
+                    "{error:?}"
+                );
+            }
+            if fault == "capacity" {
+                assert!(error.to_string().contains("Not enough free space"));
+            }
+            assert!(conn.is_autocommit(), "{version} {fault}");
+            assert_installed(&conn, version);
+            assert_eq!(user_fingerprint(&conn), before);
+            drop(conn);
+            let db = crate::db::Database::open(&path).unwrap();
+            assert_eq!(schema_version(&db.conn().unwrap()).unwrap(), 44);
+            drop(db);
+            cleanup(&path);
+        }
+    }
+}
+
+#[test]
+fn schema_upgrade_43_44_missing_required_index_fails_closed() {
+    for version in [43, 44] {
+        let path = path("missing-index");
+        let conn = historical_fixture(&path);
+        if version == 43 {
+            migrate_global_search_covering_indexes(&conn).unwrap();
+        } else {
+            migrate(&conn).unwrap();
+        }
+        conn.execute_batch("DROP INDEX idx_global_entries_active_source_facts")
+            .unwrap();
+        let before = user_fingerprint(&conn);
+        assert!(migrate(&conn).is_err());
+        assert_eq!(schema_version(&conn).unwrap(), version);
+        assert_eq!(before, user_fingerprint(&conn));
+        drop(conn);
+        cleanup(&path);
+    }
 }

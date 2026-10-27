@@ -116,6 +116,83 @@ pub(crate) enum GlobalSearchSourceHealthQueryCandidate {
     GroupByVolumeId,
 }
 
+const UPSERT_GLOBAL_ENTRY_SQL: &str = r#"
+                INSERT INTO global_entries (
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, is_stale,
+                    source_provider, last_seen_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 0, ?17, ?18)
+                ON CONFLICT(id) DO UPDATE SET
+                    volume_id = excluded.volume_id,
+                    platform_file_id = excluded.platform_file_id,
+                    parent_platform_file_id = excluded.parent_platform_file_id,
+                    name = excluded.name,
+                    name_normalized = excluded.name_normalized,
+                    path = excluded.path,
+                    path_normalized = excluded.path_normalized,
+                    extension = excluded.extension,
+                    is_directory = excluded.is_directory,
+                    size = excluded.size,
+                    created_at_fs = excluded.created_at_fs,
+                    modified_at_fs = excluded.modified_at_fs,
+                    file_attributes = excluded.file_attributes,
+                    is_hidden = excluded.is_hidden,
+                    is_system = excluded.is_system,
+                    is_stale = 0,
+                    source_provider = excluded.source_provider,
+                    last_seen_at = excluded.last_seen_at
+                "#;
+
+fn execute_entry_upsert(
+    _transaction: &rusqlite::Transaction<'_>,
+    statement: &mut rusqlite::Statement<'_>,
+    values: &[&dyn rusqlite::ToSql],
+) -> Result<usize, DbError> {
+    #[cfg(test)]
+    if CANONICAL_FACTS_READ.with(std::cell::Cell::get) {
+        // Exact previous producer preparation strategy for the paired writer
+        // baseline; production reuses one compiled statement for the batch.
+        return Ok(_transaction.execute(UPSERT_GLOBAL_ENTRY_SQL, values)?);
+    }
+    Ok(statement.execute(values)?)
+}
+
+const PREPARED_SOURCE_HEALTH_SQL: &str = r#"
+    SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+           COALESCE(f.active_ids, 0), f.max_last_seen_at, COALESCE(f.active_rows, 0), f.volume_id
+    FROM global_volumes gv
+    LEFT JOIN global_entry_source_facts f ON f.volume_id = gv.id
+    ORDER BY gv.id ASC
+"#;
+
+#[cfg(test)]
+std::thread_local! {
+    static CANONICAL_FACTS_READ: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn with_canonical_source_facts<T>(run: impl FnOnce() -> T) -> T {
+    struct Reset(bool);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CANONICAL_FACTS_READ.with(|v| v.set(self.0));
+        }
+    }
+    let old = CANONICAL_FACTS_READ.with(|v| v.replace(true));
+    let _reset = Reset(old);
+    run()
+}
+
+fn use_prepared_source_facts(conn: &rusqlite::Connection) -> Result<bool, DbError> {
+    #[cfg(test)]
+    if CANONICAL_FACTS_READ.with(std::cell::Cell::get) {
+        return Ok(false);
+    }
+    crate::db::schema_global_source_facts::materialized_relation_available(conn)
+}
+
 const GLOBAL_SEARCH_SOURCE_HEALTH_SQL: &str = r#"
     WITH active_volume_facts AS (
         SELECT volume_id,
@@ -828,37 +905,12 @@ impl Database {
         let scope_policies = load_enabled_scope_policies(&transaction)?;
         let mut count = 0;
         let mut has_eligible_pending_work = false;
+        let mut statement = transaction.prepare(UPSERT_GLOBAL_ENTRY_SQL)?;
         for entry in entries {
             let entry_id = entry.entry_id();
-            transaction.execute(
-                r#"
-                INSERT INTO global_entries (
-                    id, volume_id, platform_file_id, parent_platform_file_id,
-                    name, name_normalized, path, path_normalized, extension,
-                    is_directory, size, created_at_fs, modified_at_fs,
-                    file_attributes, is_hidden, is_system, is_stale,
-                    source_provider, last_seen_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 0, ?17, ?18)
-                ON CONFLICT(id) DO UPDATE SET
-                    volume_id = excluded.volume_id,
-                    platform_file_id = excluded.platform_file_id,
-                    parent_platform_file_id = excluded.parent_platform_file_id,
-                    name = excluded.name,
-                    name_normalized = excluded.name_normalized,
-                    path = excluded.path,
-                    path_normalized = excluded.path_normalized,
-                    extension = excluded.extension,
-                    is_directory = excluded.is_directory,
-                    size = excluded.size,
-                    created_at_fs = excluded.created_at_fs,
-                    modified_at_fs = excluded.modified_at_fs,
-                    file_attributes = excluded.file_attributes,
-                    is_hidden = excluded.is_hidden,
-                    is_system = excluded.is_system,
-                    is_stale = 0,
-                    source_provider = excluded.source_provider,
-                    last_seen_at = excluded.last_seen_at
-                "#,
+            execute_entry_upsert(
+                &transaction,
+                &mut statement,
                 params![
                     entry_id,
                     entry.volume_id,
@@ -888,6 +940,7 @@ impl Database {
             )?;
             count += 1;
         }
+        drop(statement);
         transaction.commit()?;
         if has_eligible_pending_work {
             self.notify_managed_ai_work();
@@ -1042,8 +1095,9 @@ impl Database {
         let transaction = conn.transaction()?;
         let results =
             super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
-        let (source_health, source_revision) = load_snapshot_source_health(&transaction)?;
-        let index_status = global_index_status_from_connection(&transaction)?;
+        let (source_health, source_revision, enabled_rows) =
+            load_snapshot_source_health(&transaction)?;
+        let index_status = global_index_status_with_total(&transaction, enabled_rows)?;
         transaction.commit()?;
         Ok(GlobalSearchSnapshot {
             results,
@@ -1154,6 +1208,24 @@ fn with_source_health_candidate_override<T>(
 fn global_index_status_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<GlobalIndexStatus, DbError> {
+    global_index_status_with_total(conn, None)
+}
+
+fn global_index_status_with_total(
+    conn: &rusqlite::Connection,
+    enabled_rows: Option<i64>,
+) -> Result<GlobalIndexStatus, DbError> {
+    // Standalone Status remains one atomic SQL statement. Snapshot supplies
+    // its exact active_rows sum from the already-read facts in the same TX.
+    let exact_count = if use_prepared_source_facts(conn)? {
+        "(CASE WHEN EXISTS(SELECT 1 FROM global_volumes v LEFT JOIN global_entry_source_facts f
+          ON f.volume_id=v.id WHERE v.enabled=1 AND f.volume_id IS NULL) THEN -1
+          ELSE (SELECT COALESCE(SUM(f.active_rows),0) FROM global_entry_source_facts f
+          JOIN global_volumes volume ON volume.id=f.volume_id WHERE volume.enabled=1) END)"
+    } else {
+        "(SELECT COUNT(*) FROM global_entries entry JOIN global_volumes volume ON volume.id=entry.volume_id
+          WHERE entry.is_stale=0 AND volume.enabled=1)"
+    };
     let GlobalIndexStatusCounts {
         total_entries,
         indexed_volumes,
@@ -1170,12 +1242,9 @@ fn global_index_status_from_connection(
         last_sync_at,
         last_error,
     } = conn.query_row(
-        r#"
+        &format!(r#"
         SELECT
-            (SELECT COUNT(*)
-             FROM global_entries entry
-             JOIN global_volumes volume ON volume.id = entry.volume_id
-             WHERE entry.is_stale = 0 AND volume.enabled = 1),
+            CASE WHEN ?1 >= 0 THEN ?1 ELSE {exact_count} END,
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
@@ -1189,8 +1258,8 @@ fn global_index_status_from_connection(
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
             (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
             (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
-        "#,
-        [],
+        "#),
+        [enabled_rows.unwrap_or(-1)],
         |row| {
             Ok(GlobalIndexStatusCounts {
                 total_entries: row.get(0)?,
@@ -1210,6 +1279,9 @@ fn global_index_status_from_connection(
             })
         },
     )?;
+    if total_entries < 0 {
+        return Err(DbError::Validation("global_source_facts_missing".into()));
+    }
     let status = if indexed_volumes == 0 {
         INDEX_STATUS_UNAVAILABLE
     } else if ready_volumes == indexed_volumes {
@@ -1256,16 +1328,46 @@ fn global_index_status_from_connection(
 }
 
 #[cfg(test)]
+pub(crate) fn diagnostic_snapshot_with_prepared_facts(
+    conn: &rusqlite::Connection,
+    query: &str,
+) -> Result<GlobalSearchSnapshot, DbError> {
+    let results = super::search::search_global_entries_on_connection(conn, query, 80, 0)?;
+    let (source_health, source_revision, rows) = load_prepared_source_health(conn)?;
+    let index_status = global_index_status_with_total(conn, rows)?;
+    Ok(GlobalSearchSnapshot {
+        results,
+        source_health,
+        source_revision,
+        index_status,
+    })
+}
+
+#[cfg(test)]
 pub(crate) fn diagnostic_load_production_source_health(
     conn: &rusqlite::Connection,
 ) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
     load_global_search_sources_from_connection(conn)
 }
 
+#[cfg(test)]
 fn load_global_search_sources_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
-    let mut statement = conn.prepare(GLOBAL_SEARCH_SOURCE_HEALTH_SQL)?;
+    let (health, revision, _) = load_prepared_source_health(conn)?;
+    Ok((health, revision))
+}
+
+fn load_prepared_source_health(
+    conn: &rusqlite::Connection,
+) -> Result<(Vec<GlobalSearchSourceHealth>, String, Option<i64>), DbError> {
+    let prepared = use_prepared_source_facts(conn)?;
+    let mut statement = conn.prepare(if prepared {
+        PREPARED_SOURCE_HEALTH_SQL
+    } else {
+        GLOBAL_SEARCH_SOURCE_HEALTH_SQL
+    })?;
+    let mut enabled_rows = 0_i64;
     let mut facts = Vec::new();
     let mut source_health = Vec::new();
     let rows = statement.query_map([], |row| {
@@ -1277,7 +1379,11 @@ fn load_global_search_sources_from_connection(
         let updated_at = row.get::<_, i64>(5)?;
         let active_entry_count = row.get::<_, i64>(6)?;
         let max_last_seen_at = row.get::<_, Option<i64>>(7)?;
+        let active_rows = if prepared { row.get::<_, i64>(8)? } else { 0 };
+        let valid = !prepared || row.get::<_, Option<String>>(9)?.is_some();
         Ok((
+            valid,
+            active_rows,
             GlobalSearchSourceHealth {
                 source_id: source_id.clone(),
                 enabled,
@@ -1299,27 +1405,36 @@ fn load_global_search_sources_from_connection(
         ))
     })?;
     for row in rows {
-        let (health, fact) = row?;
+        let (valid, active_rows, health, fact) = row?;
+        if !valid {
+            return Err(DbError::Validation(format!(
+                "global_source_facts_missing:{}",
+                health.source_id
+            )));
+        }
+        if health.enabled {
+            enabled_rows += active_rows;
+        }
         source_health.push(health);
         facts.push(fact);
     }
     let serialized = serde_json::to_vec(&facts).unwrap_or_default();
     let revision = blake3::hash(&serialized).to_hex().to_string();
-    Ok((source_health, revision))
+    Ok((source_health, revision, prepared.then_some(enabled_rows)))
 }
 
 fn load_snapshot_source_health(
     conn: &rusqlite::Connection,
-) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
+) -> Result<(Vec<GlobalSearchSourceHealth>, String, Option<i64>), DbError> {
     #[cfg(test)]
     if let Some(candidate) =
         GLOBAL_SEARCH_SOURCE_HEALTH_CANDIDATE_OVERRIDE.with(std::cell::Cell::get)
     {
         let health = load_global_search_source_health_candidate(conn, candidate)?;
-        return Ok((health.source_health, health.source_revision));
+        return Ok((health.source_health, health.source_revision, None));
     }
 
-    load_global_search_sources_from_connection(conn)
+    load_prepared_source_health(conn)
 }
 
 #[cfg(test)]

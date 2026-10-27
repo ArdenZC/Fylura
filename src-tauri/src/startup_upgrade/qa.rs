@@ -48,13 +48,15 @@ pub(super) fn retried() {
     event("native_retry_button");
 }
 
-fn verify_background_deferral(source: &std::path::Path) -> Result<(), String> {
+fn verify_background_deferral(source: &std::path::Path, installed: i64) -> Result<(), String> {
     let profile = source.with_extension("background-profile");
     std::fs::create_dir(&profile).map_err(|e| e.to_string())?;
     let path = profile.join("zen-canvas.sqlite3");
     std::fs::copy(source, &path).map_err(|e| e.to_string())?;
     let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
-    conn.execute_batch("DROP INDEX idx_global_entries_active_name_order; DROP INDEX idx_global_entries_active_source_facts; CREATE INDEX idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC) WHERE is_stale=0; PRAGMA user_version=42; PRAGMA wal_checkpoint(TRUNCATE);").map_err(|e|e.to_string())?;
+    historical_schema(&conn, installed)?;
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .map_err(|e| e.to_string())?;
     drop(conn);
     let mut child = std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
         .arg("--background")
@@ -88,7 +90,7 @@ fn verify_background_deferral(source: &std::path::Path) -> Result<(), String> {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    if version != 42 {
+    if version != installed {
         return Err(format!(
             "Background launch unexpectedly migrated schema to {version}"
         ));
@@ -101,43 +103,88 @@ fn verify_background_deferral(source: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+fn historical_schema(conn: &rusqlite::Connection, installed: i64) -> Result<(), String> {
+    // Test fixture only. Production never lowers a schema version.
+    conn.execute_batch(
+        "DROP TRIGGER global_entry_source_facts_ai;
+        DROP TRIGGER global_entry_source_facts_ad;
+        DROP TRIGGER global_entry_source_facts_au;
+        DROP TRIGGER global_entry_source_facts_volume_ai;
+        DROP TRIGGER global_entry_source_facts_volume_au;
+        DROP TABLE global_entry_source_facts;",
+    )
+    .map_err(|e| e.to_string())?;
+    if installed == 42 {
+        conn.execute_batch("DROP INDEX idx_global_entries_active_name_order; DROP INDEX idx_global_entries_active_source_facts; CREATE INDEX idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC) WHERE is_stale=0;").map_err(|e|e.to_string())?;
+    }
+    conn.pragma_update(None, "user_version", installed)
+        .map_err(|e| e.to_string())
+}
+
 pub(super) fn run() -> Result<(), String> {
-    let path =
-        std::env::temp_dir().join(format!("zen-canvas-upgrade-ui-{}.db", std::process::id()));
-    if path.exists() {
-        return Err("Native QA requires a fresh task-owned database path".into());
-    }
-    let db = Database::open(&path).map_err(|e| e.to_string())?;
-    drop(db);
-    let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
-    conn.execute_batch("DROP INDEX idx_global_entries_active_name_order; DROP INDEX idx_global_entries_active_source_facts; CREATE INDEX idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC) WHERE is_stale=0; PRAGMA user_version=42;").map_err(|e|e.to_string())?;
-    drop(conn);
-    ACTIVE.store(true, Ordering::Release);
-    let result = open(path.clone(), false);
-    ACTIVE.store(false, Ordering::Release);
-    let db = result?;
-    let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
-    let version: i64 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .map_err(|e| e.to_string())?;
-    if version != 43
-        || ATTEMPTS.load(Ordering::Acquire) != 2
-        || TICKS.load(Ordering::Acquire) < 4
-        || !CANCELLED.load(Ordering::Acquire)
-        || !RETRIED.load(Ordering::Acquire)
-        || !VISIBLE.load(Ordering::Acquire)
-    {
-        return Err(format!(
-            "Native UI probe failed: version={version}, attempts={}, ticks={}, visible={}",
-            ATTEMPTS.load(Ordering::Acquire),
-            TICKS.load(Ordering::Acquire),
-            VISIBLE.load(Ordering::Acquire)
+    let mut routes = Vec::new();
+    for installed in [42, 43] {
+        let path = std::env::temp_dir().join(format!(
+            "zen-canvas-upgrade-ui-{}-{installed}.db",
+            std::process::id()
         ));
+        if path.exists() {
+            return Err("Native QA requires a fresh task-owned database path".into());
+        }
+        drop(Database::open(&path).map_err(|e| e.to_string())?);
+        let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
+        historical_schema(&conn, installed)?;
+        drop(conn);
+        ATTEMPTS.store(0, Ordering::Release);
+        TICKS.store(0, Ordering::Release);
+        CANCELLED.store(false, Ordering::Release);
+        RETRIED.store(false, Ordering::Release);
+        VISIBLE.store(true, Ordering::Release);
+        EVENTS.lock().unwrap().clear();
+        ACTIVE.store(true, Ordering::Release);
+        let result = open(path.clone(), false);
+        ACTIVE.store(false, Ordering::Release);
+        let db = result?;
+        let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let events = EVENTS.lock().unwrap().clone();
+        let starts = events
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.as_str() == "worker_start")
+            .all(|(i, _)| {
+                events[..i]
+                    .iter()
+                    .filter(|e| e.as_str() == "native_window_visible_before_worker")
+                    .count()
+                    > events[..i]
+                        .iter()
+                        .filter(|e| e.as_str() == "worker_start")
+                        .count()
+            });
+        if version != i64::from(zen_canvas_tauri::db::SUPPORTED_SCHEMA_VERSION)
+            || ATTEMPTS.load(Ordering::Acquire) != 2
+            || TICKS.load(Ordering::Acquire) < 4
+            || !CANCELLED.load(Ordering::Acquire)
+            || !RETRIED.load(Ordering::Acquire)
+            || !VISIBLE.load(Ordering::Acquire)
+            || !starts
+        {
+            return Err(format!("Native UI probe failed: installed={installed}, version={version}, events={events:?}"));
+        }
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+            .map_err(|e| e.to_string())?;
+        verify_background_deferral(&path, installed)?;
+        routes.push(serde_json::json!({"installed_schema":installed,"schema":version,"visible_before_worker":true,"attempts":2,"native_timer_ticks":TICKS.load(Ordering::Acquire),"cancel_and_retry_native_buttons":true,"background_deferral_real_tauri_process":true,"background_exit_code":0,"background_schema":installed,"events":events}));
+        drop(conn);
+        drop(db);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
     }
-    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
-        .map_err(|e| e.to_string())?;
-    verify_background_deferral(&path)?;
-    let report = serde_json::json!({"record_type":"native_upgrade_ui","platform":std::env::consts::OS,"status":"PASS","visible_before_worker":true,"attempts":2,"native_timer_ticks":TICKS.load(Ordering::Acquire),"cancel_and_retry_native_buttons":true,"background_deferral_real_tauri_process":true,"background_exit_code":0,"background_schema":42,"schema":version,"events":*EVENTS.lock().unwrap(),"scope":"Actual native widgets/message loop with deliberate worker delay; synthetic button clicks. Human keyboard/screen-reader/contrast and Owner Windows acceptance remain unverified."});
+    let report = serde_json::json!({"record_type":"native_upgrade_ui","platform":std::env::consts::OS,"status":"PASS","routes":routes,"scope":"Actual native widgets/message loop with deliberate worker delay; synthetic button clicks. Human keyboard/screen-reader/contrast, packaged first launch and Owner Windows acceptance remain unverified."});
     let output = std::env::var_os("ZC_UPGRADE_UI_OUTPUT")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("schema-upgrade-ui.json"));
@@ -147,10 +194,5 @@ pub(super) fn run() -> Result<(), String> {
     std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap())
         .map_err(|e| e.to_string())?;
     println!("{report}");
-    drop(conn);
-    drop(db);
-    for suffix in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
-    }
     Ok(())
 }

@@ -21,6 +21,7 @@ pub struct UpgradeResources {
     pub freelist_pages: u64,
     pub active_rows: u64,
     pub key_bytes: u64,
+    pub facts_key_bytes: u64,
     pub database_required_bytes: u64,
     pub temporary_required_bytes: u64,
     pub database_free_bytes: u64,
@@ -49,6 +50,12 @@ fn budgets(name: u64, source: u64, page: u64) -> Result<(u64, u64), DbError> {
     calculate().ok_or_else(|| DbError::Validation("Upgrade resource estimate overflow".into()))
 }
 
+// Facts need one B-tree row per distinct active/registered source. The streaming
+// index GROUP BY below bounds memory; registered/active overlap is overcounted.
+fn facts_budgets(payload: u64, page: u64) -> Result<(u64, u64), DbError> {
+    budgets(payload, 0, page)
+}
+
 pub fn inspect_resources(conn: &Connection) -> Result<UpgradeResources, DbError> {
     let mut system = sysinfo::System::new();
     system.refresh_memory();
@@ -68,12 +75,44 @@ pub fn inspect_resources(conn: &Connection) -> Result<UpgradeResources, DbError>
     // Exact production-shaped keys, including UTF-8 byte lengths, nullable IDs,
     // integer serial types/header/rowid allowance. This read is cancellable and
     // occurs before any DROP/CREATE; it does not build a second fixture/index.
-    let (active_rows, name_bytes, source_bytes): (u64, u64, u64) = conn.query_row(
-        "SELECT COUNT(*), COALESCE(SUM(length(CAST(name_normalized AS BLOB)) + COALESCE(length(CAST(id AS BLOB)),0) + length(CAST(volume_id AS BLOB)) + 64),0),
-         COALESCE(SUM(length(CAST(volume_id AS BLOB)) + COALESCE(length(CAST(id AS BLOB)),0) + 64),0)
-         FROM global_entries WHERE is_stale=0", [], |r| Ok((r.get::<_,i64>(0)? as u64,r.get::<_,i64>(1)? as u64,r.get::<_,i64>(2)? as u64)))?;
-    let (database_required_bytes, temporary_required_bytes) =
-        budgets(name_bytes, source_bytes, page_size)?;
+    let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let grouped_sql = if version < 43 {
+        "SELECT COALESCE(SUM(n),0), COALESCE(SUM(length(CAST(volume_id AS BLOB))+64),0)
+         FROM (SELECT volume_id,COUNT(*) AS n FROM global_entries INDEXED BY idx_global_entries_volume WHERE is_stale=0 GROUP BY volume_id)"
+    } else {
+        "SELECT COALESCE(SUM(n),0), COALESCE(SUM(length(CAST(volume_id AS BLOB))+64),0)
+         FROM (SELECT volume_id,COUNT(*) AS n FROM global_entries INDEXED BY idx_global_entries_active_source_facts WHERE is_stale=0 GROUP BY volume_id)"
+    };
+    let (active_rows, active_fact_bytes): (u64, u64) = conn.query_row(grouped_sql, [], |r| {
+        Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64))
+    })?;
+    let (name_bytes, source_bytes): (u64, u64) = if version < 43 {
+        conn.query_row(
+            "SELECT COALESCE(SUM(length(CAST(name_normalized AS BLOB)) + COALESCE(length(CAST(id AS BLOB)),0) + length(CAST(volume_id AS BLOB)) + 64),0),
+             COALESCE(SUM(length(CAST(volume_id AS BLOB)) + COALESCE(length(CAST(id AS BLOB)),0) + 64),0)
+             FROM global_entries WHERE is_stale=0", [], |r| Ok((r.get::<_,i64>(0)? as u64,r.get::<_,i64>(1)? as u64)))?
+    } else {
+        (0, 0)
+    };
+    let volume_bytes: u64 = conn.query_row(
+        "SELECT COALESCE(SUM(length(CAST(id AS BLOB))+64),0) FROM global_volumes",
+        [],
+        |r| r.get::<_, i64>(0).map(|v| v as u64),
+    )?;
+    let facts_payload = active_fact_bytes
+        .checked_add(volume_bytes)
+        .ok_or_else(|| DbError::Validation("Upgrade resource estimate overflow".into()))?;
+    let (mut database_required_bytes, mut temporary_required_bytes) =
+        facts_budgets(facts_payload, page_size)?;
+    if version < 43 {
+        let (index_db, index_temp) = budgets(name_bytes, source_bytes, page_size)?;
+        database_required_bytes = database_required_bytes
+            .checked_add(index_db)
+            .ok_or_else(|| DbError::Validation("Upgrade resource estimate overflow".into()))?;
+        temporary_required_bytes = temporary_required_bytes
+            .checked_add(index_temp)
+            .ok_or_else(|| DbError::Validation("Upgrade resource estimate overflow".into()))?;
+    }
     let database_path: String = conn.query_row(
         "SELECT file FROM pragma_database_list WHERE name='main'",
         [],
@@ -100,6 +139,7 @@ pub fn inspect_resources(conn: &Connection) -> Result<UpgradeResources, DbError>
         freelist_pages,
         active_rows,
         key_bytes: name_bytes.saturating_add(source_bytes),
+        facts_key_bytes: facts_payload,
         database_required_bytes,
         temporary_required_bytes,
         database_free_bytes,

@@ -1,4 +1,4 @@
-//! One production-shaped fixture, controlled short-ID/size copies. No search
+//! One production-shaped fixture, controlled installed-version/size copies. No search
 //! microbenchmark rerun: this measures the actual installed-schema open path.
 use super::*;
 use crate::global_index::stable_entry_id;
@@ -8,6 +8,15 @@ use std::sync::{
 };
 
 fn historical_indexes(conn: &Connection) {
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS global_entry_source_facts_ai;
+        DROP TRIGGER IF EXISTS global_entry_source_facts_ad;
+        DROP TRIGGER IF EXISTS global_entry_source_facts_au;
+        DROP TRIGGER IF EXISTS global_entry_source_facts_volume_ai;
+        DROP TRIGGER IF EXISTS global_entry_source_facts_volume_au;
+        DROP TABLE IF EXISTS global_entry_source_facts;",
+    )
+    .unwrap();
     conn.execute_batch("DROP INDEX idx_global_entries_active_name_order;
         DROP INDEX idx_global_entries_active_source_facts;
         CREATE INDEX idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC) WHERE is_stale=0;
@@ -44,6 +53,19 @@ fn historical_snapshots(
     snapshots
 }
 
+thread_local! {
+    static BACKFILL_TIMES: std::cell::RefCell<Vec<(&'static str,Instant)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+fn measure_backfill(_: &Connection, stage: &str) -> Result<(), crate::db::DbError> {
+    BACKFILL_TIMES.with(|v| {
+        v.borrow_mut().push((
+            if stage == "before" { "before" } else { "after" },
+            Instant::now(),
+        ))
+    });
+    Ok(())
+}
+
 fn sizes(path: &Path) -> [u64; 3] {
     ["", "-wal", "-shm"]
         .map(|suffix| fs::metadata(format!("{}{suffix}", path.display())).map_or(0, |m| m.len()))
@@ -56,7 +78,10 @@ fn schema_upgrade_production_shape_cost() {
         .unwrap_or("200000".into())
         .parse()
         .unwrap();
-    assert!([200_000, 1_000_000].contains(&entries));
+    assert_eq!(
+        entries, 200_000,
+        "This integration uses one bounded 200k fixture per platform"
+    );
     let base_path = test_db_path();
     let _base_cleanup = BenchmarkCleanup(base_path.clone());
     let started = Instant::now();
@@ -121,6 +146,8 @@ fn schema_upgrade_production_shape_cost() {
         }
         tx.commit().unwrap();
     }
+    conn.execute_batch("UPDATE global_entries SET id=NULL WHERE rowid=2;")
+        .unwrap();
     assert_entry_triggers_enabled(&conn);
     conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
         .unwrap();
@@ -129,13 +156,10 @@ fn schema_upgrade_production_shape_cost() {
     emit_record(
         &json!({"record_type":"upgrade_fixture","context":benchmark_context(entries),"fixture_generations":1,"rows":entries,"population_ms":started.elapsed().as_secs_f64()*1000.0,"full_schema":true,"id_bytes":67,"volume_id_bytes":67,"stale_every":13,"disabled_volumes":1}),
     );
-    let scales = if entries == 200_000 {
-        vec![100_000, 200_000]
-    } else {
-        vec![entries]
-    };
+    let scales = [100_000, 200_000];
     for count in scales {
-        for short in [false, true] {
+        for starting_schema in [42, 43] {
+            let short = false;
             let path = test_db_path();
             let _cleanup = BenchmarkCleanup(path.clone());
             let preparation_started = Instant::now();
@@ -145,35 +169,14 @@ fn schema_upgrade_production_shape_cost() {
                 conn.execute("DELETE FROM global_entries WHERE rowid>?1", [count as i64])
                     .unwrap();
             }
-            if short {
-                conn.execute(
-                    "UPDATE global_entries SET id='ge_bench_' || printf('%07d',rowid)",
-                    [],
-                )
-                .unwrap();
-                // Historical short model had one short gv_test source. Keep
-                // all four enabled/stale groups while changing only key width.
-                conn.execute_batch("BEGIN; PRAGMA defer_foreign_keys=ON;")
-                    .unwrap();
-                for (i, v) in volumes.iter().enumerate() {
-                    let id = format!("gv_short_{i}");
-                    conn.execute(
-                        "UPDATE global_entries SET volume_id=?1 WHERE volume_id=?2",
-                        params![id, v.id],
-                    )
-                    .unwrap();
-                    conn.execute(
-                        "UPDATE global_volumes SET id=?1 WHERE id=?2",
-                        params![id, v.id],
-                    )
-                    .unwrap();
-                }
-                conn.execute_batch("COMMIT").unwrap();
+            // Real43 fixture: rebuild indexes before timing; no facts installed.
+            if starting_schema == 43 {
+                conn.execute_batch("DROP INDEX idx_global_entries_active_name_order;
+                    CREATE INDEX idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC,volume_id) WHERE is_stale=0;
+                    CREATE INDEX idx_global_entries_active_source_facts ON global_entries(volume_id,last_seen_at,id) WHERE is_stale=0;
+                    PRAGMA user_version=43;").unwrap();
             }
-            // The single 1M contrast controls fragmentation as well as key
-            // shape. Initial 100k/200k observations retain post-reshape free
-            // pages and are explicitly labelled in the evidence report.
-            let compacted = entries == 1_000_000;
+            let compacted = true;
             if compacted {
                 conn.execute_batch("VACUUM").unwrap();
             }
@@ -188,7 +191,10 @@ fn schema_upgrade_production_shape_cost() {
                 .unwrap()
                 .collect::<Result<_, _>>()
                 .unwrap();
-            let before_snapshots = historical_snapshots(&conn);
+            let before_snapshots =
+                crate::global_index::repository::with_canonical_source_facts(|| {
+                    historical_snapshots(&conn)
+                });
             drop(conn);
             let before = sizes(&path);
             let done = Arc::new(AtomicBool::new(false));
@@ -225,12 +231,21 @@ fn schema_upgrade_production_shape_cost() {
                 (peak_rss, peak_files, samples, min_db_free, min_temp_free)
             });
             let started = Instant::now();
-            let opened = Database::open(&path);
+            BACKFILL_TIMES.with(|v| v.borrow_mut().clear());
+            let opened =
+                crate::db::schema_global_source_facts::with_backfill_hook(measure_backfill, || {
+                    Database::open(&path)
+                });
             let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
             done.store(true, Ordering::Release);
             let (peak_rss, peak_files, samples, min_db_free, min_temp_free) =
                 monitor.join().unwrap();
             let db = opened.unwrap();
+            let backfill_ms = BACKFILL_TIMES.with(|v| {
+                let v = v.borrow();
+                assert_eq!(v.len(), 2);
+                v[1].1.duration_since(v[0].1).as_secs_f64() * 1000.0
+            });
             let after_snapshots = snapshots(&db);
             assert_eq!(after_snapshots.len(), 12);
             for (before, after) in before_snapshots.iter().zip(&after_snapshots) {
@@ -240,10 +255,13 @@ fn schema_upgrade_production_shape_cost() {
                 assert_eq!(before.index_status, after.index_status);
             }
             let conn = db.conn().unwrap();
+            let canonical: Vec<(String,i64,i64,Option<i64>)> = conn.prepare("SELECT volume_id,COUNT(*),COUNT(id),MAX(last_seen_at) FROM global_entries WHERE is_stale=0 GROUP BY volume_id ORDER BY volume_id").unwrap().query_map([],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap().collect::<Result<_,_>>().unwrap();
+            let facts: Vec<(String,i64,i64,Option<i64>)> = conn.prepare("SELECT volume_id,active_rows,active_ids,max_last_seen_at FROM global_entry_source_facts WHERE active_rows>0 ORDER BY volume_id").unwrap().query_map([],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap().collect::<Result<_,_>>().unwrap();
+            assert_eq!(canonical, facts);
             assert_eq!(
                 conn.query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
                     .unwrap(),
-                43
+                44
             );
             let indexes_after: Vec<(String, i64)> = conn
                 .prepare("SELECT name,SUM(pgsize) FROM dbstat GROUP BY name ORDER BY name")
@@ -252,12 +270,30 @@ fn schema_upgrade_production_shape_cost() {
                 .unwrap()
                 .collect::<Result<_, _>>()
                 .unwrap();
+            let backfill_plan:Vec<String>=conn.prepare("EXPLAIN QUERY PLAN SELECT volume_id,COUNT(*),COUNT(id),MAX(last_seen_at) FROM global_entries WHERE is_stale=0 GROUP BY volume_id").unwrap().query_map([],|r|r.get(3)).unwrap().collect::<Result<_,_>>().unwrap();
             let plan:Vec<String>=conn.prepare("EXPLAIN QUERY PLAN SELECT id,volume_id FROM global_entries INDEXED BY idx_global_entries_active_name_order WHERE is_stale=0 AND name_normalized GLOB 'quarterly*' ORDER BY name_normalized,modified_at_fs DESC,id LIMIT 80").unwrap().query_map([],|r|r.get(3)).unwrap().collect::<Result<_,_>>().unwrap();
             emit_record(
-                &json!({"record_type":"upgrade_sample","rows":count,"short_ids":short,"open_ms":elapsed_ms,"preflight":{"available_memory_bytes":resources.available_memory_bytes,"key_bytes":resources.key_bytes,"page_size":resources.page_size,"page_count":resources.page_count,"freelist_pages":resources.freelist_pages,"db_reserved":resources.database_required_bytes,"temp_reserved":resources.temporary_required_bytes,"db_free":resources.database_free_bytes,"temp_free":resources.temporary_free_bytes},"files_before":before,"files_after":sizes(&path),"sampled_peak_files":peak_files,"sampled_process_rss":peak_rss,"samples":samples,"poll_sleep_ms":20,"controlled_copy_compacted":compacted,"copy_reshape_checkpoint_ms":preparation_ms,"minimum_database_free_bytes":min_db_free,"minimum_temp_free_bytes":min_temp_free,"memory_scope":"sampled process-wide current RSS; includes fixture/cache memory; not an OS peak or migration-attributed bound","indexes_before":indexes_before,"indexes_after":indexes_after,"name_plan":plan}),
+                &json!({"record_type":"upgrade_sample","rows":count,"short_ids":short,"starting_schema":starting_schema,"target_schema":44,"open_ms":elapsed_ms,"backfill_sql_ms":backfill_ms,"backfill_plan":backfill_plan,"preflight":{"available_memory_bytes":resources.available_memory_bytes,"key_bytes":resources.key_bytes,"facts_key_bytes":resources.facts_key_bytes,"page_size":resources.page_size,"page_count":resources.page_count,"freelist_pages":resources.freelist_pages,"db_reserved":resources.database_required_bytes,"temp_reserved":resources.temporary_required_bytes,"db_free":resources.database_free_bytes,"temp_free":resources.temporary_free_bytes},"files_before":before,"files_after":sizes(&path),"sampled_peak_files":peak_files,"sampled_process_rss":peak_rss,"samples":samples,"poll_sleep_ms":20,"controlled_copy_compacted":compacted,"copy_reshape_checkpoint_ms":preparation_ms,"minimum_database_free_bytes":min_db_free,"minimum_temp_free_bytes":min_temp_free,"memory_scope":"sampled process-wide current RSS; includes fixture/cache memory; not an OS peak or migration-attributed bound","indexes_before":indexes_before,"indexes_after":indexes_after,"name_plan":plan}),
             );
             drop(conn);
             drop(db);
+            let reopened_started = Instant::now();
+            let reopened = crate::db::schema_global_source_facts::with_backfill_hook(
+                |_, _| panic!("44 reopen repeated backfill"),
+                || Database::open(&path).unwrap(),
+            );
+            let reopened_ms = reopened_started.elapsed().as_secs_f64() * 1000.0;
+            let reopened_snapshots = snapshots(&reopened);
+            for (before, after) in after_snapshots.iter().zip(&reopened_snapshots) {
+                assert_eq!(before.results, after.results);
+                assert_eq!(before.source_revision, after.source_revision);
+                assert_eq!(before.source_health, after.source_health);
+                assert_eq!(before.index_status, after.index_status);
+            }
+            emit_record(
+                &json!({"record_type":"upgrade_reopen","rows":count,"original_schema":starting_schema,"from":44,"to":44,"open_ms":reopened_ms,"repeated_backfill":false,"full_snapshots_equal":true}),
+            );
+            drop(reopened);
         }
     }
 }

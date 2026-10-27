@@ -4,24 +4,27 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **Global Search Schema44 / merged #479 integration — Draft #478 / Owner rereview decision pending.**
-  Integrated latest master `36a378d7cb1d52b04e67455bccf1997a27e338b5` (U3 #481), Schema43 after
-  merged #479. Both native platforms passed42→44/43→44/44 reopen,
-  FULL/cancel/kill/retry and visible/background upgrade checks in run40452161859.
-  At200k,43→44 open measured98.896ms Windows/143.253ms macOS,
-  with4KiB facts and12/8KiB logical B-tree growth; sampled memory is not an OS peak.
-  Exact final normal CI is attached to the PR head. Schema44 maintains COUNT(id), active
-  rows and MAX in existing write transactions; Snapshot and standalone Status
-  retain precise nullable-ID and source revision/read transaction contracts.
-  100k and the single 1M pair passed full semantics; no-result Snapshot p95
-  at 1M is 216.397→1.246ms, name-prefix 299.060→68.729ms. Pooled/Snapshot
-  p95 remain 10/12; FTS is >100ms and extension pooled p99 +26.10% remains
-  a material tail risk. Native rank/tie-frontier failed 100k performance and stays
-  test-only, with no 1M rerun; BM258:2:1
-  and ordering unchanged. #417/F1 stays independent. Draft only, Owner merges.
-  See [scope, producer audit and bounded protocol](../research/ISSUE_474_EXACT_SOURCE_FACTS.md).
+- **Global Search exact Source Facts — MERGED #478 / Schema44; release not qualified.**
+  Squash-merged [#478](https://github.com/ArdenZC/Zen-Canvas/pull/478) at
+  `master@1600614d5236b0767f8e18c0d0105a41857ed317`, integrating [#479](https://github.com/ArdenZC/Zen-Canvas/pull/479)
+  visible upgrade, cancellation, resource preflight and atomic recovery into Schema44.
+  42→44, 43→44 and 44→44 reopen; native Windows/macOS automated dialogs,
+  foreground/background, FULL/cancel/kill/restart and exact Source Revision/Status
+  all passed targeted qualification; [final PR CI attempt 2](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40455851724/attempts/2)
+  SUCCESS after a single failed Workspace Foundation shard rerun. The original
+  unexplained PrivateUsage growth remains recorded; no memory-leak fix claimed.
+  200k 43→44 Open was 98.896ms Windows / 143.253ms macOS; actual 1M backfill,
+  low-memory, slow-disk and Owner native/manual acceptance remain unverified.
+  One earlier exact 1M paired Source Facts experiment showed 12/12 equality,
+  no-result Snapshot p95 216.397→1.246ms and name-prefix 299.060→68.729ms;
+  this is scoped historical evidence, not a combined-HEAD 1M or release PASS.
+  FTS report/invoice remain over 100ms, extension-prefix pooled p99 +26.10%,
+  remaining-volume retirement +16.9%; sustained Watcher storms unqualified.
+  [#474](https://github.com/ArdenZC/Zen-Canvas/issues/474) remains the ongoing
+  performance scope; #446 SIGBUS and human/native packaging release gates remain
+  open. No Release or Full Validation qualification. [Scope/evidence](../research/ISSUE_474_EXACT_SOURCE_FACTS.md).
 
-- **U3 File Library sorting, comparison and batch workflow — Draft / Owner review pending (#480).**
+- **U3 File Library sorting, comparison and batch workflow — MERGED #481; Owner native acceptance pending.**
   Base `master@1098af35727cdd3bea042deba41bb59238be586e` (merged U2 #475).
   Browse query now supports backend-wide name/type/size/modified sorting,
   direction and folders-first, with stable cursor pages published after bounded
@@ -40,7 +43,7 @@ Last verified: 2026-10-27
   [U3 delivery and validation](tasks/U3-FILE-LIBRARY.md).
 
 
-- **Schema 42→43 startup upgrade — MERGED #479; Schema44 integration in Draft #478.**
+- **Schema 42→43 startup upgrade — MERGED #479; Schema44 integration MERGED #478.**
   Integrated master 1098af35727cdd3bea042deba41bb59238be586e;
   native pre-database upgrade/recovery UI, FILE sort/cache policy, storage and
   low-memory preflight, cancellation and atomic failure/restart recovery are
@@ -48,7 +51,7 @@ Last verified: 2026-10-27
   measured 10.906s and net +202.67 MiB indexes; these are Hosted observations,
   not user-device limits. Native human/Owner Windows acceptance and the existing
   #446 SIGBUS release blocker remain unqualified. [Scope, risks and validation](../research/ISSUE_477_SCHEMA_UPGRADE.md).
-  #478 now integrates this startup contract through Schema44; no #417 F1 cutover.
+  #478 merged the Schema44 integration of this startup contract; no #417 F1 cutover.
 
 - **U2 File Library tabs and dual-pane workspace — MERGED #475; native GUI acceptance remains unverified.**
   Base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`, normal master CI

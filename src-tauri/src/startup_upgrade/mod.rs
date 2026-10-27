@@ -126,11 +126,11 @@ pub fn open(path: PathBuf, background: bool) -> Result<Database, String> {
                     return Err(error);
                 }
                 #[cfg(windows)]
-                if !windows::recover(&error) {
+                if !windows::recover(&error, &path) {
                     return Err(error);
                 }
                 #[cfg(target_os = "macos")]
-                if !macos::recover(&error) {
+                if !macos::recover(&error, &path) {
                     return Err(error);
                 }
             }
@@ -156,6 +156,6 @@ pub fn open(path: PathBuf, background: bool) -> Result<Database, String> {
     }
 }
 
-fn recovery_message(error: &str) -> String {
-    format!("The database could not be opened.\n\n{error}\n\nFree space on the database and system temporary volumes if storage is full, then choose Retry. Close other Zen Canvas processes if the database is busy.\n\nIf the problem persists, exit and preserve the database together with its -wal and -shm files before contacting support. Do not delete indexes or change the schema version. A completed commit is retained; an interrupted transaction is recovered by SQLite at the next open.")
+fn recovery_message(error: &str, path: &std::path::Path) -> String {
+    format!("The database could not be opened.\n\n{error}\n\nDatabase location: {}\n\nFree space on the database and system temporary volumes if storage is full, then choose Retry. Close other Zen Canvas processes if the database is busy.\n\nIf the problem persists, exit all Zen Canvas processes, then preserve the database together with any existing -wal and -shm files before contacting support. Do not delete indexes or change the schema version. A completed commit is retained; an interrupted transaction is recovered by SQLite at the next open.", path.display())
 }

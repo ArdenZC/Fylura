@@ -11,8 +11,9 @@ Existing databases requiring upgrade enter a native Windows Task Dialog or
 macOS AppKit modal loop before opening the database on a worker. The dialog is
 painted before the worker starts; it stays responsive while SQLite runs. Cancel
 asks SQLite to interrupt and keeps the dialog alive until the transaction exits.
-Failures offer explicit Retry/Exit, storage/busy guidance and instructions to
-preserve the database/WAL/SHM together for support. No automatic retry loop.
+Failures offer explicit Retry/Exit, the actual database location, storage/busy
+guidance and instructions to exit all app processes before preserving any
+existing database/WAL/SHM together for support. No automatic retry loop.
 Background/autostart defers a pending upgrade to a foreground launch and starts
 no indexer/watcher. Second-instance activation waits for database readiness.
 No renderer, new IPC command, installer or durable recovery authority is added.

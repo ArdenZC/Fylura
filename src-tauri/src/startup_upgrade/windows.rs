@@ -123,7 +123,7 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
         {
             Ok(db) => return Ok(db),
             Err(error) => {
-                if !recover(&error) {
+                if !recover(&error, &path) {
                     return Err(error);
                 }
             }
@@ -131,10 +131,10 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
     }
 }
 
-pub(super) fn recover(error: &str) -> bool {
+pub(super) fn recover(error: &str, path: &std::path::Path) -> bool {
     let title = wide(TITLE);
     let heading = wide("The database could not be opened");
-    let message = wide(&recovery_message(error));
+    let message = wide(&recovery_message(error, path));
     let retry = wide("Retry");
     let exit = wide("Exit");
     let buttons = [

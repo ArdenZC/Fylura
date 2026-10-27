@@ -62,7 +62,7 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
         match result {
             Ok(db) => return Ok(db),
             Err(error) => {
-                if !recover(&error) {
+                if !recover(&error, &path) {
                     return Err(error);
                 }
             }
@@ -70,13 +70,13 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
     }
 }
 
-pub(super) fn recover(error: &str) -> bool {
+pub(super) fn recover(error: &str, path: &std::path::Path) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
     };
     let recovery = NSAlert::new(mtm);
     recovery.setMessageText(&NSString::from_str(TITLE));
-    recovery.setInformativeText(&NSString::from_str(&recovery_message(error)));
+    recovery.setInformativeText(&NSString::from_str(&recovery_message(error, path)));
     let retry = recovery.addButtonWithTitle(&NSString::from_str("Retry"));
     #[cfg(not(feature = "native-qa"))]
     let _ = retry;

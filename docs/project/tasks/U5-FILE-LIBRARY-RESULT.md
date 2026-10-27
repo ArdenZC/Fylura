@@ -76,8 +76,24 @@ locked-file failure flow was not executed; these remain `UNVERIFIED`.
   `preference-signal-adjudication`, `preference-signal-b4`, and
   `preference-signal-b1`). These research files were not changed. Hosted PR CI
   is the authoritative Linux result for the normal workflow.
-- `git diff --cached --check`: PASS for the staged candidate. Normal hosted PR
-  CI is pending creation of the Draft PR.
+- `git diff --check` and `node --check scripts/runW2-11BrowserGate.mjs`: PASS.
+- Hosted CI run [40502736115](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40502736115)
+  on source head `7ac37438a90c13ed1da7c15d911dab1b117f47ec`: source/scope checks,
+  validation planning, dependency audit, Windows and macOS release compile,
+  package metadata, Library & Content performance, and the performance profile
+  passed. W2-11 failed at its final console-error assertion with one
+  `Failed to load resource: net::ERR_FILE_NOT_FOUND`; its first failure artifact
+  did not retain the request URL. The Windows/macOS quality validation jobs
+  then failed because the required merge-integration frontend result was a
+  failure, not because their release compiles failed.
+- The same PR adds bounded W2-11 diagnostics for console locations and missing
+  request URLs. The rerun [40506580823](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40506580823)
+  is currently `IN_PROGRESS` but its frontend job remains at `Install Chromium
+  system dependencies`; W2-11 has not run in that attempt. A local run of the
+  same W2-11 command was `BLOCKED` before the scenario: Vite showed a blank page
+  and Playwright timed out after 60 seconds waiting for the Files button. This
+  local environment failure is not evidence that the UI workflow passed or
+  failed.
 - No million-file, Full Validation, F1/T10, or new performance campaign was run.
 
 ### Windows native startup attempt

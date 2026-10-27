@@ -4,7 +4,8 @@ Outcome: within Files, sort a whole Browse folder, compare two admitted folders,
 select differences and review a batch transfer to the opposite pane. Issue
 [#480](https://github.com/ArdenZC/Zen-Canvas/issues/480); base
 `1098af35727cdd3bea042deba41bb59238be586e` / tree
-`e0346ea07d8a917f634516c5848daa564d10d0cd`.
+`e0346ea07d8a917f634516c5848daa564d10d0cd`. Latest master integrated for final CI:
+`f302f5da8ab86f7d121b5cad9a71e5e552b720b6` (upstream #479 unchanged).
 
 ## Workflow and boundaries
 

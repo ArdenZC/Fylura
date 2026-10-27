@@ -10,6 +10,9 @@ mod queries;
 mod schema;
 mod schema_global_generations;
 mod types;
+pub mod upgrade;
+
+pub const SUPPORTED_SCHEMA_VERSION: i32 = schema::CURRENT_SCHEMA_VERSION;
 
 #[cfg(test)]
 pub(crate) fn drop_source_writer_schema_for_test(conn: &rusqlite::Connection) {

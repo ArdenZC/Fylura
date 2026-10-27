@@ -1,0 +1,126 @@
+# U4 File Library: Inspector, user notes and file favorites
+
+Issue [#482](https://github.com/ArdenZC/Zen-Canvas/issues/482). Base:
+`b3ace0cda44d0e9db8e67448af88fb056d34232d`, tree
+`0654351258c9c01529df1b6f234304b02d5cf7b0`. Latest base normal CI
+[40461380013](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40461380013)
+passed. U3 postmerge run 40454962565 failed the W2-11 integrated browser
+performance gate; its dependent performance/platform summary jobs also failed.
+Later master CI passed; U4 does not weaken the existing gate.
+
+## User outcome and scope
+
+Existing pane-local Inspector puts name, type, size, times, location and
+source-reported availability (unknown when unavailable) before user notes and managed classification. Classification and
+Content Understanding are collapsible. Notes support explicit Save, Discard
+and Delete; favorites are file-level, separate from U1 folder Places. The
+Notes and file favorites entry in Library returns to canonical managed IDs,
+including unavailable records, without resetting query, sorting or other panes.
+Browse displays an explicit explanation that durable notes/favorites require
+verified managed identity and browsing does not enroll files in the index.
+
+Inspector selected-item preview and Previous/Next reuse the existing Preview
+controller, Floating/Pinned hosts, provider registry and Read Gate. The bounded (at most 200 loaded selected items)
+selection neighborhood does not change selection, ordering, tabs or pane focus.
+All-matching previews are explicitly limited to selected loaded items. Managed
+and Browse selections also expose Show in folder. Browse Reveal accepts only a
+live opaque entry ref, resolves through the owning Browse service, checks
+availability and reuses the existing read-only OS Reveal function. No renderer
+path, file execution or index admission is accepted. Unknown managed timestamp
+sentinels remain Unknown rather than becoming a 1970 date. Existing
+selection summaries retain backend totals; Browse unknown/partial size and
+unknown availability remain explicit. Compact Inspector uses the existing
+SideSheet; Escape and existing modal focus return remain in effect. English and
+Chinese strings use the existing dictionary, with shared light/dark tokens.
+
+## Persistence contract and compatibility
+
+SQLite remains the durable authority. No DDL, schema bump, migration, backfill,
+new index, scheduler, scan enrollment, AI call or filesystem mutation is added.
+The existing `app_settings` table stores one versioned JSON value per canonical
+SourceUID under `file_personal_metadata:v1:<SourceUID>`. This is a private
+metadata namespace, never U1 Places or the typed application settings document.
+The value has exactly `version: 1`, `note` (at most 16,000 Unicode scalars),
+`favorite` and positive `revision`. Unknown fields/versions and invalid records
+fail closed. Notes are plain text, never executed or interpreted as markup.
+
+The Main-only command accepts a managed file ID and resolves its latest legacy
+attribution through existing identity authority. Writes require a non-stale
+record and a complete live physical identity matching that SourceUID. An
+IMMEDIATE SQLite transaction serializes identity resolution and revision CAS;
+reads use deferred transactions. Conflicting edits preserve the draft, disable
+blind retries and offer Reload. A reused live path cannot read or overwrite the
+old physical object's note. Unverified/conflicted IDs and disposable Browse refs
+cannot write. Missing IDs fail explicitly; stale attributed records retain
+read-only metadata. A failed live identity check hides saved content and asks
+for reload instead of presenting a prior object's note as current.
+
+SourceUID keys naturally survive supported canonical ID/path updates from
+Rename, Move and Restore. Scan's existing attached-facts preservation also
+recognizes this namespace, so a neutral row with personal facts cannot be
+recycled onto a different object. The backend list starts from the indexed metadata namespace and joins the latest verified
+attribution back to current managed IDs, uses deterministic name/ID ordering and
+returns 40 entries plus a `hasMore` lookahead. It never lists Browse refs.
+There is no polling, global renderer cache or idle preview demand.
+
+Older builds ignore the namespace and continue to read Schema44. Rolling back
+application code needs no database downgrade and must preserve these values.
+Deleting a note and unfavoriting clears user content but retains a small
+revision tombstone, preventing ABA stale writes. Orphaned SourceUID records stay
+inert and cannot appear without a matching managed attribution; they are not
+reassigned by path. Explicit database maintenance may remove only keys in this
+namespace once their lineage has been deliberately retired and concurrent
+writers stopped. No automatic cleanup can erase recovery lineage or reset
+revisions while an editor is open. This bounded compatibility policy avoids a
+new schema conflicting with the independent Schema44 / Global Search work.
+
+The new Main-only commands are registered in Rust/build input, Main capability, permission
+matrix, frontend facade, browser mock and permission contract tests. Search
+Window receives no new capability. Global Search production code, benchmark
+and roadmap are unchanged.
+
+## Validation and evidence
+
+Focused frontend tests cover CRUD/favorite isolation, CAS failure and late
+responses after switching files. Backend tests cover SQLite reopen, CAS/ABA,
+size bounds, canonical operation-finalizer rename, stale/read-only recovery,
+physical replacement, missing/Browse IDs and conflicted attribution. Existing
+normal PR CI remains required. `npm run test:browser:u4` runs real Chromium with
+deterministic browser mocks; screenshots and checks are stored with this task.
+These mocks simulate metadata durability in browser storage only and are not
+native SQLite or filesystem acceptance.
+
+Windows/macOS native GUI, actual filesystem Restore and Owner acceptance remain
+UNVERIFIED. No installer, release, tag, Full Validation or million-file campaign
+is requested or qualified. Exact candidate HEAD/tree, diff, final required CI
+and readiness verdict belong in the single Draft PR description.
+
+
+### Browser evidence (real Chromium, deterministic mocks)
+
+`npm run test:browser:u4` passed eight workflow checks with no page/console errors.
+Viewports: 1600×1000, 820×800 and Chinese 1280×900. The Browser plugin exposed no
+callable control runtime; the repository Playwright workflow was used. Wide and
+compact light/dark captures cover Inspector, notes, favorites and Quick Preview.
+The final PR records the exact committed rerun HEAD/tree and normal CI outcome.
+
+| Evidence | Captures |
+| --- | --- |
+| Managed hierarchy and notes | [metadata](evidence/U4/00-inspector-metadata-wide-light.png), [wide light](evidence/U4/01-inspector-wide-light.png), [wide dark](evidence/U4/03-inspector-wide-dark.png), [compact dark](evidence/U4/05-inspector-compact-dark.png), [compact light](evidence/U4/06-inspector-compact-light.png) |
+| File favorites | [wide light](evidence/U4/02-favorites-wide-light.png), [wide dark](evidence/U4/13-favorites-wide-dark.png), [compact light](evidence/U4/14-favorites-compact-light.png), [compact dark](evidence/U4/15-favorites-compact-dark.png) |
+| Existing Quick Preview | [wide dark](evidence/U4/04-preview-wide-dark.png), [wide light Browse](evidence/U4/08-browse-preview-light.png), [compact light](evidence/U4/09-preview-compact-light.png), [compact dark](evidence/U4/10-preview-compact-dark.png) |
+| Selection, pane and language ownership | [Browse multi-selection](evidence/U4/07-browse-selection-light.png), [dual panes](evidence/U4/11-dual-pane-inspector-light.png), [Chinese dark empty favorites](evidence/U4/12-chinese-favorites-dark.png) |
+
+The first PR candidate passed 1,977 frontend tests but failed the existing LibraryMode
+500-line responsibility contract. Display helpers were extracted without changing
+the limit. Its macOS Rust process hit SIGBUS, a symptom already recorded in #446; the cause
+was not established by that crash. No U4
+functional failure or native PASS is inferred from a crashed test process. Required
+CI is rerun through the ordinary PR workflow on the final candidate; missing/red
+required results block readiness. Local Rust compilation stopped at missing GLib
+before project code, and local stable Rust formatting passed. Hosted required
+checks remain authoritative for the pinned toolchain and native backend tests.
+
+Browse Reveal has a focused backend ownership test for live, missing and disposed
+refs, rejected renderer paths and zero managed-index enrollment. The browser mock
+explicitly refuses native GUI execution; its unavailable state is exercised.

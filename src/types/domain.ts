@@ -873,6 +873,23 @@ export interface FileLibraryFindingSummary {
   analysisRevision: number;
 }
 
+export interface FilePersonalMetadata {
+  fileId: string;
+  note: string;
+  favorite: boolean;
+  revision: number;
+  editable: boolean;
+}
+export interface FilePersonalMetadataResponse {
+  metadata: FilePersonalMetadata | null;
+  items: { fileId: string; name: string; isStale: boolean }[];
+  hasMore: boolean;
+}
+export type FilePersonalMetadataRequest =
+  | { kind: "get"; fileId: string }
+  | { kind: "update"; fileId: string; note: string; favorite: boolean; expectedRevision: number }
+  | { kind: "list"; favorites: boolean; offset: number };
+
 export interface FileLibraryDetail {
   id: string;
   name: string;

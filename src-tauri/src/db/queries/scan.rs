@@ -4235,6 +4235,7 @@ fn neutral_source_row_has_attached_facts_tx(
             OR file.last_classified_at IS NOT NULL
             OR file.content_hash <> ''
             OR EXISTS (SELECT 1 FROM file_user_tags WHERE file_id = file.id)
+            OR EXISTS (SELECT 1 FROM library_legacy_attributions a JOIN app_settings s ON s.key = 'file_personal_metadata:v1:' || a.source_uid WHERE a.legacy_file_id = file.id)
             OR EXISTS (SELECT 1 FROM file_fingerprints WHERE file_id = file.id)
             OR EXISTS (SELECT 1 FROM duplicate_group_members WHERE file_id = file.id)
         FROM files AS file

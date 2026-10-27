@@ -30,6 +30,7 @@ import type { FolderSummaryPayloadV1 } from "./folderPreviewWire";
 
 const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_open",
+  "file_workspace_browse_reveal",
   "file_workspace_browse_restore",
   "file_workspace_location_browse",
   "file_workspace_browse_start_enumeration",
@@ -432,6 +433,9 @@ export async function mockFileWorkspaceInvoke<T>(
 ): Promise<T> {
   const request = args?.request as Record<string, unknown> | undefined;
   switch (command) {
+    case "file_workspace_browse_reveal":
+      resolveManagementMockEntry(request?.entryRef as import("../types/fileWorkspace").EntryRef);
+      throw new Error("browser_mock_reveal_unavailable");
     case "file_workspace_browse_open":
       return openBrowse(request as unknown as BrowseOpenRequest) as T;
     case "file_workspace_browse_restore":

@@ -8,7 +8,9 @@
     "Compact light/dark Inspector, favorites, Quick Preview, Escape and no horizontal overflow",
     "Browse multi-selection preview and shared-host Previous/Next preserve selection; no durable metadata editor",
     "Dual-pane Inspector preview and Escape return to owning pane; peer selection retained",
-    "Chinese empty favorites and dark layout"
+    "Chinese empty favorites and dark layout",
+    "Browse Reveal uses the live ephemeral ref and shows an honest unavailable state in browser mock; OS GUI remains native acceptance"
   ],
-  "errors": []
+  "errors": [],
+  "captureContext": "Browser mock captures from the production sources in this PR; exact committed rerun HEAD/tree are reported in the Draft PR."
 }

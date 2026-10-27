@@ -12,7 +12,7 @@ Last verified: 2026-10-27
   Schema44, U1 folder Places and Global Search remain unchanged. See
   [U4 contract and browser evidence](tasks/U4-FILE-LIBRARY.md). Sixteen real
   Chromium/mock captures cover wide/compact light/dark, notes/favorites, shared
-  Preview, pane isolation and Chinese. Required normal CI and exact final
+  Preview/Reveal, pane isolation and Chinese. Required normal CI and exact final
   HEAD/tree are tracked in [Draft #484](https://github.com/ArdenZC/Zen-Canvas/pull/484).
   No release qualification; native GUI/Owner manual Restore remain unverified.
 

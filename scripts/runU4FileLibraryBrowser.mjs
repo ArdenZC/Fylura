@@ -134,6 +134,11 @@ try {
   await chinese.screenshot({ path: path.join(output, "12-chinese-favorites-dark.png") });
   await chinese.close();
   checks.push("Chinese empty favorites and dark layout");
+  await right.locator('[data-file-library-context-toggle]').click();
+  await page.locator('[data-file-library-context-content]').getByRole('button', { name: 'Show in folder', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'Cannot show this item in the system file manager.' }).waitFor();
+  assert.equal(await right.locator('[data-u4-personal]').count(), 0);
+  checks.push("Browse Reveal uses the live ephemeral ref and shows an honest unavailable state in browser mock; OS GUI remains native acceptance");
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, "checks.json"), JSON.stringify({ head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), tree: execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim(), evidence: "Real Chromium / deterministic browser mock; no native GUI or actual filesystem Restore claim", url: page.url(), checks, errors }, null, 2));
   console.log(JSON.stringify({ output, checks, errors }, null, 2));

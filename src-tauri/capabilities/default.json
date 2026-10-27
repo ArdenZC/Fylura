@@ -178,6 +178,7 @@
     "allow-request-macos-thumbnail",
     "allow-cancel-macos-thumbnail",
     "allow-file-workspace-browse-open",
+    "allow-file-workspace-browse-reveal",
     "allow-file-workspace-browse-restore",
     "allow-file-workspace-location-browse",
     "allow-file-workspace-browse-start-enumeration",

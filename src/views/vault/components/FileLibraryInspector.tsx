@@ -183,10 +183,10 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
     <div className="grid gap-4">
       <div className="min-w-0 border-b border-[var(--zc-divider)] pb-3"><h3 className="break-words text-lg font-semibold text-[var(--zc-text-primary)]">{detail.name}</h3><p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{detail.fileType} · {detail.purpose}</p></div>
       <dl className="grid grid-cols-2 gap-3 text-sm">
-        <InspectorField label={t("libraryCurrentStatus")} value={missing ? t("libraryFileNotFound") : t("libraryReady")} tone={missing ? "warning" : "normal"} />
+        <InspectorField label={t("libraryCurrentStatus")} value={missing ? t("libraryFileNotFound") : detail.nativeSemantics ? nativeAvailabilityLabel(detail.nativeSemantics.contentAvailability, t) : t("browseUnknownValue")} tone={missing ? "warning" : "normal"} />
         <InspectorField label={t("fileLibraryContextSize")} value={formatBytes(detail.size)} />
-        <InspectorField label={t("fileLibraryContextCreated")} value={formatDate(String(detail.createdAt), language)} />
-        <InspectorField label={t("fileModified")} value={formatDate(String(detail.modifiedAt), language)} />
+        <InspectorField label={t("fileLibraryContextCreated")} value={detail.createdAt > 0 ? formatDate(String(detail.createdAt), language) : t("browseUnknownValue")} />
+        <InspectorField label={t("fileModified")} value={detail.modifiedAt > 0 ? formatDate(String(detail.modifiedAt), language) : t("browseUnknownValue")} />
         <InspectorField label={t("fileLocation")} value={compactPath(formatDisplayPath(detail.path), 44)} title={formatDisplayPath(detail.path)} />
         {detail.nativeSemantics ? <>
           {detail.nativeSemantics.isPackage ? <InspectorField label={t("libraryNativePackage")} value={t("libraryNativePackageValue")} /> : null}

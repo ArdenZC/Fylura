@@ -80,3 +80,26 @@ it("selected preview navigation preserves owner state and rejects an expired nei
     expect(navigation).toBeNull();
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
+
+it("Browse Reveal resolves live refs in the mock and honestly refuses native GUI claims", async () => {
+  const { mockFileWorkspaceInvoke } = await import("../src/api/fileWorkspaceMockApi");
+  const opened = await mockFileWorkspaceInvoke<import("../src/types/fileWorkspace").BrowseOpenResponse>("file_workspace_browse_open", { request: { platform: "windows", routingHint: "C:/U4/Reveal", displayHint: "Reveal test" } });
+  const page = await mockFileWorkspaceInvoke<import("../src/types/fileWorkspace").BrowsePage>("file_workspace_browse_start_enumeration", { request: { sessionId: opened.sessionId, requestId: "u4-reveal", pathRef: opened.rootPathRef, pageSize: 16 } });
+  const entryRef = page.entries[0].ref;
+  await expect(mockFileWorkspaceInvoke("file_workspace_browse_reveal", { request: { entryRef } })).rejects.toThrow("browser_mock_reveal_unavailable");
+  await expect(mockFileWorkspaceInvoke("file_workspace_browse_reveal", { request: { entryRef: { ...entryRef, entryId: "foreign-ref" } } })).rejects.toThrow();
+  await mockFileWorkspaceInvoke("file_workspace_browse_dispose", { request: { sessionId: opened.sessionId } });
+  await expect(mockFileWorkspaceInvoke("file_workspace_browse_reveal", { request: { entryRef } })).rejects.toThrow();
+});
+
+it("managed Inspector keeps unknown timestamp sentinels explicit", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { FileLibraryInspector } = await import("../src/views/vault/components/FileLibraryInspector");
+  const detail = await mockInvokeCommand<import("../src/types/domain").FileLibraryDetail>("get_file_library_detail", { fileId: "mock-report" });
+  const html = renderToStaticMarkup(createElement(FileLibraryInspector, { selectedIds: new Set([detail.id]), selectedFiles: [], selectionKind: "explicit", selectedCount: 1, detail: { ...detail, createdAt: 0, modifiedAt: 0, nativeSemantics: null }, selectionSummary: null, isLoading: false, error: null, language: "en", t: makeTranslator("en"), onPreview: vi.fn(), onReveal: vi.fn(), onViewSuggestions: vi.fn(), onViewOperations: vi.fn(), onOpenContentUnderstanding: vi.fn(), onClearSelection: vi.fn(), onRetryDetail: vi.fn() }));
+  const container = document.createElement("div"); container.innerHTML = html;
+  for (const label of ["Created", "Modified", "Current status"]) {
+    const field = [...container.querySelectorAll("dt")].find((item) => item.textContent === label)!;
+    expect(field.nextElementSibling?.textContent).toBe("Unknown");
+  }
+});

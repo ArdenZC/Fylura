@@ -52,6 +52,7 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `file_workspace_transfer_preview` | `main_state_mutation` | main | Prepare identity-bound manual Copy/Move previews and non-overwrite conflicts | default | yes | U1 transfer regressions |
 | `file_workspace_transfer_execute` | `filesystem_mutation` | main | Execute confirmed opaque preview through existing cancellation, journal and reconciliation | default | yes | U1 transfer regressions |
 | `file_workspace_places` | `main_state_mutation` | main | Store navigation hints in existing SQLite settings and recheck availability | default | yes | U1 transfer regressions |
+| `file_workspace_browse_reveal` | `main_state_mutation` | main | Resolve a live opaque Browse entry for read-only OS Reveal; no renderer path or execution | default | yes | U4 Browse reveal ownership tests |
 | `file_workspace_browse_open` | `main_state_mutation` | main | Admit one user-intent Browse location, or a backend-revalidated Global Index result parent, into fresh opaque session refs | default | yes | W1-10 integration tests |
 | `file_workspace_browse_restore` | `main_state_mutation` | main | Re-resolve a non-authoritative Browse restore locator into fresh opaque refs | default | yes | W1-10 integration tests |
 | `file_workspace_location_browse` | `main_state_mutation` | main | Re-admit one backend-owned LocationRef into a fresh Browse session without renderer path authority | default | yes | W2-R3 integration tests |

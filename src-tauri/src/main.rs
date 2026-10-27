@@ -572,6 +572,7 @@ fn main() {
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_transfer_execute,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_places,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_open,
+            zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_reveal,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_restore,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_location_browse,
             zen_canvas_tauri::file_workspace::integration::commands::file_workspace_browse_start_enumeration,

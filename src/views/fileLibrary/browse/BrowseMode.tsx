@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useLayoutEffect, useState } fr
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
 import type { LocationDescriptor } from "../../../types/fileWorkspace";
+import { revealBrowseEntry } from "../../../api/fileWorkspaceApi";
 import { cn } from "../../../utils/tw";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import {
@@ -36,9 +37,11 @@ export function BrowseMode() {
   useLayoutEffect(() => { setBreadcrumbHost(pane ? document.getElementById(`wb-crumbs-${pane.id}`) : null); }, [pane?.id]);
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
+  const [revealError, setRevealError] = useState<string | null>(null);
   const { platform } = useCommandContext();
   const source = useBrowseSourceOwner({ controller, state, t, platform });
   useBrowseManagementSurface(source);
+  useEffect(() => setRevealError(null), [source.focusedId]);
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
   const focusedPreviewSource = useMemo(() => {
@@ -153,6 +156,8 @@ export function BrowseMode() {
     locationLabel: source.browse?.location.displayName ?? t("fileLibraryModeBrowse"),
     language,
     t,
+    actionError: revealError,
+    onReveal: (entry) => { setRevealError(null); void revealBrowseEntry(entry.entryRef).catch(() => setRevealError(t("u4RevealUnavailable"))); },
     onPreview: (entry, trigger) => { previewSelected(selectedPreviewEntries.findIndex((item) => item.entryRef.entryId === entry.entryRef.entryId), query("[data-file-library-context-toggle]") ?? trigger); }
   });
 

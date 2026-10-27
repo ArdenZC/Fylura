@@ -11,7 +11,7 @@ Later master CI passed; U4 does not weaken the existing gate.
 ## User outcome and scope
 
 Existing pane-local Inspector puts name, type, size, times, location and
-availability before user notes and managed classification. Classification and
+source-reported availability (unknown when unavailable) before user notes and managed classification. Classification and
 Content Understanding are collapsible. Notes support explicit Save, Discard
 and Delete; favorites are file-level, separate from U1 folder Places. The
 Notes and file favorites entry in Library returns to canonical managed IDs,
@@ -22,7 +22,12 @@ verified managed identity and browsing does not enroll files in the index.
 Inspector selected-item preview and Previous/Next reuse the existing Preview
 controller, Floating/Pinned hosts, provider registry and Read Gate. The bounded (at most 200 loaded selected items)
 selection neighborhood does not change selection, ordering, tabs or pane focus.
-All-matching previews are explicitly limited to selected loaded items. Existing
+All-matching previews are explicitly limited to selected loaded items. Managed
+and Browse selections also expose Show in folder. Browse Reveal accepts only a
+live opaque entry ref, resolves through the owning Browse service, checks
+availability and reuses the existing read-only OS Reveal function. No renderer
+path, file execution or index admission is accepted. Unknown managed timestamp
+sentinels remain Unknown rather than becoming a 1970 date. Existing
 selection summaries retain backend totals; Browse unknown/partial size and
 unknown availability remain explicit. Compact Inspector uses the existing
 SideSheet; Escape and existing modal focus return remain in effect. English and
@@ -69,7 +74,7 @@ writers stopped. No automatic cleanup can erase recovery lineage or reset
 revisions while an editor is open. This bounded compatibility policy avoids a
 new schema conflicting with the independent Schema44 / Global Search work.
 
-The new command is registered in Rust/build input, Main capability, permission
+The new Main-only commands are registered in Rust/build input, Main capability, permission
 matrix, frontend facade, browser mock and permission contract tests. Search
 Window receives no new capability. Global Search production code, benchmark
 and roadmap are unchanged.
@@ -93,7 +98,7 @@ and readiness verdict belong in the single Draft PR description.
 
 ### Browser evidence (real Chromium, deterministic mocks)
 
-`npm run test:browser:u4` passed seven workflow checks with no page/console errors.
+`npm run test:browser:u4` passed eight workflow checks with no page/console errors.
 Viewports: 1600×1000, 820×800 and Chinese 1280×900. The Browser plugin exposed no
 callable control runtime; the repository Playwright workflow was used. Wide and
 compact light/dark captures cover Inspector, notes, favorites and Quick Preview.
@@ -115,3 +120,7 @@ CI is rerun through the ordinary PR workflow on the final candidate; missing/red
 required results block readiness. Local Rust compilation stopped at missing GLib
 before project code, and local stable Rust formatting passed. Hosted required
 checks remain authoritative for the pinned toolchain and native backend tests.
+
+Browse Reveal has a focused backend ownership test for live, missing and disposed
+refs, rejected renderer paths and zero managed-index enrollment. The browser mock
+explicitly refuses native GUI execution; its unavailable state is exercised.

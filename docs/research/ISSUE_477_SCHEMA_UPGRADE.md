@@ -15,7 +15,10 @@ Failures offer explicit Retry/Exit, the actual database location, storage/busy
 guidance and instructions to exit all app processes before preserving any
 existing database/WAL/SHM together for support. No automatic retry loop.
 Background/autostart defers a pending upgrade to a foreground launch and starts
-no indexer/watcher. Second-instance activation waits for database readiness.
+no indexer/watcher. A real Tauri background subprocess checks clean exit code0,
+no migration/native dialog and retained Schema42. Acknowledged Exit/defer no
+longer falls through the former Tauri build expect/panic. Second-instance
+activation waits for database readiness.
 No renderer, new IPC command, installer or durable recovery authority is added.
 
 A cancellation racing a successful COMMIT may retain the successful upgrade.

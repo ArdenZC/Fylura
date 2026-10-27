@@ -48,6 +48,59 @@ pub(super) fn retried() {
     event("native_retry_button");
 }
 
+fn verify_background_deferral(source: &std::path::Path) -> Result<(), String> {
+    let profile = source.with_extension("background-profile");
+    std::fs::create_dir(&profile).map_err(|e| e.to_string())?;
+    let path = profile.join("zen-canvas.sqlite3");
+    std::fs::copy(source, &path).map_err(|e| e.to_string())?;
+    let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
+    conn.execute_batch("DROP INDEX idx_global_entries_active_name_order; DROP INDEX idx_global_entries_active_source_facts; CREATE INDEX idx_global_entries_active_name_order ON global_entries(name_normalized,modified_at_fs DESC,id ASC) WHERE is_stale=0; PRAGMA user_version=42; PRAGMA wal_checkpoint(TRUNCATE);").map_err(|e|e.to_string())?;
+    drop(conn);
+    let mut child = std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
+        .arg("--background")
+        .env("ZC_NATIVE_QA_PROFILE_ROOT", &profile)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while child.try_wait().map_err(|e| e.to_string())?.is_none() {
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Background deferral did not exit within 30 seconds".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    let logs = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success()
+        || !logs.contains("startup_checkpoint=tauri_setup_entered")
+        || logs.contains("startup_checkpoint=database_ready")
+        || logs.contains("native_dialog_displayed")
+    {
+        return Err(format!(
+            "Background deferral failed: status={} log={logs}",
+            output.status
+        ));
+    }
+    let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if version != 42 {
+        return Err(format!(
+            "Background launch unexpectedly migrated schema to {version}"
+        ));
+    }
+    drop(conn);
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
+    std::fs::remove_dir(profile).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub(super) fn run() -> Result<(), String> {
     let path =
         std::env::temp_dir().join(format!("zen-canvas-upgrade-ui-{}.db", std::process::id()));
@@ -81,7 +134,10 @@ pub(super) fn run() -> Result<(), String> {
             VISIBLE.load(Ordering::Acquire)
         ));
     }
-    let report = serde_json::json!({"record_type":"native_upgrade_ui","platform":std::env::consts::OS,"status":"PASS","visible_before_worker":true,"attempts":2,"native_timer_ticks":TICKS.load(Ordering::Acquire),"cancel_and_retry_native_buttons":true,"schema":version,"events":*EVENTS.lock().unwrap(),"scope":"Actual native widgets/message loop with deliberate worker delay; synthetic button clicks. Human keyboard/screen-reader/contrast and Owner Windows acceptance remain unverified."});
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .map_err(|e| e.to_string())?;
+    verify_background_deferral(&path)?;
+    let report = serde_json::json!({"record_type":"native_upgrade_ui","platform":std::env::consts::OS,"status":"PASS","visible_before_worker":true,"attempts":2,"native_timer_ticks":TICKS.load(Ordering::Acquire),"cancel_and_retry_native_buttons":true,"background_deferral_real_tauri_process":true,"background_exit_code":0,"background_schema":42,"schema":version,"events":*EVENTS.lock().unwrap(),"scope":"Actual native widgets/message loop with deliberate worker delay; synthetic button clicks. Human keyboard/screen-reader/contrast and Owner Windows acceptance remain unverified."});
     let output = std::env::var_os("ZC_UPGRADE_UI_OUTPUT")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("schema-upgrade-ui.json"));

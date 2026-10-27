@@ -52,6 +52,10 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
             "qualification target was not discovered as a drive-letter volume: {target_mount_path}"
         )
     })?;
+    // This probe runs only after the Windows qualification script creates and
+    // validates its task-owned disposable NTFS VHD. Grant consent to that
+    // exact source; all other discovered volumes remain disabled/unapproved.
+    database.authorize_global_volume(&target_source_id, true)?;
     let enabled_sources = database
         .list_global_volumes()?
         .into_iter()

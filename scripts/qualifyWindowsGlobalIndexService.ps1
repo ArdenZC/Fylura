@@ -463,7 +463,7 @@ try {
         throw "service current_exe mismatch: candidate=$CandidateExe service=$serviceCurrentExe"
     }
 
-    # Same installed executable / actual v3 service pipe; no force-direct test.
+    # Same installed executable / actual v4 service pipe; no force-direct test.
     $recoveryReport = Join-Path $taskRoot "service-recovery.json"
     $recoveryProcess = Start-Process -FilePath $CandidateExe -ArgumentList @("--global-index-recovery-qa", $profileRoot, $script:evidence.expectedQualificationSourceId, $recoveryReport) -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $taskRoot "recovery-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "recovery-stdout.log")
     try {

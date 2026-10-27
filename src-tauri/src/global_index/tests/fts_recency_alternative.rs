@@ -38,7 +38,9 @@ const FTS_SET_SQL: &str = r#"
 "#;
 
 fn recent_first(conn: &Connection, query: &str, limit: u32) -> Vec<(String, Option<i64>)> {
-    let mut stmt = conn.prepare(RECENT_FIRST_SQL).expect("prepare recent-first SQL");
+    let mut stmt = conn
+        .prepare(RECENT_FIRST_SQL)
+        .expect("prepare recent-first SQL");
     stmt.query_map(params![query, limit], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
     })
@@ -75,15 +77,17 @@ fn sql_plan(conn: &Connection, query: &str) -> Vec<String> {
 #[ignore = "100k-only experimental recency-first FTS alternative; changes BM25 ordering"]
 fn experimental_recent_first_substring_vs_exact_bm25() {
     let entries = configured_entries();
-    assert_eq!(entries, 100_000, "manual alternate-ranking preflight is fixed to 100k");
+    assert_eq!(
+        entries, 100_000,
+        "manual alternate-ranking preflight is fixed to 100k"
+    );
     let context = benchmark_context(entries);
     let path = test_db_path();
     let _cleanup = BenchmarkCleanup(path.clone());
     let db = Database::open(&path).expect("open baseline synthetic database");
     db.upsert_global_volume(&test_volume())
         .expect("insert synthetic benchmark volume");
-    let (expectations, generation_ms, population_ms, _) =
-        populate_synthetic_database(&db, entries);
+    let (expectations, generation_ms, population_ms, _) = populate_synthetic_database(&db, entries);
     let conn = configured_connection(&path).expect("open alternate-ranking read connection");
     assert_entry_triggers_enabled(&conn);
 
@@ -107,10 +111,13 @@ fn experimental_recent_first_substring_vs_exact_bm25() {
             .search_global_entries(query, SEARCH_RESULT_LIMIT, 0)
             .expect("search exact baseline through pooled production entrypoint");
         let expected_index = if query == "report" { 3 } else { 4 };
-        let expected_ids = expectations[expected_index]
-            .expected_page(0, SEARCH_RESULT_LIMIT as usize);
+        let expected_ids =
+            expectations[expected_index].expected_page(0, SEARCH_RESULT_LIMIT as usize);
         assert_eq!(
-            baseline.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            baseline
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
             expected_ids,
             "exact BM25 production baseline must meet historical result oracle"
         );
@@ -141,9 +148,16 @@ fn experimental_recent_first_substring_vs_exact_bm25() {
         }
         let selected_ids = page.iter().map(|row| row.0.as_str()).collect::<Vec<_>>();
         let selected_set = selected_ids.iter().copied().collect::<HashSet<_>>();
-        assert_eq!(selected_set.len(), page.len(), "duplicate recency candidates");
+        assert_eq!(
+            selected_set.len(),
+            page.len(),
+            "duplicate recency candidates"
+        );
         assert!(selected_ids.iter().all(|id| recent_set.contains(*id)));
-        let bm25_ids = baseline.iter().map(|row| row.id.as_str()).collect::<Vec<_>>();
+        let bm25_ids = baseline
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>();
         let bm25_set = bm25_ids.iter().copied().collect::<HashSet<_>>();
         let overlap = selected_set.intersection(&bm25_set).count();
         let same_top_80_order = selected_ids == bm25_ids;

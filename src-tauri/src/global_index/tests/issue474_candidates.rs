@@ -172,7 +172,7 @@ fn fts_stages(conn: &Connection, context: &JsonValue, query: &str) {
     // Diagnostic drains, not candidate result algorithms. No LIMIT before
     // filters, no rank frontier, no generic CTE rewrite. Stage times overlap;
     // do not subtract percentiles or claim these are additive CPU costs.
-    let stages = vec![
+    let stages = [
         ("match_rowids", "SELECT rowid FROM global_entries_fts WHERE global_entries_fts MATCH ?1".into()),
         ("match_bm25_8_2_1", "SELECT rowid,bm25(global_entries_fts,8.0,2.0,1.0) FROM global_entries_fts WHERE global_entries_fts MATCH ?1".into()),
         ("match_native_rank_8_2_1", "SELECT rowid,rank FROM global_entries_fts WHERE global_entries_fts MATCH ?1 AND rank MATCH 'bm25(8.0, 2.0, 1.0)'".into()),

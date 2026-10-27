@@ -407,6 +407,14 @@ export function useBrowseSourceOwner({
   }, [browse, queryTargetKey, sessionId, state.mode, target, targetKey]);
 
   useEffect(() => {
+    if (!visible || state.workspace.suspended) {
+      // A suspended PaneHost may have canceled its in-flight enumeration.
+      // Forget its key and invalidate late publications so visibility resume
+      // starts a fresh request instead of treating the canceled one as active.
+      activeEnumerationKeyRef.current = null;
+      generationRef.current++;
+      return;
+    }
     if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null || currentPathRef === null) return;
     if (queryTargetKey !== targetKey) return;
     const enumerationKey = `${targetKey}:${JSON.stringify(query)}`;
@@ -430,7 +438,7 @@ export function useBrowseSourceOwner({
       return;
     }
     void beginEnumeration(currentPathRef, targetKey, query);
-  }, [beginEnumeration, browse, currentPathRef, mergePage, prepareEnumerationPublication, query, queryTargetKey, sessionId, state.mode, state.workspace.page, target, targetKey]);
+  }, [beginEnumeration, browse, currentPathRef, mergePage, prepareEnumerationPublication, query, queryTargetKey, sessionId, state.mode, state.workspace.page, state.workspace.suspended, target, targetKey, visible]);
 
   useEffect(() => {
     if (!visible) { activeChangeTargetKeyRef.current = null; return; }

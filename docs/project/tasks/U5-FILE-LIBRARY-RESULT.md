@@ -1,0 +1,195 @@
+# U5 File Library integration result
+
+Base: `472b850da3dfb38c8d50c786b9a4074ba240584b`, tree
+`78a677d852f1d7de3ea1f9e9b679c7f492a6a306`. The connected GitHub API
+confirmed this was still `master` when the U5 work was prepared.
+
+U5 integrates the U1–U4 experience and corrects the layout and lifecycle issues
+found during review. Browser and backend evidence is separated from native GUI
+acceptance below. No Global Search, Windows Service, schema, migration, AI
+organization, or file-operation executor was changed.
+
+## User-visible changes
+
+- Comparison batch actions now start collapsed, leaving more room for the
+  comparison results. The results area is taller, its header and pagination
+  remain visible while scrolling, and compact layouts use a bounded height.
+- A wide dual-pane Inspector overlays only its owning pane. It no longer takes
+  width from both panes or blocks the peer pane. Escape returns focus to its
+  own trigger.
+- Library Quick Preview and Show in folder have one shared action entry each;
+  the Inspector retains its separate thumbnail Quick Look. Previous/Next is
+  hidden for a single selected file.
+- Hidden or suspended panes stop Browse enumeration. A canceled enumeration
+  invalidates its publication generation and key, so resuming starts fresh
+  instead of reusing a request that can no longer publish.
+
+## U1–U4 acceptance matrix
+
+`PASS` means the named evidence completed. `BLOCKED` means the native attempt
+stopped before that workflow could run; feature-level Windows GUI acceptance
+therefore remains `UNVERIFIED`.
+
+| Area | Chromium browser mock | Windows backend automation | Windows Tauri GUI | macOS |
+| --- | --- | --- | --- | --- |
+| U1 selection, basket, preview, transfer conflicts, cancel and History entry | PASS | PASS for backend regression set; targeted real-temp-file Restore PASS | BLOCKED before interaction | UNVERIFIED |
+| U2 tabs, independent panes, peer selection and pane ownership | PASS | Not exercised by backend tests | BLOCKED before interaction | UNVERIFIED |
+| U3 sorting, pagination, comparison filters, batch selection and refresh | PASS | Not exercised by browser-independent file-operation tests | BLOCKED before interaction | UNVERIFIED |
+| U4 Inspector, notes/favorites presentation, Quick Preview and Show in folder | PASS | PASS: four `u4_` SQLite/identity tests | BLOCKED before interaction | UNVERIFIED |
+| Responsive layouts at 820/980/1440/1600, light/dark and long names | PASS | Not applicable | BLOCKED before interaction | UNVERIFIED |
+| Hidden-pane Browse cancellation/resume guard | PASS: structural regression plus browser integration run | Not applicable | UNVERIFIED | UNVERIFIED |
+| Long-lived native responsiveness, resource growth and handle cleanup | Not measured | Not measured | UNVERIFIED | UNVERIFIED |
+
+The browser workflow passed 19 checks with zero page errors. It used deterministic
+mock data, browser storage for mocked notes/favorites, and a simulated Win32
+`navigator.platform`. It does not establish real filesystem changes, SQLite
+durability, Restore, or Windows UI behavior. The [checks manifest](evidence/U5/browser-mock/checks.json)
+states these boundaries in the artifact itself. A real Tauri partial-success or
+locked-file failure flow was not executed; these remain `UNVERIFIED`.
+
+## Evidence and regression results
+
+- `npm run typecheck`: PASS.
+- `npm run build:frontend`: PASS; Vite emitted two Tailwind selector
+  optimizer warnings for `.text-[var(...)]` selectors.
+- `npm run test:browser:u5`: PASS, 19 checks, zero errors. This runs the existing
+  U3 and U4 Playwright mock journeys together. The [comparison capture](evidence/U5/browser-mock/compare-1600-light.png),
+  [Inspector light capture](evidence/U5/browser-mock/inspector-1600-light.png),
+  [Inspector dark capture](evidence/U5/browser-mock/inspector-1600-dark.png),
+  and [dual-pane captures at 1440](evidence/U5/browser-mock/dual-pane-inspector-1440-light.png)
+  and [1600](evidence/U5/browser-mock/dual-pane-inspector-1600-light.png) are
+  browser mock screenshots.
+- Focused Windows Rust `desktop-runtime` tests: PASS, including
+  `restore_moves_core_restores_successful_move_log` (1/1), which creates a real
+  temporary source file, executes a move and Restore, then checks source and
+  target existence and the Restore journal result. `cargo test ... u4_` passed
+  4/4, covering Browse Reveal ownership and SQLite reopen, stale identity,
+  rename/move and replacement isolation.
+- Full Windows Rust `desktop-runtime` suite: 1,327 passed, 36 ignored, 3 failed.
+  The failures are `current_assessment_needs_no_credential_or_new_enqueue`,
+  `stale_assessment_checks_fresh_readiness_and_keeps_plan`, and
+  `trigger_tests::service::automatic_current_and_stale_semantics_reuse_shared_admission_without_mutation`
+  in `db::automation`, outside U5 scope. File Library production paths were
+  not modified to address them.
+- Full Windows `npm test`: 1,955 tests passed, no failed assertions; four
+  research-only `.mjs` suites failed to parse (`preference-frozen-tree`,
+  `preference-signal-adjudication`, `preference-signal-b4`, and
+  `preference-signal-b1`). These research files were not changed. Hosted PR CI
+  is the authoritative Linux result for the normal workflow.
+- `git diff --cached --check`: PASS for the staged candidate. Normal hosted PR
+  CI is pending creation of the Draft PR.
+- No million-file, Full Validation, F1/T10, or new performance campaign was run.
+
+### Windows native startup attempt
+
+The available machine was Windows 11 Pro build 26300. A real Tauri process
+reached `setup_complete` and created its main window, but never reported
+`main_window_ready`. The Vite listener printed ready, while a bounded HTTP probe
+to `127.0.0.1:5173` returned no headers within five seconds. No File Library
+control was operated and no real GUI file operation or Restore was attempted;
+there is no native GUI screenshot or PASS claim. The startup checkpoints and
+fixture hashes are recorded in [startup diagnostics](evidence/U5/windows-native/startup-diagnostics.json)
+and [fixture manifest](evidence/U5/windows-native/fixture-manifest.json).
+
+Startup also showed that a fresh native-QA profile automatically starts Global
+Index over mounted volumes. The isolated database accumulated 561,664 indexed
+entries across five mounted volumes (1,262,473,216 bytes). Only aggregate counts
+were inspected; no database contents were exported. The native process was
+stopped without interacting with owner files. The ignored scratch directory
+`.tmp-tests/u5-native` still contains 679 task-generated files, including this
+profile, temporary/npm caches and logs, and seven disposable fixture files.
+Exact-path cleanup commands were blocked by tool policy. This scratch directory
+is on the test machine, is not part of the PR diff, and needs owner-side
+cleanup. Do not relaunch the native app on a host with owner volumes mounted.
+The Global Index implementation is out of scope and was not changed.
+
+The database growth and Vite non-response overlapped because the attempted
+profile was under the Vite project root. This is a correlation, not a proven
+single root cause. Native qualification should continue in a disposable Windows
+11 VM with no owner data mounted and all profile/temp paths outside the checkout.
+
+## Concentrated Windows 11 Owner run
+
+Use a disposable Windows 11 VM or equivalent isolated machine. Do not mount or
+share owner work folders. The app starts Global Index automatically; keep all
+mounted volumes disposable. Keep the app profile, TEMP/TMP, Vite config and
+fixture root outside the checkout. Stop if the main window does not become
+interactive; record startup logs and do not count a browser mock as GUI evidence.
+
+1. Create a fresh `F:\U5` root in the isolated VM. In PowerShell, set up the
+   app identity and profile outside the checkout, then launch the candidate:
+
+   ```powershell
+   $qaRoot = 'F:\U5'
+   $profile = Join-Path $qaRoot 'profile'
+   $tempRoot = Join-Path $qaRoot 'temp'
+   $config = Join-Path $qaRoot 'tauri.u5.conf.json'
+   New-Item -ItemType Directory -Force -Path $qaRoot | Out-Null
+   New-Item -ItemType Directory -Force -Path $profile | Out-Null
+   New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+   $env:ZC_NATIVE_QA_PROFILE_ROOT = $profile
+   $env:TEMP = $tempRoot
+   $env:TMP = $tempRoot
+   [System.IO.File]::WriteAllText($config, '{"identifier":"com.startlan.zencanvas.u5"}', [System.Text.UTF8Encoding]::new($false))
+   ```
+
+   Keep this PowerShell session and profile for the later restart check.
+2. Before launching the app, make `F:\U5\fixtures\Left` and
+   `F:\U5\fixtures\Right`, then seed and hash the disposable files:
+
+   ```powershell
+   $fixtureRoot = Join-Path $qaRoot 'fixtures'
+   $left = Join-Path $fixtureRoot 'Left'
+   $right = Join-Path $fixtureRoot 'Right'
+   New-Item -ItemType Directory -Force -Path $left | Out-Null
+   New-Item -ItemType Directory -Force -Path $right | Out-Null
+   $utf8 = [System.Text.UTF8Encoding]::new($false)
+   [System.IO.File]::WriteAllText((Join-Path $left 'Copy-source.txt'), 'U5 disposable copy source', $utf8)
+   [System.IO.File]::WriteAllText((Join-Path $left 'Move-source.txt'), 'U5 disposable move source', $utf8)
+   [System.IO.File]::WriteAllText((Join-Path $left 'Cancel-source.txt'), 'U5 disposable cancel source', $utf8)
+   [System.IO.File]::WriteAllText((Join-Path $left 'Conflict.txt'), 'U5 left conflict payload', $utf8)
+   [System.IO.File]::WriteAllText((Join-Path $right 'Conflict.txt'), 'U5 right conflict payload', $utf8)
+   [System.IO.File]::WriteAllText((Join-Path $right 'Keep.txt'), 'U5 disposable keep-both payload', $utf8)
+   Get-ChildItem -LiteralPath $fixtureRoot -File -Recurse | Get-FileHash -Algorithm SHA256
+   ```
+
+   Record this manifest, then start the app in the same PowerShell session:
+   `npm run dev -- --features native-qa --config $config`. Stop if the Tauri
+   main window is not interactive.
+3. In the real Tauri window, exercise Library/Browse, path entry, breadcrumbs,
+   Back/Forward, Ctrl+L, list/grid, several tabs, dual-pane switching, sidebar
+   hide/restore, close/reopen, and window sizes 820, 980, 1440 and 1600 pixels.
+   Confirm pane-local selection/sort state and that returning to a prior folder
+   cannot publish stale results.
+4. Use the existing toolbar, basket, cut/copy/paste, drag/drop and cross-pane
+   actions for single- and multi-file Copy/Move. For the collision, capture
+   Preview, try Skip and Keep both, cancel one preview, and re-confirm a fresh
+   preview. Change a disposable source after preview and verify identity
+   revalidation refuses stale execution. After each operation, compare source,
+   target and hash manifests. Use only the disposable fixture files for Restore;
+   verify History, the restored status, original content/hash and target
+   disappearance together.
+5. Compare the two fixture folders: sort by name/type/size/modified both
+   directions, folder-first, change a file and refresh, filter differences,
+   then select a difference and start the existing transfer preview. Confirm
+   statistics describe current-layer metadata only and test the documented
+   result cap without raising it.
+6. Admit only these fixture files through the existing managed indexing flow.
+   Add/edit/delete a note and toggle a favorite in Inspector; restart the app
+   with the same isolated profile and verify persistence. Rename, move and
+   Restore a fixture, then put a different physical file at its old path and
+   verify the note never follows the replacement. Check unavailable/stale
+   display, dual-pane Inspector ownership, Quick Preview Previous/Next and
+   Show in folder. Browse selections must remain ephemeral and offer no durable
+   note/favorite write.
+7. For a short non-benchmark soak, keep several tabs open, switch repeatedly,
+   toggle single/dual pane, scroll the fixture directory, open/close Inspector,
+   preview multiple files and perform several small transfers. Record any
+   growing resource count, visible stalls or errors. Capture GUI screenshots and
+   the final fixture/hash and History evidence. Mark unexecuted items
+   `UNVERIFIED`; do not use Restore on files outside `F:\U5\fixtures`.
+
+No macOS GUI environment was available; macOS remains `UNVERIFIED`.
+
+After the Owner run, discard the disposable VM or revert its snapshot to remove
+the profile, index and fixtures together.

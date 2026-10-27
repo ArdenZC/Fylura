@@ -18,8 +18,8 @@ export function FolderComparison({ paneIds, activate, compact = false }: { paneI
   const [filter, setFilter] = useState<Difference | "all">("all");
   const [modified, setModified] = useState(true);
   const [page, setPage] = useState(0);
-  const [batchExpanded, setBatchExpanded] = useState(!compact);
-  useEffect(() => setBatchExpanded(!compact), [compact]);
+  const [batchExpanded, setBatchExpanded] = useState(false);
+  useEffect(() => setBatchExpanded(false), [compact]);
   const inFlight = useRef(false);
   const [left, right] = sources;
   const ready = !!left?.browse && !!right?.browse && !left.showLocationPicker && !right.showLocationPicker;
@@ -110,7 +110,7 @@ export function FolderComparison({ paneIds, activate, compact = false }: { paneI
             })())}
           </div>)}
         </div>
-        <div className="u3-compare-controls"><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t("fileLibraryBack")}</button><span>{currentPage + 1} / {maxPage + 1}</span><button disabled={currentPage >= maxPage} onClick={() => setPage(currentPage + 1)}>{t("fileLibraryForward")}</button></div>
+        <div className="u3-compare-controls u3-compare-pagination" role="navigation" aria-label={t("u3CompareResults")}><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t("fileLibraryBack")}</button><span>{currentPage + 1} / {maxPage + 1}</span><button disabled={currentPage >= maxPage} onClick={() => setPage(currentPage + 1)}>{t("fileLibraryForward")}</button></div>
       </>}
     </>}
   </section>;

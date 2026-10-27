@@ -26,6 +26,12 @@ try {
   await row.click();
   await pane.locator('[data-file-library-context-toggle]').click();
   const editor = page.locator('[data-u4-personal]');
+  const libraryContext = page.locator('[data-file-library-context-content]');
+  assert.equal(await libraryContext.getByRole('button', { name: 'Quick preview', exact: true }).count(), 1);
+  assert.equal(await libraryContext.getByRole('button', { name: 'Show in folder', exact: true }).count(), 1);
+  assert.equal(await libraryContext.getByRole('button', { name: 'Previous selected item', exact: true }).count(), 0);
+  assert.equal(await libraryContext.getByRole('button', { name: 'Next selected item', exact: true }).count(), 0);
+  checks.push("Library Inspector shares one Quick Preview and Reveal entry; single selection hides inactive previous/next controls");
   await editor.getByRole("textbox", { name: "File notes", exact: true }).fill("U4 project handoff — keep the review notes with this managed file.");
   await editor.getByRole("button", { name: "Save note", exact: true }).click();
   await editor.getByRole("button", { name: "Favorite file", exact: true }).click();
@@ -113,6 +119,19 @@ try {
   const leftSelection = await pane.locator('[aria-selected="true"]').count();
   await right.locator('[data-file-library-context-toggle]').click();
   await page.getByText("Temporary Browse item:", { exact: false }).waitFor();
+  const rightInspector = right.locator('[data-file-library-context-panel]');
+  assert.equal(await rightInspector.getAttribute('data-file-library-context-layout'), 'pane-overlay');
+  assert.equal(await rightInspector.evaluate((element) => getComputedStyle(element).position), 'absolute');
+  assert.equal(await page.locator('[aria-modal="true"]').count(), 0);
+  const overlayWithinPane = await rightInspector.evaluate((element) => {
+    const paneElement = element.closest('[data-pane-id]');
+    if (!paneElement) return false;
+    const panel = element.getBoundingClientRect();
+    const paneRect = paneElement.getBoundingClientRect();
+    return panel.left >= paneRect.left && panel.right <= paneRect.right && panel.top >= paneRect.top && panel.bottom <= paneRect.bottom;
+  });
+  assert.equal(overlayWithinPane, true);
+  checks.push("Wide dual-pane Inspector overlays only its owning pane and does not dim or block the peer pane");
   await page.screenshot({ path: path.join(output, "11-dual-pane-inspector-light.png") });
   await page.locator('[data-file-library-context-content]').getByRole('button', { name: 'Quick preview', exact: true }).first().click();
   await page.locator('[data-preview-host="zen-floating"]').waitFor();
@@ -120,6 +139,18 @@ try {
   assert.equal(await pane.locator('[aria-selected="true"]').count(), leftSelection);
   assert.equal(await right.locator('[data-file-library-context-toggle]').evaluate((element) => document.activeElement === element), true);
   checks.push("Dual-pane Inspector preview and Escape return to owning pane; peer selection retained");
+  for (const width of [820, 980, 1440, 1600]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true, `page overflow at ${width}px`);
+    if (width >= 1440) {
+      await right.locator('[data-file-library-context-toggle]').click();
+      await rightInspector.waitFor();
+      assert.equal(await rightInspector.getAttribute('data-file-library-context-layout'), 'pane-overlay');
+      await page.screenshot({ path: path.join(output, `16-dual-inspector-${width}.png`) });
+      await right.locator('[data-file-library-context-toggle]').click();
+    }
+  }
+  checks.push("820/980/1440/1600 layouts have no horizontal page overflow; wide dual-pane Inspector remains pane-scoped");
   // Chinese layout is an independent browser-mock page, not a native-platform claim.
   const chinese = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await chinese.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "zh"); });

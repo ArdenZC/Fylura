@@ -357,6 +357,7 @@ export function FileLibraryWorkbench({
                 Pane={Pane}
                 visible={visible}
                 focused={visible && tab.activePaneId === pane.id}
+                wideDualPane={tab.dual && wide}
                 peerId={
                   tab.dual
                     ? tab.panes.find((other) => other.id !== pane.id)?.id
@@ -472,7 +473,7 @@ function PaneHost({
     >
       <PaneContext.Provider value={value}>
         <FileLibraryExperienceProvider
-          active
+          active={props.visible}
           controller={pane.controller}
           disposeOnUnmount={false}
         >

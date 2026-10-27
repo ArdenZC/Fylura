@@ -1,0 +1,43 @@
+{
+  "evidenceClass": "browser mock; Chromium renderer with deterministic mocked data and simulated Win32 navigator",
+  "nativeWindowsGui": "UNVERIFIED by this script",
+  "nativeBackendFilesystem": "UNVERIFIED by this script",
+  "macOS": "UNVERIFIED",
+  "viewportCoverage": [
+    "820x800",
+    "980x800",
+    "1440x900",
+    "1600x1000"
+  ],
+  "u3": {
+    "checks": [
+      "Sort remains pane/tab-local across tab activation",
+      "138 entries per side complete across multiple pages; six comparison statuses and exact case policy",
+      "Batch controls start collapsed; comparison results show at least four rows without scrolling at 1600x1000",
+      "Filtered selection → Basket → cross-pane ticket/preview → conflict blocks execute → Keep both + Skip → fresh confirmation → result",
+      "Move preview cancel leaves source; subsequent confirmed Move refreshes comparison",
+      "Unsupported directory preview cannot execute",
+      "History reachable from transfer results; mock operations do not claim native Restore qualification",
+      "Chinese and English, light and dark, 820/980/1280/1600 widths without page overflow"
+    ],
+    "errors": [],
+    "artifacts": "u3/"
+  },
+  "u4": {
+    "checks": [
+      "Library Inspector shares one Quick Preview and Reveal entry; single selection hides inactive previous/next controls",
+      "Managed note and favorite saved from Inspector",
+      "Notes and favorites return to canonical Inspector without replacing query/sort",
+      "Mock metadata survives page reload; native SQLite restart covered separately",
+      "Compact light/dark Inspector, favorites, Quick Preview, Escape and no horizontal overflow",
+      "Browse multi-selection preview and shared-host Previous/Next preserve selection; no durable metadata editor",
+      "Wide dual-pane Inspector overlays only its owning pane and does not dim or block the peer pane",
+      "Dual-pane Inspector preview and Escape return to owning pane; peer selection retained",
+      "820/980/1440/1600 layouts have no horizontal page overflow; wide dual-pane Inspector remains pane-scoped",
+      "Chinese empty favorites and dark layout",
+      "Browse Reveal uses the live ephemeral ref and shows an honest unavailable state in browser mock; OS GUI remains native acceptance"
+    ],
+    "errors": [],
+    "artifacts": "u4/"
+  }
+}

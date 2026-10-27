@@ -50,9 +50,20 @@ try {
   for (const name of ["All 140", "Visible only on left 2", "Visible only on right 2", "Metadata differs 2", "Selected metadata matches 133", "Subfolder · not compared 1"]) {
     assert.equal(await compare.getByRole("button", { name, exact: true }).count(), 1);
   }
+  assert.equal(await compare.locator(".u3-batch-details").evaluate((details) => details.open), false);
+  const visibleCompareRows = await compare.locator(".u3-compare-table").evaluate((table) => {
+    const bounds = table.getBoundingClientRect();
+    return [...table.querySelectorAll(".u3-compare-row")].filter((row) => {
+      const rect = row.getBoundingClientRect();
+      return rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom;
+    }).length;
+  });
+  assert.ok(visibleCompareRows >= 4, `expected a useful comparison viewport, saw ${visibleCompareRows} rows`);
   checks.push("138 entries per side complete across multiple pages; six comparison statuses and exact case policy");
+  checks.push("Batch controls start collapsed; comparison results show at least four rows without scrolling at 1600x1000");
   await screenshot("02-compare-light.png");
   await compare.getByRole("button", { name: "Metadata differs 2", exact: true }).click();
+  await compare.locator(".u3-batch-details > summary").click();
   const actions = compare.locator(".u3-batch-actions > div");
   await actions.first().getByRole("button", { name: "Select filtered side", exact: true }).click();
   await actions.first().getByRole("button", { name: "Add to basket", exact: true }).click();

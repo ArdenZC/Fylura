@@ -154,7 +154,10 @@ function FileLibraryPane() {
             />
 
             <FileManagementToolbar />
-            <ContextPanelPresentationProvider layout={layout}>
+            <ContextPanelPresentationProvider
+              layout={layout}
+              paneOverlay={pane?.wideDualPane === true}
+            >
               <div className="file-library-workspace-body">
                 <aside
                   id={pane ? `file-library-navigation-slot-${pane.id}` : "file-library-navigation-slot"}

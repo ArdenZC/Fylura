@@ -4,6 +4,16 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
+- **Schema 42→43 startup upgrade — Draft #479 / Owner review decision pending.**
+  Integrated master 1098af35727cdd3bea042deba41bb59238be586e;
+  native pre-database upgrade/recovery UI, FILE sort/cache policy, storage and
+  low-memory preflight, cancellation and atomic failure/restart recovery are
+  validated by focused Windows/macOS automation. One 1M production-ID open
+  measured 10.906s and net +202.67 MiB indexes; these are Hosted observations,
+  not user-device limits. Native human/Owner Windows acceptance and the existing
+  #446 SIGBUS release blocker remain unqualified. [Scope, risks and validation](../research/ISSUE_477_SCHEMA_UPGRADE.md).
+  #474 Source Facts/Snapshot/FTS continues independently; no #417 F1 cutover.
+
 - **U2 File Library tabs and dual-pane workspace — Draft / Owner review pending.**
   Base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`, normal master CI
   [40320096881](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40320096881)

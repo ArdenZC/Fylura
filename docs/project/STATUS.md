@@ -5,7 +5,7 @@ Last verified: 2026-10-27
 ## Current execution truth
 
 - **Global Search 1M Phase 2 — Draft #478 / Owner review and merge decision pending.**
-  Integrated master `a47672182ea2d92784e226496b6f2d2be8cafe2c`, Schema43 after
+  Integrated master `1098af35727cdd3bea042deba41bb59238be586e`, Schema43 after
   merged #473. Schema44 candidate maintains exact per-volume COUNT(id), active
   rows and MAX in existing write transactions; Snapshot and standalone Status
   retain precise nullable-ID and source revision/read transaction contracts.
@@ -16,6 +16,33 @@ Last verified: 2026-10-27
   test-only, with no 1M rerun; BM258:2:1
   and ordering unchanged. #417/F1 stays independent. Draft only, Owner merges.
   See [scope, producer audit and bounded protocol](../research/ISSUE_474_EXACT_SOURCE_FACTS.md).
+
+- **U2 File Library tabs and dual-pane workspace — Draft / Owner review pending.**
+  Base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`, normal master CI
+  [40320096881](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40320096881)
+  SUCCESS. One Files destination now hosts session-local tabs and optional
+  independent left/right panes. Each pane reuses WorkspaceSession and the existing
+  Query V2 projection implementation, with isolated history, selection, query,
+  view and Preview ownership. The original Main compatibility controller remains
+  available for existing activation callers; Global Search production is unchanged.
+  Editable paths, breadcrumbs and Ctrl/Cmd+L use fresh Browse admission. Back/Forward
+  re-admits fully restorable released history with fresh opaque refs; history
+  without safe restore metadata stays retained. Closing tabs disposes their owned
+  controllers; hidden panes stop observers, thumbnail demand and preview work.
+  Tabs survive in-app route changes; app restart starts a fresh workspace rather
+  than reviving old Browse Session IDs. Normal new-tab creation is bounded to eight.
+  Dual-pane controls target the peer's admitted location. Internal selected-item
+  drag/drop defaults to Copy (Shift selects Move); external/unowned drops are
+  refused explicitly. Shared U1 clipboard, basket, saved places, preview/conflict
+  review, confirmation, progress/results and History remain on their existing APIs.
+  Transfers release all pane preview handles and refresh affected projections only.
+  Narrow windows show one active pane with explicit left/right switching.
+  Focused ownership and workflow tests plus browser mock interactions provide
+  renderer evidence. Normal PR CI owns platform backend/build evidence; U2 native
+  Windows/macOS GUI remains UNVERIFIED and Owner-owned. No schema, filesystem
+  identity, journal/Restore, scanning/scheduling, F1/T10, new backend permission,
+  CI gate or performance threshold change; no Full Validation or million-file run.
+
 
 - **Global Search covering-index repair — MERGED #473 / performance not fully qualified.**
   Current merged master `9bc4aa9e3fb2c6bb557192383be168517a182651`, Schema 43;

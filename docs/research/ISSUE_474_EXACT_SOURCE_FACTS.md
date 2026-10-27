@@ -1,7 +1,7 @@
 # Issue 474 — exact Source Facts production slice
 
 Owner contract: [#474](https://github.com/ArdenZC/Zen-Canvas/issues/474).
-Fresh remote master HEAD `9bc4aa9e3fb2c6bb557192383be168517a182651`, Tree
+Task-start remote master HEAD `9bc4aa9e3fb2c6bb557192383be168517a182651`, Tree
 `174caefce872848988075846a5a52707daee9728`, Schema43 (#473 merged).
 Baseline CI [40361605473](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40361605473) completed SUCCESS. #473 raw evidence,
 12-class generator, exact mapper, source oracles and PROFILE trace are reused.
@@ -197,3 +197,11 @@ A prior added trace test held one pooled handle while reserving all eight; the
 fixture now inspects through a separate connection. This was a test pool
 exhaustion, after the populated-43 backfill/result assertions had passed. No
 production pool size/timeout or required gate is changed.
+
+
+Latest integrated master is 1098af35727cdd3bea042deba41bb59238be586e, tree
+e0346ea07d8a917f634516c5848daa564d10d0cd (Schema43), normal CI40425918531
+SUCCESS. U2 frontend/status changes are retained. No upstream Rust search or
+migration change invalidates the one paired 1M observation; no fixture rerun.
+The prior review head ac749fa / d024e5e passed normal CI40424584559. Updated
+integration checks are attached to the latest Draft #478 head.

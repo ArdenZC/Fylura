@@ -67,5 +67,5 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
     for (const p of places) (p as SavedPlace & {current?:boolean}).current = p.id === place.id;
   }
   if (request.removeId) places.splice(0, places.length, ...places.filter((place) => place.id !== request.removeId));
-  return places;
+  return places.map((place) => ({ ...place }));
 }

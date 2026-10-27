@@ -4,12 +4,14 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **Schema 42→43 startup upgrade — #477 production candidate in progress.**
+- **Schema 42→43 startup upgrade — Draft #479 / Owner review decision pending.**
   Fresh master baseline a47672182ea2d92784e226496b6f2d2be8cafe2c;
   native pre-database upgrade/recovery UI, FILE sort/cache policy, storage and
   low-memory preflight, cancellation and atomic failure/restart recovery are
-  being qualified on Windows/macOS. No release or native GUI PASS from source
-  inspection. [Scope, risks and validation](../research/ISSUE_477_SCHEMA_UPGRADE.md).
+  validated by focused Windows/macOS automation. One 1M production-ID open
+  measured 10.906s and net +202.67 MiB indexes; these are Hosted observations,
+  not user-device limits. Native human/Owner Windows acceptance and the existing
+  #446 SIGBUS release blocker remain unqualified. [Scope, risks and validation](../research/ISSUE_477_SCHEMA_UPGRADE.md).
   #474 Source Facts/Snapshot/FTS continues independently; no #417 F1 cutover.
 
 - **Global Search covering-index repair — MERGED #473 / performance not fully qualified.**

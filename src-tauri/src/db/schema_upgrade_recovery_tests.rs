@@ -282,3 +282,32 @@ fn schema_upgrade_current_reopen_preserves_temp_objects_and_policy() {
         2
     );
 }
+
+#[test]
+fn schema_upgrade_cancel_before_open_has_no_filesystem_side_effects() {
+    let path = path("cancel-before-open");
+    let result =
+        crate::db::Database::open_with_upgrade_cancellation(&path, Arc::new(AtomicBool::new(true)));
+    assert!(
+        matches!(result,Err(DbError::Validation(ref message)) if message.contains("cancelled"))
+    );
+    assert!(!path.exists());
+}
+
+#[test]
+fn schema_upgrade_filesystem_io_failure_is_retryable_without_touching_parent() {
+    let parent = path("io-parent");
+    std::fs::write(&parent, b"preserve parent").unwrap();
+    let database_path = parent.join("zen-canvas.sqlite3");
+    assert!(matches!(
+        crate::db::Database::open(&database_path),
+        Err(DbError::Io(_))
+    ));
+    assert_eq!(std::fs::read(&parent).unwrap(), b"preserve parent");
+    std::fs::remove_file(&parent).unwrap();
+    std::fs::create_dir(&parent).unwrap();
+    let db = crate::db::Database::open(&database_path).unwrap();
+    drop(db);
+    cleanup(&database_path);
+    std::fs::remove_dir(parent).unwrap();
+}

@@ -84,6 +84,7 @@ impl Database {
         path: impl AsRef<Path>,
         cancel: super::upgrade::UpgradeCancellation,
     ) -> Result<Self, DbError> {
+        super::upgrade::check_cancelled(&cancel)?;
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;

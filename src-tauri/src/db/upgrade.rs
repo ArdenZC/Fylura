@@ -218,6 +218,17 @@ fn free_space(path: &Path) -> Result<(u64, u64), DbError> {
     Ok((free, hasher.finish()))
 }
 
+pub(crate) fn check_cancelled(cancel: &AtomicBool) -> Result<(), DbError> {
+    if cancel.load(Ordering::Acquire) {
+        Err(DbError::Validation(
+            "Upgrade cancelled. No schema changes were committed. Start Zen Canvas again to retry."
+                .into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 unsafe extern "C" fn progress(context: *mut std::ffi::c_void) -> std::ffi::c_int {
     let cancel = unsafe { &*(context.cast::<AtomicBool>()) };
     i32::from(cancel.load(Ordering::Acquire))
@@ -269,11 +280,7 @@ impl<'a> UpgradeGuard<'a> {
         Ok(guard)
     }
     pub(crate) fn check_cancelled(&self) -> Result<(), DbError> {
-        if self.cancel.load(Ordering::Acquire) {
-            Err(DbError::Validation("Upgrade cancelled. No schema changes were committed. Start Zen Canvas again to retry.".into()))
-        } else {
-            Ok(())
-        }
+        check_cancelled(&self.cancel)
     }
 }
 impl Drop for UpgradeGuard<'_> {

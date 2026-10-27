@@ -192,9 +192,10 @@ fn schedule_retry() {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         while std::time::Instant::now() < deadline {
             let hwnd = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
-            if !hwnd.is_null()
-                && unsafe { !GetDlgItem(hwnd, IDRETRY).is_null() && IsWindowVisible(hwnd) != 0 }
-            {
+            // Task Dialog custom controls may use DirectUI without child HWNDs.
+            // The progress dialog has already returned/destroyed its window;
+            // target the visible recovery dialog via its documented button API.
+            if !hwnd.is_null() && unsafe { IsWindowVisible(hwnd) != 0 } {
                 qa::retried();
                 unsafe {
                     PostMessageW(hwnd, TDM_CLICK_BUTTON as u32, IDRETRY as usize, 0);
@@ -203,6 +204,7 @@ fn schedule_retry() {
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
+        eprintln!("Native upgrade QA did not observe the recovery dialog within 20 seconds");
         // Do not leave an unattended native modal loop running forever.
         std::process::exit(3);
     });

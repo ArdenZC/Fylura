@@ -108,7 +108,8 @@ The final PR records the exact committed rerun HEAD/tree and normal CI outcome.
 
 The first PR candidate passed 1,977 frontend tests but failed the existing LibraryMode
 500-line responsibility contract. Display helpers were extracted without changing
-the limit. Its macOS Rust process hit the already-recorded #446 SIGBUS; no U4
+the limit. Its macOS Rust process hit SIGBUS, a symptom already recorded in #446; the cause
+was not established by that crash. No U4
 functional failure or native PASS is inferred from a crashed test process. Required
 CI is rerun through the ordinary PR workflow on the final candidate; missing/red
 required results block readiness. Local Rust compilation stopped at missing GLib

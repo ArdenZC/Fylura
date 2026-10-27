@@ -220,9 +220,17 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     struct Fixture {
+        // Fields drop in declaration order: close SQLite before removing its files.
         db: Database,
         root: PathBuf,
         id: String,
+        _cleanup: FixtureCleanup,
+    }
+    struct FixtureCleanup(PathBuf);
+    impl Drop for FixtureCleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
     impl Fixture {
         fn new() -> Self {
@@ -272,7 +280,12 @@ mod tests {
             assert_eq!(outcome.verification_state, "verified");
             tx.commit().unwrap();
             drop(conn);
-            Self { db, root, id }
+            Self {
+                db,
+                root: root.clone(),
+                id,
+                _cleanup: FixtureCleanup(root),
+            }
         }
         fn get(&self) -> PersonalMetadata {
             self.db
@@ -296,11 +309,6 @@ mod tests {
                     favorite,
                     expected_revision: revision,
                 })
-        }
-    }
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.root);
         }
     }
 

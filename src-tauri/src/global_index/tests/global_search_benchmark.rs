@@ -750,6 +750,8 @@ fn capture_query_plans(conn: &Connection, context: &JsonValue) -> Vec<JsonValue>
     let prefix_sql = diagnostic_search_tier_sql("name_prefix");
     let extension_sql = diagnostic_search_tier_sql("exact_extension");
     let extension_prefix_sql = diagnostic_search_tier_sql("extension_prefix");
+    let (extension_probe_sql, extension_single_sql) =
+        crate::global_index::search::diagnostic_extension_prefix_strategy_sqls();
     let fts_sql = diagnostic_search_tier_sql("fts");
     let punctuation_sql = diagnostic_search_tier_sql("punctuation_prefix");
 
@@ -798,6 +800,32 @@ fn capture_query_plans(conn: &Connection, context: &JsonValue) -> Vec<JsonValue>
                 SqlValue::Text("jp".to_string()),
                 SqlValue::Text("jp*".to_string()),
                 SqlValue::Integer(SEARCH_RESULT_LIMIT as i64),
+            ],
+        ),
+        // Extension Prefix dispatch can execute discovery, a single-key exact
+        // query, or the original fallback. Preserve plans for all three paths.
+        plan_record(
+            conn,
+            context,
+            "extension_prefix_discovery",
+            "jp",
+            extension_probe_sql.to_string(),
+            vec![
+                SqlValue::Text("jp".to_string()),
+                SqlValue::Text("jp*".to_string()),
+            ],
+        ),
+        plan_record(
+            conn,
+            context,
+            "extension_prefix_single_key",
+            "jp",
+            extension_single_sql,
+            vec![
+                SqlValue::Text("jp".to_string()),
+                SqlValue::Text("jp*".to_string()),
+                SqlValue::Integer(SEARCH_RESULT_LIMIT as i64),
+                SqlValue::Text("jpg".to_string()),
             ],
         ),
         plan_record(

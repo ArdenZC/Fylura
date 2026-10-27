@@ -8,7 +8,7 @@ import "./folderComparison.css";
 const LIMIT = 10_000;
 const PAGE = 40;
 const statuses: Difference[] = ["left", "right", "different", "same", "directory", "unknown"];
-export function FolderComparison({ paneIds, activate }: { paneIds: string[]; activate: (id: string) => void }) {
+export function FolderComparison({ paneIds, activate, compact = false }: { paneIds: string[]; activate: (id: string) => void; compact?: boolean }) {
   const { t } = useI18nContext();
   const surfaces = useFileManagementStore((s) => s.surfaces);
   const locked = useFileManagementStore((s) => s.transferOpen);
@@ -18,6 +18,8 @@ export function FolderComparison({ paneIds, activate }: { paneIds: string[]; act
   const [filter, setFilter] = useState<Difference | "all">("all");
   const [modified, setModified] = useState(true);
   const [page, setPage] = useState(0);
+  const [batchExpanded, setBatchExpanded] = useState(!compact);
+  useEffect(() => setBatchExpanded(!compact), [compact]);
   const inFlight = useRef(false);
   const [left, right] = sources;
   const ready = !!left?.browse && !!right?.browse && !left.showLocationPicker && !right.showLocationPicker;
@@ -77,6 +79,8 @@ export function FolderComparison({ paneIds, activate }: { paneIds: string[]; act
             {t(`u3Status_${status}`)} {counts[status]}
           </button>)}
         </div>
+        <details className="u3-batch-details" open={batchExpanded} onToggle={(event) => setBatchExpanded(event.currentTarget.open)}>
+        <summary>{t("u3BatchActions")} · {t("wbLeftPane")} {left?.selectedCount ?? 0} / {t("wbRightPane")} {right?.selectedCount ?? 0}</summary>
         <div className="u3-batch-actions">{sources.map((source, side) => <div key={paneIds[side]}>
           <strong>{t(side ? "wbRightPane" : "wbLeftPane")} · {source?.selectedCount ?? 0}</strong>
           <button disabled={locked} onClick={() => select(side, visible.flatMap((r) => {
@@ -88,6 +92,7 @@ export function FolderComparison({ paneIds, activate }: { paneIds: string[]; act
           <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000} onClick={() => action(side, "move_other")}>{t("wbMoveOther")}</button>
         </div>)}</div>
         <details className="u3-compare-help"><summary>{t("u3BatchLimits")}</summary>{t("u3BatchHelp")}</details>
+        </details>
         <div className="u3-compare-table" role="table" aria-label={t("u3CompareResults")}>
           <div role="row" className="u3-compare-row"><span role="columnheader">{t("wbLeftPane")}</span><span role="columnheader">{t("u3Filter")}</span><span role="columnheader">{t("wbRightPane")}</span></div>
           {visible.slice(currentPage * PAGE, (currentPage + 1) * PAGE).map((row) => <div role="row" className="u3-compare-row" key={row.key}>

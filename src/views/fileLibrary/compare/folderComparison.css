@@ -23,3 +23,5 @@
 
 .u3-compare-row > [role="cell"] { display:flex; align-items:center; justify-content:space-between; gap:4px; }
 .u3-comparison .u3-locate { border:0; padding:3px; flex:none; color:var(--zc-text-secondary); }
+
+.u3-batch-details > summary { cursor:pointer; padding:5px 0; color:var(--zc-text-secondary); }

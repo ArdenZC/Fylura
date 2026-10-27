@@ -22,11 +22,13 @@ select differences and review a batch transfer to the opposite pane. Issue
   first. Comparison completes source-owned pages on demand; Pause/Close stops
   additional comparison-driven reads. Maximum 10,000 visible entries per side.
   Results render 40 per page, with a scrollable table and per-status counts.
+  Compact windows collapse batch controls by default to retain visible results.
 - Names match exactly, including case and Unicode spelling. This comparison
   condition deliberately does not infer volume lookup rules from Windows/macOS.
   A case-only pair stays visibly different; backend transfer preview decides
   actual target conflicts. Missing metadata stays unknown; same-name directories
-  remain unvisited rather than being declared equal. Size and optional mtime
+  remain unvisited rather than being declared equal. Colliding display names
+  retain every source ref as uncertain instead of overwriting a row. Size and optional mtime
   (existing second precision) are compared, with no content reads or hashes.
 - Skipped/unreadable/unsupported children carry cumulative coverage warnings.
   Failed enumeration, observed pending changes, active filters or capacity
@@ -43,8 +45,8 @@ select differences and review a batch transfer to the opposite pane. Issue
 ## Validation
 
 - Full frontend suite: 183 files / 1,972 tests passed before final focused
-  interaction refinements. Focused final checks and hosted CI are recorded in
-  the PR. Typecheck and frontend build pass; existing CSS optimization warning
+  interaction refinements. Final focused checks: 7 files / 49 tests pass. Hosted
+  Windows/macOS results are recorded in the PR. Typecheck and frontend build pass; existing CSS optimization warning
   about `var(...)` remains unrelated to this feature.
 - Rust regressions cover 138 entries over 17-entry pages, all four sort fields
   and both directions, tie-breaking, stale refs, empty progress before EOF,
@@ -56,3 +58,30 @@ select differences and review a batch transfer to the opposite pane. Issue
 - No Global Search production code, schema, AI, indexing/watcher scheduling,
   CI policy, mutation executor or recovery strategy changes. No Codex Review,
   Full Validation or million-file campaign. No release/installer qualification.
+
+## Browser evidence
+
+`npm run test:browser:u3` passes on the final production sources. The Browser
+plugin has no callable control tool in this session; the repository's Playwright
+path supplies cloud browser evidence. [Checks and environment](evidence/U3/checks.json).
+Screenshots cover English/Chinese and light/dark at 1600×1000 and 820×800;
+980/1280 widths additionally pass the no-horizontal-overflow checks. No framework
+overlay, blank app or relevant browser console error was observed.
+
+| Flow | Screenshot |
+| --- | --- |
+| Whole-folder sort | [Light sorting](evidence/U3/01-sorting-light.png) |
+| Two-folder metadata comparison | [Light comparison](evidence/U3/02-compare-light.png) |
+| Filtered batch selection / basket | [Selected differences](evidence/U3/03-filtered-selection.png) |
+| Conflicts block execution | [Conflict preview](evidence/U3/04-conflict-preview.png) |
+| Keep both + Skip, fresh consent | [Cross-pane preview](evidence/U3/05-cross-pane-preview.png) |
+| Durable outcome projection | [Transfer results](evidence/U3/06-operation-results.png) |
+| Difference filter in dark theme | [Dark filter](evidence/U3/07-filter-dark.png) |
+| Compact pane and compare table | [Dark 820px](evidence/U3/08-narrow-dark.png), [Light 820px](evidence/U3/09-narrow-light.png) |
+| Existing History entry point | [History](evidence/U3/10-history.png) |
+| Chinese sorting and dark theme | [Chinese dark](evidence/U3/11-chinese-dark.png) |
+
+The scripted path also cancels a prepared Move, then confirms Move and observes
+updated comparison; unsupported directory preview stays non-executable. Existing
+U1 focused tests cover cancellation, partial failure/progress and preview-handle
+release. No real cross-volume or native Restore operation ran in the browser.

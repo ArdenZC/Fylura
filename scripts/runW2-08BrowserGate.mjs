@@ -66,7 +66,7 @@ try {
       const sourceActions = page.locator('[data-file-library-source-actions="true"]');
       const filterButton = sourceActions.getByRole("button", { name: /^Filter/iu });
       await filterButton.click();
-      await page.locator('#library-filter-popover [role="dialog"]').waitFor({ state: "visible" });
+      await page.locator('[id^="library-filter-popover"] [role="dialog"]').waitFor({ state: "visible" });
       await page.getByRole("button", { name: "Done", exact: true }).click();
       await page.waitForFunction(() => document.querySelector('[data-file-library-source-actions="true"] button[aria-haspopup="dialog"]')?.getAttribute("aria-expanded") === "false");
       if (await filterButton.getAttribute("aria-expanded") !== "false") throw new Error("Library Filter did not close through its source-owner control");

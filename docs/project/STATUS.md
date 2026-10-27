@@ -4,7 +4,7 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **Global Search 1M Phase 2 — Draft #478 / final CI in progress.**
+- **Global Search 1M Phase 2 — Draft #478 / Owner review and merge decision pending.**
   Integrated master `a47672182ea2d92784e226496b6f2d2be8cafe2c`, Schema43 after
   merged #473. Schema44 candidate maintains exact per-volume COUNT(id), active
   rows and MAX in existing write transactions; Snapshot and standalone Status

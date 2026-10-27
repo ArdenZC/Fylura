@@ -192,4 +192,8 @@ range loop. They are corrected without changing admitted schemas or benchmark
 semantics. A newly published high-severity happy-dom advisory
 GHSA-834v-8h66-3h79 also affects the unchanged baseline. The dev dependency is
 updated to patched 21.0.4; no audit level, ignore list or CI gate is relaxed.
-Final applicable CI remains required before READY_FOR_OWNER_REVIEW.
+The applicable checks and exact final head/tree are recorded on Draft #478.
+A prior added trace test held one pooled handle while reserving all eight; the
+fixture now inspects through a separate connection. This was a test pool
+exhaustion, after the populated-43 backfill/result assertions had passed. No
+production pool size/timeout or required gate is changed.

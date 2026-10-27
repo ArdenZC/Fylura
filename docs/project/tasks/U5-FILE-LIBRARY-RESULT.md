@@ -87,11 +87,14 @@ locked-file failure flow was not executed; these remain `UNVERIFIED`.
   then failed because the required merge-integration frontend result was a
   failure, not because their release compiles failed.
 - The same PR adds bounded W2-11 diagnostics for console locations and missing
-  request URLs. The rerun [40506580823](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40506580823)
-  is currently `IN_PROGRESS` but its frontend job remains at `Install Chromium
-  system dependencies`; W2-11 has not run in that attempt. A local run of the
-  same W2-11 command was `BLOCKED` before the scenario: Vite showed a blank page
-  and Playwright timed out after 60 seconds waiting for the Files button. This
+  request URLs. Diagnostic rerun [40506580823](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40506580823)
+  on source head `fedbb23aac50f3bc43b30a09c2be8d222fc9e348` passed W2-11 and the
+  complete normal PR CI, including frontend, W2-01/W2-10, both release
+  compiles, Library & Content performance, performance profile, and Windows and
+  macOS quality validation. The first run's one-off `ERR_FILE_NOT_FOUND` did
+  not recur; no assertion or threshold was relaxed. A local run of the same
+  W2-11 command was `BLOCKED` before the scenario: Vite showed a blank page and
+  Playwright timed out after 60 seconds waiting for the Files button. This
   local environment failure is not evidence that the UI workflow passed or
   failed.
 - No million-file, Full Validation, F1/T10, or new performance campaign was run.

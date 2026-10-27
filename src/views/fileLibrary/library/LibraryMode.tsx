@@ -7,8 +7,7 @@ import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } f
 import { cloneFileQuerySpec, explicitSingleSelectionId } from "../../../store/useFileLibraryV2Store";
 import type {
   FileLibrarySummary,
-  FileLibraryDetail,
-  FileQueryFiltersV2
+  FileLibraryDetail
 } from "../../../types/domain";
 import { libraryScopeLabel, readableError } from "../../../utils/viewHelpers";
 import { buttonGhost, buttonSecondary, buttonSubtle, cn, buttonPrimary, raisedSurface } from "../../../utils/tw";
@@ -30,7 +29,7 @@ import { PersonalFiles } from "../context/FilePersonalMetadata";
 import { ContextPanel } from "../context/ContextPanel";
 import { createLibraryContextProjection } from "../context/contextPanelProjection";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
-import { useSelectedPreview } from "../preview/useSelectedPreview";
+import { SELECTED_PREVIEW_LIMIT, useSelectedPreview } from "../preview/useSelectedPreview";
 import { previewSourceFromEntry } from "../preview/previewSource";
 import { createPreviewSiblingNavigation } from "../preview/previewSiblingNavigation";
 import { adaptLibrarySummary } from "../presentation/adapters";
@@ -41,6 +40,7 @@ import {
 import { useFileLibraryLibrarySearchSurface } from "../fileLibraryCommandBarSurface";
 import { useFileManagementStore } from "../management/fileManagementStore";
 import { useLibraryManagementSurface } from "../management/useManagementSurfaces";
+import { countActiveFilters, scopeHealthLabel, replaceCopy } from "./libraryModeCopy";
 import "./libraryMode.css";
 
 /**
@@ -165,7 +165,7 @@ export function LibraryMode() {
 
   useEffect(() => { previewController.setSiblingNavigation(siblingNavigation); return () => previewController.setSiblingNavigation(null); }, [previewController, siblingNavigation]);
 
-  const previewSelected = useSelectedPreview(previewController, source.selectedFiles.filter((file) => !file.isStale).flatMap((file) => {
+  const previewSelected = useSelectedPreview(previewController, source.selectedFiles.slice(0, SELECTED_PREVIEW_LIMIT).filter((file) => !file.isStale).flatMap((file) => {
     const projected = previewSourceFromEntry(adaptLibrarySummary(file), source.collection);
     return projected ? [projected] : [];
   }));
@@ -326,7 +326,7 @@ export function LibraryMode() {
     error: source.inspectorError,
     language,
     t,
-    onPreviewSelection: (id, trigger) => { previewSelected(source.selectedFiles.filter((file) => !file.isStale).findIndex((file) => file.id === id), query("[data-file-library-context-toggle]") ?? trigger); },
+    onPreviewSelection: (id, trigger) => { previewSelected(source.selectedFiles.slice(0, SELECTED_PREVIEW_LIMIT).filter((file) => !file.isStale).findIndex((file) => file.id === id), query("[data-file-library-context-toggle]") ?? trigger); },
     onPreview: (event, file) => { openLibraryPreview(file.id, query("[data-file-library-context-toggle]") ?? event.currentTarget); },
     onReveal: (fileId) => void revealFile(fileId).catch(() => undefined),
     onViewSuggestions: () => setView("organize"),
@@ -480,32 +480,4 @@ export function LibraryMode() {
       />
     </div>
   );
-}
-
-function countActiveFilters(filters: FileQueryFiltersV2) {
-  return filters.fileTypes.length
-    + filters.purposes.length
-    + filters.lifecycles.length
-    + filters.risks.length
-    + filters.tagsAllOf.length
-    + filters.tagsAnyOf.length
-    + filters.tagsNoneOf.length
-    + Number(filters.sizeMin !== null || filters.sizeMax !== null)
-    + Number(filters.modifiedFrom !== null || filters.modifiedTo !== null)
-    + Number(filters.createdFrom !== null || filters.createdTo !== null)
-    + Number(filters.duplicate !== "any")
-    + Number(filters.review !== "any");
-}
-
-function scopeHealthLabel(state: string, t: ReturnType<typeof useI18nContext>["t"]) {
-  if (state === "permission_required") return t("libraryScopeHealthPermission");
-  if (state === "reconciliation_required") return t("libraryScopeHealthReconciliation");
-  if (state === "partial" || state === "degraded") return t("libraryScopeHealthPartial");
-  if (state === "retry_exhausted") return t("libraryScopeHealthRetry");
-  return t("libraryScopeHealthUnavailable");
-}
-
-
-function replaceCopy(template: string, values: Record<string, string | number>) {
-  return Object.entries(values).reduce((copy, [key, value]) => copy.replaceAll(`{${key}}`, String(value)), template);
 }

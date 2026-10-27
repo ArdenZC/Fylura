@@ -111,6 +111,13 @@ fn m1_h1_outside_root_move_restore_reobserves_retired_uid_and_fails_closed() {
                 expected_count: Some(1),
             })
             .unwrap();
+            f.db.file_library_personal_metadata(crate::db::PersonalMetadataRequest::Update {
+                file_id: f.id.clone(),
+                note: "U4 survives Move and Restore".into(),
+                favorite: true,
+                expected_revision: 0,
+            })
+            .unwrap();
             let destination = f.root.join("Destination");
             fs::create_dir(&destination).unwrap();
             assert!(!destination.starts_with(Path::new(&library)));
@@ -186,6 +193,16 @@ fn m1_h1_outside_root_move_restore_reobserves_retired_uid_and_fails_closed() {
                     f.db.get_file_library_detail(&f.id).unwrap().tags[0].id,
                     tag.id
                 );
+                let personal =
+                    f.db.file_library_personal_metadata(crate::db::PersonalMetadataRequest::Get {
+                        file_id: f.id.clone(),
+                    })
+                    .unwrap()
+                    .metadata
+                    .unwrap();
+                assert_eq!(personal.note, "U4 survives Move and Restore");
+                assert!(personal.favorite);
+                assert!(personal.editable);
                 let restored_uid: String = conn
                     .query_row(
                         "SELECT source_uid FROM library_source_incarnations WHERE source_uid = ?1 AND verification_state = 'verified'",

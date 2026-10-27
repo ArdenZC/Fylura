@@ -20,7 +20,7 @@ Browse displays an explicit explanation that durable notes/favorites require
 verified managed identity and browsing does not enroll files in the index.
 
 Inspector selected-item preview and Previous/Next reuse the existing Preview
-controller, Floating/Pinned hosts, provider registry and Read Gate. The bounded
+controller, Floating/Pinned hosts, provider registry and Read Gate. The bounded (at most 200 loaded selected items)
 selection neighborhood does not change selection, ordering, tabs or pane focus.
 All-matching previews are explicitly limited to selected loaded items. Existing
 selection summaries retain backend totals; Browse unknown/partial size and
@@ -53,7 +53,7 @@ for reload instead of presenting a prior object's note as current.
 SourceUID keys naturally survive supported canonical ID/path updates from
 Rename, Move and Restore. Scan's existing attached-facts preservation also
 recognizes this namespace, so a neutral row with personal facts cannot be
-recycled onto a different object. The backend list joins the latest verified
+recycled onto a different object. The backend list starts from the indexed metadata namespace and joins the latest verified
 attribution back to current managed IDs, uses deterministic name/ID ordering and
 returns 40 entries plus a `hasMore` lookahead. It never lists Browse refs.
 There is no polling, global renderer cache or idle preview demand.
@@ -89,3 +89,28 @@ Windows/macOS native GUI, actual filesystem Restore and Owner acceptance remain
 UNVERIFIED. No installer, release, tag, Full Validation or million-file campaign
 is requested or qualified. Exact candidate HEAD/tree, diff, final required CI
 and readiness verdict belong in the single Draft PR description.
+
+
+### Browser evidence (real Chromium, deterministic mocks)
+
+`npm run test:browser:u4` passed seven workflow checks with no page/console errors.
+Viewports: 1600×1000, 820×800 and Chinese 1280×900. The Browser plugin exposed no
+callable control runtime; the repository Playwright workflow was used. Wide and
+compact light/dark captures cover Inspector, notes, favorites and Quick Preview.
+The final PR records the exact committed rerun HEAD/tree and normal CI outcome.
+
+| Evidence | Captures |
+| --- | --- |
+| Managed hierarchy and notes | [metadata](evidence/U4/00-inspector-metadata-wide-light.png), [wide light](evidence/U4/01-inspector-wide-light.png), [wide dark](evidence/U4/03-inspector-wide-dark.png), [compact dark](evidence/U4/05-inspector-compact-dark.png), [compact light](evidence/U4/06-inspector-compact-light.png) |
+| File favorites | [wide light](evidence/U4/02-favorites-wide-light.png), [wide dark](evidence/U4/13-favorites-wide-dark.png), [compact light](evidence/U4/14-favorites-compact-light.png), [compact dark](evidence/U4/15-favorites-compact-dark.png) |
+| Existing Quick Preview | [wide dark](evidence/U4/04-preview-wide-dark.png), [wide light Browse](evidence/U4/08-browse-preview-light.png), [compact light](evidence/U4/09-preview-compact-light.png), [compact dark](evidence/U4/10-preview-compact-dark.png) |
+| Selection, pane and language ownership | [Browse multi-selection](evidence/U4/07-browse-selection-light.png), [dual panes](evidence/U4/11-dual-pane-inspector-light.png), [Chinese dark empty favorites](evidence/U4/12-chinese-favorites-dark.png) |
+
+The first PR candidate passed 1,977 frontend tests but failed the existing LibraryMode
+500-line responsibility contract. Display helpers were extracted without changing
+the limit. Its macOS Rust process hit the already-recorded #446 SIGBUS; no U4
+functional failure or native PASS is inferred from a crashed test process. Required
+CI is rerun through the ordinary PR workflow on the final candidate; missing/red
+required results block readiness. Local Rust compilation stopped at missing GLib
+before project code, and local stable Rust formatting passed. Hosted required
+checks remain authoritative for the pinned toolchain and native backend tests.

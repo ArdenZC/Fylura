@@ -1,5 +1,6 @@
 /** U4 real Chromium interactions with deterministic browser mock data. Not native acceptance. */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -15,7 +16,7 @@ try {
   page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-  await page.addInitScript(() => { localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "en"); });
+  await page.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "en"); });
   await page.goto("http://127.0.0.1:5175/?browser-mock=1");
   await page.getByRole("button", { name: "Files", exact: true }).click();
   assert.equal(await page.title(), "Zen Canvas");
@@ -31,10 +32,15 @@ try {
   await editor.getByRole("button", { name: "Unfavorite file", exact: true }).waitFor();
   checks.push("Managed note and favorite saved from Inspector");
   await page.screenshot({ path: path.join(output, "01-inspector-wide-light.png") });
+  await page.locator('.file-library-context-panel-content').evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: path.join(output, "00-inspector-metadata-wide-light.png") });
   await pane.getByRole("button", { name: "Notes and file favorites", exact: true }).click();
   let dialog = page.getByRole("dialog");
   await dialog.locator("li button").first().waitFor();
   await page.screenshot({ path: path.join(output, "02-favorites-wide-light.png") });
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await page.screenshot({ path: path.join(output, "13-favorites-wide-dark.png") });
+  await page.evaluate(() => document.documentElement.classList.remove("dark"));
   await dialog.getByRole("button", { name: "Files with notes", exact: true }).click();
   await dialog.locator("li button").first().click();
   await editor.getByRole("textbox", { name: "File notes", exact: true }).waitFor();
@@ -69,7 +75,14 @@ try {
   assert.equal(await pane.locator('[data-file-library-context-toggle]').evaluate((element) => document.activeElement === element), true);
   await page.evaluate(() => document.documentElement.classList.remove("dark"));
   assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
-  checks.push("Compact light/dark Inspector, Escape and no horizontal overflow");
+  await pane.getByRole("button", { name: "Notes and file favorites", exact: true }).click();
+  await page.getByRole("dialog").locator("li button").first().waitFor();
+  await page.screenshot({ path: path.join(output, "14-favorites-compact-light.png") });
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await page.screenshot({ path: path.join(output, "15-favorites-compact-dark.png") });
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => document.documentElement.classList.remove("dark"));
+  checks.push("Compact light/dark Inspector, favorites, Quick Preview, Escape and no horizontal overflow");
   await page.setViewportSize({ width: 1600, height: 1000 });
   await pane.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
   await pane.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Left");
@@ -86,9 +99,43 @@ try {
   await page.locator('[data-preview-host="zen-floating"]').waitFor();
   assert.equal(await pane.locator('[aria-selected="true"]').count(), before);
   await page.screenshot({ path: path.join(output, "08-browse-preview-light.png") });
-  checks.push("Browse multi-selection preview preserves selection; no durable metadata editor");
+  await page.locator('[data-preview-navigation="previous"]').click();
+  assert.equal(await page.locator('[data-preview-navigation="next"]').isEnabled(), true);
+  assert.equal(await pane.locator('[aria-selected="true"]').count(), before);
+  checks.push("Browse multi-selection preview and shared-host Previous/Next preserve selection; no durable metadata editor");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Dual pane", exact: true }).click();
+  const right = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').nth(1);
+  await right.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
+  await right.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Right");
+  await right.getByRole("textbox", { name: "Folder path", exact: true }).press("Enter");
+  await right.locator('[data-browse-entry-kind]').nth(1).click();
+  const leftSelection = await pane.locator('[aria-selected="true"]').count();
+  await right.locator('[data-file-library-context-toggle]').click();
+  await page.getByText("Temporary Browse item:", { exact: false }).waitFor();
+  await page.screenshot({ path: path.join(output, "11-dual-pane-inspector-light.png") });
+  await page.locator('[data-file-library-context-content]').getByRole('button', { name: 'Quick preview', exact: true }).first().click();
+  await page.locator('[data-preview-host="zen-floating"]').waitFor();
+  await page.keyboard.press("Escape");
+  assert.equal(await pane.locator('[aria-selected="true"]').count(), leftSelection);
+  assert.equal(await right.locator('[data-file-library-context-toggle]').evaluate((element) => document.activeElement === element), true);
+  checks.push("Dual-pane Inspector preview and Escape return to owning pane; peer selection retained");
+  // Chinese layout is an independent browser-mock page, not a native-platform claim.
+  const chinese = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await chinese.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "zh"); });
+  await chinese.goto("http://127.0.0.1:5175/?browser-mock=1");
+  await chinese.getByRole("button", { name: "文件", exact: true }).click();
+  const zhPane = chinese.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').first();
+  const allFiles = zhPane.getByRole("button", { name: "查看所有已索引文件", exact: true });
+  if (await allFiles.count()) await allFiles.click();
+  await zhPane.getByRole("button", { name: "笔记与文件收藏", exact: true }).click();
+  await chinese.getByRole("dialog").getByRole("button", { name: "文件收藏", exact: true }).waitFor();
+  await chinese.evaluate(() => document.documentElement.classList.add("dark"));
+  await chinese.screenshot({ path: path.join(output, "12-chinese-favorites-dark.png") });
+  await chinese.close();
+  checks.push("Chinese empty favorites and dark layout");
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, "checks.json"), JSON.stringify({ evidence: "Real Chromium / deterministic browser mock; no native GUI or actual filesystem Restore claim", url: page.url(), checks, errors }, null, 2));
+  await writeFile(path.join(output, "checks.json"), JSON.stringify({ head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), tree: execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim(), evidence: "Real Chromium / deterministic browser mock; no native GUI or actual filesystem Restore claim", url: page.url(), checks, errors }, null, 2));
   console.log(JSON.stringify({ output, checks, errors }, null, 2));
 } catch (error) { if (page) { await writeFile(path.join(output, "failure.txt"), await page.locator("body").innerText()); await page.screenshot({ path: path.join(output, "failure.png") }); } console.error(error); throw error; }
 finally { await browser.close(); await server.close(); }

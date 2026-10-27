@@ -182,12 +182,16 @@ impl Database {
                 response.metadata = Some(personal_metadata(&tx, &id)?);
             }
             PersonalMetadataRequest::List { favorites, offset } => {
-                let mut stmt = tx.prepare("SELECT f.id,f.name,f.is_stale FROM files f
-                    WHERE EXISTS(SELECT 1 FROM library_legacy_attributions a JOIN app_settings s ON s.key='file_personal_metadata:v1:'||a.source_uid
-                    WHERE a.legacy_file_id=f.id AND a.claim_state IN ('verified','user_confirmed')
+                // Drive from the small indexed namespace, never from every managed file.
+                let mut stmt = tx.prepare("SELECT f.id,f.name,f.is_stale FROM app_settings s
+                    CROSS JOIN library_legacy_attributions a INDEXED BY idx_library_attributions_source
+                    CROSS JOIN files f
+                    WHERE s.key >= 'file_personal_metadata:v1:' AND s.key < 'file_personal_metadata:v1;'
+                    AND a.source_uid=substr(s.key,length('file_personal_metadata:v1:')+1)
+                    AND f.id=a.legacy_file_id AND a.claim_state IN ('verified','user_confirmed')
                     AND a.rowid=(SELECT rowid FROM library_legacy_attributions WHERE legacy_file_id=f.id ORDER BY decision_revision DESC,rowid DESC LIMIT 1)
                     AND json_valid(s.value) AND json_extract(CASE WHEN json_valid(s.value) THEN s.value ELSE '{}' END,'$.version')=1
-                    AND ((?1=1 AND json_extract(CASE WHEN json_valid(s.value) THEN s.value ELSE '{}' END,'$.favorite')=1) OR (?1=0 AND length(json_extract(CASE WHEN json_valid(s.value) THEN s.value ELSE '{}' END,'$.note'))>0)))
+                    AND ((?1=1 AND json_extract(CASE WHEN json_valid(s.value) THEN s.value ELSE '{}' END,'$.favorite')=1) OR (?1=0 AND length(json_extract(CASE WHEN json_valid(s.value) THEN s.value ELSE '{}' END,'$.note'))>0))
                     ORDER BY f.name COLLATE NOCASE,f.id LIMIT 41 OFFSET ?2")?;
                 response.items = stmt
                     .query_map(params![favorites, offset], |row| {

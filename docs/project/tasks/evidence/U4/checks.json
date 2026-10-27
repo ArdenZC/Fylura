@@ -1,0 +1,14 @@
+{
+  "evidence": "Real Chromium / deterministic browser mock; no native GUI or actual filesystem Restore claim",
+  "url": "http://127.0.0.1:5175/?browser-mock=1",
+  "checks": [
+    "Managed note and favorite saved from Inspector",
+    "Notes and favorites return to canonical Inspector without replacing query/sort",
+    "Mock metadata survives page reload; native SQLite restart covered separately",
+    "Compact light/dark Inspector, favorites, Quick Preview, Escape and no horizontal overflow",
+    "Browse multi-selection preview and shared-host Previous/Next preserve selection; no durable metadata editor",
+    "Dual-pane Inspector preview and Escape return to owning pane; peer selection retained",
+    "Chinese empty favorites and dark layout"
+  ],
+  "errors": []
+}

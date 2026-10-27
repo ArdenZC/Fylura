@@ -1,3 +1,4 @@
+import { SELECTED_PREVIEW_LIMIT } from "../preview/useSelectedPreview";
 import { useState } from "react";
 import { buttonSecondary } from "../../../utils/tw";
 import type { Translator } from "../../../types/ui";
@@ -39,7 +40,7 @@ export function ContextPanel({
 
   const content = (
     <div className="file-library-context-panel-content" data-file-library-context-content={projection.kind}>
-      <SelectedPreviewActions key={projection.source === "library" ? projection.inspector.selectedFiles.map((file) => file.id).join("|") : projection.selectedEntries.map((entry) => entry.entryRef.entryId).join("|")} projection={projection} />
+      <SelectedPreviewActions key={projection.source === "library" ? projection.inspector.selectedFiles.slice(0, SELECTED_PREVIEW_LIMIT).map((file) => file.id).join("|") : projection.selectedEntries.slice(0, SELECTED_PREVIEW_LIMIT).map((entry) => entry.entryRef.entryId).join("|")} projection={projection} />
       {projection.source === "library"
         ? <FileLibraryInspector {...projection.inspector} />
         : <BrowseContextContent projection={projection} />}
@@ -185,7 +186,7 @@ function contextCloseLabel(projection: ContextPanelProjection) {
 function SelectedPreviewActions({ projection }: { projection: ContextPanelProjection }) {
   const [index, setIndex] = useState(0);
   const t: Translator = projection.source === "library" ? projection.inspector.t : projection.t;
-  const items = projection.source === "library" ? projection.inspector.selectedFiles : projection.selectedEntries;
+  const items = projection.source === "library" ? projection.inspector.selectedFiles.slice(0, SELECTED_PREVIEW_LIMIT) : projection.selectedEntries.slice(0, SELECTED_PREVIEW_LIMIT);
   const current = items[Math.min(index, Math.max(0, items.length - 1))];
   if (!current) return null;
   const name = "name" in current ? current.name : current.displayName;
@@ -200,7 +201,7 @@ function SelectedPreviewActions({ projection }: { projection: ContextPanelProjec
     }
   };
   return <section className="grid gap-2 border-b border-[var(--zc-divider)] p-3" aria-label={t("u4SelectionPreview")}>
-    <p className="break-words text-xs">{name} · {t("librarySelectedLoadedCount")}: {index + 1}/{items.length}</p>
+    <p className="break-words text-xs">{name} · {t("u4SelectionPreview")} {index + 1}/{items.length}</p>
     <div className="flex flex-wrap gap-2">
       <button className={buttonSecondary} disabled={index === 0} aria-label={t("u4Previous")} onClick={(event) => preview(index - 1, event.currentTarget)}>←</button>
       <button className={buttonSecondary} disabled={"isStale" in current && current.isStale} onClick={(event) => preview(index, event.currentTarget)}>{t("libraryPreview")}</button>

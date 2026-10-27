@@ -19,7 +19,7 @@ import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
-import { useSelectedPreview } from "../preview/useSelectedPreview";
+import { SELECTED_PREVIEW_LIMIT, useSelectedPreview } from "../preview/useSelectedPreview";
 import { previewSourceFromEntry } from "../preview/previewSource";
 import { createPreviewSiblingNavigation } from "../preview/previewSiblingNavigation";
 import { FileLibraryContextMenu } from "../library/LibraryContextMenu";
@@ -140,7 +140,7 @@ export function BrowseMode() {
 
   useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
-  const selectedPreviewEntries = source.entries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId));
+  const selectedPreviewEntries = source.entries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId)).slice(0, SELECTED_PREVIEW_LIMIT);
   const previewSelected = useSelectedPreview(previewController, selectedPreviewEntries.flatMap((entry) => {
     const projected = previewSourceFromEntry(entry, source.collection);
     return projected ? [projected] : [];

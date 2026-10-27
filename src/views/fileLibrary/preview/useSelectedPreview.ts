@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import type { PreviewExperienceController } from "./previewExperienceController";
 import type { PreviewSourceProjection } from "./previewSource";
 
+export const SELECTED_PREVIEW_LIMIT = 200;
+
 /** Bounded Inspector navigation. No selection, sorting or pane focus mutations. */
 export function useSelectedPreview(controller: Pick<PreviewExperienceController, "open" | "setSiblingNavigation" | "observeSource">, sources: readonly PreviewSourceProjection[]) {
   const currentSources = useRef(sources);

@@ -179,12 +179,10 @@ fn write_report(
 }
 impl GlobalIndexProvider for ProbeProvider {
     fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+        // The desktop now discovers volume topology without contacting the
+        // installed service. The service route is asserted after the first
+        // authorized index request in `record`.
         let sources = self.inner.discover_sources()?;
-        if !self.inner.service_available.load(Ordering::Acquire) {
-            return Err(GlobalIndexError::Provider(
-                "installed pipe unavailable".into(),
-            ));
-        }
         Ok(sources
             .into_iter()
             .filter(|source| source.volume.id == self.source_id)

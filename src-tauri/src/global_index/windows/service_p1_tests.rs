@@ -219,7 +219,7 @@ fn p1_t02_wrong_response_or_event_identity_and_version_are_rejected_before_callb
     for frame in [
         IndexServiceFrame::Response {
             response: IndexServiceResponse {
-                protocol_version: 4,
+                protocol_version: super::IPC_PROTOCOL_VERSION + 1,
                 ..response(&request, None)
             },
         },

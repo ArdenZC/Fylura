@@ -4,9 +4,13 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
-- **Global Search Schema44 / merged #479 integration — Draft #478, focused validation in progress.**
+- **Global Search Schema44 / merged #479 integration — Draft #478 / Owner rereview decision pending.**
   Integrated master `f302f5da8ab86f7d121b5cad9a71e5e552b720b6`, Schema43 after
-  merged #479. Capacity/cancel/recovery now cover the43→44 facts backfill. Schema44 candidate maintains exact per-volume COUNT(id), active
+  merged #479. Both native platforms passed42→44/43→44/44 reopen,
+  FULL/cancel/kill/retry and visible/background upgrade checks in run40452161859.
+  At200k,43→44 open measured98.896ms Windows/143.253ms macOS,
+  with4KiB facts and12/8KiB logical B-tree growth; sampled memory is not an OS peak.
+  Exact final normal CI is attached to the PR head. Schema44 maintains COUNT(id), active
   rows and MAX in existing write transactions; Snapshot and standalone Status
   retain precise nullable-ID and source revision/read transaction contracts.
   100k and the single 1M pair passed full semantics; no-result Snapshot p95

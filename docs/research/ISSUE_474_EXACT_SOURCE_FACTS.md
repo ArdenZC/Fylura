@@ -1,52 +1,150 @@
-## Final integration with merged #479 (Owner rereview)
+# Issue 474 — Source Facts / Schema44 final integration
 
-The existing Draft #478 integrates `master@f302f5da8ab86f7d121b5cad9a71e5e552b720b6`
-(tree `1bb9e6ee83381c4cbe3a7be8d64542c2e814a510`, normal CI
+## Owner rereview: merged #479 integration
+
+Existing Draft [#478](https://github.com/ArdenZC/Zen-Canvas/pull/478) integrates
+latest checked `master@f302f5da8ab86f7d121b5cad9a71e5e552b720b6`, tree
+`1bb9e6ee83381c4cbe3a7be8d64542c2e814a510` (normal master CI
 [40432147790](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40432147790) SUCCESS).
-Schema44 retains the native foreground worker/modal, background deferral,
-128MiB available-memory reserve, FILE temporary storage, 8MiB main cache,
-zero mmap/auxiliary sort workers, SQLite cancellation, Retry/Exit, rollback
-and future-version rejection. No production search/BM25/order contract changes.
+The complete focused Windows/macOS integration and cost run
+[40452161859](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40452161859)
+**SUCCESS** tested source `768464b3ac59b4227521ae82dd3827170f3803c7`, tree
+`57b3c1faa4c4163bba149f478ec4002ad2480d1f`. The subsequent evidence/docs-only
+closeout preserves this exact production/test source. Final HEAD, Tree, diff and
+normal CI run/result are recorded in the PR description and final handoff;
+[PR checks](https://github.com/ArdenZC/Zen-Canvas/pull/478/checks) track that head.
+No Full Validation, Codex Review, Release, Issue closure or merge is performed.
+
+Schema44 preserves #479's native foreground worker/modal, responsive cancel,
+SQLite progress interruption, Retry/Exit, background deferral, transaction and
+commit-failure rollback, low-memory reserve, FILE temporary storage, 8MiB main
+cache, zero mmap/auxiliary sort workers and future-version rejection. The
+Windows/macOS widget implementations, main startup entry point, database
+connection and patched dependency versions are identical to merged #479.
+Source Facts triggers, exact COUNT(*)/COUNT(id)/MAX, ordered Source Revision
+JSON/BLAKE3, shared Snapshot read transaction and prepared UPSERT batches remain
+intact. FTS BM25 8:2:1, ordering/pagination/deduplication/4096 window are unchanged.
+File Library/F1 #417 retains its existing authority; no cutover is introduced.
 
 The installed-database capacity gate now covers 25..43, including both 42→44
-and 43→44, under the original `BEGIN IMMEDIATE` before migration DDL.
-A streaming GROUP BY on the existing volume index (42) or active Source Facts
-covering index (43) estimates distinct active source key bytes plus all
-registered keys, including orphan and empty sources. Registered/active overlap
-is deliberately overcounted. Facts table/WAL and potential temporary-sort space
-use the existing conservative payload policy and 64MiB reserve per storage
-role; 42 additionally reserves both index rebuilds. This is a capacity planning
-margin, not an allocation guarantee or RSS cap. Same-volume reserves combine;
-free pages are not credited. Preflight and backfill remain cancellable.
-Schema43/44 also validate both required covering-index signatures before
-proceeding; missing/forged indexes fail closed rather than being silently repaired.
-Schema44 reopen neither scans capacity nor repeats the facts backfill.
+and 43→44, under `BEGIN IMMEDIATE` before migration DDL. A streaming GROUP BY
+on the existing volume index (42) or active Source Facts covering index (43)
+estimates distinct active source key bytes plus registered keys, including
+orphan/empty sources. Registered/active overlap is deliberately overcounted.
+Facts table/WAL and possible sort space use conservative payload allowances and
+64MiB reserve per storage role; 42 additionally reserves both index rebuilds.
+Same-volume reserves combine; free pages are not credited. For the four-source
+fixtures, 43→44 reserves 67,213,744B database and 67,110,960B temp, independent
+of 100k/200k row count. These are planning margins, not allocation guarantees
+or RSS caps. The original 128MiB available-memory working reserve remains.
+Preflight/backfill remain cancellable. Both required covering-index signatures
+are checked on43/44; absent/forged indexes fail closed. 44 reopen avoids both
+capacity scans and the one-time backfill.
 
-Focused integration tests exercise populated42/43→44 and44 reopen with exact
-complete Snapshot fields, nullable IDs, disabled/stale and empty sources,
-canonical facts, source revision/status, and no repeated install hook. Actual
-SQLite FULL at the new backfill, insufficient capacity, cancellation before/after
-backfill, injected SQL failure and a killed process after facts spill must retain
-the installed version/indexes/user-data fingerprints and permit a fresh open.
-Native QA covers both42 and43 visibility-before-worker, native cancel/retry and
-real background Tauri deferral. These tests/measurements are pending on the
-integrated candidate; results will be recorded before handoff.
+## Focused verification results
 
-The existing manual `schema_upgrade` mode now uses one200k production-shaped
-fixture per native platform and controlled100k/200k copies for42 and43 routes.
-It measures actual `Database::open`, the backfill SQL interval separately,
-main/WAL/SHM files, dbstat, sampled process RSS and free-volume low watermarks;
-fixture population/copy/compaction/index preparation are excluded. It checks
-all12 complete before/after snapshots for equality without running the latency
-matrix. Normal44 reopen is timed separately with a hook that rejects backfill.
-No new1M fixture or search benchmark is authorized by this integration run.
+On **both Windows x86_64 and macOS14 ARM64**:
 
-Historical evidence below belongs to its named prior source, not the integrated
-HEAD. FTS>100ms, extension-prefix pooled p99+26.10%, whole-volume retirement
-+16.9%, sustained Watcher qualification and unmeasured1M Schema44 backfill
-remain disclosed. Human keyboard/screen-reader/contrast, packaged first upgrade,
-Owner Windows acceptance, actual hardware IOERR/separate-temp-drive exhaustion
-and existing #446 SIGBUS release qualification remain outside automated proof.
+- Upgrade/recovery filter: **21 PASS**, one intentionally ignored cost test
+  executed separately below. Includes real SQLite FULL during facts INSERT,
+  insufficient-capacity rejection, cancellation before and after backfill,
+  injected post-backfill SQL failure, read-only/I/O failure, and actual child
+  termination after `sqlite3_db_cacheflush` spilled uncommitted facts/index pages.
+  42 and43 retain installed versions/indexes and user-data fingerprints on
+  failure; fresh open retries to44 and integrity checks pass. Missing required
+  indexes at43/44 fail closed. Existing schema43/future45 checks: **2 PASS**.
+- Populated42→44,43→44 and44→44: **1 combined test PASS**, with disabled/stale,
+  empty/multiple sources and NULL ID. All12 canonical complete Snapshots retain
+  fields/results/BM25/source health/revision/status. A test hook rejects any
+  repeated backfill on44 reopen. Exact facts writer/property tests: **3 PASS**,
+  including2,500 randomized mutation statements, NULL/max/stale/delete/rehome/
+  reactivation and rollback/signature contracts. The existing normal CI covers
+  broader reader/writer and migration regressions.
+- Native widget QA: **PASS for both42 and43**. Two native attempts per route
+  exercise cancel/recovery/Retry,18–19 timer ticks, visibility before each worker,
+  final44, and a real `--background` Tauri child with exit0 and original42/43.
+  Background logs contain neither database-ready nor a native upgrade dialog.
+  Worker delay is QA-only; it is excluded from cost measurement.
+
+Initial integrated run [40451711869](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40451711869)
+failed because the FULL fixture violated foreign keys and the tiny crash fixture
+fit inside the restored8MiB cache. Both were corrected without relaxing FKs,
+WAL-spill assertions, policy or recovery semantics: use distinct registered
+sources and explicitly flush uncommitted cache pages. It generated no200k
+fixture. Earlier run40451330419 was cancelled before population to correct the
+historical Status oracle to the existing canonical test path; production still
+fails closed when required facts are missing. Superseded normal runs were
+cancelled naturally by branch updates; none is promoted to final evidence.
+
+## Bounded actual migration cost
+
+One200k fixture per native platform; no1M generation or search latency matrix.
+Full production schema/FTS/indexes/triggers,67-byte ge_/gv_ IDs, four source
+groups including one disabled, stale every13 rows and a legacy NULL ID remain.
+Controlled compacted copies supply100k/200k at real installed42 and43.
+Population (Windows76.988s/macOS87.004s), copy/reshape/VACUUM/checkpoint and43
+index preparation are outside `Database::open` timing. The SQL interval covers
+canonical facts backfill/empty-source initialization, excluding DDL validation;
+Open includes preflight, migration, pool initialization and commit.
+
+| Platform | Rows | Route | Open ms | Backfill SQL ms | Logical B-tree delta KiB | Observed WAL KiB | Sampled RSS MiB / samples | 44 reopen ms |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| windows | 100,000 | 42→44 | 1065.222 | 19.078 | 20612 | 31330.54 | 36.11 / 41 | 15.022 |
+| windows | 100,000 | 43→44 | 56.244 | 25.151 | 12 | 28.20 | 23.21 / 3 | 14.660 |
+| windows | 200,000 | 42→44 | 2200.954 | 43.610 | 41380 | 62813.94 | 31.24 / 83 | 14.964 |
+| windows | 200,000 | 43→44 | 98.896 | 48.576 | 12 | 28.20 | 23.10 / 5 | 14.591 |
+| macos | 100,000 | 42→44 | 1098.192 | 24.440 | 20608 | 31326.52 | 100.94 / 14 | 23.487 |
+| macos | 100,000 | 43→44 | 60.291 | 29.023 | 8 | 24.17 | 150.31 / 1 | 16.305 |
+| macos | 200,000 | 42→44 | 2172.563 | 40.370 | 41376 | 62809.91 | 190.33 / 20 | 19.691 |
+| macos | 200,000 | 43→44 | 143.253 | 83.961 | 8 | 24.17 | 243.92 / 2 | 21.144 |
+
+All eight migration observations and their44 reopen checks preserve all12
+complete Snapshots and canonical per-volume facts. Some query cases are empty
+because of stale/disabled fixture distribution; this is equality evidence, not
+a claim that all12 cases have positive matches in these upgrade copies. Every backfill plan is
+`SCAN global_entries USING COVERING INDEX idx_global_entries_active_source_facts`;
+there is no temp GROUP BY sort.43→44 adds a4KiB facts table plus Schema directory
+pages:12KiB logical B-trees on Windows,8KiB on macOS. Physical main-file growth
+is still0 before checkpoint, with committed pages in WAL (28,872B Windows /
+24,752B macOS), so0 is **not** a zero persistent-storage claim.42→44 includes
+covering-index rebuilds and their larger WAL, measured separately by route.
+
+The20ms sampling sleep adds OS/sysinfo overhead, particularly on macOS.43→44
+has only1–5 samples: sampled RSS includes fixture/cache history and is neither
+an OS peak nor migration-attributed memory. Use the recorded after-file WAL
+when sampling misses its brief lifetime; observed WAL is max(sampled,after).
+Free-volume decline includes unrelated Hosted activity and is not exclusive temp
+allocation. At200k it was101.29MiB Windows /171.42MiB macOS for42→44, and0 /
+5.66MiB for43→44; zeros can miss small writes and are not a zero-cost guarantee.
+Peak observed SHM is128KiB (42) /32KiB (43). These warm, compacted Hosted
+observations do not bound cold/slow disks, low-memory hardware, arbitrary source
+cardinality, separate temp volumes or a1M backfill. No need for a1M backfill run
+was demonstrated by the bounded integration: the plan streams the existing
+covering index, persistent facts scale with source cardinality, and failure/
+recovery contracts are exercised directly. **Actual1M Schema44 duration and true
+OS peak resources remain unmeasured.** No extrapolated performance PASS is made.
+
+Durable raw observations and native events:
+[summary CSV](evidence/source-facts/schema44-integration-summary.csv),
+[Windows JSONL](evidence/source-facts/schema44-integration-windows.jsonl.gz),
+[macOS JSONL](evidence/source-facts/schema44-integration-macos.jsonl.gz),
+[Windows UI](evidence/source-facts/schema44-integration-windows-ui.json),
+[macOS UI](evidence/source-facts/schema44-integration-macos-ui.json).
+
+## Remaining acceptance and performance limits
+
+Historical1M pair below remains bound to70b1dff/tree8dab75d, not the integrated
+HEAD:12/12 equality; no-result Snapshot p95 216.397→1.246ms and name-prefix
+299.060→68.729ms. FTS report/invoice pooled p95 remain220.633/233.568ms above
+unchanged100ms; extension-prefix pooled p99+26.10% and whole-volume retirement
++16.9% remain material. Sustained Watcher storms/full1M retirement are unqualified.
+Human keyboard/focus/screen-reader/contrast, packaged first upgrade/tray and
+Owner Windows acceptance remain **UNVERIFIED**. Actual hardware IOERR, OS temp
+exhaustion, very low memory and separate-temp-drive recovery were not injected.
+Existing #446 SIGBUS release qualification remains unresolved. Automated
+integration evidence supports Owner rereview; green CI does not grant release
+qualification or authorize a merge. Draft/OPEN and Owner review/merge authority
+remain unchanged.
 
 ---
 

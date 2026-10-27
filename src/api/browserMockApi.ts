@@ -3472,6 +3472,7 @@ function mockGlobalIndexSources(): GlobalIndexSource[] {
       filesystemType: "mock",
       driveKind: "fixed",
       enabled: true,
+      scopeAuthorizationState: "not_required",
       provider: "recursive_fallback",
       indexStatus: "ready",
       lastError: null,

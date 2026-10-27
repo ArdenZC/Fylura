@@ -86,6 +86,7 @@ function globalIndexSource(enabled = true): GlobalIndexSource {
       filesystemType: "APFS",
       driveKind: "internal",
       enabled,
+      scopeAuthorizationState: "not_required",
       provider: "spotlight",
       indexStatus: "ready",
       lastError: null,

@@ -1,4 +1,4 @@
-//! One production-shaped fixture, controlled short-ID/size copies. No search
+//! One production-shaped fixture, controlled installed-version/size copies. No search
 //! microbenchmark rerun: this measures the actual installed-schema open path.
 use super::*;
 use crate::global_index::stable_entry_id;
@@ -78,7 +78,10 @@ fn schema_upgrade_production_shape_cost() {
         .unwrap_or("200000".into())
         .parse()
         .unwrap();
-    assert!([200_000, 1_000_000].contains(&entries));
+    assert_eq!(
+        entries, 200_000,
+        "This integration uses one bounded 200k fixture per platform"
+    );
     let base_path = test_db_path();
     let _base_cleanup = BenchmarkCleanup(base_path.clone());
     let started = Instant::now();
@@ -153,11 +156,7 @@ fn schema_upgrade_production_shape_cost() {
     emit_record(
         &json!({"record_type":"upgrade_fixture","context":benchmark_context(entries),"fixture_generations":1,"rows":entries,"population_ms":started.elapsed().as_secs_f64()*1000.0,"full_schema":true,"id_bytes":67,"volume_id_bytes":67,"stale_every":13,"disabled_volumes":1}),
     );
-    let scales = if entries == 200_000 {
-        vec![100_000, 200_000]
-    } else {
-        vec![entries]
-    };
+    let scales = [100_000, 200_000];
     for count in scales {
         for starting_schema in [42, 43] {
             let short = false;
@@ -170,34 +169,6 @@ fn schema_upgrade_production_shape_cost() {
                 conn.execute("DELETE FROM global_entries WHERE rowid>?1", [count as i64])
                     .unwrap();
             }
-            if short {
-                conn.execute(
-                    "UPDATE global_entries SET id='ge_bench_' || printf('%07d',rowid)",
-                    [],
-                )
-                .unwrap();
-                // Historical short model had one short gv_test source. Keep
-                // all four enabled/stale groups while changing only key width.
-                conn.execute_batch("BEGIN; PRAGMA defer_foreign_keys=ON;")
-                    .unwrap();
-                for (i, v) in volumes.iter().enumerate() {
-                    let id = format!("gv_short_{i}");
-                    conn.execute(
-                        "UPDATE global_entries SET volume_id=?1 WHERE volume_id=?2",
-                        params![id, v.id],
-                    )
-                    .unwrap();
-                    conn.execute(
-                        "UPDATE global_volumes SET id=?1 WHERE id=?2",
-                        params![id, v.id],
-                    )
-                    .unwrap();
-                }
-                conn.execute_batch("COMMIT").unwrap();
-            }
-            // The single 1M contrast controls fragmentation as well as key
-            // shape. Initial 100k/200k observations retain post-reshape free
-            // pages and are explicitly labelled in the evidence report.
             // Real43 fixture: rebuild indexes before timing; no facts installed.
             if starting_schema == 43 {
                 conn.execute_batch("DROP INDEX idx_global_entries_active_name_order;
@@ -220,7 +191,10 @@ fn schema_upgrade_production_shape_cost() {
                 .unwrap()
                 .collect::<Result<_, _>>()
                 .unwrap();
-            let before_snapshots = historical_snapshots(&conn);
+            let before_snapshots =
+                crate::global_index::repository::with_canonical_source_facts(|| {
+                    historical_snapshots(&conn)
+                });
             drop(conn);
             let before = sizes(&path);
             let done = Arc::new(AtomicBool::new(false));

@@ -554,7 +554,7 @@ jobs:
       - name: Existing schema43 and search semantics
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib schema43 -- --nocapture --test-threads=1
       - name: Integrated 42 and 43 to 44 snapshots and current reopen
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib source_facts_schema44_migrates_populated43_and_reopens_without_recount -- --nocapture --test-threads=1
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib source_facts_schema44_migrates_populated42_43_and_reopens_without_recount -- --nocapture --test-threads=1
       - name: Exact Source Facts writer and nullable ID contracts
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib schema_global_source_facts -- --nocapture --test-threads=1
       - name: Native upgrade visibility, cancellation and retry

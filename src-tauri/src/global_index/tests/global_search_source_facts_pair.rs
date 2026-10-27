@@ -384,7 +384,7 @@ fn prepared_source_facts_preserve_real_snapshot_contracts() {
 }
 
 #[test]
-fn source_facts_schema44_migrates_populated43_and_reopens_without_recount() {
+fn source_facts_schema44_migrates_populated42_43_and_reopens_without_recount() {
     for starting_schema in [42, 43] {
         let path = test_db_path();
         let _cleanup = BenchmarkCleanup(path.clone());

@@ -1307,7 +1307,7 @@ fn global_index_status_with_total(
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('error', 'database_busy', 'service_busy')),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
             (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
             (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)

@@ -1567,7 +1567,7 @@ mod tests {
         assert_eq!(counters.requests.load(Ordering::Acquire), 2);
         assert_eq!(
             failed_after.index_status,
-            crate::global_index::models::INDEX_STATUS_ERROR
+            crate::global_index::models::INDEX_STATUS_DATABASE_BUSY
         );
         assert!(failed_after.last_error.is_some());
         assert_eq!(failed_after.journal_id, failed_before.journal_id);

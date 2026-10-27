@@ -319,6 +319,8 @@ export function readableError(error: unknown): string {
 
 export function localizedStableError(error: unknown, t: Translator): string {
   const message = readableError(error);
+  if (message === "global_index_database_busy") return t("globalIndexErrorDatabaseBusy");
+  if (message === "global_index_service_busy") return t("globalIndexErrorServiceBusy");
   const settingsSaveFailure = /^settings_save_failure:([a-z_]+)$/.exec(message);
   if (settingsSaveFailure) {
     return `${t("settingsSaveFailed")} (${t("settingsFailureCode")}: ${settingsSaveFailure[1]})`;

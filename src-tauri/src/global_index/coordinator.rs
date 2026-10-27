@@ -159,6 +159,29 @@ struct CoordinatorState {
     running: bool,
     paused: bool,
     last_error: Option<String>,
+    transient_busy_status: Option<TransientBusyStatus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransientBusyStatus {
+    Database,
+    Service,
+}
+
+impl TransientBusyStatus {
+    fn index_status(self) -> &'static str {
+        match self {
+            Self::Database => INDEX_STATUS_DATABASE_BUSY,
+            Self::Service => INDEX_STATUS_SERVICE_BUSY,
+        }
+    }
+
+    fn error_code(self) -> &'static str {
+        match self {
+            Self::Database => "global_index_database_busy",
+            Self::Service => "global_index_service_busy",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -206,6 +229,7 @@ impl GlobalIndexCoordinator {
             state.running = true;
             state.paused = false;
             state.last_error = None;
+            state.transient_busy_status = None;
         }
         self.cancel.store(false, Ordering::Release);
         self.wake.notify(GlobalIndexWakeReason::Startup);
@@ -217,7 +241,8 @@ impl GlobalIndexCoordinator {
         let worker = thread::Builder::new()
             .name("zen-canvas-global-index".to_string())
             .spawn(move || {
-                let result = run_index(provider, db, cancel.clone(), wake);
+                let result =
+                    run_index_with_state(provider, db, cancel.clone(), wake, state.clone());
                 if let Ok(mut state) = state.lock() {
                     state.running = false;
                     state.paused = cancel.load(Ordering::Acquire);
@@ -249,6 +274,7 @@ impl GlobalIndexCoordinator {
             GlobalIndexError::Provider("coordinator state lock poisoned".to_string())
         })?;
         state.paused = true;
+        state.transient_busy_status = None;
         Ok(())
     }
 
@@ -301,7 +327,15 @@ impl GlobalIndexCoordinator {
     }
 
     pub fn status(&self) -> Result<GlobalIndexStatus, GlobalIndexError> {
-        Ok(self.db.global_index_status()?)
+        let mut status = self.db.global_index_status()?;
+        if let Ok(state) = self.state.lock() {
+            if let Some(busy) = state.transient_busy_status {
+                status.status = busy.index_status().to_string();
+                status.last_error = Some(busy.error_code().to_string());
+                status.collection_complete = false;
+            }
+        }
+        Ok(status)
     }
 
     pub fn shutdown(&self) -> Result<(), GlobalIndexError> {
@@ -547,11 +581,28 @@ impl GlobalIndexSink for DatabaseIndexSink {
     }
 }
 
+#[cfg(test)]
 fn run_index(
     provider: Arc<dyn GlobalIndexProvider>,
     db: Database,
     cancel: Arc<AtomicBool>,
     wake: Arc<GlobalIndexWakeSlot>,
+) -> Result<(), GlobalIndexError> {
+    run_index_with_state(
+        provider,
+        db,
+        cancel,
+        wake,
+        Arc::new(Mutex::new(CoordinatorState::default())),
+    )
+}
+
+fn run_index_with_state(
+    provider: Arc<dyn GlobalIndexProvider>,
+    db: Database,
+    cancel: Arc<AtomicBool>,
+    wake: Arc<GlobalIndexWakeSlot>,
+    state: Arc<Mutex<CoordinatorState>>,
 ) -> Result<(), GlobalIndexError> {
     let mut previous_topology = None;
     let mut run_cycle = true;
@@ -564,18 +615,26 @@ fn run_index(
             let _ = wake.wait(&cancel, Some(Duration::ZERO));
             super::qa_trace::record("coordinator_cycle");
             let mut cycle_topology = previous_topology.clone();
+            let mut cycle_busy_status = None;
             match run_index_cycle_with_topology(
                 provider.as_ref(),
                 &db,
                 &cancel,
                 &wake,
                 &mut cycle_topology,
+                &mut cycle_busy_status,
             ) {
                 Ok(topology) => {
                     previous_topology = Some(topology);
+                    if let Ok(mut state) = state.lock() {
+                        state.transient_busy_status = cycle_busy_status;
+                    }
                 }
                 Err(error) if sqlite_contention_kind(&error).is_some() => {
                     let kind = sqlite_contention_kind(&error).expect("matched SQLite contention");
+                    if let Ok(mut state) = state.lock() {
+                        state.transient_busy_status = Some(TransientBusyStatus::Database);
+                    }
                     eprintln!(
                         "Global Index cycle deferred after SQLite {kind:?}; no immediate retry scheduled: {error}"
                     );
@@ -642,7 +701,15 @@ fn run_index_cycle(
     wake: &GlobalIndexWakeSlot,
 ) -> Result<SourceTopologySignature, GlobalIndexError> {
     let mut discovered_topology = None;
-    run_index_cycle_with_topology(provider, db, cancel, wake, &mut discovered_topology)
+    let mut busy_status = None;
+    run_index_cycle_with_topology(
+        provider,
+        db,
+        cancel,
+        wake,
+        &mut discovered_topology,
+        &mut busy_status,
+    )
 }
 
 fn run_index_cycle_with_topology(
@@ -651,6 +718,7 @@ fn run_index_cycle_with_topology(
     cancel: &Arc<AtomicBool>,
     wake: &GlobalIndexWakeSlot,
     discovered_topology: &mut Option<SourceTopologySignature>,
+    busy_status: &mut Option<TransientBusyStatus>,
 ) -> Result<SourceTopologySignature, GlobalIndexError> {
     let discovered = provider.discover_sources()?;
     let topology = topology_signature(&discovered);
@@ -777,12 +845,22 @@ fn run_index_cycle_with_topology(
             }
         };
         if !sink.source_operation_admitted(&volume.id) {
-            match result {
+            match &result {
                 Err(GlobalIndexError::Paused) if cancel.load(Ordering::Acquire) => break,
-                // A busy/rejected/unknown request has no source owner. Its
-                // durable health, checkpoint and timestamps remain untouched.
-                _ => continue,
+                // Busy requests are explicitly rejected before source
+                // admission. Keep durable source health and checkpoints
+                // untouched; expose their typed status through the coordinator.
+                Err(GlobalIndexError::ServiceBusy(_)) => {
+                    *busy_status = Some(TransientBusyStatus::Service);
+                }
+                Err(error) if sqlite_contention_kind(error).is_some() => {
+                    *busy_status = Some(TransientBusyStatus::Database);
+                }
+                // Unknown outcomes and local owner conflicts do not establish
+                // a new source state.
+                _ => {}
             }
+            continue;
         }
         match result {
             Ok(()) => {
@@ -846,7 +924,18 @@ fn run_index_cycle_with_topology(
                     wake.notify(GlobalIndexWakeReason::RecoveryRequired);
                 }
             }
-            Err(GlobalIndexError::ServiceBusy(_) | GlobalIndexError::SourceBusy(_)) => {
+            Err(GlobalIndexError::ServiceBusy(message)) => {
+                *busy_status = Some(TransientBusyStatus::Service);
+                sink.finish_source_operation(
+                    &volume.id,
+                    INDEX_STATUS_SERVICE_BUSY,
+                    Some(&message),
+                    None,
+                    None,
+                    false,
+                )?;
+            }
+            Err(GlobalIndexError::SourceBusy(_)) => {
                 sink.mark_source_operation_unknown(&volume.id)?;
             }
             Err(
@@ -855,6 +944,9 @@ fn run_index_cycle_with_topology(
                 sink.mark_source_operation_unknown(&volume.id)?;
             }
             Err(error) => {
+                if sqlite_contention_kind(&error).is_some() {
+                    *busy_status = Some(TransientBusyStatus::Database);
+                }
                 let current = db.get_global_volume(&volume.id)?;
                 let current_status = current
                     .as_ref()
@@ -862,9 +954,13 @@ fn run_index_cycle_with_topology(
                 let was_rebuild_required = volume.index_status == INDEX_STATUS_REBUILD_REQUIRED;
                 let preserved_status =
                     current_status.filter(|status| is_degraded_index_status(status));
-                let status = preserved_status
-                    .map(str::to_string)
-                    .unwrap_or_else(|| source_error_status(&error).to_string());
+                let status = if sqlite_contention_kind(&error).is_some() {
+                    source_error_status(&error).to_string()
+                } else {
+                    preserved_status
+                        .map(str::to_string)
+                        .unwrap_or_else(|| source_error_status(&error).to_string())
+                };
                 sink.finish_source_operation(
                     &volume.id,
                     &status,
@@ -932,6 +1028,8 @@ fn source_error_status(error: &GlobalIndexError) -> &'static str {
         GlobalIndexError::RebuildRequired(_) => INDEX_STATUS_REBUILD_REQUIRED,
         GlobalIndexError::PermissionRequired(_) => INDEX_STATUS_PERMISSION_REQUIRED,
         GlobalIndexError::WindowsIo(5 | 1314) => INDEX_STATUS_PERMISSION_REQUIRED,
+        GlobalIndexError::ServiceBusy(_) => INDEX_STATUS_SERVICE_BUSY,
+        error if sqlite_contention_kind(error).is_some() => INDEX_STATUS_DATABASE_BUSY,
         _ => INDEX_STATUS_ERROR,
     }
 }
@@ -1215,6 +1313,81 @@ mod tests {
     use std::time::Instant;
 
     static TEST_DATABASE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn database_and_service_busy_keep_distinct_index_statuses() {
+        let database_busy =
+            GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                None,
+            )));
+        let service_busy = GlobalIndexError::ServiceBusy("database is locked".into());
+
+        assert_eq!(
+            source_error_status(&database_busy),
+            INDEX_STATUS_DATABASE_BUSY
+        );
+        assert_eq!(
+            source_error_status(&service_busy),
+            INDEX_STATUS_SERVICE_BUSY
+        );
+        assert_eq!(
+            sqlite_contention_kind(&service_busy),
+            None,
+            "service contention must not be inferred from message text"
+        );
+    }
+
+    #[test]
+    fn transient_busy_status_is_visible_without_mutating_durable_source_health() {
+        let path = TestDatabasePath::new();
+        let db = Database::open(&path.0).expect("open isolated status database");
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.index_status = INDEX_STATUS_READY.to_string();
+        db.upsert_global_volume(&volume).expect("seed source state");
+        let coordinator = GlobalIndexCoordinator::with_provider(
+            db.clone(),
+            Arc::new(RecursiveFallbackProvider::new()),
+            Arc::new(GlobalIndexWakeSlot::default()),
+        );
+
+        coordinator
+            .state
+            .lock()
+            .expect("coordinator state lock")
+            .transient_busy_status = Some(TransientBusyStatus::Database);
+        let database_busy = coordinator
+            .status()
+            .expect("transient database busy status");
+        assert_eq!(database_busy.status, INDEX_STATUS_DATABASE_BUSY);
+        assert_eq!(
+            database_busy.last_error.as_deref(),
+            Some("global_index_database_busy")
+        );
+        assert!(!database_busy.collection_complete);
+        assert_eq!(
+            db.get_global_volume(&volume.id)
+                .unwrap()
+                .unwrap()
+                .index_status,
+            INDEX_STATUS_READY,
+            "transient lock classification must not rewrite source health"
+        );
+
+        coordinator
+            .state
+            .lock()
+            .expect("coordinator state lock")
+            .transient_busy_status = Some(TransientBusyStatus::Service);
+        let service_busy = coordinator.status().expect("transient service busy status");
+        assert_eq!(service_busy.status, INDEX_STATUS_SERVICE_BUSY);
+        assert_eq!(
+            service_busy.last_error.as_deref(),
+            Some("global_index_service_busy")
+        );
+
+        drop(db);
+    }
 
     struct TestDatabasePath(PathBuf);
 

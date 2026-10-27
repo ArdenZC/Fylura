@@ -217,6 +217,51 @@ fn explicit_authorization_is_required_to_enable_and_disable_never_grants_consent
 }
 
 #[test]
+fn busy_source_statuses_remain_incomplete_and_distinct_in_the_aggregate() {
+    let path = super::test_db_path();
+    let db = Database::open(&path).expect("open isolated status database");
+    let mut busy = source("busy-status", SCOPE_AUTHORIZATION_AUTHORIZED, true);
+    busy.volume.index_status = INDEX_STATUS_DATABASE_BUSY.to_string();
+    busy.volume.last_error = Some("database error: database is locked".to_string());
+    db.upsert_global_volume(&busy.volume).unwrap();
+
+    let database_status = db.global_index_status().expect("database busy status");
+    assert_eq!(database_status.status, INDEX_STATUS_ERROR);
+    assert!(!database_status.collection_complete);
+    assert_eq!(
+        db.get_global_volume(&busy.volume.id)
+            .unwrap()
+            .unwrap()
+            .index_status,
+        INDEX_STATUS_DATABASE_BUSY
+    );
+
+    db.update_global_volume_state(
+        &busy.volume.id,
+        INDEX_STATUS_SERVICE_BUSY,
+        Some("Another global index operation is already running"),
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let service_status = db.global_index_status().expect("service busy status");
+    assert_eq!(service_status.status, INDEX_STATUS_ERROR);
+    assert!(!service_status.collection_complete);
+    assert_eq!(
+        db.get_global_volume(&busy.volume.id)
+            .unwrap()
+            .unwrap()
+            .index_status,
+        INDEX_STATUS_SERVICE_BUSY
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn concurrent_enable_disable_cannot_grant_or_retain_unauthorized_scope() {
     let path = super::test_db_path();
     let db = Database::open(&path).expect("open isolated test database");

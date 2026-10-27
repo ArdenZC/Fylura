@@ -43,6 +43,14 @@ it("distinguishes source readiness without declaring unindexed snapshots empty",
     expect(feedback.title).not.toBe(t("commandNoResultsTitle"));
   }
   expect(globalSearchFeedback(scopeResponse(request, "ready"), t).title).toBe(t("commandNoResultsTitle"));
+  for (const [status, title] of [
+    ["database_busy", "globalIndexStatusDatabaseBusy"],
+    ["service_busy", "globalIndexStatusServiceBusy"]
+  ] as const) {
+    const busy = scopeResponse(request, status);
+    busy.indexStatus.status = status;
+    expect(globalSearchFeedback(busy, t).title).toBe(t(title));
+  }
   const unverified = scopeResponse(request, "ready");
   unverified.collectionComplete = false;
   unverified.resultState = "pending";

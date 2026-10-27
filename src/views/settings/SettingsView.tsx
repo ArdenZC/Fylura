@@ -141,6 +141,8 @@ function globalIndexStatusText(status: string, t: Translator) {
     paused: "globalIndexStatusPaused",
     rebuild_required: "globalIndexStatusRebuildRequired",
     permission_required: "globalIndexStatusPermissionRequired",
+    database_busy: "globalIndexStatusDatabaseBusy",
+    service_busy: "globalIndexStatusServiceBusy",
     spotlight_unavailable: "globalIndexStatusSpotlightUnavailable",
     spotlight_not_indexed: "globalIndexStatusSpotlightNotIndexed",
     spotlight_external_not_indexed: "globalIndexStatusSpotlightExternalNotIndexed",
@@ -162,6 +164,8 @@ function globalIndexProviderStatusText(status: string | null | undefined, t: Tra
 function globalIndexErrorText(error: string | null | undefined, t: Translator) {
   if (!error) return null;
   const message = error.replace(/^provider error:\s*/i, "");
+  if (message === "global_index_database_busy") return t("globalIndexErrorDatabaseBusy");
+  if (message === "global_index_service_busy") return t("globalIndexErrorServiceBusy");
   if (message.startsWith("macos_spotlight_no_indexed_local_results")) {
     return t("globalIndexErrorSpotlightNoResults");
   }

@@ -20,6 +20,12 @@ export function globalSearchFeedback(response: GlobalSearchResponse, t: Translat
   if (statuses.includes("rebuild_required")) {
     return { title: t("globalIndexStatusRebuildRequired"), description: t("globalSearchRebuildDesc") };
   }
+  if (response.indexStatus.status === "database_busy" || statuses.includes("database_busy")) {
+    return { title: t("globalIndexStatusDatabaseBusy"), description: t("globalSearchDatabaseBusyDesc") };
+  }
+  if (response.indexStatus.status === "service_busy" || statuses.includes("service_busy")) {
+    return { title: t("globalIndexStatusServiceBusy"), description: t("globalSearchServiceBusyDesc") };
+  }
   if (response.resultState === "failed" || statuses.some((status) => ["unavailable", "permission_required", "error"].includes(status))) {
     return { title: t("globalIndexStatusUnavailable"), description: t("globalSearchUnavailableDesc") };
   }

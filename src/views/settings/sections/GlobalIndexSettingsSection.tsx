@@ -25,6 +25,8 @@ export interface GlobalIndexSettingsSectionProps {
 function statusNeedsAttention(status: GlobalIndexStatus | null) {
   return Boolean(
     status?.status === "error"
+      || status?.status === "database_busy"
+      || status?.status === "service_busy"
       || status?.status === "permission_required"
       || status?.status === "authorization_required"
       || status?.status === "spotlight_not_indexed"

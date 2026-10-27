@@ -4,9 +4,9 @@
 
 use super::{
     actual_match_count, assert_entry_triggers_enabled, assert_search_results, benchmark_context,
-    benchmark_escape_glob, candidate_plan_sql, configured_connection, database_metrics,
-    emit_record, populate_synthetic_database, round_ms, sidecar_bytes, summarize_samples,
-    test_db_path, test_volume, BenchmarkCleanup, QueryCase, INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX,
+    benchmark_escape_glob, configured_connection, database_metrics, emit_record,
+    populate_synthetic_database, round_ms, sidecar_bytes, summarize_samples, test_db_path,
+    test_volume, BenchmarkCleanup, QueryCase, INSERT_SYNTHETIC_ENTRY, QUERY_MATRIX,
     SEARCH_CANDIDATE_LIMIT, SEARCH_RESULT_LIMIT,
 };
 use crate::db::Database;
@@ -501,15 +501,11 @@ fn prefix_stage_sql(spec: PrefixQuery) -> Vec<(&'static str, String, Vec<SqlValu
             SqlValue::Integer(QUERY_LIMIT as i64),
         ],
     ));
-    let production_mirror = candidate_plan_sql(
-        &format!(
-            "global_entries ge INDEXED BY {index} JOIN global_volumes gv ON gv.id = ge.volume_id"
-        ),
-        &format!("gv.enabled = 1 AND ge.is_stale = 0 AND ge.{column} GLOB ?2 AND {exact_filter}"),
-        "ge.modified_at_fs DESC, ge.id ASC",
-        rank,
-        "?3",
-    );
+    let production_mirror = diagnostic_search_tier_sql(if spec.extension {
+        "extension_prefix"
+    } else {
+        "name_prefix"
+    });
     stages.push((
         "G_full_production_tier_projection_and_managed_exists_limit_80",
         production_mirror,
@@ -1885,7 +1881,7 @@ fn rollback_insert_samples(conn: &Connection, samples: usize, rows_per_sample: u
     timings
 }
 
-fn insert_diagnostic_entry(
+pub(super) fn insert_diagnostic_entry(
     conn: &Connection,
     id: &str,
     volume_id: &str,
@@ -2857,30 +2853,8 @@ fn global_search_query_cost_diagnostic() {
                 _ => unreachable!("unknown prefix stage: {stage}"),
             }
         }
-        let (column, index, predicate, rank, glob_value) = if spec.extension {
-            (
-                "extension",
-                "idx_global_entries_active_extension_order",
-                "ge.extension <> lower(?1)",
-                "1.0",
-                format!("{}*", benchmark_escape_glob(spec.query)),
-            )
-        } else {
-            (
-                "name_normalized",
-                "idx_global_entries_active_name_order",
-                "ge.name_normalized <> lower(?1)",
-                "0.0",
-                format!("{}*", benchmark_escape_glob(spec.query)),
-            )
-        };
-        let production_plan_sql = candidate_plan_sql(
-            &format!("global_entries ge INDEXED BY {index} JOIN global_volumes gv ON gv.id = ge.volume_id"),
-            &format!("gv.enabled = 1 AND ge.is_stale = 0 AND ge.{column} GLOB ?2 AND {predicate}"),
-            "ge.modified_at_fs DESC, ge.id ASC",
-            rank,
-            "?3",
-        );
+        let glob_value = format!("{}*", benchmark_escape_glob(spec.query));
+        let production_plan_sql = diagnostic_search_tier_sql(tier);
         let production_plan_values = vec![
             SqlValue::Text(spec.query.to_string()),
             SqlValue::Text(glob_value),
@@ -2894,7 +2868,8 @@ fn global_search_query_cost_diagnostic() {
             "query": spec.query,
             "production_tier": tier,
             "total_eligible_matches": expected_count,
-            "plan_sql_mirrors_actual_search_rs_candidate_sql": production_plan_sql,
+            "actual_production_sql": production_plan_sql,
+            "sql_source": "search.rs::diagnostic_search_tier_sql",
             "parameters": sql_values_json(&production_plan_values),
             "explain_query_plan": explain_details(&conn, &production_plan_sql, &production_plan_values),
             "actual_runtime_tier_helper": true
@@ -3127,13 +3102,7 @@ fn global_search_query_cost_diagnostic() {
     let index_plan = explain_details(&conn, TIME_INDEX_PREFIX_SQL, &time_values);
     let base_plan = explain_details(
         &conn,
-        &candidate_plan_sql(
-            "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
-            "ge.modified_at_fs DESC, ge.id ASC",
-            "0.0",
-            "?3",
-        ),
+        &diagnostic_search_tier_sql("name_prefix"),
         &time_values,
     );
     let fts_plan_after = explain_details(&conn, &diagnostic_search_fts_sql(), &fts_values);

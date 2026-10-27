@@ -137,9 +137,14 @@ function isBrowsePathRef(value: unknown): value is BrowsePathRef {
 }
 
 function isBrowseQuerySpec(value: unknown): value is BrowseQuerySpecV1 {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["text", "entryKind"])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["text", "entryKind", "sort"])) return false;
   return (value.text === null || isBoundedNonEmptyString(value.text, MAX_RESTORE_TEXT_LENGTH))
-    && (value.entryKind === "all" || value.entryKind === "file" || value.entryKind === "directory");
+    && (value.entryKind === "all" || value.entryKind === "file" || value.entryKind === "directory")
+    && (value.sort === undefined || isRecord(value.sort)
+      && hasOnlyKeys(value.sort, ["field", "direction", "foldersFirst"])
+      && ["name", "type", "size", "modified"].includes(String(value.sort.field))
+      && ["asc", "desc"].includes(String(value.sort.direction))
+      && typeof value.sort.foldersFirst === "boolean");
 }
 
 /** Runtime validation keeps untrusted callers from smuggling paths or extra authority fields in. */
@@ -227,7 +232,8 @@ function clonePresentation(presentation: WorkspacePresentationState): WorkspaceP
     ...(presentation.browseQuery === undefined ? {} : {
       browseQuery: {
         text: presentation.browseQuery.text,
-        entryKind: presentation.browseQuery.entryKind
+        entryKind: presentation.browseQuery.entryKind,
+        ...(presentation.browseQuery.sort ? { sort: { ...presentation.browseQuery.sort } } : {})
       }
     })
   };
@@ -411,8 +417,10 @@ export class WorkspaceSession {
   navigate(target: NavigationTarget, options: WorkspaceNavigationOptions = {}) {
     if (this.disposedValue) return false;
 
+    const sort = target.kind === "browse" ? this.currentPresentation().browseQuery?.sort : undefined;
     const presentation = options.presentation === undefined
-      ? this.currentEntry() === undefined ? this.pendingPresentation : {}
+      ? this.currentEntry() === undefined ? this.pendingPresentation
+        : sort ? { browseQuery: { text: null, entryKind: "all" as const, sort: { ...sort } } } : {}
       : parsePresentation(options.presentation);
     if (presentation === null) return false;
 

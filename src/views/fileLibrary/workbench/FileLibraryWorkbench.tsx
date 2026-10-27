@@ -1,3 +1,4 @@
+import { FolderComparison } from "../compare/FolderComparison";
 import { Columns2, Copy, FolderInput, Plus, X } from "lucide-react";
 import {
   useCallback,
@@ -332,6 +333,7 @@ export function FileLibraryWorkbench({
           </button>
         </div>
       )}
+      {active.dual && <FolderComparison key={active.id} compact={!wide} paneIds={active.panes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} />}
       {state.tabs.map((tab) => (
         <div
           key={tab.id}

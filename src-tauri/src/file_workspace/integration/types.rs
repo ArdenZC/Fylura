@@ -197,6 +197,8 @@ pub struct BrowsePageDto {
     pub completion: BrowseCompletionDto,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub known_count: Option<usize>,
+    #[serde(default)]
+    pub skipped_entries: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -493,6 +495,7 @@ impl BrowsePageDto {
                 BrowseCompletion::Complete => BrowseCompletionDto::Complete,
             },
             known_count: page.known_count,
+            skipped_entries: page.skipped_entries,
         }
     }
 
@@ -512,6 +515,7 @@ impl BrowsePageDto {
                 BrowseCompletionDto::Complete => BrowseCompletion::Complete,
             },
             known_count: self.known_count,
+            skipped_entries: self.skipped_entries,
         }
     }
 }

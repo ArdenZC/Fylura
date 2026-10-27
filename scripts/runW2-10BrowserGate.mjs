@@ -254,8 +254,14 @@ async function exerciseBrowse(page) {
   await browseSearch.fill("notes");
   await page.locator('select[data-browse-query-kind]').selectOption("file");
   await page.waitForFunction(() => document.querySelector('[data-browse-query="notes"][data-browse-query-kind="file"]') !== null);
-  await page.locator('button[data-browse-sort-capability="unavailable"]').waitFor({ state: "visible" });
-  assert(await page.locator('button[data-browse-sort-capability="unavailable"]').isEnabled() === false, "Browse exposed an enabled whole-folder sort action");
+  const browseSort = page.locator('select[data-browse-sort]');
+  await browseSort.waitFor({ state: "visible" });
+  assert(await browseSort.isEnabled(), "Browse backend sort control is unavailable");
+  await browseSort.selectOption("name");
+  await page.locator('[data-browse-sort-capability="backend-snapshot"]').waitFor({ state: "visible" });
+  await page.locator('[data-browse-entry]').filter({ hasText: "notes.md" }).waitFor({ state: "visible" });
+  assert(await browseSort.inputValue() === "name", "Browse did not retain the selected backend sort");
+  await browseSort.selectOption("native");
 
   await browseSearch.fill("");
   await page.locator('select[data-browse-query-kind]').selectOption("all");

@@ -1038,6 +1038,7 @@ fn map_browse_resolution_error(error: BrowseError) -> SourceResolutionError {
         BrowseError::StateUnavailable
         | BrowseError::InvalidRequest
         | BrowseError::InvalidCursor
+        | BrowseError::SortCapacityExceeded
         | BrowseError::InvalidPageSize
         | BrowseError::InvalidLimits
         | BrowseError::SessionCapacityExceeded

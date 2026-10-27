@@ -51,7 +51,8 @@
     "verify:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check && cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime && cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings",
     "verify:security": "npm run security:audit && npm run security:audit:rust",
     "verify": "npm run verify:frontend && npm run verify:rust && npm run verify:security",
-    "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1"
+    "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1",
+    "test:browser:u3": "node scripts/runU3FileLibraryBrowser.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.3",

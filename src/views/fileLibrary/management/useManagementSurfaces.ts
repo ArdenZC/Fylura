@@ -17,7 +17,8 @@ export function useLibraryManagementSurface(source: LibrarySourceOwner) {
 
 export function useBrowseManagementSurface(source: BrowseSourceOwner) {
   useFileManagementSurface({
-    signature: JSON.stringify(["browse", source.sessionId, source.currentPathRef?.id, source.query, source.selectedEntryRefs]),
+    signature: JSON.stringify(["browse", source.sessionId, source.currentPathRef?.id, source.query, source.selectedEntryRefs, source.collection?.provenance.enumerationId, source.entries.length, source.enumerationState, source.pendingChange, source.changeState]),
+    browseSource: source,
     count: source.selectedCount,
     refs: [...source.selectedEntryRefs],
     browse: source.sessionId && source.currentPathRef

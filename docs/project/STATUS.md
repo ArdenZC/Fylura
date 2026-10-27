@@ -5,7 +5,7 @@ Last verified: 2026-10-27
 ## Current execution truth
 
 - **Global Search Schema44 / merged #479 integration — Draft #478 / Owner rereview decision pending.**
-  Integrated master `f302f5da8ab86f7d121b5cad9a71e5e552b720b6`, Schema43 after
+  Integrated latest master `36a378d7cb1d52b04e67455bccf1997a27e338b5` (U3 #481), Schema43 after
   merged #479. Both native platforms passed42→44/43→44/44 reopen,
   FULL/cancel/kill/retry and visible/background upgrade checks in run40452161859.
   At200k,43→44 open measured98.896ms Windows/143.253ms macOS,
@@ -20,6 +20,26 @@ Last verified: 2026-10-27
   test-only, with no 1M rerun; BM258:2:1
   and ordering unchanged. #417/F1 stays independent. Draft only, Owner merges.
   See [scope, producer audit and bounded protocol](../research/ISSUE_474_EXACT_SOURCE_FACTS.md).
+
+- **U3 File Library sorting, comparison and batch workflow — Draft / Owner review pending (#480).**
+  Base `master@1098af35727cdd3bea042deba41bb59238be586e` (merged U2 #475).
+  Browse query now supports backend-wide name/type/size/modified sorting,
+  direction and folders-first, with stable cursor pages published after bounded
+  metadata collection (20,000 raw children maximum). Native enumeration remains
+  available for larger folders. Each pane/history owns its sort state.
+  Optional current-level comparison progressively completes both source-owned
+  Browse projections, bounds each side to 10,000 visible entries, distinguishes
+  metadata matches from content equality and unvisited subdirectories, and
+  exposes coverage failures instead of complete-directory claims. Exact filename
+  comparison is explicit; no OS-wide case-folding assumption is made.
+  Filtered selection, locate, basket and directional Copy/Move reuse U1/U2 refs,
+  transfer tickets, preview/confirmation, identity revalidation, executor and
+  History/Restore. No new commands, permissions, schema, index, mutation or
+  recovery authority. Browser mock evidence is separate from native acceptance;
+  Windows/macOS GUI remains Owner-owned and UNVERIFIED. See
+  [U3 delivery and validation](tasks/U3-FILE-LIBRARY.md).
+
+
 - **Schema 42→43 startup upgrade — MERGED #479; Schema44 integration in Draft #478.**
   Integrated master 1098af35727cdd3bea042deba41bb59238be586e;
   native pre-database upgrade/recovery UI, FILE sort/cache policy, storage and
@@ -30,7 +50,7 @@ Last verified: 2026-10-27
   #446 SIGBUS release blocker remain unqualified. [Scope, risks and validation](../research/ISSUE_477_SCHEMA_UPGRADE.md).
   #478 now integrates this startup contract through Schema44; no #417 F1 cutover.
 
-- **U2 File Library tabs and dual-pane workspace — Draft / Owner review pending.**
+- **U2 File Library tabs and dual-pane workspace — MERGED #475; native GUI acceptance remains unverified.**
   Base `master@b7a505fdddd7f248c4260edf783b5bae42a93ec5`, normal master CI
   [40320096881](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40320096881)
   SUCCESS. One Files destination now hosts session-local tabs and optional

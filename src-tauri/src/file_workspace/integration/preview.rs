@@ -271,6 +271,7 @@ fn map_folder_browse_error(
         | crate::file_workspace::browse::BrowseError::EntryUnavailable
         | crate::file_workspace::browse::BrowseError::InvalidCursor
         | crate::file_workspace::browse::BrowseError::InvalidRequest
+        | crate::file_workspace::browse::BrowseError::SortCapacityExceeded
         | crate::file_workspace::browse::BrowseError::InvalidPageSize
         | crate::file_workspace::browse::BrowseError::InvalidLimits
         | crate::file_workspace::browse::BrowseError::StateUnavailable

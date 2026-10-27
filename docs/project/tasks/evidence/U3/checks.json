@@ -1,0 +1,19 @@
+{
+  "environment": "Playwright Chromium / browser mock / simulated Windows renderer",
+  "viewports": [
+    "1600x1000",
+    "1280x800",
+    "980x800",
+    "820x800"
+  ],
+  "checks": [
+    "Sort remains pane/tab-local across tab activation",
+    "138 entries per side complete across multiple pages; six comparison statuses and exact case policy",
+    "Filtered selection → Basket → cross-pane ticket/preview → conflict blocks execute → Keep both + Skip → fresh confirmation → result",
+    "Move preview cancel leaves source; subsequent confirmed Move refreshes comparison",
+    "Unsupported directory preview cannot execute",
+    "History reachable from transfer results; mock operations do not claim native Restore qualification",
+    "Chinese and English, light and dark, 820/980/1280/1600 widths without page overflow"
+  ],
+  "errors": []
+}

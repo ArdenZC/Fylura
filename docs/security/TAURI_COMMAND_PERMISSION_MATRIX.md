@@ -2,6 +2,14 @@
 
 `src-tauri/build.rs` is the single generated AppManifest input. Its `COMMANDS` list must stay byte-for-byte complete with the `tauri::generate_handler!` list in `src-tauri/src/main.rs`. The `default` capability is attached only to `main`; `search-window` receives only the read-only/window-internal subset below.
 
+U3 extends the existing Browse start/change-refresh query with optional `sort`
+(field/direction/foldersFirst) and Browse pages with cumulative `skippedEntries`.
+Sorting is read-only, session-scoped and bounded to 20,000 raw children; cursor
+publication retains existing generation/cancellation/ref validation. No new
+command, registration, build-manifest entry or capability grant is introduced.
+Comparison uses these admitted Browse projections; transfer actions retain the
+existing Main-only capture/preview/confirm/execute permission boundary.
+
 | Rust command | Category | Window | Side effect | Capability | Internal main-window guard | Test |
 | --- | --- | --- | --- | --- | --- | --- |
 | `list_automation_intents` | `read_only` | main | PM-02B read durable Intents/Runs and sanitized trigger status | default | no | PM-02A/PM-02B + command permission tests |

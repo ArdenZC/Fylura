@@ -57,7 +57,10 @@ export interface BrowseSourceOwner {
   readonly queryText: string;
   readonly queryEntryKind: BrowseQueryEntryKind;
   readonly isQueryActive: boolean;
-  readonly browseSortAvailable: false;
+  readonly browseSortAvailable: true;
+  readonly skippedEntries: number;
+  readonly setSort: (sort: BrowseQuerySpecV1["sort"]) => void;
+  readonly selectIds: (ids: readonly string[]) => void;
   readonly completion: BrowsePage["completion"] | null;
   readonly knownCount: number | null;
   readonly hasMore: boolean;
@@ -412,7 +415,7 @@ export function useBrowseSourceOwner({
     const initial = browse.initialPage;
     if (initial && consumedAdmissionPageRef.current !== initial && state.workspace.page === initial
       && currentPathRef.id === browse.rootPathRef.id
-      && !query.text && query.entryKind === "all") {
+      && !query.text && query.entryKind === "all" && !query.sort) {
       consumedAdmissionPageRef.current = initial;
       const generation = prepareEnumerationPublication();
       mergePage(initial, generation, targetKey);
@@ -551,7 +554,7 @@ export function useBrowseSourceOwner({
     }
   }, [beginChangeRefresh, beginEnumeration, canWatch, controller.workspace, currentPathRef, query, sessionId, state.workspace.change, targetKey]);
 
-  const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all";
+  const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all" || query.sort !== undefined;
 
   const loadNextPageEntries = useCallback(async (
     scanEmptyQueryPages = isQueryActive
@@ -766,6 +769,16 @@ export function useBrowseSourceOwner({
     controller.setBrowseQuery(nextQuery);
   }, [controller]);
 
+  const setSort = useCallback((sort: BrowseQuerySpecV1["sort"]) => {
+    const next = { ...queryRef.current, sort };
+    queryRef.current = next; setQuery(next); controller.setBrowseQuery(next);
+  }, [controller]);
+  const selectIds = useCallback((ids: readonly string[]) => {
+    const live = new Set(entries.map((e) => e.entryRef.entryId));
+    setSelectedIds(new Set(ids.filter((id) => live.has(id))));
+    setFocusedId(ids.find((id) => live.has(id)) ?? null);
+  }, [entries]);
+
   return {
     locations,
     locationState,
@@ -786,7 +799,10 @@ export function useBrowseSourceOwner({
     queryText: query.text ?? "",
     queryEntryKind: query.entryKind,
     isQueryActive,
-    browseSortAvailable: false,
+    browseSortAvailable: true,
+    skippedEntries: activePage?.skippedEntries ?? 0,
+    setSort,
+    selectIds,
     completion: activePage?.completion ?? null,
     knownCount: activePage?.completion === "complete" && typeof activePage.knownCount === "number" ? activePage.knownCount : null,
     hasMore: activePage?.nextCursor !== undefined,

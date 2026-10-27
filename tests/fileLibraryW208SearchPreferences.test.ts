@@ -52,7 +52,7 @@ describe("W2-08 search, sort and presentation contracts", () => {
 
     expect(browseMode).toContain('t("browseSearchPlaceholder")');
     expect(browseMode).toContain('source.setQueryText');
-    expect(browseMode).toContain('data-browse-sort-capability="unavailable"');
+    expect(browseMode).toContain('data-browse-sort-capability="backend-snapshot"');
     expect(browseMode).toContain('data-browse-query-empty-partial={emptyPartialQuery ? "true" : "false"}');
     expect(browseMode).toContain('t("browseEnumerationSearching")');
     expect(browseSourceOwner).toContain("window.setTimeout");

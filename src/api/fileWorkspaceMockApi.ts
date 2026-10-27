@@ -654,6 +654,35 @@ function nextPage(request: MockArgs): BrowsePage {
   return page;
 }
 
+function sortedMockEntries(entries: BrowseEntry[], query: BrowseQuerySpecV1) {
+  const sort = query.sort;
+  if (!sort) return entries;
+  return [...entries].sort((a, b) => {
+    if (sort.foldersFirst && a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+    const value = (entry: BrowseEntry) => sort.field === "name" ? entry.name : sort.field === "type" ? entry.extension : sort.field === "size" ? entry.size : entry.modifiedAt;
+    const av = value(a), bv = value(b);
+    const compared = av === bv ? 0 : av === undefined ? -1 : bv === undefined ? 1 : av < bv ? -1 : 1;
+    const tie = a.name === b.name ? 0 : a.name < b.name ? -1 : 1;
+    return (compared || tie) * (sort.direction === "desc" ? -1 : 1);
+  });
+}
+function publishFixturePage(session: MockBrowseSession, requestId: string, enumerationId: string, pageSize: number, query: BrowseQuerySpecV1, raw: BrowseEntry[]): BrowsePage {
+  const all = sortedMockEntries(raw.filter((entry) => (query.entryKind === "all" || entry.kind === query.entryKind)
+    && (!query.text || entry.name.toLowerCase().includes(query.text.trim().toLowerCase()))), query);
+  if (query.sort && raw.length > 20_000) throw Error("browse_sort_capacity_exceeded");
+  const start = session.enumeration?.nextIndex ?? 0;
+  const entries = all.slice(start, start + Math.max(1, Math.min(256, pageSize)));
+  const complete = start + entries.length >= all.length;
+  if (session.enumeration) session.enumeration.nextIndex = start + entries.length;
+  for (const entry of entries) {
+    managementEntries.set(entry.ref.entryId, entry);
+    session.entries.set(entry.ref.entryId, { enumerationId, pathRefId: entry.pathRef?.id });
+    if (entry.pathRef) session.pathRefs.add(entry.pathRef.id);
+  }
+  return { sessionId: session.sessionId, requestId, enumerationId, entries, completion: complete ? "complete" : "partial",
+    ...(complete ? { knownCount: all.length } : { nextCursor: session.enumeration?.cursor }) };
+}
+
 function makePage(
   session: MockBrowseSession,
   requestId: string,
@@ -663,16 +692,13 @@ function makePage(
 ): BrowsePage {
   const fixtureEntries = session.routingHint && managementFixturePage(session.sessionId, session.routingHint, enumerationId);
   if (fixtureEntries) {
-    for (const entry of fixtureEntries) {
-      managementEntries.set(entry.ref.entryId, entry);
-      session.entries.set(entry.ref.entryId, { enumerationId });
-    }
-    return { sessionId: session.sessionId, requestId, enumerationId, entries: fixtureEntries, completion: "complete", knownCount: fixtureEntries.length };
+    return publishFixturePage(session, requestId, enumerationId, pageSize, query, fixtureEntries);
   }
   if (isW303QueryGap(query)) {
     return makeW303QueryPage(session, requestId, enumerationId);
   }
   if (isW211IntegratedFixtureEnabled()) {
+    if (query.sort && W211_BROWSE_TOTAL > 20_000) throw Error("browse_sort_capacity_exceeded");
     return makeW211Page(session, requestId, enumerationId, pageSize, query);
   }
   const allEntries = [
@@ -1022,7 +1048,7 @@ function makePage(
   const offset = session.enumeration?.enumerationId === enumerationId
     ? session.enumeration.nextIndex
     : 0;
-  const entries = allEntries.slice(offset, offset + limit);
+  const entries = sortedMockEntries(allEntries, query).slice(offset, offset + limit);
   const complete = offset + entries.length >= allEntries.length;
   if (session.enumeration?.enumerationId === enumerationId) {
     session.enumeration = {

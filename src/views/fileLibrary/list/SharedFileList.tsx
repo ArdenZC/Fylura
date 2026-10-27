@@ -108,6 +108,11 @@ export function SharedFileList({
     ? interaction.entryAt(interaction.focusedIndex)
     : undefined;
 
+  // Comparison can focus an already loaded row outside the current viewport.
+  useEffect(() => {
+    if (interaction.source === "browse" && interaction.focusedIndex >= 0) rowVirtualizer.scrollToIndex(interaction.focusedIndex, { align: "auto" });
+  }, [interaction.source, interaction.focusedIndex, rowVirtualizer]);
+
   useEffect(() => {
     const decision = decideListLoadMore({
       source: interaction.source,

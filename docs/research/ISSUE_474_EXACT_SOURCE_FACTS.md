@@ -3,14 +3,24 @@
 ## Owner rereview: merged #479 integration
 
 Existing Draft [#478](https://github.com/ArdenZC/Zen-Canvas/pull/478) integrates
-latest checked `master@f302f5da8ab86f7d121b5cad9a71e5e552b720b6`, tree
+initial checked `master@f302f5da8ab86f7d121b5cad9a71e5e552b720b6`, tree
 `1bb9e6ee83381c4cbe3a7be8d64542c2e814a510` (normal master CI
 [40432147790](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40432147790) SUCCESS).
 The complete focused Windows/macOS integration and cost run
 [40452161859](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40452161859)
 **SUCCESS** tested source `768464b3ac59b4227521ae82dd3827170f3803c7`, tree
-`57b3c1faa4c4163bba149f478ec4002ad2480d1f`. The subsequent evidence/docs-only
-closeout preserves this exact production/test source. Final HEAD, Tree, diff and
+`57b3c1faa4c4163bba149f478ec4002ad2480d1f`. At final remote verification, master advanced to U3 #481:
+`36a378d7cb1d52b04e67455bccf1997a27e338b5`, tree
+`86c90101848712e97df8bd0de7715cd9ee0fce23`; it remains Schema43. This branch
+integrates that latest master, preserving its File Library implementation and
+resolving only the STATUS overlap. U3 changes no migration, Global Search or
+native upgrade code: those production/test owners remain identical to the
+focused source768464b. No fixture or native upgrade probe is rerun for this
+independent baseline update. Previous integration HEAD4875420/treec1f0d419 had
+normal CI [40453336308](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40453336308)
+SUCCESS plus both-platform1k write smoke40453336279 SUCCESS; these are retained
+as prior evidence, not final-U3-head qualification. New master CI40454962565
+was running when integrated. Final HEAD, Tree, diff and
 normal CI run/result are recorded in the PR description and final handoff;
 [PR checks](https://github.com/ArdenZC/Zen-Canvas/pull/478/checks) track that head.
 No Full Validation, Codex Review, Release, Issue closure or merge is performed.

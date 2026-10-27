@@ -4,7 +4,10 @@ import type { EntryRef, BrowsePathRef } from "../../../types/fileWorkspace";
 import type { LibrarySelectionV1, OperationLog } from "../../../types/domain";
 import type { TransferTicket, TransferAction } from "../../../api/fileManagementApi";
 import { usePane } from "../workbench/PaneContext";
+import type { BrowseSourceOwner } from "../browse/browseSourceOwner";
+
 export interface ManagementSurface {
+  browseSource?: BrowseSourceOwner;
   signature: string;
   count: number | null;
   selection?: LibrarySelectionV1;

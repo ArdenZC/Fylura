@@ -2,12 +2,21 @@
 import type { BrowseEntry, EntryRef } from "../types/fileWorkspace";
 import type { TransferPreview, TransferTicket, SavedPlace } from "./fileManagementApi";
 import type { OperationLog, OperationPreview } from "../types/domain";
-const files = new Map<string, { id: string; version: number; directory?: boolean }>([
+const files = new Map<string, { id: string; version: number; directory?: boolean; size?: number; modified?: number }>([
   ["C:/U1/Source/one.txt", { id: "one", version: 1 }],
   ["C:/U1/Source/two.txt", { id: "two", version: 1 }],
   ["C:/U1/Other/three.txt", { id: "three", version: 1 }],
   ["C:/U1/Target/one.txt", { id: "conflict", version: 1 }]
 ]);
+// U3 browser evidence fixture. Metadata and file mutations remain an in-memory simulation.
+for (let i = 0; i < 137; i++) {
+  const name = `Document-${String(i).padStart(3, "0")}.${i % 2 ? "txt" : "md"}`;
+  if (i !== 2) files.set(`C:/U3/Left/${name}`, { id: `left-${i}`, version: 1, size: i % 7 * 100, modified: 1700000000 + i });
+  if (i !== 1) files.set(`C:/U3/Right/${name}`, { id: `right-${i}`, version: 1, size: i % 7 * 100 + (i === 3 ? 1 : 0), modified: 1700000000 + i + (i === 4 ? 5 : 0) });
+}
+for (const side of ["Left", "Right"]) files.set(`C:/U3/${side}/Subfolder`, { id: `${side}-folder`, version: 1, directory: true });
+files.set("C:/U3/Left/Case.txt", { id: "case-left", version: 1, size: 1, modified: 1 });
+files.set("C:/U3/Right/case.txt", { id: "case-right", version: 1, size: 1, modified: 1 });
 const tickets = new Map<string, TransferTicket>();
 const previews = new Map<string, TransferPreview>();
 const places: SavedPlace[] = [];
@@ -15,10 +24,12 @@ let serial = 0;
 export const managementHistory: OperationLog[] = [];
 const parent = (path: string) => path.slice(0, path.lastIndexOf("/"));
 export function managementFixturePage(sessionId: string, directory: string, enumerationId: string): BrowseEntry[] | null {
-  if (!directory.replace(/\\/g, "/").startsWith("C:/U1/")) return null;
+  if (!["C:/U1/", "C:/U3/"].some((prefix) => directory.replace(/\\/g, "/").startsWith(prefix))) return null;
   return [...files].filter(([path]) => parent(path) === directory).map(([path, file]) => ({
     ref: { kind: "ephemeral", browseSessionId: sessionId, entryId: `${enumerationId}:${file.id}:${file.version}` },
-    name: path.slice(path.lastIndexOf("/") + 1), displayPath: path, kind: "file", size: 10, materialization: "unknown"
+    name: path.slice(path.lastIndexOf("/") + 1), displayPath: path, kind: file.directory ? "directory" : "file",
+    ...(file.directory ? { pathRef: { id: `${enumerationId}:${file.id}:path` } } : { extension: path.split(".").at(-1), size: file.size ?? 10 }),
+    modifiedAt: file.modified ?? 1, materialization: "unknown"
   }));
 }
 export function isManagementCommand(command: string) { return ["file_workspace_transfer_capture", "file_workspace_transfer_preview", "file_workspace_transfer_execute", "file_workspace_places"].includes(command); }
@@ -33,7 +44,8 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
     const rows = request.ticketIds.map((ticketId: string) => {
       const ticket = tickets.get(ticketId); const skipped = request.skip?.includes(ticketId) ?? false;
       if (!ticket) return { ticketId, skipped, preview: null, error: "transfer_reference_expired" };
-      if (ticket.path.startsWith("C:/U1/") && !files.has(ticket.path)) return { ticketId, skipped, preview: null, error: "transfer_source_changed" };
+      if ((ticket.path.startsWith("C:/U1/") || ticket.path.startsWith("C:/U3/")) && !files.has(ticket.path)) return { ticketId, skipped, preview: null, error: "transfer_source_changed" };
+      if (ticket.isDirectory) return { ticketId, skipped, preview: null, error: "transfer_directory_not_supported" };
       let name = ticket.name;
       let target = `${request.destinationDirectory}/${name}`;
       if (request.keepBoth?.includes(ticketId) && (files.has(target) || reserved.has(target))) {

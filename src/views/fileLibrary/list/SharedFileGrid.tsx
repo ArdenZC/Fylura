@@ -129,6 +129,11 @@ export function SharedFileGrid({
   const focusedIsMounted = focusedRow >= 0 && virtualRows.some((row) => row.index === focusedRow);
   const focusedEntry = focusedIsMounted ? interaction.entryAt(interaction.focusedIndex) : undefined;
 
+  // Comparison can focus an already loaded row outside the current viewport.
+  useEffect(() => {
+    if (interaction.source === "browse" && focusedRow >= 0) rowVirtualizer.scrollToIndex(focusedRow, { align: "auto" });
+  }, [interaction.source, focusedRow, rowVirtualizer]);
+
   useEffect(() => {
     const element = gridRef.current;
     if (!element) return;

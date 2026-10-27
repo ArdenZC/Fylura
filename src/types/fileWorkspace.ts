@@ -201,7 +201,14 @@ export interface LocationBrowseRequest {
 
 export type BrowseQueryEntryKind = "all" | "file" | "directory";
 
+export interface BrowseSortSpec {
+  field: "name" | "type" | "size" | "modified";
+  direction: "asc" | "desc";
+  foldersFirst: boolean;
+}
+
 export interface BrowseQuerySpecV1 {
+  sort?: BrowseSortSpec;
   text: string | null;
   entryKind: BrowseQueryEntryKind;
 }
@@ -269,6 +276,7 @@ export interface BrowseEntry {
 }
 
 export interface BrowsePage {
+  skippedEntries?: number;
   sessionId: string;
   requestId: string;
   enumerationId: string;

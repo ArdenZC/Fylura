@@ -4,6 +4,15 @@ Last verified: 2026-10-27
 
 ## Current execution truth
 
+- **U4 File Library Inspector, notes and file favorites — Draft implementation; validation pending.**
+  Issue [#482](https://github.com/ArdenZC/Zen-Canvas/issues/482), based on latest
+  master `b3ace0cda44d0e9db8e67448af88fb056d34232d` (normal CI SUCCESS).
+  Existing pane-local Inspector and shared Preview hosts are reused. User
+  metadata uses a versioned SQLite namespace bound to verified SourceUID;
+  Schema44, U1 folder Places and Global Search remain unchanged. See
+  [U4 contract and validation](tasks/U4-FILE-LIBRARY.md). Required normal PR CI
+  and Owner review remain pending; native GUI/actual Restore are unverified.
+
 - **Global Search exact Source Facts — MERGED #478 / Schema44; release not qualified.**
   Squash-merged [#478](https://github.com/ArdenZC/Zen-Canvas/pull/478) at
   `master@1600614d5236b0767f8e18c0d0105a41857ed317`, integrating [#479](https://github.com/ArdenZC/Zen-Canvas/pull/479)

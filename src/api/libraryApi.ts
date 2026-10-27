@@ -26,6 +26,9 @@ import type {
 } from "../types/domain";
 
 export const libraryApi = {
+  personalMetadata(request: import("../types/domain").FilePersonalMetadataRequest): Promise<import("../types/domain").FilePersonalMetadataResponse> {
+    return invokeCommand("file_library_personal_metadata", { request });
+  },
   getPagedFiles(limit = 50, offset = 0, query?: string, scope?: LibraryScope, filters?: FileLibraryFilters): Promise<FileQueryResult> {
     const normalizedQuery = query?.trim();
     return invokeCommand<FileQueryResult>("get_paged_files", {

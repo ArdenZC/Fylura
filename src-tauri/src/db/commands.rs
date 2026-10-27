@@ -111,6 +111,17 @@ pub fn resolve_file_library_exact_count_v2<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn file_library_personal_metadata<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: PersonalMetadataRequest,
+) -> Result<PersonalMetadataResponse, String> {
+    require_main_window(&window)?;
+    db.file_library_personal_metadata(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
 pub fn get_file_library_detail<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,

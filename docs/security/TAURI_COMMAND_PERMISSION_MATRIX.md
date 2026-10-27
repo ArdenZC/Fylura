@@ -81,6 +81,7 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `create_user_tag` | `main_state_mutation` | main | Create a durable File Library user tag | default | yes | File Library V2 tag tests |
 | `update_user_tag` | `main_state_mutation` | main | Update a durable File Library user tag | default | yes | File Library V2 tag tests |
 | `delete_user_tag` | `main_state_mutation` | main | Delete a durable File Library user tag with usage confirmation | default | yes | File Library V2 tag tests |
+| `file_library_personal_metadata` | `main_state_mutation` | main | Read/list and CAS-edit identity-bound managed notes and favorites; no filesystem writes | default | yes | U4 personal metadata tests |
 | `mutate_file_user_tags` | `main_state_mutation` | main | Apply durable user tags to an explicit or all-matching selection | default | yes | File Library V2 selection tests |
 | `list_library_saved_views` | `read_only` | main | Read durable File Library Saved Views | default | no | File Library V2 Saved View tests |
 | `create_library_saved_view` | `main_state_mutation` | main | Create a canonical durable File Library Saved View | default | yes | File Library V2 Saved View tests |

@@ -421,6 +421,7 @@ fn main() {
             zen_canvas_tauri::db::query_file_library_v2,
             zen_canvas_tauri::db::resolve_file_library_exact_count_v2,
             zen_canvas_tauri::db::get_file_library_detail,
+            zen_canvas_tauri::db::file_library_personal_metadata,
             zen_canvas_tauri::db::get_file_library_selection_summary,
             zen_canvas_tauri::db::reveal_file_library_entry,
             zen_canvas_tauri::db::list_user_tags,

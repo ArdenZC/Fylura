@@ -23,6 +23,7 @@ const COMMANDS: &[&str] = &[
     "query_file_library_v2",
     "resolve_file_library_exact_count_v2",
     "get_file_library_detail",
+    "file_library_personal_metadata",
     "get_file_library_selection_summary",
     "reveal_file_library_entry",
     "list_user_tags",

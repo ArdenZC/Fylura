@@ -167,7 +167,7 @@
 }
 
 .file-library-workspace[data-layout="large"] .browse-mode-body.has-context .file-library-browse-context-layout {
-  grid-template-columns: minmax(520px, minmax(0, 1fr)) minmax(260px, var(--zc-inspector-width));
+  grid-template-columns: minmax(0, 1fr) minmax(260px, var(--zc-inspector-width));
 }
 
 .browse-location-panel {

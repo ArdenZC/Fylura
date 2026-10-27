@@ -29,6 +29,7 @@ export interface BrowseContextTypeCount {
 
 export interface BrowseContextProjection {
   readonly source: "browse";
+  readonly onPreview?: (entry: BrowsePresentationEntry, trigger: HTMLElement) => void;
   readonly kind: ContextPanelContentKind;
   readonly selectedEntries: readonly BrowsePresentationEntry[];
   readonly selectedCount: number;
@@ -77,8 +78,10 @@ export function createBrowseContextProjection({
   selectedIds,
   locationLabel,
   language,
-  t
+  t,
+  onPreview
 }: {
+  onPreview?: (entry: BrowsePresentationEntry, trigger: HTMLElement) => void;
   entries: readonly BrowsePresentationEntry[];
   selectedIds: ReadonlySet<string>;
   locationLabel: string;
@@ -91,6 +94,7 @@ export function createBrowseContextProjection({
   const typeCounts = browseTypeCounts(selectedEntries);
   return {
     source: "browse",
+    onPreview,
     kind: selectedCount === 0 ? "none" : selectedCount === 1 ? "inspector" : "selection-summary",
     selectedEntries,
     selectedCount,

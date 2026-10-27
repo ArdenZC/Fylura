@@ -27,7 +27,7 @@
 }
 
 .file-library-workspace[data-layout="large"] .file-library-library-mode-result.has-context {
-  grid-template-columns: minmax(520px, minmax(0, 1fr)) minmax(260px, var(--zc-inspector-width));
+  grid-template-columns: minmax(0, 1fr) minmax(260px, var(--zc-inspector-width));
 }
 
 .file-library-library-mode-result > section {

@@ -442,7 +442,9 @@
 }
 
 .file-library-context-panel-inline {
-  overflow: auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
   border: 1px solid var(--zc-border);
   border-radius: var(--zc-radius-row);
   background: var(--zc-surface-subtle);
@@ -454,7 +456,6 @@
 }
 
 .file-library-context-panel-inline .file-library-context-panel-content {
-  height: 100%;
   overflow: auto;
 }
 

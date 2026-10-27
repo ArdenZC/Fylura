@@ -19,6 +19,7 @@ import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
+import { useSelectedPreview } from "../preview/useSelectedPreview";
 import { previewSourceFromEntry } from "../preview/previewSource";
 import { createPreviewSiblingNavigation } from "../preview/previewSiblingNavigation";
 import { FileLibraryContextMenu } from "../library/LibraryContextMenu";
@@ -139,13 +140,20 @@ export function BrowseMode() {
 
   useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
+  const selectedPreviewEntries = source.entries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId));
+  const previewSelected = useSelectedPreview(previewController, selectedPreviewEntries.flatMap((entry) => {
+    const projected = previewSourceFromEntry(entry, source.collection);
+    return projected ? [projected] : [];
+  }));
+
   const contextOpen = state.workspace.session.presentation.contextOpen === true;
   const contextProjection = createBrowseContextProjection({
     entries: source.entries,
     selectedIds: source.selectedIds,
     locationLabel: source.browse?.location.displayName ?? t("fileLibraryModeBrowse"),
     language,
-    t
+    t,
+    onPreview: (entry, trigger) => { previewSelected(selectedPreviewEntries.findIndex((item) => item.entryRef.entryId === entry.entryRef.entryId), query("[data-file-library-context-toggle]") ?? trigger); }
   });
 
   function closeContextPanel() {

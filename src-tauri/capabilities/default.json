@@ -49,6 +49,7 @@
     "allow-query-file-library-v2",
     "allow-resolve-file-library-exact-count-v2",
     "allow-get-file-library-detail",
+    "allow-file-library-personal-metadata",
     "allow-get-file-library-selection-summary",
     "allow-reveal-file-library-entry",
     "allow-list-user-tags",

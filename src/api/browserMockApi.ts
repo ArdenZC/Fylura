@@ -1036,6 +1036,25 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
           : mockFiles.filter((file) => !file.is_stale).length,
         countState: "exact"
       } as T;
+    case "file_library_personal_metadata": {
+      const request = args?.request as import("../types/domain").FilePersonalMetadataRequest;
+      const saved = JSON.parse(localStorage.getItem("zc-u4-mock-personal") ?? "{}") as Record<string, import("../types/domain").FilePersonalMetadata>;
+      if (request.kind === "list") {
+        const items = Object.values(saved).filter((item) => request.favorites ? item.favorite : item.note.length > 0)
+          .flatMap((item) => { try { const file = getMockFileLibraryDetail(item.fileId); return [{ fileId: file.id, name: file.name, isStale: file.isStale }]; } catch { return []; } })
+          .sort((a,b) => a.name.localeCompare(b.name) || a.fileId.localeCompare(b.fileId));
+        return { metadata: null, items: items.slice(request.offset, request.offset + 40), hasMore: items.length > request.offset + 40 } as T;
+      }
+      const file = getMockFileLibraryDetail(request.fileId);
+      let metadata = saved[request.fileId] ?? { fileId: request.fileId, note: "", favorite: false, revision: 0, editable: !file.isStale };
+      if (request.kind === "update") {
+        if (file.isStale || request.expectedRevision !== metadata.revision || [...request.note].length > 16000) throw new Error("library_personal_conflict_or_unavailable");
+        metadata = { ...metadata, note: request.note, favorite: request.favorite, revision: metadata.revision + 1 };
+        saved[request.fileId] = metadata;
+        localStorage.setItem("zc-u4-mock-personal", JSON.stringify(saved));
+      }
+      return { metadata: { ...metadata, editable: !file.isStale }, items: [], hasMore: false } as T;
+    }
     case "get_file_library_detail":
       return getMockFileLibraryDetail(String(args?.fileId ?? "")) as T;
     case "get_file_library_selection_summary":

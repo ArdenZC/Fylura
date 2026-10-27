@@ -77,6 +77,7 @@ const explicitContracts: CommandContract[] = [
     "update_user_tag",
     "delete_user_tag",
     "mutate_file_user_tags",
+    "file_library_personal_metadata",
     "create_library_saved_view",
     "update_library_saved_view",
     "delete_library_saved_view",

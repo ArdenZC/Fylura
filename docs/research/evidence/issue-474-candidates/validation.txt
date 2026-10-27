@@ -154,4 +154,3 @@ test global_index::tests::global_search_source_health::global_search_source_heal
 test global_index::tests::global_search_source_health::global_search_source_health_candidates_preserve_null_max_semantics ... ok
 
 test result: ok. 17 passed; 0 failed; 12 ignored; 0 measured; 1148 filtered out; finished in 6.29s
-

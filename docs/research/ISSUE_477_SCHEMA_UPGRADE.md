@@ -3,6 +3,8 @@
 Owner contract: [Issue #477](https://github.com/ArdenZC/Zen-Canvas/issues/477).
 Base master a47672182ea2d92784e226496b6f2d2be8cafe2c,
 tree 765e9b3cd03b391def839e035948baeb89059d78 (Schema 43).
+Baseline master CI [40366243976](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40366243976)
+completed SUCCESS; the preceding production master CI 40361605473 also passed.
 Source Facts/Snapshot/FTS work in #474 is an independent branch and delivery.
 
 ## Result and scope

@@ -216,7 +216,8 @@ fn recent_first_ranking_diverges_from_weighted_bm25() {
     );
     old.modified_at_fs = Some(10);
     let mut recent = test_entry(
-        r"C:\Global\Reports\recent_notes.txt",
+        // Deliberately lowercase: normalize_path() only folds paths on Windows.
+        r"C:\Global\reports\recent_notes.txt",
         "recent_notes.txt",
         false,
     );
@@ -334,4 +335,38 @@ fn profile_sparse_and_zero_tail(conn: &Connection, db: &Database, context: &Json
             "warning": "LIMIT 80 bounds outputs, not number of rows scanned in recency index"
         }));
     }
+}
+
+
+/// Document an existing path-casing mismatch in the *experimental* instr()
+/// matcher: Windows normalizes the path to lowercase; macOS does not. FTS5
+/// trigram matching is configured independently of this naive normalization.
+#[test]
+fn recency_experiment_path_case_is_platform_sensitive() {
+    let path = test_db_path();
+    let _cleanup = BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).expect("open path-case fixture");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert enabled volume");
+    let entry = test_entry(
+        r"C:\Global\Reports\case_only.txt",
+        "case_only.txt",
+        false,
+    );
+    let id = entry.entry_id();
+    db.upsert_global_entries_batch(&[entry])
+        .expect("insert mixed-case-path entry");
+    let conn = db.conn().expect("get path-case connection");
+    let stored: String = conn
+        .query_row(
+            "SELECT path_normalized FROM global_entries WHERE id = ?1",
+            [id.as_str()],
+            |row| row.get(0),
+        )
+        .expect("read actual platform-normalized path");
+    let matched = recent_first(&conn, "report", 80)
+        .into_iter()
+        .any(|row| row.0 == id);
+    assert_eq!(matched, stored.contains("report"));
+    assert_eq!(matched, cfg!(windows));
 }

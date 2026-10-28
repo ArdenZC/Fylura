@@ -915,7 +915,8 @@ fn run_index_cycle_with_topology(
                         .and_then(|current| current.last_error.as_deref())
                         .or(volume.last_error.as_deref())
                 });
-                sink.finish_source_operation(
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     if cancel.load(Ordering::Acquire) {
                         INDEX_STATUS_PAUSED
@@ -935,7 +936,8 @@ fn run_index_cycle_with_topology(
                 )?;
             }
             Err(GlobalIndexError::Paused) => {
-                sink.finish_source_operation(
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     INDEX_STATUS_PAUSED,
                     None,
@@ -946,7 +948,8 @@ fn run_index_cycle_with_topology(
                 break;
             }
             Err(GlobalIndexError::RebuildRequired(message)) => {
-                sink.finish_source_operation(
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     INDEX_STATUS_REBUILD_REQUIRED,
                     Some(&message),
@@ -960,7 +963,8 @@ fn run_index_cycle_with_topology(
             }
             Err(GlobalIndexError::ServiceBusy(message)) => {
                 *busy_status = Some(TransientBusyStatus::Service);
-                sink.finish_source_operation(
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     INDEX_STATUS_SERVICE_BUSY,
                     Some(&message),
@@ -995,7 +999,8 @@ fn run_index_cycle_with_topology(
                         .map(str::to_string)
                         .unwrap_or_else(|| source_error_status(&error).to_string())
                 };
-                sink.finish_source_operation(
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     &status,
                     Some(&error.to_string()),
@@ -1010,6 +1015,32 @@ fn run_index_cycle_with_topology(
         }
     }
     Ok(topology)
+}
+
+// A concurrent disable/capability change can fence an admitted operation after
+// the provider has returned. Keep the newer durable state and continue other
+// sources; the sink has already dropped the stale local owner. Database failures
+// still propagate through the existing contention/error policy.
+fn finish_coordinator_source_operation(
+    sink: &mut DatabaseIndexSink,
+    volume_id: &str,
+    status: &str,
+    error: Option<&str>,
+    full_index_at: Option<i64>,
+    incremental_sync_at: Option<i64>,
+    complete_rebuild_intent: bool,
+) -> Result<(), GlobalIndexError> {
+    match sink.finish_source_operation(
+        volume_id,
+        status,
+        error,
+        full_index_at,
+        incremental_sync_at,
+        complete_rebuild_intent,
+    ) {
+        Err(GlobalIndexError::ServiceOutcomeUnknown(_)) => Ok(()),
+        result => result,
+    }
 }
 
 #[cfg(test)]
@@ -2767,6 +2798,7 @@ mod tests {
         drop(path);
     }
     include!("coordinator_recovery_tests.rs");
+    include!("coordinator_completion_fence_tests.rs");
     #[cfg(target_os = "windows")]
     include!("coordinator_watcher_lifecycle_tests.rs");
 }

@@ -14,19 +14,23 @@ impl WatcherLifecycleProvider {
         kind: SourceOperationKind,
     ) -> Result<(), GlobalIndexError> {
         self.calls.lock().unwrap().push(kind);
-        crate::global_index::windows::WindowsGlobalIndexProvider::run_lifecycle_fixture(
-            source,
-            sink,
-            kind,
-            self.failed.load(Ordering::Acquire),
-            |sink| {
-                sink.checkpoint(&source.volume.id, Some("fixture-journal"), Some("42"))?;
-                if let Some(action) = self.boundary.lock().unwrap().take() {
-                    action();
-                }
-                Ok(())
-            },
-        )
+        let result =
+            crate::global_index::windows::WindowsGlobalIndexProvider::run_lifecycle_fixture(
+                source,
+                sink,
+                kind,
+                self.failed.load(Ordering::Acquire),
+                |sink| {
+                    sink.checkpoint(&source.volume.id, Some("fixture-journal"), Some("42"))?;
+                    Ok(())
+                },
+            );
+        if result.is_ok() {
+            if let Some(action) = self.boundary.lock().unwrap().take() {
+                action();
+            }
+        }
+        result
     }
 }
 impl GlobalIndexProvider for WatcherLifecycleProvider {

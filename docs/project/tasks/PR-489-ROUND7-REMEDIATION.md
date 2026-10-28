@@ -66,6 +66,15 @@ but not a persistent degradation carried into a successful recovered cycle.
    uses 25ms; Windows production remains `5 * 60` seconds.
 6. Pause wins terminal status, disable fences old completion, and a rebuild
    requested during initial indexing remains pending for a later rebuild.
+7. A separate failure-first double-source test disables the first source after
+   provider health reporting and before terminal completion. Previously the
+   stale completion returned ServiceOutcomeUnknown and aborted the entire cycle;
+   the second source was never indexed. Coordinator terminal handling now treats
+   this concrete DatabaseIndexSink fencing result as superseded work, preserves
+   the newer source state, and continues. Other database errors still propagate.
+   Sink-level ownership/fencing behavior is unchanged. The test first failed on
+   the previous candidate and passes after this repair. Windows pause/disable/
+   rebuild callbacks also run at this later completion boundary.
 
 These are production sink/lifecycle tests with injected native work. They do not
 claim real Windows watcher-failure-to-MFT-to-USN GUI E2E.
@@ -139,7 +148,8 @@ in that container; production dependency manifests were not changed.
 - Frontend: 188 files / 1997 tests PASS; focused consent/Settings/coverage 49 PASS.
 - Typecheck, frontend production build, 30 performance-architecture checks,
   documentation/governance and Cargo format PASS.
-- Local Global Index Rust run: 99 PASS, 4 FAIL, 12 pre-existing ignored tests.
+- Latest local Global Index Rust run: 100 PASS, 4 FAIL, 12 pre-existing ignored tests
+  (the earlier candidate had 99 PASS before the extra completion-fence regression).
   New capability/TOCTOU/owner-fencing/projection regressions PASS. No ReadOnly
   occurs in this run. Windows-only tests require Windows CI.
 - All four failures are Managed AI fixture timeouts/no requests at the local
@@ -160,6 +170,21 @@ Local raw logs are retained in `/workspace/scratch/round7-*.log`; hosted test
 logs are retained by their linked Actions runs. The original missing-glib build
 failure and the initially omitted `DOCS_DIFF_BASE` invocation are retained;
 installing libraries and supplying the documented diff base resolved them.
+
+### Independent macOS shadow-verifier deadline occurrence
+
+At candidate `1761292`, [CI 40681230489 attempt 1](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40681230489/attempts/1)
+macOS Rust reported 1262 PASS / 1 FAIL / 37 existing ignored. The sole failure
+was `verifier_checks_actual_fts_postings_beyond_the_seal_hash`: construction of
+its shadow snapshot returned `UNAVAILABLE: read_deadline`, before its deliberate
+FTS-corruption assertion. The configured read budget is 5 seconds; no budget,
+threshold or assertion was changed. This round does not modify library_shadow.
+The same test passed on the failure-first macOS candidate. Local full shadow
+module validation also passed 22/22. Only the failed macOS job was revalidated
+on that identical candidate, with the first failure log retained. These results
+identify budget expiry as the trigger, not an underlying scheduling/I/O cause;
+that underlying cause remains UNVERIFIED and is separate from SQLite ReadOnly.
+Final-candidate CI and any attempt disposition are reconciled in the PR matrix.
 
 ### Historical 15 SQLite ReadOnly failures: UNVERIFIED
 

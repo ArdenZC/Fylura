@@ -47,7 +47,7 @@ describe("W2-11 integrated experience QA contract", () => {
     expect(gate).toContain("url.search = \"\"");
     expect(gate).toContain("<local-path>");
     expect(gate).toContain("localFilePath = pathname.match");
-    expect(gate).toContain("    networkDiagnostics,");
+    expect(gate).toMatch(/networkDiagnostics\r?\n\s*\};/u);
     expect(gate).toContain("assert(consoleErrors.length === 0 && pageErrors.length === 0,");
   });
 

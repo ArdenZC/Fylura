@@ -116,7 +116,9 @@ fn collection_complete_rejects_each_degraded_status() {
     // "always false after the first degradation".
     set_status(&db, "gv_single", INDEX_STATUS_READY);
     assert!(
-        db.global_index_status().expect("status").collection_complete,
+        db.global_index_status()
+            .expect("status")
+            .collection_complete,
         "recovery to ready must restore complete coverage"
     );
 
@@ -136,7 +138,10 @@ fn collection_complete_requires_all_mixed_sources_ready() {
     let status = db.global_index_status().expect("status");
     assert_eq!(status.indexed_volumes, 2);
     assert_eq!(status.ready_volumes, 2);
-    assert!(status.collection_complete, "both ready sources are complete");
+    assert!(
+        status.collection_complete,
+        "both ready sources are complete"
+    );
 
     // One of two sources degraded: still incomplete, and the aggregate status
     // must expose `partial` rather than a zero-result claim.
@@ -144,12 +149,16 @@ fn collection_complete_requires_all_mixed_sources_ready() {
     let status = db.global_index_status().expect("status");
     assert_eq!(status.indexed_volumes, 2);
     assert_eq!(status.ready_volumes, 1);
-    assert!(!status.collection_complete, "mixed ready+permission is partial");
+    assert!(
+        !status.collection_complete,
+        "mixed ready+permission is partial"
+    );
     assert_eq!(status.status, "partial");
 
     // A disabled degraded source must not poison coverage.
     set_status(&db, "gv_b", INDEX_STATUS_READY);
-    db.set_global_volume_enabled("gv_b", false).expect("disable");
+    db.set_global_volume_enabled("gv_b", false)
+        .expect("disable");
     set_status(&db, "gv_b", INDEX_STATUS_PERMISSION_REQUIRED);
     let status = db.global_index_status().expect("status");
     assert_eq!(status.indexed_volumes, 1);

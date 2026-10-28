@@ -4,7 +4,9 @@ import type { GlobalSearchResponse } from "../../types/domain";
 
 const t = (key: string) => key;
 
-function response(overrides: Partial<GlobalSearchResponse>): GlobalSearchResponse {
+function response(
+  overrides: Partial<GlobalSearchResponse>,
+): GlobalSearchResponse {
   return {
     version: 2,
     requestId: "r1",

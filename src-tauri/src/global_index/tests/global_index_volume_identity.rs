@@ -50,7 +50,11 @@ fn capability_change_resets_consent_but_keeps_the_row() {
     db.upsert_global_volume(&downgraded).expect("re-upsert");
 
     let rows = db.list_global_volumes().expect("list");
-    assert_eq!(rows.len(), 1, "the historical row must be kept, not deleted");
+    assert_eq!(
+        rows.len(),
+        1,
+        "the historical row must be kept, not deleted"
+    );
     assert_eq!(
         rows[0].scope_authorization_state, "not_authorized",
         "a capability change must not carry whole-volume consent forward"

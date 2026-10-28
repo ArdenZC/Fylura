@@ -151,7 +151,9 @@ pub fn get_global_index_status(
 pub fn list_global_index_sources(
     db: State<'_, Database>,
 ) -> Result<Vec<GlobalIndexSource>, String> {
-    let mut volumes = db.list_global_volumes().map_err(global_index_database_error)?;
+    let mut volumes = db
+        .list_global_volumes()
+        .map_err(global_index_database_error)?;
     // A cloud mount (e.g. Google Drive for desktop) can re-register under a
     // fresh volume GUID when it reconnects, leaving an older row behind for the
     // same drive letter. Present only the newest row per mount path; the

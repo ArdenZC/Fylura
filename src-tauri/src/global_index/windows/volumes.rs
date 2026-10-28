@@ -93,7 +93,9 @@ pub(crate) fn classify_volume(
         // A cloud/virtual mount presenting NTFS metadata without USN support.
         Some("windows_global_index_unsupported_virtual_volume".to_string())
     } else {
-        Some(format!("windows_global_index_unsupported_drive_kind:{kind}"))
+        Some(format!(
+            "windows_global_index_unsupported_drive_kind:{kind}"
+        ))
     };
     VolumeClassification {
         stable_volume_id,

@@ -15,10 +15,10 @@ measure the corrected snapshot-scoped Candidate B implementation or qualify a 10
 - Historical baseline: Windows x64, Rust 1.97.1, bundled SQLite, `--release`,
   `--features desktop-runtime`.
 - Corrected-code native measurements were run from source SHA
-  `be835b09f1c7e8f2c7aca1997db3b76214d9c867`, tree
-  `579b050ccf8d1ec5493b5be740b440014e9a93ad`, on Windows and macOS Release at official 100k/1M.
-  They follow the exact source's adversarial cases and retain raw JSONL artifacts. The final report
-  distinguishes this code SHA from the documentation/CI-only follow-up commit.
+  `c454ac6283092b67143820777376aa4c3b18b222`, tree
+  `c7892c22c7803697264b2b5a888d4e3e1ec0e711`, on Windows and macOS Release at official 100k/1M.
+  Both platforms passed all 23 adversarial cases. Every measured query has 30 samples after 5
+  warmups; the raw JSONL files are preserved under `docs/research/evidence/issue-494/native/`.
 
 ## 1. What this PR contains
 
@@ -238,41 +238,55 @@ A that keeps the cheap tiers in front would avoid that particular regression; it
 `jp` or `Month-03`, because those need a scan.
 
 **Verdict on A:** no performance acceptance is made from the historical samples. Corrected-code
-native 30-call A measurements are now included in §3.6, but they remain warm synthetic research
-data. Replacing the BM25 substring tier while retaining index tiers still requires Owner approval
-of the ranking semantics and production-shaped qualification. The coverage table documents why
-replacing the whole ladder would change results.
+native 30-call A measurements are preserved in the raw JSONL and regenerable with `summarize.py`;
+they remain warm synthetic research data. Replacing the BM25 substring tier while retaining index
+tiers still requires Owner approval of the ranking semantics and production-shaped qualification.
+The coverage table documents why replacing the whole ladder would change results.
 
 ### 3.6 Corrected-code native measurements
 
-The corrected Candidate B measurements below are from the exact source SHA/tree recorded above.
-Every query has 30 measured calls after 5 warmups. Values are p50/p95/p99 milliseconds using the
-order-statistic rule above. The three paths do different work and return different coverage: the
-production path preserves existing ranking and may miss the proposed path-only case; B uses the
-research ordering and performs SQLite hydration. These numbers do not establish a production win
-or qualify the 100 ms gate.
+The measurements below are from source SHA `c454ac6283092b67143820777376aa4c3b18b222`, tree
+`c7892c22c7803697264b2b5a888d4e3e1ec0e711`. Each query has 30 measured calls after 5 warmups.
+Values are p50/p95/p99 milliseconds using `ceil((n - 1) * q)` with zero-based indexing and no
+interpolation. With 30 samples p99 is the maximum observed call, not a stable tail estimate. The
+production path preserves its existing ranking and may miss proposed path-only matches; B uses the
+research ordering and hydrates through SQLite. These numbers do not establish a production win or
+qualify the 100 ms gate.
 
 | OS / fixture | Query | Proposed hits | N | Production pooled | B full page | B full window |
 | --- | --- | ---: | ---: | --- | --- | --- |
-| macOS / 100k | `zzznomatchtoken` | 0 | 30 | 0.3/0.4/0.6 | 0.6/1.0/1.1 | 0.6/0.7/1.0 |
-| macOS / 100k | `report` | 5,000 | 30 | 9.3/14.8/17.1 | 3.4/4.9/6.0 | 15.3/22.5/23.6 |
-| macOS / 100k | `invoice` | 5,000 | 30 | 12.8/18.6/18.9 | 1.9/2.2/2.3 | 11.5/34.1/42.2 |
-| macOS / 100k | `Month-03` | 6,667 | 30 | 0.2/0.2/0.4 | 2.7/3.7/4.5 | 11.4/14.9/17.5 |
-| macOS / 100k | `pdf` | 18,130 | 30 | 0.3/0.3/0.4 | 6.5/7.4/7.5 | 21.0/22.8/23.3 |
-| macOS / 100k | `jp` | 8,129 | 30 | 0.8/0.8/0.9 | 5.7/8.9/9.8 | 21.5/26.1/26.6 |
-| macOS / 1M | `zzznomatchtoken` | 0 | 30 | 0.3/0.6/0.6 | 6.6/10.1/10.8 | 6.5/11.5/12.0 |
-| macOS / 1M | `report` | 50,000 | 30 | 85.8/105.2/112.5 | 30.4/38.5/39.2 | 36.0/37.3/39.0 |
-| macOS / 1M | `invoice` | 50,000 | 30 | 91.2/103.7/108.2 | 23.2/24.9/25.5 | 32.8/36.3/38.6 |
-| macOS / 1M | `Month-03` | 66,667 | 30 | 0.2/0.4/0.4 | 24.5/38.1/63.6 | 36.2/44.6/48.8 |
-| macOS / 1M | `pdf` | 181,250 | 30 | 0.3/0.3/0.4 | 59.3/64.4/65.5 | 93.3/118.5/128.5 |
-| macOS / 1M | `jp` | 81,249 | 30 | 6.5/7.4/8.9 | 52.1/73.4/74.3 | 77.6/90.7/97.3 |
+| macOS / 100k | `zzznomatchtoken` | 0 | 30 | 0.4/1.0/1.1 | 0.7/0.8/0.9 | 0.9/1.6/2.0 |
+| macOS / 100k | `report` | 5,000 | 30 | 13.3/18.0/18.5 | 4.0/7.4/7.5 | 18.5/24.7/25.3 |
+| macOS / 100k | `invoice` | 5,000 | 30 | 14.9/19.6/23.2 | 2.6/4.8/5.6 | 14.8/21.9/24.1 |
+| macOS / 100k | `Month-03` | 6,667 | 30 | 0.2/0.2/0.2 | 3.2/4.8/6.2 | 17.5/26.0/27.4 |
+| macOS / 100k | `pdf` | 18,130 | 30 | 0.3/1.0/1.0 | 7.4/10.9/11.8 | 24.3/30.5/32.2 |
+| macOS / 100k | `jp` | 8,129 | 30 | 0.9/1.5/2.0 | 5.5/7.5/8.1 | 21.2/26.4/29.2 |
+| macOS / 1M | `zzznomatchtoken` | 0 | 30 | 0.3/0.9/1.1 | 7.6/13.0/13.1 | 6.7/12.2/12.3 |
+| macOS / 1M | `report` | 50,000 | 30 | 83.7/87.9/88.0 | 28.1/38.4/40.2 | 38.7/41.9/46.1 |
+| macOS / 1M | `invoice` | 50,000 | 30 | 93.4/103.8/110.8 | 25.3/28.8/33.6 | 36.8/37.8/37.9 |
+| macOS / 1M | `Month-03` | 66,667 | 30 | 0.3/0.4/0.6 | 22.4/23.5/25.4 | 33.5/44.0/49.4 |
+| macOS / 1M | `pdf` | 181,250 | 30 | 0.2/0.3/0.3 | 59.4/79.5/80.4 | 89.5/108.7/108.9 |
+| macOS / 1M | `jp` | 81,249 | 30 | 6.1/7.5/10.0 | 62.0/88.1/92.2 | 72.6/98.6/112.7 |
+| Windows / 100k | `zzznomatchtoken` | 0 | 30 | 0.4/0.4/0.5 | 0.5/0.6/0.6 | 0.5/0.6/0.6 |
+| Windows / 100k | `report` | 5,000 | 30 | 25.0/27.4/29.1 | 2.1/2.2/2.2 | 12.0/14.8/15.1 |
+| Windows / 100k | `invoice` | 5,000 | 30 | 25.9/27.0/27.3 | 1.8/1.8/1.8 | 12.8/17.5/18.1 |
+| Windows / 100k | `Month-03` | 6,667 | 30 | 0.5/0.5/0.6 | 1.9/2.1/2.1 | 13.9/15.0/15.1 |
+| Windows / 100k | `pdf` | 18,130 | 30 | 0.3/0.4/0.4 | 5.5/5.6/5.8 | 23.7/25.9/28.5 |
+| Windows / 100k | `jp` | 8,129 | 30 | 1.0/1.1/1.2 | 4.1/4.1/4.2 | 24.7/26.5/27.4 |
+| Windows / 1M | `zzznomatchtoken` | 0 | 30 | 0.4/0.5/0.5 | 5.5/5.6/5.8 | 5.5/5.5/5.5 |
+| Windows / 1M | `report` | 50,000 | 30 | 122.0/128.4/130.7 | 27.4/28.4/28.5 | 43.3/47.3/51.9 |
+| Windows / 1M | `invoice` | 50,000 | 30 | 134.1/145.2/151.8 | 25.1/27.1/28.6 | 40.0/42.5/44.9 |
+| Windows / 1M | `Month-03` | 66,667 | 30 | 0.3/0.4/0.4 | 22.4/23.4/23.4 | 38.6/40.6/46.6 |
+| Windows / 1M | `pdf` | 181,250 | 30 | 0.3/0.4/0.5 | 61.4/94.5/101.4 | 100.1/105.5/106.0 |
+| Windows / 1M | `jp` | 81,249 | 30 | 5.8/5.9/6.0 | 46.1/48.1/48.6 | 77.3/82.9/88.2 |
 
-The Mac results show the cost of broad proposed-order scans at 1M: no-match B takes 10.1 ms p95,
-and `pdf` full-window hydration takes 118.5 ms p95. High-hit B page calls are below 100 ms p95 in
-these six selected cases, while B's 4,096-row full window exceeds 100 ms for `pdf`. This is a
-research workload summary, not a pooled production acceptance result. The complete 13-query tables
-for both fixture sizes and both operating systems are regenerable from the committed raw files with
-`summarize.py`.
+For the selected 1M queries, B full-page p95 is below 100 ms on both systems; B's full 4,096-row
+window p95 exceeds 100 ms for `pdf` on both systems. Production pooled `report` and `invoice` p95
+are 87.9/103.8 ms on macOS and 128.4/145.2 ms on Windows. These are warm-cache synthetic query
+measurements, not a production acceptance result. `jp` is a coverage difference: production FTS
+reports no matches while the proposal returns 81,249 filename/path hits. The complete 13-query
+tables for both fixture sizes and operating systems are regenerable from the four committed native
+JSONL files with `summarize.py`.
 
 ## 4. Resources (candidate B)
 
@@ -296,13 +310,16 @@ Corrected-code native memory and build measurements:
 
 | OS / rows | Build ms | Estimated view buffers MiB | RSS at build start MiB | Sampled peak RSS MiB | Peak minus start MiB | RSS samples |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| macOS / 100k | 134 | 12.2 | 141.1 | 261.5 | 120.3 | 3 |
-| macOS / 1M | 2,148 | 145.0 | 307.9 | 1,457.4 | 1,149.5 | 20 |
+| macOS / 100k | 192 | 12.2 | 140.5 | 231.8 | 91.3 | 2 |
+| macOS / 1M | 1,912 | 145.0 | 591.8 | 1,761.8 | 1,170.0 | 23 |
+| Windows / 100k | 157 | 12.2 | 15.8 | 80.4 | 64.6 | 8 |
+| Windows / 1M | 1,719 | 145.0 | 10.8 | 635.5 | 624.7 | 86 |
 
 RSS is the whole test process sampled every 20 ms around the view build. It includes fixture and
-SQLite activity and cannot be attributed to Candidate B; the 1M measurement is a material memory
-risk signal, not a B-only cost. The view buffer estimate is not process RSS. Windows measurements
-are listed in the same table once the Windows run completes.
+SQLite activity and cannot be attributed to Candidate B; the 1M measurements are material memory
+risk signals, not B-only costs. The view buffer estimate is not process RSS. The process memory
+samples varied by OS and run; neither the 624.7 MiB Windows nor the 1,170.0 MiB macOS peak delta
+certifies the proposed 256 MiB B-owned cap.
 
 ## 5. Incremental writes, invalidation and rebuild
 
@@ -321,8 +338,10 @@ incremental patch:
 
 | OS / rows | Insert 512 ms | Delete 512 ms | Rebuild after insert ms | Rebuild after delete ms | Narrow-cache slots |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| macOS / 100k | 33.0 | 25.9 | 114.6 | 110.5 | 0 |
-| macOS / 1M | 21.7 | 241.2 | 1,329.6 | 1,176.8 | 0 |
+| macOS / 100k | 35.8 | 27.7 | 144.6 | 89.7 | 0 |
+| macOS / 1M | 37.7 | 190.2 | 1,448.8 | 1,054.9 | 0 |
+| Windows / 100k | 25.4 | 37.6 | 172.1 | 170.5 | 0 |
+| Windows / 1M | 26.8 | 305.7 | 1,962.3 | 1,954.3 | 0 |
 
 The official fixture has no density query suitable for measuring narrow-cache slots, hence zero
 slots here. The `write_amplification_bytes_per_row` field is based on SQLite file-size delta; zero
@@ -359,18 +378,18 @@ means the file size did not change at that sample boundary and is not a measure 
 - Memory pressure: `ZC_ISSUE494_B_MEMORY_BUDGET_BYTES` (default 256 MiB) aborts the build and returns
   no view. This limit counts estimated view buffers only; it is not a process-wide budget and omits
   build-time maps, SQLite pages and allocator overhead. The 1-byte degradation check remains
-  covered. The proposed 256 MiB production cap is provisional: native Mac whole-process RSS rose by
-  1,149.5 MiB over its pre-build sample at 1M, and the current measurements cannot attribute that
-  rise to B or certify a process-wide cap.
+  covered. The proposed 256 MiB production cap is provisional: native whole-process RSS rose by
+  624.7 MiB on Windows and 1,170.0 MiB on macOS over the pre-build sample at 1M. The measurements
+  cannot attribute those rises to B or certify a process-wide cap.
 
 ## 6. Failures, risks and unresolved limits
 
 1. **No incremental update.** 1.8 s rebuild per write batch at 1M is old exploratory evidence; there
    is no production update implementation or latency claim in this follow-up.
-2. **Memory evidence is incomplete.** The corrected view-buffer estimate is 145 MiB at 1M; Mac
-   whole-process sampled RSS increased 1,149.5 MiB from build start to peak. That RSS includes
-   SQLite and fixture setup and is not attributable to B, so the provisional 256 MiB B-owned cap
-   remains unverified. Windows native data is added below when its job completes.
+2. **Memory evidence is incomplete.** The corrected view-buffer estimate is 145 MiB at 1M; whole-
+   process sampled RSS increased 624.7 MiB on Windows and 1,170.0 MiB on macOS from build start to
+   peak. That RSS includes SQLite and fixture setup and is not attributable to B, so the provisional
+   256 MiB B-owned cap remains unverified.
 3. **High-hit historical percentiles are weak.** Those rows have five samples, so their p95/p99 are
    the maximum observed call. They do not qualify the 100 ms target.
 4. **The corrected native run is warm-cache synthetic evidence only.** The old five-sample rows
@@ -384,14 +403,23 @@ means the file size did not change at that sample boundary and is not a measure 
 7. **Synthetic corpus.** 334 585 distinct directories, 16 extensions, fixed-width names. Real disks
    have longer tails; the directory interning ratio is the number most likely to move.
 8. **Extension-intent collision** is unresolved and is a product decision, not a defect.
-9. **Local Linux validation used a disposable Ubuntu 24.04 container.** After installing the Tauri
-   GTK/WebKit build dependencies there, the repository lib test target compiled and all 23
-   `issue494_*` adversarial tests passed. That run preceded the isolated `pulldown-cmark` advisory
-   patch; the hosted exact-head jobs cover the current dependency locks.
+9. **Local Linux validation used a disposable Ubuntu 24.04 container.** On this source, the Release
+   lib test target passed all 23 Candidate A/B adversarial tests in 32.03 s after a 9m01s first
+   compile. `cargo fmt --check`, `git diff --check`, project governance, and the 78-case CI routing
+   contract test also passed locally. The native hosted runs below cover Windows and macOS.
 10. **The prior Windows local build note** recorded `rustc` repeatedly dying with
    `STATUS_ACCESS_VIOLATION` and hung while the sandbox denied access to
    `F:\CargoTarget\incremental\*.lock`. Builds had to run with `CARGO_INCREMENTAL=0` and a single
    job. This is a historical environment note, not a current test result.
+11. **Native runtime cost was compressed without extending timeouts.** The earlier Windows native
+   run (40666549498) timed out at its existing 180-minute cap after spending 8,263 s (137.7 min) in
+   Debug correctness cases, with repeated large-fixture generation. This follow-up reuses immutable
+   fixture seeds for isolated correctness databases, batches density inserts in 5,000-row chunks,
+   and uses one Release profile for correctness and measurements. The exact-source run
+   (40693012419) completed in about 62 min on Windows and 18 min on macOS. The Windows correctness
+   tests themselves took 342.64 s (5.7 min); the native job still includes compilation, fixture
+   generation and 30-call 100k/1M measurements. The workflow cap remains 180 min, and the normal
+   Windows Rust Quality cap remains 35 min.
 
 ## 7. Architecture recommendation
 
@@ -454,11 +482,22 @@ the product ranking and extension-intent decision remain open.
 
 ## 8. CI evidence
 
-CI results are recorded only after runs for the final HEAD complete. The previous run
-`40650100384` belongs to an earlier commit and is not evidence for this follow-up. The
-branch-scoped native job runs the correctness cases and produces separate 100k and 1M JSONL files
-on `windows-latest` and `macos-latest`; each record contains its source SHA and tree. The existing
-100 ms pooled gate result is reported separately from the research benchmark.
+These completed runs checked out implementation source SHA
+`c454ac6283092b67143820777376aa4c3b18b222`, tree
+`c7892c22c7803697264b2b5a888d4e3e1ec0e711`:
+
+- [CI run 40693012450](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40693012450): success,
+  21 jobs passed and 6 lanes were skipped by the change-scope plan. Windows/macOS Rust Quality,
+  release compile, native qualification and the existing performance suites passed.
+- [Native benchmark run 40693012419](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40693012419):
+  success. Windows/macOS Candidate B correctness and 100k/1M measurements passed; the paired
+  1k-row ISG-00E smoke jobs passed. Five unrelated/manual diagnostic jobs were skipped.
+- [Earlier Windows Debug run 40666549498](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40666549498)
+  timed out at the pre-existing 180-minute cap after its 137.7-minute Debug correctness phase and
+  100k measurement. It is recorded as the pre-optimization timing baseline, not as final evidence.
+
+The final report/evidence-only commit may have a later repository HEAD; the native artifacts are
+bound to the exact implementation SHA/tree above, and the later CI run is recorded in the PR body.
 
 ## 9. Reproduction
 
@@ -495,7 +534,11 @@ Raw JSONL for every number in this report is committed under
 | `official-500k.jsonl` | 500k official fixture |
 | `official-1m.jsonl` | 1M official fixture |
 | `density-100k.jsonl` | 100k controlled density fixture (exact 1/40/5 000/50 000 hit groups) |
-| `summarize.py` | Read-only script that regenerates the tables above from the JSONL |
+| `native/issue494-macos-latest-100k.jsonl` | Corrected native macOS Release 100k fixture, 13 queries × 30 measured calls |
+| `native/issue494-macos-latest-1m.jsonl` | Corrected native macOS Release 1M fixture, 13 queries × 30 measured calls |
+| `native/issue494-windows-latest-100k.jsonl` | Corrected native Windows Release 100k fixture, 13 queries × 30 measured calls |
+| `native/issue494-windows-latest-1m.jsonl` | Corrected native Windows Release 1M fixture, 13 queries × 30 measured calls |
+| `summarize.py` | Read-only script that regenerates the historical and native tables above from JSONL |
 
 Each record carries `experiment`, `record`, `os`, `build`, the fixture identity, the query, the
 sample count and the raw percentile triples, so a table cell can be traced back to one line.

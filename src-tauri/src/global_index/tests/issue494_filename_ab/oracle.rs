@@ -11,10 +11,11 @@
 //! ordering *around* that score. The report states this limitation explicitly
 //! instead of implying a fully independent scorer.
 
+use super::candidate_b::ReadSqlConnection;
 use super::{
     extension_class, fold, proposed_class, rank_all, sqlite_lower, Class, Hit, MAX_WINDOW,
 };
-use rusqlite::{params, Connection};
+use rusqlite::params;
 
 /// One authorized, non-stale file fact as the oracle sees it.
 #[derive(Clone, Debug)]
@@ -30,7 +31,9 @@ pub(super) struct AuthorizedRow {
 /// Full authorized scan. Used by the oracle only; it is the definition of
 /// "ground truth" and its own cost is reported separately so it can never be
 /// confused with a candidate architecture's latency.
-pub(super) fn authorized_rows(conn: &Connection) -> rusqlite::Result<Vec<AuthorizedRow>> {
+pub(super) fn authorized_rows<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
+) -> rusqlite::Result<Vec<AuthorizedRow>> {
     let mut statement = conn.prepare(
         "SELECT ge.rowid, ge.id, ge.name_normalized, ge.path_normalized,
                 ge.extension, ge.modified_at_fs
@@ -92,8 +95,8 @@ pub(super) fn extension_oracle(rows: &[AuthorizedRow], query: &str) -> Vec<Hit> 
 
 /// The exact ordered id list the production FTS tier yields for a query,
 /// including the BM25 tie-break on `(modified_at_fs DESC, id ASC)`.
-fn production_fts_tier(
-    conn: &Connection,
+fn production_fts_tier<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
     query: &str,
     limit: u32,
 ) -> rusqlite::Result<Vec<String>> {
@@ -176,8 +179,8 @@ fn append_unique(
 
 /// Full ordered id list for the current production search, rebuilt from the
 /// documented tier contract rather than from `search.rs`.
-pub(super) fn production_oracle(
-    conn: &Connection,
+pub(super) fn production_oracle<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
     rows: &[AuthorizedRow],
     query: &str,
     limit: u32,
@@ -240,7 +243,10 @@ pub(super) fn production_oracle(
 /// How many authorized rows the production FTS tier would match, before the
 /// candidate window truncates it. Reported so a "fast" number cannot hide a
 /// truncated result set.
-pub(super) fn production_fts_match_count(conn: &Connection, query: &str) -> rusqlite::Result<u64> {
+pub(super) fn production_fts_match_count<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
+    query: &str,
+) -> rusqlite::Result<u64> {
     if query.chars().count() < 3 {
         return Ok(0);
     }
@@ -270,8 +276,8 @@ pub(super) struct MatchSetDivergence {
     pub both: u64,
 }
 
-pub(super) fn match_set_divergence(
-    conn: &Connection,
+pub(super) fn match_set_divergence<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
     rows: &[AuthorizedRow],
     query: &str,
 ) -> rusqlite::Result<MatchSetDivergence> {

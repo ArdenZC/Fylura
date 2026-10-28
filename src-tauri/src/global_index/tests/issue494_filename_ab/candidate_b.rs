@@ -20,7 +20,8 @@
 
 use super::{extension_class, fold, proposed_class, sqlite_lower, Class, Hit, MAX_WINDOW};
 use crate::db::DbError;
-use rusqlite::Connection;
+use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+use rusqlite::{CachedStatement, Connection, Params, Row, Statement};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -43,24 +44,36 @@ pub(super) struct SourceSummary {
 
 /// A bounded read transaction with a unique process-local identity.
 ///
-/// `query_only` prevents writes through this connection while the view is
-/// alive. Writers on other connections may commit concurrently, but SQLite
-/// keeps this snapshot stable. A later transaction receives a different
-/// identity, so an old view is rejected before candidate selection.
+/// An exclusive mutable borrow prevents another Rust caller from changing
+/// this connection while the view is alive. `query_only` and an SQLite
+/// authorizer reject row writes and transaction-control SQL; callers receive a
+/// restricted query facade that cannot remove or replace the authorizer, and
+/// cached statements are flushed before the guard is installed. Writers on
+/// other connections may commit concurrently, but SQLite keeps this snapshot
+/// stable. A later transaction receives a different identity, so an old view
+/// is rejected before candidate selection.
 pub(super) struct ReadSnapshot<'conn> {
-    conn: &'conn Connection,
+    conn: &'conn mut Connection,
     identity: Arc<()>,
     query_only_before: bool,
 }
 
 impl<'conn> ReadSnapshot<'conn> {
-    pub(super) fn begin(conn: &'conn Connection) -> rusqlite::Result<Self> {
+    pub(super) fn begin(conn: &'conn mut Connection) -> rusqlite::Result<Self> {
         let query_only_before: bool = conn.query_row("PRAGMA query_only", [], |row| row.get(0))?;
         conn.pragma_update(None, "query_only", true)?;
         if let Err(error) = conn.execute_batch("BEGIN DEFERRED") {
             let _ = conn.pragma_update(None, "query_only", query_only_before);
             return Err(error);
         }
+        if let Err(error) = install_read_snapshot_authorizer(conn) {
+            let _ = conn.execute_batch("ROLLBACK");
+            let _ = conn.pragma_update(None, "query_only", query_only_before);
+            return Err(error);
+        }
+        // Cached statements prepared before the authorizer was installed must
+        // not retain permission to end or replace this transaction.
+        conn.flush_prepared_statement_cache();
         Ok(Self {
             conn,
             identity: Arc::new(()),
@@ -68,8 +81,21 @@ impl<'conn> ReadSnapshot<'conn> {
         })
     }
 
-    pub(super) fn connection(&self) -> &Connection {
-        self.conn
+    /// Safe SQL-read facade. It exposes query APIs but not rusqlite's hook
+    /// registration methods, so a caller cannot remove the transaction fence.
+    pub(super) fn connection(&self) -> SnapshotReader<'_> {
+        SnapshotReader { conn: self.conn }
+    }
+
+    pub(super) fn production_search(
+        &self,
+        query: &str,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<crate::global_index::models::GlobalSearchResult>, DbError> {
+        crate::global_index::search::search_global_entries_on_connection(
+            self.conn, query, limit, offset,
+        )
     }
 
     fn identity(&self) -> &Arc<()> {
@@ -77,13 +103,126 @@ impl<'conn> ReadSnapshot<'conn> {
     }
 }
 
+/// Query operations shared by a raw connection in tests that do not hold a
+/// snapshot and the restricted facade used while a `ReadSnapshot` is alive.
+/// The trait intentionally has no API for accessing the underlying connection.
+pub(super) trait ReadSqlConnection {
+    fn prepare<'conn>(&'conn self, sql: &str) -> rusqlite::Result<Statement<'conn>>;
+
+    fn prepare_cached<'conn>(&'conn self, sql: &str) -> rusqlite::Result<CachedStatement<'conn>>;
+
+    fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> rusqlite::Result<T>
+    where
+        P: Params,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T>;
+
+    fn execute_batch(&self, sql: &str) -> rusqlite::Result<()>;
+}
+
+impl ReadSqlConnection for Connection {
+    fn prepare<'conn>(&'conn self, sql: &str) -> rusqlite::Result<Statement<'conn>> {
+        Connection::prepare(self, sql)
+    }
+
+    fn prepare_cached<'conn>(&'conn self, sql: &str) -> rusqlite::Result<CachedStatement<'conn>> {
+        Connection::prepare_cached(self, sql)
+    }
+
+    fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> rusqlite::Result<T>
+    where
+        P: Params,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T>,
+    {
+        Connection::query_row(self, sql, params, f)
+    }
+
+    fn execute_batch(&self, sql: &str) -> rusqlite::Result<()> {
+        Connection::execute_batch(self, sql)
+    }
+}
+
+pub(super) struct SnapshotReader<'snapshot> {
+    conn: &'snapshot Connection,
+}
+
+impl ReadSqlConnection for SnapshotReader<'_> {
+    fn prepare<'conn>(&'conn self, sql: &str) -> rusqlite::Result<Statement<'conn>> {
+        self.conn.prepare(sql)
+    }
+
+    fn prepare_cached<'conn>(&'conn self, sql: &str) -> rusqlite::Result<CachedStatement<'conn>> {
+        self.conn.prepare_cached(sql)
+    }
+
+    fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> rusqlite::Result<T>
+    where
+        P: Params,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T>,
+    {
+        self.conn.query_row(sql, params, f)
+    }
+
+    fn execute_batch(&self, sql: &str) -> rusqlite::Result<()> {
+        self.conn.execute_batch(sql)
+    }
+}
+
 impl Drop for ReadSnapshot<'_> {
     fn drop(&mut self) {
+        let _ = remove_read_snapshot_authorizer(self.conn);
         let _ = self.conn.execute_batch("ROLLBACK");
         let _ = self
             .conn
             .pragma_update(None, "query_only", self.query_only_before);
     }
+}
+
+/// Keep the transaction that defines a view from being ended or replaced
+/// through SQL while its `ReadSnapshot` identity is still live. `query_only`
+/// blocks row writes but does not block `COMMIT`, `ROLLBACK`, or savepoints.
+fn install_read_snapshot_authorizer(conn: &Connection) -> rusqlite::Result<()> {
+    conn.authorizer(Some(|context: AuthContext<'_>| match context.action {
+        AuthAction::Read { .. }
+        | AuthAction::Select
+        | AuthAction::Function { .. }
+        | AuthAction::Recursive => Authorization::Allow,
+        AuthAction::Pragma {
+            pragma_name,
+            pragma_value: None,
+        } if pragma_name.eq_ignore_ascii_case("data_version")
+            || pragma_name.eq_ignore_ascii_case("query_only") =>
+        {
+            Authorization::Allow
+        }
+        _ => Authorization::Deny,
+    }))
+}
+
+fn remove_read_snapshot_authorizer(conn: &Connection) -> rusqlite::Result<()> {
+    conn.authorizer(None::<fn(AuthContext<'_>) -> Authorization>)
+}
+
+/// Test-only fault injection for the hydration mismatch fallback. Production
+/// callers cannot mutate through the snapshot because the authorizer rejects
+/// writes and transaction-control statements.
+#[cfg(test)]
+pub(super) fn with_unguarded_mutation_for_test<T>(
+    snapshot: &ReadSnapshot<'_>,
+    mutation: impl FnOnce(&Connection) -> T,
+) -> T {
+    remove_read_snapshot_authorizer(snapshot.conn).expect("remove read snapshot authorizer");
+    snapshot
+        .conn
+        .pragma_update(None, "query_only", false)
+        .expect("disable query-only for fault injection");
+    let result = mutation(snapshot.conn);
+    snapshot
+        .conn
+        .pragma_update(None, "query_only", true)
+        .expect("restore query-only after fault injection");
+    install_read_snapshot_authorizer(snapshot.conn).expect("restore read snapshot authorizer");
+    snapshot.conn.flush_prepared_statement_cache();
+    result
 }
 
 /// Build-time source summary, read once from the same snapshot as the view.
@@ -289,7 +428,7 @@ impl CompactView {
         snapshot: &ReadSnapshot<'_>,
         budget_bytes: usize,
     ) -> Result<Option<Self>, DbError> {
-        let conn = snapshot.connection();
+        let conn: &Connection = snapshot.conn;
         let source_summary = read_source_summary(conn)?;
         let mut view = Self {
             snapshot_identity: Arc::clone(snapshot.identity()),
@@ -682,7 +821,7 @@ pub(super) fn lookup(
             narrowed: false,
         });
     }
-    let conn = snapshot.connection();
+    let conn: &Connection = snapshot.conn;
     let folded = fold(trimmed);
     let sql_lower = sqlite_lower(trimmed);
     let (name_path, narrowed) = view.name_path_channel(&folded, &sql_lower, window, previous);

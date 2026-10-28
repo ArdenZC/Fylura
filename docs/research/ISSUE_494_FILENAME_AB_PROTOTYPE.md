@@ -74,6 +74,7 @@ The cases run with `--test-threads=1`. Their pass/fail state is recorded against
 | `issue494_incremental_narrowing_equals_full_scan` | 10-step typed prefix: narrowed == full scan == oracle within one view |
 | `issue494_cross_connection_data_version_is_not_a_shared_generation` | Per-connection `data_version` behavior and snapshot isolation after an external UPDATE; a view cannot cross snapshots |
 | `issue494_same_connection_write_invalidates_a_snapshot_view` | A same-connection UPDATE leaves both old counters unchanged; the next snapshot rejects the view |
+| `issue494_snapshot_fence_rejects_commit_before_external_top_k_insert` | COMMIT/ROLLBACK/SAVEPOINT and query-only changes are denied; the snapshot exposes a restricted SQL-read facade with no hook-registration API; after an external insert, the old snapshot stays complete and a rebuilt view includes the new winner |
 | `issue494_cross_connection_mutations_are_snapshot_consistent_and_rebuild_completely` | External delete, rename, mtime reorder and inserts preserve the old snapshot result, then a new snapshot rebuild restores the complete ordered page |
 | `issue494_hydration_mismatch_falls_back_instead_of_returning_partial_or_misordered_top_k` | If hydration drops/reorders preselected Top-K rows, the lookup returns an empty fallback result |
 | `issue494_narrow_cache_is_bound_to_view_identity_across_shrink_and_growth` | Old slot cache is bypassed across rebuilt views; both shrink and growth match the oracle |
@@ -252,11 +253,14 @@ describe a supported production update contract.
   same-connection test shows an UPDATE after the snapshot ends changes row facts without advancing
   that connection's `data_version` or `MAX(rowid)`, so the old view is rejected by its snapshot
   identity.
-- The experiment now uses a unique in-memory snapshot identity, sets `query_only` on the reader
-  connection, and builds, selects and hydrates inside that same SQLite transaction. Another
-  connection may commit while the read snapshot stays stable; another snapshot or connection cannot
-  reuse the view. This is not a durable or cross-process generation and does not make B a persistent
-  application cache.
+- The experiment now holds an exclusive mutable borrow of the reader connection, sets `query_only`,
+  and installs an SQLite authorizer that denies writes, `COMMIT`/`ROLLBACK`, savepoints, and changes
+  to `query_only`. It flushes cached statements before installing the guard. Callers get a restricted
+  SQL-read facade, not `rusqlite::Connection`, so they cannot replace the authorizer. Build,
+  selection and hydration run inside that pinned transaction. Another connection may commit while
+  the read snapshot stays stable; another snapshot or connection cannot reuse the view. A test-only
+  fault injector bypasses the guard solely to exercise hydration fallback. This is not a durable or
+  cross-process generation and does not make B a persistent application cache.
 - Hydration that drops a selected row or observes a changed rank returns
   `Fence::HydrationMismatch` with empty result vectors. The caller must use SQL fallback; the code
   does not return a partial page. If a new transaction is needed, its view is rebuilt from that

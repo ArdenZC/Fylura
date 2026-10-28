@@ -10,9 +10,10 @@
 //! reported as A's short-query tail instead of being silently declared
 //! unsupported.
 
+use super::candidate_b::ReadSqlConnection;
 use super::{fold, proposed_class, sqlite_lower, Class, Hit, MAX_WINDOW};
 use crate::db::DbError;
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use std::collections::BinaryHeap;
 
 /// Bounded Top-K collector. `Hit::cmp` is "better first", so the heap's peek is
@@ -78,8 +79,8 @@ pub(super) fn escape_glob(value: &str) -> String {
 /// Extension channel. Served by the existing covering index in every
 /// architecture (production, A and B), so it is deliberately not a differentiator
 /// and is measured as its own cost line.
-pub(super) fn extension_channel(
-    conn: &Connection,
+pub(super) fn extension_channel<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
     query: &str,
     window: usize,
 ) -> Result<Vec<Hit>, DbError> {
@@ -138,8 +139,8 @@ pub(super) fn extension_channel(
 /// Enumerate the complete trigram posting set for `query`. No ordering, no
 /// early LIMIT: the caller must see every match so the Top-K is a true global
 /// Top-K.
-fn enumerate_fts(
-    conn: &Connection,
+fn enumerate_fts<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
     query: &str,
     collector: &mut impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<()>,
 ) -> rusqlite::Result<u64> {
@@ -166,8 +167,8 @@ fn enumerate_fts(
 
 /// Full authorized scan, used only when the query is too short for a trigram
 /// MATCH. This is A's honest short-query tail.
-fn enumerate_scan(
-    conn: &Connection,
+fn enumerate_scan<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
     collector: &mut impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<()>,
 ) -> rusqlite::Result<u64> {
     let mut statement = conn.prepare_cached(
@@ -187,7 +188,11 @@ fn enumerate_scan(
 }
 
 /// Candidate A search. `window` is the product candidate window (4096).
-pub(super) fn search(conn: &Connection, query: &str, window: usize) -> Result<Channels, DbError> {
+pub(super) fn search<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
+    query: &str,
+    window: usize,
+) -> Result<Channels, DbError> {
     let trimmed = query.trim();
     let mut channels = Channels::default();
     if trimmed.is_empty() {
@@ -233,7 +238,10 @@ pub(super) fn search(conn: &Connection, query: &str, window: usize) -> Result<Ch
 }
 
 /// Raw enumeration count without ranking, for the cost-attribution report.
-pub(super) fn enumeration_only(conn: &Connection, query: &str) -> rusqlite::Result<u64> {
+pub(super) fn enumeration_only<C: ReadSqlConnection + ?Sized>(
+    conn: &C,
+    query: &str,
+) -> rusqlite::Result<u64> {
     let trimmed = query.trim();
     if trimmed.chars().count() >= 3 {
         enumerate_fts(conn, trimmed, &mut |_| Ok(()))

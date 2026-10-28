@@ -116,11 +116,11 @@ fn issue494_filename_ab_scale_probe() {
         }),
     ));
 
-    let conn: Connection = fixture.connection();
+    let mut conn: Connection = fixture.connection();
 
     // Phase 1: cold build of B with resource sampling, before any oracle fact
     // set is materialised, so the RSS delta is attributable to B.
-    let snapshot = ReadSnapshot::begin(&conn).expect("coherent read snapshot");
+    let snapshot = ReadSnapshot::begin(&mut conn).expect("coherent read snapshot");
     let sampler = ResourceSampler::start();
     let build_started = std::time::Instant::now();
     let view = CompactView::build(&snapshot, candidate_b::memory_budget_bytes())
@@ -149,12 +149,13 @@ fn issue494_filename_ab_scale_probe() {
     // Phase 2: correctness. The oracle fact set is materialised here and kept
     // for the whole run; it is deliberately built after the RSS sample.
     let rows: Vec<AuthorizedRow> =
-        oracle::authorized_rows(snapshot.connection()).expect("authorized facts");
+        oracle::authorized_rows(&snapshot.connection()).expect("authorized facts");
     let mut measured = 0usize;
     for query in queries() {
         let expected = oracle::proposed_name_path_oracle(&rows, query);
         let expected_extension = oracle::extension_oracle(&rows, query);
-        let a = candidate_a::search(&conn, query, super::MAX_WINDOW).expect("candidate A");
+        let a = candidate_a::search(&snapshot.connection(), query, super::MAX_WINDOW)
+            .expect("candidate A");
         assert_equal(&a.name_path, &expected, &format!("A {query}"));
         let b = candidate_b::lookup(&view, &snapshot, query, super::MAX_WINDOW, None)
             .expect("candidate B");
@@ -174,10 +175,9 @@ fn issue494_filename_ab_scale_probe() {
 
         let production_sql = bench::timed(
             || {
-                let _ = crate::global_index::search::search_global_entries_on_connection(
-                    &conn, query, PAGE_LIMIT, 0,
-                )
-                .expect("production sql search");
+                let _ = snapshot
+                    .production_search(query, PAGE_LIMIT, 0)
+                    .expect("production sql search");
             },
             WARMUP,
             sample_budget,
@@ -204,14 +204,16 @@ fn issue494_filename_ab_scale_probe() {
         );
         let a_full = bench::timed(
             || {
-                let _ = candidate_a::search(&conn, query, super::MAX_WINDOW).expect("A");
+                let _ = candidate_a::search(&snapshot.connection(), query, super::MAX_WINDOW)
+                    .expect("A");
             },
             WARMUP,
             sample_budget,
         );
         let a_enumeration = bench::timed(
             || {
-                let _ = candidate_a::enumeration_only(&conn, query).expect("A enum");
+                let _ =
+                    candidate_a::enumeration_only(&snapshot.connection(), query).expect("A enum");
             },
             WARMUP,
             sample_budget,
@@ -221,7 +223,8 @@ fn issue494_filename_ab_scale_probe() {
         // 4096-row hydration against production's 80-row hydration.
         let a_page = bench::timed(
             || {
-                let _ = candidate_a::search(&conn, query, PAGE_LIMIT as usize).expect("A page");
+                let _ = candidate_a::search(&snapshot.connection(), query, PAGE_LIMIT as usize)
+                    .expect("A page");
             },
             WARMUP,
             sample_budget,
@@ -258,8 +261,12 @@ fn issue494_filename_ab_scale_probe() {
         );
         let b_extension = bench::timed(
             || {
-                let _ = candidate_a::extension_channel(&conn, query, super::MAX_WINDOW)
-                    .expect("extension channel");
+                let _ = candidate_a::extension_channel(
+                    &snapshot.connection(),
+                    query,
+                    super::MAX_WINDOW,
+                )
+                .expect("extension channel");
             },
             WARMUP,
             sample_budget,
@@ -267,7 +274,8 @@ fn issue494_filename_ab_scale_probe() {
         let oracle_scan = bench::once(|| {
             let _ = oracle::proposed_name_path_oracle(&rows, query);
         });
-        let fts_matches = oracle::production_fts_match_count(&conn, query).expect("fts count");
+        let fts_matches =
+            oracle::production_fts_match_count(&snapshot.connection(), query).expect("fts count");
 
         bench::emit(bench::record(
             "query",
@@ -308,7 +316,7 @@ fn issue494_filename_ab_scale_probe() {
     drop(snapshot);
 
     // Phase 4: incremental write and rebuild cost.
-    let incremental = incremental_cost(&fixture, &conn, entries);
+    let incremental = incremental_cost(&fixture, &mut conn, entries);
     bench::emit(bench::record(
         "incremental",
         json!({
@@ -321,7 +329,7 @@ fn issue494_filename_ab_scale_probe() {
     drop(conn);
 }
 
-fn incremental_cost(fixture: &Fixture, conn: &Connection, entries: u64) -> serde_json::Value {
+fn incremental_cost(fixture: &Fixture, conn: &mut Connection, entries: u64) -> serde_json::Value {
     const BATCH: u64 = 512;
     let db: &Database = fixture.db();
     let before_bytes = db_bytes(&fixture.path);

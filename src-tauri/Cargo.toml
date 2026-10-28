@@ -129,3 +129,6 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+rusqlite = { version = "0.39", features = ["hooks"] }

@@ -337,7 +337,6 @@ fn profile_sparse_and_zero_tail(conn: &Connection, db: &Database, context: &Json
     }
 }
 
-
 /// Document an existing path-casing mismatch in the *experimental* instr()
 /// matcher: Windows normalizes the path to lowercase; macOS does not. FTS5
 /// trigram matching is configured independently of this naive normalization.
@@ -348,11 +347,7 @@ fn recency_experiment_path_case_is_platform_sensitive() {
     let db = Database::open(&path).expect("open path-case fixture");
     db.upsert_global_volume(&test_volume())
         .expect("insert enabled volume");
-    let entry = test_entry(
-        r"C:\Global\Reports\case_only.txt",
-        "case_only.txt",
-        false,
-    );
+    let entry = test_entry(r"C:\Global\Reports\case_only.txt", "case_only.txt", false);
     let id = entry.entry_id();
     db.upsert_global_entries_batch(&[entry])
         .expect("insert mixed-case-path entry");

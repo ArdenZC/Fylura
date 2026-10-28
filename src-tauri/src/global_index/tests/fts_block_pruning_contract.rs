@@ -157,7 +157,10 @@ fn exact_block_bound_respects_ties_visibility_and_generation() {
     let exact = exhaustive_top_k(&rows, 80);
     let (pruned, stats) = bounded_top_k(&blocks, 17, 80).expect("valid snapshot");
     assert_eq!(pruned, exact);
-    assert!(stats.skipped > 0, "strong score bounds must skip weak blocks");
+    assert!(
+        stats.skipped > 0,
+        "strong score bounds must skip weak blocks"
+    );
     assert!(
         stats.inspected_postings < rows.len() / 4,
         "pruned model should avoid most postings on separable scores"
@@ -181,12 +184,8 @@ fn exact_block_bound_respects_ties_visibility_and_generation() {
     let invisible = (0..512)
         .map(|i| row(i, -1.0, false, i % 2 == 0))
         .collect::<Vec<_>>();
-    let (invisible_top, _) = bounded_top_k(
-        &build_oracle_blocks(&invisible, 64, 19),
-        19,
-        80,
-    )
-    .expect("disabled volume is not visible");
+    let (invisible_top, _) = bounded_top_k(&build_oracle_blocks(&invisible, 64, 19), 19, 80)
+        .expect("disabled volume is not visible");
     assert!(invisible_top.is_empty());
 
     // A score-reducing update makes a previously stored bound unsafe.

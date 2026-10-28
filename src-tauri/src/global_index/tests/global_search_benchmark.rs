@@ -11,10 +11,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-#[path = "global_search_fts_diagnostic.rs"]
-mod fts_diagnostic;
 #[path = "fts_block_pruning_contract.rs"]
 mod fts_block_pruning_contract;
+#[path = "global_search_fts_diagnostic.rs"]
+mod fts_diagnostic;
 #[path = "global_search_index_cost_benchmark.rs"]
 mod index_cost_benchmark;
 #[path = "global_search_query_cost_diagnostic.rs"]

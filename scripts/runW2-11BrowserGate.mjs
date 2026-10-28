@@ -897,6 +897,7 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     await assertNoHorizontalOverflow(page, `${viewport.width}x${viewport.height}@${deviceScaleFactor}`);
     assert(consoleErrors.length === 0 && pageErrors.length === 0,
       `Browser console/page errors: ${JSON.stringify({ consoleErrors, pageErrors })}`);
+    console.log(`[w2-11-real] NETWORK ${viewport.width}x${viewport.height}@${deviceScaleFactor} ${JSON.stringify(networkDiagnostics)}`);
     return metrics;
   } catch (error) {
     networkDiagnostics.pageUrl = sanitizeRequestUrl(page.url());

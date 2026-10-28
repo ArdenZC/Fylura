@@ -288,7 +288,7 @@ fn issue494_filename_ab_scale_probe() {
                 "production_fts_matches": fts_matches,
                 "samples": sample_budget,
                 "percentile_samples": production_sql.samples,
-                "percentile_interpretation": "linear_interpolation_over_30_measured_calls",
+                "percentile_interpretation": "ceil((n-1)*q)_empirical_order_statistic_over_30_measured_calls",
                 "production_sql": production_sql.triple(),
                 "production_pooled": production_pooled.triple(),
                 "production_snapshot": production_snapshot.triple(),

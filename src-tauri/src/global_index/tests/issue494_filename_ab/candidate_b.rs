@@ -116,6 +116,8 @@ pub(super) trait ReadSqlConnection {
         P: Params,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T>;
 
+    fn execute<P: Params>(&self, sql: &str, params: P) -> rusqlite::Result<usize>;
+
     fn execute_batch(&self, sql: &str) -> rusqlite::Result<()>;
 }
 
@@ -134,6 +136,10 @@ impl ReadSqlConnection for Connection {
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T>,
     {
         Connection::query_row(self, sql, params, f)
+    }
+
+    fn execute<P: Params>(&self, sql: &str, params: P) -> rusqlite::Result<usize> {
+        Connection::execute(self, sql, params)
     }
 
     fn execute_batch(&self, sql: &str) -> rusqlite::Result<()> {
@@ -160,6 +166,10 @@ impl ReadSqlConnection for SnapshotReader<'_> {
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T>,
     {
         self.conn.query_row(sql, params, f)
+    }
+
+    fn execute<P: Params>(&self, sql: &str, params: P) -> rusqlite::Result<usize> {
+        self.conn.execute(sql, params)
     }
 
     fn execute_batch(&self, sql: &str) -> rusqlite::Result<()> {

@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 ammonia = "~4.1.8"
-pulldown-cmark = "0.13.4"
+pulldown-cmark = "0.13.5"
 thiserror = "2"

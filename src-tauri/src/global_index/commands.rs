@@ -156,7 +156,7 @@ pub fn get_global_index_status(
 /// because they are never authorized or enabled. Pure so the non-destructive
 /// presentation contract is testable without Tauri state.
 pub(crate) fn newest_row_per_mount_path(mut volumes: Vec<GlobalVolume>) -> Vec<GlobalVolume> {
-    volumes.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    volumes.sort_by_key(|volume| std::cmp::Reverse(volume.updated_at));
     let mut seen_mount_paths = std::collections::HashSet::new();
     volumes.retain(|volume| seen_mount_paths.insert(volume.mount_path.clone()));
     volumes

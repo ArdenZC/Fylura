@@ -1871,3 +1871,6 @@ mod global_search_coverage_completeness;
 
 #[path = "tests/global_index_volume_identity.rs"]
 mod global_index_volume_identity;
+
+#[path = "tests/watcher_degradation_poll.rs"]
+mod watcher_degradation_poll;

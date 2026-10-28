@@ -1177,6 +1177,22 @@ impl Database {
         global_index_status_from_connection(&conn)
     }
 
+    /// True while an enabled source cannot observe changes.
+    ///
+    /// The coordinator uses this to keep a bounded poll fallback alive: a
+    /// source whose change watcher never started is degraded, not ready, and
+    /// must still be reconciled on the low-frequency audit tick until the
+    /// watcher recovers.
+    pub fn has_watcher_unavailable_sources(&self) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = ?1",
+            [super::models::INDEX_STATUS_WATCHER_UNAVAILABLE],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     pub fn search_global_entries(
         &self,
         query: &str,

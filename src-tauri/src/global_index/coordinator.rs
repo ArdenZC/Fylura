@@ -671,21 +671,36 @@ fn run_index_with_state(
                 run_cycle = true;
             }
             GlobalIndexWaitResult::Cancelled | GlobalIndexWaitResult::Shutdown => break,
-            GlobalIndexWaitResult::TimedOut => match provider.audit_source_topology() {
-                Ok(Some(discovered)) => {
-                    let current_topology = topology_signature(&discovered);
-                    run_cycle = previous_topology.as_ref() != Some(&current_topology);
-                    if run_cycle {
-                        wake.notify(GlobalIndexWakeReason::SourceTopology);
-                        previous_topology = Some(current_topology);
+            GlobalIndexWaitResult::TimedOut => {
+                // A source whose change watcher never started is degraded, not
+                // ready: its results would silently freeze. Keep a bounded poll
+                // fallback alive on this low-frequency tick (the ingest path is
+                // an incremental USN delta, not a full MFT rescan) until the
+                // watcher recovers and the source returns to `ready`.
+                let degraded = db
+                    .has_watcher_unavailable_sources()
+                    .unwrap_or_else(|error| {
+                        eprintln!("Global Index watcher degradation probe failed: {error}");
+                        false
+                    });
+                match provider.audit_source_topology() {
+                    Ok(Some(discovered)) => {
+                        let current_topology = topology_signature(&discovered);
+                        let topology_changed =
+                            previous_topology.as_ref() != Some(&current_topology);
+                        run_cycle = topology_changed || degraded;
+                        if run_cycle {
+                            wake.notify(GlobalIndexWakeReason::SourceTopology);
+                            previous_topology = Some(current_topology);
+                        }
+                    }
+                    Ok(None) => run_cycle = degraded,
+                    Err(error) => {
+                        eprintln!("Global Index topology audit failed: {error}");
+                        run_cycle = degraded;
                     }
                 }
-                Ok(None) => run_cycle = false,
-                Err(error) => {
-                    eprintln!("Global Index topology audit failed: {error}");
-                    run_cycle = false;
-                }
-            },
+            }
         }
     }
     Ok(())

@@ -17,7 +17,7 @@ use crate::global_index::{
     INDEX_STATUS_PERMISSION_REQUIRED, INDEX_STATUS_READY, INDEX_STATUS_REBUILD_REQUIRED,
     INDEX_STATUS_SERVICE_BUSY, INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED,
     INDEX_STATUS_SPOTLIGHT_NOT_INDEXED, INDEX_STATUS_SPOTLIGHT_UNAVAILABLE, INDEX_STATUS_SYNCING,
-    INDEX_STATUS_UNAVAILABLE,
+    INDEX_STATUS_UNAVAILABLE, INDEX_STATUS_WATCHER_UNAVAILABLE,
 };
 
 fn volume(id: &str, enabled: bool) -> GlobalVolume {
@@ -51,6 +51,9 @@ const DEGRADED_STATUSES: &[&str] = &[
     INDEX_STATUS_DISCOVERED,
     INDEX_STATUS_DATABASE_BUSY,
     INDEX_STATUS_SERVICE_BUSY,
+    // Baseline finished but the change watcher never started: results are real
+    // yet frozen, so the snapshot must not claim complete coverage.
+    INDEX_STATUS_WATCHER_UNAVAILABLE,
 ];
 
 #[test]

@@ -147,23 +147,29 @@ pub fn get_global_index_status(
     load_global_index_status(coordinator.inner())
 }
 
+/// Presents one row per mount path, newest first.
+///
+/// A cloud mount (e.g. Google Drive for desktop) can re-register under a fresh
+/// volume GUID when it reconnects, leaving an older row behind for the same
+/// drive letter. The historical row stays in the database untouched — nothing
+/// is deleted, merged or re-linked — and duplicates are harmless for coverage
+/// because they are never authorized or enabled. Pure so the non-destructive
+/// presentation contract is testable without Tauri state.
+pub(crate) fn newest_row_per_mount_path(mut volumes: Vec<GlobalVolume>) -> Vec<GlobalVolume> {
+    volumes.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    let mut seen_mount_paths = std::collections::HashSet::new();
+    volumes.retain(|volume| seen_mount_paths.insert(volume.mount_path.clone()));
+    volumes
+}
+
 #[tauri::command]
 pub fn list_global_index_sources(
     db: State<'_, Database>,
 ) -> Result<Vec<GlobalIndexSource>, String> {
-    let mut volumes = db
+    let volumes = db
         .list_global_volumes()
         .map_err(global_index_database_error)?;
-    // A cloud mount (e.g. Google Drive for desktop) can re-register under a
-    // fresh volume GUID when it reconnects, leaving an older row behind for the
-    // same drive letter. Present only the newest row per mount path; the
-    // historical row stays in the database untouched — nothing is deleted,
-    // merged or re-linked. Duplicates are additionally harmless for coverage
-    // because they are never authorized or enabled.
-    volumes.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-    let mut seen_mount_paths = std::collections::HashSet::new();
-    volumes.retain(|volume| seen_mount_paths.insert(volume.mount_path.clone()));
-    Ok(volumes
+    Ok(newest_row_per_mount_path(volumes)
         .into_iter()
         .map(|volume| GlobalIndexSource {
             can_pause: volume.index_status == INDEX_STATUS_INDEXING
@@ -484,6 +490,46 @@ fn open_path(path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn volume(id: &str, mount_path: &str, updated_at: i64) -> GlobalVolume {
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.id = id.to_string();
+        volume.stable_volume_id = format!(r"\\?\Volume{{{id}}}\");
+        volume.mount_path = mount_path.to_string();
+        volume.updated_at = updated_at;
+        volume
+    }
+
+    #[test]
+    fn duplicate_rows_for_one_mount_path_present_only_the_newest() {
+        // Google Drive for desktop re-registers under a fresh volume GUID when
+        // it reconnects, leaving two rows for G:\ with different stable ids.
+        let rows = newest_row_per_mount_path(vec![
+            volume("42ff7b96-d1ab-11f1", "G:\\", 1_760_000_000),
+            volume("f8cd1153-d296-11f1", "G:\\", 1_760_000_900),
+        ]);
+
+        assert_eq!(rows.len(), 1, "one card per mount path");
+        assert_eq!(rows[0].stable_volume_id, r"\\?\Volume{f8cd1153-d296-11f1}\");
+        assert!(
+            rows[0].updated_at > 1_760_000_000,
+            "the newest identity wins so a stale row cannot mask a reconnect"
+        );
+    }
+
+    #[test]
+    fn dedupe_keeps_every_other_mount_and_orders_by_recency() {
+        let rows = newest_row_per_mount_path(vec![
+            volume("a", "G:\\", 10),
+            volume("b", "C:\\", 30),
+            volume("c", "G:\\", 20),
+            volume("d", "Z:\\", 5),
+        ]);
+
+        let mounts: Vec<&str> = rows.iter().map(|row| row.mount_path.as_str()).collect();
+        assert_eq!(mounts, vec!["C:\\", "G:\\", "Z:\\"]);
+        assert_eq!(rows[1].stable_volume_id, r"\\?\Volume{c}\");
+    }
 
     #[test]
     fn sqlite_and_service_busy_use_distinct_stable_error_codes() {

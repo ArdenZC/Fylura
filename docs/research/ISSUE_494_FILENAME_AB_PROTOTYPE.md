@@ -290,7 +290,38 @@ Independent acceptance conditions: a hosted Windows 100k + 1M paired run reprodu
 native macOS run, a cold-cache 1M measurement that keeps the historical 100 ms gate as the only
 gate, and a real-disk corpus (not the synthetic generator).
 
-## 8. Reproduction
+## 8. CI evidence
+
+Hosted CI for this commit: <https://github.com/ArdenZC/Zen-Canvas/actions/runs/40650100384>
+
+| Job | Result |
+| --- | --- |
+| Source checkout / evidence contract | ✅ |
+| Change scope / routing contract | ✅ |
+| Validation lane plan | ✅ |
+| Rust format (windows-latest) | ✅ |
+| Rust format (macos-latest) | ✅ |
+| Rust tests (macos-latest) | ✅ |
+| Rust clippy (macos-latest) | ✅ |
+| Release compile (windows-latest) | ✅ |
+| Release compile (macos-latest) | ✅ |
+| Performance / Prepare, Workspace Foundation, Intelligence, Search, Preview Platform, Library & Content | ✅ |
+| Performance / Search | ✅ — the existing 100 ms pooled gate is untouched and still passes |
+| Windows Global Index service qualification | ✅ |
+| Rust tests / clippy (windows-latest) | still running when this report was written |
+
+The first commit on this branch failed CI on two counts, both now fixed:
+
+- `cargo fmt --check` on the single-file prototype (the original reported blocker);
+- `clippy -D warnings` on this module: `manual_is_multiple_of` on the memory-budget probe and an
+  unnecessary `usize -> usize` cast in the oracle layer limit. Neither changes behaviour, so the
+  measurements in §3–§5 still describe the current code.
+
+macOS correctness is therefore verified by hosted CI. macOS **performance** remains UNVERIFIED:
+the `Native macOS performance (arm64)` job runs the workspace-foundation and preview-platform
+suites, not the global search benchmark.
+
+## 9. Reproduction
 
 ```bash
 # Correctness (runs in the normal Rust quality job)

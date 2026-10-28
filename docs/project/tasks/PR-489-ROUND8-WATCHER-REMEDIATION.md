@@ -54,6 +54,11 @@ between the revocation commit and handle destruction. Drop invalidates the same
 publication gate before destroying the native watcher, covering queued callbacks.
 An error from a lifecycle mutation also discards the resource, including an error
 after a committed write. A failed owner-validation read discards the resource.
+Each watcher also records the request ID of its most recent successful resource
+admission. Reuse transfers that lease to the new admitted operation. Old failure,
+cancellation or owner-loss cleanup removes only its unchanged predecessor lease;
+it cannot delete a newer request's watcher. Rejected admission creates nothing
+and leaves the active owner's healthy resource intact.
 
 Pause/shutdown clear the map and increment one resource cancellation generation.
 A request captures that generation before native work and checks it under (1)
@@ -99,6 +104,7 @@ is used to produce this failure. Raw logs remain in the task evidence directory.
 | Pause/Resume; provider-only Pause | Cancellation/generation fences; resources removed and later healthy cycles register again |
 | Disable/Enable; multiple sources | One source's handle is destroyed, another remains healthy and continues indexing; re-enable registers again |
 | Owner loss; failed/unknown service result | Post-work Barrier tests; no late resource; existing owner/Service/Direct protocol regressions retained |
+| Rejected admission; obsolete error or owner loss after a successor completes | Barrier tests retain the successor's real watcher and registration request ID |
 | Watcher startup failure -> bounded USN recovery -> Ready | Existing Coordinator/worker route tests remain active; no fatal watcher failure and production polling stays 300 seconds |
 
 New resource tests use real directory watchers and injected authoritative work.
@@ -113,14 +119,18 @@ release outputs or user files are changed. #371 remains NOT IMPLEMENTED.
 
 Initial local Global Index run: 201 passed / 0 failed / 13 existing ignored;
 later resource-lifecycle run: 202 passed / 0 failed / 13 existing ignored.
-The final callback boundary test also passes independently. Final exact-candidate
+The callback boundary test also passes independently; the later candidate
+Global Index run is 203 passed / 0 failed / 13 existing ignored. Final exact-candidate
 results and counts are reconciled in the PR body.
 
 Local broad Rust attempt retained four failures: three Automation readiness
 assertions observed Ready/completed rather than unavailable/blocked, and one
-scheduler queue-deadline assertion failed. They are not classified as baseline
-failures without same-host comparison. Original logs are retained; the PR body
-records the comparison and hosted final outcome.
+scheduler queue-deadline assertion failed. Each Automation assertion also fails
+on unchanged same-host `master@df940915`, with the same Ready/completed result;
+those fixtures expect an unavailable provider on this host. No credential is
+deleted or changed to satisfy a test. The scheduler single-test comparison passes
+on master; its original full-suite failure is retained without a baseline-cause
+claim. The PR body records candidate revalidation and hosted final outcomes.
 
 Frontend verification initially exposed CRLF hashbang parsing and missing frozen
 research Git objects in this shallow local checkout. The required historical

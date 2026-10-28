@@ -449,3 +449,85 @@ fn callback_queued_between_revoke_commit_and_cleanup_cannot_publish() {
     );
     assert!(!fixture.has_watcher(&source.volume.id));
 }
+
+#[test]
+fn rejected_admission_and_stale_cleanup_preserve_successor_watcher_lease() {
+    use crate::global_index::coordinator::database_sink_for_test;
+    use std::sync::Barrier;
+    for boundary in ["busy", "successor-error", "successor-owner-lost"] {
+        let fixture = ResourceFixture::new();
+        fixture.cycle();
+        let source = fixture.selected();
+        let reached = Barrier::new(2);
+        let resume = Barrier::new(2);
+        std::thread::scope(|scope| {
+            let task = scope.spawn(|| {
+                let mut sink = database_sink_for_test(fixture.db.clone());
+                fixture.operate(
+                    &source,
+                    &mut sink,
+                    &AtomicBool::new(false),
+                    SourceOperationKind::Incremental,
+                    |_| {
+                        reached.wait();
+                        resume.wait();
+                        if boundary == "successor-error" {
+                            Err(GlobalIndexError::ServiceOutcomeUnknown(
+                                "obsolete failure".into(),
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    },
+                )
+            });
+            reached.wait();
+            if boundary == "busy" {
+                let mut contender = database_sink_for_test(fixture.db.clone());
+                assert!(matches!(
+                    fixture.operate(
+                        &source,
+                        &mut contender,
+                        &AtomicBool::new(false),
+                        SourceOperationKind::Incremental,
+                        |_| panic!("busy source was indexed")
+                    ),
+                    Err(GlobalIndexError::SourceBusy(_))
+                ));
+            } else {
+                fixture.disable(&source.volume.id);
+                fixture
+                    .provider
+                    .update_source_lifecycle(&source.volume.id, &mut || {
+                        fixture
+                            .db
+                            .set_global_volume_enabled(&source.volume.id, true)?;
+                        Ok(true)
+                    })
+                    .unwrap();
+                fixture.cycle();
+            }
+            assert!(fixture.has_watcher(&source.volume.id));
+            let lease = fixture
+                .provider
+                .change_watchers
+                .lock()
+                .unwrap()
+                .get(&source.volume.id)
+                .unwrap()
+                .registration_id
+                .clone();
+            resume.wait();
+            let result = task.join().unwrap();
+            assert_eq!(result.is_ok(), boundary == "busy");
+            let watchers = fixture.provider.change_watchers.lock().unwrap();
+            let current = watchers
+                .get(&source.volume.id)
+                .expect("obsolete request destroyed successor watcher");
+            if boundary != "busy" {
+                assert_eq!(current.registration_id, lease);
+            }
+            assert!(!current.has_failed());
+        });
+    }
+}

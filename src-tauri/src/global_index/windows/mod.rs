@@ -272,13 +272,14 @@ impl WindowsGlobalIndexProvider {
         source: &GlobalSourceDescriptor,
     ) -> Result<(), GlobalIndexError> {
         let mut watchers = self.change_watchers.lock().unwrap();
-        self.install_native_change_watcher(source, &mut watchers)
+        self.install_native_change_watcher(source, &mut watchers, "test-registration")
     }
 
     fn install_native_change_watcher(
         &self,
         source: &GlobalSourceDescriptor,
         watchers: &mut HashMap<String, fallback::ChangeSignalWatcher>,
+        registration_id: &str,
     ) -> Result<(), GlobalIndexError> {
         if source.volume.provider != PROVIDER_WINDOWS_MFT_USN {
             return Ok(());
@@ -292,7 +293,8 @@ impl WindowsGlobalIndexProvider {
             // continue through the existing service/direct USN authority.
             watchers.remove(&source.volume.id);
         }
-        if watchers.contains_key(&source.volume.id) {
+        if let Some(watcher) = watchers.get_mut(&source.volume.id) {
+            watcher.registration_id = registration_id.into();
             return Ok(());
         }
         let ignored_database_path = self
@@ -323,6 +325,8 @@ impl WindowsGlobalIndexProvider {
             self.wake.clone(),
             ignored_database_path,
         )?;
+        let mut watcher = watcher;
+        watcher.registration_id = registration_id.into();
         watchers.insert(source.volume.id.clone(), watcher);
         Ok(())
     }
@@ -389,7 +393,17 @@ impl WindowsGlobalIndexProvider {
         ensure_source_authorized(&source.volume)?;
         // No native resource is created for rejected admission or failed work.
         // Service and Direct share this post-success ownership boundary.
-        let watcher_epoch = self.watcher_epoch.load(Ordering::Acquire);
+        let (watcher_epoch, previous_registration) = {
+            let watchers = self.change_watchers.lock().map_err(|_| {
+                GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".into())
+            })?;
+            (
+                self.watcher_epoch.load(Ordering::Acquire),
+                watchers
+                    .get(&source.volume.id)
+                    .map(|watcher| watcher.registration_id.clone()),
+            )
+        };
         let result = self.run_with_fallback(request, sink, direct);
         let mut watchers = self.change_watchers.lock().map_err(|_| {
             GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".into())
@@ -398,7 +412,17 @@ impl WindowsGlobalIndexProvider {
             || cancel.load(Ordering::Acquire)
             || watcher_epoch != self.watcher_epoch.load(Ordering::Acquire)
         {
-            watchers.remove(&source.volume.id);
+            // Failed admission created no resource and must not stop another
+            // owner's healthy watcher. Nor may an old request clean a lease
+            // since transferred to a successful successor operation.
+            if (result.is_ok() || sink.source_operation_admitted(&source.volume.id))
+                && watchers
+                    .get(&source.volume.id)
+                    .map(|watcher| &watcher.registration_id)
+                    == previous_registration.as_ref()
+            {
+                watchers.remove(&source.volume.id);
+            }
             return result;
         }
         // Lock order: resource lifecycle -> short database read. All desktop
@@ -406,14 +430,21 @@ impl WindowsGlobalIndexProvider {
         // No MFT, USN, IPC or database write lock is held during registration.
         let admitted = sink.native_watcher_admitted(&source.volume);
         if !matches!(admitted, Ok(true)) {
-            watchers.remove(&source.volume.id);
+            if watchers
+                .get(&source.volume.id)
+                .map(|watcher| &watcher.registration_id)
+                == previous_registration.as_ref()
+            {
+                watchers.remove(&source.volume.id);
+            }
             admitted?;
             return Err(GlobalIndexError::SourceBusy(format!(
                 "source {} watcher owner superseded",
                 source.volume.id
             )));
         }
-        let watcher_result = self.install_native_change_watcher(source, &mut watchers);
+        let watcher_result =
+            self.install_native_change_watcher(source, &mut watchers, &request.request_id);
         drop(watchers);
         if let Err(error) = watcher_result {
             // A failed hint must not discard successful MFT/USN work. Only the

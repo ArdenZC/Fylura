@@ -28,6 +28,7 @@ impl FallbackScanSummary {
 /// Windows native indexing uses filesystem events only as a coalesced wake
 /// hint. Event paths are discarded and USN remains the row-change authority.
 pub(crate) struct ChangeSignalWatcher {
+    pub(crate) registration_id: String,
     _watcher: Option<RecommendedWatcher>,
     failed: Arc<AtomicBool>,
     active: Arc<Mutex<bool>>,
@@ -135,6 +136,7 @@ impl ChangeSignalWatcher {
                 ))
             })?;
         Ok(Self {
+            registration_id: String::new(),
             _watcher: Some(watcher),
             failed,
             active,
@@ -144,6 +146,7 @@ impl ChangeSignalWatcher {
     #[cfg(test)]
     pub(crate) fn new_for_test() -> Self {
         Self {
+            registration_id: String::new(),
             _watcher: None,
             failed: Arc::new(AtomicBool::new(false)),
             active: Arc::new(Mutex::new(true)),

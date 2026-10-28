@@ -703,7 +703,7 @@ fn issue494_hydration_mismatch_falls_back_instead_of_returning_partial_or_misord
     assert!(lookup.name_path.is_empty());
     assert!(lookup.extension.is_empty());
     assert!(lookup.hydrated_dropped > 0);
-    assert_ne!(ids(&authoritative[..2]), ids(&preselected));
+    assert_ne!(ids(&authoritative[..2]), ids(preselected));
 }
 
 #[test]

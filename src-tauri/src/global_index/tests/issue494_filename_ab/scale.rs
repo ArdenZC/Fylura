@@ -4,6 +4,7 @@
 //!
 //! * `ZC_ISSUE494_ENTRIES`   – 100000 | 500000 | 1000000
 //! * `ZC_ISSUE494_FIXTURE`   – `official` (default) | `density`
+//!
 //! All query timings use 5 warmups and 30 measured calls. High-hit queries are
 //! no longer down-sampled to five observations.
 //!

@@ -129,6 +129,8 @@ fn capability_downgrade_recovery_requires_new_consent_and_preserves_history() {
         .query_row("SELECT id FROM global_entries", [], |r| r.get(0))
         .unwrap();
     conn.execute("INSERT INTO ai_analysis_state (global_entry_id,status,input_fingerprint,content_summary,updated_at) VALUES (?1,'completed','kept','summary',3)", [&entry]).unwrap();
+    conn.execute("INSERT INTO managed_scopes (id,path,global_entry_id,allow_cloud_ai,created_at,updated_at) VALUES ('round7-scope','fixture',?1,1,1,2)", [&entry]).unwrap();
+    conn.execute("INSERT INTO ai_jobs (id,global_entry_id,managed_scope_id,input_fingerprint,provider,status,created_at) VALUES ('round7-job',?1,'round7-scope','kept','local','completed',3)", [&entry]).unwrap();
     drop(conn);
     for cycle in 0..3 {
         let mut discovery = original.clone();
@@ -162,6 +164,18 @@ fn capability_downgrade_recovery_requires_new_consent_and_preserves_history() {
         assert_eq!(approved.journal_id, original.journal_id);
         assert_eq!(approved.last_full_index_at, Some(111));
         assert_eq!(approved.entry_count, 1);
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM ai_jobs WHERE id='round7-job' AND global_entry_id=?1",
+                    [&entry],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        eprintln!("round7 capability cycle={cycle}: unsupported/not_authorized/disabled -> mft/not_authorized/disabled -> explicit confirmation/authorized/enabled; id={} cursor={} entries={}", approved.id, approved.journal_cursor.as_deref().unwrap(), approved.entry_count);
         assert_eq!(
             db.conn()
                 .unwrap()
@@ -228,6 +242,55 @@ fn concurrent_demotion_between_enable_check_and_write_cannot_enable() {
         revision
     );
     db.set_global_volume_enabled(&original.id, false).unwrap();
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn enable_disable_revision_changes_fence_owners_but_idempotent_enable_does_not() {
+    let (db, path) = fresh_db();
+    let original = test_volume();
+    db.upsert_global_volume(&original).unwrap();
+    let other = Database::open(&path).unwrap();
+    let owner = db
+        .claim_global_index_operation(
+            &original,
+            "round7-owner",
+            crate::global_index::SourceOperationKind::Incremental,
+            crate::global_index::SourceOperationRoute::Coordinator,
+        )
+        .unwrap()
+        .unwrap();
+    other.set_global_volume_enabled(&original.id, true).unwrap();
+    assert_eq!(
+        db.global_index_operation_state(&original.id)
+            .unwrap()
+            .unwrap()
+            .owner_id
+            .as_deref(),
+        Some("round7-owner")
+    );
+    other
+        .set_global_volume_enabled(&original.id, false)
+        .unwrap();
+    let disabled = db
+        .global_index_operation_state(&original.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(disabled.revision, owner.revision + 1);
+    assert_eq!(disabled.owner_id, None);
+    assert!(!db
+        .finish_global_index_operation(&owner, "ready", None, Some(99), Some(99), false)
+        .unwrap());
+    other.set_global_volume_enabled(&original.id, true).unwrap();
+    let enabled = db
+        .global_index_operation_state(&original.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(enabled.revision, disabled.revision + 1);
+    assert_eq!(enabled.owner_id, None);
+    db.forget_local_global_index_operation(&owner);
+    drop(other);
     drop(db);
     let _ = std::fs::remove_file(path);
 }

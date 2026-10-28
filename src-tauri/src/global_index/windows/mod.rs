@@ -386,14 +386,12 @@ impl WindowsGlobalIndexProvider {
         let result = self.run_with_fallback(request, sink, direct);
         if result.is_ok() {
             if let Some(reason) = watcher_error {
-                // The baseline succeeded, but coverage will not self-update.
-                sink.finish_source_operation(
+                // Providers report health; only the Coordinator finalizes the
+                // admitted operation, timestamps and rebuild intent together.
+                sink.set_source_state(
                     &source.volume.id,
                     crate::global_index::models::INDEX_STATUS_WATCHER_UNAVAILABLE,
                     Some(&reason),
-                    None,
-                    None,
-                    false,
                 )?;
             }
         }

@@ -305,8 +305,13 @@ impl Database {
                 filesystem_type = excluded.filesystem_type,
                 drive_kind = excluded.drive_kind,
                 provider = CASE
+                    -- Keep the legacy fallback marker until explicit schema-44
+                    -- reconfirmation can request its required native rebuild.
+                    -- All other rows track freshly discovered capability even
+                    -- while consent remains revoked.
                     WHEN global_volumes.platform = 'windows'
                      AND global_volumes.scope_authorization_state != 'authorized'
+                     AND global_volumes.provider = 'windows_recursive_fallback'
                     THEN global_volumes.provider
                     ELSE excluded.provider
                 END,
@@ -872,21 +877,8 @@ impl Database {
         before_update: impl FnOnce(),
     ) -> Result<(), DbError> {
         let conn = self.conn()?;
-        let state = conn
-            .query_row(
-                "SELECT platform, scope_authorization_state FROM global_volumes WHERE id = ?1",
-                [id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .optional()?
-            .ok_or_else(|| DbError::Validation("global_index_source_missing".into()))?;
-        if enabled && state.0 == "windows" && state.1 != "authorized" {
-            return Err(DbError::Validation(
-                "global_index_source_authorization_required".into(),
-            ));
-        }
         before_update();
-        conn.execute(
+        let changed = conn.execute(
             r#"
             UPDATE global_volumes
             SET enabled = ?2,
@@ -899,10 +891,24 @@ impl Database {
                 operation_state = CASE WHEN enabled != ?2 THEN NULL ELSE operation_state END,
                 updated_at = ?3
             WHERE id = ?1
+              AND (?2 = 0 OR platform != 'windows' OR scope_authorization_state = 'authorized')
             "#,
             params![id, bool_to_i64(enabled), unix_now()],
         )?;
-        Ok(())
+        if changed == 1 {
+            return Ok(());
+        }
+        // This read only selects an error message; it never authorizes a write.
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM global_volumes WHERE id = ?1)",
+            [id],
+            |row| row.get(0),
+        )?;
+        Err(DbError::Validation(if exists {
+            "global_index_source_authorization_required".into()
+        } else {
+            "global_index_source_missing".into()
+        }))
     }
 
     pub fn authorize_global_volume(

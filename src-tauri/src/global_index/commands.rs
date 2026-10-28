@@ -147,18 +147,30 @@ pub fn get_global_index_status(
     load_global_index_status(coordinator.inner())
 }
 
-/// Presents one row per mount path, newest first.
-///
-/// A cloud mount (e.g. Google Drive for desktop) can re-register under a fresh
-/// volume GUID when it reconnects, leaving an older row behind for the same
-/// drive letter. The historical row stays in the database untouched — nothing
-/// is deleted, merged or re-linked — and duplicates are harmless for coverage
-/// because they are never authorized or enabled. Pure so the non-destructive
-/// presentation contract is testable without Tauri state.
+/// Collapse only inert unsupported duplicates (e.g. reconnected cloud mounts).
+/// Active, indexed or actionable historical identities remain visible. This is
+/// a display projection; it never deletes or merges persistent source rows.
 pub(crate) fn newest_row_per_mount_path(mut volumes: Vec<GlobalVolume>) -> Vec<GlobalVolume> {
-    volumes.sort_by_key(|volume| std::cmp::Reverse(volume.updated_at));
+    volumes.sort_by(|a, b| {
+        b.updated_at
+            .cmp(&a.updated_at)
+            .then_with(|| a.id.cmp(&b.id))
+    });
     let mut seen_mount_paths = std::collections::HashSet::new();
-    volumes.retain(|volume| seen_mount_paths.insert(volume.mount_path.clone()));
+    volumes.retain(|volume| {
+        let newest = seen_mount_paths.insert(volume.mount_path.clone());
+        let inert = !volume.enabled
+            && volume.scope_authorization_state == SCOPE_AUTHORIZATION_NOT_AUTHORIZED
+            && volume.provider == PROVIDER_WINDOWS_UNSUPPORTED
+            && volume.entry_count == 0
+            && volume.journal_id.is_none()
+            && volume.journal_cursor.is_none()
+            && matches!(
+                volume.index_status.as_str(),
+                INDEX_STATUS_DISCOVERED | INDEX_STATUS_UNAVAILABLE
+            );
+        newest || !inert
+    });
     volumes
 }
 

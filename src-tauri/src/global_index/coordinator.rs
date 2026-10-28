@@ -59,6 +59,8 @@ pub trait GlobalIndexSink: Send {
     fn mark_source_operation_unknown(&mut self, _volume_id: &str) -> Result<(), GlobalIndexError> {
         Ok(())
     }
+    /// Coordinator-only terminal transition. Providers use set_source_state
+    /// for degraded health and return their result without consuming ownership.
     fn finish_source_operation(
         &mut self,
         volume_id: &str,
@@ -896,9 +898,12 @@ fn run_index_cycle_with_topology(
                 let now = unix_now();
                 let current = db.get_global_volume(&volume.id)?;
                 let current_status = current.as_ref().map(|source| source.index_status.as_str());
-                let operation_reported_degraded = current_status
-                    .filter(|status| is_degraded_index_status(status))
-                    .filter(|status| Some(*status) != Some(volume.index_status.as_str()));
+                // Admission resets health to indexing/syncing. Any current
+                // degraded state was reported by this operation, even if the
+                // previous cycle reported the same degradation. Watcher health
+                // is not persistent: a successful later cycle can become Ready.
+                let operation_reported_degraded =
+                    current_status.filter(|status| is_degraded_index_status(status));
                 let prior_degraded = (!source_reappeared
                     && !(is_rebuild && volume.index_status == INDEX_STATUS_REBUILD_REQUIRED)
                     && is_persistent_degraded_index_status(&volume.index_status))
@@ -1151,6 +1156,7 @@ fn is_degraded_index_status(status: &str) -> bool {
     matches!(
         status,
         INDEX_STATUS_PERMISSION_REQUIRED
+            | INDEX_STATUS_WATCHER_UNAVAILABLE
             | INDEX_STATUS_REBUILD_REQUIRED
             | INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
             | INDEX_STATUS_SPOTLIGHT_NOT_INDEXED

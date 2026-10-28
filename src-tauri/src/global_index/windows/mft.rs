@@ -693,10 +693,9 @@ pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, Globa
 /// - create succeeds → re-query and return the journal;
 /// - create fails but a journal appeared meanwhile (another process won the
 ///   race) → the re-query still succeeds;
-/// - create fails and the journal is still absent → keep the original 1179 so
-///   the UI keeps the stable "journal not active" classification. Privilege
-///   denial (5/1314) and read-only volumes land here; the creation error is
-///   logged instead of replacing a meaningful code with an opaque one.
+/// - create fails and the journal is still absent → preserve the typed create
+///   error (notably privilege denial 5/1314). The original absence remains in
+///   diagnostic context; a successful competing creator always wins.
 fn recover_absent_journal<Create, Query>(
     create: Create,
     mut query: Query,
@@ -711,10 +710,11 @@ where
         // installed the journal between the failed query and the create.
         return match query() {
             Ok(journal) => Ok(journal),
-            // Still absent: keep the stable classification the UI and the
-            // volume status already use.
             Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE)) => {
-                Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE))
+                eprintln!(
+                    "global_index usn_journal_still_absent after Win32 1179 recovery: {error}"
+                );
+                Err(error)
             }
             // A different I/O failure (device removed, volume gone) is surfaced
             // as itself rather than being masked as "journal not active".
@@ -837,6 +837,30 @@ mod tests {
                 "{error:?}"
             );
             assert_eq!(queries, 1);
+            // Feed the recovery outcome through the production IPC taxonomy.
+            let (wire_code, status) = super::super::service_errors::classify(&error);
+            let response = super::super::service::IndexServiceResponse {
+                protocol_version: super::super::service::IPC_PROTOCOL_VERSION,
+                request_id: "journal-recovery-fixture".into(),
+                ok: false,
+                error_code: Some(wire_code),
+                message: Some(
+                    "1179 remained after create; diagnostic text is not a classifier".into(),
+                ),
+                status: Some(status.into()),
+            };
+            let bytes = serde_json::to_vec(&response).unwrap();
+            let decoded =
+                super::super::service_errors::decode(&serde_json::from_slice(&bytes).unwrap());
+            assert!(matches!(decoded, GlobalIndexError::WindowsIo(actual) if actual == code));
+            assert_eq!(
+                status,
+                if matches!(code, 5 | 1314) {
+                    "permission_required"
+                } else {
+                    "error"
+                }
+            );
         }
     }
 

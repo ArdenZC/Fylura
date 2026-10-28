@@ -340,3 +340,95 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod discovery_state_machine_tests {
+    use super::*;
+    use crate::db::Database;
+
+    fn discovered(
+        guid: Option<&str>,
+        serial: u32,
+        fs: &str,
+        flags: u32,
+        mount: &str,
+    ) -> GlobalVolume {
+        let classification = classify_volume(guid, serial, fs, DRIVE_FIXED, flags);
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.stable_volume_id = classification.stable_volume_id;
+        volume.id = format!(
+            "gv_{}",
+            blake3::hash(volume.stable_volume_id.as_bytes()).to_hex()
+        );
+        volume.mount_path = mount.into();
+        volume.filesystem_type = fs.into();
+        volume.provider = classification.provider.into();
+        volume.enabled = false;
+        volume.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_AUTHORIZED.into();
+        volume
+    }
+
+    #[test]
+    fn discovery_guid_loss_serial_collision_cloud_switch_and_letter_reuse_never_transfer_consent() {
+        let root =
+            std::env::temp_dir().join(format!("zen-round7-discovery-{}", uuid::Uuid::new_v4()));
+        let db = Database::open(root.join("fixture.db")).unwrap();
+        let guid_a = r"\\?\Volume{11111111-2222-3333-4444-555555555555}\";
+        let guid_b = r"\\?\Volume{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}\";
+        let native = discovered(
+            Some(guid_a),
+            7,
+            "NTFS",
+            FILE_SUPPORTS_USN_JOURNAL,
+            "fixture-G",
+        );
+        db.upsert_global_volume(&native).unwrap();
+        db.authorize_global_volume(&native.id, true, &native)
+            .unwrap();
+        for mount in ["fixture-G", "fixture-H"] {
+            let missing = discovered(None, 7, "NTFS", FILE_SUPPORTS_USN_JOURNAL, mount);
+            db.upsert_global_volume(&missing).unwrap();
+            assert!(db
+                .authorize_global_volume(&missing.id, true, &missing)
+                .is_err());
+            let row = db.get_global_volume(&missing.id).unwrap().unwrap();
+            assert!(!row.enabled);
+            assert_eq!(
+                row.scope_authorization_state,
+                SCOPE_AUTHORIZATION_NOT_AUTHORIZED
+            );
+        }
+        let other = discovered(
+            Some(guid_b),
+            7,
+            "NTFS",
+            FILE_SUPPORTS_USN_JOURNAL,
+            "fixture-G",
+        );
+        db.upsert_global_volume(&other).unwrap();
+        assert!(!db.get_global_volume(&other.id).unwrap().unwrap().enabled);
+        for (fs, flags) in [("FAT32", 0), ("NTFS", 0)] {
+            let cloud = discovered(Some(guid_a), 7, fs, flags, "fixture-G");
+            db.upsert_global_volume(&cloud).unwrap();
+            assert!(db.authorize_global_volume(&cloud.id, true, &cloud).is_err());
+            db.upsert_global_volume(&native).unwrap();
+            let row = db.get_global_volume(&native.id).unwrap().unwrap();
+            assert_eq!(row.provider, PROVIDER_WINDOWS_MFT_USN);
+            assert!(!row.enabled);
+            assert_eq!(
+                row.scope_authorization_state,
+                SCOPE_AUTHORIZATION_NOT_AUTHORIZED
+            );
+            db.authorize_global_volume(&native.id, true, &native)
+                .unwrap();
+        }
+        assert_eq!(
+            db.list_global_volumes().unwrap().len(),
+            3,
+            "all historical identities retained"
+        );
+        drop(db);
+        // Unique task-owned fixture directory only.
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

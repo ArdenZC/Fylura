@@ -190,4 +190,148 @@ fn experimental_recent_first_substring_vs_exact_bm25() {
             "ranking_warning": "do not ship as a drop-in BM25 optimization; requires explicit UX/product decision and Unicode/phrase correctness contract"
         }));
     }
+    profile_sparse_and_zero_tail(&conn, &db, &context);
+}
+
+/// A controlled counterexample. A newer path hit need not outrank an older,
+/// highly relevant filename hit in FTS5's weighted BM25 ordering.
+#[test]
+fn recent_first_ranking_diverges_from_weighted_bm25() {
+    let path = test_db_path();
+    let _cleanup = BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).expect("open small rank-order fixture");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert enabled volume");
+    let mut disabled_volume = test_volume();
+    disabled_volume.id = "gv_disabled".to_string();
+    disabled_volume.stable_volume_id = "disabled-volume".to_string();
+    disabled_volume.enabled = false;
+    db.upsert_global_volume(&disabled_volume)
+        .expect("insert disabled volume");
+
+    let mut old = test_entry(
+        r"C:\Global\Old\archived report report report report.txt",
+        "archived report report report report.txt",
+        false,
+    );
+    old.modified_at_fs = Some(10);
+    let mut recent = test_entry(
+        r"C:\Global\Reports\recent_notes.txt",
+        "recent_notes.txt",
+        false,
+    );
+    recent.modified_at_fs = Some(200);
+    let mut stale = test_entry(
+        r"C:\Global\Report\stale_report.txt",
+        "stale_report.txt",
+        false,
+    );
+    stale.modified_at_fs = Some(300);
+    let mut disabled = test_entry(
+        r"C:\Disabled\Report\hidden_report.txt",
+        "hidden_report.txt",
+        false,
+    );
+    disabled.volume_id = disabled_volume.id;
+    disabled.modified_at_fs = Some(400);
+
+    let old_id = old.entry_id();
+    let recent_id = recent.entry_id();
+    let stale_id = stale.entry_id();
+    let disabled_id = disabled.entry_id();
+    db.upsert_global_entries_batch(&[old, recent, stale, disabled])
+        .expect("insert adversarial FTS corpus");
+    let conn = db.conn().expect("get adversarial connection");
+    conn.execute(
+        "UPDATE global_entries SET is_stale=1 WHERE id=?1",
+        [stale_id.as_str()],
+    )
+    .expect("retire newer hit");
+
+    let recent_ids = recent_first(&conn, "report", 80)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+    let exact_ids = conn
+        .prepare(
+            "SELECT ge.id FROM global_entries_fts
+             CROSS JOIN global_entries ge
+             CROSS JOIN global_volumes gv
+             WHERE global_entries_fts MATCH ?1
+               AND ge.rowid=global_entries_fts.rowid
+               AND gv.id=ge.volume_id AND gv.enabled=1 AND ge.is_stale=0
+             ORDER BY bm25(global_entries_fts,8.0,2.0,1.0) ASC,
+                      ge.modified_at_fs DESC,ge.id ASC LIMIT 80",
+        )
+        .expect("prepare weighted BM25 ranking")
+        .query_map(["\"report\""], |row| row.get::<_, String>(0))
+        .expect("query weighted BM25 ranking")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect weighted BM25 ids");
+    assert_eq!(recent_ids, vec![recent_id.clone(), old_id.clone()]);
+    assert_eq!(exact_ids, vec![old_id, recent_id]);
+    assert!(!recent_ids.contains(&stale_id));
+    assert!(!recent_ids.contains(&disabled_id));
+}
+
+/// The chronological index scan can traverse all 100k entries on an empty
+/// term or a very old rare hit. No p95 result here qualifies production.
+fn profile_sparse_and_zero_tail(conn: &Connection, db: &Database, context: &JsonValue) {
+    for (case, query) in [
+        ("no_hit", "zzznomatchtoken"),
+        ("old_sparse_hit", "annual budget 2026"),
+    ] {
+        let eligible = all_ids(conn, RECENT_SET_SQL, query);
+        let mut recency_samples = Vec::with_capacity(30);
+        let mut pooled_samples = Vec::with_capacity(30);
+        let mut recency_results = Vec::new();
+        let mut pooled_results = Vec::new();
+        for iteration in 0..35 {
+            let start = Instant::now();
+            let recency = recent_first(conn, query, SEARCH_RESULT_LIMIT);
+            let recency_ms = start.elapsed().as_secs_f64() * 1_000.0;
+            let start = Instant::now();
+            let pooled = db
+                .search_global_entries(query, SEARCH_RESULT_LIMIT, 0)
+                .expect("full production pooled control");
+            let pooled_ms = start.elapsed().as_secs_f64() * 1_000.0;
+            if iteration >= 5 {
+                recency_samples.push(recency_ms);
+                pooled_samples.push(pooled_ms);
+            }
+            recency_results = recency;
+            pooled_results = pooled;
+        }
+        let fast_ids = recency_results
+            .iter()
+            .map(|row| row.0.as_str())
+            .collect::<Vec<_>>();
+        let prod_ids = pooled_results
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(fast_ids.iter().all(|id| eligible.contains(*id)));
+        if case == "no_hit" {
+            assert!(fast_ids.is_empty());
+            assert!(prod_ids.is_empty());
+        } else {
+            assert_eq!(eligible.len(), 1, "sparse term must have one eligible hit");
+        }
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "fts_recency_tail_risk",
+            "context": context,
+            "case": case,
+            "query": query,
+            "eligible_matches": eligible.len(),
+            "recency_latency_ms": summarize_samples(&recency_samples),
+            "production_pooled_latency_ms": summarize_samples(&pooled_samples),
+            "recency_ids": fast_ids,
+            "production_ids": prod_ids,
+            "same_id_order": fast_ids == prod_ids,
+            "samples": 30,
+            "method": "sequential same-fixture control, 5 warmups and 30 samples; stage timings are not paired total-pipeline qualification",
+            "warning": "LIMIT 80 bounds outputs, not number of rows scanned in recency index"
+        }));
+    }
 }

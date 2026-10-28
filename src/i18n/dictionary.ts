@@ -2,16 +2,13 @@ import type { Language } from "./types";
 export type { Language } from "./types";
 
 const zh = {
-  automationAnalysisUnconfirmed:
-    "分析提交结果尚未确认。请打开计划检查当前分析状态。",
+  automationAnalysisUnconfirmed: "分析提交结果尚未确认。请打开计划检查当前分析状态。",
   automationIntentWorkspaceTitle: "自动化",
   automationIntents: "自动化意图",
   automationAdvancedPolicies: "高级策略",
-  automationAdvancedPoliciesDescription:
-    "查看确定性的 Rule Repository V2 策略与兼容性分类。这些策略不是当前 Managed AI 整理语义，也不会从此页面执行文件更改。",
+  automationAdvancedPoliciesDescription: "查看确定性的 Rule Repository V2 策略与兼容性分类。这些策略不是当前 Managed AI 整理语义，也不会从此页面执行文件更改。",
   automationWorkspaceNavigationLabel: "自动化工作区分区",
-  automationIntentDescription:
-    "保存可重复使用的文件范围，按需、按日程或在托管文件变化后准备待审核计划。",
+  automationIntentDescription: "保存可重复使用的文件范围，按需、按日程或在托管文件变化后准备待审核计划。",
   automationFixedPolicy: "必须审核 · 自动文件更改：绝不",
   automationCreateIntent: "创建意图",
   automationEditIntent: "编辑意图",
@@ -19,8 +16,7 @@ const zh = {
   automationQueryText: "文件查询",
   automationUseLibraryFilters: "使用当前文件库筛选",
   automationFilterHelp: "可复用文件库的完整筛选条件；运行时重新查询当前索引。",
-  automationTemporaryScope:
-    "当前扫描是临时范围。请选择全部已启用位置或指定位置。",
+  automationTemporaryScope: "当前扫描是临时范围。请选择全部已启用位置或指定位置。",
   automationIntentScope: "文件范围",
   automationAllRoots: "全部已启用位置",
   automationSelectedRoots: "指定位置",
@@ -31,12 +27,10 @@ const zh = {
   automationIntentSaving: "正在保存…",
   automationReload: "刷新",
   automationOpenFailed: "计划暂时无法打开，请刷新后重试。",
-  automationRevisionConflict:
-    "意图已在其他操作中更新。请关闭编辑窗口，核对最新版本后重试。",
+  automationRevisionConflict: "意图已在其他操作中更新。请关闭编辑窗口，核对最新版本后重试。",
   automationActionFailed: "操作未完成。请检查范围和设置，刷新后重试。",
   automationIntentEmptyTitle: "创建你的第一个自动化意图",
-  automationEmptyDescription:
-    "选择文件范围并保存目标。点击生成计划后，你仍需在整理中审核每项建议。",
+  automationEmptyDescription: "选择文件范围并保存目标。点击生成计划后，你仍需在整理中审核每项建议。",
   automationManual: "手动",
   automationIntentTrigger: "触发方式",
   automationTriggerKind: "准备计划的时机",
@@ -49,12 +43,9 @@ const zh = {
   automationWeekdays: "工作日",
   automationCustomDays: "自选星期",
   automationInvalidSchedule: "请选择有效的时间、时区和至少一个星期。",
-  automationScheduleHelp:
-    "仅在 Zen 运行时准备计划。错过的定时会在下次启动或唤醒时合并为最多一个补做计划；时区不会跟随设备更改。",
-  automationEventHelp:
-    "等待托管文件变化稳定 5 秒，并在扫描与核对完成后准备审核计划。绝不会自动更改文件。",
-  automationAiPermissionHelp:
-    "自动准备计划仅使用你已授予托管 AI 的范围及本地／云端处理权限。",
+  automationScheduleHelp: "仅在 Zen 运行时准备计划。错过的定时会在下次启动或唤醒时合并为最多一个补做计划；时区不会跟随设备更改。",
+  automationEventHelp: "等待托管文件变化稳定 5 秒，并在扫描与核对完成后准备审核计划。绝不会自动更改文件。",
+  automationAiPermissionHelp: "自动准备计划仅使用你已授予托管 AI 的范围及本地／云端处理权限。",
   automationNextSchedule: "下次计划",
   automationEventPending: "托管文件变化正在稳定，或等待扫描核对完成。",
   automationResourceDeferred: "已保留触发原因，等待现有后台资源策略准入。",
@@ -78,16 +69,12 @@ const zh = {
   automationRunAnalysisQueued: "分析已请求",
   automationRunReady: "计划已生成",
   automationReviewRequired: "执行前必须审核",
-  automationManagedScopeMissing:
-    "部分文件尚未加入 AI 托管范围。请在设置中检查托管位置。",
-  automationAnalysisBlocked:
-    "缺失或过期的分析尚未提交。请检查 AI 开关、提供方、凭据及云端同意设置。",
-  automationScopeBlocked:
-    "保存的位置已禁用、移除或状态异常。请修复位置后重试。",
+  automationManagedScopeMissing: "部分文件尚未加入 AI 托管范围。请在设置中检查托管位置。",
+  automationAnalysisBlocked: "缺失或过期的分析尚未提交。请检查 AI 开关、提供方、凭据及云端同意设置。",
+  automationScopeBlocked: "保存的位置已禁用、移除或状态异常。请修复位置后重试。",
   automationRefreshInOrganize: "分析完成后，请在整理中刷新计划。",
   automationOpenPlan: "打开计划",
-  automationArchiveDescription:
-    "归档后不能再运行此意图。已有运行记录与整理计划会保留。",
+  automationArchiveDescription: "归档后不能再运行此意图。已有运行记录与整理计划会保留。",
   appName: "Zen Canvas",
   appSubtitle: "个人数字资产管家",
   localOnly: "本地优先",
@@ -108,33 +95,25 @@ const zh = {
   overviewTaskCanceled: "扫描已取消",
   overviewTaskCanceledDesc: "已完成部分中的 {count} 个文件仍保留在本地索引中。",
   overviewTaskPartial: "扫描部分完成",
-  overviewTaskPartialDesc:
-    "已处理 {files} 个文件，其中 {errors} 个路径出现错误。",
+  overviewTaskPartialDesc: "已处理 {files} 个文件，其中 {errors} 个路径出现错误。",
   overviewTaskReview: "有 {count} 项需要你确认",
   overviewTaskReviewDesc: "这些建议在执行前需要你的决定，不会自动移动文件。",
   overviewTaskCleanup: "有 {count} 项清理候选",
-  overviewTaskCleanupDesc:
-    "最近一次真实分析显示最多可释放 {size}；执行前仍需逐项确认。",
-  overviewTaskCleanupEstimatedDesc:
-    "最近一次真实分析预计可释放 {size}；执行前仍需逐项确认。",
+  overviewTaskCleanupDesc: "最近一次真实分析显示最多可释放 {size}；执行前仍需逐项确认。",
+  overviewTaskCleanupEstimatedDesc: "最近一次真实分析预计可释放 {size}；执行前仍需逐项确认。",
   overviewTaskUnindexed: "还没有建立本地索引",
-  overviewTaskUnindexedDesc:
-    "从常用位置开始了解文件空间；扫描不会上传、移动或删除文件。",
+  overviewTaskUnindexedDesc: "从常用位置开始了解文件空间；扫描不会上传、移动或删除文件。",
   overviewTaskUpdate: "本地索引可以更新",
   overviewTaskUpdateDesc: "已配置的位置有新的索引任务可以运行。",
   overviewTaskOrderly: "文件空间保持有序",
-  overviewTaskOrderlyDesc:
-    "当前索引包含 {count} 个文件，没有需要立即处理的事项。",
+  overviewTaskOrderlyDesc: "当前索引包含 {count} 个文件，没有需要立即处理的事项。",
   overviewTaskSearchPermission: "系统范围搜索需要权限",
-  overviewTaskSearchPermissionDesc:
-    "部分位置暂时无法搜索；已有索引仍可使用。请检查搜索来源权限。",
+  overviewTaskSearchPermissionDesc: "部分位置暂时无法搜索；已有索引仍可使用。请检查搜索来源权限。",
   overviewTaskSearchNoSource: "还没有可搜索的位置",
-  overviewTaskSearchNoSourceDesc:
-    "系统范围搜索尚未发现可用来源；打开设置选择需要搜索的位置。",
+  overviewTaskSearchNoSourceDesc: "系统范围搜索尚未发现可用来源；打开设置选择需要搜索的位置。",
   overviewReviewSearchSources: "检查搜索来源",
   overviewTaskOperationAttention: "有操作需要复核",
-  overviewTaskOperationAttentionDesc:
-    "最近的文件操作包含失败或需要人工复核的项目；不会自动重试或覆盖。",
+  overviewTaskOperationAttentionDesc: "最近的文件操作包含失败或需要人工复核的项目；不会自动重试或覆盖。",
   overviewTaskOperationRunning: "文件操作正在进行",
   overviewTaskOperationRunningDesc: "操作进度会在预览和历史记录中持续更新。",
   overviewReviewHistory: "查看历史记录",
@@ -142,27 +121,21 @@ const zh = {
   overviewTaskContentFailureDesc: "最近一次内容理解没有完成；源文件未被修改。",
   overviewReviewContent: "打开文件库",
   overviewTaskManagedRoot: "托管位置需要同步",
-  overviewTaskManagedRootDesc:
-    "{count} 个托管位置的变化尚未完全同步；请检查位置状态。",
+  overviewTaskManagedRootDesc: "{count} 个托管位置的变化尚未完全同步；请检查位置状态。",
   overviewTaskManagedRootPermission: "托管位置需要权限",
-  overviewTaskManagedRootPermissionDesc:
-    "{count} 个托管位置暂时无法访问；已有索引仍会保留。",
+  overviewTaskManagedRootPermissionDesc: "{count} 个托管位置暂时无法访问；已有索引仍会保留。",
   overviewTaskManagedRootPermissionAction: "检查权限",
   overviewTaskManagedRootRetryExhausted: "托管位置重试已停止",
-  overviewTaskManagedRootRetryExhaustedDesc:
-    "{count} 个托管位置的自动重试已停止，请检查位置状态。",
+  overviewTaskManagedRootRetryExhaustedDesc: "{count} 个托管位置的自动重试已停止，请检查位置状态。",
   overviewTaskManagedRootRetryExhaustedAction: "检查重试状态",
   overviewTaskManagedRootReconciliation: "托管位置需要重新同步",
-  overviewTaskManagedRootReconciliationDesc:
-    "{count} 个托管位置的变化尚未完成同步，请检查位置状态。",
+  overviewTaskManagedRootReconciliationDesc: "{count} 个托管位置的变化尚未完成同步，请检查位置状态。",
   overviewTaskManagedRootReconciliationAction: "重新同步位置",
   overviewTaskManagedRootPartial: "托管位置覆盖不完整",
-  overviewTaskManagedRootPartialDesc:
-    "{count} 个托管位置的监控覆盖不完整，请查看受影响位置。",
+  overviewTaskManagedRootPartialDesc: "{count} 个托管位置的监控覆盖不完整，请查看受影响位置。",
   overviewTaskManagedRootPartialAction: "查看受影响位置",
   overviewTaskManagedRootStale: "托管位置状态需要检查",
-  overviewTaskManagedRootStaleDesc:
-    "{count} 个托管位置的状态可能已过期，请检查位置状态。",
+  overviewTaskManagedRootStaleDesc: "{count} 个托管位置的状态可能已过期，请检查位置状态。",
   overviewTaskManagedRootStaleAction: "检查位置",
   overviewSystemCoverage: "系统覆盖",
   overviewSystemSearch: "电脑范围搜索",
@@ -185,10 +158,8 @@ const zh = {
   overviewChooseFolder: "选择自定义位置",
   overviewCurrentLocation: "当前扫描位置",
   overviewSpaceSummary: "空间摘要",
-  overviewSummaryFirstUse:
-    "建立本地索引后，这里会用一条清楚的摘要说明文件数量、范围和待确认事项。",
-  overviewSummaryScanned:
-    "{time} 扫描了 {scope}，本地索引包含 {count} 个文件（{size}）；其中 {review} 项需要确认。",
+  overviewSummaryFirstUse: "建立本地索引后，这里会用一条清楚的摘要说明文件数量、范围和待确认事项。",
+  overviewSummaryScanned: "{time} 扫描了 {scope}，本地索引包含 {count} 个文件（{size}）；其中 {review} 项需要确认。",
   overviewSummaryScopeJoin: "、",
   overviewSummaryIndexedScope: "已索引位置",
   overviewRecentActivity: "最近活动",
@@ -198,12 +169,10 @@ const zh = {
   overviewQuickFilesDesc: "在当前范围内浏览和搜索已索引文件。",
   overviewQuickSuggestions: "审阅整理建议",
   overviewQuickSuggestionsDesc: "先查看预览，再决定是否执行文件变化。",
-  overviewQuickSuggestionsEmptyDesc:
-    "当前没有待确认建议；需要时可以打开整理工作区。",
+  overviewQuickSuggestionsEmptyDesc: "当前没有待确认建议；需要时可以打开整理工作区。",
   overviewQuickCleanup: "释放空间",
   overviewQuickCleanupDesc: "候选项只会进入 Safe Trash，不会直接永久删除。",
-  overviewQuickCleanupEmptyDesc:
-    "最近一次真实分析没有可释放候选；可以打开空间清理重新分析。",
+  overviewQuickCleanupEmptyDesc: "最近一次真实分析没有可释放候选；可以打开空间清理重新分析。",
   overviewMetricFiles: "文件",
   overviewMetricSuggestions: "待审阅",
   overviewMetricReclaimable: "可释放",
@@ -246,8 +215,7 @@ const zh = {
   overviewScanPhaseCanceled: "已取消",
   overviewScanPhaseCompleted: "已完成",
   overviewCancelScanTitle: "停止当前扫描？",
-  overviewCancelScanDesc:
-    "停止后，已经完成的目录仍会保留在本地索引中；尚未扫描的位置不会加入当前范围。",
+  overviewCancelScanDesc: "停止后，已经完成的目录仍会保留在本地索引中；尚未扫描的位置不会加入当前范围。",
   overviewConfirmCancelScan: "停止扫描",
   organizeSuggestions: "整理建议",
   organizeFiles: "整理文件",
@@ -328,47 +296,36 @@ const zh = {
   organizePlanCancel: "取消计划",
   organizePlanAnalyze: "分析缺少信息",
   organizeCreatePlanTitle: "建立整理计划",
-  organizeCreatePlanDescription:
-    "计划会保存为可继续的评审记录；建立计划不会移动或删除文件。",
+  organizeCreatePlanDescription: "计划会保存为可继续的评审记录；建立计划不会移动或删除文件。",
   organizeCreatePlanAction: "建立计划",
   organizePlanTitleLabel: "计划名称",
   organizePlanTitlePlaceholder: "可选，例如：整理本周下载",
   organizeNoPlanTitle: "还没有整理计划",
-  organizeNoPlanDescription:
-    "先在文件库选择文件，或者打开一个已有计划继续评审。",
+  organizeNoPlanDescription: "先在文件库选择文件，或者打开一个已有计划继续评审。",
   organizeCreateAnotherPlanTitle: "可以建立新的整理计划",
-  organizeCreateAnotherPlanDescription:
-    "之前的整理计划已经结束；你可以从文件库当前选择建立新的评审记录。",
+  organizeCreateAnotherPlanDescription: "之前的整理计划已经结束；你可以从文件库当前选择建立新的评审记录。",
   organizePlanListLoading: "正在加载组织计划",
   organizePlanListLoadingDesc: "正在读取已保存的整理计划。",
   organizePlanListFailedTitle: "加载计划失败",
-  organizePlanListFailedDesc:
-    "没有显示创建计划，因为已保存计划的列表尚未成功读取。",
+  organizePlanListFailedDesc: "没有显示创建计划，因为已保存计划的列表尚未成功读取。",
   organizePlanListRetry: "重新加载计划",
   organizePlanOpening: "正在打开整理计划",
   organizePlanOpeningDesc: "正在读取计划详情和分组文件。",
   organizePlanOpenFailedTitle: "打开计划失败",
-  organizePlanOpenFailedDesc:
-    "计划列表仍可用，请重试打开该计划或选择其他计划。",
+  organizePlanOpenFailedDesc: "计划列表仍可用，请重试打开该计划或选择其他计划。",
   organizePlanOpenRetry: "重新打开计划",
   organizeCreatePlanFailedTitle: "建立计划失败",
-  organizeCreatePlanFailedDesc:
-    "整理计划未能建立。现有文件和计划仍保留，请重试。",
+  organizeCreatePlanFailedDesc: "整理计划未能建立。现有文件和计划仍保留，请重试。",
   organizeNoReadyGroupsTitle: "当前没有可直接评审的分组",
-  organizeNoReadyGroupsDescription:
-    "需要决定的项目会出现在对应分区；暂不可处理的项目会保留在问题分区。",
+  organizeNoReadyGroupsDescription: "需要决定的项目会出现在对应分区；暂不可处理的项目会保留在问题分区。",
   organizeNoDecisionGroupsTitle: "没有需要你决定的分组",
-  organizeNoDecisionGroupsDescription:
-    "高风险、低置信度或事实变化的项目会在这里等待你的选择。",
+  organizeNoDecisionGroupsDescription: "高风险、低置信度或事实变化的项目会在这里等待你的选择。",
   organizeNoBlockedGroupsTitle: "没有暂不可处理的分组",
-  organizeNoBlockedGroupsDescription:
-    "当前计划中的来源和安全预览都可以继续检查。",
+  organizeNoBlockedGroupsDescription: "当前计划中的来源和安全预览都可以继续检查。",
   organizeReviewExecution: "检查执行",
-  organizeReviewExecutionHint:
-    "先生成后端权威 Dry Run，再确认实际会执行的文件操作。",
+  organizeReviewExecutionHint: "先生成后端权威 Dry Run，再确认实际会执行的文件操作。",
   organizeDryRunTitle: "执行检查已准备好",
-  organizeDryRunDesc:
-    "{executable} 项可执行 · 本批 {batch} 项 · 后续 {remaining} 项 · {blocked} 项暂不可执行 · {stale} 项已变化",
+  organizeDryRunDesc: "{executable} 项可执行 · 本批 {batch} 项 · 后续 {remaining} 项 · {blocked} 项暂不可执行 · {stale} 项已变化",
   organizeDryRunAction: "查看并确认执行",
   organizeWorkflowLabel: "整理流程",
   workflowStateDone: "已完成",
@@ -384,40 +341,31 @@ const zh = {
   organizeWorkflowDryRunDetail: "重新验证",
   organizeWorkflowConfirmDetail: "写入 Journal",
   organizeWorkflowBoundaryTitle: "执行边界",
-  organizeWorkflowBoundaryDesc:
-    "先 Dry Run，再重新验证路径和冲突，最后由你确认；AI 建议本身没有执行权限。",
-  organizeBlockedSummary:
-    "{count} 项未通过当前安全检查；它们不会进入 Dry Run 或执行。",
+  organizeWorkflowBoundaryDesc: "先 Dry Run，再重新验证路径和冲突，最后由你确认；AI 建议本身没有执行权限。",
+  organizeBlockedSummary: "{count} 项未通过当前安全检查；它们不会进入 Dry Run 或执行。",
   organizePreviewUnavailableTitle: "安全预览暂不可用",
-  organizePreviewUnavailableDesc:
-    "当前计划仍保留，未通过权威预览的项目不会被执行。请刷新当前事实后再试。",
+  organizePreviewUnavailableDesc: "当前计划仍保留，未通过权威预览的项目不会被执行。请刷新当前事实后再试。",
   organizeGroupReasonLowConfidence: "置信度较低，需要人工判断。",
   organizeGroupReasonSensitive: "包含敏感文件，不能直接批量接受。",
   organizeGroupReasonConflict: "有名称或目标冲突，需要逐项检查。",
   organizeGroupReasonChanged: "部分事实已变化，执行前需要刷新。",
   organizeGroupReasonBlocked: "后端安全检查未通过，当前不能执行。",
   organizeGroupReasonAnalysis: "缺少分析信息，当前不能可靠生成建议。",
-  organizeGroupDecisionHint:
-    "请逐项查看原因；有权威预览的项目可在确认后接受，也可以修改名称或保留原位。",
+  organizeGroupDecisionHint: "请逐项查看原因；有权威预览的项目可在确认后接受，也可以修改名称或保留原位。",
   organizeItemReviewReasonLabel: "需要判断",
   organizeGroupAcceptReviewTitle: "确认接受整组建议",
-  organizeGroupAcceptReviewDesc:
-    "这个分组包含需要人工判断的建议。原因：{reason}。确认后会为当前分组保留这些决定，文件仍需经过后续预览和执行确认。",
+  organizeGroupAcceptReviewDesc: "这个分组包含需要人工判断的建议。原因：{reason}。确认后会为当前分组保留这些决定，文件仍需经过后续预览和执行确认。",
   organizeGroupAcceptReviewConfirm: "确认接受整组",
   organizeItemAcceptReviewTitle: "确认接受这项建议",
-  organizeItemAcceptReviewDesc:
-    "这项建议需要人工确认。原因：{reason}。确认后将按此目标进入后续预览：{target}。",
+  organizeItemAcceptReviewDesc: "这项建议需要人工确认。原因：{reason}。确认后将按此目标进入后续预览：{target}。",
   organizeItemAcceptReviewConfirm: "确认接受建议",
   organizeItemAcceptReviewHint: "确认后将按当前建议处理",
   organizeItemAcceptUnavailableChanged: "文件事实已变化，请刷新计划后再决定。",
-  organizeItemAcceptUnavailableBlocked:
-    "这项建议未通过安全检查，当前不能接受。",
+  organizeItemAcceptUnavailableBlocked: "这项建议未通过安全检查，当前不能接受。",
   organizeItemAcceptUnavailablePreview: "没有可执行的权威预览，当前不能接受。",
   organizeItemAcceptUnavailableState: "当前状态不支持接受这项建议。",
-  organizeItemAcceptUnavailableBackend:
-    "建议已不可用，状态没有被本地接受；请刷新方案后重新确认。",
-  organizeItemEditUnavailableBackend:
-    "建议已不可编辑，状态没有被本地修改；请刷新方案后重新确认。",
+  organizeItemAcceptUnavailableBackend: "建议已不可用，状态没有被本地接受；请刷新方案后重新确认。",
+  organizeItemEditUnavailableBackend: "建议已不可编辑，状态没有被本地修改；请刷新方案后重新确认。",
   organizeReviewReasonLowConfidence: "置信度较低",
   organizeReviewReasonSensitiveFile: "敏感文件",
   organizeReviewReasonNonNormalRisk: "非普通风险",
@@ -477,37 +425,24 @@ const zh = {
   openSearchScopeSettings: "打开搜索范围设置",
   globalIndexSettings: "全局索引与 AI 管理",
   globalSearchRefreshResults: "刷新结果",
-  globalSearchWindowsScopeDesc:
-    "Windows 全局搜索以 NTFS 卷为索引单位，不支持单独指定文件夹。新发现磁盘默认不会扫描；启用前会要求确认，之后会为整个卷建立文件名、路径等元数据索引，而不是只扫描个人文件。文件库扫描和 AI 管理范围不会建立全局搜索覆盖。",
-  globalSearchReadyEmptyDesc:
-    "已就绪的启用来源中没有匹配结果。请检查拼写和路径；文件库可见不代表该位置已被全局索引覆盖。可在管理索引中核对来源。",
-  globalSearchPausedDesc:
-    "索引已暂停，本次结果不能证明全部位置均已收录。可查看来源，状态变化后刷新结果。",
-  globalSearchIndexingDesc:
-    "部分来源仍在收录，尚未收录的位置可能没有结果。请在管理索引中核对具体来源，收录完成后刷新结果。",
-  globalSearchRebuildDesc:
-    "有来源需要重建，当前结果不完整。请先核对具体来源；无需为小目录验收重建其他磁盘。",
+  globalSearchWindowsScopeDesc: "Windows 全局搜索以 NTFS 卷为索引单位，不支持单独指定文件夹。新发现磁盘默认不会扫描；启用前会要求确认，之后会为整个卷建立文件名、路径等元数据索引，而不是只扫描个人文件。文件库扫描和 AI 管理范围不会建立全局搜索覆盖。",
+  globalSearchReadyEmptyDesc: "已就绪的启用来源中没有匹配结果。请检查拼写和路径；文件库可见不代表该位置已被全局索引覆盖。可在管理索引中核对来源。",
+  globalSearchPausedDesc: "索引已暂停，本次结果不能证明全部位置均已收录。可查看来源，状态变化后刷新结果。",
+  globalSearchIndexingDesc: "部分来源仍在收录，尚未收录的位置可能没有结果。请在管理索引中核对具体来源，收录完成后刷新结果。",
+  globalSearchRebuildDesc: "有来源需要重建，当前结果不完整。请先核对具体来源；无需为小目录验收重建其他磁盘。",
   globalSearchDatabaseBusyDesc: "索引数据库当前被占用，搜索结果尚未验证。",
-  globalSearchServiceBusyDesc:
-    "Windows 全局索引服务正在处理另一项操作；此来源尚未完成本次搜索覆盖。",
-  globalSearchPermissionRequiredDesc:
-    "Windows 无法读取此磁盘，搜索结果不完整。请检查权限后重试。",
-  globalSearchWatcherUnavailableDesc:
-    "首次索引已完成，但无法监听文件变化；新文件需要重建索引后才能被搜索到。",
-  globalSearchUnavailableDesc:
-    "来源暂不可用或需要权限，此时不能把零结果视为文件不存在。请查看来源状态，恢复后刷新结果。",
+  globalSearchServiceBusyDesc: "Windows 全局索引服务正在处理另一项操作；此来源尚未完成本次搜索覆盖。",
+  globalSearchPermissionRequiredDesc: "Windows 无法读取此磁盘，搜索结果不完整。请检查权限后重试。",
+  globalSearchWatcherUnavailableDesc: "首次索引已完成，但无法监听文件变化；新文件需要重建索引后才能被搜索到。",
+  globalSearchUnavailableDesc: "来源暂不可用或需要权限，此时不能把零结果视为文件不存在。请查看来源状态，恢复后刷新结果。",
   globalSearchNotIndexedTitle: "有来源尚未收录",
-  globalSearchNotIndexedDesc:
-    "已发现来源不等于已收录。请在管理索引中核对文件所在来源；文件库扫描不会将文件加入全局索引，也不会因此自动启动整卷索引。",
-  globalSearchUnverifiedDesc:
-    "本次快照尚不能确认来源已全部就绪。请查看来源状态并刷新结果；未覆盖的位置不能按普通空结果判断。",
-  globalSearchIndexMeta:
-    "仅搜索全局索引已收录的文件名和路径；文件库扫描不等于全局覆盖",
+  globalSearchNotIndexedDesc: "已发现来源不等于已收录。请在管理索引中核对文件所在来源；文件库扫描不会将文件加入全局索引，也不会因此自动启动整卷索引。",
+  globalSearchUnverifiedDesc: "本次快照尚不能确认来源已全部就绪。请查看来源状态并刷新结果；未覆盖的位置不能按普通空结果判断。",
+  globalSearchIndexMeta: "仅搜索全局索引已收录的文件名和路径；文件库扫描不等于全局覆盖",
   globalSearchManage: "管理索引",
   fmSelectAll: "全选当前结果",
   fmSelectLoaded: "全选已加载结果",
-  fmExecutionUncertain:
-    "执行结果未确认，请先查看 History / 恢复记录，不要直接重复执行。",
+  fmExecutionUncertain: "执行结果未确认，请先查看 History / 恢复记录，不要直接重复执行。",
   fmRefreshFailed: "操作已结束，但列表刷新失败。请手动刷新并查看 History。",
   fmPrevious: "上一页",
   fmNext: "下一页",
@@ -533,11 +468,9 @@ const zh = {
   wbEnterPath: "输入或选择文件夹路径",
   wbPlatformUnavailable: "当前平台不支持文件夹导航。",
   wbNavigationFailed: "文件夹无法打开，当前位置已保留。",
-  wbUnsupportedDrop:
-    "仅支持将 Zen Canvas 中已选项目拖到另一个已打开的文件夹栏。不会直接执行操作。",
+  wbUnsupportedDrop: "仅支持将 Zen Canvas 中已选项目拖到另一个已打开的文件夹栏。不会直接执行操作。",
   wbSelectionChanged: "源选择或目标位置已改变，请重新选择并预览。",
-  wbFolderDropUnsupported:
-    "暂不支持拖到文件夹行。请先在目标栏打开该文件夹，再拖入栏内。",
+  wbFolderDropUnsupported: "暂不支持拖到文件夹行。请先在目标栏打开该文件夹，再拖入栏内。",
   shellShowSidebar: "显示主侧栏",
   shellHideSidebar: "隐藏主侧栏",
   fmMore: "更多操作",
@@ -573,12 +506,10 @@ const zh = {
   fmClipboardReady: "Zen 剪贴板已准备好，可进入目标目录后粘贴。",
   fmDestination: "目标目录",
   fmCrossVolumeMove: "暂不支持跨卷移动，请使用复制并保留源文件。",
-  fmWindowsDirectories:
-    "Windows 目录复制/移动尚未接入可靠的目录 staging 与恢复链；请选择普通文件。",
+  fmWindowsDirectories: "Windows 目录复制/移动尚未接入可靠的目录 staging 与恢复链；请选择普通文件。",
   fmConflict: "目标中已有同名文件。请选择跳过、保留两个或更换目标目录。",
   fmLimit: "每次最多操作 1000 项，请缩小选择范围。",
-  fmStale:
-    "文件引用或预览已失效，请重新选择并预览；可到 History 查看待恢复操作。",
+  fmStale: "文件引用或预览已失效，请重新选择并预览；可到 History 查看待恢复操作。",
   fmFailed: "操作未完成，请检查详情。",
   fmFinished: "本次操作已结束，可打开操作结果查看详情。",
   fmSucceeded: "成功",
@@ -591,20 +522,17 @@ const zh = {
   fmUnavailable: "暂不可用",
   fmUnfavorite: "取消收藏",
   fmRemove: "移除",
-  fmSessionOnly:
-    "文件篮与 Zen 剪贴板仅保留在本次主窗口会话中，不复制实体文件；执行前重新验证。",
+  fmSessionOnly: "文件篮与 Zen 剪贴板仅保留在本次主窗口会话中，不复制实体文件；执行前重新验证。",
   fmCopyBasket: "复制文件篮…",
   fmMoveBasket: "移动文件篮…",
   fmClearBasket: "清空文件篮",
   fmResults: "操作结果",
   fmHistory: "History / 恢复",
   fmOpenDestination: "查看目标目录",
-  fmRestoreHelp:
-    "成功的移动可在 History 中按身份验证恢复。复制不会提供未经核验的删除式撤销。",
+  fmRestoreHelp: "成功的移动可在 History 中按身份验证恢复。复制不会提供未经核验的删除式撤销。",
   fmCopyPreview: "复制预览",
   fmMovePreview: "移动预览",
-  fmPreviewHelp:
-    "核对来源与目标。不会覆盖已有文件；更改选项后请重新预览，再显式确认。",
+  fmPreviewHelp: "核对来源与目标。不会覆盖已有文件；更改选项后请重新预览，再显式确认。",
   fmChooseFolder: "选择文件夹…",
   fmFavoriteDestination: "收藏与最近位置",
   fmPrepare: "生成 / 更新预览",
@@ -614,15 +542,13 @@ const zh = {
   fmCancel: "取消",
   fmConfirm: "确认执行",
   globalSearchShowInLibrary: "在文件库中查看",
-  globalSearchLibraryFailed:
-    "无法在文件库中查看。文件或来源可能已变化，或目录无访问权限。请刷新搜索后重试。",
+  globalSearchLibraryFailed: "无法在文件库中查看。文件或来源可能已变化，或目录无访问权限。请刷新搜索后重试。",
   globalSearchManaged: "已纳入 AI 管理",
   globalSearchAddManaged: "加入 Zen Canvas 管理范围",
   globalIndexTitle: "全局搜索索引",
   filesWorkspace: "文件",
   windowControls: "窗口控制",
-  globalIndexDesc:
-    "全局搜索独立于文件库范围，只保存文件系统元数据；未纳入管理范围的文件不会进入 AI 分析。",
+  globalIndexDesc: "全局搜索独立于文件库范围，只保存文件系统元数据；未纳入管理范围的文件不会进入 AI 分析。",
   globalIndexStatus: "索引状态",
   globalIndexSources: "索引来源",
   globalIndexEntries: "已发现条目",
@@ -635,12 +561,9 @@ const zh = {
   globalIndexNoSources: "暂未发现可用索引来源",
   globalIndexNoSourcesDesc: "系统会在启动时发现本机可用的本地索引来源。",
   globalIndexAllSourcesDisabled: "所有索引来源均已停用",
-  globalIndexAllSourcesDisabledDesc:
-    "启用至少一个本地来源后，系统范围搜索才能建立或更新索引。",
-  globalIndexAuthorizationRequiredDesc:
-    "该 Windows 磁盘尚未得到明确授权，现有索引和数据保持不变。启用前请确认将对整个磁盘建立元数据索引。",
-  globalIndexFullDiskConfirm:
-    "启用后，Zen Canvas 将为所选 NTFS 磁盘建立整个卷的文件名、路径和文件属性元数据索引，包括系统和其他用户文件；这不是只扫描个人文件。是否授权此磁盘？",
+  globalIndexAllSourcesDisabledDesc: "启用至少一个本地来源后，系统范围搜索才能建立或更新索引。",
+  globalIndexAuthorizationRequiredDesc: "该 Windows 磁盘尚未得到明确授权，现有索引和数据保持不变。启用前请确认将对整个磁盘建立元数据索引。",
+  globalIndexFullDiskConfirm: "启用后，Zen Canvas 将为所选 NTFS 磁盘建立整个卷的文件名、路径和文件属性元数据索引，包括系统和其他用户文件；这不是只扫描个人文件。是否授权此磁盘？",
   globalIndexAuthorizeTitle: "确认全盘索引范围",
   globalIndexAuthorizeAction: "授权此磁盘",
   globalIndexAuthorizationSaved: "已授权此磁盘",
@@ -655,27 +578,17 @@ const zh = {
   globalIndexCollectionCollecting: "正在收集",
   globalIndexCollectionComplete: "初始收集完成",
   globalIndexErrorGeneric: "索引状态需要处理，请稍后重试或重建来源。",
-  globalIndexErrorDatabaseBusy:
-    "索引数据库正被其他操作占用，搜索状态暂不可读取；操作会在稍后重试。",
-  globalIndexErrorServiceBusy:
-    "Windows 全局索引服务正在处理另一项操作，本次来源索引尚未开始。",
-  globalIndexErrorPermissionRequired:
-    "无法读取所选磁盘，请检查系统权限；当前搜索结果不完整。",
-  globalIndexErrorSpotlightNoResults:
-    "Spotlight 没有返回本地索引结果。请检查 Spotlight 是否已开启；外接卷可能尚未建立索引。",
-  globalIndexErrorSpotlightFullDiskAccess:
-    "部分系统目录需要“完全磁盘访问权限”。请在系统设置中允许 Zen Canvas 访问文件和文件夹。",
-  globalIndexErrorSpotlightProtected:
-    "部分受保护目录无法访问，搜索结果可能不完整。",
-  globalIndexErrorSpotlightExternalNotIndexed:
-    "有外接卷尚未被 Spotlight 建立索引，搜索结果可能不完整。",
+  globalIndexErrorDatabaseBusy: "索引数据库正被其他操作占用，搜索状态暂不可读取；操作会在稍后重试。",
+  globalIndexErrorServiceBusy: "Windows 全局索引服务正在处理另一项操作，本次来源索引尚未开始。",
+  globalIndexErrorPermissionRequired: "无法读取所选磁盘，请检查系统权限；当前搜索结果不完整。",
+  globalIndexErrorSpotlightNoResults: "Spotlight 没有返回本地索引结果。请检查 Spotlight 是否已开启；外接卷可能尚未建立索引。",
+  globalIndexErrorSpotlightFullDiskAccess: "部分系统目录需要“完全磁盘访问权限”。请在系统设置中允许 Zen Canvas 访问文件和文件夹。",
+  globalIndexErrorSpotlightProtected: "部分受保护目录无法访问，搜索结果可能不完整。",
+  globalIndexErrorSpotlightExternalNotIndexed: "有外接卷尚未被 Spotlight 建立索引，搜索结果可能不完整。",
   globalIndexErrorSpotlightIncomplete: "部分结果无法访问，搜索结果可能不完整。",
-  globalIndexErrorSpotlightUnavailable:
-    "Spotlight 当前不可用。请在系统设置中检查 Spotlight；已完成的本地结果会保留。",
-  globalIndexErrorRealtimeUnavailable:
-    "实时文件更新暂不可用，搜索结果可能不会立即更新。",
-  globalIndexErrorSourceUnavailable:
-    "索引来源暂时不可用，连接后会自动尝试恢复。",
+  globalIndexErrorSpotlightUnavailable: "Spotlight 当前不可用。请在系统设置中检查 Spotlight；已完成的本地结果会保留。",
+  globalIndexErrorRealtimeUnavailable: "实时文件更新暂不可用，搜索结果可能不会立即更新。",
+  globalIndexErrorSourceUnavailable: "索引来源暂时不可用，连接后会自动尝试恢复。",
   globalIndexStatusDiscovered: "已发现",
   globalIndexStatusIndexing: "建立索引中",
   globalIndexStatusSyncing: "同步中",
@@ -698,12 +611,10 @@ const zh = {
   globalIndexProvider: "索引提供方",
   globalIndexServiceRunning: "Windows 后台服务运行中",
   globalIndexServiceUnavailable: "Windows 后台服务不可用",
-  globalIndexServiceUnavailableDesc:
-    "当前使用进程内回退路径；安装或启动 Zen Canvas Global Index 服务后可恢复独立索引。",
+  globalIndexServiceUnavailableDesc: "当前使用进程内回退路径；安装或启动 Zen Canvas Global Index 服务后可恢复独立索引。",
   globalIndexProviderDirectFallback: "进程内回退路径",
   managedScopesTitle: "AI 管理范围",
-  managedScopesDesc:
-    "只有明确加入管理范围的文件才会进入 AI 队列；全局搜索仍保留全部发现结果。",
+  managedScopesDesc: "只有明确加入管理范围的文件才会进入 AI 队列；全局搜索仍保留全部发现结果。",
   managedScopeAdd: "加入管理范围",
   managedScopePathPlaceholder: "输入文件夹路径",
   managedScopeLocalAi: "允许本地 AI",
@@ -712,24 +623,19 @@ const zh = {
   managedScopeEnabled: "启用管理范围",
   managedScopeDisabled: "管理范围已停用",
   managedScopeNone: "尚未加入任何管理范围",
-  managedScopePolicySummary:
-    "AI 只处理已加入管理范围的文件；云端权限按范围单独控制。",
-  managedScopeOnlyCloudEnabled:
-    "AI 只处理已加入管理范围的文件；部分范围允许云端处理。",
-  managedScopeOnlyCloudDisabled:
-    "AI 只处理已加入管理范围的文件；云端处理已关闭。",
+  managedScopePolicySummary: "AI 只处理已加入管理范围的文件；云端权限按范围单独控制。",
+  managedScopeOnlyCloudEnabled: "AI 只处理已加入管理范围的文件；部分范围允许云端处理。",
+  managedScopeOnlyCloudDisabled: "AI 只处理已加入管理范围的文件；云端处理已关闭。",
   managedScopeAdded: "管理范围已加入",
   managedScopeActionFailed: "管理范围操作失败",
-  managedScopeNoneDesc:
-    "添加文件夹后，只有该范围内的文件才会进入 AI 分析队列。",
+  managedScopeNoneDesc: "添加文件夹后，只有该范围内的文件才会进入 AI 分析队列。",
   modeAIDisabled: "AI 已关闭",
   modeLoading: "正在确认处理模式",
   modeLoadingDesc: "正在读取本机 AI 配置。",
   modeFailed: "无法确认处理模式",
   modeFailedDesc: "AI 配置读取失败，请前往设置检查。",
   modeCheckSettings: "检查设置",
-  modeAIDisabledDesc:
-    "文件、搜索、预览和历史恢复仍可使用；AI 整理与 AI 清理需要连接提供商并取得各自授权。",
+  modeAIDisabledDesc: "文件、搜索、预览和历史恢复仍可使用；AI 整理与 AI 清理需要连接提供商并取得各自授权。",
   modeAILocal: "使用本地模型",
   modeAILocalDesc: "索引和模型分析均在本机完成。",
   modeAICloud: "使用云端 AI",
@@ -765,8 +671,7 @@ const zh = {
   fileLibraryNavigationSavedEmpty: "暂无已保存视图",
   fileLibraryNavigationTags: "标签",
   fileLibraryNavigationTagsEmpty: "暂无标签",
-  fileLibraryNavigationLibraryUnavailable:
-    "切换到文件库后可用；当前位置仍保持浏览入口。",
+  fileLibraryNavigationLibraryUnavailable: "切换到文件库后可用；当前位置仍保持浏览入口。",
   fileLibraryNavigationLocations: "可浏览的位置",
   fileLibraryNavigationLibraryLocations: "文件库位置",
   fileLibraryNavigationLocationsLoading: "正在读取位置",
@@ -783,8 +688,7 @@ const zh = {
   fileLibraryNavigationGroupNetwork: "网络",
   fileLibraryNavigationGroupCloud: "云服务",
   fileLibraryNavigationGroupOther: "其他",
-  fileLibraryNavigationAuthorityNote:
-    "位置状态和打开动作来自后端 Location；浏览不会自动纳入文件库。",
+  fileLibraryNavigationAuthorityNote: "位置状态和打开动作来自后端 Location；浏览不会自动纳入文件库。",
   fileLibraryContextTitle: "上下文",
   fileLibraryContextDescription: "只显示当前来源已确认的详情，不读取文件内容。",
   fileLibraryContextSelectionTitle: "已选项目",
@@ -795,27 +699,22 @@ const zh = {
   fileLibraryContextCreated: "创建时间",
   fileLibraryContextMaterialization: "内容状态",
   fileLibraryContextBrowseSafety: "浏览上下文只使用当前已读取的展示信息。",
-  fileLibraryContextBrowseMultiSafety:
-    "浏览选择仅覆盖当前已读取项目，不代表文件夹中的未读取内容。",
+  fileLibraryContextBrowseMultiSafety: "浏览选择仅覆盖当前已读取项目，不代表文件夹中的未读取内容。",
   fileLibraryContextKnownSize: "大小已知",
   fileLibraryContextPartialSize: "大小部分已知",
   fileLibraryContextUnknownSize: "大小未知",
   fileLibraryContextLocal: "本地可用",
   fileLibraryContextTypes: "类型分布",
   fileLibraryBrowseDetachedTitle: "准备浏览文件",
-  fileLibraryBrowseDetachedDesc:
-    "当前没有打开文件夹。此状态不会读取、索引或将任何文件加入文件库。",
+  fileLibraryBrowseDetachedDesc: "当前没有打开文件夹。此状态不会读取、索引或将任何文件加入文件库。",
   fileLibraryBrowseTargetTitle: "浏览位置已打开",
-  fileLibraryBrowseTargetDesc:
-    "当前文件夹仅用于浏览；此状态不会读取、索引或将文件内容加入文件库。",
+  fileLibraryBrowseTargetDesc: "当前文件夹仅用于浏览；此状态不会读取、索引或将文件内容加入文件库。",
   browseLocationsTitle: "选择要浏览的位置",
-  browseLocationsDesc:
-    "只会打开后端确认可浏览的位置；浏览不会读取、索引或将文件加入文件库。",
+  browseLocationsDesc: "只会打开后端确认可浏览的位置；浏览不会读取、索引或将文件加入文件库。",
   browseLocationsLoading: "正在读取可浏览的位置",
   browseLocationsRetry: "重新读取位置",
   browseLocationsEmptyTitle: "暂时没有可浏览的位置",
-  browseLocationsEmptyDesc:
-    "没有位置目录可供打开。请稍后重试，或检查应用权限。",
+  browseLocationsEmptyDesc: "没有位置目录可供打开。请稍后重试，或检查应用权限。",
   browseChooseFolder: "选择文件夹…",
   browseChooseFolderTitle: "选择要浏览的文件夹",
   browseChooseFolderError: "无法打开所选文件夹",
@@ -832,51 +731,46 @@ const zh = {
   u3MetadataOnly: "仅比较当前层元数据；不证明内容一致。",
   u3Conditions: "比较条件与覆盖限制",
   u3BatchLimits: "批量操作与恢复说明（每次最多 1,000 项）",
-  u3Sort: "文件夹排序",
-  u3NativeOrder: "原始顺序",
-  u3Name: "名称",
-  u3Type: "类型",
-  u3Size: "大小",
-  u3Modified: "修改时间",
-  u3Direction: "排序方向",
-  u3Asc: "升序 ↑",
-  u3Desc: "降序 ↓",
-  u3FoldersFirst: "文件夹优先",
-  u3SortLimit:
-    "排序先收集整个当前文件夹的元数据，再分页显示；最多 20,000 个条目。名称按精确字符排序。",
-  u3SortFailure:
-    "无法完成排序：可能超出 20,000 个条目、访问失败或文件夹已变化。刷新重试，或切换原始顺序浏览。",
-  u3Incomplete: "枚举覆盖不完整",
-  u3Skipped: "已跳过 {count} 个无法读取或不支持的条目。",
-  u3Compare: "对比左右文件夹",
-  u3CloseCompare: "返回普通浏览",
-  u3Pause: "暂停",
-  u3Resume: "继续",
-  u3CompareModified: "比较修改时间",
-  u3CompareHelp:
-    "只读比较当前层：精确匹配文件名（区分大小写，不推断卷的大小写规则），比较类型、文件大小及可选修改时间（秒）。不读取或哈希内容，不递归子目录；元数据一致不代表内容相同。每侧最多 10,000 个可见条目。逐项观察，不是原子快照。",
-  u3NeedFolders: "请在左右栏分别打开 Browse 文件夹。",
-  u3ClearFilters: "请清除左右栏的名称和类型筛选，以对比整个文件夹。",
-  u3CompareLimit: "超过对比容量，未生成完整结果。请进入较小的子文件夹。",
-  u3CompareFailed: "枚举失败，无法给出完整对比。请检查权限并刷新。",
-  u3Changed: "文件夹已变化，请刷新对比。",
-  u3Paused: "对比已暂停",
-  u3Comparing: "正在按分页读取元数据…",
-  u3Compared: "已比较当前层条目：",
-  u3CompareCoverage:
-    "结果只涵盖可读取且支持的条目；单边存在和元数据一致均不能作为完整目录结论。",
-  u3Filter: "比较结果",
-  u3All: "全部",
-  u3Status_left: "仅左侧可见",
-  u3Status_right: "仅右侧可见",
-  u3Status_different: "元数据不同",
-  u3Status_same: "所选元数据一致",
-  u3Status_directory: "子目录 · 未递归",
-  u3Status_unknown: "元数据或名称不确定",
-  u3SelectFiltered: "选择此侧筛选结果",
-  u3BatchHelp:
-    "勾选会同步到对应文件列表，可在左右栏定位。批量操作每次最多 1,000 项；后端预览决定目录、跨卷及冲突是否支持，确认后才执行。可恢复操作在 History 中访问。",
-  u3CompareResults: "左右文件夹元数据对比",
+  u3Sort: '文件夹排序',
+  u3NativeOrder: '原始顺序',
+  u3Name: '名称',
+  u3Type: '类型',
+  u3Size: '大小',
+  u3Modified: '修改时间',
+  u3Direction: '排序方向',
+  u3Asc: '升序 ↑',
+  u3Desc: '降序 ↓',
+  u3FoldersFirst: '文件夹优先',
+  u3SortLimit: '排序先收集整个当前文件夹的元数据，再分页显示；最多 20,000 个条目。名称按精确字符排序。',
+  u3SortFailure: '无法完成排序：可能超出 20,000 个条目、访问失败或文件夹已变化。刷新重试，或切换原始顺序浏览。',
+  u3Incomplete: '枚举覆盖不完整',
+  u3Skipped: '已跳过 {count} 个无法读取或不支持的条目。',
+  u3Compare: '对比左右文件夹',
+  u3CloseCompare: '返回普通浏览',
+  u3Pause: '暂停',
+  u3Resume: '继续',
+  u3CompareModified: '比较修改时间',
+  u3CompareHelp: '只读比较当前层：精确匹配文件名（区分大小写，不推断卷的大小写规则），比较类型、文件大小及可选修改时间（秒）。不读取或哈希内容，不递归子目录；元数据一致不代表内容相同。每侧最多 10,000 个可见条目。逐项观察，不是原子快照。',
+  u3NeedFolders: '请在左右栏分别打开 Browse 文件夹。',
+  u3ClearFilters: '请清除左右栏的名称和类型筛选，以对比整个文件夹。',
+  u3CompareLimit: '超过对比容量，未生成完整结果。请进入较小的子文件夹。',
+  u3CompareFailed: '枚举失败，无法给出完整对比。请检查权限并刷新。',
+  u3Changed: '文件夹已变化，请刷新对比。',
+  u3Paused: '对比已暂停',
+  u3Comparing: '正在按分页读取元数据…',
+  u3Compared: '已比较当前层条目：',
+  u3CompareCoverage: '结果只涵盖可读取且支持的条目；单边存在和元数据一致均不能作为完整目录结论。',
+  u3Filter: '比较结果',
+  u3All: '全部',
+  u3Status_left: '仅左侧可见',
+  u3Status_right: '仅右侧可见',
+  u3Status_different: '元数据不同',
+  u3Status_same: '所选元数据一致',
+  u3Status_directory: '子目录 · 未递归',
+  u3Status_unknown: '元数据或名称不确定',
+  u3SelectFiltered: '选择此侧筛选结果',
+  u3BatchHelp: '勾选会同步到对应文件列表，可在左右栏定位。批量操作每次最多 1,000 项；后端预览决定目录、跨卷及冲突是否支持，确认后才执行。可恢复操作在 History 中访问。',
+  u3CompareResults: '左右文件夹元数据对比',
   browseSortUnavailableLabel: "排序不可用",
   browseLocationOpen: "打开位置",
   browseLocationOpening: "正在打开位置",
@@ -930,8 +824,7 @@ const zh = {
   scanCommon: "扫描用户空间",
   folderPickerTitle: "选择要扫描的空间",
   folderPickerFailed: "无法打开文件夹选择器",
-  folderPickerSubtitle:
-    "先从用户空间或一个指定文件夹开始。Zen Canvas 只扫描和生成建议，不会自动移动或删除文件。",
+  folderPickerSubtitle: "先从用户空间或一个指定文件夹开始。Zen Canvas 只扫描和生成建议，不会自动移动或删除文件。",
   primaryPromise: "非破坏式整理，不自动动文件",
   guidedStart: "三步上手",
   guidedStartDesc: "普通用户只需要按这个顺序走，不必理解规则细节。",
@@ -947,14 +840,11 @@ const zh = {
   notScannedYet: "尚未扫描",
   noFolderSelected: "尚未选择文件夹",
   noCurrentScanTitle: "还没有当前扫描目录",
-  noCurrentScanDesc:
-    "请选择一个文件夹开始扫描，或者切换到全部索引文件查看历史索引。",
+  noCurrentScanDesc: "请选择一个文件夹开始扫描，或者切换到全部索引文件查看历史索引。",
   noOrganizeScopeTitle: "当前没有扫描范围",
-  noOrganizeScopeDesc:
-    "当前没有扫描范围，无法生成整理建议。请先选择文件夹扫描，或切换到全部索引文件。",
+  noOrganizeScopeDesc: "当前没有扫描范围，无法生成整理建议。请先选择文件夹扫描，或切换到全部索引文件。",
   chooseFolderScan: "选择文件夹扫描",
-  folderChooserUnavailable:
-    "浏览器预览无法打开系统文件夹选择器；桌面应用中会弹出真实选择窗口。",
+  folderChooserUnavailable: "浏览器预览无法打开系统文件夹选择器；桌面应用中会弹出真实选择窗口。",
   totalAnalysed: "已索引空间",
   totalFiles: "文件",
   totalSize: "空间",
@@ -963,8 +853,7 @@ const zh = {
   clutterRatio: "当前页杂乱线索",
   scannerIndexedVolume: "已索引体积",
   scannerReferenceDisk: "参考磁盘容量",
-  scannerReferenceDiskHint:
-    "参考值，仅用于估算索引覆盖范围，不代表真实磁盘使用率",
+  scannerReferenceDiskHint: "参考值，仅用于估算索引覆盖范围，不代表真实磁盘使用率",
   scannerCurrentViewHint: "来自当前视图的待整理线索",
   scannerStartTitle: "选择一个空间开始",
   scannerLocalIndexSafety: "只建立本地索引，不上传文件，也不会自动移动或删除。",
@@ -989,23 +878,19 @@ const zh = {
   inboxStack: "待整理文件",
   inboxStackDesc: "这些文件等待规则分析或整理建议，还没有进入最终建议去向。",
   suggestedPlan: "整理方案",
-  dispatchDesc:
-    "Zen Canvas 会把可执行动作拆成移动、重命名或组合操作。执行前仍会进入预览确认，不会自动移动文件。",
+  dispatchDesc: "Zen Canvas 会把可执行动作拆成移动、重命名或组合操作。执行前仍会进入预览确认，不会自动移动文件。",
   targetBoxes: "建议去向",
   targetBoxesDesc: "按生命周期和风险聚合后的建议去向。",
   hubWorkbenchTitle: "分拣工作台",
-  hubWorkbenchDesc:
-    "先把当前范围内的文件分成待整理和建议去向，再进入预览确认。",
+  hubWorkbenchDesc: "先把当前范围内的文件分成待整理和建议去向，再进入预览确认。",
   hubSafetyHint: "执行前仍会进入预览确认，不会自动移动文件。",
-  hubPendingDesc:
-    "这些文件等待规则分析或整理建议，还没有进入最终建议去向；当前不会移动文件。",
+  hubPendingDesc: "这些文件等待规则分析或整理建议，还没有进入最终建议去向；当前不会移动文件。",
   hubPendingStatus: "待分析",
   hubSuggestionStatus: "建议去向",
   hubBucketSuggestionHint: "这是建议去向，不是已经移动。",
   hubLoadingQueue: "正在加载整理队列",
   hubNoPendingTitle: "当前没有待整理文件",
-  hubNoPendingDesc:
-    "当前范围内没有等待规则分析的文件。你仍可查看右侧建议去向，或重新扫描更新索引。",
+  hubNoPendingDesc: "当前范围内没有等待规则分析的文件。你仍可查看右侧建议去向，或重新扫描更新索引。",
   hubNoBucketedTitle: "当前没有建议去向",
   hubNoBucketedDesc: "规则还没有为当前范围生成建议分类。",
   hubEmptyBucket: "暂无文件进入此分类",
@@ -1023,8 +908,7 @@ const zh = {
   dispatching: "正在生成整理建议...",
   dispatchClear: "当前没有待整理文件",
   waitingFlow: "暂无文件进入此分类",
-  organizeQueueTruncatedWarning:
-    "整理队列已达到显示上限，仅展示前 3000 个文件；生成预览仍会覆盖当前范围内的全部文件。",
+  organizeQueueTruncatedWarning: "整理队列已达到显示上限，仅展示前 3000 个文件；生成预览仍会覆盖当前范围内的全部文件。",
   reload: "重新加载",
   organizeSuggestionList: "整理建议列表",
   organizeBatchSelectItem: "选择 {name}",
@@ -1065,8 +949,7 @@ const zh = {
   organizeKeepOriginal: "保留原位",
   organizeEditTargetName: "调整文件名",
   organizeClearDecision: "撤销决定",
-  organizeKeyboardHints:
-    "↑/↓ 切换建议，空格接受，K 保留，E 调整文件名，Enter 查看详情。",
+  organizeKeyboardHints: "↑/↓ 切换建议，空格接受，K 保留，E 调整文件名，Enter 查看详情。",
   organizeAdvancedAnalysis: "高级分析信息",
   organizeMatchedRules: "当前 AI 语义说明",
   organizeContextSignal: "上下文信号",
@@ -1076,8 +959,7 @@ const zh = {
   organizeTechnicalBasisAvailable: "此说明来自当前 Managed AI 语义评估。",
   organizeAnalysisRulesAvailable: "当前 Managed AI 评估没有可显示的补充说明。",
   organizeContextAvailable: "已结合本地文件上下文。",
-  organizeReasonFromAnalysis:
-    "建议来自当前 Managed AI 语义评估；目标与可执行性仍由 Zen Canvas 确定并在预览中复核。",
+  organizeReasonFromAnalysis: "建议来自当前 Managed AI 语义评估；目标与可执行性仍由 Zen Canvas 确定并在预览中复核。",
   organizeSourceUnavailable: "源文件已缺失或索引已过期，无法执行此建议。",
   organizeOperationBlockedDesc: "此操作未通过后端安全检查，无法执行。",
   organizeSensitiveReviewDesc: "这是敏感文件，需要单独复核，不能批量接受。",
@@ -1087,8 +969,7 @@ const zh = {
   organizeNoExecutablePreviewDesc: "尚未生成可执行预览；当前不会移动文件。",
   organizeWillCreateParentDesc: "执行时将创建尚不存在的目标文件夹。",
   organizeTargetDialogTitle: "调整目标文件名",
-  organizeTargetDialogDesc:
-    "只调整文件名；目标文件夹仍由已验证的整理建议决定。",
+  organizeTargetDialogDesc: "只调整文件名；目标文件夹仍由已验证的整理建议决定。",
   organizeNewFileName: "新文件名",
   organizeNameOnly: "不要输入路径或目录分隔符。",
   organizeNameErrorEmpty: "文件名不能为空。",
@@ -1111,51 +992,36 @@ const zh = {
   organizeEmptyDesc: "可以分析待处理文件，或返回文件库调整范围。",
   organizeClickOnlyViews: "选择文件只会查看详情，不会自动接受建议。",
   organizeReanalyzeConfirmTitle: "重新分析当前范围？",
-  organizeReanalyzeConfirmDesc:
-    "这会重新生成 AI 分类建议，但不会覆盖用户修正或移动文件。",
+  organizeReanalyzeConfirmDesc: "这会重新生成 AI 分类建议，但不会覆盖用户修正或移动文件。",
   organizeReanalyzeConfirmAction: "重新分析",
   organizeExecuteConfirmTitle: "确认执行整理操作？",
   organizeExecuteNormalConfirmTitle: "执行已确认的整理操作？",
   organizeExecuteRiskConfirmTitle: "确认执行包含风险的操作？",
   organizeBackToSuggestions: "← 返回整理建议",
   organizePreviewAcceptedOnly: "这里只显示你已接受或调整的操作。",
-  organizePreviewInvalidated:
-    "部分操作已失效，请返回整理建议重新确认。失效操作不会执行。",
-  organizeExecuteConfirmDesc:
-    "将执行 {count} 项已选择且通过安全检查的操作。执行时仍会重新验证文件身份与目标冲突。",
-  organizeExecuteCappedConfirmDesc:
-    "本批将先执行 {count} 项（本次 Dry Run 共 {total} 项，后续 {remaining} 项会保留在计划中）。执行时仍会重新验证文件身份与目标冲突。",
-  organizeExecuteNormalConfirmDesc:
-    "这些操作没有已知高风险项。执行前仍会复核文件身份、来源状态和目标冲突。",
-  organizeExecuteRiskConfirmDesc:
-    "这些操作包含需要人工确认的风险，请逐项核对目标位置与文件身份。",
+  organizePreviewInvalidated: "部分操作已失效，请返回整理建议重新确认。失效操作不会执行。",
+  organizeExecuteConfirmDesc: "将执行 {count} 项已选择且通过安全检查的操作。执行时仍会重新验证文件身份与目标冲突。",
+  organizeExecuteCappedConfirmDesc: "本批将先执行 {count} 项（本次 Dry Run 共 {total} 项，后续 {remaining} 项会保留在计划中）。执行时仍会重新验证文件身份与目标冲突。",
+  organizeExecuteNormalConfirmDesc: "这些操作没有已知高风险项。执行前仍会复核文件身份、来源状态和目标冲突。",
+  organizeExecuteRiskConfirmDesc: "这些操作包含需要人工确认的风险，请逐项核对目标位置与文件身份。",
   organizeExecuteConfirmAction: "执行 {count} 项",
-  organizeExecuteRiskSummary:
-    "需额外确认 {confirmation} · 敏感 {sensitive} · 系统 {system} · 重复 {duplicate} · 低置信 {lowConfidence} · 回收站 {trash} · 新建目录 {folders}",
-  organizeNormalConfirmEmphasis:
-    "执行时会再次检查文件身份和目标冲突，不会覆盖同名文件。",
-  organizeRiskConfirmEmphasis:
-    "本次操作包含 {count} 个风险项目，请确认后再执行。",
-  organizeSensitiveConfirmEmphasis:
-    "本次操作包含 {count} 个敏感文件，请确认目标位置和文件身份。",
-  organizeTrashConfirmEmphasis:
-    "本次有 {count} 项会移入系统回收站，不会永久删除。",
+  organizeExecuteRiskSummary: "需额外确认 {confirmation} · 敏感 {sensitive} · 系统 {system} · 重复 {duplicate} · 低置信 {lowConfidence} · 回收站 {trash} · 新建目录 {folders}",
+  organizeNormalConfirmEmphasis: "执行时会再次检查文件身份和目标冲突，不会覆盖同名文件。",
+  organizeRiskConfirmEmphasis: "本次操作包含 {count} 个风险项目，请确认后再执行。",
+  organizeSensitiveConfirmEmphasis: "本次操作包含 {count} 个敏感文件，请确认目标位置和文件身份。",
+  organizeTrashConfirmEmphasis: "本次有 {count} 项会移入系统回收站，不会永久删除。",
   organizeExecutableSelected: "实际可执行",
   organizeSelectionExcludedTitle: "部分已选项目无法执行",
-  organizeSelectionExcludedDesc:
-    "已选择 {selected} 项，其中 {executable} 项可执行；文件名无效 {invalid} 项、已阻止 {blocked} 项、不在本次确认范围 {outside} 项、已失效 {unavailable} 项。",
-  organizeGroupSelectionSummary:
-    "已选择 {selected} 项，其中 {executable} 项实际可执行",
+  organizeSelectionExcludedDesc: "已选择 {selected} 项，其中 {executable} 项可执行；文件名无效 {invalid} 项、已阻止 {blocked} 项、不在本次确认范围 {outside} 项、已失效 {unavailable} 项。",
+  organizeGroupSelectionSummary: "已选择 {selected} 项，其中 {executable} 项实际可执行",
   organizeGroupSelectionCompact: "已选 {selected} · 可执行 {executable}",
   organizeResultSuccessTitle: "整理已完成",
   organizeResultPartialTitle: "整理部分完成",
   organizeResultFailedTitle: "整理未能完成",
   organizeResultCanceledTitle: "整理已取消",
   organizeResultNoChangesTitle: "没有执行任何更改",
-  organizeResultSummary:
-    "成功 {success} 项，跳过 {skipped} 项，失败 {failed} 项。",
-  organizeExecutionBatchResult:
-    "本批实际尝试 {attempted} 项；本次批次上限为 {total} 项，尚有 {remaining} 项待后续执行。",
+  organizeResultSummary: "成功 {success} 项，跳过 {skipped} 项，失败 {failed} 项。",
+  organizeExecutionBatchResult: "本批实际尝试 {attempted} 项；本次批次上限为 {total} 项，尚有 {remaining} 项待后续执行。",
   organizeViewHistory: "查看操作历史",
   organizeRestoreEntry: "查看可恢复项目 ({count})",
   reviewQueue: "确认队列",
@@ -1180,11 +1046,9 @@ const zh = {
   libraryDuplicateFilesDesc: "内容哈希相同的文件",
   librarySensitiveFiles: "敏感文件",
   librarySensitiveFilesDesc: "风险或生命周期标记为敏感",
-  libraryIntro:
-    "文件库用于浏览扫描结果和分类原因。找具体文件请使用顶部搜索；这里主要用来按状态查看哪些文件在用、可归档或需要人工确认。",
+  libraryIntro: "文件库用于浏览扫描结果和分类原因。找具体文件请使用顶部搜索；这里主要用来按状态查看哪些文件在用、可归档或需要人工确认。",
   libraryShowing: "正在显示 {visible} / {total} 个文件",
-  libraryShowingFiltered:
-    "筛选后显示 {visible} 个文件（已检查 {total} 个索引文件）",
+  libraryShowingFiltered: "筛选后显示 {visible} 个文件（已检查 {total} 个索引文件）",
   libraryMetricsLabel: "文件库摘要",
   libraryResultCountLabel: "结果",
   libraryResultCountDeferred: "已加载 {loaded}，正在计算总数…",
@@ -1203,10 +1067,8 @@ const zh = {
   libraryManageSavedViews: "管理已保存视图",
   libraryManageTags: "管理标签",
   libraryManageTagsTitle: "管理用户标签",
-  libraryManageTagsDesc:
-    "使用情况和变更保存在文件库中；分配始终使用当前权威选择。",
-  libraryManageSavedViewsDesc:
-    "已保存视图只保存规范查询；打开视图会开始新的结果快照。",
+  libraryManageTagsDesc: "使用情况和变更保存在文件库中；分配始终使用当前权威选择。",
+  libraryManageSavedViewsDesc: "已保存视图只保存规范查询；打开视图会开始新的结果快照。",
   libraryCloseManager: "关闭管理器",
   libraryTagName: "标签名称",
   libraryTagNewColor: "新标签颜色",
@@ -1251,8 +1113,7 @@ const zh = {
   librarySortRelevance: "相关性",
   librarySortMenuLabel: "文件库排序",
   librarySnapshotExpiredTitle: "结果已更新",
-  librarySnapshotExpiredDesc:
-    "文件库在打开这些结果后发生了变化。已加载的行仍可查看；刷新后开始新的结果快照。",
+  librarySnapshotExpiredDesc: "文件库在打开这些结果后发生了变化。已加载的行仍可查看；刷新后开始新的结果快照。",
   librarySnapshotRefresh: "刷新",
   libraryScopeHealthPermission: "需要权限",
   libraryScopeHealthReconciliation: "需要重新核对",
@@ -1261,8 +1122,7 @@ const zh = {
   libraryScopeHealthUnavailable: "范围暂不可用",
   libraryLoadingResults: "正在加载本地文件索引",
   libraryDetailLoadFailedTitle: "文件详情加载失败",
-  libraryDetailLoadFailedDesc:
-    "无法加载文件详情。请重试；若问题持续，请查看诊断信息。",
+  libraryDetailLoadFailedDesc: "无法加载文件详情。请重试；若问题持续，请查看诊断信息。",
   libraryDetailRetry: "重试加载详情",
   libraryFilteringTitle: "正在检查已索引文件",
   libraryFilteringDesc: "正在继续读取分页结果，以确保筛选结果覆盖全部索引。",
@@ -1271,8 +1131,7 @@ const zh = {
   libraryNoScanTitle: "还没有索引文件",
   libraryNoScanDesc: "先扫描桌面、下载或文档，Zen Canvas 会建立本地索引。",
   libraryNoScopeFilesTitle: "当前范围没有文件",
-  libraryNoScopeFilesDesc:
-    "当前扫描目录没有可显示文件。可以切换到全部索引文件，或选择另一个扫描目录。",
+  libraryNoScopeFilesDesc: "当前扫描目录没有可显示文件。可以切换到全部索引文件，或选择另一个扫描目录。",
   libraryNoSearchTitle: "没有找到匹配文件",
   libraryNoSearchDesc: "换一个文件名、路径或用途关键词再试。",
   libraryNoFilterTitle: "当前筛选没有结果",
@@ -1325,20 +1184,16 @@ const zh = {
   librarySortDescending: "降序",
   librarySortLoadedOnly: "当前仅对已加载文件排序",
   libraryInspector: "文件详情",
-  u4RevealUnavailable:
-    "无法在系统文件管理器中显示此项目。项目可能已变动或当前环境不支持此操作；请刷新文件夹后重试。",
+  u4RevealUnavailable: "无法在系统文件管理器中显示此项目。项目可能已变动或当前环境不支持此操作；请刷新文件夹后重试。",
   u4Notes: "文件笔记",
   u4Favorite: "收藏文件",
   u4Unfavorite: "取消文件收藏",
   u4Saved: "已保存",
   u4Save: "保存笔记",
   u4Delete: "删除笔记",
-  u4PersonalUnavailable:
-    "此项目的托管身份尚不可验证或已不可用，笔记与收藏仅可读取。",
-  u4BrowseUnavailable:
-    "临时浏览项目：笔记和文件收藏仅对已托管且身份可验证的文件开放。浏览不会加入索引。",
-  u4PersonalError:
-    "无法读取或保存。项目可能已变化，或另一窗格已修改；请重新加载。",
+  u4PersonalUnavailable: "此项目的托管身份尚不可验证或已不可用，笔记与收藏仅可读取。",
+  u4BrowseUnavailable: "临时浏览项目：笔记和文件收藏仅对已托管且身份可验证的文件开放。浏览不会加入索引。",
+  u4PersonalError: "无法读取或保存。项目可能已变化，或另一窗格已修改；请重新加载。",
   u4Reload: "重新加载",
   u4MyFiles: "笔记与文件收藏",
   u4Favorites: "文件收藏",
@@ -1398,8 +1253,7 @@ const zh = {
   previewPdfEncrypted: "PDF 已加密",
   previewPdfCorrupt: "PDF 内容损坏",
   previewPdfFailed: "PDF 预览失败",
-  previewPdfFailedDescription:
-    "当前 PDF 无法在应用内安全解码；源文件未被修改。",
+  previewPdfFailedDescription: "当前 PDF 无法在应用内安全解码；源文件未被修改。",
   previewPdfPageFailed: "此 PDF 页面暂不可用。",
   previewStructuredContent: "结构化内容",
   previewTableContent: "表格内容",
@@ -1435,15 +1289,12 @@ const zh = {
   previewPartialContent: "部分内容（超过预览上限）",
   previewTableEmpty: "此表格没有可显示的内容。",
   previewMetadataFallback: "显示元数据回退",
-  previewMetadataOnlyDescription:
-    "当前没有可安全读取的内容，因此不会伪造文件内容或下载状态。",
+  previewMetadataOnlyDescription: "当前没有可安全读取的内容，因此不会伪造文件内容或下载状态。",
   previewMaterializationLabel: "内容状态",
   previewSourceUnavailable: "源不可用",
-  previewSourceUnavailableDescription:
-    "当前条目已离开可验证的来源范围。请返回列表后重新选择。",
+  previewSourceUnavailableDescription: "当前条目已离开可验证的来源范围。请返回列表后重新选择。",
   previewMaterializationRequired: "需要准备内容",
-  previewMaterializationRequiredDescription:
-    "当前来源只提供元数据；内容准备必须由受支持的权限边界处理。",
+  previewMaterializationRequiredDescription: "当前来源只提供元数据；内容准备必须由受支持的权限边界处理。",
   previewPermissionDenied: "没有读取权限",
   previewPermissionDeniedDescription: "预览不会绕过文件权限或平台安全边界。",
   previewIdentityChanged: "文件身份已变化",
@@ -1451,15 +1302,11 @@ const zh = {
   previewCancelled: "预览已取消",
   previewCancelledDescription: "当前预览请求已结束。",
   previewUnsupportedRepresentation: "暂不支持此预览表示",
-  previewUnsupportedRepresentationDescription:
-    "当前没有安全的内容表示；仍显示可信元数据。",
-  previewUnsupportedRepresentationDirectDescription:
-    "此项目没有可用的安全内容表示。",
-  previewRichProviderUnavailable:
-    "当前版本只提供可信元数据回退，不会伪造富内容。",
+  previewUnsupportedRepresentationDescription: "当前没有安全的内容表示；仍显示可信元数据。",
+  previewUnsupportedRepresentationDirectDescription: "此项目没有可用的安全内容表示。",
+  previewRichProviderUnavailable: "当前版本只提供可信元数据回退，不会伪造富内容。",
   previewContentFailed: "内容预览失败",
-  previewContentFailedDescription:
-    "无法解码或准备内容；可信元数据仍可查看，源文件未被修改。",
+  previewContentFailedDescription: "无法解码或准备内容；可信元数据仍可查看，源文件未被修改。",
   previewError: "预览暂时不可用",
   previewErrorDescription: "无法完成当前预览请求。请关闭后重新选择。",
   libraryPreviewUnavailable: "此文件暂不支持预览",
@@ -1476,19 +1323,16 @@ const zh = {
   libraryPreviewFolder: "文件夹摘要",
   libraryPreviewUnsupported: "文件预览",
   previewImageFailed: "图片无法解码",
-  previewImageFailedDescription:
-    "图片内容损坏或无法在当前预览中解码；源文件未被修改。",
+  previewImageFailedDescription: "图片内容损坏或无法在当前预览中解码；源文件未被修改。",
   previewImageUnavailable: "图片内容暂时不可用",
-  previewImageUnavailableDescription:
-    "当前预览无法取得图片字节；请关闭后重试。",
+  previewImageUnavailableDescription: "当前预览无法取得图片字节；请关闭后重试。",
   previewImageUnsupported: "暂不支持此图片表示",
   previewImageUnsupportedDescription: "当前只支持安全的 PNG/JPEG 图片预览。",
   libraryTags: "标签",
   contentUnderstandingTitle: "内容理解",
   contentOpen: "打开内容理解",
   contentOpenFailed: "无法打开内容理解。请重试。",
-  contentUnderstandingDesc:
-    "仅对已纳管文件读取有界正文；本地提取、云端理解和文本保留分别受策略与确认控制。",
+  contentUnderstandingDesc: "仅对已纳管文件读取有界正文；本地提取、云端理解和文本保留分别受策略与确认控制。",
   contentStatus: "内容状态",
   contentPolicy: "根目录策略",
   contentPolicyPerRoot: "按根目录配置",
@@ -1497,13 +1341,11 @@ const zh = {
   contentPolicyLoading: "正在读取根目录策略…",
   contentSourceUnchanged: "内容工作流不会修改、移动或删除源文件。",
   contentNoRootTitle: "此文件没有可用的纳管根目录",
-  contentNoRootDesc:
-    "无法为没有根目录策略的文件启动内容读取。请先在纳管范围内管理此位置。",
+  contentNoRootDesc: "无法为没有根目录策略的文件启动内容读取。请先在纳管范围内管理此位置。",
   contentPolicyTitle: "权限与策略",
   contentPolicyOffTitle: "此文件夹的内容读取已关闭",
   contentPolicyOffDesc: "保存策略后才可以预览本地提取；云端理解仍需单独确认。",
-  contentPolicyEnabledDesc:
-    "本地提取仍受预览与确认保护；云端理解每次单独确认。",
+  contentPolicyEnabledDesc: "本地提取仍受预览与确认保护；云端理解每次单独确认。",
   contentEnableAnalysis: "启用内容分析",
   contentAllowLocal: "允许本地提取",
   contentAllowCloud: "允许云端理解（每次任务仍需确认）",
@@ -1511,8 +1353,7 @@ const zh = {
   contentPerFileCharLimit: "单文件字符上限",
   contentSaveRootPolicy: "保存根目录策略",
   contentPolicySaved: "根目录策略已保存。",
-  contentSavePolicyFirst:
-    "策略草稿已变化；请先保存策略，再预览或启动内容任务。",
+  contentSavePolicyFirst: "策略草稿已变化；请先保存策略，再预览或启动内容任务。",
   contentSavePolicyConfirm: "确认保存此根目录内容策略？",
   contentPreviewAndRun: "预览与任务",
   contentPreviewLocal: "预览本地提取",
@@ -1556,8 +1397,7 @@ const zh = {
   contentNo: "否",
   contentNoArtifact: "当前文件还没有内容产物。",
   contentRecentRuns: "最近任务",
-  contentRecentRunsCount:
-    "最近有 {count} 个任务；中断和恢复状态会保留在列表中。",
+  contentRecentRunsCount: "最近有 {count} 个任务；中断和恢复状态会保留在列表中。",
   contentNoRecentRuns: "还没有内容任务记录。",
   contentSearchTitle: "内容搜索",
   contentSearchPlaceholder: "摘要、关键词或语言",
@@ -1593,16 +1433,13 @@ const zh = {
   contentBlockedPackage: "macOS 包目录按整体处理，不读取包内内容",
   contentBlockedCloud: "云文件尚未在本地；不会自动下载",
   contentBlockedFileProvider: "File Provider 项目尚未在本地；不会自动下载",
-  contentBlockedAvailabilityUnknown:
-    "暂时无法确认文件内容是否已在本地；不会读取或下载",
+  contentBlockedAvailabilityUnknown: "暂时无法确认文件内容是否已在本地；不会读取或下载",
   contentBlockedOcr: "图片 OCR 未启用",
   contentBlockedSafetyLimit: "超过内容读取安全上限",
   contentBlockedGeneric: "该文件暂时无法处理",
   contentPolicyUnavailable: "策略状态不可用",
-  contentProviderDisclosure:
-    "云端理解只会发送有界正文，不发送路径或文件名；任务会固定这次预览指纹。",
-  contentLocalDisclosure:
-    "本地提取只在本机读取有界正文；任务会固定这次预览指纹。",
+  contentProviderDisclosure: "云端理解只会发送有界正文，不发送路径或文件名；任务会固定这次预览指纹。",
+  contentLocalDisclosure: "本地提取只在本机读取有界正文；任务会固定这次预览指纹。",
   contentConfirmStart: "确认并启动",
   contentConfirm: "确认",
   contentConfirmationTitle: "需要确认",
@@ -1612,40 +1449,31 @@ const zh = {
   contentDeleteConfirm: "确认删除内容数据？源文件不会删除。",
   contentPurgeConfirm: "确认清空此根目录的内容数据？源文件不会删除。",
   contentCancelRunConfirm: "确认取消任务？",
-  contentOperationFailed:
-    "内容任务未能完成；已有文件和内容数据仍可用，请检查策略后重试。",
+  contentOperationFailed: "内容任务未能完成；已有文件和内容数据仍可用，请检查策略后重试。",
   contentRevisionChanged: "内容或策略状态已变化，请基于最新状态重新确认。",
   contentItemStates: "任务计数来自持久化任务；单项明细按需加载。",
   contentSampleFiles: "预览样本",
   contentSampleNone: "没有可展示的样本。",
-  contentBrowserMock:
-    "浏览器预览使用明确标记的 mock，不代表真实内容提取、云端理解或原生持久化。",
+  contentBrowserMock: "浏览器预览使用明确标记的 mock，不代表真实内容提取、云端理解或原生持久化。",
   libraryOpenFile: "打开文件",
   libraryRevealFile: "在文件夹中显示",
   libraryRevealInFinder: "在访达中显示",
   libraryManualMove: "移动文件…",
-  libraryMoveDescription:
-    "选择同一卷内的本地目标文件夹，保留扩展名。下一步查看源位置和目标位置，确认执行后才会移动，并记入历史供恢复。",
+  libraryMoveDescription: "选择同一卷内的本地目标文件夹，保留扩展名。下一步查看源位置和目标位置，确认执行后才会移动，并记入历史供恢复。",
   libraryMoveDestination: "目标文件夹",
   libraryMoveNoDestination: "尚未选择目标文件夹",
   libraryMoveChooseDestination: "选择或更换文件夹…",
   libraryMovePreview: "预览移动",
-  libraryMoveSameVolume:
-    "此处仅支持本地同卷移动，请选择受支持的同卷文件夹。跨卷移动暂不可用。",
-  libraryMoveDifferentDirectory:
-    "请选择与原文件所在位置不同的文件夹；仅改名请使用重命名入口。",
-  libraryMoveDestinationUnavailable:
-    "该文件夹不可访问或不受支持。请选择可访问的本地文件夹。",
+  libraryMoveSameVolume: "此处仅支持本地同卷移动，请选择受支持的同卷文件夹。跨卷移动暂不可用。",
+  libraryMoveDifferentDirectory: "请选择与原文件所在位置不同的文件夹；仅改名请使用重命名入口。",
+  libraryMoveDestinationUnavailable: "该文件夹不可访问或不受支持。请选择可访问的本地文件夹。",
   libraryManualConflict: "目标已存在同名项目，不会覆盖或替换。",
   libraryRenameConflictNext: "请修改文件名或取消。更改后需重新预览并确认。",
-  libraryManualConflictNext:
-    "请修改文件名、重新选择文件夹，或取消。更改后需重新预览并确认。",
+  libraryManualConflictNext: "请修改文件名、重新选择文件夹，或取消。更改后需重新预览并确认。",
   libraryManualAdjust: "更改名称或目标…",
-  libraryManualAdjustDescription:
-    "更改名称或目标后需要新的预览与确认；现有文件不会被覆盖。",
+  libraryManualAdjustDescription: "更改名称或目标后需要新的预览与确认；现有文件不会被覆盖。",
   libraryManualRename: "重命名文件…",
-  libraryRenameDescription:
-    "输入新的文件名，扩展名将保持不变。下一步查看安全预览；确认执行后才会修改文件，并记录到历史供恢复。",
+  libraryRenameDescription: "输入新的文件名，扩展名将保持不变。下一步查看安全预览；确认执行后才会修改文件，并记录到历史供恢复。",
   libraryRenameNewName: "新文件名",
   libraryRenamePreview: "预览重命名",
   libraryRenameReadOnly: "文件为只读，无法重命名。请检查文件权限后重新预览。",
@@ -1653,13 +1481,10 @@ const zh = {
   libraryRenameUnchanged: "请输入不同的文件名；此入口不支持仅改变字母大小写。",
   libraryReviewOperations: "查看文件操作",
   libraryPermanentDelete: "永久删除",
-  libraryPermanentDeleteReason:
-    "用户明确选择的永久删除；执行前会先进入私有隔离并再次校验身份。",
-  libraryOperationPreviewRequiresLoadedSelection:
-    "跨页全选需要先逐项选择已加载文件，才能生成不遗漏的操作预览。",
+  libraryPermanentDeleteReason: "用户明确选择的永久删除；执行前会先进入私有隔离并再次校验身份。",
+  libraryOperationPreviewRequiresLoadedSelection: "跨页全选需要先逐项选择已加载文件，才能生成不遗漏的操作预览。",
   libraryOperationPreviewRequiresSelection: "请先选择要查看操作的文件。",
-  libraryNoOperationsForSelection:
-    "所选文件当前没有已有操作建议。如需手动重命名，请使用文件右键菜单中的“重命名文件”。",
+  libraryNoOperationsForSelection: "所选文件当前没有已有操作建议。如需手动重命名，请使用文件右键菜单中的“重命名文件”。",
   libraryViewSuggestions: "查看整理建议",
   libraryClearSelection: "清除选择",
   librarySelectAll: "选择全部结果",
@@ -1739,8 +1564,7 @@ const zh = {
   libraryActionDeleteCandidate: "清理候选",
   libraryConfirmClassification: "确认分类正确",
   libraryEditClassification: "修改分类",
-  libraryLearningHint:
-    "确认或修改后，Zen Canvas 会用于学习以后类似文件的分类习惯。",
+  libraryLearningHint: "确认或修改后，Zen Canvas 会用于学习以后类似文件的分类习惯。",
   libraryApplyCorrection: "以后类似文件都这样处理",
   libraryCancelEdit: "取消修改",
   libraryNoValue: "无",
@@ -1752,12 +1576,10 @@ const zh = {
   currentOrganizeScope: "当前整理范围",
   navWorkspace: "工作区",
   navSystem: "系统",
-  viewDescCleanup:
-    "清理项目只有在你检查预览并明确确认后才会移入安全回收区，文件不会被永久删除。",
+  viewDescCleanup: "清理项目只有在你检查预览并明确确认后才会移入安全回收区，文件不会被永久删除。",
   viewDescOrganize: "只有在你检查预览并明确确认执行后，文件才会被移动。",
   viewDescPreview: "执行前必须确认路径和文件名",
-  viewDescRules:
-    "管理旧分类兼容性策略；新整理语义来自 Managed AI，文件变更仍需预览确认。",
+  viewDescRules: "管理旧分类兼容性策略；新整理语义来自 Managed AI，文件变更仍需预览确认。",
   viewDescRestore: "只恢复 Zen Canvas 执行过的操作",
   viewDescSettings: "日常偏好保持安静；高影响能力只在需要时明确解释。",
   viewAllIndexedFiles: "查看全部索引文件",
@@ -1780,12 +1602,9 @@ const zh = {
   targetPath: "将移动到",
   previewBeforeExecute: "所有可执行移动和重命名都必须先确认目标路径与文件名。",
   previewSafetyTitle: "执行前请确认",
-  previewNoOverwriteDelete:
-    "这里只是执行前预览。Zen Canvas 不会覆盖已有文件，不会永久删除文件；所有已选操作执行前都需要人工确认。",
-  previewPermanentDeleteSafety:
-    "这是用户明确选择的永久删除预览。执行时会先把对象移入私有隔离区并重新校验身份；无法确认时会保留对象并进入人工复核。",
-  previewCleanupTrashSafety:
-    "清理项只会移到可恢复的 Safe Trash，不会直接永久删除。执行前必须确认。",
+  previewNoOverwriteDelete: "这里只是执行前预览。Zen Canvas 不会覆盖已有文件，不会永久删除文件；所有已选操作执行前都需要人工确认。",
+  previewPermanentDeleteSafety: "这是用户明确选择的永久删除预览。执行时会先把对象移入私有隔离区并重新校验身份；无法确认时会保留对象并进入人工复核。",
+  previewCleanupTrashSafety: "清理项只会移到可恢复的 Safe Trash，不会直接永久删除。执行前必须确认。",
   previewTotalSuggestions: "总建议数",
   selectedOperations: "已选择操作",
   previewSummarySelected: "已选择",
@@ -1794,8 +1613,7 @@ const zh = {
   previewSummaryImpact: "影响项",
   previewSafetyDetails: "查看安全与范围细节",
   previewLowConfidence: "低置信度",
-  previewDetailsTruncated:
-    "当前显示 {shown} 项，完整预览共 {total} 项；继续加载可查看其余项目。",
+  previewDetailsTruncated: "当前显示 {shown} 项，完整预览共 {total} 项；继续加载可查看其余项目。",
   executeSelectedWithCount: "执行已选操作 · {count}",
   groupNoExecutableItems: "此分组没有可执行项",
   operationMove: "移动",
@@ -1806,8 +1624,7 @@ const zh = {
   operationReplace: "替换目标",
   operationPermanentDelete: "不可逆删除",
   operationMoveToTrash: "移到回收站",
-  operationMoveToTrashRisk:
-    "这不是永久删除操作；对象会保留在 Zen Canvas Safe Trash 中供恢复。",
+  operationMoveToTrashRisk: "这不是永久删除操作；对象会保留在 Zen Canvas Safe Trash 中供恢复。",
   selectOperation: "选择操作",
   operationBlocked: "已阻止",
   operationInvalidName: "文件名无效",
@@ -1857,15 +1674,12 @@ const zh = {
   operationProgressLine: "已处理 {processed} / 共 {total}，当前：{path}",
   operationCanceling: "正在取消...",
   operationCanceled: "操作已取消",
-  confirmCleanupDispatch:
-    "将执行 {count} 个清理或重复文件相关操作。请确认你已经检查过来源路径和目标路径。",
+  confirmCleanupDispatch: "将执行 {count} 个清理或重复文件相关操作。请确认你已经检查过来源路径和目标路径。",
   confirmMoveToTrashTitle: "确认移到回收站？",
-  confirmMoveToTrashDesc:
-    "选中的清理项将被移到系统回收站，不会永久删除。恢复需要通过系统回收站完成。请确认你已经检查过路径和文件名。",
+  confirmMoveToTrashDesc: "选中的清理项将被移到系统回收站，不会永久删除。恢复需要通过系统回收站完成。请确认你已经检查过路径和文件名。",
   noOperations: "暂无可执行整理方案",
   previewEmptyTitle: "当前没有可执行整理建议",
-  previewEmptyDesc:
-    "当前范围没有可执行的 AI 整理建议。连接 AI 并授权 Managed AI 管理范围后，可为需要分析的项目生成新建议。",
+  previewEmptyDesc: "当前范围没有可执行的 AI 整理建议。连接 AI 并授权 Managed AI 管理范围后，可为需要分析的项目生成新建议。",
   goSmartDispatch: "前往智能整理",
   goAutomationWorkspace: "打开自动化",
   noOperationHistory: "暂无执行记录",
@@ -1876,15 +1690,12 @@ const zh = {
   restorable: "可恢复",
   unavailable: "不可用",
   expires: "过期",
-  restoreDesc:
-    "只恢复 Zen Canvas 执行过的移动、重命名或组合操作。空间清理项会显示在清理回收站，可在本页恢复。",
+  restoreDesc: "只恢复 Zen Canvas 执行过的移动、重命名或组合操作。空间清理项会显示在清理回收站，可在本页恢复。",
   restoreFromSystemTrash: "旧清理项请从系统回收站恢复",
   cleanupTrashRecords: "清理回收站",
-  cleanupTrashRecordsDesc:
-    "空间清理移动到 Zen Canvas 安全回收站的项目，可在这里恢复到原位置。",
+  cleanupTrashRecordsDesc: "空间清理移动到 Zen Canvas 安全回收站的项目，可在这里恢复到原位置。",
   cleanupTrashRestore: "恢复清理项",
-  cleanupTrashRestoreBlockedDesc:
-    "恢复前会检查原路径已有文件和回收站文件缺失，冲突项不会覆盖。",
+  cleanupTrashRestoreBlockedDesc: "恢复前会检查原路径已有文件和回收站文件缺失，冲突项不会覆盖。",
   cleanupTrashEmpty: "暂无清理回收站记录",
   cleanupTrashMoved: "已移入安全回收站",
   cleanupPreviewLoading: "正在验证恢复资格…",
@@ -1893,8 +1704,7 @@ const zh = {
   cleanupPreviewRetry: "重试验证",
   noRestoreRecords: "暂无可恢复批次",
   restorePreview: "恢复预览",
-  restorePreviewDesc:
-    "恢复前会检查当前路径和原路径冲突，可恢复项会先执行，失败项记录原因。",
+  restorePreviewDesc: "恢复前会检查当前路径和原路径冲突，可恢复项会先执行，失败项记录原因。",
   restoreBatch: "恢复批次",
   noRestorePreview: "请选择一个批次查看恢复预览",
   restoreNoExecutableSelected: "没有可安全恢复的项目",
@@ -1941,10 +1751,8 @@ const zh = {
   historyRestoreAction: "恢复选中项目",
   historyRestoreActionCount: "恢复 {count} 项",
   historyRestoreConfirmTitle: "确认恢复选中项目？",
-  historyRestoreConfirmDesc:
-    "将恢复 {count} 项。已有文件不会被覆盖；冲突或后端拒绝的项目会保留并记录原因。",
-  historyRestoreConfirmExcluded:
-    "另有 {count} 项无法执行，不会发送到恢复接口。",
+  historyRestoreConfirmDesc: "将恢复 {count} 项。已有文件不会被覆盖；冲突或后端拒绝的项目会保留并记录原因。",
+  historyRestoreConfirmExcluded: "另有 {count} 项无法执行，不会发送到恢复接口。",
   historyRestoreEligibilityChanged: "恢复资格已变化，请重新确认。",
   historyRestoreSessionExpired: "恢复确认已失效，请重新选择并确认。",
   historyRestoreTechnicalDetails: "技术详情",
@@ -1996,8 +1804,7 @@ const zh = {
   historyOperationSourceUnknown: "其他操作",
   historyRestoreStatus: "恢复状态",
   historyRestoreDestination: "恢复目标",
-  historyRestoreOriginalUnavailable:
-    "如果原位置不可用，Zen Canvas 不会自动选择新位置；请先处理冲突或人工复核。",
+  historyRestoreOriginalUnavailable: "如果原位置不可用，Zen Canvas 不会自动选择新位置；请先处理冲突或人工复核。",
   historyRestoreEligibility: "当前恢复资格",
   historyPathRevealFailed: "路径定位失败，请检查权限或路径是否仍存在。",
   historyCleanupConflict: "原路径已有文件，未覆盖。",
@@ -2009,13 +1816,10 @@ const zh = {
   historyCleanupOriginalPath: "恢复目标",
   historyCleanupProgressTitle: "正在恢复安全回收站项目",
   historyCleanupProgressLine: "已处理 {processed} / 共 {total}，当前：{path}",
-  historyCleanupProgressCounts:
-    "已恢复 {restored} · 冲突 {conflicts} · 缺失 {missing} · 失败 {failed} · 已取消 {canceled}",
+  historyCleanupProgressCounts: "已恢复 {restored} · 冲突 {conflicts} · 缺失 {missing} · 失败 {failed} · 已取消 {canceled}",
   historyRestoreResultTitle: "最近一次恢复结果",
-  historyRestoreResultLine:
-    "已恢复 {restored} · 失败 {failed} · 已跳过 {skipped} · 已取消 {canceled} · 未执行 {excluded}",
-  historyCleanupRestoreResultLine:
-    "已恢复 {restored} · 路径冲突 {conflicts} · 源文件缺失 {missing} · 失败 {failed} · 已取消 {canceled} · 未执行 {excluded}",
+  historyRestoreResultLine: "已恢复 {restored} · 失败 {failed} · 已跳过 {skipped} · 已取消 {canceled} · 未执行 {excluded}",
+  historyCleanupRestoreResultLine: "已恢复 {restored} · 路径冲突 {conflicts} · 源文件缺失 {missing} · 失败 {failed} · 已取消 {canceled} · 未执行 {excluded}",
   historyRestoreError: "恢复请求未完成",
   restoreErrorTargetExists: "目标路径已有文件，Zen Canvas 没有覆盖它。",
   restoreErrorSourceMissing: "原文件不存在或路径已失效。",
@@ -2027,26 +1831,20 @@ const zh = {
   restoreErrorCanceled: "恢复已取消。",
   restoreErrorGeneric: "恢复未能完成，请稍后重试。",
   historyRecoveryActionsTitle: "处理恢复项",
-  historyRecoveryActionsDesc:
-    "恢复事务留下了一个需要人工决定的对象。你可以保留两份、移动恢复项，或将它移入不可恢复的删除隔离区。",
-  historyRecoverySourceCleanupDesc:
-    "目标已创建，但原文件尚未移除。可重试源清理、保留两份，或先查看源和目标。",
+  historyRecoveryActionsDesc: "恢复事务留下了一个需要人工决定的对象。你可以保留两份、移动恢复项，或将它移入不可恢复的删除隔离区。",
+  historyRecoverySourceCleanupDesc: "目标已创建，但原文件尚未移除。可重试源清理、保留两份，或先查看源和目标。",
   historyRecoveryKeepBoth: "保留两份",
   historyRecoveryMove: "移动恢复项",
   historyRecoveryDelete: "删除恢复项",
   historyRecoveryWorking: "处理中…",
   historyRecoveryMoveTitle: "移动恢复项",
-  historyRecoveryMoveDesc:
-    "输入一个新的绝对路径。目标必须不存在；Zen Canvas 会在执行前重新验证恢复项身份。",
+  historyRecoveryMoveDesc: "输入一个新的绝对路径。目标必须不存在；Zen Canvas 会在执行前重新验证恢复项身份。",
   historyRecoveryTargetLabel: "新目标路径",
-  historyRecoveryTargetPlaceholder:
-    "例如：/Users/you/Documents/recovered-item.pdf",
-  historyRecoveryTargetHint:
-    "移动会保留恢复项内容，并把原记录继续标记为需要人工复核。",
+  historyRecoveryTargetPlaceholder: "例如：/Users/you/Documents/recovered-item.pdf",
+  historyRecoveryTargetHint: "移动会保留恢复项内容，并把原记录继续标记为需要人工复核。",
   historyRecoveryMoveConfirm: "确认移动",
   historyRecoveryDeleteTitle: "删除恢复项？",
-  historyRecoveryDeleteDesc:
-    "该对象会先进入私有删除隔离区，再尝试永久删除。身份或删除状态不确定时，隔离对象会保留供人工复核。",
+  historyRecoveryDeleteDesc: "该对象会先进入私有删除隔离区，再尝试永久删除。身份或删除状态不确定时，隔离对象会保留供人工复核。",
   historyRecoveryDeleteConfirm: "删除恢复项",
   historyRecoveryKeepBothCompleted: "已保留两份，副本位置：{path}",
   historyRecoveryRetryCleanup: "重试移除原文件",
@@ -2058,28 +1856,24 @@ const zh = {
   historyOpenPath: "显示路径",
   historySafetyBoundary: "恢复前会重新验证，不会覆盖已有文件。",
   automationWorkspaceTitle: "高级策略与兼容性",
-  automationWorkspaceDesc:
-    "这里管理现有规则策略与兼容性分类。它不生成新的 Managed AI 语义建议，也不执行文件操作；新整理语义由当前 Managed AI 评估提供。",
+  automationWorkspaceDesc: "这里管理现有规则策略与兼容性分类。它不生成新的 Managed AI 语义建议，也不执行文件操作；新整理语义由当前 Managed AI 评估提供。",
   automationTotal: "规则总数",
   automationEnabled: "已启用",
   automationPaused: "已暂停",
   automationNeedsReview: "整理建议待确认",
-  automationNeedsReviewHint:
-    "这里统计当前文件范围内的全部整理建议队列，不只来自自动化规则。",
+  automationNeedsReviewHint: "这里统计当前文件范围内的全部整理建议队列，不只来自自动化规则。",
   automationRules: "自动化规则",
   automationRuleLibrary: "规则库",
   automationRulesDesc: "选择规则查看它实际保存的条件、动作与生命周期。",
   automationCreateRule: "创建规则",
-  automationCreateRuleChoiceDesc:
-    "选择创建方式。两种方式都会先进入规则审查；不会直接修改文件。",
+  automationCreateRuleChoiceDesc: "选择创建方式。两种方式都会先进入规则审查；不会直接修改文件。",
   automationCreateRuleNaturalLanguage: "用自然语言描述",
   automationCreateRuleNaturalLanguageDesc: "让 AI 生成可审查的规则提案。",
   automationCreateRuleManual: "手动构建",
   automationCreateRuleManualDesc: "直接编辑条件、动作和生命周期。",
   automationRuleSummary: "规则状态摘要",
   automationProposalWorkspaceTitle: "规则提案",
-  automationProposalWorkspaceDesc:
-    "提案只会生成或更新禁用规则；启用、运行和文件变更仍需单独确认。",
+  automationProposalWorkspaceDesc: "提案只会生成或更新禁用规则；启用、运行和文件变更仍需单独确认。",
   ruleProposalTitle: "用自然语言描述规则",
   ruleProposalSubtitle: "把普通文字转换成可审查草稿。AI 只能提出建议。",
   ruleProposalPrivacy: "只发送你输入的文字，不发送文件内容。",
@@ -2097,8 +1891,7 @@ const zh = {
   ruleProposalExact: "解析精确数量",
   ruleProposalApply: "应用为禁用规则",
   ruleProposalApplyTitle: "应用这个提案？",
-  ruleProposalApplyDescription:
-    "这里只会创建或更新一条默认禁用的规则，不会运行规则，也不会修改任何文件。",
+  ruleProposalApplyDescription: "这里只会创建或更新一条默认禁用的规则，不会运行规则，也不会修改任何文件。",
   ruleProposalApplySafety: "启用和运行仍是两个独立的人工动作。",
   ruleProposalCancel: "取消",
   ruleProposalDelete: "删除提案",
@@ -2107,8 +1900,7 @@ const zh = {
   ruleProposalMatched: "条元数据记录匹配",
   ruleProposalDeferred: "精确数量尚未计算；应用前必须单独解析。",
   ruleProposalApplied: "已应用为禁用规则。请另行审查、启用和运行。",
-  ruleProposalProviderOff:
-    "尚未启用 AI provider。可使用手动构建器，或前往设置配置。",
+  ruleProposalProviderOff: "尚未启用 AI provider。可使用手动构建器，或前往设置配置。",
   ruleProposalNoCandidate: "模型需要澄清，尚未形成候选规则。",
   ruleProposalSamples: "有界元数据样本",
   ruleProposalConflicts: "潜在的已启用规则冲突",
@@ -2126,8 +1918,7 @@ const zh = {
   ruleProposalBeforeAfter: "分类前 → 分类后",
   ruleProposalValidation: "后端权威校验",
   ruleProposalGenerating: "正在使用已配置 provider 生成…",
-  ruleProposalBrowserMock:
-    "浏览器预览使用明确标记的确定性 mock，不代表真实 AI 或原生持久化。",
+  ruleProposalBrowserMock: "浏览器预览使用明确标记的确定性 mock，不代表真实 AI 或原生持久化。",
   automationEditRule: "编辑规则",
   automationEditorDesc: "用“当…则…”描述建议逻辑；高级字段按需展开。",
   automationNameRequired: "请输入规则名称。",
@@ -2178,38 +1969,29 @@ const zh = {
   automationSummaryTitle: "实时摘要",
   automationAdvancedSummary: "当前摘要",
   automationAdvanced: "高级条件",
-  automationSafetyBoundary:
-    "兼容性策略只更新旧分类展示字段；不会生成新的 Managed AI 语义建议，也不会直接移动、重命名、删除或覆盖文件。执行仍需进入预览确认。",
+  automationSafetyBoundary: "兼容性策略只更新旧分类展示字段；不会生成新的 Managed AI 语义建议，也不会直接移动、重命名、删除或覆盖文件。执行仍需进入预览确认。",
   automationDiscardTitle: "放弃未保存的更改？",
   automationDiscardDesc: "关闭后，本次编辑内容不会保存。",
   automationDiscardAction: "放弃更改",
   automationEmptyTitle: "还没有自动化规则",
-  automationEmptyDesc:
-    "按需管理旧分类字段使用的兼容性策略。新 AI 整理建议需要当前 Managed AI 评估。",
+  automationEmptyDesc: "按需管理旧分类字段使用的兼容性策略。新 AI 整理建议需要当前 Managed AI 评估。",
   automationRunning: "正在重算",
-  automationEnabledDesc:
-    "已启用策略仅影响兼容性分类字段，不替代当前 Managed AI 语义评估。",
-  automationRunningDesc:
-    "正在为兼容性分类字段重新计算策略结果；不会更新 Managed AI 语义评估。",
+  automationEnabledDesc: "已启用策略仅影响兼容性分类字段，不替代当前 Managed AI 语义评估。",
+  automationRunningDesc: "正在为兼容性分类字段重新计算策略结果；不会更新 Managed AI 语义评估。",
   automationPausedDesc: "暂停后兼容性策略不再运行；已有记录不会被删除。",
-  automationNewRulePausedHint:
-    "新策略默认暂停；需要更新旧分类展示字段时再启用。",
-  automationSavePauseNotice:
-    "保存不会自动执行规则，也不会移动文件。新建规则默认暂停。",
+  automationNewRulePausedHint: "新策略默认暂停；需要更新旧分类展示字段时再启用。",
+  automationSavePauseNotice: "保存不会自动执行规则，也不会移动文件。新建规则默认暂停。",
   automationSafetyTitle: "安全边界",
   automationRunNow: "重算兼容性策略",
-  automationRunConfirmDesc:
-    "在当前范围使用 {count} 条已启用策略重算旧分类字段。不会生成新的 Managed AI 语义建议，也不会执行文件操作。",
+  automationRunConfirmDesc: "在当前范围使用 {count} 条已启用策略重算旧分类字段。不会生成新的 Managed AI 语义建议，也不会执行文件操作。",
   automationRunInProgress: "正在重算兼容性分类字段，请稍候…",
-  automationRunComplete:
-    "本次已重算 {updated} / 扫描 {scanned}，跳过 {skipped}。",
+  automationRunComplete: "本次已重算 {updated} / 扫描 {scanned}，跳过 {skipped}。",
   automationRunFailed: "兼容性策略重算失败",
   automationNoPersistedRun: "本次会话还没有手动生成结果。",
   automationBackToRules: "返回规则列表",
   automationTrigger: "触发方式",
   automationTriggerWatchedChange: "已索引文件新建或变更",
-  automationTriggerHint:
-    "已索引文件发生变化时，现有文件监视器可以刷新兼容性分类字段。",
+  automationTriggerHint: "已索引文件发生变化时，现有文件监视器可以刷新兼容性分类字段。",
   automationStatus: "状态",
   automationScope: "作用范围",
   automationScopeAll: "全部本地索引",
@@ -2217,8 +1999,7 @@ const zh = {
   automationScopeRoots: "{count} 个当前范围位置",
   automationConfirmationPolicy: "确认策略",
   automationSuggestionsOnly: "仅更新兼容性字段",
-  automationPreviewRequiredHint:
-    "兼容性策略不会执行文件变更；当前 Organize 操作仍由 Managed AI 计划和权威预览控制。",
+  automationPreviewRequiredHint: "兼容性策略不会执行文件变更；当前 Organize 操作仍由 Managed AI 计划和权威预览控制。",
   automationLogic: "规则说明",
   automationAvailability: "触发与记录能力",
   automationWatchedTrigger: "文件新建/变更触发",
@@ -2229,29 +2010,23 @@ const zh = {
   automationUnavailable: "当前不可用",
   automationOpenReview: "查看 Managed AI 整理计划",
   automationCurrentEnvironment: "当前环境",
-  automationCurrentEnvironmentDesc:
-    "这里显示兼容性策略重算旧分类字段时使用的范围和入口；它不控制当前 Managed AI 语义计划。",
+  automationCurrentEnvironmentDesc: "这里显示兼容性策略重算旧分类字段时使用的范围和入口；它不控制当前 Managed AI 语义计划。",
   automationCurrentFileLibraryScope: "当前文件库范围",
-  automationCurrentFileLibraryScopeDesc:
-    "这是重算兼容性分类字段时使用的文件范围。",
+  automationCurrentFileLibraryScopeDesc: "这是重算兼容性分类字段时使用的文件范围。",
   automationCapabilities: "可用的运行入口",
-  automationCapabilitiesDesc:
-    "手动运行使用当前文件范围和上方已启用的用户规则。",
+  automationCapabilitiesDesc: "手动运行使用当前文件范围和上方已启用的用户规则。",
   automationRuleConfiguration: "已保存规则配置",
   automationWeight: "权重",
   automationPriority: "优先级",
-  automationWeightPriorityHint:
-    "匹配候选先按综合分排序（权重 + 优先级 × 0.1）；分数接近时，优先级更高的规则优先。",
+  automationWeightPriorityHint: "匹配候选先按综合分排序（权重 + 优先级 × 0.1）；分数接近时，优先级更高的规则优先。",
   automationWeightHint: "直接贡献匹配规则的综合分。",
-  automationPriorityHint:
-    "以较小比例贡献综合分；综合分相同时用于决定优先顺序。",
+  automationPriorityHint: "以较小比例贡献综合分；综合分相同时用于决定优先顺序。",
   automationCreatedAt: "创建时间",
   automationUpdatedAt: "更新时间",
   automationToggleFailed: "规则状态保存失败，请重试。",
   automationRunStale: "策略或文件范围已变化，上次兼容性字段重算结果已过期。",
   automationRegenerateSuggestions: "再次重算兼容性策略",
-  automationManualRuleSet:
-    "手动运行只使用这里显示的已启用用户规则；系统模板不会作为本次手动运行参数传入。",
+  automationManualRuleSet: "手动运行只使用这里显示的已启用用户规则；系统模板不会作为本次手动运行参数传入。",
   automationConditionIncomplete: "条件尚未填写完整",
   automationNoEnabledRules: "当前没有已启用的用户规则。",
   automationNoSelection: "选择一条规则查看详情。",
@@ -2260,13 +2035,11 @@ const zh = {
   ruleBuilder: "高级规则构建器",
   ruleLayerDesc: "系统规则不可删除，用户规则可排序、编辑、禁用。",
   systemRuleTemplates: "系统规则模板",
-  systemRuleTemplatesDesc:
-    "内置规则是锁定的兼容性模板，只更新旧分类字段，不可编辑或删除。",
+  systemRuleTemplatesDesc: "内置规则是锁定的兼容性模板，只更新旧分类字段，不可编辑或删除。",
   systemRulesEmptyDesc: "当前没有内置模板。",
   userRules: "用户规则",
   userRulesDesc: "你创建的规则可以启用、停用或删除。",
-  userRulesEmptyDesc:
-    "还没有用户策略。可以创建一条兼容性策略，按需更新旧分类字段。",
+  userRulesEmptyDesc: "还没有用户策略。可以创建一条兼容性策略，按需更新旧分类字段。",
   createFirstRule: "创建第一条规则",
   lockedTemplate: "锁定模板",
   editableRule: "可编辑规则",
@@ -2274,8 +2047,7 @@ const zh = {
   ruleConditions: "条件",
   ruleActions: "动作",
   ruleExpectedResult: "预期结果摘要",
-  ruleExpectedResultIntro:
-    "命中文件会被标记为：{purpose} / {lifecycle} / 建议归档。",
+  ruleExpectedResultIntro: "命中文件会被标记为：{purpose} / {lifecycle} / 建议归档。",
   ruleNoAutoMove: "不会自动移动文件",
   rulePreviewRequired: "需要进入预览确认",
   confirmDeleteRuleTitle: "删除这条规则？",
@@ -2297,10 +2069,8 @@ const zh = {
   ruleDeleteFailed: "删除规则失败",
   reapplyRules: "重算兼容性策略",
   continueRunAutoRules: "继续重算兼容性策略",
-  reapplyRulesDesc:
-    "兼容性策略用于按需更新旧分类展示字段；新的整理语义需要当前 Managed AI 评估。",
-  reapplyRulesSafetyDesc:
-    "兼容性策略会重新计算旧分类字段，不会替换当前 Managed AI 语义评估或 Organization Plan。它可能覆盖旧 AI 分类展示字段；默认保留用户确认或纠正过的结果。不会移动文件。是否继续？",
+  reapplyRulesDesc: "兼容性策略用于按需更新旧分类展示字段；新的整理语义需要当前 Managed AI 评估。",
+  reapplyRulesSafetyDesc: "兼容性策略会重新计算旧分类字段，不会替换当前 Managed AI 语义评估或 Organization Plan。它可能覆盖旧 AI 分类展示字段；默认保留用户确认或纠正过的结果。不会移动文件。是否继续？",
   rulesReapplied: "兼容性分类字段已重算",
   rootOperator: "分组关系",
   groupOperator: "条件关系",
@@ -2349,18 +2119,14 @@ const zh = {
   settingsFilesScan: "文件与扫描",
   settingsFilesScanDesc: "扫描目录、整理目标和本地索引范围。",
   settingsAutomation: "自动化",
-  settingsAutomationDesc:
-    "保存文件范围，配置手动、日程或托管文件变化触发器，使用当前 Managed AI 准备必须审核的计划；高级策略保留现有规则兼容性用途。",
-  automationSettingsDescription:
-    "手动运行仅使用高级策略页面展示的启用兼容性规则。",
+  settingsAutomationDesc: "保存文件范围，配置手动、日程或托管文件变化触发器，使用当前 Managed AI 准备必须审核的计划；高级策略保留现有规则兼容性用途。",
+  automationSettingsDescription: "手动运行仅使用高级策略页面展示的启用兼容性规则。",
   settingsAI: "AI",
   settingsAIDesc: "选择实际生效的 AI 模式和隐私边界。",
   settingsAIPrivacyCloudOff: "云端 AI 已关闭",
-  settingsAIPrivacyCloudOffDesc:
-    "本地文件不会因智能整理自动上传；启用云端提供商需单独同意。",
+  settingsAIPrivacyCloudOffDesc: "本地文件不会因智能整理自动上传；启用云端提供商需单独同意。",
   settingsAIPrivacyCloudOn: "云端 AI 已启用",
-  settingsAIPrivacyCloudOnDesc:
-    "仅在已同意的范围内使用云端提供商；文件操作仍需预览确认。",
+  settingsAIPrivacyCloudOnDesc: "仅在已同意的范围内使用云端提供商；文件操作仍需预览确认。",
   settingsAIPrivacyProvider: "云端 AI 提供商",
   settingsAIPrivacyProviderDesc: "高影响能力保留显式状态文案。",
   settingsConfigure: "配置…",
@@ -2370,16 +2136,13 @@ const zh = {
   settingsAboutDesc: "版本、运行环境和仅供开发检查的信息。",
   platformDiagnosticsNav: "平台诊断",
   platformDiagnosticsTitle: "平台诊断",
-  platformDiagnosticsDesc:
-    "显示文件语义、索引覆盖和当前平台安全能力；未知信息不会被推断为安全。",
+  platformDiagnosticsDesc: "显示文件语义、索引覆盖和当前平台安全能力；未知信息不会被推断为安全。",
   platformIdentityTitle: "运行环境",
   platformIdentityDesc: "这些事实来自当前桌面运行时和已发现的索引卷。",
   platformHealthTitle: "索引与覆盖",
-  platformHealthDesc:
-    "Spotlight 负责发现，FSEvents 只提供有界的变更提示；它们不是第二套索引。",
+  platformHealthDesc: "Spotlight 负责发现，FSEvents 只提供有界的变更提示；它们不是第二套索引。",
   platformSafetyTitle: "安全能力",
-  platformSafetyDesc:
-    "文件操作会先核对对象身份；无法安全证明的卷或位置会单独阻止。",
+  platformSafetyDesc: "文件操作会先核对对象身份；无法安全证明的卷或位置会单独阻止。",
   platformDiagnosticsPlatform: "平台",
   platformDiagnosticsArchitecture: "处理器架构",
   platformDiagnosticsMacosVersion: "macOS 版本",
@@ -2410,8 +2173,7 @@ const zh = {
   platformDiagnosticsPermanentDelete: "不可逆删除隔离",
   platformDiagnosticsSecureRemoval: "物理安全擦除",
   platformDiagnosticsTechnicalDetails: "查看技术详情",
-  platformDiagnosticsUnavailableReason:
-    "该文件变更能力保持关闭，因为当前运行时没有提供足够的对象身份与恢复安全证明。",
+  platformDiagnosticsUnavailableReason: "该文件变更能力保持关闭，因为当前运行时没有提供足够的对象身份与恢复安全证明。",
   platformMacos: "macOS",
   platformWindows: "Windows",
   platformLinux: "Linux",
@@ -2448,38 +2210,30 @@ const zh = {
   aiProviderOpenaiCompatible: "OpenAI 兼容",
   aiProviderCustom: "自定义服务商",
   aiConfigurationIncomplete: "云端 AI 尚未完成 API 密钥配置。",
-  aiDisabledConfigurationPreserved:
-    "AI 已关闭。现有服务商和请求配置已保留；重新启用本地或云端 AI 后才会生效。",
+  aiDisabledConfigurationPreserved: "AI 已关闭。现有服务商和请求配置已保留；重新启用本地或云端 AI 后才会生效。",
   aiEnabledLabel: "启用 AI",
-  aiEnabledDesc:
-    "控制后续 AI 分析是否可用。AI 只生成分类和风险建议；整理或清理始终需要经过预览、最终选择和明确确认。",
+  aiEnabledDesc: "控制后续 AI 分析是否可用。AI 只生成分类和风险建议；整理或清理始终需要经过预览、最终选择和明确确认。",
   aiCleanupEnabledLabel: "启用 AI 空间清理分析",
-  aiCleanupEnabledDesc:
-    "AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。",
+  aiCleanupEnabledDesc: "AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。",
   aiCleanupLocalConsentLabel: "允许本地模型处理清理候选",
-  aiCleanupLocalConsentDesc:
-    "开启后，Cleanup AI 可把候选名称和元数据发送给本机模型；父目录名与完整路径是否包含仍由隐私设置控制。此权限独立于托管位置和内容理解。",
+  aiCleanupLocalConsentDesc: "开启后，Cleanup AI 可把候选名称和元数据发送给本机模型；父目录名与完整路径是否包含仍由隐私设置控制。此权限独立于托管位置和内容理解。",
   aiCleanupCloudConsentLabel: "允许云端模型处理清理候选",
-  aiCleanupCloudConsentDesc:
-    "开启后，Cleanup AI 可把候选名称和元数据发送给当前云端服务商；父目录名与完整路径是否包含仍由隐私设置控制。托管位置或内容理解的云端权限不会自动启用此项。",
+  aiCleanupCloudConsentDesc: "开启后，Cleanup AI 可把候选名称和元数据发送给当前云端服务商；父目录名与完整路径是否包含仍由隐私设置控制。托管位置或内容理解的云端权限不会自动启用此项。",
   aiClassificationPresets: "AI 分类模式预设",
-  aiClassificationPresetsDesc:
-    "选择建议速度和细致程度；自定义表示你手动调整了高级参数。",
+  aiClassificationPresetsDesc: "选择建议速度和细致程度；自定义表示你手动调整了高级参数。",
   aiPresetFast: "快速",
   aiPresetStandard: "标准",
   aiPresetDetailed: "精细",
   aiPresetCustom: "自定义",
   aiProviderPreset: "模型服务商",
-  aiProviderPresetDesc:
-    "切换服务商会使用对应的连接设置，不会覆盖已保存的 API 密钥。",
+  aiProviderPresetDesc: "切换服务商会使用对应的连接设置，不会覆盖已保存的 API 密钥。",
   aiLocalApiKeyHint: "Ollama 本地模型不需要 API Key；该字段可为空。",
   aiStoredApiKeyPlaceholder: "已安全保存在系统凭据库；输入新值可替换",
   aiEmptyApiKeyPlaceholder: "不会在页面明文显示",
   aiClearApiKey: "清除已保存的 API Key",
   aiCredentialSaved: "已安全保存到系统凭据存储",
   aiCredentialReadbackFailed: "凭据保存后读回验证失败",
-  aiBatchSizeDesc:
-    "批次大小是每次请求模型处理的文件数，不是本次总处理数量。DeepSeek / 国产模型建议 10，过大会增加超时、限流或 JSON 不完整风险。",
+  aiBatchSizeDesc: "批次大小是每次请求模型处理的文件数，不是本次总处理数量。DeepSeek / 国产模型建议 10，过大会增加超时、限流或 JSON 不完整风险。",
   aiBaseUrlLabel: "Base URL",
   aiChatPathLabel: "Chat 接口路径",
   aiApiKeyLabel: "API 密钥",
@@ -2487,8 +2241,7 @@ const zh = {
   hideApiKey: "隐藏 API Key",
   aiModelLabel: "模型",
   aiCustomProfileLabel: "自定义 Provider Profile",
-  aiCustomProfileDesc:
-    "每个 Profile 保存独立 Endpoint、模型参数和系统凭据；API Key 不进入设置 JSON。",
+  aiCustomProfileDesc: "每个 Profile 保存独立 Endpoint、模型参数和系统凭据；API Key 不进入设置 JSON。",
   aiCustomProfileNone: "未选择 Profile",
   aiCustomProfileDefaultName: "自定义配置 {number}",
   aiCustomProfileNameLabel: "Profile 名称",
@@ -2526,23 +2279,16 @@ const zh = {
   aiAdvancedPrivacy: "隐私",
   aiAdvancedPrivacyDesc: "控制路径信息和本地/云端边界。",
   aiConcurrencyLabel: "AI 分类并发数",
-  aiConcurrencyDesc:
-    "同时请求模型的批次数。DeepSeek / 国产模型建议 2，过高可能触发限流。",
-  aiLearningHint:
-    "学习历史记录你的确认和纠正；当前 Managed AI 语义评估不会读取它，也不会训练模型或自动移动文件。",
+  aiConcurrencyDesc: "同时请求模型的批次数。DeepSeek / 国产模型建议 2，过高可能触发限流。",
+  aiLearningHint: "学习历史记录你的确认和纠正；当前 Managed AI 语义评估不会读取它，也不会训练模型或自动移动文件。",
   aiLearnedRulesLabel: "将学习习惯作为自动规则执行",
-  aiLearnedRulesDesc:
-    "学习历史不是当前 Managed AI 语义输入。开启后只会影响兼容性自动规则及旧分类字段。",
+  aiLearnedRulesDesc: "学习历史不是当前 Managed AI 语义输入。开启后只会影响兼容性自动规则及旧分类字段。",
   aiLegacyRulesLabel: "使用旧版内置分类规则",
-  aiLegacyRulesDesc:
-    "旧版内置规则会按文件名、扩展名和路径进行固定分类。AI-first 模式下建议关闭，否则可能与 AI 分类结果不一致。",
-  aiOldModelWarning:
-    "DeepSeek 旧模型名仍允许输入，但建议改用 deepseek-v4-flash 或 deepseek-v4-pro。",
-  aiQwenWarning:
-    "Qwen3 是 thinking 模型，文件分类建议关闭 thinking，否则可能返回非 JSON 内容。",
+  aiLegacyRulesDesc: "旧版内置规则会按文件名、扩展名和路径进行固定分类。AI-first 模式下建议关闭，否则可能与 AI 分类结果不一致。",
+  aiOldModelWarning: "DeepSeek 旧模型名仍允许输入，但建议改用 deepseek-v4-flash 或 deepseek-v4-pro。",
+  aiQwenWarning: "Qwen3 是 thinking 模型，文件分类建议关闭 thinking，否则可能返回非 JSON 内容。",
   aiForceJsonLabel: "Force JSON Output",
-  aiForceJsonDesc:
-    "优先使用 response_format；不支持时仅通过 prompt 约束 JSON。",
+  aiForceJsonDesc: "优先使用 response_format；不支持时仅通过 prompt 约束 JSON。",
   aiThinkingLabel: "Enable Thinking",
   aiThinkingDesc: "仅在支持的模型服务中传递 thinking / reasoning 配置。",
   aiReasoningPlaceholder: "例如 low / medium / high",
@@ -2551,30 +2297,23 @@ const zh = {
   aiSendParentPathLabel: "发送父目录",
   aiSendParentPathDesc: "后续 AI 分类提示词可使用父目录信息。",
   aiExtraBodyLabel: "Extra Body JSON（高级选项）",
-  aiExtraBodyPlaceholder: '例如 { "thinking": { "type": "enabled" } }',
+  aiExtraBodyPlaceholder: "例如 { \"thinking\": { \"type\": \"enabled\" } }",
   aiSecretsHint: "不会打印 API Key；错误信息会尝试脱敏当前 API Key。",
   aiDiagnosticsTitle: "AI 请求诊断",
-  aiDiagnosticsDesc:
-    "生产安全的内存环形诊断缓冲；默认关闭，失败模式只保留失败请求。",
-  aiDiagnosticsDeveloperModeRequired:
-    "请先在“开发者模式”中明确开启诊断入口；未开启时不会显示请求详情。",
+  aiDiagnosticsDesc: "生产安全的内存环形诊断缓冲；默认关闭，失败模式只保留失败请求。",
+  aiDiagnosticsDeveloperModeRequired: "请先在“开发者模式”中明确开启诊断入口；未开启时不会显示请求详情。",
   aiDiagnosticsConsentTitle: "确认查看敏感 AI 诊断？",
-  aiDiagnosticsConsentDesc:
-    "诊断可能包含模型请求参数、响应片段、文件路径或文档正文。只有在开发调试确实需要时才继续；导出前请再次检查内容。",
-  aiDiagnosticsConsentEmphasis:
-    "这不是普通运行日志。确认后，本次设置会话可以查看、导出或清空诊断；文档正文仍需单独开启明确的正文 consent。",
+  aiDiagnosticsConsentDesc: "诊断可能包含模型请求参数、响应片段、文件路径或文档正文。只有在开发调试确实需要时才继续；导出前请再次检查内容。",
+  aiDiagnosticsConsentEmphasis: "这不是普通运行日志。确认后，本次设置会话可以查看、导出或清空诊断；文档正文仍需单独开启明确的正文 consent。",
   aiDiagnosticsConsentConfirm: "确认并继续",
   aiDiagnosticsModeLabel: "诊断记录模式",
-  aiDiagnosticsModeDesc:
-    "只记录必要的响应元数据、截断后的响应和脱敏后的解析阶段。",
+  aiDiagnosticsModeDesc: "只记录必要的响应元数据、截断后的响应和脱敏后的解析阶段。",
   aiDiagnosticsOff: "关闭",
   aiDiagnosticsFailures: "仅失败请求",
   aiDiagnosticsAll: "全部请求",
-  aiDiagnosticsPathWarning:
-    "默认不会记录请求中的本地文件名和完整路径；响应中的本地路径会显示为 [local-path]。请导出前仍检查内容，不要公开 API Key 或敏感文件名。",
+  aiDiagnosticsPathWarning: "默认不会记录请求中的本地文件名和完整路径；响应中的本地路径会显示为 [local-path]。请导出前仍检查内容，不要公开 API Key 或敏感文件名。",
   aiSensitiveDocumentDiagnosticsLabel: "允许在诊断中保留文档正文",
-  aiSensitiveDocumentDiagnosticsDesc:
-    "仅用于明确的开发调试；诊断数据可能包含文件正文或其他敏感信息。关闭时，Content Understanding 诊断只保留元数据，即使记录模式为“全部请求”也不会保存正文。",
+  aiSensitiveDocumentDiagnosticsDesc: "仅用于明确的开发调试；诊断数据可能包含文件正文或其他敏感信息。关闭时，Content Understanding 诊断只保留元数据，即使记录模式为“全部请求”也不会保存正文。",
   aiOpenRecentRequests: "打开最近请求",
   aiInspectorLoading: "读取中...",
   aiExportDiagnostics: "导出诊断",
@@ -2582,10 +2321,8 @@ const zh = {
   aiInspectorLoadFailed: "读取诊断失败",
   aiInspectorExportFailed: "导出诊断失败",
   aiRequestInspectorTitle: "Request Inspector",
-  aiRequestInspectorDesc:
-    "查看 Overview、请求参数、Raw、Extracted、Cleaned、Parsed 和 Error/Retry 阶段。",
-  aiDiagnosticsEmpty:
-    "当前没有诊断记录。可将模式设为“仅失败请求”后测试连接，或设为“全部请求”查看最近调用。",
+  aiRequestInspectorDesc: "查看 Overview、请求参数、Raw、Extracted、Cleaned、Parsed 和 Error/Retry 阶段。",
+  aiDiagnosticsEmpty: "当前没有诊断记录。可将模式设为“仅失败请求”后测试连接，或设为“全部请求”查看最近调用。",
   aiTraceOverview: "概览",
   aiTraceRequest: "请求",
   aiTraceRaw: "Raw provider response",
@@ -2598,13 +2335,11 @@ const zh = {
   aiSavingSettings: "保存中...",
   aiSaveSettings: "保存 AI 设置",
   aiDebugTitle: "AI 调试",
-  aiDebugWarning:
-    "调试信息可能包含文件名和路径，请不要截图公开或提交到 GitHub。此功能只读取单个文件的模型返回，不写 files 表，不进入整理预览，也不会移动文件。",
+  aiDebugWarning: "调试信息可能包含文件名和路径，请不要截图公开或提交到 GitHub。此功能只读取单个文件的模型返回，不写 files 表，不进入整理预览，也不会移动文件。",
   aiSelectedFile: "当前文件库选中文件",
   aiNoSelectedFile: "文件库当前没有选中文件，可手动粘贴文件 ID 或完整路径。",
   aiDebugTargetLabel: "文件 ID 或完整路径",
-  aiDebugTargetPlaceholder:
-    "可粘贴文件路径，例如 F:\\work\\xxx.docx，也可以使用文件库中的 file id",
+  aiDebugTargetPlaceholder: "可粘贴文件路径，例如 F:\\work\\xxx.docx，也可以使用文件库中的 file id",
   aiUseSelectedFile: "使用当前选中文件",
   aiDebugging: "调试中...",
   aiDebugSingleFile: "调试单个文件 AI 返回",
@@ -2636,76 +2371,58 @@ const zh = {
   onboardingFinish: "完成设置",
   onboardingSkip: "稍后设置",
   onboardingPrivacyTitle: "本地优先，始终先征得确认",
-  onboardingPrivacyDesc:
-    "Zen Canvas 只在本机建立索引，不会自动移动、重命名、覆盖或永久删除文件。文件变更必须先进入预览。",
+  onboardingPrivacyDesc: "Zen Canvas 只在本机建立索引，不会自动移动、重命名、覆盖或永久删除文件。文件变更必须先进入预览。",
   onboardingLocalIndex: "本地索引",
   onboardingPreview: "预览确认",
   onboardingRestorable: "可恢复",
   onboardingLocalModelHint: "本地分析",
   onboardingScopeTitle: "选择要建立索引的范围",
-  onboardingScopeDesc:
-    "请先添加一个有用的文件夹到本地扫描范围，完成首次设置后即可开始使用。Managed AI 只会处理你选中并单独授权的范围；AI 配置和授权可以稍后完成。",
+  onboardingScopeDesc: "请先添加一个有用的文件夹到本地扫描范围，完成首次设置后即可开始使用。Managed AI 只会处理你选中并单独授权的范围；AI 配置和授权可以稍后完成。",
   onboardingCurrentScope: "当前已选择 {count} 个扫描目录",
   onboardingChooseFolder: "选择文件夹",
   onboardingNoScope: "尚未选择扫描目录",
   onboardingAIStepTitle: "选择 AI 连接方式",
-  onboardingAIStepDesc:
-    "选择本地或云端后会打开现有 AI 设置完成连接。AI 关闭或配置不完整时，AI 整理和 AI 清理会明确保持不可用。",
+  onboardingAIStepDesc: "选择本地或云端后会打开现有 AI 设置完成连接。AI 关闭或配置不完整时，AI 整理和 AI 清理会明确保持不可用。",
   onboardingAIDisabled: "AI 已关闭",
   onboardingAILocal: "本地模型",
   onboardingAICloud: "云端 AI",
-  onboardingAIUnavailable:
-    "当前无法读取 AI 状态；你仍可完成设置，并稍后在 AI 设置中配置。",
+  onboardingAIUnavailable: "当前无法读取 AI 状态；你仍可完成设置，并稍后在 AI 设置中配置。",
   onboardingCloudSetup: "云端连接需要在 AI 设置中完成提供商和凭据配置。",
   onboardingSaveFailed: "首次使用设置未保存，请检查设置后再试。",
   onboardingSkipAI: "跳过 AI 配置",
   onboardingFinishLater: "稍后完成",
   onboardingSaving: "正在保存…",
   onboardingConnectionTitle: "选择 AI 连接方式",
-  onboardingConnectionDesc:
-    "选择本地模型或云端提供商后，继续使用现有 AI 设置完成连接和配置。这里不会建立第二套提供商设置。",
-  onboardingLocalProviderDesc:
-    "分析在本机运行，不会把文件内容发送给云端提供商。",
-  onboardingCloudProviderDesc:
-    "云端提供商只会收到当前设置和范围明确允许的分析信息。",
+  onboardingConnectionDesc: "选择本地模型或云端提供商后，继续使用现有 AI 设置完成连接和配置。这里不会建立第二套提供商设置。",
+  onboardingLocalProviderDesc: "分析在本机运行，不会把文件内容发送给云端提供商。",
+  onboardingCloudProviderDesc: "云端提供商只会收到当前设置和范围明确允许的分析信息。",
   onboardingConfigureAI: "在 AI 设置中继续",
   onboardingConnectionNotConfigured: "尚未配置 AI 提供商；AI 功能保持关闭。",
   onboardingSelectedFolder: "所选文件夹：{path}",
   onboardingManagedConsentTitle: "Managed AI 文件范围授权",
-  onboardingManagedConsentDesc:
-    "只有你明确勾选的提供商才可以分析这个管理范围。此授权与 Cleanup 授权分开。",
+  onboardingManagedConsentDesc: "只有你明确勾选的提供商才可以分析这个管理范围。此授权与 Cleanup 授权分开。",
   onboardingManagedLocalConsent: "允许本地 AI 分析此范围内的文件元数据",
-  onboardingManagedCloudConsent:
-    "允许云端 AI 按当前隐私设置分析此范围内的文件元数据",
+  onboardingManagedCloudConsent: "允许云端 AI 按当前隐私设置分析此范围内的文件元数据",
   onboardingCleanupTitle: "单独设置 AI 清理权限",
-  onboardingCleanupDesc:
-    "Cleanup 的 AI 分析需要独立启用功能并授权本地或云端处理，不会继承 Managed AI 文件范围许可。",
+  onboardingCleanupDesc: "Cleanup 的 AI 分析需要独立启用功能并授权本地或云端处理，不会继承 Managed AI 文件范围许可。",
   onboardingCleanupSeparateTitle: "Cleanup 授权与 Organize 授权互相独立",
-  onboardingCleanupSeparateDesc:
-    "确定性清理发现和历史记录仍可查看。生成或刷新 AI 评估需要这里的单独许可；已有 AI 评估的候选项仍由后端重新验证后才能预览。",
+  onboardingCleanupSeparateDesc: "确定性清理发现和历史记录仍可查看。生成或刷新 AI 评估需要这里的单独许可；已有 AI 评估的候选项仍由后端重新验证后才能预览。",
   onboardingCleanupSettings: "打开 Cleanup AI 设置",
-  onboardingManagedScopeNeedsFolder:
-    "请先选择一个文件夹，再授予 Managed AI 范围权限。",
-  onboardingUsefulFolderRequired:
-    "请先选择并保存一个有用的文件夹，再完成首次设置。你也可以稍后从“开始使用”继续。",
+  onboardingManagedScopeNeedsFolder: "请先选择一个文件夹，再授予 Managed AI 范围权限。",
+  onboardingUsefulFolderRequired: "请先选择并保存一个有用的文件夹，再完成首次设置。你也可以稍后从“开始使用”继续。",
   onboardingCapabilitiesTitle: "核心能力",
-  onboardingCapabilitiesDesc:
-    "非 AI 功能保持可用；需要 AI 的功能会显示具体准备状态和恢复入口。",
+  onboardingCapabilitiesDesc: "非 AI 功能保持可用；需要 AI 的功能会显示具体准备状态和恢复入口。",
   onboardingCapabilityFiles: "文件：在本机管理和浏览内容",
   onboardingCapabilitySearch: "搜索：查找已索引的文件与元数据",
   onboardingCapabilityPreview: "预览：在确认操作前检查影响",
   onboardingCapabilityOrganize: "AI 整理：当前语义建议 → 确定性预览 → 你的确认",
-  onboardingCapabilityCleanup:
-    "AI 清理：独立分析许可 → 清理预览 → 安全移入回收站",
+  onboardingCapabilityCleanup: "AI 清理：独立分析许可 → 清理预览 → 安全移入回收站",
   onboardingCapabilityRestore: "历史与恢复：查看操作记录并恢复支持的变更",
-  onboardingSkipFeatureBoundary:
-    "跳过 AI 后，文件、搜索、预览和历史恢复仍可使用；AI 整理和 AI 清理会显示未就绪状态，直到对应的提供商、范围和许可就绪。",
+  onboardingSkipFeatureBoundary: "跳过 AI 后，文件、搜索、预览和历史恢复仍可使用；AI 整理和 AI 清理会显示未就绪状态，直到对应的提供商、范围和许可就绪。",
   aiReadinessLoading: "正在读取 AI 准备状态…",
-  aiReadinessBrowserMock:
-    "浏览器界面使用明确标记的展示夹具，不代表当前后端 readiness、SemanticAssessmentV1 或文件操作权限。",
+  aiReadinessBrowserMock: "浏览器界面使用明确标记的展示夹具，不代表当前后端 readiness、SemanticAssessmentV1 或文件操作权限。",
   aiReadinessUnavailableTitle: "无法读取 AI 准备状态",
-  aiReadinessUnavailableDesc:
-    "准备状态读取失败。后端仍会独立验证所有分析、预览和执行操作。",
+  aiReadinessUnavailableDesc: "准备状态读取失败。后端仍会独立验证所有分析、预览和执行操作。",
   aiReadinessRetry: "重新读取",
   aiReadinessOpenSettings: "打开相关设置",
   aiReadinessProviderReady: "提供商已就绪，可用于新的 AI 分析。",
@@ -2724,27 +2441,23 @@ const zh = {
   organizeReadinessProvider: "提供商：{status}",
   organizeReadinessManaged: "Managed AI 范围：{status}",
   organizeReadinessPlan: "当前计划：{status}",
-  organizeReadinessBoundary:
-    "此状态只帮助准备新的语义分析；计划组、当前预览和执行仍由各自的后端安全检查决定。",
+  organizeReadinessBoundary: "此状态只帮助准备新的语义分析；计划组、当前预览和执行仍由各自的后端安全检查决定。",
   organizeReadinessPlanNeedsAnalysis: "有项目需要 AI 分析",
   organizeReadinessPlanReady: "当前计划包含可继续复核的项目",
   organizeReadinessPlanReview: "当前计划有待你决定的项目",
   organizeReadinessPlanBlocked: "当前计划有阻止项或过期项",
   organizeReadinessPlanEmpty: "当前计划没有待处理项目",
   organizeReadinessPlanNone: "尚无当前计划",
-  organizeReadinessAnalyzeBlocked:
-    "准备状态就绪后才能请求新的 Managed AI 分析。",
+  organizeReadinessAnalyzeBlocked: "准备状态就绪后才能请求新的 Managed AI 分析。",
   organizeSemanticExplanation: "当前 AI 语义评估说明",
-  organizeSemanticExplanationUnavailable:
-    "当前提案没有可验证的语义说明；请先重新分析或刷新计划。",
+  organizeSemanticExplanationUnavailable: "当前提案没有可验证的语义说明；请先重新分析或刷新计划。",
   cleanupReadinessTitle: "AI 清理准备状态",
   cleanupReadinessReady: "Cleanup 提供商、功能开关和独立处理许可均已就绪。",
   cleanupReadinessDisabled: "AI Cleanup 功能尚未启用。",
   cleanupReadinessLocalConsent: "Cleanup 尚未取得本地 AI 处理许可。",
   cleanupReadinessCloudConsent: "Cleanup 尚未取得云端 AI 处理许可。",
   cleanupReadinessUnavailable: "Cleanup 准备状态当前不可用。",
-  cleanupReadinessBoundary:
-    "准备状态只控制新的或刷新的 AI 评估。确定性发现保持可查看；已有评估及 Preview 会由后端按当前事实复核。",
+  cleanupReadinessBoundary: "准备状态只控制新的或刷新的 AI 评估。确定性发现保持可查看；已有评估及 Preview 会由后端按当前事实复核。",
   settingsAppearanceLanguage: "外观与语言",
   settingsAppearanceLanguageDesc: "设置界面语言、主题和整理目录命名方式。",
   settingsScanRoots: "扫描目录",
@@ -2775,40 +2488,33 @@ const zh = {
   chineseFolderNames: "中文目录",
   defaultScanFolders: "默认扫描目录",
   defaultScanFoldersDesc: "点击“扫描”时默认扫描的本地目录，可添加任意文件夹。",
-  defaultScanFoldersRestartHint:
-    "保存设置后，扫描按钮和文件监听都会立即使用这些目录",
+  defaultScanFoldersRestartHint: "保存设置后，扫描按钮和文件监听都会立即使用这些目录",
   addScanFolder: "添加目录",
   scanNow: "立即扫描",
   deleteScanFolder: "删除目录",
   confirmDeleteScanFolderTitle: "删除这个扫描目录？",
-  confirmDeleteScanFolderDesc:
-    "只会从默认扫描目录配置中移除：{path}。不会删除真实文件。",
+  confirmDeleteScanFolderDesc: "只会从默认扫描目录配置中移除：{path}。不会删除真实文件。",
   enableScanFolder: "启用目录",
   disableScanFolder: "停用目录",
   noDefaultScanFolders: "未配置默认扫描目录，点击扫描时会让你选择文件夹。",
   searchHotkey: "搜索快捷键",
   searchHotkeyDesc: "用于主窗口搜索和后台全局搜索的统一快捷键。",
   searchScopeSettings: "搜索范围",
-  searchScopeSettingsDesc:
-    "只影响顶部搜索和独立 Spotlight。Zen Canvas 搜索本地 SQLite 索引，不实时扫描全盘。",
+  searchScopeSettingsDesc: "只影响顶部搜索和独立 Spotlight。Zen Canvas 搜索本地 SQLite 索引，不实时扫描全盘。",
   searchScopeLabel: "搜索范围",
   searchScopeAllIndexed: "全部索引文件",
   searchScopeCurrentScan: "当前扫描文件夹",
   searchScopeCustomRoots: "指定文件夹",
   searchScopeCustomEmpty: "未配置搜索文件夹",
-  searchScopeCurrentScanEmpty:
-    "当前没有扫描目录，请先扫描文件夹，或在设置中改为全部索引文件。",
+  searchScopeCurrentScanEmpty: "当前没有扫描目录，请先扫描文件夹，或在设置中改为全部索引文件。",
   searchScopeAllIndexedLabel: "搜索范围：全部已索引文件",
-  searchLocalIndexBoundary:
-    "Zen Canvas 搜索本地索引。要搜索更多位置，请添加搜索目录并建立索引。",
+  searchLocalIndexBoundary: "Zen Canvas 搜索本地索引。要搜索更多位置，请添加搜索目录并建立索引。",
   searchRootIndexBoundary: "添加搜索目录后，Zen Canvas 会在后台建立本地索引。",
-  searchScopeDoesNotChangeLibrary:
-    "搜索范围设置不会修改文件库当前范围；新增搜索文件夹会在后台建立本地索引。",
+  searchScopeDoesNotChangeLibrary: "搜索范围设置不会修改文件库当前范围；新增搜索文件夹会在后台建立本地索引。",
   addSearchFolder: "添加搜索文件夹",
   deleteSearchFolder: "删除搜索文件夹",
   confirmDeleteSearchFolderTitle: "删除这个搜索目录？",
-  confirmDeleteSearchFolderDesc:
-    "只会从 Spotlight 搜索范围配置中移除：{path}。不会删除真实文件。",
+  confirmDeleteSearchFolderDesc: "只会从 Spotlight 搜索范围配置中移除：{path}。不会删除真实文件。",
   enableSearchFolder: "启用搜索文件夹",
   disableSearchFolder: "停用搜索文件夹",
   backgroundIndexQueued: "已加入后台索引队列",
@@ -2822,11 +2528,9 @@ const zh = {
   backgroundIndexingShort: "索引中…",
   backgroundIndexQueuedShort: "已加入队列",
   backgroundIndexOnStartup: "启动后静默更新索引",
-  backgroundIndexOnStartupDesc:
-    "启动后会为已启用的扫描目录和搜索目录更新本地索引，不上传文件。",
+  backgroundIndexOnStartupDesc: "启动后会为已启用的扫描目录和搜索目录更新本地索引，不上传文件。",
   watcherRetryExhausted: "文件监听更新多次失败，请重新运行完整扫描。",
-  watcherReconciliationRequired:
-    "文件变化尚未完全同步，需要重新扫描或执行索引校准。",
+  watcherReconciliationRequired: "文件变化尚未完全同步，需要重新扫描或执行索引校准。",
   watcherStatusHealthy: "已同步",
   watcherStatusSyncing: "正在同步变化",
   watcherStatusReconciling: "正在校准索引",
@@ -2845,55 +2549,34 @@ const zh = {
   errorSourceClaimRollbackFailed: "源对象回滚失败，需要人工复核。",
   errorSourceClaimRecoveryRequired: "源对象处于待恢复状态，需要人工复核。",
   errorTargetParentIdentityChanged: "目标目录发生变化，操作已停止。",
-  errorAtomicSourceBindingUnsupported:
-    "当前系统无法安全绑定源对象，操作已停止。",
-  errorCrossVolumeDirectoryMoveUnsupported:
-    "跨卷目录移动不受支持，请手动复制目录。",
+  errorAtomicSourceBindingUnsupported: "当前系统无法安全绑定源对象，操作已停止。",
+  errorCrossVolumeDirectoryMoveUnsupported: "跨卷目录移动不受支持，请手动复制目录。",
   errorCrossVolumeFileMoveUnsupportedOnMacos: "macOS 不支持此跨卷文件移动。",
   errorUnsupportedPlatformLinux: "当前平台不支持文件变更、清理或恢复。",
-  errorMacosFileMutationSourceBindingUnsupported:
-    "此 macOS 版本无法证明源文件句柄绑定，文件变更、清理执行与恢复已安全禁用；预览和分析仍可使用。",
-  errorTargetCommittedSourceDeleteFailed:
-    "目标已提交但源清理失败，需要人工复核。",
-  errorStagingIdentityChanged:
-    "暂存对象身份发生变化，提交已停止且不会移动替换对象。",
-  errorSystemTrashSourceBindingUnsupported:
-    "系统回收站接口无法证明源文件句柄绑定；请改用 Zen Canvas 安全回收站。",
-  errorStagingHandleCommitUnsupported:
-    "当前文件系统无法使用暂存文件句柄安全提交，操作已停止。",
-  errorTargetCommittedDurabilityUnknown:
-    "目标已提交，但无法确认持久化状态，需要人工复核。",
-  errorTargetCommittedIdentityMismatch:
-    "目标已提交，但提交后身份校验不一致，需要人工复核。",
-  errorTargetCommittedSourceCleanupPending:
-    "目标已提交，源对象清理仍待完成，需要人工复核。",
-  errorMacProviderMaterializationFailed:
-    "无法准备文件提供商内容，文件操作尚未执行。",
-  errorMacProviderMaterializationCancelled:
-    "内容下载已取消，文件操作尚未执行。",
-  errorMacProviderMaterializationRequired:
-    "此文件需要先下载到本机；请在预览中选择“下载并继续”。",
-  errorMacProviderDownloadFailed:
-    "文件提供商下载失败，原文件和目标均未由此操作修改。",
+  errorMacosFileMutationSourceBindingUnsupported: "此 macOS 版本无法证明源文件句柄绑定，文件变更、清理执行与恢复已安全禁用；预览和分析仍可使用。",
+  errorTargetCommittedSourceDeleteFailed: "目标已提交但源清理失败，需要人工复核。",
+  errorStagingIdentityChanged: "暂存对象身份发生变化，提交已停止且不会移动替换对象。",
+  errorSystemTrashSourceBindingUnsupported: "系统回收站接口无法证明源文件句柄绑定；请改用 Zen Canvas 安全回收站。",
+  errorStagingHandleCommitUnsupported: "当前文件系统无法使用暂存文件句柄安全提交，操作已停止。",
+  errorTargetCommittedDurabilityUnknown: "目标已提交，但无法确认持久化状态，需要人工复核。",
+  errorTargetCommittedIdentityMismatch: "目标已提交，但提交后身份校验不一致，需要人工复核。",
+  errorTargetCommittedSourceCleanupPending: "目标已提交，源对象清理仍待完成，需要人工复核。",
+  errorMacProviderMaterializationFailed: "无法准备文件提供商内容，文件操作尚未执行。",
+  errorMacProviderMaterializationCancelled: "内容下载已取消，文件操作尚未执行。",
+  errorMacProviderMaterializationRequired: "此文件需要先下载到本机；请在预览中选择“下载并继续”。",
+  errorMacProviderDownloadFailed: "文件提供商下载失败，原文件和目标均未由此操作修改。",
   errorMacProviderCoordinationFailed: "文件提供商协调失败，操作已安全停止。",
-  errorMacProviderUrlChanged:
-    "文件提供商对象在下载期间发生变化，请刷新预览后重试。",
-  errorMacProviderIdentityUnavailable:
-    "无法取得文件提供商对象身份，操作已安全停止。",
-  errorMacProviderItemUnavailable:
-    "无法确认文件提供商对象当前可用，操作已安全停止。",
+  errorMacProviderUrlChanged: "文件提供商对象在下载期间发生变化，请刷新预览后重试。",
+  errorMacProviderIdentityUnavailable: "无法取得文件提供商对象身份，操作已安全停止。",
+  errorMacProviderItemUnavailable: "无法确认文件提供商对象当前可用，操作已安全停止。",
   errorMacProviderOffline: "文件提供商当前离线，操作已安全停止。",
   errorMacProviderPermissionDenied: "文件提供商权限不足，操作已安全停止。",
-  errorMacFilesystemCapabilityInsufficient:
-    "当前文件系统无法证明安全的源对象清理能力，操作已停止。",
-  errorMacSourceRetirementPending:
-    "目标已创建，但原文件尚未移除；请重试源对象清理或保留两份。",
+  errorMacFilesystemCapabilityInsufficient: "当前文件系统无法证明安全的源对象清理能力，操作已停止。",
+  errorMacSourceRetirementPending: "目标已创建，但原文件尚未移除；请重试源对象清理或保留两份。",
   errorRestorePendingReconciliation: "恢复任务中断，正在等待启动恢复检查。",
   errorClaimIdentityMismatch: "认领对象身份不一致，已停止并需要人工复核。",
-  errorManualReviewRequired:
-    "文件状态需要人工复核；请检查路径和身份后再决定下一步。",
-  errorDirectoryManifestNameEncodingFailed:
-    "目录名称无法安全编码，操作已停止。",
+  errorManualReviewRequired: "文件状态需要人工复核；请检查路径和身份后再决定下一步。",
+  errorDirectoryManifestNameEncodingFailed: "目录名称无法安全编码，操作已停止。",
   errorAtomicNoReplaceUnsupported: "当前文件系统不支持安全的无覆盖提交。",
   errorCopyVerificationFailed: "复制后的文件身份校验失败，操作已停止。",
   errorTargetParentDurabilityUnknown: "目标目录无法确认已持久化，操作已停止。",
@@ -2902,8 +2585,7 @@ const zh = {
   settingsRevisionConflict: "设置版本已变化，请重试保存。",
   indexNow: "立即索引",
   indexSearchFolders: "立即索引搜索目录",
-  commandCustomRootsNoResults:
-    "没有搜索结果。指定文件夹需要先建立本地索引；如果这是新添加的目录，请等待索引完成或点击立即索引。",
+  commandCustomRootsNoResults: "没有搜索结果。指定文件夹需要先建立本地索引；如果这是新添加的目录，请等待索引完成或点击立即索引。",
   commandIndexQueued: "已加入索引队列。索引完成后即可搜索。",
   save: "保存",
   changeHotkey: "修改快捷键",
@@ -2957,14 +2639,12 @@ const zh = {
   globalSearch: "搜索文件夹、文件、操作或设置",
   commandPlaceholder: "搜索文件、文件夹、操作或设置",
   commandIdleTitle: "输入关键词开始检索",
-  commandIdleDesc:
-    "可搜索文件名、路径、扩展名或用途。结果只会打开预览，不会自动移动文件。",
+  commandIdleDesc: "可搜索文件名、路径、扩展名或用途。结果只会打开预览，不会自动移动文件。",
   commandTypingTitle: "正在准备搜索",
   commandFailedTitle: "搜索暂时不可用",
   commandNoResultsTitle: "没有找到匹配结果",
   commandScopedEmptyTitle: "当前搜索范围为空",
-  commandScopedEmptyDesc:
-    "请在偏好设置中启用搜索文件夹，或切换到全部索引文件。",
+  commandScopedEmptyDesc: "请在偏好设置中启用搜索文件夹，或切换到全部索引文件。",
   commandScopeMeta: "搜索范围",
   commandKeyboardHint: "使用方向键切换结果",
   commandClearSearch: "清除 Spotlight 搜索",
@@ -2973,11 +2653,9 @@ const zh = {
   commandPreviewHint: "生成预览",
   commandSearching: "搜索中…",
   commandSearchFailed: "搜索失败，请稍后重试。",
-  commandNoResults:
-    "没有找到匹配文件。请尝试文件名、扩展名、路径关键词，或先扫描目录。",
+  commandNoResults: "没有找到匹配文件。请尝试文件名、扩展名、路径关键词，或先扫描目录。",
   globalSearchNoSourcesTitle: "需要配置全局索引来源",
-  globalSearchNoSourcesDesc:
-    "尚未启用任何索引来源。请在全局索引设置中启用或配置来源后再搜索。",
+  globalSearchNoSourcesDesc: "尚未启用任何索引来源。请在全局索引设置中启用或配置来源后再搜索。",
   bestMatches: "最佳推荐",
   smartMatches: "智能匹配",
   clearSearch: "清除搜索",
@@ -3003,16 +2681,12 @@ const zh = {
   scanCanceled: "扫描已取消",
   scanCanceling: "正在取消扫描...",
   scanProgressLine: "已识别 {files} 个，跳过 {skipped} 个，当前：{path}",
-  scanWarnings:
-    "本次扫描记录了 {count} 个警告，请在文件库中复核跳过或需要确认的文件。",
-  scanIndexIncomplete:
-    "扫描完成，已识别 {files} 个文件；但部分路径无法读取，索引可能不完整，重新扫描可修复。",
+  scanWarnings: "本次扫描记录了 {count} 个警告，请在文件库中复核跳过或需要确认的文件。",
+  scanIndexIncomplete: "扫描完成，已识别 {files} 个文件；但部分路径无法读取，索引可能不完整，重新扫描可修复。",
   storageCleanupSafetyTitle: "清理安全边界",
-  storageCleanupSafetyDesc:
-    "Zen Canvas 只分析你选择的范围，执行前需要确认，不会自动删除文件。当前版本只在本页确认后移到 Zen Canvas 安全回收站，不做永久删除。",
+  storageCleanupSafetyDesc: "Zen Canvas 只分析你选择的范围，执行前需要确认，不会自动删除文件。当前版本只在本页确认后移到 Zen Canvas 安全回收站，不做永久删除。",
   storageCleanupChooseScope: "选择要分析的磁盘或文件夹",
-  storageCleanupScopeSafetyDesc:
-    "Zen Canvas 只分析你选择的范围，不会自动删除文件。",
+  storageCleanupScopeSafetyDesc: "Zen Canvas 只分析你选择的范围，不会自动删除文件。",
   storageCleanupCurrentScope: "当前清理范围",
   storageCleanupScopeValue: "扫描范围：{path}",
   storageCleanupNoScopeSelected: "尚未选择清理范围",
@@ -3026,8 +2700,7 @@ const zh = {
   storageCleanupCancelFailed: "取消请求失败，请检查后台任务状态后重试。",
   storageCleanupCancelWaiting: "取消请求已发送，仍在等待后台确认。",
   storageCleanupChooseScopeEmptyTitle: "选择一个磁盘或文件夹开始分析",
-  storageCleanupChooseScopeEmptyDesc:
-    "例如 Downloads、Desktop、D:\\Projects 或整个 F: 盘。",
+  storageCleanupChooseScopeEmptyDesc: "例如 Downloads、Desktop、D:\\Projects 或整个 F: 盘。",
   storageCleanupQuickDownloads: "Downloads",
   storageCleanupQuickDesktop: "Desktop",
   storageCleanupQuickDocuments: "Documents",
@@ -3035,8 +2708,7 @@ const zh = {
   storageCleanupRescan: "重新扫描",
   storageCleanupLoadFailed: "空间清理加载失败",
   storageCleanupLoading: "正在分析本机空间",
-  storageCleanupLoadingDesc:
-    "Zen Canvas 只读取文件元数据和目录大小，不写入、不删除、不修改权限。",
+  storageCleanupLoadingDesc: "Zen Canvas 只读取文件元数据和目录大小，不写入、不删除、不修改权限。",
   storageCleanupScanningDesc: "正在分析存储占用，可能需要一点时间。",
   storageCleanupProgressLine: "已扫描 {count} 项，识别 {size}",
   storageCleanupCancelScan: "取消扫描",
@@ -3051,49 +2723,34 @@ const zh = {
   storageCleanupDeniedLowEstimate: "未统计，结果可能低估",
   storageCleanupDeniedNone: "当前没有权限受限路径",
   storageCleanupDeniedTitle: "存在未统计路径",
-  storageCleanupDeniedDesc:
-    "{count} 个路径无法读取或被安全规则跳过，未统计，结果可能低估。",
+  storageCleanupDeniedDesc: "{count} 个路径无法读取或被安全规则跳过，未统计，结果可能低估。",
   storageCleanupTopRanking: "Top 占用排行",
   storageCleanupScopeWarningTitle: "扫描范围提示",
-  storageCleanupTopRankingDesc:
-    "按已识别候选项大小从大到小排序，优先查看占空间大户。",
+  storageCleanupTopRankingDesc: "按已识别候选项大小从大到小排序，优先查看占空间大户。",
   storageCleanupAIPanelTitle: "AI 空间清理分析",
-  storageCleanupAIPanelDesc:
-    "使用当前 AI 模型复查清理候选，补充风险说明和建议。AI 不会自动删除文件，所有清理仍需你手动确认并进入 Safe Trash。",
+  storageCleanupAIPanelDesc: "使用当前 AI 模型复查清理候选，补充风险说明和建议。AI 不会自动删除文件，所有清理仍需你手动确认并进入 Safe Trash。",
   storageCleanupAIAnalyzeAllShort: "AI 分析全部候选",
   storageCleanupAIAnalyzeAll: "AI 分析清理风险",
   storageCleanupAIAnalyzeRisk: "AI 复查高风险项",
   storageCleanupAIAnalyzeSelected: "AI 分析已选项",
   storageCleanupAIStatusTitle: "AI 清理分析",
-  storageCleanupAISuccess:
-    "AI 已分析 {count} 个清理候选，所有执行仍需你手动确认。",
-  storageCleanupAISuccessSummary:
-    "AI 已分析 {count} 个候选：可安全清理 {safe} 个，需要人工判断 {review} 个，谨慎处理 {caution} 个。",
-  storageCleanupAISuccessNoSafe:
-    "AI 未发现可自动加入清理清单的项目。请查看 Review 项的风险说明，人工确认后再加入 Safe Trash。",
+  storageCleanupAISuccess: "AI 已分析 {count} 个清理候选，所有执行仍需你手动确认。",
+  storageCleanupAISuccessSummary: "AI 已分析 {count} 个候选：可安全清理 {safe} 个，需要人工判断 {review} 个，谨慎处理 {caution} 个。",
+  storageCleanupAISuccessNoSafe: "AI 未发现可自动加入清理清单的项目。请查看 Review 项的风险说明，人工确认后再加入 Safe Trash。",
   storageCleanupAIScanFirst: "请先扫描空间",
   storageCleanupAIEnableAI: "请先在设置中启用 AI",
   storageCleanupAIEnableCleanup: "请开启 AI 空间清理分析",
-  storageCleanupAIErrorMissingKey:
-    "当前模型服务需要 API Key，请在 AI 设置中填写。",
-  storageCleanupAIErrorRateLimit:
-    "模型服务请求过快或达到限流，请减少本次处理数量或稍后重试。",
-  storageCleanupAIErrorTimeout:
-    "模型请求超时，请减少本次处理数量、稍后重试，或改用更稳定的模型。",
-  storageCleanupAIErrorBadRequest:
-    "模型服务拒绝了请求参数，请检查 AI 服务配置后重试。",
-  storageCleanupAIErrorAuth:
-    "模型服务认证或权限失败，请检查 API Key 和模型权限。",
-  storageCleanupAIErrorNetwork:
-    "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。",
-  storageCleanupAIErrorInvalidResponse:
-    "模型没有返回有效结果，请换用更稳定的模型或稍后重试。",
-  storageCleanupAIErrorUnsafeResult:
-    "AI 返回了不安全的路径或操作，Zen Canvas 已拒绝应用该结果。",
+  storageCleanupAIErrorMissingKey: "当前模型服务需要 API Key，请在 AI 设置中填写。",
+  storageCleanupAIErrorRateLimit: "模型服务请求过快或达到限流，请减少本次处理数量或稍后重试。",
+  storageCleanupAIErrorTimeout: "模型请求超时，请减少本次处理数量、稍后重试，或改用更稳定的模型。",
+  storageCleanupAIErrorBadRequest: "模型服务拒绝了请求参数，请检查 AI 服务配置后重试。",
+  storageCleanupAIErrorAuth: "模型服务认证或权限失败，请检查 API Key 和模型权限。",
+  storageCleanupAIErrorNetwork: "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。",
+  storageCleanupAIErrorInvalidResponse: "模型没有返回有效结果，请换用更稳定的模型或稍后重试。",
+  storageCleanupAIErrorUnsafeResult: "AI 返回了不安全的路径或操作，Zen Canvas 已拒绝应用该结果。",
   storageCleanupResultExpired: "当前清理结果已过期，请重新扫描。",
   storageCleanupAIAnalyzing: "正在使用 AI 分析清理风险...",
-  storageCleanupAIReadyHint:
-    "AI 只会增强候选项的风险说明和建议，不会移动或删除文件。",
+  storageCleanupAIReadyHint: "AI 只会增强候选项的风险说明和建议，不会移动或删除文件。",
   storageCleanupAINoTargets: "没有可提交给 AI 分析的清理候选。",
   storageCleanupAIUnsupported: "当前环境不支持 AI 清理分析。",
   storageCleanupAIAnalyzedBadge: "AI",
@@ -3112,46 +2769,34 @@ const zh = {
   storageCleanupSafeTier: "可安全清理",
   storageCleanupReviewTier: "需人工判断",
   storageCleanupCautionTier: "谨慎处理",
-  storageCleanupSafeTierDesc:
-    "临时文件和明确包缓存可默认进入清单；构建产物需手动选择。",
-  storageCleanupReviewTierDesc:
-    "下载、文档、视频和未知大目录，只默认打开位置。",
-  storageCleanupCautionTierDesc:
-    "系统、应用本体、数据库和核心配置，不提供清理按钮。",
+  storageCleanupSafeTierDesc: "临时文件和明确包缓存可默认进入清单；构建产物需手动选择。",
+  storageCleanupReviewTierDesc: "下载、文档、视频和未知大目录，只默认打开位置。",
+  storageCleanupCautionTierDesc: "系统、应用本体、数据库和核心配置，不提供清理按钮。",
   storageCleanupNoCandidates: "暂无候选项",
   storageCleanupNoCandidatesDesc: "当前扫描结果没有进入此分级的项目。",
   storageCleanupMacosPackageCategory: "macOS 包目录",
-  storageCleanupMacosPackageReason:
-    "该包按一个逻辑项目展示；Zen Canvas 不会检查或清理包内内容。",
-  storageCleanupMacosPackageRisk:
-    "请在 Finder 或所属应用中审查。直接清理包目录已关闭。",
+  storageCleanupMacosPackageReason: "该包按一个逻辑项目展示；Zen Canvas 不会检查或清理包内内容。",
+  storageCleanupMacosPackageRisk: "请在 Finder 或所属应用中审查。直接清理包目录已关闭。",
   storageCleanupCloudItemCategory: "云文件",
-  storageCleanupCloudItemReason:
-    "该云文件当前未在本地，清理评估已延期，不会触发下载。",
-  storageCleanupCloudItemRisk:
-    "未取得本地内容前不计算可释放空间，也不会读取或移动占位文件。",
+  storageCleanupCloudItemReason: "该云文件当前未在本地，清理评估已延期，不会触发下载。",
+  storageCleanupCloudItemRisk: "未取得本地内容前不计算可释放空间，也不会读取或移动占位文件。",
   storageCleanupAddToPreview: "加入清理清单",
   storageCleanupReveal: "打开位置",
   storageCleanupViewAdvice: "查看建议",
   storageCleanupSelectForTrash: "选择移到回收站",
   storageCleanupReviewConfirmTitle: "确认加入清理清单",
-  storageCleanupReviewConfirmEmphasis:
-    "这是需要人工判断的项目。加入后仍只会在最终确认后移到安全回收站，不会永久删除。",
+  storageCleanupReviewConfirmEmphasis: "这是需要人工判断的项目。加入后仍只会在最终确认后移到安全回收站，不会永久删除。",
   storageCleanupSelected: "已选择",
   storageCleanupCanMoveToTrash: "可移到回收站",
   storageCleanupMoveToTrash: "移到回收站",
   storageCleanupMoveToSafeTrash: "移到安全回收站",
   storageCleanupConfirmTrashTitle: "确认移到安全回收站",
-  storageCleanupConfirmTrashDesc:
-    "将把 {count} 个绿色项移到 Zen Canvas 安全回收站，预计最多释放 {size}。不会永久删除，也不会处理黄色或红色项。",
+  storageCleanupConfirmTrashDesc: "将把 {count} 个绿色项移到 Zen Canvas 安全回收站，预计最多释放 {size}。不会永久删除，也不会处理黄色或红色项。",
   storageCleanupConfirmSafeTrashTitle: "确认移到安全回收站",
-  storageCleanupConfirmSafeTrashDesc:
-    "将把 {count} 个绿色项移到 Zen Canvas 安全回收站，预计最多释放 {size}。不会永久删除，也不会处理黄色或红色项。",
+  storageCleanupConfirmSafeTrashDesc: "将把 {count} 个绿色项移到 Zen Canvas 安全回收站，预计最多释放 {size}。不会永久删除，也不会处理黄色或红色项。",
   storageCleanupExecutionDone: "清理结果",
-  storageCleanupExecutionSummary:
-    "已移到回收站 {moved} 个，跳过 {skipped} 个，失败 {failed} 个。",
-  storageCleanupRestoreFromTrash:
-    "文件已移到 Zen Canvas 安全回收站，可到恢复记录中的清理回收站恢复。",
+  storageCleanupExecutionSummary: "已移到回收站 {moved} 个，跳过 {skipped} 个，失败 {failed} 个。",
+  storageCleanupRestoreFromTrash: "文件已移到 Zen Canvas 安全回收站，可到恢复记录中的清理回收站恢复。",
   storageCleanupGeneratePreview: "查看安全清理候选",
   storageCleanupSelectedSafe: "已选择 {count} 个绿色项",
   storageCleanupSelectedEstimate: "预计最多释放 {size}",
@@ -3159,11 +2804,9 @@ const zh = {
   storageCleanupPreviewDesc: "当前版本不会自动删除文件，只展示候选和原因。",
   storageCleanupQuickScopesLabel: "快速选择清理范围",
   storageCleanupDurableUnavailableTitle: "空间清理暂不可用",
-  storageCleanupDurableUnavailableDesc:
-    "耐久分析服务尚未就绪。已有索引和文件不会受影响，请稍后重试。",
+  storageCleanupDurableUnavailableDesc: "耐久分析服务尚未就绪。已有索引和文件不会受影响，请稍后重试。",
   storageCleanupDurableLoading: "正在读取清理记录",
-  storageCleanupDurableLoadingDesc:
-    "正在恢复最近一次清理分析；已有结果会保留。",
+  storageCleanupDurableLoadingDesc: "正在恢复最近一次清理分析；已有结果会保留。",
   storageCleanupRunMetricsLabel: "清理分析摘要",
   storageCleanupWorkflowLabel: "清理流程",
   storageCleanupWorkflowScan: "扫描",
@@ -3180,11 +2823,9 @@ const zh = {
   storageCleanupSummaryRecoveryValue: "Safe Trash",
   storageCleanupSummaryNoRun: "尚未分析",
   storageCleanupSafetyNoticeTitle: "不会自动永久删除",
-  storageCleanupSafetyNoticeDesc:
-    "提交前会再次验证路径、版本和文件身份；确认后只进入 Safe Trash。",
+  storageCleanupSafetyNoticeDesc: "提交前会再次验证路径、版本和文件身份；确认后只进入 Safe Trash。",
   storageCleanupPreviewUnavailableTitle: "安全预览暂不可用",
-  storageCleanupPreviewUnavailableDesc:
-    "没有文件进入 Safe Trash。请检查当前分析结果后重试。",
+  storageCleanupPreviewUnavailableDesc: "没有文件进入 Safe Trash。请检查当前分析结果后重试。",
   storageCleanupPreviewLoading: "正在生成安全预览",
   storageCleanupExecuting: "正在提交到 Safe Trash",
   storageCleanupExecutionPartial: "清理部分完成",
@@ -3194,42 +2835,31 @@ const zh = {
   storageCleanupRunRunning: "正在分析清理范围",
   storageCleanupRunCanceling: "正在取消分析",
   storageCleanupRunCompleted: "分析完成",
-  storageCleanupRunCompletedDesc:
-    "已完成 {detectors} 个检测器，发布 {findings} 条结果。",
+  storageCleanupRunCompletedDesc: "已完成 {detectors} 个检测器，发布 {findings} 条结果。",
   storageCleanupRunCompletedEmptyTitle: "分析完成，没有清理候选",
-  storageCleanupRunCompletedEmptyDesc:
-    "当前范围没有发布可复核项目；Safe Trash 当前不可执行。",
+  storageCleanupRunCompletedEmptyDesc: "当前范围没有发布可复核项目；Safe Trash 当前不可执行。",
   storageCleanupRunPartialTitle: "分析完成，但部分位置需要留意",
-  storageCleanupRunPartialDesc:
-    "{warnings} 个提示，{errors} 个错误，{failed} 个检测器未完成。已有结果仍可复核，必要时可重试。",
+  storageCleanupRunPartialDesc: "{warnings} 个提示，{errors} 个错误，{failed} 个检测器未完成。已有结果仍可复核，必要时可重试。",
   storageCleanupRunPartialEmptyTitle: "分析部分完成，没有可复核候选",
-  storageCleanupRunPartialEmptyDesc:
-    "当前结果只覆盖已完成的检测范围，不代表完整范围；Safe Trash 当前不可执行。",
+  storageCleanupRunPartialEmptyDesc: "当前结果只覆盖已完成的检测范围，不代表完整范围；Safe Trash 当前不可执行。",
   storageCleanupRunRetry: "重试分析",
   storageCleanupRunFailed: "分析未完成",
-  storageCleanupRunFailedDesc:
-    "没有得到可用的完整分析结果。请检查范围权限后重试。",
+  storageCleanupRunFailedDesc: "没有得到可用的完整分析结果。请检查范围权限后重试。",
   storageCleanupRunCanceled: "分析已取消",
-  storageCleanupRunCanceledDesc:
-    "已发布的结果仍保留；你可以选择范围后重新开始。",
+  storageCleanupRunCanceledDesc: "已发布的结果仍保留；你可以选择范围后重新开始。",
   storageCleanupRunCanceledEmptyTitle: "分析已取消，没有可复核候选",
-  storageCleanupRunCanceledEmptyDesc:
-    "当前没有发布可复核项目；这不是完整范围的结论，Safe Trash 当前不可执行。",
+  storageCleanupRunCanceledEmptyDesc: "当前没有发布可复核项目；这不是完整范围的结论，Safe Trash 当前不可执行。",
   storageCleanupDetectorProgress: "已完成 {completed} / {total} 个检测器",
-  storageCleanupDetectorFailureHint:
-    "部分检测器没有完成；结果可能低估，请查看提示后重试。",
+  storageCleanupDetectorFailureHint: "部分检测器没有完成；结果可能低估，请查看提示后重试。",
   storageCleanupFindingsTitle: "复核分析结果",
-  storageCleanupFindingsDescription:
-    "先看原因和证据，再决定哪些项目进入 Safe Trash。谨慎项目不会提供清理按钮。",
+  storageCleanupFindingsDescription: "先看原因和证据，再决定哪些项目进入 Safe Trash。谨慎项目不会提供清理按钮。",
   storageCleanupFindingTabsLabel: "清理结果分级",
   storageCleanupTierTab: "{label} · {count}",
   storageCleanupFindingsLoading: "正在读取分析结果",
-  storageCleanupFindingsLoadingDesc:
-    "正在从耐久记录加载当前分级；结果可跨页面继续读取。",
+  storageCleanupFindingsLoadingDesc: "正在从耐久记录加载当前分级；结果可跨页面继续读取。",
   storageCleanupFindingsListLabel: "清理分析结果",
   storageCleanupNoFindingsTitle: "这个分级暂时没有结果",
-  storageCleanupNoFindingsDesc:
-    "当前分析没有在这个分级发布可复核项目。你可以查看其他分级或重新分析。",
+  storageCleanupNoFindingsDesc: "当前分析没有在这个分级发布可复核项目。你可以查看其他分级或重新分析。",
   storageCleanupLoadMore: "继续加载结果",
   storageCleanupFindingWhy: "原因",
   storageCleanupFindingRisk: "注意",
@@ -3242,50 +2872,38 @@ const zh = {
   storageCleanupPathUnavailable: "位置暂不可用",
   storageCleanupFindingEvidence: "查看证据",
   storageCleanupCurrentAIAssessment: "当前 AI 评估已通过后端校验",
-  storageCleanupCurrentAIAssessmentFixture:
-    "浏览器展示夹具将此评估标记为当前状态；此处没有后端 currentness 权威",
+  storageCleanupCurrentAIAssessmentFixture: "浏览器展示夹具将此评估标记为当前状态；此处没有后端 currentness 权威",
   storageCleanupHistoricalAIAssessment: "历史 AI 评估；当前状态需重新校验",
   storageCleanupFindingHideEvidence: "收起证据",
   storageCleanupFindingEvidenceEmpty: "当前没有可展开的额外证据。",
   storageCleanupFindingRecheck: "重新核验",
   storageCleanupFindingAcknowledge: "确认后加入清单",
-  storageCleanupReviewConfirmDesc:
-    "请确认你了解“{name}”需要人工判断，确认后仍会经过安全预览。",
+  storageCleanupReviewConfirmDesc: "请确认你了解“{name}”需要人工判断，确认后仍会经过安全预览。",
   storageCleanupReviewConfirmAction: "确认并加入清单",
   storageCleanupSelectionSummary: "已选择 {count} 项 · {size}",
   storageCleanupSelectionSafety: "执行前还会重新验证版本和文件身份。",
-  storageCleanupMutationUnavailable:
-    "当前环境暂不支持文件移动；本次只保留分析结果。",
+  storageCleanupMutationUnavailable: "当前环境暂不支持文件移动；本次只保留分析结果。",
   storageCleanupPreviewReadyTitle: "安全清理预览",
-  storageCleanupPreviewReadyDesc:
-    "这是服务器重新验证后的执行预览。确认后只会移动到 Zen Canvas Safe Trash，不会永久删除。",
+  storageCleanupPreviewReadyDesc: "这是服务器重新验证后的执行预览。确认后只会移动到 Zen Canvas Safe Trash，不会永久删除。",
   storageCleanupPreviewMetricsLabel: "安全清理预览摘要",
   storageCleanupPreviewItems: "预览项目",
   storageCleanupPreviewExecutable: "可执行",
   storageCleanupPreviewBlocked: "已阻止",
   storageCleanupPreviewConfirm: "确认进入 Safe Trash",
-  storageCleanupPreviewTruncated:
-    "当前展示 {shown} / {total} 项；执行前仍以服务器预览为准。",
-  storageCleanupConfirmSafeTrashEmphasis:
-    "Safe Trash 可恢复，但仍会改变文件位置。请确认这些项目可以从原位置移走。",
+  storageCleanupPreviewTruncated: "当前展示 {shown} / {total} 项；执行前仍以服务器预览为准。",
+  storageCleanupConfirmSafeTrashEmphasis: "Safe Trash 可恢复，但仍会改变文件位置。请确认这些项目可以从原位置移走。",
   storageCleanupExecutionHistory: "查看历史与恢复",
   storageCleanupAIRecheck: "重新核验需确认项目",
   storageCleanupAIRecheckWorking: "正在重新核验…",
-  storageCleanupAIRecheckDone:
-    "已重新核验 {count} 项；AI 只补充建议，清理仍需你确认。",
+  storageCleanupAIRecheckDone: "已重新核验 {count} 项；AI 只补充建议，清理仍需你确认。",
   storageCleanupAIRecheckCancel: "停止重新核验",
   storageCleanupAIRecheckCanceling: "正在等待当前 AI 请求结束…",
   storageCleanupAIRecheckCanceled: "重新核验已停止；当前结果仍可使用。",
-  storageCleanupAIRecheckCanceledSummary:
-    "重新核验已停止：已处理 {processed}/{total} 项，跳过 {skipped}，AI 更新失败 {mutationFailed}，权威读回失败 {readbackFailed}。",
-  storageCleanupAIRecheckCollecting:
-    "正在收集全部需确认项目（已找到 {count} 项）…",
-  storageCleanupAIRecheckWorkingProgress:
-    "正在重新核验 {processed}/{total} 项…",
-  storageCleanupAIRecheckDoneSummary:
-    "重新核验完成：共 {total} 项，已处理 {processed}，跳过 {skipped}，AI 更新失败 {mutationFailed}，权威读回失败 {readbackFailed}。AI 只补充建议，清理仍需你确认。",
-  fsWatcherPartialIndexWarning:
-    "该目录项目过多，仅部分更新，请手动运行完整扫描。",
+  storageCleanupAIRecheckCanceledSummary: "重新核验已停止：已处理 {processed}/{total} 项，跳过 {skipped}，AI 更新失败 {mutationFailed}，权威读回失败 {readbackFailed}。",
+  storageCleanupAIRecheckCollecting: "正在收集全部需确认项目（已找到 {count} 项）…",
+  storageCleanupAIRecheckWorkingProgress: "正在重新核验 {processed}/{total} 项…",
+  storageCleanupAIRecheckDoneSummary: "重新核验完成：共 {total} 项，已处理 {processed}，跳过 {skipped}，AI 更新失败 {mutationFailed}，权威读回失败 {readbackFailed}。AI 只补充建议，清理仍需你确认。",
+  fsWatcherPartialIndexWarning: "该目录项目过多，仅部分更新，请手动运行完整扫描。",
   loading: "加载中",
   demoMode: "尚未扫描，正在显示示例索引。",
   ready: "Ready",
@@ -3300,13 +2918,11 @@ const zh = {
   confirmationItems: "需确认项",
   previewScopeItems: "本次预览项",
   autoCreateFolders: "将创建目录",
-  previewTruncatedWarning:
-    "本次预览已达到安全上限，仅显示前 {limit} / {total} 项。",
+  previewTruncatedWarning: "本次预览已达到安全上限，仅显示前 {limit} / {total} 项。",
   autoCreateFolderHint: "{count} 个目标文件夹不存在，执行时会先安全创建。",
   showMorePreviewItems: "再显示 {count} 个",
   duplicateGroupsTitle: "重复文件组",
-  duplicateGroupsDescription:
-    "基于持久化指纹与完整哈希生成；这里只读展示，不会移动或删除文件。",
+  duplicateGroupsDescription: "基于持久化指纹与完整哈希生成；这里只读展示，不会移动或删除文件。",
   duplicateGroupsStart: "扫描重复文件",
   duplicateGroupsCancel: "停止扫描",
   duplicateGroupsRetry: "重试扫描",
@@ -3321,55 +2937,44 @@ const zh = {
   duplicateGroupsMore: "加载更多",
   duplicateGroupsExact: "精确估算",
   duplicateGroupsEstimated: "保守估算",
-  duplicateGroupsReadOnlyHint:
-    "重复组只提供核对线索；任何文件操作仍需进入预览并人工确认。",
+  duplicateGroupsReadOnlyHint: "重复组只提供核对线索；任何文件操作仍需进入预览并人工确认。",
   duplicateGroupsLatestRun: "最近状态：{status} · {phase}",
   duplicateGroupsReclaimable: "{confidence} · 精确 {exact} · 潜在 {potential}",
   duplicateGroupsIdentity: "身份：{status}",
   duplicateGroupsHardlinkAlias: "硬链接别名",
-  duplicateGroupsEmptyFilesNote: "空文件不会进入内容重复组。",
+  duplicateGroupsEmptyFilesNote: "空文件不会进入内容重复组。"
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
-  automationAnalysisUnconfirmed:
-    "Analysis admission is unconfirmed. Open the plan to check its current analysis state.",
+  automationAnalysisUnconfirmed: "Analysis admission is unconfirmed. Open the plan to check its current analysis state.",
   automationIntentWorkspaceTitle: "Automation",
   automationIntents: "Intents",
   automationAdvancedPolicies: "Advanced Policies",
-  automationAdvancedPoliciesDescription:
-    "Review deterministic Rule Repository V2 policies and compatibility classification. These policies are not the current Managed AI Organize semantics and do not execute file changes from this screen.",
+  automationAdvancedPoliciesDescription: "Review deterministic Rule Repository V2 policies and compatibility classification. These policies are not the current Managed AI Organize semantics and do not execute file changes from this screen.",
   automationWorkspaceNavigationLabel: "Automation workspace sections",
-  automationIntentDescription:
-    "Save a reusable file scope and prepare review plans on demand, on a schedule, or when managed files change.",
+  automationIntentDescription: "Save a reusable file scope and prepare review plans on demand, on a schedule, or when managed files change.",
   automationFixedPolicy: "Review required \u00b7 Automatic file changes: Never",
   automationCreateIntent: "Create intent",
   automationEditIntent: "Edit intent",
   automationIntentTitle: "Intent title",
   automationQueryText: "File query",
   automationUseLibraryFilters: "Use current Library filters",
-  automationFilterHelp:
-    "Reuse the full Library filters. Each run queries the current index again.",
-  automationTemporaryScope:
-    "The current scan is temporary. Choose all enabled locations or selected locations.",
+  automationFilterHelp: "Reuse the full Library filters. Each run queries the current index again.",
+  automationTemporaryScope: "The current scan is temporary. Choose all enabled locations or selected locations.",
   automationIntentScope: "File scope",
   automationAllRoots: "All enabled locations",
   automationSelectedRoots: "Selected locations",
-  automationUnavailableRoot:
-    "A saved location is unavailable. Select the locations again.",
-  automationNoRoots:
-    "No locations available. Configure locations in Library first.",
+  automationUnavailableRoot: "A saved location is unavailable. Select the locations again.",
+  automationNoRoots: "No locations available. Configure locations in Library first.",
   automationIntentEnabled: "Enabled",
   automationIntentPaused: "Paused",
   automationIntentSaving: "Saving\u2026",
   automationReload: "Refresh",
   automationOpenFailed: "The plan could not be opened. Refresh and try again.",
-  automationRevisionConflict:
-    "The intent changed during another action. Close the editor and review the latest version before retrying.",
-  automationActionFailed:
-    "The action did not complete. Check the scope and settings, then refresh and retry.",
+  automationRevisionConflict: "The intent changed during another action. Close the editor and review the latest version before retrying.",
+  automationActionFailed: "The action did not complete. Check the scope and settings, then refresh and retry.",
   automationIntentEmptyTitle: "Create your first automation intent",
-  automationEmptyDescription:
-    "Choose a file scope and save your goal. After generating a plan, review its suggestions in Organize.",
+  automationEmptyDescription: "Choose a file scope and save your goal. After generating a plan, review its suggestions in Organize.",
   automationManual: "Manual",
   automationIntentTrigger: "Trigger",
   automationTriggerKind: "When to prepare a plan",
@@ -3381,19 +2986,13 @@ const en: Record<keyof typeof zh, string> = {
   automationDaily: "Daily",
   automationWeekdays: "Weekdays",
   automationCustomDays: "Custom weekdays",
-  automationInvalidSchedule:
-    "Choose a valid time, time zone and at least one weekday.",
-  automationScheduleHelp:
-    "Plans run while Zen is running. Missed schedules collapse into at most one catch-up on its next start or wake. The time zone stays fixed until you edit it.",
-  automationEventHelp:
-    "Waits 5 seconds for managed file changes to settle and for scanning/reconciliation to finish. Prepares a review plan and never changes files automatically.",
-  automationAiPermissionHelp:
-    "Automatic plan preparation uses only your existing Managed AI scope and local/cloud processing permissions.",
+  automationInvalidSchedule: "Choose a valid time, time zone and at least one weekday.",
+  automationScheduleHelp: "Plans run while Zen is running. Missed schedules collapse into at most one catch-up on its next start or wake. The time zone stays fixed until you edit it.",
+  automationEventHelp: "Waits 5 seconds for managed file changes to settle and for scanning/reconciliation to finish. Prepares a review plan and never changes files automatically.",
+  automationAiPermissionHelp: "Automatic plan preparation uses only your existing Managed AI scope and local/cloud processing permissions.",
   automationNextSchedule: "Next schedule",
-  automationEventPending:
-    "Managed changes are settling or waiting for scan reconciliation.",
-  automationResourceDeferred:
-    "Trigger retained; waiting for existing background resource admission.",
+  automationEventPending: "Managed changes are settling or waiting for scan reconciliation.",
+  automationResourceDeferred: "Trigger retained; waiting for existing background resource admission.",
   automationReviewPendingSkip: "Skipped: an earlier plan still needs review",
   automationDay1: "Mon",
   automationDay2: "Tue",
@@ -3407,111 +3006,80 @@ const en: Record<keyof typeof zh, string> = {
   automationArchive: "Archive",
   automationGeneratePlan: "Generate plan",
   automationGenerating: "Generating\u2026",
-  automationPendingDescription:
-    "Generating a plan from the current index. Please wait.",
+  automationPendingDescription: "Generating a plan from the current index. Please wait.",
   automationLatestRun: "Latest run",
   automationRunBlocked: "Needs attention",
   automationIntentRunFailed: "Failed",
   automationRunAnalysisQueued: "Analysis requested",
   automationRunReady: "Plan generated",
   automationReviewRequired: "Review required before execution",
-  automationManagedScopeMissing:
-    "Some files are outside AI managed locations. Review managed locations in Settings.",
-  automationAnalysisBlocked:
-    "Missing or stale analysis could not be submitted. Check AI, provider, credentials, and cloud consent settings.",
-  automationScopeBlocked:
-    "A saved location is disabled, removed, or unhealthy. Fix the locations before retrying.",
-  automationRefreshInOrganize:
-    "Refresh the plan in Organize after analysis completes.",
+  automationManagedScopeMissing: "Some files are outside AI managed locations. Review managed locations in Settings.",
+  automationAnalysisBlocked: "Missing or stale analysis could not be submitted. Check AI, provider, credentials, and cloud consent settings.",
+  automationScopeBlocked: "A saved location is disabled, removed, or unhealthy. Fix the locations before retrying.",
+  automationRefreshInOrganize: "Refresh the plan in Organize after analysis completes.",
   automationOpenPlan: "Open plan",
-  automationArchiveDescription:
-    "An archived intent cannot run again. Existing run history and organization plans are retained.",
+  automationArchiveDescription: "An archived intent cannot run again. Existing run history and organization plans are retained.",
   appName: "Zen Canvas",
   appSubtitle: "Personal digital asset steward",
   localOnly: "Local first",
   privateByDefault: "No upload by default",
-  privacyLine:
-    "The index stays in local SQLite. Personal files are not uploaded.",
+  privacyLine: "The index stays in local SQLite. Personal files are not uploaded.",
   overview: "Overview",
-  overviewDescription:
-    "Focus on the most important task and current local-space activity.",
+  overviewDescription: "Focus on the most important task and current local-space activity.",
   overviewPriorityLabel: "Most important task",
   overviewCurrentStatusLabel: "Current status",
   overviewTaskScanFailed: "Scan could not finish",
-  overviewTaskScanFailedDesc:
-    "The scan hit a fatal error. Existing indexed data will not be removed.",
+  overviewTaskScanFailedDesc: "The scan hit a fatal error. Existing indexed data will not be removed.",
   overviewTaskPermission: "Some locations are unavailable",
-  overviewTaskPermissionDesc:
-    "The system denied access. Existing local index data is preserved.",
+  overviewTaskPermissionDesc: "The system denied access. Existing local index data is preserved.",
   overviewTaskScanning: "Building the local index",
   overviewTaskScanningDesc: "Processed {count} files; currently at {path}.",
   overviewTaskCanceling: "Stopping the scan",
-  overviewTaskCancelingDesc:
-    "Processed {count} files; safely finishing the current task.",
+  overviewTaskCancelingDesc: "Processed {count} files; safely finishing the current task.",
   overviewTaskCanceled: "Scan canceled",
-  overviewTaskCanceledDesc:
-    "The {count} files from completed locations remain in the local index.",
+  overviewTaskCanceledDesc: "The {count} files from completed locations remain in the local index.",
   overviewTaskPartial: "Scan partially completed",
-  overviewTaskPartialDesc:
-    "Processed {files} files; {errors} paths reported errors.",
+  overviewTaskPartialDesc: "Processed {files} files; {errors} paths reported errors.",
   overviewTaskReview: "{count} items need your review",
-  overviewTaskReviewDesc:
-    "These suggestions require your decision and will never move files automatically.",
+  overviewTaskReviewDesc: "These suggestions require your decision and will never move files automatically.",
   overviewTaskCleanup: "{count} cleanup candidates",
-  overviewTaskCleanupDesc:
-    "The latest completed analysis found up to {size} reclaimable; every item still requires review.",
-  overviewTaskCleanupEstimatedDesc:
-    "The latest completed analysis estimates up to {size} reclaimable; every item still requires review.",
+  overviewTaskCleanupDesc: "The latest completed analysis found up to {size} reclaimable; every item still requires review.",
+  overviewTaskCleanupEstimatedDesc: "The latest completed analysis estimates up to {size} reclaimable; every item still requires review.",
   overviewTaskUnindexed: "No local index yet",
-  overviewTaskUnindexedDesc:
-    "Start with familiar locations. Scanning never uploads, moves, or deletes files.",
+  overviewTaskUnindexedDesc: "Start with familiar locations. Scanning never uploads, moves, or deletes files.",
   overviewTaskUpdate: "The local index can be updated",
-  overviewTaskUpdateDesc:
-    "Configured locations have a real indexing task ready to run.",
+  overviewTaskUpdateDesc: "Configured locations have a real indexing task ready to run.",
   overviewTaskOrderly: "Your file space is in order",
-  overviewTaskOrderlyDesc:
-    "The index contains {count} files with nothing requiring immediate attention.",
+  overviewTaskOrderlyDesc: "The index contains {count} files with nothing requiring immediate attention.",
   overviewTaskSearchPermission: "System-wide search needs permission",
-  overviewTaskSearchPermissionDesc:
-    "Some locations cannot be searched right now; existing index data remains usable. Review search-source permissions.",
+  overviewTaskSearchPermissionDesc: "Some locations cannot be searched right now; existing index data remains usable. Review search-source permissions.",
   overviewTaskSearchNoSource: "No searchable locations yet",
-  overviewTaskSearchNoSourceDesc:
-    "System-wide search has not found an available source yet. Choose locations to search in Settings.",
+  overviewTaskSearchNoSourceDesc: "System-wide search has not found an available source yet. Choose locations to search in Settings.",
   overviewReviewSearchSources: "Review search sources",
   overviewTaskOperationAttention: "An operation needs review",
-  overviewTaskOperationAttentionDesc:
-    "A recent file operation contains failed or manual-review items. Zen Canvas will not retry or overwrite them automatically.",
+  overviewTaskOperationAttentionDesc: "A recent file operation contains failed or manual-review items. Zen Canvas will not retry or overwrite them automatically.",
   overviewTaskOperationRunning: "A file operation is running",
-  overviewTaskOperationRunningDesc:
-    "Progress remains available in Preview and History.",
+  overviewTaskOperationRunningDesc: "Progress remains available in Preview and History.",
   overviewReviewHistory: "Review History",
   overviewTaskContentFailure: "Content Understanding needs review",
-  overviewTaskContentFailureDesc:
-    "The latest content-understanding run did not finish; source files were not changed.",
+  overviewTaskContentFailureDesc: "The latest content-understanding run did not finish; source files were not changed.",
   overviewReviewContent: "Open File Library",
   overviewTaskManagedRoot: "A managed location needs sync",
-  overviewTaskManagedRootDesc:
-    "Changes in {count} managed locations are not fully synchronized. Review their status.",
+  overviewTaskManagedRootDesc: "Changes in {count} managed locations are not fully synchronized. Review their status.",
   overviewTaskManagedRootPermission: "Managed locations need permission",
-  overviewTaskManagedRootPermissionDesc:
-    "{count} managed locations cannot be accessed right now; existing index data remains.",
+  overviewTaskManagedRootPermissionDesc: "{count} managed locations cannot be accessed right now; existing index data remains.",
   overviewTaskManagedRootPermissionAction: "Review permissions",
-  overviewTaskManagedRootRetryExhausted:
-    "Retries stopped for managed locations",
-  overviewTaskManagedRootRetryExhaustedDesc:
-    "Automatic retries stopped for {count} managed locations. Review their status.",
+  overviewTaskManagedRootRetryExhausted: "Retries stopped for managed locations",
+  overviewTaskManagedRootRetryExhaustedDesc: "Automatic retries stopped for {count} managed locations. Review their status.",
   overviewTaskManagedRootRetryExhaustedAction: "Review retry status",
   overviewTaskManagedRootReconciliation: "Managed locations need resync",
-  overviewTaskManagedRootReconciliationDesc:
-    "Changes in {count} managed locations are not fully synchronized. Review their status.",
+  overviewTaskManagedRootReconciliationDesc: "Changes in {count} managed locations are not fully synchronized. Review their status.",
   overviewTaskManagedRootReconciliationAction: "Resync locations",
   overviewTaskManagedRootPartial: "Managed-location coverage is incomplete",
-  overviewTaskManagedRootPartialDesc:
-    "Watcher coverage is incomplete for {count} managed locations. Review affected locations.",
+  overviewTaskManagedRootPartialDesc: "Watcher coverage is incomplete for {count} managed locations. Review affected locations.",
   overviewTaskManagedRootPartialAction: "Review affected locations",
   overviewTaskManagedRootStale: "Managed location status needs review",
-  overviewTaskManagedRootStaleDesc:
-    "The status of {count} managed locations may be stale. Review their status.",
+  overviewTaskManagedRootStaleDesc: "The status of {count} managed locations may be stale. Review their status.",
   overviewTaskManagedRootStaleAction: "Review locations",
   overviewSystemCoverage: "System coverage",
   overviewSystemSearch: "Search across computer",
@@ -3534,28 +3102,21 @@ const en: Record<keyof typeof zh, string> = {
   overviewChooseFolder: "Choose a custom location",
   overviewCurrentLocation: "current scan location",
   overviewSpaceSummary: "Space summary",
-  overviewSummaryFirstUse:
-    "After you build a local index, a concise summary will show file count, scope, and items needing review.",
-  overviewSummaryScanned:
-    "{time}: scanned {scope}. The local index contains {count} files ({size}), with {review} needing review.",
+  overviewSummaryFirstUse: "After you build a local index, a concise summary will show file count, scope, and items needing review.",
+  overviewSummaryScanned: "{time}: scanned {scope}. The local index contains {count} files ({size}), with {review} needing review.",
   overviewSummaryScopeJoin: " and ",
   overviewSummaryIndexedScope: "indexed locations",
   overviewRecentActivity: "Recent activity",
   overviewNextSteps: "Next steps",
   overviewNextStepsHint: "Start from the current workspace",
   overviewQuickFiles: "View files",
-  overviewQuickFilesDesc:
-    "Browse and search indexed files in the current scope.",
+  overviewQuickFilesDesc: "Browse and search indexed files in the current scope.",
   overviewQuickSuggestions: "Review organization suggestions",
-  overviewQuickSuggestionsDesc:
-    "Review the preview first, then decide whether to apply file changes.",
-  overviewQuickSuggestionsEmptyDesc:
-    "There are no suggestions awaiting confirmation; open Organize when you need it.",
+  overviewQuickSuggestionsDesc: "Review the preview first, then decide whether to apply file changes.",
+  overviewQuickSuggestionsEmptyDesc: "There are no suggestions awaiting confirmation; open Organize when you need it.",
   overviewQuickCleanup: "Free up space",
-  overviewQuickCleanupDesc:
-    "Candidates only enter Safe Trash; they are never permanently deleted directly.",
-  overviewQuickCleanupEmptyDesc:
-    "The latest real analysis has no reclaimable candidates; open Storage Cleanup to analyze again.",
+  overviewQuickCleanupDesc: "Candidates only enter Safe Trash; they are never permanently deleted directly.",
+  overviewQuickCleanupEmptyDesc: "The latest real analysis has no reclaimable candidates; open Storage Cleanup to analyze again.",
   overviewMetricFiles: "Files",
   overviewMetricSuggestions: "Needs review",
   overviewMetricReclaimable: "Reclaimable",
@@ -3588,11 +3149,9 @@ const en: Record<keyof typeof zh, string> = {
   overviewScanElapsed: "Elapsed",
   overviewScanSkipped: "Skipped",
   overviewScanWarnings: "Warnings",
-  overviewScanSafeToLeave:
-    "You can safely leave this page; scanning continues in the current window.",
+  overviewScanSafeToLeave: "You can safely leave this page; scanning continues in the current window.",
   overviewScanCompletedTitle: "Scan complete",
-  overviewScanCompletedDesc:
-    "The local index is updated. You can review suggestions or scan another location.",
+  overviewScanCompletedDesc: "The local index is updated. You can review suggestions or scan another location.",
   overviewScanPhaseScanning: "Scanning",
   overviewScanPhaseCanceling: "Stopping",
   overviewScanPhasePartial: "Partially complete",
@@ -3600,8 +3159,7 @@ const en: Record<keyof typeof zh, string> = {
   overviewScanPhaseCanceled: "Canceled",
   overviewScanPhaseCompleted: "Complete",
   overviewCancelScanTitle: "Stop the current scan?",
-  overviewCancelScanDesc:
-    "Completed folders remain in the local index. Locations not yet scanned will not enter the current scope.",
+  overviewCancelScanDesc: "Completed folders remain in the local index. Locations not yet scanned will not enter the current scope.",
   overviewConfirmCancelScan: "Stop scan",
   organizeSuggestions: "Suggestions",
   organizeFiles: "Organize Files",
@@ -3674,59 +3232,44 @@ const en: Record<keyof typeof zh, string> = {
   organizeGroupItemKeep: "Keep in place",
   organizeGroupItemClear: "Undo decision",
   organizeGroupItemEdit: "Adjust file name",
-  organizeGroupActionFailed:
-    "The group decision did not finish. The plan is still preserved; refresh and try again.",
-  organizeGroupChanged:
-    "Files or suggestions in this group have changed. Refresh and review the group again.",
-  organizeGroupActionUnavailable:
-    "This group action is no longer available. Review the group details.",
+  organizeGroupActionFailed: "The group decision did not finish. The plan is still preserved; refresh and try again.",
+  organizeGroupChanged: "Files or suggestions in this group have changed. Refresh and review the group again.",
+  organizeGroupActionUnavailable: "This group action is no longer available. Review the group details.",
   organizePlanActions: "Plan actions",
   organizePlanRefresh: "Refresh current facts",
   organizePlanCancel: "Cancel plan",
   organizePlanAnalyze: "Analyze missing information",
   organizeCreatePlanTitle: "Create an organization plan",
-  organizeCreatePlanDescription:
-    "The plan is a resumable review record. Creating it never moves or deletes files.",
+  organizeCreatePlanDescription: "The plan is a resumable review record. Creating it never moves or deletes files.",
   organizeCreatePlanAction: "Create plan",
   organizePlanTitleLabel: "Plan name",
-  organizePlanTitlePlaceholder:
-    "Optional, for example: Organize this week's downloads",
+  organizePlanTitlePlaceholder: "Optional, for example: Organize this week's downloads",
   organizeNoPlanTitle: "No organization plan yet",
-  organizeNoPlanDescription:
-    "Select files in File Library, or open an existing plan to continue its review.",
+  organizeNoPlanDescription: "Select files in File Library, or open an existing plan to continue its review.",
   organizeCreateAnotherPlanTitle: "Create another organization plan",
-  organizeCreateAnotherPlanDescription:
-    "Earlier organization plans have finished. Create a new review record from the current File Library selection.",
+  organizeCreateAnotherPlanDescription: "Earlier organization plans have finished. Create a new review record from the current File Library selection.",
   organizePlanListLoading: "Loading organization plans",
   organizePlanListLoadingDesc: "Reading saved organization plans.",
   organizePlanListFailedTitle: "Unable to load plans",
-  organizePlanListFailedDesc:
-    "The create form stays hidden until saved plans can be read successfully.",
+  organizePlanListFailedDesc: "The create form stays hidden until saved plans can be read successfully.",
   organizePlanListRetry: "Reload plans",
   organizePlanOpening: "Opening organization plan",
   organizePlanOpeningDesc: "Reading the plan details and groups.",
   organizePlanOpenFailedTitle: "Unable to open plan",
-  organizePlanOpenFailedDesc:
-    "The plan list is still available. Retry this plan or choose another plan.",
+  organizePlanOpenFailedDesc: "The plan list is still available. Retry this plan or choose another plan.",
   organizePlanOpenRetry: "Retry opening plan",
   organizeCreatePlanFailedTitle: "Plan creation failed",
-  organizeCreatePlanFailedDesc:
-    "The organization plan could not be created. Existing files and plans are preserved; try again.",
+  organizeCreatePlanFailedDesc: "The organization plan could not be created. Existing files and plans are preserved; try again.",
   organizeNoReadyGroupsTitle: "No groups are ready for direct review",
-  organizeNoReadyGroupsDescription:
-    "Items needing a decision appear in their section; blocked items remain in the problem section.",
+  organizeNoReadyGroupsDescription: "Items needing a decision appear in their section; blocked items remain in the problem section.",
   organizeNoDecisionGroupsTitle: "Nothing needs your decision",
-  organizeNoDecisionGroupsDescription:
-    "High-risk, low-confidence, or changed facts appear here when they need a choice.",
+  organizeNoDecisionGroupsDescription: "High-risk, low-confidence, or changed facts appear here when they need a choice.",
   organizeNoBlockedGroupsTitle: "Nothing is blocked right now",
-  organizeNoBlockedGroupsDescription:
-    "The current plan sources and safety previews can continue to be checked.",
+  organizeNoBlockedGroupsDescription: "The current plan sources and safety previews can continue to be checked.",
   organizeReviewExecution: "Review execution",
-  organizeReviewExecutionHint:
-    "Generate the authoritative backend Dry Run first, then confirm the file operations that will actually run.",
+  organizeReviewExecutionHint: "Generate the authoritative backend Dry Run first, then confirm the file operations that will actually run.",
   organizeDryRunTitle: "Execution check is ready",
-  organizeDryRunDesc:
-    "{executable} executable · {batch} in this batch · {remaining} later · {blocked} cannot run yet · {stale} changed",
+  organizeDryRunDesc: "{executable} executable · {batch} in this batch · {remaining} later · {blocked} cannot run yet · {stale} changed",
   organizeDryRunAction: "Review and confirm execution",
   organizeWorkflowLabel: "Organization workflow",
   workflowStateDone: "Completed",
@@ -3742,56 +3285,37 @@ const en: Record<keyof typeof zh, string> = {
   organizeWorkflowDryRunDetail: "Revalidate",
   organizeWorkflowConfirmDetail: "Write to Journal",
   organizeWorkflowBoundaryTitle: "Execution boundary",
-  organizeWorkflowBoundaryDesc:
-    "Dry Run comes first, then paths and conflicts are revalidated before you confirm. AI advice never has execution authority.",
-  organizeBlockedSummary:
-    "{count} items did not pass the current safety checks; they will not enter Dry Run or execution.",
+  organizeWorkflowBoundaryDesc: "Dry Run comes first, then paths and conflicts are revalidated before you confirm. AI advice never has execution authority.",
+  organizeBlockedSummary: "{count} items did not pass the current safety checks; they will not enter Dry Run or execution.",
   organizePreviewUnavailableTitle: "Safe preview unavailable",
-  organizePreviewUnavailableDesc:
-    "The current plan is preserved. Items without an authoritative preview will not execute. Refresh current facts and try again.",
-  organizeGroupReasonLowConfidence:
-    "This group has lower confidence and needs a human choice.",
-  organizeGroupReasonSensitive:
-    "This group includes sensitive files and cannot be accepted as a batch.",
-  organizeGroupReasonConflict:
-    "A name or destination conflict needs item-by-item review.",
-  organizeGroupReasonChanged:
-    "Some facts changed and need a refresh before execution.",
-  organizeGroupReasonBlocked:
-    "The backend safety check did not pass, so this cannot run yet.",
-  organizeGroupReasonAnalysis:
-    "Analysis information is missing, so no reliable suggestion is available yet.",
-  organizeGroupDecisionHint:
-    "Review each item and its reason. Items with an authoritative preview can be accepted after confirmation; you can also rename or keep them in place.",
+  organizePreviewUnavailableDesc: "The current plan is preserved. Items without an authoritative preview will not execute. Refresh current facts and try again.",
+  organizeGroupReasonLowConfidence: "This group has lower confidence and needs a human choice.",
+  organizeGroupReasonSensitive: "This group includes sensitive files and cannot be accepted as a batch.",
+  organizeGroupReasonConflict: "A name or destination conflict needs item-by-item review.",
+  organizeGroupReasonChanged: "Some facts changed and need a refresh before execution.",
+  organizeGroupReasonBlocked: "The backend safety check did not pass, so this cannot run yet.",
+  organizeGroupReasonAnalysis: "Analysis information is missing, so no reliable suggestion is available yet.",
+  organizeGroupDecisionHint: "Review each item and its reason. Items with an authoritative preview can be accepted after confirmation; you can also rename or keep them in place.",
   organizeItemReviewReasonLabel: "Needs your decision",
   organizeGroupAcceptReviewTitle: "Confirm this group",
-  organizeGroupAcceptReviewDesc:
-    "This group contains suggestions that need a human decision. Reasons: {reason}. Confirmation records the group decisions; files still go through the existing preview and execution confirmation.",
+  organizeGroupAcceptReviewDesc: "This group contains suggestions that need a human decision. Reasons: {reason}. Confirmation records the group decisions; files still go through the existing preview and execution confirmation.",
   organizeGroupAcceptReviewConfirm: "Confirm group",
   organizeItemAcceptReviewTitle: "Confirm this suggestion",
-  organizeItemAcceptReviewDesc:
-    "This suggestion needs your confirmation. Reason: {reason}. After confirmation it will enter the existing preview flow with this target: {target}.",
+  organizeItemAcceptReviewDesc: "This suggestion needs your confirmation. Reason: {reason}. After confirmation it will enter the existing preview flow with this target: {target}.",
   organizeItemAcceptReviewConfirm: "Confirm suggestion",
   organizeItemAcceptReviewHint: "Confirmation will use the current suggestion",
-  organizeItemAcceptUnavailableChanged:
-    "The file facts changed. Refresh the plan before deciding.",
-  organizeItemAcceptUnavailableBlocked:
-    "This suggestion did not pass the safety checks and cannot be accepted now.",
-  organizeItemAcceptUnavailablePreview:
-    "There is no executable authoritative preview, so this cannot be accepted now.",
-  organizeItemAcceptUnavailableState:
-    "The current state does not support accepting this suggestion.",
-  organizeItemAcceptUnavailableBackend:
-    "This suggestion is no longer available. Nothing was accepted locally; refresh the plan and review it again.",
-  organizeItemEditUnavailableBackend:
-    "This suggestion is no longer editable. Nothing was changed locally; refresh the plan and review it again.",
+  organizeItemAcceptUnavailableChanged: "The file facts changed. Refresh the plan before deciding.",
+  organizeItemAcceptUnavailableBlocked: "This suggestion did not pass the safety checks and cannot be accepted now.",
+  organizeItemAcceptUnavailablePreview: "There is no executable authoritative preview, so this cannot be accepted now.",
+  organizeItemAcceptUnavailableState: "The current state does not support accepting this suggestion.",
+  organizeItemAcceptUnavailableBackend: "This suggestion is no longer available. Nothing was accepted locally; refresh the plan and review it again.",
+  organizeItemEditUnavailableBackend: "This suggestion is no longer editable. Nothing was changed locally; refresh the plan and review it again.",
   organizeReviewReasonLowConfidence: "Low confidence",
   organizeReviewReasonSensitiveFile: "Sensitive file",
   organizeReviewReasonNonNormalRisk: "Non-normal risk",
   organizeReviewReasonPossibleDuplicate: "Possible duplicate",
   organizeReviewReasonRequiresConfirmation: "Confirmation required",
-  organizeReviewReasonTargetDirectoryCreation:
-    "Target directory will be created",
+  organizeReviewReasonTargetDirectoryCreation: "Target directory will be created",
   organizeReviewReasonTargetCollision: "Target collision",
   organizeReviewReasonSourceChanged: "Source facts changed",
   organizeReviewReasonProposalChanged: "Suggestion changed",
@@ -3832,15 +3356,12 @@ const en: Record<keyof typeof zh, string> = {
   commandLibraryDesc: "Browse indexed files",
   commandSuggestionsDesc: "Review organization suggestions",
   commandOrganizeFilesDesc: "Review and confirm organization plans",
-  commandCleanupDesc:
-    "Analyze local storage and use Safe Trash after confirmation",
+  commandCleanupDesc: "Analyze local storage and use Safe Trash after confirmation",
   commandHistoryDesc: "View operation and restore history",
-  commandAutomationDesc:
-    "Prepare reviewable organize plans with Intents, with Advanced Policies available when needed.",
+  commandAutomationDesc: "Prepare reviewable organize plans with Intents, with Advanced Policies available when needed.",
   commandSettingsDesc: "Open preferences",
   commandSearchScopeDesc: "Configure the Spotlight search scope",
-  commandGlobalIndexDesc:
-    "Manage the global file-name index and AI-managed scopes",
+  commandGlobalIndexDesc: "Manage the global file-name index and AI-managed scopes",
   commandThemeSettings: "Theme settings",
   commandThemeDesc: "Switch light, dark, or system theme",
   commandAISettings: "AI settings",
@@ -3848,40 +3369,25 @@ const en: Record<keyof typeof zh, string> = {
   openSearchScopeSettings: "Open search scope settings",
   globalIndexSettings: "Global index & AI management",
   globalSearchRefreshResults: "Refresh results",
-  globalSearchWindowsScopeDesc:
-    "Windows Global Search indexes NTFS volumes; folders cannot be selected individually. Newly discovered disks are not scanned by default. Enabling a disk requires confirmation and indexes metadata across the entire volume, not only personal files. File Library scans and AI managed scopes do not establish Global Search coverage.",
-  globalSearchReadyEmptyDesc:
-    "No match in the ready, enabled sources. Check the name or path; File Library visibility does not prove Global Index coverage. Check sources in Manage index.",
-  globalSearchPausedDesc:
-    "Indexing is paused; this snapshot does not establish complete coverage. Check sources and refresh results after their state changes.",
-  globalSearchIndexingDesc:
-    "Some sources are still indexing; uncovered locations may have no results. Check the specific source in Manage index, then refresh results after publication.",
-  globalSearchRebuildDesc:
-    "A source requires rebuilding, so coverage is incomplete. Check the specific source; a small-folder check does not require rebuilding other drives.",
-  globalSearchDatabaseBusyDesc:
-    "The index database is busy, so search results have not been verified.",
-  globalSearchServiceBusyDesc:
-    "The Windows Global Index service is handling another operation; this source is not covered by this search yet.",
-  globalSearchPermissionRequiredDesc:
-    "Windows could not read this volume, so search results are incomplete. Check its permissions and retry.",
-  globalSearchWatcherUnavailableDesc:
-    "The first index completed, but file changes cannot be watched. Rebuild the index to pick up new files.",
-  globalSearchUnavailableDesc:
-    "A source is unavailable or needs permission. Zero results do not prove the file is absent. Check source status and refresh after recovery.",
+  globalSearchWindowsScopeDesc: "Windows Global Search indexes NTFS volumes; folders cannot be selected individually. Newly discovered disks are not scanned by default. Enabling a disk requires confirmation and indexes metadata across the entire volume, not only personal files. File Library scans and AI managed scopes do not establish Global Search coverage.",
+  globalSearchReadyEmptyDesc: "No match in the ready, enabled sources. Check the name or path; File Library visibility does not prove Global Index coverage. Check sources in Manage index.",
+  globalSearchPausedDesc: "Indexing is paused; this snapshot does not establish complete coverage. Check sources and refresh results after their state changes.",
+  globalSearchIndexingDesc: "Some sources are still indexing; uncovered locations may have no results. Check the specific source in Manage index, then refresh results after publication.",
+  globalSearchRebuildDesc: "A source requires rebuilding, so coverage is incomplete. Check the specific source; a small-folder check does not require rebuilding other drives.",
+  globalSearchDatabaseBusyDesc: "The index database is busy, so search results have not been verified.",
+  globalSearchServiceBusyDesc: "The Windows Global Index service is handling another operation; this source is not covered by this search yet.",
+  globalSearchPermissionRequiredDesc: "Windows could not read this volume, so search results are incomplete. Check its permissions and retry.",
+  globalSearchWatcherUnavailableDesc: "The first index completed, but file changes cannot be watched. Rebuild the index to pick up new files.",
+  globalSearchUnavailableDesc: "A source is unavailable or needs permission. Zero results do not prove the file is absent. Check source status and refresh after recovery.",
   globalSearchNotIndexedTitle: "A source has not been indexed",
-  globalSearchNotIndexedDesc:
-    "Discovery does not establish index coverage. Check the file’s source in Manage index. A File Library scan does not add Global Index entries or authorize whole-volume indexing.",
-  globalSearchUnverifiedDesc:
-    "This snapshot cannot confirm that all sources are ready. Check source status and refresh results; uncovered locations are not ordinary empty results.",
-  globalSearchIndexMeta:
-    "Global index: indexed filenames and paths; File Library scans do not establish coverage.",
+  globalSearchNotIndexedDesc: "Discovery does not establish index coverage. Check the file’s source in Manage index. A File Library scan does not add Global Index entries or authorize whole-volume indexing.",
+  globalSearchUnverifiedDesc: "This snapshot cannot confirm that all sources are ready. Check source status and refresh results; uncovered locations are not ordinary empty results.",
+  globalSearchIndexMeta: "Global index: indexed filenames and paths; File Library scans do not establish coverage.",
   globalSearchManage: "Manage index",
   fmSelectAll: "Select all results",
   fmSelectLoaded: "Select loaded results",
-  fmExecutionUncertain:
-    "The execution outcome is unconfirmed. Check History / recovery before attempting again.",
-  fmRefreshFailed:
-    "The operation finished, but refresh failed. Refresh manually and check History.",
+  fmExecutionUncertain: "The execution outcome is unconfirmed. Check History / recovery before attempting again.",
+  fmRefreshFailed: "The operation finished, but refresh failed. Refresh manually and check History.",
   fmPrevious: "Previous",
   fmNext: "Next",
   fmSkipped: "Skipped / canceled",
@@ -3905,14 +3411,10 @@ const en: Record<keyof typeof zh, string> = {
   wbEditPath: "Edit path (Ctrl/Cmd+L)",
   wbEnterPath: "Enter or choose a folder path",
   wbPlatformUnavailable: "Folder navigation is unavailable on this platform.",
-  wbNavigationFailed:
-    "Could not open the folder. Your current location is retained.",
-  wbUnsupportedDrop:
-    "Drag selected Zen Canvas items to another open folder pane. Operations always require preview and confirmation.",
-  wbSelectionChanged:
-    "The source selection or destination changed. Reselect and preview again.",
-  wbFolderDropUnsupported:
-    "Dropping onto folder rows is not supported. Open that folder in the target pane first, then drop into the pane.",
+  wbNavigationFailed: "Could not open the folder. Your current location is retained.",
+  wbUnsupportedDrop: "Drag selected Zen Canvas items to another open folder pane. Operations always require preview and confirmation.",
+  wbSelectionChanged: "The source selection or destination changed. Reselect and preview again.",
+  wbFolderDropUnsupported: "Dropping onto folder rows is not supported. Open that folder in the target pane first, then drop into the pane.",
   shellShowSidebar: "Show main sidebar",
   shellHideSidebar: "Hide main sidebar",
   fmMore: "More actions",
@@ -3945,18 +3447,13 @@ const en: Record<keyof typeof zh, string> = {
   fmPlaces: "Places",
   fmAllResults: "All current results",
   fmAdded: "Added to basket. Continue collecting in other folders.",
-  fmClipboardReady:
-    "Zen clipboard is ready. Browse to a destination and paste.",
+  fmClipboardReady: "Zen clipboard is ready. Browse to a destination and paste.",
   fmDestination: "Destination folder",
-  fmCrossVolumeMove:
-    "Cross-volume move is unavailable. Use Copy and retain the source.",
-  fmWindowsDirectories:
-    "Windows folder transfer is unavailable until directory staging and restore are supported. Select regular files.",
-  fmConflict:
-    "A destination already exists. Skip, keep both, or choose another destination.",
+  fmCrossVolumeMove: "Cross-volume move is unavailable. Use Copy and retain the source.",
+  fmWindowsDirectories: "Windows folder transfer is unavailable until directory staging and restore are supported. Select regular files.",
+  fmConflict: "A destination already exists. Skip, keep both, or choose another destination.",
   fmLimit: "Select at most 1,000 items per operation.",
-  fmStale:
-    "The reference or preview changed. Reselect and preview again; check History for recovery.",
+  fmStale: "The reference or preview changed. Reselect and preview again; check History for recovery.",
   fmFailed: "The operation did not complete. Check the details.",
   fmFinished: "Operation finished. Open Operation results to review details.",
   fmSucceeded: "Succeeded",
@@ -3965,25 +3462,21 @@ const en: Record<keyof typeof zh, string> = {
   fmPathHint: "Enter a folder path",
   fmGo: "Go",
   fmFavoriteCurrent: "Favorite current folder",
-  fmRecentDesc:
-    "Favorites and recent folders. Access is checked again on every visit.",
+  fmRecentDesc: "Favorites and recent folders. Access is checked again on every visit.",
   fmUnavailable: "Unavailable",
   fmUnfavorite: "Unfavorite",
   fmRemove: "Remove",
-  fmSessionOnly:
-    "Basket and Zen clipboard last for this Main window session. Files are not cached; references are revalidated before execution.",
+  fmSessionOnly: "Basket and Zen clipboard last for this Main window session. Files are not cached; references are revalidated before execution.",
   fmCopyBasket: "Copy basket…",
   fmMoveBasket: "Move basket…",
   fmClearBasket: "Clear basket",
   fmResults: "Operation results",
   fmHistory: "History / Restore",
   fmOpenDestination: "Open destination folder",
-  fmRestoreHelp:
-    "Restore eligible moves from History after identity validation. Copy does not offer delete-based undo.",
+  fmRestoreHelp: "Restore eligible moves from History after identity validation. Copy does not offer delete-based undo.",
   fmCopyPreview: "Copy preview",
   fmMovePreview: "Move preview",
-  fmPreviewHelp:
-    "Review sources and destinations. Existing files are never overwritten. Rebuild the preview after changing options, then confirm.",
+  fmPreviewHelp: "Review sources and destinations. Existing files are never overwritten. Rebuild the preview after changing options, then confirm.",
   fmChooseFolder: "Choose folder…",
   fmFavoriteDestination: "Favorites & recent folders",
   fmPrepare: "Build / refresh preview",
@@ -3993,14 +3486,12 @@ const en: Record<keyof typeof zh, string> = {
   fmCancel: "Cancel",
   fmConfirm: "Confirm operation",
   globalSearchShowInLibrary: "Show in File Library",
-  globalSearchLibraryFailed:
-    "Could not show this item in File Library. The file or source may have changed, or the folder is inaccessible. Refresh search and try again.",
+  globalSearchLibraryFailed: "Could not show this item in File Library. The file or source may have changed, or the folder is inaccessible. Refresh search and try again.",
   globalSearchManaged: "AI-managed",
   globalSearchAddManaged: "Add to Zen Canvas managed scope",
   globalIndexTitle: "Global search index",
   filesWorkspace: "Files",
-  globalIndexDesc:
-    "Global search is independent from the File Library scope and stores filesystem metadata only. Files outside managed scopes never enter AI analysis.",
+  globalIndexDesc: "Global search is independent from the File Library scope and stores filesystem metadata only. Files outside managed scopes never enter AI analysis.",
   globalIndexStatus: "Index status",
   globalIndexSources: "Index sources",
   globalIndexEntries: "Discovered entries",
@@ -4011,22 +3502,17 @@ const en: Record<keyof typeof zh, string> = {
   globalIndexEnabled: "Source enabled",
   globalIndexDisabled: "Source disabled",
   globalIndexNoSources: "No index sources are available yet",
-  globalIndexNoSourcesDesc:
-    "Zen Canvas discovers available local index sources when the app starts.",
+  globalIndexNoSourcesDesc: "Zen Canvas discovers available local index sources when the app starts.",
   globalIndexAllSourcesDisabled: "All index sources are disabled",
-  globalIndexAllSourcesDisabledDesc:
-    "Enable at least one local source before system-wide search can build or update its index.",
-  globalIndexAuthorizationRequiredDesc:
-    "This Windows disk has not been explicitly authorized; existing index and user data remain intact. Confirm full-disk metadata indexing before enabling it.",
-  globalIndexFullDiskConfirm:
-    "When enabled, Zen Canvas will build a metadata index of file names, paths, and attributes across the entire selected NTFS volume, including system and other users' files. This is not limited to personal files. Authorize this disk?",
+  globalIndexAllSourcesDisabledDesc: "Enable at least one local source before system-wide search can build or update its index.",
+  globalIndexAuthorizationRequiredDesc: "This Windows disk has not been explicitly authorized; existing index and user data remain intact. Confirm full-disk metadata indexing before enabling it.",
+  globalIndexFullDiskConfirm: "When enabled, Zen Canvas will build a metadata index of file names, paths, and attributes across the entire selected NTFS volume, including system and other users' files. This is not limited to personal files. Authorize this disk?",
   globalIndexAuthorizeTitle: "Confirm full-disk indexing scope",
   globalIndexAuthorizeAction: "Authorize this disk",
   globalIndexAuthorizationSaved: "Disk authorized",
   globalIndexSourceDiscoveredNotEnabled: "Discovered, not enabled",
   globalIndexSourceAuthorizedWaiting: "Authorized, waiting to index",
-  globalIndexSourceLegacyConfirmationRequired:
-    "Legacy source needs confirmation before indexing",
+  globalIndexSourceLegacyConfirmationRequired: "Legacy source needs confirmation before indexing",
   globalIndexLoading: "Loading index status",
   globalIndexLoadingDesc: "Reading sources and managed scopes.",
   globalIndexLoadFailed: "Unable to load global index status",
@@ -4034,30 +3520,18 @@ const en: Record<keyof typeof zh, string> = {
   globalIndexProcessed: "Processed",
   globalIndexCollectionCollecting: "Collecting",
   globalIndexCollectionComplete: "Initial collection complete",
-  globalIndexErrorGeneric:
-    "The index needs attention. Try again later or rebuild the source.",
-  globalIndexErrorDatabaseBusy:
-    "The index database is busy, so search status could not be read. The operation will retry later.",
-  globalIndexErrorServiceBusy:
-    "The Windows Global Index service is handling another operation; this source has not started this request.",
-  globalIndexErrorPermissionRequired:
-    "The selected volume could not be read. Check Windows permissions; search results are incomplete.",
-  globalIndexErrorSpotlightNoResults:
-    "Spotlight returned no indexed local results. Check that Spotlight is enabled; an external volume may not be indexed.",
-  globalIndexErrorSpotlightFullDiskAccess:
-    "Some system locations require Full Disk Access. Allow Zen Canvas to access files and folders in System Settings.",
-  globalIndexErrorSpotlightProtected:
-    "Some protected locations could not be read, so results may be incomplete.",
-  globalIndexErrorSpotlightExternalNotIndexed:
-    "An external volume is not indexed by Spotlight, so results may be incomplete.",
-  globalIndexErrorSpotlightIncomplete:
-    "Some results could not be accessed, so search may be incomplete.",
-  globalIndexErrorSpotlightUnavailable:
-    "Spotlight is unavailable. Check Spotlight in System Settings; completed local results are preserved.",
-  globalIndexErrorRealtimeUnavailable:
-    "Realtime file updates are unavailable, so search results may not update immediately.",
-  globalIndexErrorSourceUnavailable:
-    "The index source is temporarily unavailable and will retry when it returns.",
+  globalIndexErrorGeneric: "The index needs attention. Try again later or rebuild the source.",
+  globalIndexErrorDatabaseBusy: "The index database is busy, so search status could not be read. The operation will retry later.",
+  globalIndexErrorServiceBusy: "The Windows Global Index service is handling another operation; this source has not started this request.",
+  globalIndexErrorPermissionRequired: "The selected volume could not be read. Check Windows permissions; search results are incomplete.",
+  globalIndexErrorSpotlightNoResults: "Spotlight returned no indexed local results. Check that Spotlight is enabled; an external volume may not be indexed.",
+  globalIndexErrorSpotlightFullDiskAccess: "Some system locations require Full Disk Access. Allow Zen Canvas to access files and folders in System Settings.",
+  globalIndexErrorSpotlightProtected: "Some protected locations could not be read, so results may be incomplete.",
+  globalIndexErrorSpotlightExternalNotIndexed: "An external volume is not indexed by Spotlight, so results may be incomplete.",
+  globalIndexErrorSpotlightIncomplete: "Some results could not be accessed, so search may be incomplete.",
+  globalIndexErrorSpotlightUnavailable: "Spotlight is unavailable. Check Spotlight in System Settings; completed local results are preserved.",
+  globalIndexErrorRealtimeUnavailable: "Realtime file updates are unavailable, so search results may not update immediately.",
+  globalIndexErrorSourceUnavailable: "The index source is temporarily unavailable and will retry when it returns.",
   globalIndexStatusDiscovered: "Discovered",
   globalIndexStatusIndexing: "Indexing",
   globalIndexStatusSyncing: "Syncing",
@@ -4070,10 +3544,8 @@ const en: Record<keyof typeof zh, string> = {
   globalIndexStatusDatabaseBusy: "Database busy",
   globalIndexStatusServiceBusy: "Index service busy",
   globalIndexStatusSpotlightUnavailable: "Spotlight unavailable",
-  globalIndexStatusSpotlightNotIndexed:
-    "Spotlight has no indexed local results",
-  globalIndexStatusSpotlightExternalNotIndexed:
-    "An external volume is not indexed by Spotlight",
+  globalIndexStatusSpotlightNotIndexed: "Spotlight has no indexed local results",
+  globalIndexStatusSpotlightExternalNotIndexed: "An external volume is not indexed by Spotlight",
   globalIndexStatusFseventsUnavailable: "Realtime file updates unavailable",
   globalIndexStatusUnavailable: "Unavailable",
   globalIndexStatusError: "Error",
@@ -4082,12 +3554,10 @@ const en: Record<keyof typeof zh, string> = {
   globalIndexProvider: "Index provider",
   globalIndexServiceRunning: "Windows background service is running",
   globalIndexServiceUnavailable: "Windows background service unavailable",
-  globalIndexServiceUnavailableDesc:
-    "The app is using the in-process fallback. Install or start the Zen Canvas Global Index service to restore the independent index process.",
+  globalIndexServiceUnavailableDesc: "The app is using the in-process fallback. Install or start the Zen Canvas Global Index service to restore the independent index process.",
   globalIndexProviderDirectFallback: "In-process fallback",
   managedScopesTitle: "AI-managed scopes",
-  managedScopesDesc:
-    "Only files explicitly added to a managed scope enter the AI queue; global search keeps every discovered result.",
+  managedScopesDesc: "Only files explicitly added to a managed scope enter the AI queue; global search keeps every discovered result.",
   managedScopeAdd: "Add managed scope",
   managedScopePathPlaceholder: "Enter a folder path",
   managedScopeLocalAi: "Allow local AI",
@@ -4096,24 +3566,19 @@ const en: Record<keyof typeof zh, string> = {
   managedScopeEnabled: "Managed scope enabled",
   managedScopeDisabled: "Managed scope disabled",
   managedScopeNone: "No managed scopes yet",
-  managedScopePolicySummary:
-    "AI only processes files in managed scopes; cloud permission is controlled per scope.",
-  managedScopeOnlyCloudEnabled:
-    "AI only processes files in managed scopes; cloud processing is enabled for some scopes.",
-  managedScopeOnlyCloudDisabled:
-    "AI only processes files in managed scopes; cloud processing is disabled.",
+  managedScopePolicySummary: "AI only processes files in managed scopes; cloud permission is controlled per scope.",
+  managedScopeOnlyCloudEnabled: "AI only processes files in managed scopes; cloud processing is enabled for some scopes.",
+  managedScopeOnlyCloudDisabled: "AI only processes files in managed scopes; cloud processing is disabled.",
   managedScopeAdded: "Managed scope added",
   managedScopeActionFailed: "Managed scope action failed",
-  managedScopeNoneDesc:
-    "Add a folder to send only files inside that scope to the AI queue.",
+  managedScopeNoneDesc: "Add a folder to send only files inside that scope to the AI queue.",
   modeAIDisabled: "AI is off",
   modeLoading: "Confirming processing mode",
   modeLoadingDesc: "Reading the AI configuration on this device.",
   modeFailed: "Unable to confirm processing mode",
   modeFailedDesc: "AI settings could not be read. Check Preferences.",
   modeCheckSettings: "Check settings",
-  modeAIDisabledDesc:
-    "Files, Search, Preview, and History/Restore remain available. AI Organize and AI Cleanup require a connected provider and their separate permissions.",
+  modeAIDisabledDesc: "Files, Search, Preview, and History/Restore remain available. AI Organize and AI Cleanup require a connected provider and their separate permissions.",
   modeAILocal: "Using a local model",
   modeAILocalDesc: "Indexing and model analysis stay on this device.",
   modeAICloud: "Using cloud AI",
@@ -4140,8 +3605,7 @@ const en: Record<keyof typeof zh, string> = {
   fileLibraryNavigationOpen: "Open navigation",
   fileLibraryNavigationClose: "Close navigation",
   fileLibraryNavigationTitle: "File Library navigation",
-  fileLibraryNavigationDescription:
-    "Start from a semantic entry or a backend-confirmed location.",
+  fileLibraryNavigationDescription: "Start from a semantic entry or a backend-confirmed location.",
   fileLibraryNavigationLibrary: "Library entries",
   fileLibraryNavigationAll: "All files",
   fileLibraryNavigationTypes: "Types",
@@ -4150,15 +3614,13 @@ const en: Record<keyof typeof zh, string> = {
   fileLibraryNavigationSavedEmpty: "No saved views are available",
   fileLibraryNavigationTags: "Tags",
   fileLibraryNavigationTagsEmpty: "No tags are available",
-  fileLibraryNavigationLibraryUnavailable:
-    "Available in File Library; the current location remains browse-only.",
+  fileLibraryNavigationLibraryUnavailable: "Available in File Library; the current location remains browse-only.",
   fileLibraryNavigationLocations: "Browse locations",
   fileLibraryNavigationLibraryLocations: "Library locations",
   fileLibraryNavigationLocationsLoading: "Reading locations",
   fileLibraryNavigationLocationsFailed: "Locations are temporarily unavailable",
   fileLibraryNavigationLocationsEmpty: "No browse locations are available",
-  fileLibraryNavigationManagedLocationsEmpty:
-    "No managed locations are available",
+  fileLibraryNavigationManagedLocationsEmpty: "No managed locations are available",
   fileLibraryNavigationManaged: "In File Library",
   fileLibraryNavigationUnmanaged: "Browse only",
   fileLibraryNavigationGroupLocal: "On this device",
@@ -4169,11 +3631,9 @@ const en: Record<keyof typeof zh, string> = {
   fileLibraryNavigationGroupNetwork: "Network",
   fileLibraryNavigationGroupCloud: "Cloud services",
   fileLibraryNavigationGroupOther: "Other",
-  fileLibraryNavigationAuthorityNote:
-    "Location status and opening come from the backend Location projection; browsing does not add anything to the File Library.",
+  fileLibraryNavigationAuthorityNote: "Location status and opening come from the backend Location projection; browsing does not add anything to the File Library.",
   fileLibraryContextTitle: "Context",
-  fileLibraryContextDescription:
-    "Only source-confirmed details are shown; file content is not read.",
+  fileLibraryContextDescription: "Only source-confirmed details are shown; file content is not read.",
   fileLibraryContextSelectionTitle: "Selected items",
   fileLibraryContextType: "Type",
   fileLibraryContextKind: "Item kind",
@@ -4181,34 +3641,27 @@ const en: Record<keyof typeof zh, string> = {
   fileLibraryContextModified: "Modified",
   fileLibraryContextCreated: "Created",
   fileLibraryContextMaterialization: "Content state",
-  fileLibraryContextBrowseSafety:
-    "Browse Context uses only the presentation facts already read for this source.",
-  fileLibraryContextBrowseMultiSafety:
-    "Browse selection covers only loaded items; it does not claim unseen folder contents.",
+  fileLibraryContextBrowseSafety: "Browse Context uses only the presentation facts already read for this source.",
+  fileLibraryContextBrowseMultiSafety: "Browse selection covers only loaded items; it does not claim unseen folder contents.",
   fileLibraryContextKnownSize: "size known",
   fileLibraryContextPartialSize: "size partial",
   fileLibraryContextUnknownSize: "size unknown",
   fileLibraryContextLocal: "Available locally",
   fileLibraryContextTypes: "Types",
   fileLibraryBrowseDetachedTitle: "Ready to browse files",
-  fileLibraryBrowseDetachedDesc:
-    "No folder is open. Nothing is being read, indexed, or added to your File Library.",
+  fileLibraryBrowseDetachedDesc: "No folder is open. Nothing is being read, indexed, or added to your File Library.",
   fileLibraryBrowseTargetTitle: "Browse location is open",
-  fileLibraryBrowseTargetDesc:
-    "The current folder is for browsing only. This state does not read, index, or add file content to your File Library.",
+  fileLibraryBrowseTargetDesc: "The current folder is for browsing only. This state does not read, index, or add file content to your File Library.",
   browseLocationsTitle: "Choose a location to browse",
-  browseLocationsDesc:
-    "Only backend-confirmed locations can open. Browsing does not read, index, or add files to your File Library.",
+  browseLocationsDesc: "Only backend-confirmed locations can open. Browsing does not read, index, or add files to your File Library.",
   browseLocationsLoading: "Reading available browse locations",
   browseLocationsRetry: "Reload locations",
   browseLocationsEmptyTitle: "No browse locations are available",
-  browseLocationsEmptyDesc:
-    "There is no location to open right now. Try again later or check app permissions.",
+  browseLocationsEmptyDesc: "There is no location to open right now. Try again later or check app permissions.",
   browseChooseFolder: "Choose Folder…",
   browseChooseFolderTitle: "Choose a folder to browse",
   browseChooseFolderError: "Could not open the selected folder",
-  browseChooseFolderErrorDesc:
-    "Choose another folder that can be browsed and try again.",
+  browseChooseFolderErrorDesc: "Choose another folder that can be browsed and try again.",
   browseSearchPlaceholder: "Search this folder",
   browseSearchLabel: "Search this folder",
   browseSearchClear: "Clear current-folder search",
@@ -4218,58 +3671,49 @@ const en: Record<keyof typeof zh, string> = {
   browseFilterDirectories: "Folders",
   u3BatchActions: "Batch actions",
   u3Locate: "Locate in file list",
-  u3MetadataOnly:
-    "Current-level metadata only; matching rows do not prove identical contents.",
+  u3MetadataOnly: "Current-level metadata only; matching rows do not prove identical contents.",
   u3Conditions: "Comparison conditions & coverage",
   u3BatchLimits: "Batch & recovery notes (up to 1,000 items)",
-  u3Sort: "Folder sort",
-  u3NativeOrder: "Enumeration order",
-  u3Name: "Name",
-  u3Type: "Type",
-  u3Size: "Size",
-  u3Modified: "Modified",
-  u3Direction: "Sort direction",
-  u3Asc: "Ascending ↑",
-  u3Desc: "Descending ↓",
-  u3FoldersFirst: "Folders first",
-  u3SortLimit:
-    "Sorting collects the current folder metadata before publishing pages; maximum 20,000 entries. Names use exact character order.",
-  u3SortFailure:
-    "Sorting could not finish: over 20,000 entries, access failure, or folder changed. Refresh or switch to enumeration order.",
-  u3Incomplete: "Enumeration coverage incomplete",
-  u3Skipped: "Skipped {count} unreadable or unsupported entries.",
-  u3Compare: "Compare folders",
-  u3CloseCompare: "Close comparison",
-  u3Pause: "Pause",
-  u3Resume: "Continue",
-  u3CompareModified: "Compare modified time",
-  u3CompareHelp:
-    "Read-only, current level: exact filename matching (case-sensitive; no assumed volume case rules), type, file size and optional modified time (seconds). No content reads, hashes or recursion. Matching metadata does not prove identical contents. Up to 10,000 visible entries per side. Observations are not an atomic snapshot.",
-  u3NeedFolders: "Open a Browse folder in each pane.",
-  u3ClearFilters:
-    "Clear name and type filters in both panes to compare whole folders.",
-  u3CompareLimit:
-    "Comparison capacity exceeded; no complete result. Open smaller subfolders.",
-  u3CompareFailed:
-    "Enumeration failed; a complete comparison is unavailable. Check access and refresh.",
-  u3Changed: "Folder changed. Refresh comparison.",
-  u3Paused: "Comparison paused",
-  u3Comparing: "Reading metadata in pages…",
-  u3Compared: "Current-level entries compared:",
-  u3CompareCoverage:
-    "Results cover readable supported entries only; one-sided and matching rows do not establish full directory equivalence.",
-  u3Filter: "Comparison results",
-  u3All: "All",
-  u3Status_left: "Visible only on left",
-  u3Status_right: "Visible only on right",
-  u3Status_different: "Metadata differs",
-  u3Status_same: "Selected metadata matches",
-  u3Status_directory: "Subfolder · not compared",
-  u3Status_unknown: "Metadata/name uncertain",
-  u3SelectFiltered: "Select filtered side",
-  u3BatchHelp:
-    "Selections also appear in the corresponding file list. Batches are limited to 1,000 items. Backend preview decides directory, cross-volume and conflict support; execution requires confirmation. Recoverable operations are available in History.",
-  u3CompareResults: "Folder metadata comparison",
+  u3Sort: 'Folder sort',
+  u3NativeOrder: 'Enumeration order',
+  u3Name: 'Name',
+  u3Type: 'Type',
+  u3Size: 'Size',
+  u3Modified: 'Modified',
+  u3Direction: 'Sort direction',
+  u3Asc: 'Ascending ↑',
+  u3Desc: 'Descending ↓',
+  u3FoldersFirst: 'Folders first',
+  u3SortLimit: 'Sorting collects the current folder metadata before publishing pages; maximum 20,000 entries. Names use exact character order.',
+  u3SortFailure: 'Sorting could not finish: over 20,000 entries, access failure, or folder changed. Refresh or switch to enumeration order.',
+  u3Incomplete: 'Enumeration coverage incomplete',
+  u3Skipped: 'Skipped {count} unreadable or unsupported entries.',
+  u3Compare: 'Compare folders',
+  u3CloseCompare: 'Close comparison',
+  u3Pause: 'Pause',
+  u3Resume: 'Continue',
+  u3CompareModified: 'Compare modified time',
+  u3CompareHelp: 'Read-only, current level: exact filename matching (case-sensitive; no assumed volume case rules), type, file size and optional modified time (seconds). No content reads, hashes or recursion. Matching metadata does not prove identical contents. Up to 10,000 visible entries per side. Observations are not an atomic snapshot.',
+  u3NeedFolders: 'Open a Browse folder in each pane.',
+  u3ClearFilters: 'Clear name and type filters in both panes to compare whole folders.',
+  u3CompareLimit: 'Comparison capacity exceeded; no complete result. Open smaller subfolders.',
+  u3CompareFailed: 'Enumeration failed; a complete comparison is unavailable. Check access and refresh.',
+  u3Changed: 'Folder changed. Refresh comparison.',
+  u3Paused: 'Comparison paused',
+  u3Comparing: 'Reading metadata in pages…',
+  u3Compared: 'Current-level entries compared:',
+  u3CompareCoverage: 'Results cover readable supported entries only; one-sided and matching rows do not establish full directory equivalence.',
+  u3Filter: 'Comparison results',
+  u3All: 'All',
+  u3Status_left: 'Visible only on left',
+  u3Status_right: 'Visible only on right',
+  u3Status_different: 'Metadata differs',
+  u3Status_same: 'Selected metadata matches',
+  u3Status_directory: 'Subfolder · not compared',
+  u3Status_unknown: 'Metadata/name uncertain',
+  u3SelectFiltered: 'Select filtered side',
+  u3BatchHelp: 'Selections also appear in the corresponding file list. Batches are limited to 1,000 items. Backend preview decides directory, cross-volume and conflict support; execution requires confirmation. Recoverable operations are available in History.',
+  u3CompareResults: 'Folder metadata comparison',
   browseSortUnavailableLabel: "Sort unavailable",
   browseLocationOpen: "Open location",
   browseLocationOpening: "Opening location",
@@ -4300,16 +3744,13 @@ const en: Record<keyof typeof zh, string> = {
   browseChangeFailed: "Change checking failed; refresh and try again",
   browseEnumerationLoading: "Reading the current folder",
   browseEnumerationLoadingMore: "Loading more items",
-  browseEnumerationPartial:
-    "{loaded} items loaded; more content remains unread",
-  browseEnumerationSearching:
-    "Still searching this folder; no matching items found yet",
+  browseEnumerationPartial: "{loaded} items loaded; more content remains unread",
+  browseEnumerationSearching: "Still searching this folder; no matching items found yet",
   browseEnumerationComplete: "{loaded} items read",
   browseEnumerationEmptyTitle: "This folder is empty",
   browseEnumerationEmptyDesc: "There are no files or folders to show here.",
   browseEnumerationFailedTitle: "This folder could not be read",
-  browseEnumerationFailedDesc:
-    "No incomplete result was published. Refresh and try again.",
+  browseEnumerationFailedDesc: "No incomplete result was published. Refresh and try again.",
   browseLoadMore: "Load more",
   browseSelectionNone: "No items selected",
   browseSelectionLoaded: "{count} loaded items selected",
@@ -4326,12 +3767,10 @@ const en: Record<keyof typeof zh, string> = {
   scanCommon: "Scan user space",
   folderPickerTitle: "Choose a space to scan",
   folderPickerFailed: "The folder picker could not be opened",
-  folderPickerSubtitle:
-    "Start with user space or one chosen folder. Zen Canvas only scans and suggests; it never moves or deletes files automatically.",
+  folderPickerSubtitle: "Start with user space or one chosen folder. Zen Canvas only scans and suggests; it never moves or deletes files automatically.",
   primaryPromise: "Non-destructive organizing. No automatic file changes.",
   guidedStart: "Three-step guide",
-  guidedStartDesc:
-    "A simple path for everyday users without requiring rule-engine knowledge.",
+  guidedStartDesc: "A simple path for everyday users without requiring rule-engine knowledge.",
   stepChoose: "Choose a place",
   stepChooseDesc: "Start with Downloads, Desktop, or one project folder.",
   stepScan: "Generate advice",
@@ -4344,14 +3783,11 @@ const en: Record<keyof typeof zh, string> = {
   notScannedYet: "Not scanned yet",
   noFolderSelected: "No folder selected yet",
   noCurrentScanTitle: "No current scan folder yet",
-  noCurrentScanDesc:
-    "Choose a folder to start scanning, or switch to all indexed files to view historical index data.",
+  noCurrentScanDesc: "Choose a folder to start scanning, or switch to all indexed files to view historical index data.",
   noOrganizeScopeTitle: "No scan scope selected",
-  noOrganizeScopeDesc:
-    "There is no scan scope, so Zen Canvas cannot generate organization suggestions. Scan a folder first, or switch to all indexed files.",
+  noOrganizeScopeDesc: "There is no scan scope, so Zen Canvas cannot generate organization suggestions. Scan a folder first, or switch to all indexed files.",
   chooseFolderScan: "Choose folder to scan",
-  folderChooserUnavailable:
-    "The browser preview cannot open the system folder picker. The desktop app opens the real chooser.",
+  folderChooserUnavailable: "The browser preview cannot open the system folder picker. The desktop app opens the real chooser.",
   totalAnalysed: "Indexed space",
   totalFiles: "Files",
   totalSize: "Space",
@@ -4360,12 +3796,10 @@ const en: Record<keyof typeof zh, string> = {
   clutterRatio: "Visible Page Signals",
   scannerIndexedVolume: "Indexed volume",
   scannerReferenceDisk: "Reference disk capacity",
-  scannerReferenceDiskHint:
-    "reference value for index coverage only, not real disk usage",
+  scannerReferenceDiskHint: "reference value for index coverage only, not real disk usage",
   scannerCurrentViewHint: "Current view cleanup signal",
   scannerStartTitle: "Choose a space to start",
-  scannerLocalIndexSafety:
-    "Creates a local index only. No uploads, no automatic moves or deletes.",
+  scannerLocalIndexSafety: "Creates a local index only. No uploads, no automatic moves or deletes.",
   scannerScopeTitle: "Current scope",
   scannerSafetyTitle: "Safety boundary",
   scannerNoRoot: "Waiting for scan location",
@@ -4381,57 +3815,43 @@ const en: Record<keyof typeof zh, string> = {
   strategy: "Automatic Rules, Advanced",
   builtInRules: "Built-in rules",
   customRules: "Custom rules",
-  builtInDesc:
-    "System rules judge conservatively by purpose, context, lifecycle, and risk.",
-  customDesc:
-    "Use condition groups, weights, and actions to override or enhance system judgment.",
-  safeModeDesc:
-    "Sensitive, low-confidence, and conflicting items stay in the review queue.",
+  builtInDesc: "System rules judge conservatively by purpose, context, lifecycle, and risk.",
+  customDesc: "Use condition groups, weights, and actions to override or enhance system judgment.",
+  safeModeDesc: "Sensitive, low-confidence, and conflicting items stay in the review queue.",
   inboxStack: "Pending files",
-  inboxStackDesc:
-    "These files are waiting for rule analysis or organization advice and have not entered a final suggested destination.",
+  inboxStackDesc: "These files are waiting for rule analysis or organization advice and have not entered a final suggested destination.",
   suggestedPlan: "Organizing Plan",
-  dispatchDesc:
-    "Zen Canvas creates a preview of move and rename suggestions. You review and confirm before anything is moved.",
+  dispatchDesc: "Zen Canvas creates a preview of move and rename suggestions. You review and confirm before anything is moved.",
   targetBoxes: "Suggested destinations",
   targetBoxesDesc: "Suggested destinations grouped by lifecycle and risk.",
   hubWorkbenchTitle: "Sorting Workbench",
-  hubWorkbenchDesc:
-    "Separate the current scope into pending files and suggested destinations before review.",
+  hubWorkbenchDesc: "Separate the current scope into pending files and suggested destinations before review.",
   hubSafetyHint: "You will review everything before any file is moved.",
-  hubPendingDesc:
-    "These files are waiting for rule analysis or organization advice and have not entered a final suggested destination. Nothing moves here.",
+  hubPendingDesc: "These files are waiting for rule analysis or organization advice and have not entered a final suggested destination. Nothing moves here.",
   hubPendingStatus: "Pending analysis",
   hubSuggestionStatus: "Suggested destination",
-  hubBucketSuggestionHint:
-    "This is a suggested destination, not a completed move.",
+  hubBucketSuggestionHint: "This is a suggested destination, not a completed move.",
   hubLoadingQueue: "Loading organize queue",
   hubNoPendingTitle: "No pending files",
-  hubNoPendingDesc:
-    "There are no files waiting for rule analysis in the current scope. Review suggested destinations or rescan to update the index.",
+  hubNoPendingDesc: "There are no files waiting for rule analysis in the current scope. Review suggested destinations or rescan to update the index.",
   hubNoBucketedTitle: "No suggested destinations yet",
-  hubNoBucketedDesc:
-    "Rules have not produced suggested categories for the current scope.",
+  hubNoBucketedDesc: "Rules have not produced suggested categories for the current scope.",
   hubEmptyBucket: "No files in this category yet",
   coreAssets: "Recently Used",
   archiveBox: "Suggested Archive",
   privacyVault: "Private",
   cleanupLane: "Suggested Cleanup",
   coreAssetsDesc: "Recently useful files that should remain easy to find.",
-  archiveBoxDesc:
-    "Good for long-term storage and reducing desktop or downloads clutter.",
-  cleanupLaneDesc:
-    "Installers, temporary copies, or review-needed items. Confirm before action.",
-  privacyVaultDesc:
-    "Identity, receipt, and sensitive files stay advice-only and are not moved automatically.",
+  archiveBoxDesc: "Good for long-term storage and reducing desktop or downloads clutter.",
+  cleanupLaneDesc: "Installers, temporary copies, or review-needed items. Confirm before action.",
+  privacyVaultDesc: "Identity, receipt, and sensitive files stay advice-only and are not moved automatically.",
   items: "items",
   runDispatch: "Refresh Preview",
   generateSuggestions: "Generate Suggestions",
   dispatching: "Creating organization suggestions...",
   dispatchClear: "No pending files",
   waitingFlow: "No files in this category yet",
-  organizeQueueTruncatedWarning:
-    "The organize queue reached the display limit and only shows the first 3000 files. Preview generation still covers every file in the current scope.",
+  organizeQueueTruncatedWarning: "The organize queue reached the display limit and only shows the first 3000 files. Preview generation still covers every file in the current scope.",
   reload: "Reload",
   organizeSuggestionList: "Organization suggestions",
   organizeBatchSelectItem: "Select {name}",
@@ -4456,8 +3876,7 @@ const en: Record<keyof typeof zh, string> = {
   organizeBatchExit: "Exit batch selection",
   organizeBatchEnter: "Batch select",
   organizeInspectorEmptyTitle: "Select an organization suggestion",
-  organizeInspectorEmptyDesc:
-    "Review its reason, destination, and safety state before deciding.",
+  organizeInspectorEmptyDesc: "Review its reason, destination, and safety state before deciding.",
   organizeFileDetails: "File details",
   organizeViewFileDetails: "View file details",
   organizeBackToFileList: "Back to file list",
@@ -4467,132 +3886,90 @@ const en: Record<keyof typeof zh, string> = {
   organizeSuggestedAction: "Suggested action",
   organizeWhySuggested: "Why this was suggested",
   organizeNoExecutableAction: "No file action is currently proposed",
-  organizeReasonUnavailable:
-    "There is not enough information to make a reliable suggestion",
+  organizeReasonUnavailable: "There is not enough information to make a reliable suggestion",
   organizeDecisionActions: "Your decision",
   organizeAcceptSuggestion: "Accept suggestion",
   organizeKeepOriginal: "Keep in place",
   organizeEditTargetName: "Adjust file name",
   organizeClearDecision: "Undo decision",
-  organizeKeyboardHints:
-    "Use ↑/↓ to navigate, Space to accept, K to keep, E to adjust the name, and Enter for details.",
+  organizeKeyboardHints: "Use ↑/↓ to navigate, Space to accept, K to keep, E to adjust the name, and Enter for details.",
   organizeAdvancedAnalysis: "Advanced analysis",
   organizeMatchedRules: "Current AI semantic explanation",
   organizeContextSignal: "Context signal",
   organizeExecutionRecheck: "Execution recheck",
-  organizeExecutionRecheckDesc:
-    "Source identity, destination safety, and conflicts are revalidated during execution.",
+  organizeExecutionRecheckDesc: "Source identity, destination safety, and conflicts are revalidated during execution.",
   organizeTechnicalBasis: "Technical basis",
-  organizeTechnicalBasisAvailable:
-    "This explanation comes from the current Managed AI assessment.",
-  organizeAnalysisRulesAvailable:
-    "No additional explanation is available for the current Managed AI assessment.",
+  organizeTechnicalBasisAvailable: "This explanation comes from the current Managed AI assessment.",
+  organizeAnalysisRulesAvailable: "No additional explanation is available for the current Managed AI assessment.",
   organizeContextAvailable: "Local file context informed this suggestion.",
-  organizeReasonFromAnalysis:
-    "This proposal comes from the current Managed AI assessment. Zen Canvas still derives and rechecks the target and execution safety in Preview.",
-  organizeSourceUnavailable:
-    "The source file is missing or its index entry is stale, so this suggestion cannot run.",
-  organizeOperationBlockedDesc:
-    "This operation did not pass the backend safety check and cannot run.",
-  organizeSensitiveReviewDesc:
-    "This is a sensitive file. Review it individually instead of accepting it in a batch.",
-  organizeDuplicateReviewDesc:
-    "A duplicate signal was detected. Verify the content and destination first.",
-  organizeLowConfidenceDesc:
-    "This suggestion has low confidence and needs manual review.",
-  organizeNeedsReviewDesc:
-    "This suggestion needs manual confirmation before it can enter preview.",
-  organizeNoExecutablePreviewDesc:
-    "No executable preview exists yet. Nothing will be moved.",
-  organizeWillCreateParentDesc:
-    "The destination folder does not exist yet and will be created during execution.",
+  organizeReasonFromAnalysis: "This proposal comes from the current Managed AI assessment. Zen Canvas still derives and rechecks the target and execution safety in Preview.",
+  organizeSourceUnavailable: "The source file is missing or its index entry is stale, so this suggestion cannot run.",
+  organizeOperationBlockedDesc: "This operation did not pass the backend safety check and cannot run.",
+  organizeSensitiveReviewDesc: "This is a sensitive file. Review it individually instead of accepting it in a batch.",
+  organizeDuplicateReviewDesc: "A duplicate signal was detected. Verify the content and destination first.",
+  organizeLowConfidenceDesc: "This suggestion has low confidence and needs manual review.",
+  organizeNeedsReviewDesc: "This suggestion needs manual confirmation before it can enter preview.",
+  organizeNoExecutablePreviewDesc: "No executable preview exists yet. Nothing will be moved.",
+  organizeWillCreateParentDesc: "The destination folder does not exist yet and will be created during execution.",
   organizeTargetDialogTitle: "Adjust destination file name",
-  organizeTargetDialogDesc:
-    "Only the file name changes. The verified organization suggestion still owns the destination folder.",
+  organizeTargetDialogDesc: "Only the file name changes. The verified organization suggestion still owns the destination folder.",
   organizeNewFileName: "New file name",
   organizeNameOnly: "Do not enter a path or directory separator.",
   organizeNameErrorEmpty: "The file name cannot be empty.",
   organizeNameErrorReserved: "That name is reserved by the operating system.",
-  organizeNameErrorUnsafe:
-    "The file name contains unsafe characters or path fragments.",
-  organizeNameErrorExtension:
-    "Organization cannot remove, replace, or invent a file extension.",
+  organizeNameErrorUnsafe: "The file name contains unsafe characters or path fragments.",
+  organizeNameErrorExtension: "Organization cannot remove, replace, or invent a file extension.",
   organizeLoadingSuggestions: "Loading organization suggestions",
   organizeShowingLimited: "Showing {visible} of {total} files",
   organizeShowingSuggestions: "{count} files to organize",
   organizeAnalyzePending: "Analyze unreviewed files",
   organizeReanalyzeScope: "Reanalyze all files in this scope",
-  organizeSafetyHint:
-    "Files are moved only after you review the Preview and explicitly confirm execution.",
+  organizeSafetyHint: "Files are moved only after you review the Preview and explicitly confirm execution.",
   organizeAnalysisProgress: "Analyzing {processed} of {total}",
   organizeAnalyzingFiles: "Analyzing files",
-  organizeAnalysisFailed:
-    "Analysis did not finish. Check AI settings and try again.",
+  organizeAnalysisFailed: "Analysis did not finish. Check AI settings and try again.",
   organizeLoadFailedTitle: "Unable to load organization suggestions",
-  organizeLoadFailedDesc:
-    "Suggestions or safety previews failed to load. Try again.",
-  organizeLoadingSuggestionsDesc:
-    "Reading the current scope and backend-validated safety previews.",
+  organizeLoadFailedDesc: "Suggestions or safety previews failed to load. Try again.",
+  organizeLoadingSuggestionsDesc: "Reading the current scope and backend-validated safety previews.",
   organizeEmptyTitle: "No organization suggestions",
-  organizeEmptyDesc:
-    "Analyze pending files or return to the file library to change scope.",
-  organizeClickOnlyViews:
-    "Selecting a file only shows details; it never accepts a suggestion automatically.",
+  organizeEmptyDesc: "Analyze pending files or return to the file library to change scope.",
+  organizeClickOnlyViews: "Selecting a file only shows details; it never accepts a suggestion automatically.",
   organizeReanalyzeConfirmTitle: "Reanalyze the current scope?",
-  organizeReanalyzeConfirmDesc:
-    "This regenerates AI classification suggestions without overwriting user corrections or moving files.",
+  organizeReanalyzeConfirmDesc: "This regenerates AI classification suggestions without overwriting user corrections or moving files.",
   organizeReanalyzeConfirmAction: "Reanalyze",
   organizeExecuteConfirmTitle: "Execute organization changes?",
-  organizeExecuteNormalConfirmTitle:
-    "Execute the confirmed organization changes?",
+  organizeExecuteNormalConfirmTitle: "Execute the confirmed organization changes?",
   organizeExecuteRiskConfirmTitle: "Execute operations with risks?",
   organizeBackToSuggestions: "← Back to suggestions",
-  organizePreviewAcceptedOnly:
-    "Only operations you accepted or adjusted are shown here.",
-  organizePreviewInvalidated:
-    "Some operations are no longer valid. Return to suggestions to review them again; stale operations will not run.",
-  organizeExecuteConfirmDesc:
-    "This executes {count} selected operations that passed safety checks. File identity and destination conflicts are revalidated during execution.",
-  organizeExecuteCappedConfirmDesc:
-    "This batch runs {count} first ({total} executable in this Dry Run; {remaining} remain in the plan for later). File identity and destination conflicts are revalidated during execution.",
-  organizeExecuteNormalConfirmDesc:
-    "These operations have no known high-risk items. File identity, source state, and destination conflicts are still revalidated before execution.",
-  organizeExecuteRiskConfirmDesc:
-    "These operations include risks that need human confirmation. Review each destination and file identity before continuing.",
+  organizePreviewAcceptedOnly: "Only operations you accepted or adjusted are shown here.",
+  organizePreviewInvalidated: "Some operations are no longer valid. Return to suggestions to review them again; stale operations will not run.",
+  organizeExecuteConfirmDesc: "This executes {count} selected operations that passed safety checks. File identity and destination conflicts are revalidated during execution.",
+  organizeExecuteCappedConfirmDesc: "This batch runs {count} first ({total} executable in this Dry Run; {remaining} remain in the plan for later). File identity and destination conflicts are revalidated during execution.",
+  organizeExecuteNormalConfirmDesc: "These operations have no known high-risk items. File identity, source state, and destination conflicts are still revalidated before execution.",
+  organizeExecuteRiskConfirmDesc: "These operations include risks that need human confirmation. Review each destination and file identity before continuing.",
   organizeExecuteConfirmAction: "Execute {count}",
-  organizeExecuteRiskSummary:
-    "Extra confirmation {confirmation} · Sensitive {sensitive} · System {system} · Duplicates {duplicate} · Low confidence {lowConfidence} · Trash {trash} · New folders {folders}",
-  organizeNormalConfirmEmphasis:
-    "File identity and destination conflicts are checked again, and same-name files are never overwritten.",
-  organizeRiskConfirmEmphasis:
-    "This selection contains {count} risky items. Confirm them before execution.",
-  organizeSensitiveConfirmEmphasis:
-    "This selection contains {count} sensitive files. Confirm each destination and file identity.",
-  organizeTrashConfirmEmphasis:
-    "{count} items will move to the system trash. They will not be permanently deleted.",
+  organizeExecuteRiskSummary: "Extra confirmation {confirmation} · Sensitive {sensitive} · System {system} · Duplicates {duplicate} · Low confidence {lowConfidence} · Trash {trash} · New folders {folders}",
+  organizeNormalConfirmEmphasis: "File identity and destination conflicts are checked again, and same-name files are never overwritten.",
+  organizeRiskConfirmEmphasis: "This selection contains {count} risky items. Confirm them before execution.",
+  organizeSensitiveConfirmEmphasis: "This selection contains {count} sensitive files. Confirm each destination and file identity.",
+  organizeTrashConfirmEmphasis: "{count} items will move to the system trash. They will not be permanently deleted.",
   organizeExecutableSelected: "Actually executable",
   organizeSelectionExcludedTitle: "Some selected items cannot run",
-  organizeSelectionExcludedDesc:
-    "{selected} selected, {executable} executable; {invalid} invalid names, {blocked} blocked, {outside} outside this approved scope, and {unavailable} no longer available.",
-  organizeGroupSelectionSummary:
-    "{selected} selected; {executable} actually executable",
-  organizeGroupSelectionCompact:
-    "Selected {selected} · Executable {executable}",
+  organizeSelectionExcludedDesc: "{selected} selected, {executable} executable; {invalid} invalid names, {blocked} blocked, {outside} outside this approved scope, and {unavailable} no longer available.",
+  organizeGroupSelectionSummary: "{selected} selected; {executable} actually executable",
+  organizeGroupSelectionCompact: "Selected {selected} · Executable {executable}",
   organizeResultSuccessTitle: "Organization complete",
   organizeResultPartialTitle: "Organization partially complete",
   organizeResultFailedTitle: "Organization failed",
   organizeResultCanceledTitle: "Organization canceled",
   organizeResultNoChangesTitle: "No changes were made",
-  organizeResultSummary:
-    "{success} succeeded, {skipped} skipped, and {failed} failed.",
-  organizeExecutionBatchResult:
-    "This batch attempted {attempted}; the batch limit was {total}, leaving {remaining} for a later execution.",
+  organizeResultSummary: "{success} succeeded, {skipped} skipped, and {failed} failed.",
+  organizeExecutionBatchResult: "This batch attempted {attempted}; the batch limit was {total}, leaving {remaining} for a later execution.",
   organizeViewHistory: "View operation history",
   organizeRestoreEntry: "View restorable items ({count})",
   reviewQueue: "Review Queue",
   reviewQueueEmpty: "No high-risk review items right now",
-  confidenceHint:
-    "High-confidence suggestions can be handled in batches; sensitive and conflicting files need item-by-item review.",
+  confidenceHint: "High-confidence suggestions can be handled in batches; sensitive and conflicting files need item-by-item review.",
   openPreview: "Open Preview",
   openRuleBuilder: "Open Rules",
   files: "Files",
@@ -4612,11 +3989,9 @@ const en: Record<keyof typeof zh, string> = {
   libraryDuplicateFilesDesc: "Files with matching content hashes",
   librarySensitiveFiles: "Sensitive files",
   librarySensitiveFilesDesc: "Risk or lifecycle marked sensitive",
-  libraryIntro:
-    "File Library is for browsing scan results and classification reasons. Use the top search to find a specific file; use this view to review what is active, archive-ready, or needs confirmation.",
+  libraryIntro: "File Library is for browsing scan results and classification reasons. Use the top search to find a specific file; use this view to review what is active, archive-ready, or needs confirmation.",
   libraryShowing: "Showing {visible} / {total} files",
-  libraryShowingFiltered:
-    "Showing {visible} matching files (checked {total} indexed files)",
+  libraryShowingFiltered: "Showing {visible} matching files (checked {total} indexed files)",
   libraryMetricsLabel: "File Library summary",
   libraryResultCountLabel: "Results",
   libraryResultCountDeferred: "{loaded} loaded · calculating total",
@@ -4635,10 +4010,8 @@ const en: Record<keyof typeof zh, string> = {
   libraryManageSavedViews: "Manage Saved Views",
   libraryManageTags: "Manage tags",
   libraryManageTagsTitle: "Manage user tags",
-  libraryManageTagsDesc:
-    "Usage and changes are stored in the File Library; assignments always use the current authoritative selection.",
-  libraryManageSavedViewsDesc:
-    "Saved Views store the canonical query only. Opening one starts a new result snapshot.",
+  libraryManageTagsDesc: "Usage and changes are stored in the File Library; assignments always use the current authoritative selection.",
+  libraryManageSavedViewsDesc: "Saved Views store the canonical query only. Opening one starts a new result snapshot.",
   libraryCloseManager: "Close manager",
   libraryTagName: "Tag name",
   libraryTagNewColor: "New tag color",
@@ -4661,8 +4034,7 @@ const en: Record<keyof typeof zh, string> = {
   libraryTagRemove: "Remove",
   libraryTagEmpty: "No user tags yet.",
   libraryTagDeleteTitle: "Delete user tag?",
-  libraryTagDeleteDesc:
-    "The tag will be removed from every file. Files and their contents are not changed.",
+  libraryTagDeleteDesc: "The tag will be removed from every file. Files and their contents are not changed.",
   libraryTagDeleteConfirm: "Delete tag",
   librarySavedViewName: "Saved View name",
   librarySavedViewSave: "Save current query",
@@ -4677,16 +4049,14 @@ const en: Record<keyof typeof zh, string> = {
   librarySavedViewMoveDown: "Move {name} down",
   librarySavedViewDelete: "Delete {name}",
   librarySavedViewDeleteTitle: "Delete Saved View?",
-  librarySavedViewDeleteDesc:
-    "This removes only the saved query. It does not change files or tags.",
+  librarySavedViewDeleteDesc: "This removes only the saved query. It does not change files or tags.",
   librarySavedViewDeleteConfirm: "Delete view",
   libraryFiltersAppliedCount: "{count} filters applied",
   librarySortCreated: "Created",
   librarySortRelevance: "Relevance",
   librarySortMenuLabel: "File Library sort",
   librarySnapshotExpiredTitle: "Results changed",
-  librarySnapshotExpiredDesc:
-    "The File Library changed while these results were open. Loaded rows remain visible; refresh to start a new result snapshot.",
+  librarySnapshotExpiredDesc: "The File Library changed while these results were open. Loaded rows remain visible; refresh to start a new result snapshot.",
   librarySnapshotRefresh: "Refresh",
   libraryScopeHealthPermission: "Permission needed",
   libraryScopeHealthReconciliation: "Reconciliation needed",
@@ -4695,32 +4065,24 @@ const en: Record<keyof typeof zh, string> = {
   libraryScopeHealthUnavailable: "Scope temporarily unavailable",
   libraryLoadingResults: "Loading local file index",
   libraryDetailLoadFailedTitle: "Unable to load file details",
-  libraryDetailLoadFailedDesc:
-    "File details could not be loaded. Try again; if the problem persists, check diagnostics.",
+  libraryDetailLoadFailedDesc: "File details could not be loaded. Try again; if the problem persists, check diagnostics.",
   libraryDetailRetry: "Retry details",
   libraryFilteringTitle: "Checking indexed files",
-  libraryFilteringDesc:
-    "Reading more pages so this filter covers the full local index.",
+  libraryFilteringDesc: "Reading more pages so this filter covers the full local index.",
   libraryFilteringIndexedFiles: "Filtering indexed files…",
-  libraryScopeHint:
-    "File Library only browses the local index. No files are uploaded.",
+  libraryScopeHint: "File Library only browses the local index. No files are uploaded.",
   libraryNoScanTitle: "No indexed files yet",
-  libraryNoScanDesc:
-    "Scan Desktop, Downloads, or Documents first. Zen Canvas will build a local index.",
+  libraryNoScanDesc: "Scan Desktop, Downloads, or Documents first. Zen Canvas will build a local index.",
   libraryNoScopeFilesTitle: "No files in this scope",
-  libraryNoScopeFilesDesc:
-    "The current scan folder has no files to show. Switch to all indexed files or choose another scan folder.",
+  libraryNoScopeFilesDesc: "The current scan folder has no files to show. Switch to all indexed files or choose another scan folder.",
   libraryNoSearchTitle: "No matching files",
   libraryNoSearchDesc: "Try another file name, path, or purpose keyword.",
   libraryNoFilterTitle: "No results for this filter",
   libraryNoFilterDesc: "No files in the current scope match this filter.",
   libraryLoadFailedTitle: "File library failed to load",
-  libraryLoadFailedDesc:
-    "The file library is temporarily unavailable. Try again.",
-  libraryPermissionDesc:
-    "The index could not be read. Check folder permissions or choose another location.",
-  libraryActionFailed:
-    "That file action could not be completed. Check permissions and try again.",
+  libraryLoadFailedDesc: "The file library is temporarily unavailable. Try again.",
+  libraryPermissionDesc: "The index could not be read. Check folder permissions or choose another location.",
+  libraryActionFailed: "That file action could not be completed. Check permissions and try again.",
   currentLibraryFilter: "Current filter",
   libraryFilterAll: "All files",
   libraryFilterActive: "Recently active",
@@ -4765,20 +4127,16 @@ const en: Record<keyof typeof zh, string> = {
   librarySortDescending: "Descending",
   librarySortLoadedOnly: "Sorting loaded files only",
   libraryInspector: "File details",
-  u4RevealUnavailable:
-    "Cannot show this item in the system file manager. The item may have changed or this environment may not support it. Refresh the folder and try again.",
+  u4RevealUnavailable: "Cannot show this item in the system file manager. The item may have changed or this environment may not support it. Refresh the folder and try again.",
   u4Notes: "File notes",
   u4Favorite: "Favorite file",
   u4Unfavorite: "Unfavorite file",
   u4Saved: "Saved",
   u4Save: "Save note",
   u4Delete: "Delete note",
-  u4PersonalUnavailable:
-    "Managed identity is unverified or unavailable. Notes and favorites are read-only.",
-  u4BrowseUnavailable:
-    "Temporary Browse item: notes and file favorites require a verified managed identity. Browsing never adds items to the index.",
-  u4PersonalError:
-    "Unable to load or save. The item may have changed, or another pane edited it. Reload to continue.",
+  u4PersonalUnavailable: "Managed identity is unverified or unavailable. Notes and favorites are read-only.",
+  u4BrowseUnavailable: "Temporary Browse item: notes and file favorites require a verified managed identity. Browsing never adds items to the index.",
+  u4PersonalError: "Unable to load or save. The item may have changed, or another pane edited it. Reload to continue.",
   u4Reload: "Reload",
   u4MyFiles: "Notes and file favorites",
   u4Favorites: "File favorites",
@@ -4798,23 +4156,20 @@ const en: Record<keyof typeof zh, string> = {
   librarySelectedTotalSize: "Total size {size}",
   librarySelectedTypes: "Type distribution",
   libraryCommonPath: "Common location",
-  librarySelectionSafety:
-    "Selecting files does not accept suggestions or move/delete anything.",
+  librarySelectionSafety: "Selecting files does not accept suggestions or move/delete anything.",
   libraryPreview: "Quick preview",
   libraryPreviewClose: "Close preview",
   previewHostTitle: "Floating quick preview",
   previewPin: "Pin preview",
   previewPinnedTitle: "Pinned preview",
-  previewPinnedDescription:
-    "Pinned in Context and follows the current focused item.",
+  previewPinnedDescription: "Pinned in Context and follows the current focused item.",
   previewUnpin: "Close pinned preview",
   previewPrevious: "Previous",
   previewNext: "Next",
   previewSiblingNavigationLabel: "Preview sibling navigation",
   previewPinnedHint: "Pinned preview follows the current focused item.",
   previewSelectItem: "Select an item to preview",
-  previewSelectItemDescription:
-    "There is no current verifiable item, so the previous preview was cleared.",
+  previewSelectItemDescription: "There is no current verifiable item, so the previous preview was cleared.",
   previewBrowseSource: "From the current Browse folder",
   previewLibrarySource: "From the current File Library results",
   previewSpaceToClose: "Press Space to close",
@@ -4841,8 +4196,7 @@ const en: Record<keyof typeof zh, string> = {
   previewPdfEncrypted: "Encrypted PDF",
   previewPdfCorrupt: "Corrupt PDF",
   previewPdfFailed: "PDF preview failed",
-  previewPdfFailedDescription:
-    "This PDF could not be decoded safely in the app; the source file was not changed.",
+  previewPdfFailedDescription: "This PDF could not be decoded safely in the app; the source file was not changed.",
   previewPdfPageFailed: "This PDF page is unavailable.",
   previewStructuredContent: "Structured content",
   previewTableContent: "Table content",
@@ -4878,41 +4232,30 @@ const en: Record<keyof typeof zh, string> = {
   previewPartialContent: "Partial content (preview limit reached)",
   previewTableEmpty: "This table has no content to display.",
   previewMetadataFallback: "Metadata fallback",
-  previewMetadataOnlyDescription:
-    "Only trusted metadata is available, so Zen Canvas will not fake file content or a download.",
+  previewMetadataOnlyDescription: "Only trusted metadata is available, so Zen Canvas will not fake file content or a download.",
   previewMaterializationLabel: "Content status",
   previewSourceUnavailable: "Source unavailable",
-  previewSourceUnavailableDescription:
-    "This entry is no longer within a verifiable source window. Return to the list and choose it again.",
+  previewSourceUnavailableDescription: "This entry is no longer within a verifiable source window. Return to the list and choose it again.",
   previewMaterializationRequired: "Content preparation required",
-  previewMaterializationRequiredDescription:
-    "This source exposes metadata only; content preparation must stay within its supported permission boundary.",
+  previewMaterializationRequiredDescription: "This source exposes metadata only; content preparation must stay within its supported permission boundary.",
   previewPermissionDenied: "Read permission required",
-  previewPermissionDeniedDescription:
-    "Preview does not bypass file permissions or platform security boundaries.",
+  previewPermissionDeniedDescription: "Preview does not bypass file permissions or platform security boundaries.",
   previewIdentityChanged: "File identity changed",
-  previewIdentityChangedDescription:
-    "Preview stopped to avoid showing content for the wrong file.",
+  previewIdentityChangedDescription: "Preview stopped to avoid showing content for the wrong file.",
   previewCancelled: "Preview cancelled",
   previewCancelledDescription: "The current preview request has ended.",
   previewUnsupportedRepresentation: "Preview representation unavailable",
-  previewUnsupportedRepresentationDescription:
-    "No safe content representation is available; trusted metadata remains visible.",
-  previewUnsupportedRepresentationDirectDescription:
-    "No safe content representation is available for this item.",
-  previewRichProviderUnavailable:
-    "This version provides trusted metadata fallback only; it does not fake rich content.",
+  previewUnsupportedRepresentationDescription: "No safe content representation is available; trusted metadata remains visible.",
+  previewUnsupportedRepresentationDirectDescription: "No safe content representation is available for this item.",
+  previewRichProviderUnavailable: "This version provides trusted metadata fallback only; it does not fake rich content.",
   previewContentFailed: "Content preview failed",
-  previewContentFailedDescription:
-    "The content could not be decoded or prepared; trusted metadata is still available and the source was not changed.",
+  previewContentFailedDescription: "The content could not be decoded or prepared; trusted metadata is still available and the source was not changed.",
   previewError: "Preview temporarily unavailable",
-  previewErrorDescription:
-    "The preview request could not complete. Close it and choose the file again.",
+  previewErrorDescription: "The preview request could not complete. Close it and choose the file again.",
   libraryPreviewUnavailable: "Preview is not available for this file",
   libraryQuickLookThumbnail: "Quick Look thumbnail",
   libraryQuickLookLoading: "Generating a Quick Look thumbnail…",
-  libraryQuickLookUnavailable:
-    "The thumbnail is unavailable right now; the file itself is still available to inspect.",
+  libraryQuickLookUnavailable: "The thumbnail is unavailable right now; the file itself is still available to inspect.",
   libraryPreviewImage: "Image preview",
   libraryPreviewPdf: "PDF preview",
   libraryPreviewPdfFile: "PDF file",
@@ -4923,48 +4266,37 @@ const en: Record<keyof typeof zh, string> = {
   libraryPreviewFolder: "Folder summary",
   libraryPreviewUnsupported: "File preview",
   previewImageFailed: "Image could not be decoded",
-  previewImageFailedDescription:
-    "The image content is corrupt or could not be decoded here; the source file was not changed.",
+  previewImageFailedDescription: "The image content is corrupt or could not be decoded here; the source file was not changed.",
   previewImageUnavailable: "Image content is temporarily unavailable",
-  previewImageUnavailableDescription:
-    "The current preview could not obtain the image bytes. Close it and try again.",
+  previewImageUnavailableDescription: "The current preview could not obtain the image bytes. Close it and try again.",
   previewImageUnsupported: "Image representation unsupported",
-  previewImageUnsupportedDescription:
-    "Only safe PNG/JPEG image previews are supported here.",
+  previewImageUnsupportedDescription: "Only safe PNG/JPEG image previews are supported here.",
   libraryTags: "Tags",
   contentUnderstandingTitle: "Content Understanding",
   contentOpen: "Open Content Understanding",
-  contentOpenFailed:
-    "Content Understanding could not be opened. Please try again.",
-  contentUnderstandingDesc:
-    "Read bounded text only from managed files. Local extraction, provider understanding, and text retention are governed separately by policy and consent.",
+  contentOpenFailed: "Content Understanding could not be opened. Please try again.",
+  contentUnderstandingDesc: "Read bounded text only from managed files. Local extraction, provider understanding, and text retention are governed separately by policy and consent.",
   contentStatus: "Content status",
   contentPolicy: "Folder policy",
   contentPolicyPerRoot: "Per-folder policy",
   contentPolicyEnabled: "Enabled",
   contentPolicyDisabled: "Disabled",
   contentPolicyLoading: "Reading the folder policy…",
-  contentSourceUnchanged:
-    "The content workflow never modifies, moves, or deletes the source file.",
+  contentSourceUnchanged: "The content workflow never modifies, moves, or deletes the source file.",
   contentNoRootTitle: "This file has no managed folder policy",
-  contentNoRootDesc:
-    "Content reading cannot start without a folder policy. Manage this location inside the managed library first.",
+  contentNoRootDesc: "Content reading cannot start without a folder policy. Manage this location inside the managed library first.",
   contentPolicyTitle: "Permission and policy",
   contentPolicyOffTitle: "Content reading is off for this folder",
-  contentPolicyOffDesc:
-    "Save the policy before previewing local extraction; provider understanding still requires a separate confirmation.",
-  contentPolicyEnabledDesc:
-    "Local extraction remains protected by preview and confirmation; provider understanding is confirmed per run.",
+  contentPolicyOffDesc: "Save the policy before previewing local extraction; provider understanding still requires a separate confirmation.",
+  contentPolicyEnabledDesc: "Local extraction remains protected by preview and confirmation; provider understanding is confirmed per run.",
   contentEnableAnalysis: "Enable content understanding",
   contentAllowLocal: "Allow local extraction",
-  contentAllowCloud:
-    "Allow provider understanding (each run still requires confirmation)",
+  contentAllowCloud: "Allow provider understanding (each run still requires confirmation)",
   contentPerFileByteLimit: "Per-file byte limit",
   contentPerFileCharLimit: "Per-file character limit",
   contentSaveRootPolicy: "Save folder policy",
   contentPolicySaved: "Folder policy saved.",
-  contentSavePolicyFirst:
-    "The policy draft changed. Save it before previewing or starting a content run.",
+  contentSavePolicyFirst: "The policy draft changed. Save it before previewing or starting a content run.",
   contentSavePolicyConfirm: "Save this folder content policy?",
   contentPreviewAndRun: "Preview and run",
   contentPreviewLocal: "Preview local extraction",
@@ -4972,13 +4304,11 @@ const en: Record<keyof typeof zh, string> = {
   contentRebuild: "Rebuild content",
   contentDeleteData: "Delete content data",
   contentPurgeRoot: "Purge folder content",
-  contentPreviewReady:
-    "Preview ready. Review it and confirm separately before starting the run.",
+  contentPreviewReady: "Preview ready. Review it and confirm separately before starting the run.",
   contentRunStarted: "Run started: {status} ({completed}/{requested})",
   contentArtifactRebuilt: "Content artifact rebuilt.",
   contentDataDeleted: "Content data deleted; the source file was not changed.",
-  contentPurged:
-    "Purged {count} content artifacts; source files were not changed.",
+  contentPurged: "Purged {count} content artifacts; source files were not changed.",
   contentRunProgress: "Run progress",
   contentRunStatus: "Run status",
   contentCompleted: "Completed",
@@ -5010,19 +4340,16 @@ const en: Record<keyof typeof zh, string> = {
   contentNo: "no",
   contentNoArtifact: "This file has no content artifact yet.",
   contentRecentRuns: "Recent runs",
-  contentRecentRunsCount:
-    "{count} recent runs; interrupted and recovery states remain visible.",
+  contentRecentRunsCount: "{count} recent runs; interrupted and recovery states remain visible.",
   contentNoRecentRuns: "No content runs yet.",
   contentSearchTitle: "Content search",
   contentSearchPlaceholder: "Summary, keywords, or language",
   contentSearchAction: "Search",
   contentLoadMore: "Load more",
   contentSearchEmpty: "No matching content artifacts.",
-  contentSearchRemount:
-    "The content index changed and the old cursor is stale. Search again.",
+  contentSearchRemount: "The content index changed and the old cursor is stale. Search again.",
   contentSearchFailed: "Content search could not complete. Try again later.",
-  contentSearchUnavailable:
-    "The browser preview does not perform real content extraction or content persistence.",
+  contentSearchUnavailable: "The browser preview does not perform real content extraction or content persistence.",
   contentReviewTitle: "Content run review",
   contentLocalExtraction: "Local extraction",
   contentLocalAndProvider: "Local extraction + provider understanding",
@@ -5039,107 +4366,75 @@ const en: Record<keyof typeof zh, string> = {
   contentDenied: "denied",
   contentBlockedReasons: "Blocked reasons",
   contentRetention: "Text retention",
-  contentRetentionDisclosure:
-    "Text retention follows the current folder policy; text is not retained by default.",
+  contentRetentionDisclosure: "Text retention follows the current folder policy; text is not retained by default.",
   contentBudgetFormat: "{bytes} bytes / {chars} characters",
-  contentLoadedItems:
-    "Loaded {count} item details; durable run totals remain authoritative.",
+  contentLoadedItems: "Loaded {count} item details; durable run totals remain authoritative.",
   contentNoFormats: "None",
   contentUnsupportedFormats: "Unsupported formats",
   contentBlockedPolicy: "Not permitted by the current folder policy",
   contentBlockedUnsupported: "This format is not supported",
-  contentBlockedPackage:
-    "macOS packages are handled as whole items; package contents are not read",
-  contentBlockedCloud:
-    "This cloud item is not local; Zen Canvas will not download it automatically",
-  contentBlockedFileProvider:
-    "This File Provider item is not materialized locally; Zen Canvas will not download it automatically",
-  contentBlockedAvailabilityUnknown:
-    "Local content availability could not be confirmed; Zen Canvas will not read or download it",
+  contentBlockedPackage: "macOS packages are handled as whole items; package contents are not read",
+  contentBlockedCloud: "This cloud item is not local; Zen Canvas will not download it automatically",
+  contentBlockedFileProvider: "This File Provider item is not materialized locally; Zen Canvas will not download it automatically",
+  contentBlockedAvailabilityUnknown: "Local content availability could not be confirmed; Zen Canvas will not read or download it",
   contentBlockedOcr: "Image OCR is not enabled",
   contentBlockedSafetyLimit: "Content safety limit reached",
   contentBlockedGeneric: "This file cannot be processed right now",
   contentPolicyUnavailable: "Policy status unavailable",
-  contentProviderDisclosure:
-    "Provider understanding sends bounded text only, never paths or filenames; the run is bound to this preview fingerprint.",
-  contentLocalDisclosure:
-    "Local extraction reads bounded text on this device only; the run is bound to this preview fingerprint.",
+  contentProviderDisclosure: "Provider understanding sends bounded text only, never paths or filenames; the run is bound to this preview fingerprint.",
+  contentLocalDisclosure: "Local extraction reads bounded text on this device only; the run is bound to this preview fingerprint.",
   contentConfirmStart: "Confirm and start",
   contentConfirm: "Confirm",
   contentConfirmationTitle: "Confirmation required",
   contentCancel: "Cancel",
-  contentSavePolicyFailed:
-    "The folder policy could not be saved. Its revision may have changed.",
+  contentSavePolicyFailed: "The folder policy could not be saved. Its revision may have changed.",
   contentRebuildConfirm: "Rebuild this content artifact?",
-  contentDeleteConfirm:
-    "Delete content data? The source file will not be deleted.",
-  contentPurgeConfirm:
-    "Purge content data for this folder? Source files will not be deleted.",
+  contentDeleteConfirm: "Delete content data? The source file will not be deleted.",
+  contentPurgeConfirm: "Purge content data for this folder? Source files will not be deleted.",
   contentCancelRunConfirm: "Cancel this run?",
-  contentOperationFailed:
-    "The content task could not complete; existing files and content data remain usable. Check the policy and try again.",
-  contentRevisionChanged:
-    "The content or policy state changed. Review the latest state and confirm again.",
-  contentItemStates:
-    "Counts come from the durable run; item details load on demand.",
+  contentOperationFailed: "The content task could not complete; existing files and content data remain usable. Check the policy and try again.",
+  contentRevisionChanged: "The content or policy state changed. Review the latest state and confirm again.",
+  contentItemStates: "Counts come from the durable run; item details load on demand.",
   contentSampleFiles: "Preview sample",
   contentSampleNone: "No sample is available.",
-  contentBrowserMock:
-    "Browser preview uses an explicitly marked mock and is not real extraction, provider understanding, or native persistence.",
+  contentBrowserMock: "Browser preview uses an explicitly marked mock and is not real extraction, provider understanding, or native persistence.",
   libraryOpenFile: "Open file",
   libraryRevealFile: "Show in folder",
   libraryRevealInFinder: "Reveal in Finder",
   libraryManualMove: "Move file…",
-  libraryMoveDescription:
-    "Choose a local destination folder on the same volume. The extension is preserved. Next, review source and target; only confirmation and execution move the file and record it in History for Restore.",
+  libraryMoveDescription: "Choose a local destination folder on the same volume. The extension is preserved. Next, review source and target; only confirmation and execution move the file and record it in History for Restore.",
   libraryMoveDestination: "Destination folder",
   libraryMoveNoDestination: "No destination selected",
   libraryMoveChooseDestination: "Choose or change folder…",
   libraryMovePreview: "Preview move",
-  libraryMoveSameVolume:
-    "Only supported local same-volume moves are available here. Choose a folder on the same volume; cross-volume moves are unavailable.",
-  libraryMoveDifferentDirectory:
-    "Choose a different folder from the source. For a name-only change, use Rename.",
-  libraryMoveDestinationUnavailable:
-    "This folder is inaccessible or unsupported. Choose an accessible local folder.",
-  libraryManualConflict:
-    "An item with this name already exists at the destination. Nothing will be overwritten or replaced.",
-  libraryRenameConflictNext:
-    "Change the name or cancel. Changes require a new preview and confirmation.",
-  libraryManualConflictNext:
-    "Change the name, choose another folder, or cancel. Changes require a new preview and confirmation.",
+  libraryMoveSameVolume: "Only supported local same-volume moves are available here. Choose a folder on the same volume; cross-volume moves are unavailable.",
+  libraryMoveDifferentDirectory: "Choose a different folder from the source. For a name-only change, use Rename.",
+  libraryMoveDestinationUnavailable: "This folder is inaccessible or unsupported. Choose an accessible local folder.",
+  libraryManualConflict: "An item with this name already exists at the destination. Nothing will be overwritten or replaced.",
+  libraryRenameConflictNext: "Change the name or cancel. Changes require a new preview and confirmation.",
+  libraryManualConflictNext: "Change the name, choose another folder, or cancel. Changes require a new preview and confirmation.",
   libraryManualAdjust: "Change name or destination…",
-  libraryManualAdjustDescription:
-    "Changing the name or destination requires a new preview and confirmation. Existing files will not be overwritten.",
+  libraryManualAdjustDescription: "Changing the name or destination requires a new preview and confirmation. Existing files will not be overwritten.",
   libraryManualRename: "Rename file…",
-  libraryRenameDescription:
-    "Choose a new filename. The extension is preserved. Next, review the safety preview; only confirmation and execution change the file and record it in History for Restore.",
+  libraryRenameDescription: "Choose a new filename. The extension is preserved. Next, review the safety preview; only confirmation and execution change the file and record it in History for Restore.",
   libraryRenameNewName: "New filename",
   libraryRenamePreview: "Preview rename",
-  libraryRenameReadOnly:
-    "This file is read-only. Check its permissions before requesting a new preview.",
-  libraryRenameUnavailable:
-    "This file is no longer available. Refresh File Library and try again.",
-  libraryRenameUnchanged:
-    "Choose a different filename. Changes of letter case alone are not supported here.",
+  libraryRenameReadOnly: "This file is read-only. Check its permissions before requesting a new preview.",
+  libraryRenameUnavailable: "This file is no longer available. Refresh File Library and try again.",
+  libraryRenameUnchanged: "Choose a different filename. Changes of letter case alone are not supported here.",
   libraryReviewOperations: "Review file operations",
   libraryPermanentDelete: "Permanently delete",
-  libraryPermanentDeleteReason:
-    "Explicitly selected permanent deletion; Zen Canvas quarantines the object and rechecks its identity first.",
-  libraryOperationPreviewRequiresLoadedSelection:
-    "Select loaded files individually before reviewing operations so no off-page items are omitted.",
-  libraryOperationPreviewRequiresSelection:
-    "Select files before reviewing their operations.",
-  libraryNoOperationsForSelection:
-    "There are no existing operation suggestions for these files. To rename a file manually, choose Rename file from its context menu.",
+  libraryPermanentDeleteReason: "Explicitly selected permanent deletion; Zen Canvas quarantines the object and rechecks its identity first.",
+  libraryOperationPreviewRequiresLoadedSelection: "Select loaded files individually before reviewing operations so no off-page items are omitted.",
+  libraryOperationPreviewRequiresSelection: "Select files before reviewing their operations.",
+  libraryNoOperationsForSelection: "There are no existing operation suggestions for these files. To rename a file manually, choose Rename file from its context menu.",
   libraryViewSuggestions: "View organization suggestions",
   libraryClearSelection: "Clear selection",
   librarySelectAll: "Select all results",
   libraryContextMenu: "File actions menu",
   libraryFileNotFound: "The file is no longer available in this scope",
   libraryFileUnavailableTitle: "File unavailable",
-  libraryFileUnavailableDesc:
-    "The file may have been moved, deleted, or is outside the current scan scope.",
+  libraryFileUnavailableDesc: "The file may have been moved, deleted, or is outside the current scan scope.",
   libraryPermissionDenied: "This file cannot be accessed",
   libraryCurrentStatus: "Current status",
   libraryReady: "Ready",
@@ -5212,8 +4507,7 @@ const en: Record<keyof typeof zh, string> = {
   libraryActionDeleteCandidate: "Cleanup candidate",
   libraryConfirmClassification: "Confirm classification",
   libraryEditClassification: "Edit classification",
-  libraryLearningHint:
-    "Your confirmation or correction helps Zen Canvas learn similar files.",
+  libraryLearningHint: "Your confirmation or correction helps Zen Canvas learn similar files.",
   libraryApplyCorrection: "Use this for similar files",
   libraryCancelEdit: "Cancel editing",
   libraryNoValue: "None",
@@ -5225,16 +4519,12 @@ const en: Record<keyof typeof zh, string> = {
   currentOrganizeScope: "Current organize scope",
   navWorkspace: "Workspace",
   navSystem: "System",
-  viewDescCleanup:
-    "Cleanup items move to Safe Trash only after Preview review and explicit confirmation. Files are never permanently deleted.",
-  viewDescOrganize:
-    "Files are moved only after you review the Preview and explicitly confirm execution.",
+  viewDescCleanup: "Cleanup items move to Safe Trash only after Preview review and explicit confirmation. Files are never permanently deleted.",
+  viewDescOrganize: "Files are moved only after you review the Preview and explicitly confirm execution.",
   viewDescPreview: "Paths and names must be confirmed before execution",
-  viewDescRules:
-    "Manage legacy classification policies; new Organize semantics come from Managed AI and file changes still require Preview.",
+  viewDescRules: "Manage legacy classification policies; new Organize semantics come from Managed AI and file changes still require Preview.",
   viewDescRestore: "Only operations executed by Zen Canvas can be restored",
-  viewDescSettings:
-    "Everyday preferences stay quiet; high-impact capabilities are explained when needed.",
+  viewDescSettings: "Everyday preferences stay quiet; high-impact capabilities are explained when needed.",
   viewAllIndexedFiles: "View all indexed files",
   switchScanDirectory: "Switch scan folder",
   allIndexedFiles: "All indexed files",
@@ -5253,15 +4543,11 @@ const en: Record<keyof typeof zh, string> = {
   reason: "Reason",
   sourcePath: "Source path",
   targetPath: "Target path",
-  previewBeforeExecute:
-    "Every executable move and rename must show target paths and names first.",
+  previewBeforeExecute: "Every executable move and rename must show target paths and names first.",
   previewSafetyTitle: "Confirm before executing",
-  previewNoOverwriteDelete:
-    "This is still a pre-execution review. Zen Canvas will not overwrite existing files or permanently delete files; every selected operation requires manual confirmation before execution.",
-  previewPermanentDeleteSafety:
-    "This is an explicitly selected permanent-deletion preview. Execution first moves the object into private quarantine and rechecks its identity; uncertainty preserves the object for manual review.",
-  previewCleanupTrashSafety:
-    "Cleanup items move to recoverable Safe Trash, never directly to permanent deletion. Confirmation is required before execution.",
+  previewNoOverwriteDelete: "This is still a pre-execution review. Zen Canvas will not overwrite existing files or permanently delete files; every selected operation requires manual confirmation before execution.",
+  previewPermanentDeleteSafety: "This is an explicitly selected permanent-deletion preview. Execution first moves the object into private quarantine and rechecks its identity; uncertainty preserves the object for manual review.",
+  previewCleanupTrashSafety: "Cleanup items move to recoverable Safe Trash, never directly to permanent deletion. Confirmation is required before execution.",
   previewTotalSuggestions: "Total suggestions",
   selectedOperations: "Selected operations",
   previewSummarySelected: "Selected",
@@ -5270,8 +4556,7 @@ const en: Record<keyof typeof zh, string> = {
   previewSummaryImpact: "Impact items",
   previewSafetyDetails: "View safety and scope details",
   previewLowConfidence: "Low confidence",
-  previewDetailsTruncated:
-    "Showing {shown} items; the complete preview contains {total}. Load more to review the remaining items.",
+  previewDetailsTruncated: "Showing {shown} items; the complete preview contains {total}. Load more to review the remaining items.",
   executeSelectedWithCount: "Execute Selected · {count}",
   groupNoExecutableItems: "This group has no executable items",
   operationMove: "Move",
@@ -5282,8 +4567,7 @@ const en: Record<keyof typeof zh, string> = {
   operationReplace: "Replace target",
   operationPermanentDelete: "Irreversible delete",
   operationMoveToTrash: "Move to Trash",
-  operationMoveToTrashRisk:
-    "This is not direct permanent deletion; the object remains in Zen Canvas Safe Trash for recovery.",
+  operationMoveToTrashRisk: "This is not direct permanent deletion; the object remains in Zen Canvas Safe Trash for recovery.",
   selectOperation: "Select operation",
   operationBlocked: "Blocked",
   operationInvalidName: "Invalid file name",
@@ -5333,35 +4617,28 @@ const en: Record<keyof typeof zh, string> = {
   operationProgressLine: "Processed {processed} / {total}, current: {path}",
   operationCanceling: "Canceling...",
   operationCanceled: "Operation canceled",
-  confirmCleanupDispatch:
-    "This will execute {count} cleanup or duplicate-file related operations. Confirm that you reviewed source and target paths.",
+  confirmCleanupDispatch: "This will execute {count} cleanup or duplicate-file related operations. Confirm that you reviewed source and target paths.",
   confirmMoveToTrashTitle: "Move selected items to trash?",
-  confirmMoveToTrashDesc:
-    "Selected cleanup items will be moved to the system trash, not permanently deleted. Restore must be done from the system trash. Confirm that you reviewed the paths and file names.",
+  confirmMoveToTrashDesc: "Selected cleanup items will be moved to the system trash, not permanently deleted. Restore must be done from the system trash. Confirm that you reviewed the paths and file names.",
   noOperations: "No executable plans yet",
   previewEmptyTitle: "No executable organization suggestions",
-  previewEmptyDesc:
-    "There are no executable AI Organize suggestions in this scope. Connect AI and authorize a Managed AI scope before generating proposals for items that need analysis.",
+  previewEmptyDesc: "There are no executable AI Organize suggestions in this scope. Connect AI and authorize a Managed AI scope before generating proposals for items that need analysis.",
   goSmartDispatch: "Go to Smart Dispatch",
   goAutomationWorkspace: "Open Automation",
   noOperationHistory: "No operation history yet",
-  timeMachineDesc:
-    "Operation logs are stored by batch to prepare for future undo.",
+  timeMachineDesc: "Operation logs are stored by batch to prepare for future undo.",
   newFileName: "New file name",
   restored: "Restored",
   restoring: "Restoring",
   restorable: "restorable",
   unavailable: "Unavailable",
   expires: "expires",
-  restoreDesc:
-    "Only moves, renames, and combined operations executed by Zen Canvas can be restored. Storage cleanup items appear in Cleanup Trash and can be restored here.",
+  restoreDesc: "Only moves, renames, and combined operations executed by Zen Canvas can be restored. Storage cleanup items appear in Cleanup Trash and can be restored here.",
   restoreFromSystemTrash: "Restore legacy cleanup items from system trash",
   cleanupTrashRecords: "Cleanup Trash",
-  cleanupTrashRecordsDesc:
-    "Items moved to Zen Canvas Safe Trash by Storage Cleanup can be restored to their original paths here.",
+  cleanupTrashRecordsDesc: "Items moved to Zen Canvas Safe Trash by Storage Cleanup can be restored to their original paths here.",
   cleanupTrashRestore: "Restore cleanup items",
-  cleanupTrashRestoreBlockedDesc:
-    "Restore checks original-path conflicts and missing trash files first. Conflicting items are never overwritten.",
+  cleanupTrashRestoreBlockedDesc: "Restore checks original-path conflicts and missing trash files first. Conflicting items are never overwritten.",
   cleanupTrashEmpty: "No cleanup trash records yet",
   cleanupTrashMoved: "Moved to Safe Trash",
   cleanupPreviewLoading: "Verifying restore eligibility…",
@@ -5370,14 +4647,12 @@ const en: Record<keyof typeof zh, string> = {
   cleanupPreviewRetry: "Retry verification",
   noRestoreRecords: "No restore batches yet",
   restorePreview: "Restore Preview",
-  restorePreviewDesc:
-    "Zen Canvas checks the current path and original-path conflicts before restoring. Restorable items run first and failures are logged.",
+  restorePreviewDesc: "Zen Canvas checks the current path and original-path conflicts before restoring. Restorable items run first and failures are logged.",
   restoreBatch: "Restore Batch",
   noRestorePreview: "Select a batch to preview restore items",
   restoreNoExecutableSelected: "No items are safe to restore",
   historyWorkspaceTitle: "Operation history and restore",
-  historyWorkspaceDesc:
-    "Review real operation records and select only what the backend can currently restore.",
+  historyWorkspaceDesc: "Review real operation records and select only what the backend can currently restore.",
   historySummaryOperations: "Operations",
   historySummaryRestorable: "Restorable total",
   historySummaryOperationRestorable: "Operation restorable",
@@ -5419,14 +4694,10 @@ const en: Record<keyof typeof zh, string> = {
   historyRestoreAction: "Restore selected items",
   historyRestoreActionCount: "Restore {count} items",
   historyRestoreConfirmTitle: "Restore selected items?",
-  historyRestoreConfirmDesc:
-    "This restores {count} items. Existing files are never overwritten; conflicts and backend rejections remain recorded.",
-  historyRestoreConfirmExcluded:
-    "{count} other items are not executable and will not be sent to the restore API.",
-  historyRestoreEligibilityChanged:
-    "Restore eligibility changed. Please confirm again.",
-  historyRestoreSessionExpired:
-    "This restore confirmation expired. Select and confirm again.",
+  historyRestoreConfirmDesc: "This restores {count} items. Existing files are never overwritten; conflicts and backend rejections remain recorded.",
+  historyRestoreConfirmExcluded: "{count} other items are not executable and will not be sent to the restore API.",
+  historyRestoreEligibilityChanged: "Restore eligibility changed. Please confirm again.",
+  historyRestoreSessionExpired: "This restore confirmation expired. Select and confirm again.",
   historyRestoreTechnicalDetails: "Technical details",
   historyRestoreClaimPath: "Restore claim path",
   historySourceClaimPath: "Source claim path",
@@ -5439,23 +4710,19 @@ const en: Record<keyof typeof zh, string> = {
   historyRestoreFailed: "Failed",
   historyRestoreSuccess: "Restored",
   historyCleanupScope: "Safe Trash items",
-  historyCleanupRestoreDesc:
-    "Original-path conflicts are checked first; existing files are never overwritten.",
+  historyCleanupRestoreDesc: "Original-path conflicts are checked first; existing files are never overwritten.",
   historyEligibilityRestorable: "Restorable",
   historyEligibilityAlreadyRestored: "Already restored",
   historyEligibilityNoOp: "No file changes were made",
   historyEligibilityUnsupportedOperation: "This operation cannot be restored",
   historyEligibilityFailedOperation: "Original operation did not succeed",
-  historyEligibilityManualReview:
-    "Manual review required; it will not retry automatically",
+  historyEligibilityManualReview: "Manual review required; it will not retry automatically",
   historyEligibilityPending: "In progress",
   historyEligibilityBackendBlocked: "Backend blocked restore",
   historyEligibilityUnavailable: "Record unavailable",
   historyEligibilityMissingSource: "Valid paths are missing",
-  historyEligibilityRestoreFailed:
-    "Previous restore failed; it will not retry automatically",
-  historyEligibilityCanceled:
-    "Previous restore was canceled; it will not retry automatically",
+  historyEligibilityRestoreFailed: "Previous restore failed; it will not retry automatically",
+  historyEligibilityCanceled: "Previous restore was canceled; it will not retry automatically",
   historyStatusSuccess: "Operation succeeded",
   historyStatusFailed: "Operation failed",
   historyStatusManualReview: "Needs manual review",
@@ -5480,13 +4747,10 @@ const en: Record<keyof typeof zh, string> = {
   historyOperationSourceUnknown: "Other operation",
   historyRestoreStatus: "Restore status",
   historyRestoreDestination: "Restore destination",
-  historyRestoreOriginalUnavailable:
-    "If the original location is unavailable, Zen Canvas will not choose a new location automatically; resolve the conflict or review it manually.",
+  historyRestoreOriginalUnavailable: "If the original location is unavailable, Zen Canvas will not choose a new location automatically; resolve the conflict or review it manually.",
   historyRestoreEligibility: "Current restore eligibility",
-  historyPathRevealFailed:
-    "Could not reveal this path. Check permissions or whether it still exists.",
-  historyCleanupConflict:
-    "The original path already exists; nothing was overwritten.",
+  historyPathRevealFailed: "Could not reveal this path. Check permissions or whether it still exists.",
+  historyCleanupConflict: "The original path already exists; nothing was overwritten.",
   historyCleanupMissing: "The source file is missing from Safe Trash.",
   historyCleanupFailed: "Cleanup item restore failed.",
   historyCleanupManualReview: "The file state needs manual review.",
@@ -5494,53 +4758,38 @@ const en: Record<keyof typeof zh, string> = {
   historyCleanupCurrentPath: "Current location",
   historyCleanupOriginalPath: "Restore target",
   historyCleanupProgressTitle: "Restoring Safe Trash items",
-  historyCleanupProgressLine:
-    "Processed {processed} / {total}, current: {path}",
-  historyCleanupProgressCounts:
-    "Restored {restored} · conflicts {conflicts} · missing {missing} · failed {failed} · canceled {canceled}",
+  historyCleanupProgressLine: "Processed {processed} / {total}, current: {path}",
+  historyCleanupProgressCounts: "Restored {restored} · conflicts {conflicts} · missing {missing} · failed {failed} · canceled {canceled}",
   historyRestoreResultTitle: "Most recent restore result",
-  historyRestoreResultLine:
-    "Restored {restored} · failed {failed} · skipped {skipped} · canceled {canceled} · not run {excluded}",
-  historyCleanupRestoreResultLine:
-    "Restored {restored} · path conflicts {conflicts} · source missing {missing} · failed {failed} · canceled {canceled} · not run {excluded}",
+  historyRestoreResultLine: "Restored {restored} · failed {failed} · skipped {skipped} · canceled {canceled} · not run {excluded}",
+  historyCleanupRestoreResultLine: "Restored {restored} · path conflicts {conflicts} · source missing {missing} · failed {failed} · canceled {canceled} · not run {excluded}",
   historyRestoreError: "The restore request did not complete",
-  restoreErrorTargetExists:
-    "The target path already has a file. Zen Canvas did not overwrite it.",
-  restoreErrorSourceMissing:
-    "The original file is missing or its path is no longer valid.",
-  restoreErrorPermission:
-    "There is not enough permission to complete the restore.",
-  restoreErrorOccupied:
-    "The file is in use by another program. Try again later.",
+  restoreErrorTargetExists: "The target path already has a file. Zen Canvas did not overwrite it.",
+  restoreErrorSourceMissing: "The original file is missing or its path is no longer valid.",
+  restoreErrorPermission: "There is not enough permission to complete the restore.",
+  restoreErrorOccupied: "The file is in use by another program. Try again later.",
   restoreErrorBlocked: "The backend blocked this restore.",
   restoreErrorAlreadyRestored: "This record has already been restored.",
   restoreErrorProcessing: "This record is still being processed.",
   restoreErrorCanceled: "The restore was canceled.",
   restoreErrorGeneric: "The restore could not be completed. Try again later.",
   historyRecoveryActionsTitle: "Handle recovery item",
-  historyRecoveryActionsDesc:
-    "The restore transaction left an object that needs your decision. Keep both, move the recovery item, or send it through the irreversible-delete quarantine.",
-  historyRecoverySourceCleanupDesc:
-    "The target was created, but the original was not removed. Retry source cleanup, keep both, or reveal the source and target first.",
+  historyRecoveryActionsDesc: "The restore transaction left an object that needs your decision. Keep both, move the recovery item, or send it through the irreversible-delete quarantine.",
+  historyRecoverySourceCleanupDesc: "The target was created, but the original was not removed. Retry source cleanup, keep both, or reveal the source and target first.",
   historyRecoveryKeepBoth: "Keep both",
   historyRecoveryMove: "Move recovery item",
   historyRecoveryDelete: "Delete recovery item",
   historyRecoveryWorking: "Working…",
   historyRecoveryMoveTitle: "Move recovery item",
-  historyRecoveryMoveDesc:
-    "Enter a new absolute path. The target must not exist; Zen Canvas revalidates the recovery item identity before execution.",
+  historyRecoveryMoveDesc: "Enter a new absolute path. The target must not exist; Zen Canvas revalidates the recovery item identity before execution.",
   historyRecoveryTargetLabel: "New target path",
-  historyRecoveryTargetPlaceholder:
-    "For example: /Users/you/Documents/recovered-item.pdf",
-  historyRecoveryTargetHint:
-    "Moving preserves the recovery item and keeps the original record available for manual review.",
+  historyRecoveryTargetPlaceholder: "For example: /Users/you/Documents/recovered-item.pdf",
+  historyRecoveryTargetHint: "Moving preserves the recovery item and keeps the original record available for manual review.",
   historyRecoveryMoveConfirm: "Confirm move",
   historyRecoveryDeleteTitle: "Delete recovery item?",
-  historyRecoveryDeleteDesc:
-    "The object first enters private deletion quarantine, then permanent deletion is attempted. If identity or deletion is uncertain, the quarantined object remains for manual review.",
+  historyRecoveryDeleteDesc: "The object first enters private deletion quarantine, then permanent deletion is attempted. If identity or deletion is uncertain, the quarantined object remains for manual review.",
   historyRecoveryDeleteConfirm: "Delete recovery item",
-  historyRecoveryKeepBothCompleted:
-    "Both copies are kept. Copy location: {path}",
+  historyRecoveryKeepBothCompleted: "Both copies are kept. Copy location: {path}",
   historyRecoveryRetryCleanup: "Retry source retirement",
   historyRecoveryRetryCleanupCompleted: "Source retirement completed",
   historyRecoveryRevealSource: "Reveal original source",
@@ -5548,71 +4797,54 @@ const en: Record<keyof typeof zh, string> = {
   historyRecoveryMoveCompleted: "Recovery item moved to: {path}",
   historyRecoveryDeleteCompleted: "Recovery item deletion handling completed.",
   historyOpenPath: "Show path",
-  historySafetyBoundary:
-    "Eligibility is checked again before restore; existing files are never overwritten.",
+  historySafetyBoundary: "Eligibility is checked again before restore; existing files are never overwritten.",
   automationWorkspaceTitle: "Advanced Policies and Compatibility",
-  automationWorkspaceDesc:
-    "Manage existing rules and compatibility classification here. This does not generate new Managed AI semantics or perform file operations; current Managed AI assessments provide new Organize semantics.",
+  automationWorkspaceDesc: "Manage existing rules and compatibility classification here. This does not generate new Managed AI semantics or perform file operations; current Managed AI assessments provide new Organize semantics.",
   automationTotal: "Total rules",
   automationEnabled: "Enabled",
   automationPaused: "Paused",
   automationNeedsReview: "Organization suggestions awaiting confirmation",
-  automationNeedsReviewHint:
-    "Counts the entire organization queue in the current file scope, not only automation-produced suggestions.",
+  automationNeedsReviewHint: "Counts the entire organization queue in the current file scope, not only automation-produced suggestions.",
   automationRules: "Automation rules",
   automationRuleLibrary: "Rule Library",
-  automationRulesDesc:
-    "Select a rule to inspect the conditions, actions, and lifecycle it actually saves.",
+  automationRulesDesc: "Select a rule to inspect the conditions, actions, and lifecycle it actually saves.",
   automationCreateRule: "Create rule",
-  automationCreateRuleChoiceDesc:
-    "Choose how to create it. Both paths go through rule review and never change files directly.",
+  automationCreateRuleChoiceDesc: "Choose how to create it. Both paths go through rule review and never change files directly.",
   automationCreateRuleNaturalLanguage: "Describe with natural language",
-  automationCreateRuleNaturalLanguageDesc:
-    "Generate a reviewable Rule Proposal with AI.",
+  automationCreateRuleNaturalLanguageDesc: "Generate a reviewable Rule Proposal with AI.",
   automationCreateRuleManual: "Build manually",
-  automationCreateRuleManualDesc:
-    "Edit the conditions, actions, and lifecycle directly.",
+  automationCreateRuleManualDesc: "Edit the conditions, actions, and lifecycle directly.",
   automationRuleSummary: "Rule status summary",
   automationProposalWorkspaceTitle: "Rule Proposal",
-  automationProposalWorkspaceDesc:
-    "A proposal only creates or updates a disabled rule; enabling, running, and file changes remain separate confirmations.",
+  automationProposalWorkspaceDesc: "A proposal only creates or updates a disabled rule; enabling, running, and file changes remain separate confirmations.",
   ruleProposalTitle: "Describe a rule",
-  ruleProposalSubtitle:
-    "Turn plain language into a reviewable draft. AI can only propose a rule.",
-  ruleProposalPrivacy:
-    "Only the text you enter is sent. File contents are never sent.",
+  ruleProposalSubtitle: "Turn plain language into a reviewable draft. AI can only propose a rule.",
+  ruleProposalPrivacy: "Only the text you enter is sent. File contents are never sent.",
   ruleProposalManualBuilder: "Manual rule builder",
   ruleProposalIntent: "Proposal intent",
-  ruleProposalPrompt:
-    "Describe the files to match and the legacy classification fields to update…",
+  ruleProposalPrompt: "Describe the files to match and the legacy classification fields to update…",
   ruleProposalGenerate: "Generate proposal",
   ruleProposalUpdate: "Update an existing rule",
   ruleProposalCreate: "Create a new rule",
   ruleProposalTarget: "Rule to update",
-  ruleProposalExamples:
-    "Examples: “PDF files older than 30 days” · “Images larger than 500 MB”",
+  ruleProposalExamples: "Examples: “PDF files older than 30 days” · “Images larger than 500 MB”",
   ruleProposalHistory: "Proposals",
   ruleProposalEmpty: "No saved proposals yet.",
   ruleProposalPreview: "Preview metadata impact",
   ruleProposalExact: "Resolve exact count",
   ruleProposalApply: "Apply as disabled rule",
   ruleProposalApplyTitle: "Apply this proposal?",
-  ruleProposalApplyDescription:
-    "This creates or updates a disabled rule only. It does not run the rule or change any file.",
-  ruleProposalApplySafety:
-    "Enabling and running remain separate human actions.",
+  ruleProposalApplyDescription: "This creates or updates a disabled rule only. It does not run the rule or change any file.",
+  ruleProposalApplySafety: "Enabling and running remain separate human actions.",
   ruleProposalCancel: "Cancel",
   ruleProposalDelete: "Delete proposal",
   ruleProposalEdit: "Edit candidate",
   ruleProposalRegenerate: "Regenerate",
   ruleProposalMatched: "matched metadata rows",
   ruleProposalDeferred: "Exact count is deferred. Resolve it before Apply.",
-  ruleProposalApplied:
-    "Rule saved, currently disabled. Review it, then enable or run separately.",
-  ruleProposalProviderOff:
-    "No AI provider is enabled. Use the manual builder or configure AI settings.",
-  ruleProposalNoCandidate:
-    "The model needs clarification before it can produce a candidate.",
+  ruleProposalApplied: "Rule saved, currently disabled. Review it, then enable or run separately.",
+  ruleProposalProviderOff: "No AI provider is enabled. Use the manual builder or configure AI settings.",
+  ruleProposalNoCandidate: "The model needs clarification before it can produce a candidate.",
   ruleProposalSamples: "Bounded metadata sample",
   ruleProposalConflicts: "Potential enabled-rule conflicts",
   ruleProposalRisk: "Risk",
@@ -5625,21 +4857,17 @@ const en: Record<keyof typeof zh, string> = {
   ruleProposalBoundedSample: "bounded sample",
   ruleProposalYes: "yes",
   ruleProposalNo: "no",
-  ruleProposalManualCandidate:
-    "Manually edited candidate; the prior AI summary was cleared.",
+  ruleProposalManualCandidate: "Manually edited candidate; the prior AI summary was cleared.",
   ruleProposalBeforeAfter: "Before → after classification",
   ruleProposalValidation: "Backend validation",
   ruleProposalGenerating: "Generating with the configured provider…",
-  ruleProposalBrowserMock:
-    "Browser preview uses a deterministic mock and is not real AI or native persistence.",
+  ruleProposalBrowserMock: "Browser preview uses a deterministic mock and is not real AI or native persistence.",
   automationEditRule: "Edit rule",
-  automationEditorDesc:
-    "Describe suggestion logic as “when…then…”; expand advanced fields only when needed.",
+  automationEditorDesc: "Describe suggestion logic as “when…then…”; expand advanced fields only when needed.",
   automationNameRequired: "Enter a rule name.",
   automationNameTooLong: "Rule names must be 160 characters or fewer.",
   automationConditionRequired: "Every condition needs a valid value.",
-  automationConditionOperatorInvalid:
-    "This field does not support that operator.",
+  automationConditionOperatorInvalid: "This field does not support that operator.",
   automationConditionNumberInvalid: "Enter a finite non-negative number.",
   automationConditionInteger: "Days must be a non-negative integer.",
   automationConditionOptionInvalid: "Choose a valid option.",
@@ -5652,12 +4880,10 @@ const en: Record<keyof typeof zh, string> = {
   automationRuleSaved: "Rule saved; new rules remain paused.",
   automationProposalSaveFailed: "Proposal candidate save failed",
   automationProposalSaving: "Saving proposal candidate…",
-  automationProposalSaved:
-    "Proposal candidate updated; no rule was created or enabled.",
+  automationProposalSaved: "Proposal candidate updated; no rule was created or enabled.",
   automationSaving: "Saving rule…",
   automationSaved: "Rule saved; new rules remain paused.",
-  ruleSyncFailed:
-    "The rule remains in local cache, but synchronization failed.",
+  ruleSyncFailed: "The rule remains in local cache, but synchronization failed.",
   automationWhen: "When",
   automationThen: "Then suggest",
   automationLogicAnd: "and",
@@ -5686,50 +4912,37 @@ const en: Record<keyof typeof zh, string> = {
   automationSummaryTitle: "Live summary",
   automationAdvancedSummary: "Current summary",
   automationAdvanced: "Advanced conditions",
-  automationSafetyBoundary:
-    "Compatibility policies update legacy classification display fields only. They do not generate new Managed AI semantic proposals or directly move, rename, delete, or overwrite files. Execution still requires Preview confirmation.",
+  automationSafetyBoundary: "Compatibility policies update legacy classification display fields only. They do not generate new Managed AI semantic proposals or directly move, rename, delete, or overwrite files. Execution still requires Preview confirmation.",
   automationDiscardTitle: "Discard unsaved changes?",
   automationDiscardDesc: "Closing will lose the edits from this session.",
   automationDiscardAction: "Discard changes",
   automationEmptyTitle: "No automation rules yet",
-  automationEmptyDesc:
-    "Manage a compatibility policy for legacy classification fields if needed. New AI Organize suggestions require a current Managed AI assessment.",
+  automationEmptyDesc: "Manage a compatibility policy for legacy classification fields if needed. New AI Organize suggestions require a current Managed AI assessment.",
   automationRunning: "Recalculating",
-  automationEnabledDesc:
-    "Enabled policies affect compatibility classification fields; they do not replace current Managed AI assessments.",
-  automationRunningDesc:
-    "Compatibility classification fields are being recalculated; Managed AI semantic assessments are unchanged.",
-  automationPausedDesc:
-    "Paused policies no longer run; existing records remain available.",
-  automationNewRulePausedHint:
-    "New compatibility policies start paused; enable one only when you need to update legacy classification display fields.",
-  automationSavePauseNotice:
-    "Saving does not run rules or move files. New rules start paused.",
+  automationEnabledDesc: "Enabled policies affect compatibility classification fields; they do not replace current Managed AI assessments.",
+  automationRunningDesc: "Compatibility classification fields are being recalculated; Managed AI semantic assessments are unchanged.",
+  automationPausedDesc: "Paused policies no longer run; existing records remain available.",
+  automationNewRulePausedHint: "New compatibility policies start paused; enable one only when you need to update legacy classification display fields.",
+  automationSavePauseNotice: "Saving does not run rules or move files. New rules start paused.",
   automationSafetyTitle: "Safety boundary",
   automationRunNow: "Recalculate compatibility policies",
-  automationRunConfirmDesc:
-    "Recalculate legacy classification fields for this scope with {count} enabled policies. This does not create new Managed AI semantic proposals or perform file operations.",
+  automationRunConfirmDesc: "Recalculate legacy classification fields for this scope with {count} enabled policies. This does not create new Managed AI semantic proposals or perform file operations.",
   automationRunInProgress: "Recalculating compatibility classification fields…",
-  automationRunComplete:
-    "Recalculated {updated} / scanned {scanned}, skipped {skipped}.",
+  automationRunComplete: "Recalculated {updated} / scanned {scanned}, skipped {skipped}.",
   automationRunFailed: "Compatibility policy recalculation failed",
-  automationNoPersistedRun:
-    "No manual result has been generated in this session yet.",
+  automationNoPersistedRun: "No manual result has been generated in this session yet.",
   automationBackToRules: "Back to rules",
   automationTrigger: "Trigger",
   automationTriggerWatchedChange: "Indexed file created or changed",
-  automationTriggerHint:
-    "The existing file watcher can refresh compatibility classification fields when indexed files change.",
+  automationTriggerHint: "The existing file watcher can refresh compatibility classification fields when indexed files change.",
   automationStatus: "Status",
   automationScope: "Scope",
   automationScopeAll: "All local index records",
-  automationScopeAllHint:
-    "The active rule scope covers the complete local index.",
+  automationScopeAllHint: "The active rule scope covers the complete local index.",
   automationScopeRoots: "{count} active scope roots",
   automationConfirmationPolicy: "Confirmation policy",
   automationSuggestionsOnly: "Compatibility fields only",
-  automationPreviewRequiredHint:
-    "Compatibility policies do not perform file changes; current Organize operations remain governed by Managed AI plans and authoritative Preview.",
+  automationPreviewRequiredHint: "Compatibility policies do not perform file changes; current Organize operations remain governed by Managed AI plans and authoritative Preview.",
   automationLogic: "Rule description",
   automationAvailability: "Trigger and record capabilities",
   automationWatchedTrigger: "File create/change trigger",
@@ -5740,48 +4953,36 @@ const en: Record<keyof typeof zh, string> = {
   automationUnavailable: "Unavailable",
   automationOpenReview: "Open Managed AI Organize plan",
   automationCurrentEnvironment: "Current environment",
-  automationCurrentEnvironmentDesc:
-    "These details show the scope and entry point used to recalculate legacy classification fields; they do not control current Managed AI plans.",
+  automationCurrentEnvironmentDesc: "These details show the scope and entry point used to recalculate legacy classification fields; they do not control current Managed AI plans.",
   automationCurrentFileLibraryScope: "Current File Library Scope",
-  automationCurrentFileLibraryScopeDesc:
-    "This is the file scope used to recalculate compatibility classification fields.",
+  automationCurrentFileLibraryScopeDesc: "This is the file scope used to recalculate compatibility classification fields.",
   automationCapabilities: "Available run inputs",
-  automationCapabilitiesDesc:
-    "Manual runs use the current file scope and the enabled user rules shown above.",
+  automationCapabilitiesDesc: "Manual runs use the current file scope and the enabled user rules shown above.",
   automationRuleConfiguration: "Saved rule configuration",
   automationWeight: "Weight",
   automationPriority: "Priority",
-  automationWeightPriorityHint:
-    "Matching candidates are ordered by combined score (weight + priority × 0.1); when scores are close, the higher-priority rule wins.",
-  automationWeightHint:
-    "Directly contributes to a matching rule's combined score.",
-  automationPriorityHint:
-    "Contributes a smaller score component and breaks ties between similar scores.",
+  automationWeightPriorityHint: "Matching candidates are ordered by combined score (weight + priority × 0.1); when scores are close, the higher-priority rule wins.",
+  automationWeightHint: "Directly contributes to a matching rule's combined score.",
+  automationPriorityHint: "Contributes a smaller score component and breaks ties between similar scores.",
   automationCreatedAt: "Created",
   automationUpdatedAt: "Updated",
   automationToggleFailed: "Rule state could not be saved. Try again.",
-  automationRunStale:
-    "The policy or file scope changed, so the previous compatibility-field result has expired.",
+  automationRunStale: "The policy or file scope changed, so the previous compatibility-field result has expired.",
   automationRegenerateSuggestions: "Recalculate compatibility policies again",
-  automationManualRuleSet:
-    "Manual runs use the enabled user rules shown here; system templates are not passed as manual run inputs.",
+  automationManualRuleSet: "Manual runs use the enabled user rules shown here; system templates are not passed as manual run inputs.",
   automationConditionIncomplete: "Condition is incomplete",
   automationNoEnabledRules: "No enabled user rules are available.",
   automationNoSelection: "Select a rule to inspect it.",
   automationDeleteDesc: "Only this automation configuration will be deleted.",
-  automationDeleteHistorySafe:
-    "Files, suggestion history, and recovery records will remain untouched.",
+  automationDeleteHistorySafe: "Files, suggestion history, and recovery records will remain untouched.",
   ruleBuilder: "Advanced Rule Builder",
-  ruleLayerDesc:
-    "System rules are fixed; user rules can be sorted, edited, and disabled.",
+  ruleLayerDesc: "System rules are fixed; user rules can be sorted, edited, and disabled.",
   systemRuleTemplates: "System Rule Templates",
-  systemRuleTemplatesDesc:
-    "Built-in rules are locked compatibility templates that update legacy classification fields; they cannot be edited or deleted.",
+  systemRuleTemplatesDesc: "Built-in rules are locked compatibility templates that update legacy classification fields; they cannot be edited or deleted.",
   systemRulesEmptyDesc: "There are no built-in templates right now.",
   userRules: "User Rules",
   userRulesDesc: "Rules you create can be enabled, disabled, or deleted.",
-  userRulesEmptyDesc:
-    "No user policies yet. Create a compatibility policy to update legacy classification fields when needed.",
+  userRulesEmptyDesc: "No user policies yet. Create a compatibility policy to update legacy classification fields when needed.",
   createFirstRule: "Create first rule",
   lockedTemplate: "Locked template",
   editableRule: "Editable rule",
@@ -5789,8 +4990,7 @@ const en: Record<keyof typeof zh, string> = {
   ruleConditions: "Conditions",
   ruleActions: "Actions",
   ruleExpectedResult: "Expected result",
-  ruleExpectedResultIntro:
-    "Matched files will be marked as: {purpose} / {lifecycle} / archive suggestion.",
+  ruleExpectedResultIntro: "Matched files will be marked as: {purpose} / {lifecycle} / archive suggestion.",
   ruleNoAutoMove: "Files are not moved automatically",
   rulePreviewRequired: "Preview confirmation is required",
   confirmDeleteRuleTitle: "Delete this rule?",
@@ -5806,17 +5006,14 @@ const en: Record<keyof typeof zh, string> = {
   systemRuleLocked: "System rules cannot be disabled",
   deleteRule: "Delete rule",
   confirmDeleteRule: "Delete this user rule?",
-  confirmReapplyRules:
-    "Rules changed. Reapply the current rules to the active scope now?",
+  confirmReapplyRules: "Rules changed. Reapply the current rules to the active scope now?",
   systemRuleCannotDelete: "System rules cannot be deleted",
   ruleDeleted: "Rule deleted",
   ruleDeleteFailed: "Rule delete failed",
   reapplyRules: "Recalculate compatibility policies",
   continueRunAutoRules: "Continue recalculating compatibility policies",
-  reapplyRulesDesc:
-    "Compatibility policies update legacy classification display fields when needed; new Organize semantics require a current Managed AI assessment.",
-  reapplyRulesSafetyDesc:
-    "Compatibility policies recalculate legacy classification fields. They do not replace current Managed AI assessments or Organization Plans, but may overwrite old AI classification display fields. User-confirmed or corrected results are protected by default. Files are not moved.",
+  reapplyRulesDesc: "Compatibility policies update legacy classification display fields when needed; new Organize semantics require a current Managed AI assessment.",
+  reapplyRulesSafetyDesc: "Compatibility policies recalculate legacy classification fields. They do not replace current Managed AI assessments or Organization Plans, but may overwrite old AI classification display fields. User-confirmed or corrected results are protected by default. Files are not moved.",
   rulesReapplied: "Compatibility classification fields recalculated",
   rootOperator: "Group logic",
   groupOperator: "Condition logic",
@@ -5832,81 +5029,63 @@ const en: Record<keyof typeof zh, string> = {
   language: "Language",
   languageChinese: "Chinese",
   languageEnglish: "English",
-  languageDesc:
-    "The app and GitHub documentation are available in Chinese and English.",
+  languageDesc: "The app and GitHub documentation are available in Chinese and English.",
   appearance: "Appearance",
   appearanceDesc: "Follows the Glacier Light and Deep Sea Dark themes.",
   density: "Interface density",
-  densityDesc:
-    "Default leaves more breathing room; compact fits more settings into a smaller window.",
+  densityDesc: "Default leaves more breathing room; compact fits more settings into a smaller window.",
   densityDefault: "Default",
   densityCompact: "Compact",
   lightTheme: "Light",
   darkTheme: "Dark",
   systemTheme: "System",
-  settingsDesc:
-    "Manage language, theme, safety boundaries, and developer checks.",
+  settingsDesc: "Manage language, theme, safety boundaries, and developer checks.",
   settingsSectionsLabel: "Preference sections",
   settingsSearchLabel: "Search settings",
   settingsSearchPlaceholder: "Search settings",
   settingsSearchClear: "Clear settings search",
-  settingsSearchNoResults:
-    "No settings match. Try “preview”, “scan”, “AI”, or “search”.",
+  settingsSearchNoResults: "No settings match. Try “preview”, “scan”, “AI”, or “search”.",
   settingsSearchResultCount: "{count} settings match “{query}”",
   settingsGeneral: "General",
   settingsInterface: "Interface",
   settingsInterfaceDesc: "Keep only choices that affect everyday work.",
   settingsFilesWorkspace: "File workspace",
   quickPreviewSetting: "Quick preview",
-  quickPreviewSettingDesc:
-    "Supported file types are previewed in the app first.",
+  quickPreviewSettingDesc: "Supported file types are previewed in the app first.",
   quickPreviewSettingStatus: "Status: Enabled",
   settingsSmartOrganize: "Smart organize",
   settingsAIPrivacy: "AI & privacy",
   settingsDiagnostics: "Diagnostics",
   settingsGeneralDesc: "Window, startup, and language behavior.",
   settingsAppearance: "Appearance",
-  settingsAppearanceDesc:
-    "Theme, interface language, and organization-folder naming.",
+  settingsAppearanceDesc: "Theme, interface language, and organization-folder naming.",
   settingsFilesScan: "Files & scanning",
-  settingsFilesScanDesc:
-    "Scan roots, organization targets, and local-index scope.",
+  settingsFilesScanDesc: "Scan roots, organization targets, and local-index scope.",
   settingsAutomation: "Automation",
-  settingsAutomationDesc:
-    "Save file scopes and configure manual, schedule or managed-file-change triggers to prepare review-required plans with current Managed AI. Advanced Policies retain existing deterministic Rule compatibility behavior.",
-  automationSettingsDescription:
-    "Manual runs use only the enabled compatibility policies shown in Advanced Policies.",
+  settingsAutomationDesc: "Save file scopes and configure manual, schedule or managed-file-change triggers to prepare review-required plans with current Managed AI. Advanced Policies retain existing deterministic Rule compatibility behavior.",
+  automationSettingsDescription: "Manual runs use only the enabled compatibility policies shown in Advanced Policies.",
   settingsAI: "AI",
-  settingsAIDesc:
-    "Choose the active AI mode and understand its privacy boundary.",
+  settingsAIDesc: "Choose the active AI mode and understand its privacy boundary.",
   settingsAIPrivacyCloudOff: "Cloud AI is off",
-  settingsAIPrivacyCloudOffDesc:
-    "Local files are not uploaded for organization; enabling a cloud provider requires separate consent.",
+  settingsAIPrivacyCloudOffDesc: "Local files are not uploaded for organization; enabling a cloud provider requires separate consent.",
   settingsAIPrivacyCloudOn: "Cloud AI is enabled",
-  settingsAIPrivacyCloudOnDesc:
-    "Cloud providers are used only within the consented scope; file changes still require Preview confirmation.",
+  settingsAIPrivacyCloudOnDesc: "Cloud providers are used only within the consented scope; file changes still require Preview confirmation.",
   settingsAIPrivacyProvider: "Cloud AI provider",
-  settingsAIPrivacyProviderDesc:
-    "Keep high-impact capabilities explicit in the status copy.",
+  settingsAIPrivacyProviderDesc: "Keep high-impact capabilities explicit in the status copy.",
   settingsConfigure: "Configure…",
   settingsPrivacy: "Privacy & security",
-  settingsPrivacyDesc:
-    "Local indexing, restore records, and no-overwrite safety boundaries.",
+  settingsPrivacyDesc: "Local indexing, restore records, and no-overwrite safety boundaries.",
   settingsAbout: "About",
   settingsAboutDesc: "Version, runtime information, and developer-only checks.",
   platformDiagnosticsNav: "Platform diagnostics",
   platformDiagnosticsTitle: "Platform diagnostics",
-  platformDiagnosticsDesc:
-    "Shows file semantics, index coverage, and platform safety capabilities; unknown facts are never treated as safe.",
+  platformDiagnosticsDesc: "Shows file semantics, index coverage, and platform safety capabilities; unknown facts are never treated as safe.",
   platformIdentityTitle: "Runtime",
-  platformIdentityDesc:
-    "These facts come from the desktop runtime and discovered index volumes.",
+  platformIdentityDesc: "These facts come from the desktop runtime and discovered index volumes.",
   platformHealthTitle: "Index and coverage",
-  platformHealthDesc:
-    "Spotlight discovers results and FSEvents only provides bounded change signals; neither creates a second index.",
+  platformHealthDesc: "Spotlight discovers results and FSEvents only provides bounded change signals; neither creates a second index.",
   platformSafetyTitle: "Safety capabilities",
-  platformSafetyDesc:
-    "Operations verify object identity first; a volume or location is blocked when it cannot be safely proven.",
+  platformSafetyDesc: "Operations verify object identity first; a volume or location is blocked when it cannot be safely proven.",
   platformDiagnosticsPlatform: "Platform",
   platformDiagnosticsArchitecture: "Processor architecture",
   platformDiagnosticsMacosVersion: "macOS version",
@@ -5937,8 +5116,7 @@ const en: Record<keyof typeof zh, string> = {
   platformDiagnosticsPermanentDelete: "Irreversible-delete quarantine",
   platformDiagnosticsSecureRemoval: "Physical secure erase",
   platformDiagnosticsTechnicalDetails: "Show technical details",
-  platformDiagnosticsUnavailableReason:
-    "This file-change capability stays disabled because the runtime cannot provide enough object-identity and recovery proof.",
+  platformDiagnosticsUnavailableReason: "This file-change capability stays disabled because the runtime cannot provide enough object-identity and recovery proof.",
   platformMacos: "macOS",
   platformWindows: "Windows",
   platformLinux: "Linux",
@@ -5956,68 +5134,49 @@ const en: Record<keyof typeof zh, string> = {
   aboutBuildInfo: "Build information",
   aboutBuildInfoDesc: "Current desktop version and project references.",
   aboutProjectLink: "Project and docs",
-  aboutProjectLinkDesc:
-    "Open GitHub for project notes, design docs, and releases.",
+  aboutProjectLinkDesc: "Open GitHub for project notes, design docs, and releases.",
   aboutOpenProject: "Open GitHub",
   developerMode: "Developer mode",
-  developerModeDesc:
-    "Show model request parameters and debugging details only when explicitly enabled.",
+  developerModeDesc: "Show model request parameters and debugging details only when explicitly enabled.",
   aiSettingsLoadFailed: "Failed to load AI settings",
   aiSettingsSaved: "AI settings saved",
   aiSettingsSaveFailed: "Failed to save AI settings",
   aiConnectionTestFailed: "Connection test failed",
   aiConnectionSucceeded: "Connection succeeded",
-  aiDebugMissingTarget:
-    "Enter a file ID or full path, or use the selected file.",
-  aiDebugSucceeded:
-    "AI debug complete: the model response parsed as classification JSON.",
+  aiDebugMissingTarget: "Enter a file ID or full path, or use the selected file.",
+  aiDebugSucceeded: "AI debug complete: the model response parsed as classification JSON.",
   aiDebugFinished: "AI debug complete",
-  aiDebugParseFailed:
-    "The model response could not be parsed as classification JSON.",
+  aiDebugParseFailed: "The model response could not be parsed as classification JSON.",
   aiSettingsLoading: "Loading AI settings",
-  aiSettingsLoadingDesc:
-    "Reading model-provider presets from local configuration.",
+  aiSettingsLoadingDesc: "Reading model-provider presets from local configuration.",
   aiModeLabel: "AI mode",
   aiProviderOpenaiCompatible: "OpenAI-compatible",
   aiProviderCustom: "Custom provider",
   aiConfigurationIncomplete: "Cloud AI still needs an API key.",
-  aiDisabledConfigurationPreserved:
-    "AI is off. Existing provider and request settings are preserved and take effect only after Local or Cloud AI is enabled again.",
+  aiDisabledConfigurationPreserved: "AI is off. Existing provider and request settings are preserved and take effect only after Local or Cloud AI is enabled again.",
   aiEnabledLabel: "Enable AI",
-  aiEnabledDesc:
-    "Controls whether later AI analysis is available. AI only generates classification and risk advice; organizing or cleanup always requires Preview, final selection, and explicit confirmation.",
+  aiEnabledDesc: "Controls whether later AI analysis is available. AI only generates classification and risk advice; organizing or cleanup always requires Preview, final selection, and explicit confirmation.",
   aiCleanupEnabledLabel: "Enable AI cleanup analysis",
-  aiCleanupEnabledDesc:
-    "AI cleanup analysis only adds risk context and suggestions. It never deletes files directly or bypasses Safe Trash.",
-  aiCleanupLocalConsentLabel:
-    "Allow local models to process cleanup candidates",
-  aiCleanupLocalConsentDesc:
-    "Allows Cleanup AI to send candidate names and metadata to the local model. Parent-name and full-path disclosure still follow the privacy settings. This permission is separate from Managed Scope and Content Understanding.",
-  aiCleanupCloudConsentLabel:
-    "Allow cloud models to process cleanup candidates",
-  aiCleanupCloudConsentDesc:
-    "Allows Cleanup AI to send candidate names and metadata to the current cloud provider. Parent-name and full-path disclosure still follow the privacy settings. Managed Scope or Content Understanding cloud permission does not enable this automatically.",
+  aiCleanupEnabledDesc: "AI cleanup analysis only adds risk context and suggestions. It never deletes files directly or bypasses Safe Trash.",
+  aiCleanupLocalConsentLabel: "Allow local models to process cleanup candidates",
+  aiCleanupLocalConsentDesc: "Allows Cleanup AI to send candidate names and metadata to the local model. Parent-name and full-path disclosure still follow the privacy settings. This permission is separate from Managed Scope and Content Understanding.",
+  aiCleanupCloudConsentLabel: "Allow cloud models to process cleanup candidates",
+  aiCleanupCloudConsentDesc: "Allows Cleanup AI to send candidate names and metadata to the current cloud provider. Parent-name and full-path disclosure still follow the privacy settings. Managed Scope or Content Understanding cloud permission does not enable this automatically.",
   aiClassificationPresets: "AI classification presets",
-  aiClassificationPresetsDesc:
-    "Choose suggestion speed and detail; Custom means you adjusted advanced values yourself.",
+  aiClassificationPresetsDesc: "Choose suggestion speed and detail; Custom means you adjusted advanced values yourself.",
   aiPresetFast: "Fast",
   aiPresetStandard: "Standard",
   aiPresetDetailed: "Detailed",
   aiPresetCustom: "Custom",
   aiProviderPreset: "Model provider",
-  aiProviderPresetDesc:
-    "Changing the provider uses its connection settings without replacing the saved API key.",
-  aiLocalApiKeyHint:
-    "Local Ollama models do not need an API key; this field may be empty.",
-  aiStoredApiKeyPlaceholder:
-    "Stored securely in the system credential vault; enter a new value to replace it",
+  aiProviderPresetDesc: "Changing the provider uses its connection settings without replacing the saved API key.",
+  aiLocalApiKeyHint: "Local Ollama models do not need an API key; this field may be empty.",
+  aiStoredApiKeyPlaceholder: "Stored securely in the system credential vault; enter a new value to replace it",
   aiEmptyApiKeyPlaceholder: "Never shown in plain text on this page",
   aiClearApiKey: "Clear saved API key",
   aiCredentialSaved: "Saved securely to the system credential store",
-  aiCredentialReadbackFailed:
-    "Credential read-back verification failed after saving",
-  aiBatchSizeDesc:
-    "Batch size is the number of files per model request, not the total for this run. DeepSeek and other hosted models usually work best around 10; larger batches increase timeout, rate-limit, and incomplete-JSON risk.",
+  aiCredentialReadbackFailed: "Credential read-back verification failed after saving",
+  aiBatchSizeDesc: "Batch size is the number of files per model request, not the total for this run. DeepSeek and other hosted models usually work best around 10; larger batches increase timeout, rate-limit, and incomplete-JSON risk.",
   aiBaseUrlLabel: "Base URL",
   aiChatPathLabel: "Chat endpoint path",
   aiApiKeyLabel: "API key",
@@ -6025,16 +5184,14 @@ const en: Record<keyof typeof zh, string> = {
   hideApiKey: "Hide API key",
   aiModelLabel: "Model",
   aiCustomProfileLabel: "Custom provider profile",
-  aiCustomProfileDesc:
-    "Each profile keeps its own endpoint, model parameters, and system credential; API keys never enter settings JSON.",
+  aiCustomProfileDesc: "Each profile keeps its own endpoint, model parameters, and system credential; API keys never enter settings JSON.",
   aiCustomProfileNone: "No profile selected",
   aiCustomProfileDefaultName: "Custom profile {number}",
   aiCustomProfileNameLabel: "Profile name",
   aiCreateCustomProfile: "New profile",
   aiDeleteCustomProfile: "Delete profile",
   aiModelsPathLabel: "Models endpoint path",
-  aiModelsPathDesc:
-    "Used for OpenAI-compatible model discovery; leave blank to use the provider preset.",
+  aiModelsPathDesc: "Used for OpenAI-compatible model discovery; leave blank to use the provider preset.",
   aiRefreshModels: "Discover models",
   aiDiscoveringModels: "Discovering...",
   aiModelsLoaded: "Loaded {count} model options",
@@ -6047,8 +5204,7 @@ const en: Record<keyof typeof zh, string> = {
   aiCurrentActiveMode: "Current active AI mode: {mode}",
   aiUnsavedDraftMode: "Unsaved draft mode: {mode}",
   aiSettingsApplied: "AI settings are applied",
-  aiSettingsRetainedAfterFailure:
-    "The last successfully saved AI settings remain active.",
+  aiSettingsRetainedAfterFailure: "The last successfully saved AI settings remain active.",
   aiProviderDeepSeek: "DeepSeek — Recommended",
   aiProviderKimi: "Kimi / Moonshot",
   aiProviderQwenDashscope: "Qwen / DashScope",
@@ -6060,65 +5216,47 @@ const en: Record<keyof typeof zh, string> = {
   aiProviderCustomOpenai: "Custom OpenAI-compatible",
   aiProviderOllama: "Ollama — Local model",
   aiAdvancedConnection: "Connection",
-  aiAdvancedConnectionDesc:
-    "Manage model-service connection fields, credentials, and the production connection test.",
+  aiAdvancedConnectionDesc: "Manage model-service connection fields, credentials, and the production connection test.",
   aiAdvancedPerformance: "Performance",
   aiAdvancedPerformanceDesc: "These values affect request size and wait time.",
   aiAdvancedPrivacy: "Privacy",
   aiAdvancedPrivacyDesc: "Control path details and the local/cloud boundary.",
   aiConcurrencyLabel: "AI classification concurrency",
-  aiConcurrencyDesc:
-    "The number of model batches requested at once. A value around 2 is recommended for hosted models; higher values may trigger rate limits.",
-  aiLearningHint:
-    "Learning history records your confirmations and corrections. Current Managed AI semantic assessments do not read it; it does not train a model or move files automatically.",
+  aiConcurrencyDesc: "The number of model batches requested at once. A value around 2 is recommended for hosted models; higher values may trigger rate limits.",
+  aiLearningHint: "Learning history records your confirmations and corrections. Current Managed AI semantic assessments do not read it; it does not train a model or move files automatically.",
   aiLearnedRulesLabel: "Use learning history as automatic rules",
-  aiLearnedRulesDesc:
-    "Learning history is not an input to current Managed AI semantics. When enabled, it affects only compatibility rules and legacy classification fields.",
+  aiLearnedRulesDesc: "Learning history is not an input to current Managed AI semantics. When enabled, it affects only compatibility rules and legacy classification fields.",
   aiLegacyRulesLabel: "Use legacy built-in classification rules",
-  aiLegacyRulesDesc:
-    "Legacy rules classify by file name, extension, and path. AI-first mode recommends leaving this off to avoid conflicting suggestions.",
-  aiOldModelWarning:
-    "Legacy DeepSeek model names are still accepted, but deepseek-v4-flash or deepseek-v4-pro is recommended.",
-  aiQwenWarning:
-    "Qwen3 is a thinking model. Classification should disable thinking to avoid non-JSON responses.",
+  aiLegacyRulesDesc: "Legacy rules classify by file name, extension, and path. AI-first mode recommends leaving this off to avoid conflicting suggestions.",
+  aiOldModelWarning: "Legacy DeepSeek model names are still accepted, but deepseek-v4-flash or deepseek-v4-pro is recommended.",
+  aiQwenWarning: "Qwen3 is a thinking model. Classification should disable thinking to avoid non-JSON responses.",
   aiForceJsonLabel: "Force JSON Output",
-  aiForceJsonDesc:
-    "Prefer response_format; when unsupported, constrain JSON through the prompt only.",
+  aiForceJsonDesc: "Prefer response_format; when unsupported, constrain JSON through the prompt only.",
   aiThinkingLabel: "Enable Thinking",
-  aiThinkingDesc:
-    "Send thinking/reasoning options only to providers that support them.",
+  aiThinkingDesc: "Send thinking/reasoning options only to providers that support them.",
   aiReasoningPlaceholder: "For example, low / medium / high",
   aiSendFullPathLabel: "Send full path",
   aiSendFullPathDesc: "Future AI classification prompts may use the full path.",
   aiSendParentPathLabel: "Send parent directory",
-  aiSendParentPathDesc:
-    "Future AI classification prompts may use parent-directory context.",
+  aiSendParentPathDesc: "Future AI classification prompts may use parent-directory context.",
   aiExtraBodyLabel: "Extra Body JSON (advanced)",
-  aiExtraBodyPlaceholder: 'For example { "thinking": { "type": "enabled" } }',
-  aiSecretsHint:
-    "API keys are never printed; error messages attempt to redact the current key.",
+  aiExtraBodyPlaceholder: "For example { \"thinking\": { \"type\": \"enabled\" } }",
+  aiSecretsHint: "API keys are never printed; error messages attempt to redact the current key.",
   aiDiagnosticsTitle: "AI request diagnostics",
-  aiDiagnosticsDesc:
-    "A production-safe in-memory ring buffer; off by default, with failures mode retaining failures only.",
-  aiDiagnosticsDeveloperModeRequired:
-    "Turn on Developer mode explicitly before opening diagnostics. Request details stay hidden until then.",
+  aiDiagnosticsDesc: "A production-safe in-memory ring buffer; off by default, with failures mode retaining failures only.",
+  aiDiagnosticsDeveloperModeRequired: "Turn on Developer mode explicitly before opening diagnostics. Request details stay hidden until then.",
   aiDiagnosticsConsentTitle: "Confirm viewing sensitive AI diagnostics?",
-  aiDiagnosticsConsentDesc:
-    "Diagnostics may contain model request parameters, response fragments, file paths, or document text. Continue only when debugging requires it, and review exports before sharing.",
-  aiDiagnosticsConsentEmphasis:
-    "This is not an ordinary runtime log. After confirmation, this settings session may view, export, or clear diagnostics; document text still requires its own explicit consent.",
+  aiDiagnosticsConsentDesc: "Diagnostics may contain model request parameters, response fragments, file paths, or document text. Continue only when debugging requires it, and review exports before sharing.",
+  aiDiagnosticsConsentEmphasis: "This is not an ordinary runtime log. After confirmation, this settings session may view, export, or clear diagnostics; document text still requires its own explicit consent.",
   aiDiagnosticsConsentConfirm: "Confirm and continue",
   aiDiagnosticsModeLabel: "Diagnostics mode",
-  aiDiagnosticsModeDesc:
-    "Stores only response metadata, bounded response text, redacted content, and parse stages.",
+  aiDiagnosticsModeDesc: "Stores only response metadata, bounded response text, redacted content, and parse stages.",
   aiDiagnosticsOff: "Off",
   aiDiagnosticsFailures: "Failures only",
   aiDiagnosticsAll: "All requests",
-  aiDiagnosticsPathWarning:
-    "Full local file names and paths are not recorded by default; local paths in responses are shown as [local-path]. Review exports before sharing and never expose API keys or sensitive file names.",
+  aiDiagnosticsPathWarning: "Full local file names and paths are not recorded by default; local paths in responses are shown as [local-path]. Review exports before sharing and never expose API keys or sensitive file names.",
   aiSensitiveDocumentDiagnosticsLabel: "Allow document content in diagnostics",
-  aiSensitiveDocumentDiagnosticsDesc:
-    "Explicit developer opt-in only. Diagnostics may contain document text or other sensitive information. When off, Content Understanding traces remain metadata-only even in All requests mode.",
+  aiSensitiveDocumentDiagnosticsDesc: "Explicit developer opt-in only. Diagnostics may contain document text or other sensitive information. When off, Content Understanding traces remain metadata-only even in All requests mode.",
   aiOpenRecentRequests: "Open recent requests",
   aiInspectorLoading: "Loading...",
   aiExportDiagnostics: "Export diagnostics",
@@ -6126,10 +5264,8 @@ const en: Record<keyof typeof zh, string> = {
   aiInspectorLoadFailed: "Failed to load diagnostics",
   aiInspectorExportFailed: "Failed to export diagnostics",
   aiRequestInspectorTitle: "Request Inspector",
-  aiRequestInspectorDesc:
-    "Inspect Overview, Request, Raw, Extracted, Cleaned, Parsed, and Error/Retry stages.",
-  aiDiagnosticsEmpty:
-    "No diagnostics yet. Set Failures only and test the connection, or set All requests to inspect recent calls.",
+  aiRequestInspectorDesc: "Inspect Overview, Request, Raw, Extracted, Cleaned, Parsed, and Error/Retry stages.",
+  aiDiagnosticsEmpty: "No diagnostics yet. Set Failures only and test the connection, or set All requests to inspect recent calls.",
   aiTraceOverview: "Overview",
   aiTraceRequest: "Request",
   aiTraceRaw: "Raw provider response",
@@ -6142,14 +5278,11 @@ const en: Record<keyof typeof zh, string> = {
   aiSavingSettings: "Saving...",
   aiSaveSettings: "Save AI settings",
   aiDebugTitle: "AI debugging",
-  aiDebugWarning:
-    "Debug details may contain file names and paths. Do not publish screenshots or commit them to GitHub. This reads one model response only; it does not write the files table, enter Organize Preview, or move files.",
+  aiDebugWarning: "Debug details may contain file names and paths. Do not publish screenshots or commit them to GitHub. This reads one model response only; it does not write the files table, enter Organize Preview, or move files.",
   aiSelectedFile: "Selected library file",
-  aiNoSelectedFile:
-    "No library file is selected. Paste a file ID or full path manually.",
+  aiNoSelectedFile: "No library file is selected. Paste a file ID or full path manually.",
   aiDebugTargetLabel: "File ID or full path",
-  aiDebugTargetPlaceholder:
-    "Paste a path such as F:\\work\\xxx.docx, or use a file ID from the library",
+  aiDebugTargetPlaceholder: "Paste a path such as F:\\work\\xxx.docx, or use a file ID from the library",
   aiUseSelectedFile: "Use selected file",
   aiDebugging: "Debugging...",
   aiDebugSingleFile: "Debug one file's AI response",
@@ -6181,211 +5314,150 @@ const en: Record<keyof typeof zh, string> = {
   onboardingFinish: "Finish setup",
   onboardingSkip: "Set this up later",
   onboardingPrivacyTitle: "Local first, confirmation always",
-  onboardingPrivacyDesc:
-    "Zen Canvas builds a local index and never automatically moves, renames, overwrites, or permanently deletes files. File changes always enter Preview first.",
+  onboardingPrivacyDesc: "Zen Canvas builds a local index and never automatically moves, renames, overwrites, or permanently deletes files. File changes always enter Preview first.",
   onboardingLocalIndex: "Local index",
   onboardingPreview: "Preview first",
   onboardingRestorable: "Restorable",
   onboardingLocalModelHint: "On-device analysis",
   onboardingScopeTitle: "Choose what to index",
-  onboardingScopeDesc:
-    "Add a useful folder to the local scan scope before finishing first-run setup. Managed AI can process only scopes you explicitly authorize; AI configuration and permissions can wait.",
+  onboardingScopeDesc: "Add a useful folder to the local scan scope before finishing first-run setup. Managed AI can process only scopes you explicitly authorize; AI configuration and permissions can wait.",
   onboardingCurrentScope: "{count} scan folders selected",
   onboardingChooseFolder: "Choose folder",
   onboardingNoScope: "No scan folders selected yet",
   onboardingAIStepTitle: "Choose how to connect AI",
-  onboardingAIStepDesc:
-    "Choose local or cloud, then finish setup in the existing AI Settings. AI Organize and AI Cleanup stay gated while AI is off or incomplete.",
+  onboardingAIStepDesc: "Choose local or cloud, then finish setup in the existing AI Settings. AI Organize and AI Cleanup stay gated while AI is off or incomplete.",
   onboardingAIDisabled: "AI off",
   onboardingAILocal: "Local model",
   onboardingAICloud: "Cloud AI",
-  onboardingAIUnavailable:
-    "AI readiness is unavailable right now. You can finish setup and configure it later in AI Settings.",
-  onboardingCloudSetup:
-    "Configure the cloud provider and its credentials in AI Settings.",
-  onboardingSaveFailed:
-    "First-run settings were not saved. Check Preferences and try again.",
+  onboardingAIUnavailable: "AI readiness is unavailable right now. You can finish setup and configure it later in AI Settings.",
+  onboardingCloudSetup: "Configure the cloud provider and its credentials in AI Settings.",
+  onboardingSaveFailed: "First-run settings were not saved. Check Preferences and try again.",
   onboardingSkipAI: "Skip AI setup",
   onboardingFinishLater: "Finish later",
   onboardingSaving: "Saving…",
   onboardingConnectionTitle: "Choose how to connect AI",
-  onboardingConnectionDesc:
-    "Choose a local model or cloud provider, then continue in the existing AI Settings to connect and configure it. This flow does not create another provider settings surface.",
-  onboardingLocalProviderDesc:
-    "Analysis runs on this device; file content is not sent to a cloud provider.",
-  onboardingCloudProviderDesc:
-    "A cloud provider receives only analysis data allowed by your current settings and scope permissions.",
+  onboardingConnectionDesc: "Choose a local model or cloud provider, then continue in the existing AI Settings to connect and configure it. This flow does not create another provider settings surface.",
+  onboardingLocalProviderDesc: "Analysis runs on this device; file content is not sent to a cloud provider.",
+  onboardingCloudProviderDesc: "A cloud provider receives only analysis data allowed by your current settings and scope permissions.",
   onboardingConfigureAI: "Continue in AI Settings",
-  onboardingConnectionNotConfigured:
-    "No AI provider is configured; AI features remain off.",
+  onboardingConnectionNotConfigured: "No AI provider is configured; AI features remain off.",
   onboardingSelectedFolder: "Selected folder: {path}",
   onboardingManagedConsentTitle: "Managed AI scope permission",
-  onboardingManagedConsentDesc:
-    "Only the providers you explicitly select may analyze this managed scope. This permission is separate from Cleanup.",
-  onboardingManagedLocalConsent:
-    "Allow local AI to analyze file metadata in this scope",
-  onboardingManagedCloudConsent:
-    "Allow cloud AI to analyze file metadata in this scope under current privacy settings",
+  onboardingManagedConsentDesc: "Only the providers you explicitly select may analyze this managed scope. This permission is separate from Cleanup.",
+  onboardingManagedLocalConsent: "Allow local AI to analyze file metadata in this scope",
+  onboardingManagedCloudConsent: "Allow cloud AI to analyze file metadata in this scope under current privacy settings",
   onboardingCleanupTitle: "Set separate AI Cleanup permissions",
-  onboardingCleanupDesc:
-    "Cleanup AI analysis has its own feature switch and local or cloud permission. It does not inherit Managed AI scope permission.",
-  onboardingCleanupSeparateTitle:
-    "Cleanup and Organize permissions are independent",
-  onboardingCleanupSeparateDesc:
-    "Deterministic findings and history remain visible. New or refreshed AI assessments need Cleanup permission; the backend revalidates an assessed finding before Preview.",
+  onboardingCleanupDesc: "Cleanup AI analysis has its own feature switch and local or cloud permission. It does not inherit Managed AI scope permission.",
+  onboardingCleanupSeparateTitle: "Cleanup and Organize permissions are independent",
+  onboardingCleanupSeparateDesc: "Deterministic findings and history remain visible. New or refreshed AI assessments need Cleanup permission; the backend revalidates an assessed finding before Preview.",
   onboardingCleanupSettings: "Open Cleanup AI settings",
-  onboardingManagedScopeNeedsFolder:
-    "Choose a folder before granting Managed AI scope permission.",
-  onboardingUsefulFolderRequired:
-    "Choose and save a useful folder before finishing first-run setup. You can continue later from Getting Started.",
+  onboardingManagedScopeNeedsFolder: "Choose a folder before granting Managed AI scope permission.",
+  onboardingUsefulFolderRequired: "Choose and save a useful folder before finishing first-run setup. You can continue later from Getting Started.",
   onboardingCapabilitiesTitle: "Core capabilities",
-  onboardingCapabilitiesDesc:
-    "Non-AI features remain available. AI features show their specific readiness and recovery route.",
+  onboardingCapabilitiesDesc: "Non-AI features remain available. AI features show their specific readiness and recovery route.",
   onboardingCapabilityFiles: "Files: manage and browse content on this device",
   onboardingCapabilitySearch: "Search: find indexed files and metadata",
-  onboardingCapabilityPreview:
-    "Preview: inspect impacts before confirming an operation",
-  onboardingCapabilityOrganize:
-    "AI Organize: current semantic proposal → deterministic Preview → your confirmation",
-  onboardingCapabilityCleanup:
-    "AI Cleanup: separate analysis permission → Cleanup Preview → safe move to trash",
-  onboardingCapabilityRestore:
-    "History and Restore: inspect operations and recover supported changes",
-  onboardingSkipFeatureBoundary:
-    "After skipping AI, Files, Search, Preview, and History/Restore remain available. AI Organize and AI Cleanup remain gated until their provider, scope, and permissions are ready.",
+  onboardingCapabilityPreview: "Preview: inspect impacts before confirming an operation",
+  onboardingCapabilityOrganize: "AI Organize: current semantic proposal → deterministic Preview → your confirmation",
+  onboardingCapabilityCleanup: "AI Cleanup: separate analysis permission → Cleanup Preview → safe move to trash",
+  onboardingCapabilityRestore: "History and Restore: inspect operations and recover supported changes",
+  onboardingSkipFeatureBoundary: "After skipping AI, Files, Search, Preview, and History/Restore remain available. AI Organize and AI Cleanup remain gated until their provider, scope, and permissions are ready.",
   aiReadinessLoading: "Checking AI readiness…",
-  aiReadinessBrowserMock:
-    "This browser view uses an explicit presentation fixture; it does not represent backend readiness, SemanticAssessmentV1, or file-operation authority.",
+  aiReadinessBrowserMock: "This browser view uses an explicit presentation fixture; it does not represent backend readiness, SemanticAssessmentV1, or file-operation authority.",
   aiReadinessUnavailableTitle: "AI readiness is unavailable",
-  aiReadinessUnavailableDesc:
-    "The readiness query failed. The backend continues to verify every analysis, Preview, and execution request independently.",
+  aiReadinessUnavailableDesc: "The readiness query failed. The backend continues to verify every analysis, Preview, and execution request independently.",
   aiReadinessRetry: "Check again",
   aiReadinessOpenSettings: "Open related settings",
   aiReadinessProviderReady: "The provider is ready for new AI analysis.",
   aiReadinessProviderDisabled: "The AI provider is disabled.",
-  aiReadinessProviderInvalid:
-    "Provider configuration is invalid. Check AI Settings.",
-  aiReadinessProviderModelMissing:
-    "No model is selected. Choose one in AI Settings.",
-  aiReadinessProviderCredential:
-    "The cloud provider needs credentials. Configure them in AI Settings.",
+  aiReadinessProviderInvalid: "Provider configuration is invalid. Check AI Settings.",
+  aiReadinessProviderModelMissing: "No model is selected. Choose one in AI Settings.",
+  aiReadinessProviderCredential: "The cloud provider needs credentials. Configure them in AI Settings.",
   aiReadinessProviderSetup: "The AI provider is not configured yet.",
-  aiReadinessProviderUnavailable:
-    "The AI provider cannot be verified right now. Retry or check Settings.",
+  aiReadinessProviderUnavailable: "The AI provider cannot be verified right now. Retry or check Settings.",
   aiReadinessManagedMissing: "No Managed AI scope is set up yet.",
   aiReadinessManagedReady: "At least one Managed AI scope is ready.",
-  aiReadinessManagedConsent:
-    "A Managed AI scope lacks permission for the current provider.",
+  aiReadinessManagedConsent: "A Managed AI scope lacks permission for the current provider.",
   aiReadinessManagedDisabled: "The Managed AI scope is disabled.",
   aiReadinessManagedUnavailable: "Managed AI scopes are unavailable right now.",
   organizeReadinessTitle: "AI Organize readiness",
   organizeReadinessProvider: "Provider: {status}",
   organizeReadinessManaged: "Managed AI scope: {status}",
   organizeReadinessPlan: "Current plan: {status}",
-  organizeReadinessBoundary:
-    "This status helps prepare new semantic analysis. Plan groups, current Preview, and execution remain governed by their backend safety checks.",
+  organizeReadinessBoundary: "This status helps prepare new semantic analysis. Plan groups, current Preview, and execution remain governed by their backend safety checks.",
   organizeReadinessPlanNeedsAnalysis: "Some items need AI analysis",
   organizeReadinessPlanReady: "The current plan has items ready for review",
-  organizeReadinessPlanReview:
-    "The current plan has items awaiting your decision",
+  organizeReadinessPlanReview: "The current plan has items awaiting your decision",
   organizeReadinessPlanBlocked: "The current plan has blocked or stale items",
   organizeReadinessPlanEmpty: "The current plan has no pending items",
   organizeReadinessPlanNone: "There is no current plan",
-  organizeReadinessAnalyzeBlocked:
-    "New Managed AI analysis is available when readiness is ready.",
+  organizeReadinessAnalyzeBlocked: "New Managed AI analysis is available when readiness is ready.",
   organizeSemanticExplanation: "Current AI semantic assessment",
-  organizeSemanticExplanationUnavailable:
-    "No current semantic explanation can be verified for this proposal. Analyze again or refresh the plan.",
+  organizeSemanticExplanationUnavailable: "No current semantic explanation can be verified for this proposal. Analyze again or refresh the plan.",
   cleanupReadinessTitle: "AI Cleanup readiness",
-  cleanupReadinessReady:
-    "The Cleanup provider, feature switch, and separate processing permission are ready.",
+  cleanupReadinessReady: "The Cleanup provider, feature switch, and separate processing permission are ready.",
   cleanupReadinessDisabled: "AI Cleanup is not enabled.",
-  cleanupReadinessLocalConsent:
-    "Cleanup does not have permission for local AI processing.",
-  cleanupReadinessCloudConsent:
-    "Cleanup does not have permission for cloud AI processing.",
+  cleanupReadinessLocalConsent: "Cleanup does not have permission for local AI processing.",
+  cleanupReadinessCloudConsent: "Cleanup does not have permission for cloud AI processing.",
   cleanupReadinessUnavailable: "Cleanup readiness is unavailable right now.",
-  cleanupReadinessBoundary:
-    "Readiness only controls new or refreshed AI assessments. Deterministic findings stay visible; the backend rechecks existing assessments and Preview against current facts.",
+  cleanupReadinessBoundary: "Readiness only controls new or refreshed AI assessments. Deterministic findings stay visible; the backend rechecks existing assessments and Preview against current facts.",
   settingsAppearanceLanguage: "Appearance & Language",
-  settingsAppearanceLanguageDesc:
-    "Set interface language, theme, and organization-folder naming.",
+  settingsAppearanceLanguageDesc: "Set interface language, theme, and organization-folder naming.",
   settingsScanRoots: "Scan Roots",
-  settingsScanRootsDesc:
-    "Manage local folders used by the Scan button by default.",
+  settingsScanRootsDesc: "Manage local folders used by the Scan button by default.",
   settingsOrganizeRoot: "Organization target root",
-  settingsOrganizeRootDesc:
-    "Choose the root used for preview target suggestions. Files are not moved automatically.",
+  settingsOrganizeRootDesc: "Choose the root used for preview target suggestions. Files are not moved automatically.",
   organizeRootCurrentFolder: "Classify under current folder",
   organizeRootZenCanvasFolder: "Centralize into ZenCanvas folder",
   organizeRootCustomRoot: "Custom organization folder",
-  organizeRootCurrentDesc:
-    "Create category folders directly under the original folder.",
-  organizeRootZenCanvasDesc:
-    "Centralize all category folders inside a ZenCanvas folder.",
+  organizeRootCurrentDesc: "Create category folders directly under the original folder.",
+  organizeRootZenCanvasDesc: "Centralize all category folders inside a ZenCanvas folder.",
   organizeRootCustomDesc: "All category folders are created under this root.",
   organizeRootPathPlaceholder: "Choose or enter an organization root",
   organizeRootPickerTitle: "Choose custom organization folder",
-  organizePreviewStillRequired:
-    "All operations still go through preview confirmation and never move files automatically.",
+  organizePreviewStillRequired: "All operations still go through preview confirmation and never move files automatically.",
   settingsSearch: "Search",
-  settingsSearchDesc:
-    "Configure the global search hotkey and local-index search scope.",
+  settingsSearchDesc: "Configure the global search hotkey and local-index search scope.",
   settingsSafetyRestore: "Safety & Restore",
-  settingsSafetyRestoreDesc:
-    "Control restore-log retention. Organization execution still requires preview confirmation.",
+  settingsSafetyRestoreDesc: "Control restore-log retention. Organization execution still requires preview confirmation.",
   settingsWindowBehavior: "Window Behavior",
-  settingsWindowBehaviorDesc:
-    "Choose how the close button handles the main window.",
+  settingsWindowBehaviorDesc: "Choose how the close button handles the main window.",
   settingsStartup: "Startup",
-  settingsStartupDesc:
-    "Choose whether Zen Canvas prepares indexing and search after login.",
+  settingsStartupDesc: "Choose whether Zen Canvas prepares indexing and search after login.",
   settingsDeveloperRelease: "Developer checks",
   folderNaming: "Folder naming language",
-  folderNamingDesc:
-    "Suggested folders use English business names by default, with Chinese names reserved as an option.",
+  folderNamingDesc: "Suggested folders use English business names by default, with Chinese names reserved as an option.",
   englishFolderNames: "English folders",
   chineseFolderNames: "Chinese folders",
   defaultScanFolders: "Default scan folders",
-  defaultScanFoldersDesc:
-    "Local folders scanned by the Scan button. Add any folder.",
-  defaultScanFoldersRestartHint:
-    "The Scan button and file watching update after settings are saved.",
+  defaultScanFoldersDesc: "Local folders scanned by the Scan button. Add any folder.",
+  defaultScanFoldersRestartHint: "The Scan button and file watching update after settings are saved.",
   addScanFolder: "Add folder",
   scanNow: "Scan now",
   deleteScanFolder: "Delete folder",
   confirmDeleteScanFolderTitle: "Remove this scan folder?",
-  confirmDeleteScanFolderDesc:
-    "Only removes this folder from default scan settings: {path}. It will not delete any files.",
+  confirmDeleteScanFolderDesc: "Only removes this folder from default scan settings: {path}. It will not delete any files.",
   enableScanFolder: "Enable folder",
   disableScanFolder: "Disable folder",
-  noDefaultScanFolders:
-    "No default scan folders. Scan will ask you to choose a folder.",
+  noDefaultScanFolders: "No default scan folders. Scan will ask you to choose a folder.",
   searchHotkey: "Search hotkey",
-  searchHotkeyDesc:
-    "One shortcut for in-window search and background global search.",
+  searchHotkeyDesc: "One shortcut for in-window search and background global search.",
   searchScopeSettings: "Search scope",
-  searchScopeSettingsDesc:
-    "Only affects top search and standalone Spotlight. Zen Canvas searches the local SQLite index, not the live full disk.",
+  searchScopeSettingsDesc: "Only affects top search and standalone Spotlight. Zen Canvas searches the local SQLite index, not the live full disk.",
   searchScopeLabel: "Search scope",
   searchScopeAllIndexed: "All indexed files",
   searchScopeCurrentScan: "Current scan folder",
   searchScopeCustomRoots: "Specific folder",
   searchScopeCustomEmpty: "No search folders configured",
-  searchScopeCurrentScanEmpty:
-    "There is no current scan folder. Scan a folder first, or change Search Scope to all indexed files in Settings.",
+  searchScopeCurrentScanEmpty: "There is no current scan folder. Scan a folder first, or change Search Scope to all indexed files in Settings.",
   searchScopeAllIndexedLabel: "Search scope: all indexed files",
-  searchLocalIndexBoundary:
-    "Zen Canvas searches the local index. Add and index folders to search more locations.",
-  searchRootIndexBoundary:
-    "New search folders are indexed locally in the background.",
-  searchScopeDoesNotChangeLibrary:
-    "Search scope settings do not change the current File Library scope. New search folders are indexed in the background.",
+  searchLocalIndexBoundary: "Zen Canvas searches the local index. Add and index folders to search more locations.",
+  searchRootIndexBoundary: "New search folders are indexed locally in the background.",
+  searchScopeDoesNotChangeLibrary: "Search scope settings do not change the current File Library scope. New search folders are indexed in the background.",
   addSearchFolder: "Add search folder",
   deleteSearchFolder: "Delete search folder",
   confirmDeleteSearchFolderTitle: "Remove this search folder?",
-  confirmDeleteSearchFolderDesc:
-    "Only removes this folder from the Spotlight search scope: {path}. It will not delete any files.",
+  confirmDeleteSearchFolderDesc: "Only removes this folder from the Spotlight search scope: {path}. It will not delete any files.",
   enableSearchFolder: "Enable search folder",
   disableSearchFolder: "Disable search folder",
   backgroundIndexQueued: "Queued for background indexing",
@@ -6399,12 +5471,9 @@ const en: Record<keyof typeof zh, string> = {
   backgroundIndexingShort: "Indexing…",
   backgroundIndexQueuedShort: "Queued",
   backgroundIndexOnStartup: "Update index in background on startup",
-  backgroundIndexOnStartupDesc:
-    "Updates the local index for enabled scan and search folders after launch. Files are not uploaded.",
-  watcherRetryExhausted:
-    "Filesystem watcher updates failed repeatedly. Please run a full scan.",
-  watcherReconciliationRequired:
-    "File changes are not fully reconciled. Rescan or reconcile the index.",
+  backgroundIndexOnStartupDesc: "Updates the local index for enabled scan and search folders after launch. Files are not uploaded.",
+  watcherRetryExhausted: "Filesystem watcher updates failed repeatedly. Please run a full scan.",
+  watcherReconciliationRequired: "File changes are not fully reconciled. Rescan or reconcile the index.",
   watcherStatusHealthy: "Synced",
   watcherStatusSyncing: "Syncing changes",
   watcherStatusReconciling: "Reconciling index",
@@ -6416,118 +5485,70 @@ const en: Record<keyof typeof zh, string> = {
   watcherStaleDesc: "The local index may be stale. Run a scan to refresh it.",
   watcherStatusFailed: "Sync failed; retry available",
   watcherStatusUnknown: "Reading status",
-  backgroundIndexCancelFailed:
-    "Failed to cancel background indexing; the current job is still running.",
-  errorSourceIdentityChanged:
-    "The file changed during the operation, so the operation was stopped.",
-  errorSourceClaimFailed:
-    "The source object could not be claimed safely, so the operation was stopped.",
-  errorSourceClaimMismatch:
-    "The claimed source identity did not match, so the operation stopped for review.",
-  errorSourceClaimRollbackFailed:
-    "The source claim could not be rolled back safely and needs manual review.",
-  errorSourceClaimRecoveryRequired:
-    "The source claim needs recovery review before the operation can continue.",
-  errorTargetParentIdentityChanged:
-    "The target directory changed, so the operation was stopped.",
-  errorAtomicSourceBindingUnsupported:
-    "The system cannot safely bind the source object, so the operation was stopped.",
-  errorCrossVolumeDirectoryMoveUnsupported:
-    "Cross-volume directory moves are unsupported; copy the directory manually.",
-  errorCrossVolumeFileMoveUnsupportedOnMacos:
-    "This cross-volume file move is unsupported on macOS.",
-  errorUnsupportedPlatformLinux:
-    "File changes, cleanup, and restore are unsupported on this platform.",
-  errorMacosFileMutationSourceBindingUnsupported:
-    "This macOS build cannot prove source-handle binding, so file changes, cleanup execution, and restore are safely disabled. Preview and analysis remain available.",
-  errorTargetCommittedSourceDeleteFailed:
-    "The target was committed but source cleanup failed; manual review is required.",
-  errorStagingIdentityChanged:
-    "The staging object identity changed, so commit stopped without moving the replacement object.",
-  errorSystemTrashSourceBindingUnsupported:
-    "The system trash API cannot prove source-handle binding; use Zen Canvas Safe Trash instead.",
-  errorStagingHandleCommitUnsupported:
-    "This filesystem cannot safely commit through the staging file handle, so the operation stopped.",
-  errorTargetCommittedDurabilityUnknown:
-    "The target was committed, but durability could not be confirmed; manual review is required.",
-  errorTargetCommittedIdentityMismatch:
-    "The target was committed, but post-commit identity verification failed; manual review is required.",
-  errorTargetCommittedSourceCleanupPending:
-    "The target was committed and source cleanup is still pending; manual review is required.",
-  errorMacProviderMaterializationFailed:
-    "The provider content could not be prepared; the file operation was not executed.",
-  errorMacProviderMaterializationCancelled:
-    "The download was canceled; the file operation was not executed.",
-  errorMacProviderMaterializationRequired:
-    "This item must be downloaded locally first. Choose “Download and continue” in the preview.",
-  errorMacProviderDownloadFailed:
-    "The provider download failed; this operation did not modify the source or target.",
-  errorMacProviderCoordinationFailed:
-    "File Provider coordination failed, so the operation stopped safely.",
-  errorMacProviderUrlChanged:
-    "The provider object changed during download. Refresh the preview and try again.",
-  errorMacProviderIdentityUnavailable:
-    "The File Provider object identity is unavailable, so the operation stopped safely.",
-  errorMacProviderItemUnavailable:
-    "The File Provider object availability could not be confirmed, so the operation stopped safely.",
-  errorMacProviderOffline:
-    "The File Provider is offline, so the operation stopped safely.",
-  errorMacProviderPermissionDenied:
-    "The File Provider permission was denied, so the operation stopped safely.",
-  errorMacFilesystemCapabilityInsufficient:
-    "This filesystem cannot prove safe source retirement, so the operation stopped.",
-  errorMacSourceRetirementPending:
-    "The target was created but the original was not removed. Retry source retirement or keep both.",
-  errorRestorePendingReconciliation:
-    "The restore was interrupted and is waiting for startup reconciliation.",
-  errorClaimIdentityMismatch:
-    "The claimed object identity did not match, so the operation stopped for manual review.",
-  errorManualReviewRequired:
-    "This file state needs manual review. Check the paths and identity before deciding what to do next.",
-  errorDirectoryManifestNameEncodingFailed:
-    "A directory name could not be encoded safely, so the operation was stopped.",
-  errorAtomicNoReplaceUnsupported:
-    "This filesystem does not support safe no-overwrite commits.",
-  errorCopyVerificationFailed:
-    "The copied file failed identity verification, so the operation was stopped.",
-  errorTargetParentDurabilityUnknown:
-    "The target directory could not be confirmed durable, so the operation was stopped.",
-  errorCredentialConflict:
-    "The credential transaction conflicted. Please try again.",
-  errorCredentialTransactionUnavailable:
-    "The credential store is unavailable. Please try again later.",
-  settingsRevisionConflict:
-    "Settings changed elsewhere. Please retry the save.",
+  backgroundIndexCancelFailed: "Failed to cancel background indexing; the current job is still running.",
+  errorSourceIdentityChanged: "The file changed during the operation, so the operation was stopped.",
+  errorSourceClaimFailed: "The source object could not be claimed safely, so the operation was stopped.",
+  errorSourceClaimMismatch: "The claimed source identity did not match, so the operation stopped for review.",
+  errorSourceClaimRollbackFailed: "The source claim could not be rolled back safely and needs manual review.",
+  errorSourceClaimRecoveryRequired: "The source claim needs recovery review before the operation can continue.",
+  errorTargetParentIdentityChanged: "The target directory changed, so the operation was stopped.",
+  errorAtomicSourceBindingUnsupported: "The system cannot safely bind the source object, so the operation was stopped.",
+  errorCrossVolumeDirectoryMoveUnsupported: "Cross-volume directory moves are unsupported; copy the directory manually.",
+  errorCrossVolumeFileMoveUnsupportedOnMacos: "This cross-volume file move is unsupported on macOS.",
+  errorUnsupportedPlatformLinux: "File changes, cleanup, and restore are unsupported on this platform.",
+  errorMacosFileMutationSourceBindingUnsupported: "This macOS build cannot prove source-handle binding, so file changes, cleanup execution, and restore are safely disabled. Preview and analysis remain available.",
+  errorTargetCommittedSourceDeleteFailed: "The target was committed but source cleanup failed; manual review is required.",
+  errorStagingIdentityChanged: "The staging object identity changed, so commit stopped without moving the replacement object.",
+  errorSystemTrashSourceBindingUnsupported: "The system trash API cannot prove source-handle binding; use Zen Canvas Safe Trash instead.",
+  errorStagingHandleCommitUnsupported: "This filesystem cannot safely commit through the staging file handle, so the operation stopped.",
+  errorTargetCommittedDurabilityUnknown: "The target was committed, but durability could not be confirmed; manual review is required.",
+  errorTargetCommittedIdentityMismatch: "The target was committed, but post-commit identity verification failed; manual review is required.",
+  errorTargetCommittedSourceCleanupPending: "The target was committed and source cleanup is still pending; manual review is required.",
+  errorMacProviderMaterializationFailed: "The provider content could not be prepared; the file operation was not executed.",
+  errorMacProviderMaterializationCancelled: "The download was canceled; the file operation was not executed.",
+  errorMacProviderMaterializationRequired: "This item must be downloaded locally first. Choose “Download and continue” in the preview.",
+  errorMacProviderDownloadFailed: "The provider download failed; this operation did not modify the source or target.",
+  errorMacProviderCoordinationFailed: "File Provider coordination failed, so the operation stopped safely.",
+  errorMacProviderUrlChanged: "The provider object changed during download. Refresh the preview and try again.",
+  errorMacProviderIdentityUnavailable: "The File Provider object identity is unavailable, so the operation stopped safely.",
+  errorMacProviderItemUnavailable: "The File Provider object availability could not be confirmed, so the operation stopped safely.",
+  errorMacProviderOffline: "The File Provider is offline, so the operation stopped safely.",
+  errorMacProviderPermissionDenied: "The File Provider permission was denied, so the operation stopped safely.",
+  errorMacFilesystemCapabilityInsufficient: "This filesystem cannot prove safe source retirement, so the operation stopped.",
+  errorMacSourceRetirementPending: "The target was created but the original was not removed. Retry source retirement or keep both.",
+  errorRestorePendingReconciliation: "The restore was interrupted and is waiting for startup reconciliation.",
+  errorClaimIdentityMismatch: "The claimed object identity did not match, so the operation stopped for manual review.",
+  errorManualReviewRequired: "This file state needs manual review. Check the paths and identity before deciding what to do next.",
+  errorDirectoryManifestNameEncodingFailed: "A directory name could not be encoded safely, so the operation was stopped.",
+  errorAtomicNoReplaceUnsupported: "This filesystem does not support safe no-overwrite commits.",
+  errorCopyVerificationFailed: "The copied file failed identity verification, so the operation was stopped.",
+  errorTargetParentDurabilityUnknown: "The target directory could not be confirmed durable, so the operation was stopped.",
+  errorCredentialConflict: "The credential transaction conflicted. Please try again.",
+  errorCredentialTransactionUnavailable: "The credential store is unavailable. Please try again later.",
+  settingsRevisionConflict: "Settings changed elsewhere. Please retry the save.",
   indexNow: "Index now",
   indexSearchFolders: "Index Search Folders",
-  commandCustomRootsNoResults:
-    "No results. Custom search folders must be indexed first. If this folder was just added, wait for indexing to finish or index it now.",
-  commandIndexQueued:
-    "Queued for indexing. Results will be searchable when indexing finishes.",
+  commandCustomRootsNoResults: "No results. Custom search folders must be indexed first. If this folder was just added, wait for indexing to finish or index it now.",
+  commandIndexQueued: "Queued for indexing. Results will be searchable when indexing finishes.",
   save: "Save",
   changeHotkey: "Change hotkey",
   recordingHotkey: "Press a new hotkey combination, or press Esc to cancel.",
   settingsEscapeKey: "Esc",
   hotkeyCaptureTitle: "Recording hotkey",
   hotkeyCaptureCurrent: "Current keys",
-  hotkeyInvalid:
-    "Invalid hotkey. Use a combination with Ctrl, Cmd, Alt, or Shift.",
-  hotkeyRestartHint:
-    "The global search hotkey will update after restarting the app",
+  hotkeyInvalid: "Invalid hotkey. Use a combination with Ctrl, Cmd, Alt, or Shift.",
+  hotkeyRestartHint: "The global search hotkey will update after restarting the app",
   hotkeyActiveHint: "The global search hotkey is active now",
-  hotkeyConflictHint:
-    "The current hotkey may be reserved by the system or another app. Try a different shortcut.",
+  hotkeyConflictHint: "The current hotkey may be reserved by the system or another app. Try a different shortcut.",
   hotkeySaved: "Hotkey saved",
   hotkeyConflict: "Hotkey conflict. Choose another combination.",
   searchSources: "Search sources",
-  searchSourcesDesc:
-    "Controls which locations power the top search and index rebuilds.",
+  searchSourcesDesc: "Controls which locations power the top search and index rebuilds.",
   staleIndex: "stale",
   rebuildIndex: "Rebuild index",
   indexRebuilt: "Index rebuilt",
   backgroundResident: "Background resident",
-  backgroundResidentDesc:
-    "When enabled, closing the window keeps the global search hotkey alive.",
+  backgroundResidentDesc: "When enabled, closing the window keeps the global search hotkey alive.",
   launchAtLogin: "Launch at login",
   launchAtLoginDesc: "Prepare indexing and quick search after system startup.",
   enabled: "On",
@@ -6543,37 +5564,30 @@ const en: Record<keyof typeof zh, string> = {
   advancedSettings: "Advanced settings",
   excludedDirs: "Excluded directories",
   logRetention: "Log retention",
-  logRetentionDesc:
-    "Restore logs are kept for 30 days by default and can be adjusted.",
+  logRetentionDesc: "Restore logs are kept for 30 days by default and can be adjusted.",
   days: "days",
   closeBehavior: "Close button behavior",
-  closeBehaviorDesc:
-    "Choose whether the top-right close button asks, minimizes to background, or quits.",
+  closeBehaviorDesc: "Choose whether the top-right close button asks, minimizes to background, or quits.",
   askEveryTime: "Ask every time",
   closeChoiceTitle: "Close Zen Canvas?",
-  closeChoiceDesc:
-    "Minimize to background to keep global search, or quit the app completely.",
+  closeChoiceDesc: "Minimize to background to keep global search, or quit the app completely.",
   doNotAskAgain: "Do not ask again",
   minimizeToTray: "Minimize to background",
   quitApp: "Quit app",
   cancel: "Cancel",
   desktopOnlySetting: "This setting is only available in the desktop app.",
   releaseReady: "Build check",
-  releaseReadyDesc:
-    "Check tests, build, and security audit status before publishing.",
-  developerReleaseDesc:
-    "Developer-facing information. Most users do not need to change anything here.",
+  releaseReadyDesc: "Check tests, build, and security audit status before publishing.",
+  developerReleaseDesc: "Developer-facing information. Most users do not need to change anything here.",
   globalSearch: "Search folders, files, actions, or settings",
   commandPlaceholder: "Search files, folders, actions, or settings",
   commandIdleTitle: "Type to search",
-  commandIdleDesc:
-    "Search file names, paths, extensions, or purpose. Results open a preview and never move files automatically.",
+  commandIdleDesc: "Search file names, paths, extensions, or purpose. Results open a preview and never move files automatically.",
   commandTypingTitle: "Preparing search",
   commandFailedTitle: "Search is temporarily unavailable",
   commandNoResultsTitle: "No matching results",
   commandScopedEmptyTitle: "This search scope is empty",
-  commandScopedEmptyDesc:
-    "Enable search folders in Settings, or switch Spotlight to all indexed files.",
+  commandScopedEmptyDesc: "Enable search folders in Settings, or switch Spotlight to all indexed files.",
   commandScopeMeta: "Search scope",
   commandKeyboardHint: "Use arrow keys to move through results",
   commandClearSearch: "Clear Spotlight search",
@@ -6582,11 +5596,9 @@ const en: Record<keyof typeof zh, string> = {
   commandPreviewHint: "Create preview",
   commandSearching: "Searching…",
   commandSearchFailed: "Search failed. Please try again.",
-  commandNoResults:
-    "No matching files found. Try a file name, extension, path keyword, or scan a folder first.",
+  commandNoResults: "No matching files found. Try a file name, extension, path keyword, or scan a folder first.",
   globalSearchNoSourcesTitle: "Configure a global index source",
-  globalSearchNoSourcesDesc:
-    "No global index source is enabled. Enable or configure a source in Global Index settings before searching.",
+  globalSearchNoSourcesDesc: "No global index source is enabled. Enable or configure a source in Global Index settings before searching.",
   windowControls: "Window controls",
   bestMatches: "Best Matches",
   smartMatches: "Smart matches",
@@ -6609,21 +5621,16 @@ const en: Record<keyof typeof zh, string> = {
   skipped: "Skipped",
   scanning: "Scanning",
   cancelScan: "Cancel scan",
-  scanAlreadyInProgress:
-    "A scan is already running for this location. Wait for it to finish before trying again.",
+  scanAlreadyInProgress: "A scan is already running for this location. Wait for it to finish before trying again.",
   scanCanceled: "Scan canceled",
   scanCanceling: "Canceling scan...",
   scanProgressLine: "{files} indexed, {skipped} skipped, current: {path}",
-  scanWarnings:
-    "{count} scan warnings were recorded. Review skipped or confirmation-needed files in the library.",
-  scanIndexIncomplete:
-    "Scan finished with {files} files indexed, but some paths could not be read, so the index may be incomplete. Re-scan to fix.",
+  scanWarnings: "{count} scan warnings were recorded. Review skipped or confirmation-needed files in the library.",
+  scanIndexIncomplete: "Scan finished with {files} files indexed, but some paths could not be read, so the index may be incomplete. Re-scan to fix.",
   storageCleanupSafetyTitle: "Cleanup safety boundary",
-  storageCleanupSafetyDesc:
-    "Zen Canvas only analyzes the selected scope. Files are never deleted automatically. This version only moves items to Zen Canvas Safe Trash after confirmation on this page.",
+  storageCleanupSafetyDesc: "Zen Canvas only analyzes the selected scope. Files are never deleted automatically. This version only moves items to Zen Canvas Safe Trash after confirmation on this page.",
   storageCleanupChooseScope: "Choose a disk or folder to analyze",
-  storageCleanupScopeSafetyDesc:
-    "Zen Canvas only analyzes the selected scope. Files are never deleted automatically.",
+  storageCleanupScopeSafetyDesc: "Zen Canvas only analyzes the selected scope. Files are never deleted automatically.",
   storageCleanupCurrentScope: "Current cleanup scope",
   storageCleanupScopeValue: "Cleanup scope: {path}",
   storageCleanupNoScopeSelected: "No cleanup scope selected",
@@ -6633,15 +5640,11 @@ const en: Record<keyof typeof zh, string> = {
   storageCleanupNoActiveScan: "No scan is currently running.",
   storageCleanupCandidateLoadFailed: "Unable to load cleanup candidates.",
   storageCleanupScanNotCompleted: "The scan did not complete.",
-  storageCleanupScanMissingAnalysis:
-    "The scan completed without analysis results.",
-  storageCleanupCancelFailed:
-    "The cancel request failed. Check the background job and try again.",
-  storageCleanupCancelWaiting:
-    "Cancel requested; still waiting for backend confirmation.",
+  storageCleanupScanMissingAnalysis: "The scan completed without analysis results.",
+  storageCleanupCancelFailed: "The cancel request failed. Check the background job and try again.",
+  storageCleanupCancelWaiting: "Cancel requested; still waiting for backend confirmation.",
   storageCleanupChooseScopeEmptyTitle: "Choose a disk or folder to start",
-  storageCleanupChooseScopeEmptyDesc:
-    "For example Downloads, Desktop, D:\\Projects, or an entire F: drive.",
+  storageCleanupChooseScopeEmptyDesc: "For example Downloads, Desktop, D:\\Projects, or an entire F: drive.",
   storageCleanupQuickDownloads: "Downloads",
   storageCleanupQuickDesktop: "Desktop",
   storageCleanupQuickDocuments: "Documents",
@@ -6649,10 +5652,8 @@ const en: Record<keyof typeof zh, string> = {
   storageCleanupRescan: "Rescan",
   storageCleanupLoadFailed: "Storage cleanup failed to load",
   storageCleanupLoading: "Analyzing local storage",
-  storageCleanupLoadingDesc:
-    "Zen Canvas only reads metadata and directory sizes. It does not write, delete, or change permissions.",
-  storageCleanupScanningDesc:
-    "Analyzing storage usage. This may take a little time.",
+  storageCleanupLoadingDesc: "Zen Canvas only reads metadata and directory sizes. It does not write, delete, or change permissions.",
+  storageCleanupScanningDesc: "Analyzing storage usage. This may take a little time.",
   storageCleanupProgressLine: "Scanned {count} entries, identified {size}",
   storageCleanupCancelScan: "Cancel scan",
   storageCleanupAllFilter: "All",
@@ -6666,59 +5667,40 @@ const en: Record<keyof typeof zh, string> = {
   storageCleanupDeniedLowEstimate: "Not counted; result may be underestimated",
   storageCleanupDeniedNone: "No permission-limited paths",
   storageCleanupDeniedTitle: "Some paths were not counted",
-  storageCleanupDeniedDesc:
-    "{count} paths could not be read or were skipped by safety rules. They were not counted, so results may be underestimated.",
+  storageCleanupDeniedDesc: "{count} paths could not be read or were skipped by safety rules. They were not counted, so results may be underestimated.",
   storageCleanupTopRanking: "Top usage ranking",
   storageCleanupScopeWarningTitle: "Scope warning",
-  storageCleanupTopRankingDesc:
-    "Sorted by identified candidate size from largest to smallest.",
+  storageCleanupTopRankingDesc: "Sorted by identified candidate size from largest to smallest.",
   storageCleanupAIPanelTitle: "AI storage cleanup analysis",
-  storageCleanupAIPanelDesc:
-    "Use the current AI model to review cleanup candidates and add risk notes. AI never deletes files automatically; cleanup still requires manual confirmation and Safe Trash.",
+  storageCleanupAIPanelDesc: "Use the current AI model to review cleanup candidates and add risk notes. AI never deletes files automatically; cleanup still requires manual confirmation and Safe Trash.",
   storageCleanupAIAnalyzeAllShort: "Analyze all candidates",
   storageCleanupAIAnalyzeAll: "Analyze cleanup risk with AI",
   storageCleanupAIAnalyzeRisk: "AI review high-risk items",
   storageCleanupAIAnalyzeSelected: "AI analyze selected",
   storageCleanupAIStatusTitle: "AI cleanup analysis",
-  storageCleanupAISuccess:
-    "AI analyzed {count} cleanup candidates. Execution still requires your manual confirmation.",
-  storageCleanupAISuccessSummary:
-    "AI analyzed {count} candidates: {safe} safe to clean, {review} need review, and {caution} need caution.",
-  storageCleanupAISuccessNoSafe:
-    "AI found no item to add automatically. Review the risk notes and manually confirm items before adding them to Safe Trash.",
+  storageCleanupAISuccess: "AI analyzed {count} cleanup candidates. Execution still requires your manual confirmation.",
+  storageCleanupAISuccessSummary: "AI analyzed {count} candidates: {safe} safe to clean, {review} need review, and {caution} need caution.",
+  storageCleanupAISuccessNoSafe: "AI found no item to add automatically. Review the risk notes and manually confirm items before adding them to Safe Trash.",
   storageCleanupAIScanFirst: "Please scan storage first",
   storageCleanupAIEnableAI: "Please enable AI in settings first",
   storageCleanupAIEnableCleanup: "Please enable AI storage cleanup analysis",
-  storageCleanupAIErrorMissingKey:
-    "This model provider needs an API key. Add one in AI settings.",
-  storageCleanupAIErrorRateLimit:
-    "The model provider is rate-limiting requests. Analyze fewer items or try again later.",
-  storageCleanupAIErrorTimeout:
-    "The model request timed out. Analyze fewer items, try again later, or use a more stable model.",
-  storageCleanupAIErrorBadRequest:
-    "The model provider rejected the request parameters. Check the AI service configuration and try again.",
-  storageCleanupAIErrorAuth:
-    "Model provider authentication or permission failed. Check the API key and model permissions.",
-  storageCleanupAIErrorNetwork:
-    "The model provider could not be reached. Check the Base URL, Chat Path, network, and API key.",
-  storageCleanupAIErrorInvalidResponse:
-    "The model did not return a valid result. Use a more stable model or try again later.",
-  storageCleanupAIErrorUnsafeResult:
-    "Zen Canvas rejected the AI result because it contained an unsafe path or operation.",
-  storageCleanupResultExpired:
-    "This cleanup result has expired. Rescan before continuing.",
+  storageCleanupAIErrorMissingKey: "This model provider needs an API key. Add one in AI settings.",
+  storageCleanupAIErrorRateLimit: "The model provider is rate-limiting requests. Analyze fewer items or try again later.",
+  storageCleanupAIErrorTimeout: "The model request timed out. Analyze fewer items, try again later, or use a more stable model.",
+  storageCleanupAIErrorBadRequest: "The model provider rejected the request parameters. Check the AI service configuration and try again.",
+  storageCleanupAIErrorAuth: "Model provider authentication or permission failed. Check the API key and model permissions.",
+  storageCleanupAIErrorNetwork: "The model provider could not be reached. Check the Base URL, Chat Path, network, and API key.",
+  storageCleanupAIErrorInvalidResponse: "The model did not return a valid result. Use a more stable model or try again later.",
+  storageCleanupAIErrorUnsafeResult: "Zen Canvas rejected the AI result because it contained an unsafe path or operation.",
+  storageCleanupResultExpired: "This cleanup result has expired. Rescan before continuing.",
   storageCleanupAIAnalyzing: "Analyzing cleanup risk with AI...",
-  storageCleanupAIReadyHint:
-    "AI only enhances candidate risk notes and suggestions. It will not move or delete files.",
-  storageCleanupAINoTargets:
-    "No cleanup candidates are available for AI analysis.",
-  storageCleanupAIUnsupported:
-    "AI cleanup analysis is not supported in this environment.",
+  storageCleanupAIReadyHint: "AI only enhances candidate risk notes and suggestions. It will not move or delete files.",
+  storageCleanupAINoTargets: "No cleanup candidates are available for AI analysis.",
+  storageCleanupAIUnsupported: "AI cleanup analysis is not supported in this environment.",
   storageCleanupAIAnalyzedBadge: "AI",
   storageCleanupAIReasonLabel: "AI risk note",
   storageCleanupAIRiskNoteLabel: "AI recommendation",
-  storageCleanupAIDowngraded:
-    "AI recommendation was downgraded by safety rules",
+  storageCleanupAIDowngraded: "AI recommendation was downgraded by safety rules",
   storageCleanupTrashAllowed: "Trash allowed",
   storageCleanupTrashBlocked: "Trash blocked",
   storageCleanupSelectedByDefault: "Selected by default",
@@ -6731,61 +5713,44 @@ const en: Record<keyof typeof zh, string> = {
   storageCleanupSafeTier: "Safe cleanup",
   storageCleanupReviewTier: "Needs review",
   storageCleanupCautionTier: "Caution",
-  storageCleanupSafeTierDesc:
-    "Temporary files and explicit package caches can be selected by default; build output requires manual selection.",
-  storageCleanupReviewTierDesc:
-    "Downloads, documents, videos, and unknown large folders only reveal their location by default.",
-  storageCleanupCautionTierDesc:
-    "System paths, app bodies, databases, and core configuration do not get cleanup buttons.",
+  storageCleanupSafeTierDesc: "Temporary files and explicit package caches can be selected by default; build output requires manual selection.",
+  storageCleanupReviewTierDesc: "Downloads, documents, videos, and unknown large folders only reveal their location by default.",
+  storageCleanupCautionTierDesc: "System paths, app bodies, databases, and core configuration do not get cleanup buttons.",
   storageCleanupNoCandidates: "No candidates",
-  storageCleanupNoCandidatesDesc:
-    "No item in the current scan result belongs to this tier.",
+  storageCleanupNoCandidatesDesc: "No item in the current scan result belongs to this tier.",
   storageCleanupMacosPackageCategory: "macOS package",
-  storageCleanupMacosPackageReason:
-    "This package is shown as one logical item; Zen Canvas does not inspect or clean its contents.",
-  storageCleanupMacosPackageRisk:
-    "Review it in Finder or its owning app. Direct package cleanup is disabled.",
+  storageCleanupMacosPackageReason: "This package is shown as one logical item; Zen Canvas does not inspect or clean its contents.",
+  storageCleanupMacosPackageRisk: "Review it in Finder or its owning app. Direct package cleanup is disabled.",
   storageCleanupCloudItemCategory: "Cloud file",
-  storageCleanupCloudItemReason:
-    "This cloud item is not local; cleanup assessment is deferred without triggering a download.",
-  storageCleanupCloudItemRisk:
-    "No reclaimable space is estimated and the placeholder is not read or moved until local content is available.",
+  storageCleanupCloudItemReason: "This cloud item is not local; cleanup assessment is deferred without triggering a download.",
+  storageCleanupCloudItemRisk: "No reclaimable space is estimated and the placeholder is not read or moved until local content is available.",
   storageCleanupAddToPreview: "Add to cleanup list",
   storageCleanupReveal: "Reveal location",
   storageCleanupViewAdvice: "View advice",
   storageCleanupSelectForTrash: "Select for trash",
   storageCleanupReviewConfirmTitle: "Confirm adding to cleanup list",
-  storageCleanupReviewConfirmEmphasis:
-    "This item needs your judgment. It will only move to Safe Trash after final confirmation and is never permanently deleted.",
+  storageCleanupReviewConfirmEmphasis: "This item needs your judgment. It will only move to Safe Trash after final confirmation and is never permanently deleted.",
   storageCleanupSelected: "Selected",
   storageCleanupCanMoveToTrash: "Can move to trash",
   storageCleanupMoveToTrash: "Move to Trash",
   storageCleanupMoveToSafeTrash: "Move to Safe Trash",
   storageCleanupConfirmTrashTitle: "Confirm move to Safe Trash",
-  storageCleanupConfirmTrashDesc:
-    "Move {count} green items to Zen Canvas Safe Trash, estimated up to {size}. Nothing is permanently deleted, and review/caution items are not processed.",
+  storageCleanupConfirmTrashDesc: "Move {count} green items to Zen Canvas Safe Trash, estimated up to {size}. Nothing is permanently deleted, and review/caution items are not processed.",
   storageCleanupConfirmSafeTrashTitle: "Confirm move to Safe Trash",
-  storageCleanupConfirmSafeTrashDesc:
-    "Move {count} green items to Zen Canvas Safe Trash, estimated up to {size}. Nothing is permanently deleted, and review/caution items are not processed.",
+  storageCleanupConfirmSafeTrashDesc: "Move {count} green items to Zen Canvas Safe Trash, estimated up to {size}. Nothing is permanently deleted, and review/caution items are not processed.",
   storageCleanupExecutionDone: "Cleanup result",
-  storageCleanupExecutionSummary:
-    "Moved {moved}, skipped {skipped}, failed {failed}.",
-  storageCleanupRestoreFromTrash:
-    "Files were moved to Zen Canvas Safe Trash. Restore them from Cleanup Trash in Recovery records.",
+  storageCleanupExecutionSummary: "Moved {moved}, skipped {skipped}, failed {failed}.",
+  storageCleanupRestoreFromTrash: "Files were moved to Zen Canvas Safe Trash. Restore them from Cleanup Trash in Recovery records.",
   storageCleanupGeneratePreview: "View safe cleanup candidates",
   storageCleanupSelectedSafe: "{count} green items selected",
   storageCleanupSelectedEstimate: "Estimated maximum reclaim: {size}",
   storageCleanupPreviewTitle: "Cleanup list",
-  storageCleanupPreviewDesc:
-    "This version does not automatically delete files. It only shows candidates and reasons.",
+  storageCleanupPreviewDesc: "This version does not automatically delete files. It only shows candidates and reasons.",
   storageCleanupQuickScopesLabel: "Quick cleanup scopes",
-  storageCleanupDurableUnavailableTitle:
-    "Storage cleanup is temporarily unavailable",
-  storageCleanupDurableUnavailableDesc:
-    "The durable analysis service is not ready. Existing index and files are unaffected; try again later.",
+  storageCleanupDurableUnavailableTitle: "Storage cleanup is temporarily unavailable",
+  storageCleanupDurableUnavailableDesc: "The durable analysis service is not ready. Existing index and files are unaffected; try again later.",
   storageCleanupDurableLoading: "Loading cleanup records",
-  storageCleanupDurableLoadingDesc:
-    "Restoring the latest cleanup analysis. Existing results remain available.",
+  storageCleanupDurableLoadingDesc: "Restoring the latest cleanup analysis. Existing results remain available.",
   storageCleanupRunMetricsLabel: "Cleanup analysis summary",
   storageCleanupWorkflowLabel: "Cleanup workflow",
   storageCleanupWorkflowScan: "Scan",
@@ -6801,13 +5766,10 @@ const en: Record<keyof typeof zh, string> = {
   storageCleanupSummaryRecovery: "Recovery path",
   storageCleanupSummaryRecoveryValue: "Safe Trash",
   storageCleanupSummaryNoRun: "Not analyzed yet",
-  storageCleanupSafetyNoticeTitle:
-    "Nothing is permanently deleted automatically",
-  storageCleanupSafetyNoticeDesc:
-    "Paths, revisions, and file identity are checked again before submission; confirmation only moves items into Safe Trash.",
+  storageCleanupSafetyNoticeTitle: "Nothing is permanently deleted automatically",
+  storageCleanupSafetyNoticeDesc: "Paths, revisions, and file identity are checked again before submission; confirmation only moves items into Safe Trash.",
   storageCleanupPreviewUnavailableTitle: "Safe preview unavailable",
-  storageCleanupPreviewUnavailableDesc:
-    "No file entered Safe Trash. Check the current analysis result and try again.",
+  storageCleanupPreviewUnavailableDesc: "No file entered Safe Trash. Check the current analysis result and try again.",
   storageCleanupPreviewLoading: "Preparing safe preview",
   storageCleanupExecuting: "Submitting to Safe Trash",
   storageCleanupExecutionPartial: "Cleanup partially complete",
@@ -6817,45 +5779,31 @@ const en: Record<keyof typeof zh, string> = {
   storageCleanupRunRunning: "Analyzing the cleanup scope",
   storageCleanupRunCanceling: "Canceling analysis",
   storageCleanupRunCompleted: "Analysis complete",
-  storageCleanupRunCompletedDesc:
-    "Completed {detectors} detectors and published {findings} findings.",
-  storageCleanupRunCompletedEmptyTitle:
-    "Analysis complete, no cleanup findings",
-  storageCleanupRunCompletedEmptyDesc:
-    "No reviewable findings were published for this scope; Safe Trash is unavailable.",
+  storageCleanupRunCompletedDesc: "Completed {detectors} detectors and published {findings} findings.",
+  storageCleanupRunCompletedEmptyTitle: "Analysis complete, no cleanup findings",
+  storageCleanupRunCompletedEmptyDesc: "No reviewable findings were published for this scope; Safe Trash is unavailable.",
   storageCleanupRunPartialTitle: "Analysis finished with locations to review",
-  storageCleanupRunPartialDesc:
-    "{warnings} warnings, {errors} errors, and {failed} detectors did not finish. Existing findings remain reviewable; retry if needed.",
-  storageCleanupRunPartialEmptyTitle:
-    "Analysis partially complete, no reviewable findings",
-  storageCleanupRunPartialEmptyDesc:
-    "Only the completed detector scope is represented; this is not a complete-scope conclusion, and Safe Trash is unavailable.",
+  storageCleanupRunPartialDesc: "{warnings} warnings, {errors} errors, and {failed} detectors did not finish. Existing findings remain reviewable; retry if needed.",
+  storageCleanupRunPartialEmptyTitle: "Analysis partially complete, no reviewable findings",
+  storageCleanupRunPartialEmptyDesc: "Only the completed detector scope is represented; this is not a complete-scope conclusion, and Safe Trash is unavailable.",
   storageCleanupRunRetry: "Retry analysis",
   storageCleanupRunFailed: "Analysis did not finish",
-  storageCleanupRunFailedDesc:
-    "A complete usable analysis result was not produced. Check scope permissions and retry.",
+  storageCleanupRunFailedDesc: "A complete usable analysis result was not produced. Check scope permissions and retry.",
   storageCleanupRunCanceled: "Analysis canceled",
-  storageCleanupRunCanceledDesc:
-    "Published findings remain available. Choose a scope and start again when ready.",
-  storageCleanupRunCanceledEmptyTitle:
-    "Analysis canceled, no reviewable findings",
-  storageCleanupRunCanceledEmptyDesc:
-    "No reviewable findings were published; this is not a complete-scope conclusion, and Safe Trash is unavailable.",
+  storageCleanupRunCanceledDesc: "Published findings remain available. Choose a scope and start again when ready.",
+  storageCleanupRunCanceledEmptyTitle: "Analysis canceled, no reviewable findings",
+  storageCleanupRunCanceledEmptyDesc: "No reviewable findings were published; this is not a complete-scope conclusion, and Safe Trash is unavailable.",
   storageCleanupDetectorProgress: "{completed} / {total} detectors complete",
-  storageCleanupDetectorFailureHint:
-    "Some detectors did not finish; results may be underestimated. Review the notice and retry.",
+  storageCleanupDetectorFailureHint: "Some detectors did not finish; results may be underestimated. Review the notice and retry.",
   storageCleanupFindingsTitle: "Review analysis findings",
-  storageCleanupFindingsDescription:
-    "Read the reason and evidence before deciding what enters Safe Trash. Caution items never get a cleanup action.",
+  storageCleanupFindingsDescription: "Read the reason and evidence before deciding what enters Safe Trash. Caution items never get a cleanup action.",
   storageCleanupFindingTabsLabel: "Cleanup finding tiers",
   storageCleanupTierTab: "{label} · {count}",
   storageCleanupFindingsLoading: "Loading analysis findings",
-  storageCleanupFindingsLoadingDesc:
-    "Loading the selected tier from the durable record. Continue to load more results as needed.",
+  storageCleanupFindingsLoadingDesc: "Loading the selected tier from the durable record. Continue to load more results as needed.",
   storageCleanupFindingsListLabel: "Cleanup analysis findings",
   storageCleanupNoFindingsTitle: "No findings in this tier",
-  storageCleanupNoFindingsDesc:
-    "This analysis did not publish reviewable items in the selected tier. Check another tier or analyze again.",
+  storageCleanupNoFindingsDesc: "This analysis did not publish reviewable items in the selected tier. Check another tier or analyze again.",
   storageCleanupLoadMore: "Load more findings",
   storageCleanupFindingWhy: "Why",
   storageCleanupFindingRisk: "Note",
@@ -6867,55 +5815,39 @@ const en: Record<keyof typeof zh, string> = {
   storageCleanupFindingBlocked: "Cannot be processed now",
   storageCleanupPathUnavailable: "Location unavailable",
   storageCleanupFindingEvidence: "View evidence",
-  storageCleanupCurrentAIAssessment:
-    "Current AI assessment validated by the backend",
-  storageCleanupCurrentAIAssessmentFixture:
-    "Browser presentation fixture marks this assessment current; backend currentness authority is unavailable here",
-  storageCleanupHistoricalAIAssessment:
-    "Historical AI assessment; currentness requires revalidation",
+  storageCleanupCurrentAIAssessment: "Current AI assessment validated by the backend",
+  storageCleanupCurrentAIAssessmentFixture: "Browser presentation fixture marks this assessment current; backend currentness authority is unavailable here",
+  storageCleanupHistoricalAIAssessment: "Historical AI assessment; currentness requires revalidation",
   storageCleanupFindingHideEvidence: "Hide evidence",
   storageCleanupFindingEvidenceEmpty: "No additional evidence is available.",
   storageCleanupFindingRecheck: "Recheck",
   storageCleanupFindingAcknowledge: "Acknowledge and select",
-  storageCleanupReviewConfirmDesc:
-    "Confirm that you understand “{name}” needs your judgment; it will still go through the safety preview.",
+  storageCleanupReviewConfirmDesc: "Confirm that you understand “{name}” needs your judgment; it will still go through the safety preview.",
   storageCleanupReviewConfirmAction: "Confirm and select",
   storageCleanupSelectionSummary: "{count} selected · {size}",
-  storageCleanupSelectionSafety:
-    "The server will revalidate revisions and file identity before execution.",
-  storageCleanupMutationUnavailable:
-    "File moves are unavailable in this environment; analysis results are still available.",
+  storageCleanupSelectionSafety: "The server will revalidate revisions and file identity before execution.",
+  storageCleanupMutationUnavailable: "File moves are unavailable in this environment; analysis results are still available.",
   storageCleanupPreviewReadyTitle: "Safe cleanup preview",
-  storageCleanupPreviewReadyDesc:
-    "This preview was revalidated by the server. Confirmation only moves items into Zen Canvas Safe Trash; nothing is permanently deleted.",
+  storageCleanupPreviewReadyDesc: "This preview was revalidated by the server. Confirmation only moves items into Zen Canvas Safe Trash; nothing is permanently deleted.",
   storageCleanupPreviewMetricsLabel: "Safe cleanup preview summary",
   storageCleanupPreviewItems: "Preview items",
   storageCleanupPreviewExecutable: "Executable",
   storageCleanupPreviewBlocked: "Blocked",
   storageCleanupPreviewConfirm: "Confirm Safe Trash",
-  storageCleanupPreviewTruncated:
-    "Showing {shown} / {total} items; execution still uses the server-authoritative preview.",
-  storageCleanupConfirmSafeTrashEmphasis:
-    "Safe Trash is recoverable, but the files will leave their original locations. Confirm that these items can be moved.",
+  storageCleanupPreviewTruncated: "Showing {shown} / {total} items; execution still uses the server-authoritative preview.",
+  storageCleanupConfirmSafeTrashEmphasis: "Safe Trash is recoverable, but the files will leave their original locations. Confirm that these items can be moved.",
   storageCleanupExecutionHistory: "View history and restore",
   storageCleanupAIRecheck: "Recheck items needing confirmation",
   storageCleanupAIRecheckWorking: "Rechecking…",
-  storageCleanupAIRecheckDone:
-    "Rechecked {count} items. AI only adds advice; cleanup still requires your confirmation.",
+  storageCleanupAIRecheckDone: "Rechecked {count} items. AI only adds advice; cleanup still requires your confirmation.",
   storageCleanupAIRecheckCancel: "Stop recheck",
-  storageCleanupAIRecheckCanceling:
-    "Waiting for the current AI request to finish…",
-  storageCleanupAIRecheckCanceled:
-    "The recheck was stopped; the current results are still usable.",
-  storageCleanupAIRecheckCanceledSummary:
-    "Recheck stopped: processed {processed}/{total}, skipped {skipped}, AI updates failed {mutationFailed}, authoritative read-backs failed {readbackFailed}.",
-  storageCleanupAIRecheckCollecting:
-    "Collecting all items needing confirmation ({count} found)…",
+  storageCleanupAIRecheckCanceling: "Waiting for the current AI request to finish…",
+  storageCleanupAIRecheckCanceled: "The recheck was stopped; the current results are still usable.",
+  storageCleanupAIRecheckCanceledSummary: "Recheck stopped: processed {processed}/{total}, skipped {skipped}, AI updates failed {mutationFailed}, authoritative read-backs failed {readbackFailed}.",
+  storageCleanupAIRecheckCollecting: "Collecting all items needing confirmation ({count} found)…",
   storageCleanupAIRecheckWorkingProgress: "Rechecking {processed}/{total}…",
-  storageCleanupAIRecheckDoneSummary:
-    "Recheck complete: {total} total, {processed} processed, {skipped} skipped, AI updates failed {mutationFailed}, authoritative read-backs failed {readbackFailed}. AI only adds advice; cleanup still requires your confirmation.",
-  fsWatcherPartialIndexWarning:
-    "This directory has too many items, so only part was updated. Run a full scan manually.",
+  storageCleanupAIRecheckDoneSummary: "Recheck complete: {total} total, {processed} processed, {skipped} skipped, AI updates failed {mutationFailed}, authoritative read-backs failed {readbackFailed}. AI only adds advice; cleanup still requires your confirmation.",
+  fsWatcherPartialIndexWarning: "This directory has too many items, so only part was updated. Run a full scan manually.",
   loading: "Loading",
   demoMode: "No scan yet. Showing a sample index.",
   ready: "Ready",
@@ -6930,14 +5862,11 @@ const en: Record<keyof typeof zh, string> = {
   confirmationItems: "Needs confirmation",
   previewScopeItems: "Previewed items",
   autoCreateFolders: "Folders to create",
-  previewTruncatedWarning:
-    "This preview reached the safety limit and shows {limit} / {total} items.",
-  autoCreateFolderHint:
-    "{count} target folders do not exist and will be created safely before execution.",
+  previewTruncatedWarning: "This preview reached the safety limit and shows {limit} / {total} items.",
+  autoCreateFolderHint: "{count} target folders do not exist and will be created safely before execution.",
   showMorePreviewItems: "Show {count} more",
   duplicateGroupsTitle: "Duplicate groups",
-  duplicateGroupsDescription:
-    "Built from durable physical identity and full hashes. This panel is read-only and never moves or deletes files.",
+  duplicateGroupsDescription: "Built from durable physical identity and full hashes. This panel is read-only and never moves or deletes files.",
   duplicateGroupsStart: "Scan for duplicates",
   duplicateGroupsCancel: "Stop scan",
   duplicateGroupsRetry: "Retry scan",
@@ -6946,22 +5875,18 @@ const en: Record<keyof typeof zh, string> = {
   duplicateGroupsRunStatus: "Status: {status} · Phase: {phase}",
   duplicateGroupsProgress: "Processed {processed} / {total} files",
   duplicateGroupsBytes: "Read {processed} / {total}",
-  duplicateGroupsSummary:
-    "{groups} groups · {members} members · reclaimable {bytes}",
+  duplicateGroupsSummary: "{groups} groups · {members} members · reclaimable {bytes}",
   duplicateGroupsMembers: "View members",
   duplicateGroupsReveal: "Open location",
   duplicateGroupsMore: "Load more",
   duplicateGroupsExact: "Exact estimate",
   duplicateGroupsEstimated: "Conservative estimate",
-  duplicateGroupsReadOnlyHint:
-    "Duplicate groups are review signals only; file operations still require Preview and explicit confirmation.",
+  duplicateGroupsReadOnlyHint: "Duplicate groups are review signals only; file operations still require Preview and explicit confirmation.",
   duplicateGroupsLatestRun: "Latest status: {status} · {phase}",
-  duplicateGroupsReclaimable:
-    "{confidence} · exact {exact} · potential {potential}",
+  duplicateGroupsReclaimable: "{confidence} · exact {exact} · potential {potential}",
   duplicateGroupsIdentity: "Identity: {status}",
   duplicateGroupsHardlinkAlias: "hardlink alias",
-  duplicateGroupsEmptyFilesNote:
-    "Empty files are excluded from content duplicate groups.",
+  duplicateGroupsEmptyFilesNote: "Empty files are excluded from content duplicate groups."
 };
 
 const dict = { zh, en } as const;
@@ -6969,7 +5894,7 @@ const dict = { zh, en } as const;
 export function formatCount(
   t: (key: keyof typeof zh) => string,
   count: number,
-  keys: { zero: keyof typeof zh; one: keyof typeof zh; other: keyof typeof zh },
+  keys: { zero: keyof typeof zh; one: keyof typeof zh; other: keyof typeof zh }
 ) {
   const key = count === 0 ? keys.zero : count === 1 ? keys.one : keys.other;
   return t(key).replace("{count}", count.toLocaleString());
@@ -6978,10 +5903,6 @@ export function formatCount(
 export function makeTranslator(language: Language) {
   const dict = language === "zh" ? zh : en;
   return function t(key: keyof typeof zh): string {
-    return (
-      (dict as Record<string, string>)[key] ??
-      (en as Record<string, string>)[key] ??
-      key
-    );
+    return (dict as Record<string, string>)[key] ?? (en as Record<string, string>)[key] ?? key;
   };
 }

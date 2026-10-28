@@ -1,8 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { globalSearchFeedback } from "./globalSearchFeedback";
-import type { GlobalSearchResponse } from "../../types/domain";
+import type {
+  GlobalSearchResponse,
+  GlobalSearchSourceHealth,
+} from "../../types/domain";
 
 const t = (key: string) => key;
+
+// Mirrors tauri GlobalSearchSourceHealth (source_id/provider/status/last_error/
+// updated_at) so the fixture cannot drift into the source-list shape.
+function sourceHealth(
+  sourceId: string,
+  status = "ready",
+  enabled = true,
+): GlobalSearchSourceHealth {
+  return {
+    sourceId,
+    enabled,
+    provider: "windows_mft_usn",
+    status,
+    lastError: null,
+    updatedAt: 0,
+  };
+}
 
 function response(
   overrides: Partial<GlobalSearchResponse>,
@@ -29,17 +49,7 @@ function response(
     collectionComplete: true,
     resultState: "empty",
     sourceRevision: "rev",
-    sourceHealth: [
-      {
-        id: "gv_1",
-        stableVolumeId: "vol-1",
-        mountPath: "Z:\\",
-        displayName: "ZCQA489",
-        enabled: true,
-        status: "ready",
-        entryCount: 0,
-      },
-    ],
+    sourceHealth: [sourceHealth("gv_1")],
     ...overrides,
   } as GlobalSearchResponse;
 }
@@ -62,17 +72,7 @@ describe("globalSearchFeedback coverage honesty", () => {
           status: "permission_required",
           collectionComplete: false,
         },
-        sourceHealth: [
-          {
-            id: "gv_1",
-            stableVolumeId: "vol-1",
-            mountPath: "Z:\\",
-            displayName: "ZCQA489",
-            enabled: true,
-            status: "permission_required",
-            entryCount: 0,
-          },
-        ],
+        sourceHealth: [sourceHealth("gv_1", "permission_required")],
       }),
       t,
     );
@@ -90,17 +90,7 @@ describe("globalSearchFeedback coverage honesty", () => {
           status: "error",
           collectionComplete: false,
         },
-        sourceHealth: [
-          {
-            id: "gv_1",
-            stableVolumeId: "vol-1",
-            mountPath: "Z:\\",
-            displayName: "ZCQA489",
-            enabled: true,
-            status: "watcher_unavailable",
-            entryCount: 3,
-          },
-        ],
+        sourceHealth: [sourceHealth("gv_1", "watcher_unavailable")],
       }),
       t,
     );
@@ -151,24 +141,8 @@ describe("globalSearchFeedback coverage honesty", () => {
           collectionComplete: false,
         },
         sourceHealth: [
-          {
-            id: "gv_1",
-            stableVolumeId: "vol-1",
-            mountPath: "Z:\\",
-            displayName: "ZCQA489",
-            enabled: true,
-            status: "ready",
-            entryCount: 1,
-          },
-          {
-            id: "gv_2",
-            stableVolumeId: "vol-2",
-            mountPath: "Y:\\",
-            displayName: "Second",
-            enabled: true,
-            status: "indexing",
-            entryCount: 0,
-          },
+          sourceHealth("gv_1", "ready"),
+          sourceHealth("gv_2", "indexing"),
         ],
       }),
       t,

@@ -974,6 +974,7 @@ jobs:
           name: perf-fixture-library-content-${{ matrix.validation_lane }}
           path: .tmp-performance-fixtures/cache/
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 1
       - name: Upload Search prepared binaries
         if: ${{ needs.change-scope.outputs.perf_search == 'true' }}

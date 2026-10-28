@@ -238,6 +238,13 @@ pub(crate) fn search_global_entries_on_connection(
         .collect())
 }
 
+/// Test-only access to the production candidate window. #494 evidence records
+/// this value so a window change cannot silently invalidate a benchmark.
+#[cfg(test)]
+pub(crate) fn diagnostic_candidate_window() -> usize {
+    MAX_TIER_CANDIDATES as usize
+}
+
 fn layer_limit(target: u32, seen: usize) -> u32 {
     target
         .saturating_add(seen.min(MAX_TIER_CANDIDATES as usize) as u32)

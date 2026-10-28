@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[path = "global_search_fts_diagnostic.rs"]
 mod fts_diagnostic;
 
-#[path = "filename_search_ab.rs"]
+#[path = "issue494_filename_ab/mod.rs"]
 mod filename_search_ab;
 #[path = "global_search_index_cost_benchmark.rs"]
 mod index_cost_benchmark;

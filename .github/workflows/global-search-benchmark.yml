@@ -8,6 +8,7 @@ on:
       - "src-tauri/src/global_index/tests/global_search_benchmark.rs"
       - "src-tauri/src/global_index/tests/global_search_index_cost_benchmark.rs"
       - "src-tauri/src/global_index/tests/global_search_query_cost_diagnostic.rs"
+      - "src-tauri/src/global_index/tests/issue494_filename_ab/**"
       - ".github/workflows/global-search-benchmark.yml"
   workflow_dispatch:
     inputs:
@@ -53,6 +54,8 @@ on:
           - covering_indexes
           - source_facts_pair
           - schema_upgrade
+          - issue494_ab
+          - issue494_ab_density
 
 permissions:
   contents: read
@@ -174,6 +177,31 @@ jobs:
           --features desktop-runtime
           --lib
           global_index::tests::global_search_benchmark::query_cost_diagnostic::global_search_source_health_topology_diagnostic
+          -- --ignored --exact --nocapture --test-threads=1
+      # #494 test-only A/B filename search experiment. Dispatch only: it is a
+      # disposable research harness, never a release gate, and it never replaces
+      # the historical 100 ms pooled-search gate.
+      - name: Run #494 A/B filename experiment (official fixture)
+        if: ${{ github.event_name == 'workflow_dispatch' && env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'issue494_ab' }}
+        env:
+          ZC_ISSUE494_ENTRIES: ${{ inputs.entries }}
+          ZC_ISSUE494_FIXTURE: official
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::filename_search_ab::scale::issue494_filename_ab_scale_probe
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Run #494 A/B filename experiment (controlled density fixture)
+        if: ${{ github.event_name == 'workflow_dispatch' && env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'issue494_ab_density' }}
+        env:
+          ZC_ISSUE494_ENTRIES: ${{ inputs.entries }}
+          ZC_ISSUE494_FIXTURE: density
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::filename_search_ab::scale::issue494_filename_ab_scale_probe
           -- --ignored --exact --nocapture --test-threads=1
       - name: Upload benchmark evidence
         if: ${{ always() }}

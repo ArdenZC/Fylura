@@ -113,3 +113,121 @@ fn remount_on_a_new_letter_keeps_consent_for_the_same_identity() {
     drop(db);
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn capability_downgrade_recovery_requires_new_consent_and_preserves_history() {
+    let (db, path) = fresh_db();
+    let mut original = test_volume();
+    original.journal_id = Some("journal-kept".into());
+    original.journal_cursor = Some("9001".into());
+    original.last_full_index_at = Some(111);
+    db.upsert_global_volume(&original).unwrap();
+    db.upsert_global_entries_batch(&[super::test_entry("Z:\\kept.txt", "kept.txt", false)])
+        .unwrap();
+    let conn = db.conn().unwrap();
+    let entry: String = conn
+        .query_row("SELECT id FROM global_entries", [], |r| r.get(0))
+        .unwrap();
+    conn.execute("INSERT INTO ai_analysis_state (global_entry_id,status,input_fingerprint,content_summary,updated_at) VALUES (?1,'completed','kept','summary',3)", [&entry]).unwrap();
+    drop(conn);
+    for cycle in 0..3 {
+        let mut discovery = original.clone();
+        discovery.enabled = false;
+        discovery.scope_authorization_state = "not_authorized".into();
+        discovery.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
+        discovery.filesystem_type = "FAT32".into();
+        db.upsert_global_volume(&discovery).unwrap();
+        assert!(db
+            .authorize_global_volume(&original.id, true, &discovery)
+            .is_err());
+        discovery.provider = PROVIDER_WINDOWS_MFT_USN.into();
+        discovery.filesystem_type = "ntfs".into();
+        discovery.mount_path = format!("fixture-letter-{cycle}");
+        db.upsert_global_volume(&discovery).unwrap();
+        let restored = db.get_global_volume(&original.id).unwrap().unwrap();
+        assert_eq!(restored.provider, PROVIDER_WINDOWS_MFT_USN);
+        assert!(!restored.enabled);
+        assert_eq!(restored.scope_authorization_state, "not_authorized");
+        assert!(db.set_global_volume_enabled(&original.id, true).is_err());
+        assert!(db
+            .authorize_global_volume(&original.id, false, &discovery)
+            .is_err());
+        db.authorize_global_volume(&original.id, true, &discovery)
+            .unwrap();
+        let approved = db.get_global_volume(&original.id).unwrap().unwrap();
+        assert!(approved.enabled);
+        assert_eq!(approved.scope_authorization_state, "authorized");
+        assert_eq!(approved.stable_volume_id, original.stable_volume_id);
+        assert_eq!(approved.journal_cursor, original.journal_cursor);
+        assert_eq!(approved.journal_id, original.journal_id);
+        assert_eq!(approved.last_full_index_at, Some(111));
+        assert_eq!(approved.entry_count, 1);
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT content_summary FROM ai_analysis_state WHERE global_entry_id=?1",
+                    [&entry],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap(),
+            "summary"
+        );
+    }
+    drop(db);
+    let reopened = Database::open(&path).unwrap();
+    assert_eq!(
+        reopened
+            .get_global_volume(&original.id)
+            .unwrap()
+            .unwrap()
+            .entry_count,
+        1
+    );
+    drop(reopened);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn concurrent_demotion_between_enable_check_and_write_cannot_enable() {
+    let (db, path) = fresh_db();
+    let original = test_volume();
+    db.upsert_global_volume(&original).unwrap();
+    db.set_global_volume_enabled(&original.id, false).unwrap();
+    let writer = Database::open(&path).unwrap();
+    let (checked_tx, checked_rx) = std::sync::mpsc::sync_channel(0);
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(0);
+    let id = original.id.clone();
+    let enabler = std::thread::spawn(move || {
+        writer.set_global_volume_enabled_before_update(&id, true, || {
+            checked_tx.send(()).unwrap();
+            done_rx.recv().unwrap();
+        })
+    });
+    checked_rx.recv().unwrap();
+    let mut demoted = original.clone();
+    demoted.enabled = false;
+    demoted.scope_authorization_state = "not_authorized".into();
+    demoted.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
+    db.upsert_global_volume(&demoted).unwrap();
+    let revision = db
+        .global_index_operation_state(&original.id)
+        .unwrap()
+        .unwrap()
+        .revision;
+    done_tx.send(()).unwrap();
+    assert!(enabler.join().unwrap().is_err());
+    let row = db.get_global_volume(&original.id).unwrap().unwrap();
+    assert!(!row.enabled);
+    assert_eq!(row.scope_authorization_state, "not_authorized");
+    assert_eq!(
+        db.global_index_operation_state(&original.id)
+            .unwrap()
+            .unwrap()
+            .revision,
+        revision
+    );
+    db.set_global_volume_enabled(&original.id, false).unwrap();
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}

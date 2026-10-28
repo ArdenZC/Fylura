@@ -497,6 +497,10 @@ mod tests {
         volume.stable_volume_id = format!(r"\\?\Volume{{{id}}}\");
         volume.mount_path = mount_path.to_string();
         volume.updated_at = updated_at;
+        volume.enabled = false;
+        volume.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_AUTHORIZED.into();
+        volume.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
+        volume.entry_count = 0;
         volume
     }
 
@@ -529,6 +533,24 @@ mod tests {
         let mounts: Vec<&str> = rows.iter().map(|row| row.mount_path.as_str()).collect();
         assert_eq!(mounts, vec!["C:\\", "G:\\", "Z:\\"]);
         assert_eq!(rows[1].stable_volume_id, r"\\?\Volume{c}\");
+    }
+
+    #[test]
+    fn reused_letter_does_not_hide_active_or_actionable_history() {
+        for state in ["enabled", "permission", "legacy", "entries"] {
+            let mut old = volume("old", "G:\\", 1);
+            match state {
+                "enabled" => old.enabled = true,
+                "permission" => old.index_status = INDEX_STATUS_PERMISSION_REQUIRED.into(),
+                "legacy" => {
+                    old.scope_authorization_state =
+                        SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED.into()
+                }
+                _ => old.entry_count = 1,
+            }
+            let rows = newest_row_per_mount_path(vec![old, volume("new", "G:\\", 2)]);
+            assert_eq!(rows.len(), 2, "must retain actionable history: {state}");
+        }
     }
 
     #[test]

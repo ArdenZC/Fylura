@@ -819,24 +819,25 @@ mod tests {
     }
 
     #[test]
-    fn denied_create_keeps_the_1179_classification() {
-        let mut queries = 0;
-        let error = match recover_absent_journal(
-            || Err(GlobalIndexError::WindowsIo(5)),
-            || {
-                queries += 1;
-                Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE))
-            },
-        ) {
-            Ok(_) => panic!("a still absent journal must fail"),
-            Err(error) => error,
-        };
-
-        assert!(
-            matches!(error, GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE)),
-            "privilege denial must not replace the stable 1179 classification: {error:?}"
-        );
-        assert_eq!(queries, 1, "the failure path re-queries exactly once");
+    fn failed_create_and_absent_requery_preserve_actionable_create_error() {
+        for code in [5, 1314, 19] {
+            let mut queries = 0;
+            let error = match recover_absent_journal(
+                || Err(GlobalIndexError::WindowsIo(code)),
+                || {
+                    queries += 1;
+                    Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE))
+                },
+            ) {
+                Ok(_) => panic!("still absent"),
+                Err(error) => error,
+            };
+            assert!(
+                matches!(error, GlobalIndexError::WindowsIo(actual) if actual == code),
+                "{error:?}"
+            );
+            assert_eq!(queries, 1);
+        }
     }
 
     #[test]

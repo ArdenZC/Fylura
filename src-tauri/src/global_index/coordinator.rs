@@ -2761,4 +2761,6 @@ mod tests {
         drop(path);
     }
     include!("coordinator_recovery_tests.rs");
+    #[cfg(target_os = "windows")]
+    include!("coordinator_watcher_lifecycle_tests.rs");
 }

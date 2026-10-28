@@ -862,6 +862,15 @@ impl Database {
     }
 
     pub fn set_global_volume_enabled(&self, id: &str, enabled: bool) -> Result<(), DbError> {
+        self.set_global_volume_enabled_before_update(id, enabled, || {})
+    }
+
+    pub(crate) fn set_global_volume_enabled_before_update(
+        &self,
+        id: &str,
+        enabled: bool,
+        before_update: impl FnOnce(),
+    ) -> Result<(), DbError> {
         let conn = self.conn()?;
         let state = conn
             .query_row(
@@ -876,6 +885,7 @@ impl Database {
                 "global_index_source_authorization_required".into(),
             ));
         }
+        before_update();
         conn.execute(
             r#"
             UPDATE global_volumes

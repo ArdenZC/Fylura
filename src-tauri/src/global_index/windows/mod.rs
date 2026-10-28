@@ -327,6 +327,35 @@ impl WindowsGlobalIndexProvider {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn run_lifecycle_fixture(
+        source: &GlobalSourceDescriptor,
+        sink: &mut dyn GlobalIndexSink,
+        kind: SourceOperationKind,
+        watcher_failed: bool,
+        work: impl FnOnce(&mut dyn GlobalIndexSink) -> Result<(), GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut provider = Self::with_fake_change_watchers();
+        // A non-existent fixture path forces watcher startup failure without
+        // enumerating or reading any real volume. Recovery uses a fake watcher.
+        if watcher_failed {
+            provider.fake_change_watchers = false;
+        }
+        let command = match kind {
+            SourceOperationKind::Initial => IndexServiceCommand::StartInitialIndex {
+                source_id: source.volume.id.clone(),
+            },
+            SourceOperationKind::Incremental => IndexServiceCommand::ResumeIncrementalSync {
+                source_id: source.volume.id.clone(),
+            },
+            SourceOperationKind::Rebuild => IndexServiceCommand::Rebuild {
+                source_id: source.volume.id.clone(),
+            },
+        };
+        let request = Self::source_request(command, source);
+        provider.run_source_request(&request, source, sink, |_, sink| work(sink))
+    }
+
     fn run_source_request(
         &self,
         request: &IndexServiceRequest,

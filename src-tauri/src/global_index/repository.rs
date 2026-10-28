@@ -876,10 +876,26 @@ impl Database {
         Ok(())
     }
 
-    pub fn authorize_global_volume(&self, id: &str, confirmed: bool) -> Result<(), DbError> {
+    pub fn authorize_global_volume(
+        &self,
+        id: &str,
+        confirmed: bool,
+        discovered: &GlobalVolume,
+    ) -> Result<(), DbError> {
         if !confirmed {
             return Err(DbError::Validation(
                 "global_index_scope_confirmation_required".into(),
+            ));
+        }
+        if discovered.id != id
+            || discovered.platform != "windows"
+            || discovered.drive_kind != "fixed"
+            || !discovered.filesystem_type.eq_ignore_ascii_case("ntfs")
+            || discovered.provider != PROVIDER_WINDOWS_MFT_USN
+            || discovered.stable_volume_id.is_empty()
+        {
+            return Err(DbError::Validation(
+                "global_index_source_not_authorizable".into(),
             ));
         }
         let conn = self.conn()?;
@@ -887,12 +903,27 @@ impl Database {
             r#"
             UPDATE global_volumes
             SET scope_authorization_state = 'authorized', enabled = 1,
+                provider = 'windows_mft_usn',
+                index_status = CASE
+                    WHEN provider = 'windows_recursive_fallback' THEN 'rebuild_required'
+                    ELSE index_status
+                END,
+                operation_revision = operation_revision + CASE
+                    WHEN provider != 'windows_mft_usn' THEN 1 ELSE 0
+                END,
+                operation_owner_id = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_owner_id END,
+                operation_owner_pid = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_owner_pid END,
+                operation_owner_started_at = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_owner_started_at END,
+                operation_owner_route = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_owner_route END,
+                operation_kind = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_kind END,
+                operation_state = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_state END,
                 updated_at = ?2
             WHERE id = ?1 AND platform = 'windows' AND drive_kind = 'fixed'
               AND lower(filesystem_type) = 'ntfs'
-              AND provider = 'windows_mft_usn'
+              AND stable_volume_id = ?3
+              AND provider IN ('windows_mft_usn', 'windows_recursive_fallback')
             "#,
-            params![id, unix_now()],
+            params![id, unix_now(), discovered.stable_volume_id],
         )?;
         if changed == 1 {
             Ok(())

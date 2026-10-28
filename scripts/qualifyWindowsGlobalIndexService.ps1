@@ -73,8 +73,11 @@ $script:evidence = [ordered]@{
     usnJournalProbes = @()
     baselineFixturePath = $null
     baselineFixtureSearchFound = $false
+    independentManifest = $null
+    crossDirectoryMove = $null
     createLatencyMs = $null
     renameLatencyMs = $null
+    crossDirectoryMoveLatencyMs = $null
     deleteLatencyMs = $null
     settledIdleWindowMs = $null
     settledCoordinatorCycleDelta = $null
@@ -413,6 +416,37 @@ try {
     Set-Content -LiteralPath $preexistingPath -Value "created before the Global Index baseline" -NoNewline
     $script:evidence.baselineFixturePath = $preexistingPath
 
+    $manifestDirectory = Join-Path $fixtureRoot "manifest"
+    $manifestFiles = @()
+    for ($manifestIndex = 0; $manifestIndex -lt 12; $manifestIndex++) {
+        $bucket = Join-Path $manifestDirectory ("bucket-{0}" -f ($manifestIndex % 3))
+        New-Item -ItemType Directory -Path $bucket -Force | Out-Null
+        $manifestPath = Join-Path $bucket ("$preexistingToken-manifest-{0:D2}.txt" -f $manifestIndex)
+        Set-Content -LiteralPath $manifestPath -Value "independent manifest fixture $manifestIndex" -NoNewline
+        $manifestFiles += $manifestPath
+    }
+    $moveSourceDirectory = Join-Path $fixtureRoot "moves\source"
+    $moveTargetDirectory = Join-Path $fixtureRoot "moves\destination"
+    New-Item -ItemType Directory -Path $moveSourceDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path $moveTargetDirectory -Force | Out-Null
+    $manifestFiles += $preexistingPath
+    $script:evidence.independentManifest = [ordered]@{
+        expectedFileCount = $manifestFiles.Count
+        expectedRelativePaths = @($manifestFiles | ForEach-Object {
+            [IO.Path]::GetRelativePath($fixtureRoot, $_).Replace('/', '\')
+        } | Sort-Object)
+        expectedSha256 = @($manifestFiles | ForEach-Object {
+            [ordered]@{
+                relativePath = [IO.Path]::GetRelativePath($fixtureRoot, $_).Replace('/', '\')
+                sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash
+            }
+        })
+        indexedRelativePaths = @()
+        missingRelativePaths = @()
+        unexpectedRelativePaths = @()
+        matchedAfterServiceRecovery = $false
+    }
+
     $env:ZC_NATIVE_QA_PROFILE_ROOT = $profileRoot
     $env:ZC_GLOBAL_INDEX_QA_TRACE = $tracePath
     $env:APPDATA = Join-Path $taskRoot "appdata-roaming"
@@ -593,6 +627,57 @@ try {
     }).Count -gt 0
     if (-not $script:evidence.baselineFixtureSearchFound) {
         throw "pre-existing baseline fixture was not searchable after a non-empty ready baseline: $preexistingPath"
+    }
+
+    $manifestSnapshot = Get-ProbeSnapshot $preexistingToken
+    $indexedManifestResults = @($manifestSnapshot.results | Where-Object {
+        $_.name.StartsWith($preexistingToken, [StringComparison]::OrdinalIgnoreCase) -and
+        $_.path.StartsWith($fixtureRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
+    })
+    $indexedManifestRelativePaths = @($indexedManifestResults | ForEach-Object {
+        [IO.Path]::GetRelativePath($fixtureRoot, $_.path).Replace('/', '\')
+    } | Sort-Object)
+    $expectedManifestRelativePaths = @($script:evidence.independentManifest.expectedRelativePaths)
+    $manifestDifferences = @(Compare-Object -ReferenceObject $expectedManifestRelativePaths -DifferenceObject $indexedManifestRelativePaths)
+    $script:evidence.independentManifest.indexedRelativePaths = $indexedManifestRelativePaths
+    $script:evidence.independentManifest.missingRelativePaths = @($manifestDifferences | Where-Object SideIndicator -eq '<=' | ForEach-Object InputObject)
+    $script:evidence.independentManifest.unexpectedRelativePaths = @($manifestDifferences | Where-Object SideIndicator -eq '=>' | ForEach-Object InputObject)
+    $script:evidence.independentManifest.matchedAfterServiceRecovery =
+        $script:evidence.recovery.finalStatus -eq 'ready' -and
+        $script:evidence.independentManifest.missingRelativePaths.Count -eq 0 -and
+        $script:evidence.independentManifest.unexpectedRelativePaths.Count -eq 0
+    if (-not $script:evidence.independentManifest.matchedAfterServiceRecovery) {
+        throw "independent file manifest did not match Global Search after service recovery: expected=$($expectedManifestRelativePaths.Count) indexed=$($indexedManifestRelativePaths.Count) missing=$($script:evidence.independentManifest.missingRelativePaths -join ',') unexpected=$($script:evidence.independentManifest.unexpectedRelativePaths -join ',') recovery=$($script:evidence.recovery.finalStatus)"
+    }
+
+    $moveToken = "zb05qamove$([Guid]::NewGuid().ToString('N'))"
+    $moveName = "$moveToken.txt"
+    $moveSourcePath = Join-Path $moveSourceDirectory $moveName
+    $moveTargetPath = Join-Path $moveTargetDirectory $moveName
+    $moveTimer = [Diagnostics.Stopwatch]::StartNew()
+    Set-Content -LiteralPath $moveSourcePath -Value "cross-directory move fixture" -NoNewline
+    [void](Wait-ForSearchPath $moveName $moveSourcePath $true 60 "cross-directory move source" $moveTimer)
+    Move-Item -LiteralPath $moveSourcePath -Destination $moveTargetPath
+    $moveDeadline = [DateTime]::UtcNow.AddSeconds(60)
+    do {
+        $newMovePathFound = Test-SearchPath $moveName $moveTargetPath
+        $oldMovePathFound = Test-SearchPath $moveName $moveSourcePath
+        if ($newMovePathFound -and -not $oldMovePathFound) {
+            $moveTimer.Stop()
+            $script:evidence.crossDirectoryMoveLatencyMs = [long]$moveTimer.Elapsed.TotalMilliseconds
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $moveDeadline)
+    if ($null -eq $script:evidence.crossDirectoryMoveLatencyMs) {
+        throw "cross-directory move did not converge within 60 seconds (newFound=$newMovePathFound oldFound=$oldMovePathFound)"
+    }
+    $script:evidence.crossDirectoryMove = [ordered]@{
+        sourceRelativePath = [IO.Path]::GetRelativePath($fixtureRoot, $moveSourcePath).Replace('/', '\')
+        destinationRelativePath = [IO.Path]::GetRelativePath($fixtureRoot, $moveTargetPath).Replace('/', '\')
+        sourcePathAbsent = -not $oldMovePathFound
+        destinationPathFound = $newMovePathFound
+        latencyMs = $script:evidence.crossDirectoryMoveLatencyMs
     }
 
     $freshnessToken = "zb05qafresh$([Guid]::NewGuid().ToString('N'))"

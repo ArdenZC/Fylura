@@ -428,7 +428,9 @@ export function CommandModal({
             ? t("globalIndexErrorDatabaseBusy")
             : message === "global_index_service_busy"
               ? t("globalIndexErrorServiceBusy")
-              : t("commandSearchFailed"));
+              : message === "global_index_permission_required"
+                ? t("globalIndexErrorPermissionRequired")
+                : t("commandSearchFailed"));
         });
     }, 50);
 

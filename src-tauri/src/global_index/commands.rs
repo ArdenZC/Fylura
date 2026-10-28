@@ -301,11 +301,16 @@ fn global_index_database_error(error: DbError) -> String {
     global_index_error_message(GlobalIndexError::Database(error))
 }
 
-fn global_index_error_message(error: GlobalIndexError) -> String {
+pub(crate) fn global_index_error_message(error: GlobalIndexError) -> String {
     if sqlite_contention_kind(&error).is_some() {
         "global_index_database_busy".to_string()
-    } else if matches!(error, GlobalIndexError::ServiceBusy(_)) {
+    } else if matches!(&error, GlobalIndexError::ServiceBusy(_)) {
         "global_index_service_busy".to_string()
+    } else if matches!(
+        &error,
+        GlobalIndexError::PermissionRequired(_) | GlobalIndexError::WindowsIo(5 | 1314)
+    ) {
+        "global_index_permission_required".to_string()
     } else {
         error.to_string()
     }
@@ -479,6 +484,7 @@ mod tests {
                 rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
                 None,
             )));
+        let remote_database_busy = GlobalIndexError::DatabaseBusy("database busy".into());
         let service_busy = GlobalIndexError::ServiceBusy("database is locked".into());
 
         assert_eq!(
@@ -486,9 +492,29 @@ mod tests {
             "global_index_database_busy"
         );
         assert_eq!(
+            global_index_error_message(remote_database_busy),
+            "global_index_database_busy"
+        );
+        assert_eq!(
             global_index_error_message(service_busy),
             "global_index_service_busy",
             "a service error containing SQLite-like words stays a service error"
+        );
+    }
+
+    #[test]
+    fn windows_access_denied_codes_surface_as_permission_required_without_losing_ipc_code() {
+        for code in [5, 1314] {
+            assert_eq!(
+                global_index_error_message(GlobalIndexError::WindowsIo(code)),
+                "global_index_permission_required"
+            );
+        }
+        assert_eq!(
+            global_index_error_message(GlobalIndexError::PermissionRequired(
+                "native access denied".into()
+            )),
+            "global_index_permission_required"
         );
     }
 

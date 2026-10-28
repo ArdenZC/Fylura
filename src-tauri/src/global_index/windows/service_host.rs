@@ -132,13 +132,14 @@ impl ServiceRuntime {
         connection: &mut dyn IndexServiceConnection,
         error_code: &str,
         message: impl Into<String>,
+        status: &str,
     ) -> Result<(), String> {
         connection.send_response(self.response(
             request,
             false,
             Some(error_code),
             Some(message.into()),
-            Some(self.status()),
+            Some(status.to_string()),
         ))
     }
 
@@ -170,12 +171,10 @@ impl ServiceRuntime {
                         Some("ready".to_string()),
                     ))
                 }
-                Err(error) => self.send_error(
-                    &request,
-                    connection,
-                    &super::service_errors::classify(&error).0,
-                    error.to_string(),
-                ),
+                Err(error) => {
+                    let (code, status) = super::service_errors::classify(&error);
+                    self.send_error(&request, connection, &code, error.to_string(), status)
+                }
             },
             IndexServiceCommand::Pause => {
                 self.cancel.store(true, Ordering::Release);
@@ -217,22 +216,35 @@ impl ServiceRuntime {
             Ok(reservation) => reservation,
             Err(response) => return connection.send_response(response),
         };
-        let operation_result = (|| {
+        let operation_result: Result<(), (String, String, &'static str)> = (|| {
             let _operation_guard = self.operation_lock.lock().map_err(|_| {
                 (
                     "index_failed".to_string(),
                     "index_service_operation_lock_poisoned".to_string(),
+                    crate::global_index::models::INDEX_STATUS_ERROR,
                 )
             })?;
             let source_id = source_id(&command);
             let source = self
                 .validated_source(source_id, request.source.as_ref())
-                .map_err(|message| ("index_provider_error".to_string(), message))?;
+                .map_err(|message| {
+                    (
+                        "index_provider_error".to_string(),
+                        message,
+                        crate::global_index::models::INDEX_STATUS_ERROR,
+                    )
+                })?;
             connection
                 .send_event(IndexServiceEvent::Sources {
                     sources: vec![source.volume.clone()],
                 })
-                .map_err(|message| ("index_provider_error".to_string(), message))?;
+                .map_err(|message| {
+                    (
+                        "index_provider_error".to_string(),
+                        message,
+                        crate::global_index::models::INDEX_STATUS_ERROR,
+                    )
+                })?;
             self.cancel.store(false, Ordering::Release);
             self.set_state("indexing", None);
             let mut sink = PipeSink {
@@ -263,7 +275,7 @@ impl ServiceRuntime {
                         status,
                         (!matches!(error, GlobalIndexError::Paused)).then(|| error.to_string()),
                     );
-                    Err((code, error.to_string()))
+                    Err((code, error.to_string(), status))
                 }
             }
         })();
@@ -275,7 +287,9 @@ impl ServiceRuntime {
                 None,
                 Some(self.status()),
             )),
-            Err((code, message)) => self.send_error(&request, connection, &code, message),
+            Err((code, message, status)) => {
+                self.send_error(&request, connection, &code, message, status)
+            }
         }
     }
 

@@ -16,7 +16,7 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
     }
     let target_mount_path = target_mount_path.trim_end_matches(['\\', '/']);
     let database = Database::open(profile_root.join("zen-canvas.sqlite3"))?;
-    let mut target_source_id = None;
+    let mut target_source = None;
 
     for mut source in discover_windows_volumes()? {
         let is_target = source
@@ -38,7 +38,7 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
                 )
                 .into());
             }
-            target_source_id = Some(source.volume.id.clone());
+            target_source = Some(source.volume.clone());
         }
         // Seed the isolated QA profile through the existing durable source
         // setting. The candidate coordinator will rediscover every volume,
@@ -47,15 +47,16 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
         database.upsert_global_volume(&source.volume)?;
     }
 
-    let target_source_id = target_source_id.ok_or_else(|| {
+    let target_source = target_source.ok_or_else(|| {
         format!(
             "qualification target was not discovered as a drive-letter volume: {target_mount_path}"
         )
     })?;
+    let target_source_id = target_source.id.clone();
     // This probe runs only after the Windows qualification script creates and
     // validates its task-owned disposable NTFS VHD. Grant consent to that
     // exact source; all other discovered volumes remain disabled/unapproved.
-    database.authorize_global_volume(&target_source_id, true)?;
+    database.authorize_global_volume(&target_source_id, true, &target_source)?;
     let enabled_sources = database
         .list_global_volumes()?
         .into_iter()

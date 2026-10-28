@@ -166,6 +166,7 @@ function globalIndexErrorText(error: string | null | undefined, t: Translator) {
   const message = error.replace(/^provider error:\s*/i, "");
   if (message === "global_index_database_busy") return t("globalIndexErrorDatabaseBusy");
   if (message === "global_index_service_busy") return t("globalIndexErrorServiceBusy");
+  if (message === "global_index_permission_required") return t("globalIndexErrorPermissionRequired");
   if (message.startsWith("macos_spotlight_no_indexed_local_results")) {
     return t("globalIndexErrorSpotlightNoResults");
   }

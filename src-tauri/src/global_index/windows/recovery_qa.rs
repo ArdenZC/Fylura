@@ -107,6 +107,7 @@ impl ProbeProvider {
             Ok(()) => "ready",
             Err(GlobalIndexError::Paused) => "paused",
             Err(GlobalIndexError::RebuildRequired(_)) => "rebuild_required",
+            Err(GlobalIndexError::DatabaseBusy(_)) => "database_busy",
             _ => "failure",
         };
         *self.outcome.lock().unwrap() = outcome;
@@ -116,6 +117,7 @@ impl ProbeProvider {
             Err(GlobalIndexError::RebuildRequired(_)) => Some("rebuild_required"),
             Err(GlobalIndexError::PermissionRequired(_)) => Some("permission_required"),
             Err(GlobalIndexError::ServiceBusy(_)) => Some("index_service_busy"),
+            Err(GlobalIndexError::DatabaseBusy(_)) => Some("index_database_busy"),
             Err(GlobalIndexError::SourceBusy(_)) => Some("source_operation_busy"),
             Err(GlobalIndexError::ServiceProtocol(_)) => Some("invalid_service_protocol"),
             Err(GlobalIndexError::ServiceOutcomeUnknown(_)) => Some("service_outcome_unknown"),

@@ -1,12 +1,18 @@
-//! Stable semantic mapping using the existing v3 error_code field only.
+//! Stable semantic mapping using the existing v4 error_code field only.
 use super::service::IndexServiceResponse;
 use crate::global_index::coordinator::GlobalIndexError;
 use crate::global_index::models::{
-    INDEX_STATUS_ERROR, INDEX_STATUS_PAUSED, INDEX_STATUS_PERMISSION_REQUIRED,
-    INDEX_STATUS_REBUILD_REQUIRED,
+    INDEX_STATUS_DATABASE_BUSY, INDEX_STATUS_ERROR, INDEX_STATUS_PAUSED,
+    INDEX_STATUS_PERMISSION_REQUIRED, INDEX_STATUS_REBUILD_REQUIRED,
 };
 
 pub(super) fn classify(error: &GlobalIndexError) -> (String, &'static str) {
+    if super::super::coordinator::sqlite_contention_kind(error).is_some() {
+        return (
+            "index_database_busy".to_string(),
+            INDEX_STATUS_DATABASE_BUSY,
+        );
+    }
     let (code, status) = match error {
         GlobalIndexError::Paused => ("index_paused", INDEX_STATUS_PAUSED),
         GlobalIndexError::RebuildRequired(_) => {
@@ -19,6 +25,7 @@ pub(super) fn classify(error: &GlobalIndexError) -> (String, &'static str) {
             "index_permission_required",
             INDEX_STATUS_PERMISSION_REQUIRED,
         ),
+        GlobalIndexError::DatabaseBusy(_) => ("index_database_busy", INDEX_STATUS_DATABASE_BUSY),
         GlobalIndexError::Provider(_) => ("index_provider_error", INDEX_STATUS_ERROR),
         GlobalIndexError::WindowsIo(code) => {
             return (
@@ -45,6 +52,7 @@ pub(super) fn known_code(code: &str) -> bool {
         "index_paused"
             | "index_rebuild_required"
             | "index_service_busy"
+            | "index_database_busy"
             | "index_permission_required"
             | "index_provider_error"
             | "index_failed"
@@ -66,6 +74,7 @@ pub(super) fn decode(response: &IndexServiceResponse) -> GlobalIndexError {
         Some("index_paused") => GlobalIndexError::Paused,
         Some("index_rebuild_required") => GlobalIndexError::RebuildRequired(message),
         Some("index_service_busy") => GlobalIndexError::ServiceBusy(message),
+        Some("index_database_busy") => GlobalIndexError::DatabaseBusy(message),
         Some("index_permission_required") => GlobalIndexError::PermissionRequired(message),
         Some("index_provider_error") => GlobalIndexError::Provider(message),
         Some("index_failed") => GlobalIndexError::Database(crate::db::DbError::Validation(message)),
@@ -85,10 +94,11 @@ mod tests {
     use super::*;
     use crate::global_index::windows::service::IPC_PROTOCOL_VERSION;
     #[test]
-    fn v3_roundtrip_preserves_typed_recovery_and_ignores_message_text() {
+    fn ipc_v4_roundtrip_preserves_typed_recovery_and_ignores_message_text() {
         for error in [
             GlobalIndexError::Paused,
             GlobalIndexError::RebuildRequired("arbitrary diagnostic".into()),
+            GlobalIndexError::DatabaseBusy("service busy permission required".into()),
             GlobalIndexError::Provider("indexing paused rebuild required 1181".into()),
         ] {
             let (code, status) = classify(&error);
@@ -122,6 +132,68 @@ mod tests {
                 decode(&response),
                 GlobalIndexError::ServiceProtocol(_)
             ));
+        }
+    }
+
+    #[test]
+    fn sqlite_busy_service_busy_provider_error_and_permission_keep_distinct_wire_types() {
+        let cases = [
+            (
+                GlobalIndexError::DatabaseBusy("same diagnostic".into()),
+                "index_database_busy",
+                INDEX_STATUS_DATABASE_BUSY,
+            ),
+            (
+                GlobalIndexError::ServiceBusy("same diagnostic".into()),
+                "index_service_busy",
+                INDEX_STATUS_ERROR,
+            ),
+            (
+                GlobalIndexError::Provider("same diagnostic".into()),
+                "index_provider_error",
+                INDEX_STATUS_ERROR,
+            ),
+            (
+                GlobalIndexError::PermissionRequired("same diagnostic".into()),
+                "index_permission_required",
+                INDEX_STATUS_PERMISSION_REQUIRED,
+            ),
+            (
+                GlobalIndexError::WindowsIo(5),
+                "index_windows_io:5",
+                INDEX_STATUS_PERMISSION_REQUIRED,
+            ),
+            (
+                GlobalIndexError::WindowsIo(1314),
+                "index_windows_io:1314",
+                INDEX_STATUS_PERMISSION_REQUIRED,
+            ),
+        ];
+        for (error, expected_code, expected_status) in cases {
+            let (code, status) = classify(&error);
+            assert_eq!(code, expected_code);
+            assert_eq!(status, expected_status);
+            let response = IndexServiceResponse {
+                protocol_version: IPC_PROTOCOL_VERSION,
+                request_id: "same-message-classes".into(),
+                ok: false,
+                error_code: Some(code),
+                message: Some("same diagnostic".into()),
+                status: Some(status.into()),
+            };
+            let response: IndexServiceResponse =
+                serde_json::from_slice(&serde_json::to_vec(&response).unwrap()).unwrap();
+            let decoded = decode(&response);
+            assert_eq!(
+                std::mem::discriminant(&decoded),
+                std::mem::discriminant(&error),
+                "wire code, not message text, selects the error category"
+            );
+            if let (GlobalIndexError::WindowsIo(actual), GlobalIndexError::WindowsIo(expected)) =
+                (&decoded, &error)
+            {
+                assert_eq!(actual, expected, "the actual Win32 code must survive IPC");
+            }
         }
     }
 

@@ -32,6 +32,25 @@ describe("W2-11 integrated experience QA contract", () => {
     expect(gate).toContain("[w2-11-real] PASS");
   });
 
+  it("captures bounded and redacted browser resource evidence without weakening the error gate", () => {
+    const gate = read("scripts/runW2-11BrowserGate.mjs");
+
+    expect(gate).toContain("const MAX_NETWORK_DIAGNOSTIC_ITEMS = 64");
+    expect(gate).toContain('page.on("requestfailed"');
+    expect(gate).toContain('page.on("response"');
+    expect(gate).toContain("message.location()");
+    expect(gate).toContain("request.failure()?.errorText");
+    expect(gate).toContain("responseStatusCounts");
+    expect(gate).toContain("requestFailuresDropped");
+    expect(gate).toContain("url.username = \"\"");
+    expect(gate).toContain("url.password = \"\"");
+    expect(gate).toContain("url.search = \"\"");
+    expect(gate).toContain("<local-path>");
+    expect(gate).toContain("localFilePath = pathname.match");
+    expect(gate).toContain("metrics.networkDiagnostics");
+    expect(gate).toContain("assert(consoleErrors.length === 0 && pageErrors.length === 0,");
+  });
+
   it("keeps sparse Browse search yielded, batched, and generation-bound", () => {
     const owner = read("src/views/fileLibrary/browse/browseSourceOwner.ts");
 

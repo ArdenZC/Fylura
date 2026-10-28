@@ -461,7 +461,9 @@ describe("settings view behavior", () => {
 
   it.each([
     ["database_busy", "Database busy"],
-    ["service_busy", "Index service busy"]
+    ["service_busy", "Index service busy"],
+    ["permission_required", "Permission required"],
+    ["error", "Error"]
   ] as const)("shows the typed Global Index %s source state", async (status, label) => {
     await act(async () => root.render(null));
     mocks.getGlobalIndexStatus.mockResolvedValue({

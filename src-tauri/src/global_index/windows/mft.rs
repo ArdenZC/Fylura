@@ -650,12 +650,16 @@ pub(crate) fn open_volume(mount_path: &str) -> Result<HANDLE, GlobalIndexError> 
         )
     };
     if handle == INVALID_HANDLE_VALUE {
-        return Err(GlobalIndexError::Provider(format!(
-            "cannot open volume {mount_path} (Win32 error {})",
-            unsafe { GetLastError() }
-        )));
+        // GetLastError must be captured before any other Win32 call. Keep the
+        // numeric code typed so permission failures survive IPC and status UI.
+        let error = unsafe { GetLastError() };
+        return Err(open_volume_error(error));
     }
     Ok(handle)
+}
+
+fn open_volume_error(code: u32) -> GlobalIndexError {
+    GlobalIndexError::WindowsIo(code)
 }
 
 pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, GlobalIndexError> {
@@ -721,6 +725,15 @@ fn hex_id(value: &[u8; 16]) -> String {
 mod tests {
     use super::*;
     use windows_sys::Win32::Storage::FileSystem::FILE_ID_128;
+
+    #[test]
+    fn open_volume_preserves_actual_win32_permission_codes() {
+        for code in [5, 1314, 32] {
+            assert!(
+                matches!(open_volume_error(code), GlobalIndexError::WindowsIo(actual) if actual == code)
+            );
+        }
+    }
 
     fn fixture_record(major: u16, name: &str) -> Vec<u8> {
         let name_bytes = name.encode_utf16().collect::<Vec<_>>();

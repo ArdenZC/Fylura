@@ -175,7 +175,7 @@ fn explicit_authorization_is_required_to_enable_and_disable_never_grants_consent
         .request_global_index_rebuild(&unapproved.volume.id)
         .unwrap());
     assert!(db
-        .authorize_global_volume(&unapproved.volume.id, false)
+        .authorize_global_volume(&unapproved.volume.id, false, &unapproved.volume)
         .is_err());
     let unchanged = db
         .get_global_volume(&unapproved.volume.id)
@@ -187,7 +187,7 @@ fn explicit_authorization_is_required_to_enable_and_disable_never_grants_consent
         SCOPE_AUTHORIZATION_NOT_AUTHORIZED
     );
 
-    db.authorize_global_volume(&unapproved.volume.id, true)
+    db.authorize_global_volume(&unapproved.volume.id, true, &unapproved.volume)
         .unwrap();
     let approved = db
         .get_global_volume(&unapproved.volume.id)

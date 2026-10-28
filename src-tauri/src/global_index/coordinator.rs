@@ -21,6 +21,8 @@ use thiserror::Error;
 pub enum GlobalIndexError {
     #[error("database error: {0}")]
     Database(#[from] DbError),
+    #[error("SQLite database busy: {0}")]
+    DatabaseBusy(String),
     #[error("provider error: {0}")]
     Provider(String),
     #[error("service request busy: {0}")]
@@ -320,7 +322,19 @@ impl GlobalIndexCoordinator {
         source_id: &str,
         confirmed: bool,
     ) -> Result<(), GlobalIndexError> {
-        self.db.authorize_global_volume(source_id, confirmed)?;
+        if !confirmed {
+            return Err(
+                DbError::Validation("global_index_scope_confirmation_required".into()).into(),
+            );
+        }
+        let discovered = self
+            .provider
+            .discover_sources()?
+            .into_iter()
+            .find(|source| source.volume.id == source_id)
+            .ok_or_else(|| GlobalIndexError::Provider("global_index_source_unavailable".into()))?;
+        self.db
+            .authorize_global_volume(source_id, true, &discovered.volume)?;
         self.provider.source_enabled_changed(source_id, true);
         self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
         Ok(())
@@ -1044,6 +1058,9 @@ pub(crate) enum SqliteContentionKind {
 /// Classify only real SQLite result codes. Provider diagnostics, Service
 /// request contention, and transport/protocol errors remain separate classes.
 pub(crate) fn sqlite_contention_kind(error: &GlobalIndexError) -> Option<SqliteContentionKind> {
+    if matches!(error, GlobalIndexError::DatabaseBusy(_)) {
+        return Some(SqliteContentionKind::Busy);
+    }
     let GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _))) =
         error
     else {
@@ -1410,6 +1427,287 @@ mod tests {
                 let _ = fs::remove_file(PathBuf::from(path));
             }
         }
+    }
+
+    struct AuthorizationProbeProvider {
+        source: Mutex<GlobalSourceDescriptor>,
+        scan_calls: AtomicUsize,
+    }
+
+    impl GlobalIndexProvider for AuthorizationProbeProvider {
+        fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+            Ok(vec![self.source.lock().unwrap().clone()])
+        }
+
+        fn start_initial_index(
+            &self,
+            _source: &GlobalSourceDescriptor,
+            _sink: &mut dyn GlobalIndexSink,
+            _cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            self.scan_calls.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }
+
+        fn resume_incremental_sync(
+            &self,
+            source: &GlobalSourceDescriptor,
+            sink: &mut dyn GlobalIndexSink,
+            cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            self.start_initial_index(source, sink, cancel)
+        }
+
+        fn pause(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn status(&self) -> Result<String, GlobalIndexError> {
+            Ok(PROVIDER_WINDOWS_MFT_USN.into())
+        }
+
+        fn shutdown(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn schema44_legacy_recursive_fallback_can_be_reconfirmed_without_losing_data() {
+        let path = TestDatabasePath::new();
+        let db = Database::open(&path.0).expect("create isolated historical fixture");
+        let mut legacy = crate::global_index::tests::test_volume();
+        legacy.stable_volume_id = "volume-guid-schema44".into();
+        // Match the production Windows identity mapping: a legacy fallback
+        // row and a fresh native discovery for the same volume keep the same
+        // stable id, even though their provider differs.
+        legacy.id = format!(
+            "gv_{}",
+            blake3::hash(legacy.stable_volume_id.as_bytes()).to_hex()
+        );
+        legacy.display_name = "Legacy test volume".into();
+        legacy.mount_path = r"Z:\".into();
+        legacy.enabled = true;
+        legacy.scope_authorization_state = SCOPE_AUTHORIZATION_AUTHORIZED.into();
+        legacy.provider = PROVIDER_WINDOWS_RECURSIVE_FALLBACK.into();
+        legacy.index_status = INDEX_STATUS_READY.into();
+        legacy.last_error = Some("historical fallback diagnostic".into());
+        legacy.journal_id = Some("44".into());
+        legacy.journal_cursor = Some("9001".into());
+        legacy.last_full_index_at = Some(111);
+        legacy.last_incremental_sync_at = Some(222);
+        legacy.entry_count = 1;
+        db.upsert_global_volume(&legacy)
+            .expect("seed legacy fallback source");
+        db.upsert_global_entries_batch(&[GlobalEntryInput {
+            volume_id: legacy.id.clone(),
+            platform_file_id: "frn-schema44-1".into(),
+            parent_platform_file_id: "frn-schema44-root".into(),
+            name: "kept.txt".into(),
+            path: r"Z:\kept.txt".into(),
+            extension: "txt".into(),
+            is_directory: false,
+            size: 42,
+            created_at_fs: Some(3),
+            modified_at_fs: Some(5),
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_WINDOWS_RECURSIVE_FALLBACK.into(),
+            last_seen_at: 7,
+        }])
+        .expect("seed historical index row");
+        let history = db.conn().expect("open isolated history connection");
+        let entry_id = history
+            .query_row(
+                "SELECT id FROM global_entries WHERE volume_id=?1 AND name='kept.txt'",
+                [&legacy.id],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("read seeded entry id");
+        history
+            .execute(
+                "INSERT INTO managed_scopes (id,path,global_entry_id,allow_cloud_ai,created_at,updated_at) VALUES ('scope-schema44','Z:\\Managed',?1,1,1,2)",
+                [&entry_id],
+            )
+            .expect("seed managed scope history");
+        history
+            .execute(
+                "INSERT INTO ai_analysis_state (global_entry_id,status,input_fingerprint,content_summary,classification_json,updated_at) VALUES (?1,'completed','fingerprint-44','preserved summary','{\"topic\":\"preserved\"}',3)",
+                [&entry_id],
+            )
+            .expect("seed AI state history");
+        history
+            .execute(
+                "INSERT INTO ai_jobs (id,global_entry_id,managed_scope_id,input_fingerprint,provider,status,created_at) VALUES ('job-schema44',?1,'scope-schema44','fingerprint-44','local','completed',3)",
+                [&entry_id],
+            )
+            .expect("seed AI job history");
+        drop(history);
+        let expected_entry_count = db
+            .get_global_volume(&legacy.id)
+            .expect("read seeded source count")
+            .expect("seeded source remains")
+            .entry_count;
+        drop(db);
+
+        // Recreate the actual schema-44 shape: the scope consent column did not
+        // exist, while the old default-enabled fallback source and its user data did.
+        let historical = rusqlite::Connection::open(&path.0).expect("open schema44 fixture");
+        historical
+            .execute_batch(
+                "ALTER TABLE global_volumes DROP COLUMN scope_authorization_state; PRAGMA user_version=44;",
+            )
+            .expect("restore schema44 volume shape");
+        drop(historical);
+        let db = Database::open(&path.0).expect("migrate real schema44 history");
+        let migrated = db
+            .get_global_volume(&legacy.id)
+            .expect("read migrated source")
+            .expect("legacy source is retained");
+        assert_eq!(
+            migrated.scope_authorization_state,
+            SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+        );
+        assert_eq!(migrated.provider, PROVIDER_WINDOWS_RECURSIVE_FALLBACK);
+        assert!(migrated.enabled);
+
+        let mut discovered = legacy.clone();
+        discovered.provider = PROVIDER_WINDOWS_MFT_USN.into();
+        discovered.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_AUTHORIZED.into();
+        discovered.enabled = false;
+        let probe = Arc::new(AuthorizationProbeProvider {
+            source: Mutex::new(GlobalSourceDescriptor { volume: discovered }),
+            scan_calls: AtomicUsize::new(0),
+        });
+        let coordinator = GlobalIndexCoordinator::with_provider(
+            db.clone(),
+            probe.clone(),
+            Arc::new(GlobalIndexWakeSlot::default()),
+        );
+
+        coordinator
+            .authorize_source(&legacy.id, false)
+            .expect_err("missing explicit confirmation must not authorize");
+        let mut mismatched = probe.source.lock().unwrap();
+        mismatched.volume.stable_volume_id = "different-volume-guid".into();
+        drop(mismatched);
+        coordinator
+            .authorize_source(&legacy.id, true)
+            .expect_err("a different stable identity cannot receive old consent");
+        assert_eq!(probe.scan_calls.load(Ordering::Acquire), 0);
+        assert_eq!(
+            db.get_global_volume(&legacy.id)
+                .unwrap()
+                .unwrap()
+                .scope_authorization_state,
+            SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+        );
+
+        probe.source.lock().unwrap().volume.stable_volume_id = legacy.stable_volume_id.clone();
+        probe.source.lock().unwrap().volume.filesystem_type = "ReFS".into();
+        probe.source.lock().unwrap().volume.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
+        coordinator
+            .authorize_source(&legacy.id, true)
+            .expect_err("a source without current NTFS MFT capability cannot be confirmed");
+        assert_eq!(probe.scan_calls.load(Ordering::Acquire), 0);
+        assert_eq!(
+            db.get_global_volume(&legacy.id)
+                .unwrap()
+                .unwrap()
+                .scope_authorization_state,
+            SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+        );
+        probe.source.lock().unwrap().volume.filesystem_type = "ntfs".into();
+        probe.source.lock().unwrap().volume.provider = PROVIDER_WINDOWS_MFT_USN.into();
+        coordinator
+            .authorize_source(&legacy.id, true)
+            .expect("explicit reconfirmation of same NTFS volume succeeds");
+        let authorized = db
+            .get_global_volume(&legacy.id)
+            .unwrap()
+            .expect("authorized source remains");
+        assert_eq!(
+            authorized.scope_authorization_state,
+            SCOPE_AUTHORIZATION_AUTHORIZED
+        );
+        assert!(authorized.enabled);
+        assert_eq!(authorized.provider, PROVIDER_WINDOWS_MFT_USN);
+        assert_eq!(authorized.index_status, INDEX_STATUS_REBUILD_REQUIRED);
+        assert_eq!(authorized.stable_volume_id, legacy.stable_volume_id);
+        assert_eq!(authorized.journal_id.as_deref(), Some("44"));
+        assert_eq!(authorized.journal_cursor.as_deref(), Some("9001"));
+        assert_eq!(authorized.last_full_index_at, Some(111));
+        assert_eq!(authorized.last_incremental_sync_at, Some(222));
+        assert_eq!(authorized.entry_count, expected_entry_count);
+        assert_eq!(
+            authorized.last_error.as_deref(),
+            Some("historical fallback diagnostic")
+        );
+        assert_eq!(probe.scan_calls.load(Ordering::Acquire), 0);
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM global_entries WHERE volume_id=?1 AND name='kept.txt' AND path='Z:\\kept.txt' AND source_provider='windows_recursive_fallback'",
+                    [&legacy.id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row("SELECT content_summary FROM ai_analysis_state", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+            "preserved summary"
+        );
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT path, allow_cloud_ai FROM managed_scopes WHERE id='scope-schema44'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )
+                .unwrap(),
+            ("Z:\\Managed".to_string(), 1)
+        );
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT status, input_fingerprint, managed_scope_id FROM ai_jobs WHERE id='job-schema44'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+                )
+                .unwrap(),
+            (
+                "completed".to_string(),
+                "fingerprint-44".to_string(),
+                "scope-schema44".to_string()
+            )
+        );
+
+        run_index_cycle_for_test(
+            probe.as_ref(),
+            &db,
+            &Arc::new(AtomicBool::new(false)),
+            &GlobalIndexWakeSlot::default(),
+        )
+        .expect("authorized legacy source completes its simulated MFT rebuild");
+        assert_eq!(probe.scan_calls.load(Ordering::Acquire), 1);
+        assert_eq!(
+            db.get_global_volume(&legacy.id)
+                .unwrap()
+                .unwrap()
+                .index_status,
+            INDEX_STATUS_READY
+        );
+
+        drop(db);
     }
 
     #[test]

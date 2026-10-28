@@ -36,9 +36,15 @@ it("distinguishes source readiness without declaring unindexed snapshots empty",
   for (const [status, title] of [
     ["discovered", "globalSearchNotIndexedTitle"], ["indexing", "globalIndexStatusIndexing"],
     ["paused", "globalIndexStatusPaused"], ["rebuild_required", "globalIndexStatusRebuildRequired"],
-    ["unavailable", "globalIndexStatusUnavailable"], ["permission_required", "globalIndexStatusUnavailable"]
+    ["unavailable", "globalIndexStatusUnavailable"],
+    ["permission_required", "globalIndexStatusPermissionRequired"],
+    ["error", "globalIndexStatusError"]
   ] as const) {
-    const feedback = globalSearchFeedback(scopeResponse(request, status), t);
+    const response = scopeResponse(request, status);
+    if (status === "permission_required" || status === "error" || status === "unavailable") {
+      response.indexStatus.status = status;
+    }
+    const feedback = globalSearchFeedback(response, t);
     expect(feedback.title).toBe(t(title));
     expect(feedback.title).not.toBe(t("commandNoResultsTitle"));
   }

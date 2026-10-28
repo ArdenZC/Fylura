@@ -407,7 +407,7 @@ struct DatabaseIndexSink {
     owners: HashMap<String, SourceOperationOwner>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "windows"))]
 pub(crate) fn database_sink_for_test(db: Database) -> impl GlobalIndexSink {
     DatabaseIndexSink {
         db,

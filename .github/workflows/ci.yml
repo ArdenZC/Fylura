@@ -964,6 +964,17 @@ jobs:
         with:
           path: .tmp-performance-fixtures/cache
           key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
+      # Pass this exact validated 100k/1M synthetic fixture within the same
+      # workflow run. The cross-run cache is only an optimization: GitHub can
+      # evict an entry between the producer and consumer jobs.
+      - name: Upload exact Library and Content fixture for this run
+        if: ${{ needs.change-scope.outputs.perf_library_content == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-fixture-library-content-${{ matrix.validation_lane }}
+          path: .tmp-performance-fixtures/cache/
+          if-no-files-found: error
+          retention-days: 1
       - name: Upload Search prepared binaries
         if: ${{ needs.change-scope.outputs.perf_search == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1204,10 +1215,28 @@ jobs:
         with:
           path: .tmp-performance-fixtures/cache
           key: ${{ steps.binary-identity.outputs.fixture_cache_key }}
-      - name: Require exact Library and Content fixture cache
+      # An Actions cache hit in Performance / Prepare is not a guarantee
+      # that the exact cache remains readable in a later hosted runner.
+      # Download the producer's same-run, identity-keyed validated fixture
+      # only when the cache misses. Download digest verification is strict.
+      - name: Download exact Library and Content fixture from this run
+        if: ${{ steps.fixture-cache.outputs.cache-hit != 'true' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: perf-fixture-library-content-${{ matrix.validation_lane }}
+          path: .tmp-performance-fixtures/cache
+          digest-mismatch: error
+      - name: Require exact Library and Content fixture
         shell: pwsh
         run: |
-          if ("${{ steps.fixture-cache.outputs.cache-hit }}" -ne "true") { throw "Exact prepared fixture cache was not restored." }
+          $identity = "${{ steps.binary-identity.outputs.fixture_identity }}"
+          if ([string]::IsNullOrWhiteSpace($identity)) { throw "Library and Content fixture identity is empty." }
+          $manifestPath = Join-Path ".tmp-performance-fixtures/cache" "$identity/manifest.json"
+          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw "Exact Library and Content fixture was not available from either cache or same-run artifact."
+          }
+          # The suite subsequently validates manifest identity, schema, file
+          # sizes, SHA-256 and required files before any benchmark executes.
       - name: Run Library and Content performance suite from prepared binary
         shell: pwsh
         run: |

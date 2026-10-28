@@ -391,10 +391,11 @@ fn issue494_cross_connection_data_version_is_not_a_shared_generation() {
         )
         .expect("commit an update through the other connection");
 
-    // data_version is only comparable on the same connection: the writer's
-    // own commit leaves its counter unchanged, while the reader observes a
-    // different value after another connection commits. MAX(rowid) is also
-    // unchanged because this write updates an existing row.
+    // data_version is only comparable on the same connection. The writer's
+    // own commit leaves its counter unchanged. The reader's active transaction
+    // continues to report its snapshot value and advances only after the read
+    // transaction ends. MAX(rowid) is unchanged because the writer updates an
+    // existing row.
     let writer_data_version_after: i64 = writer
         .query_row("PRAGMA data_version", [], |row| row.get(0))
         .expect("writer data_version after own commit");
@@ -405,9 +406,9 @@ fn issue494_cross_connection_data_version_is_not_a_shared_generation() {
             |row| row.get(0),
         )
         .expect("writer max rowid after update");
-    let reader_data_version_after: i64 = reader
+    let reader_data_version_in_snapshot: i64 = reader
         .query_row("PRAGMA data_version", [], |row| row.get(0))
-        .expect("reader data_version after external commit");
+        .expect("reader data_version while snapshot is active");
     let reader_max_rowid_after: i64 = snapshot
         .connection()
         .query_row(
@@ -418,7 +419,7 @@ fn issue494_cross_connection_data_version_is_not_a_shared_generation() {
         .expect("reader snapshot max rowid after external commit");
     assert_eq!(writer_data_version_before, writer_data_version_after);
     assert_eq!(writer_max_rowid_before, writer_max_rowid_after);
-    assert_ne!(reader_data_version, reader_data_version_after);
+    assert_eq!(reader_data_version, reader_data_version_in_snapshot);
     assert_eq!(reader_max_rowid_after, reader_max_rowid);
     assert_ne!(
         writer
@@ -444,6 +445,12 @@ fn issue494_cross_connection_data_version_is_not_a_shared_generation() {
         .expect("cross-connection old view lookup");
     assert_eq!(lookup.fence, Fence::StaleSnapshot);
     assert!(lookup.name_path.is_empty());
+    drop(other_snapshot);
+    drop(snapshot);
+    let reader_data_version_after_snapshot: i64 = reader
+        .query_row("PRAGMA data_version", [], |row| row.get(0))
+        .expect("reader data_version after snapshot ends");
+    assert_ne!(reader_data_version, reader_data_version_after_snapshot);
 }
 
 #[test]

@@ -72,7 +72,7 @@ The cases run with `--test-threads=1`. Their pass/fail state is recorded against
 | `issue494_candidate_b_matches_proposed_oracle_on_edge_cases` / `..._on_density_fixture` | B == proposed oracle, both channels |
 | `issue494_extension_channel_is_identical_across_architectures` | A, B and the oracle agree on extension exact/prefix |
 | `issue494_incremental_narrowing_equals_full_scan` | 10-step typed prefix: narrowed == full scan == oracle within one view |
-| `issue494_cross_connection_data_version_is_not_a_shared_generation` | A second connection can commit an UPDATE while `data_version` + `MAX(rowid)` still match; a view cannot cross snapshots |
+| `issue494_cross_connection_data_version_is_not_a_shared_generation` | Per-connection `data_version` behavior and snapshot isolation after an external UPDATE; a view cannot cross snapshots |
 | `issue494_same_connection_write_invalidates_a_snapshot_view` | A same-connection UPDATE leaves both old counters unchanged; the next snapshot rejects the view |
 | `issue494_cross_connection_mutations_are_snapshot_consistent_and_rebuild_completely` | External delete, rename, mtime reorder and inserts preserve the old snapshot result, then a new snapshot rebuild restores the complete ordered page |
 | `issue494_hydration_mismatch_falls_back_instead_of_returning_partial_or_misordered_top_k` | If hydration drops/reorders preselected Top-K rows, the lookup returns an empty fallback result |
@@ -247,10 +247,11 @@ describe a supported production update contract.
   authoritative SQL path or build a new view. This is deliberately bounded to the research harness.
 - `PRAGMA data_version` is not a persistent source generation and is only comparable on the same
   connection. The cross-connection test observes the writer's value stay unchanged on its own
-  commit while the reader's value advances; the reader's SQLite snapshot still exposes the old
-  facts. The same-connection test shows an UPDATE after the snapshot ends changes row facts without
-  advancing that connection's `data_version` or `MAX(rowid)`, so the old view is rejected by its
-  snapshot identity.
+  commit and the reader's value remain pinned while its read transaction is active, then advance
+  after that transaction ends. The old SQLite snapshot still exposes its original facts. The
+  same-connection test shows an UPDATE after the snapshot ends changes row facts without advancing
+  that connection's `data_version` or `MAX(rowid)`, so the old view is rejected by its snapshot
+  identity.
 - The experiment now uses a unique in-memory snapshot identity, sets `query_only` on the reader
   connection, and builds, selects and hydrates inside that same SQLite transaction. Another
   connection may commit while the read snapshot stays stable; another snapshot or connection cannot

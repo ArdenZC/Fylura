@@ -353,17 +353,23 @@ fn issue494_cross_connection_data_version_is_not_a_shared_generation() {
     let reader_data_version: i64 = reader
         .query_row("PRAGMA data_version", [], |row| row.get(0))
         .expect("reader data_version");
-    let writer_data_version: i64 = writer
+    let writer_data_version_before: i64 = writer
         .query_row("PRAGMA data_version", [], |row| row.get(0))
-        .expect("writer data_version");
-    assert_eq!(reader_data_version, writer_data_version);
-    let max_rowid: i64 = reader
+        .expect("writer data_version before write");
+    let reader_max_rowid: i64 = reader
         .query_row(
             "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
             [],
             |row| row.get(0),
         )
-        .expect("baseline max rowid");
+        .expect("reader baseline max rowid");
+    let writer_max_rowid_before: i64 = writer
+        .query_row(
+            "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
+            [],
+            |row| row.get(0),
+        )
+        .expect("writer baseline max rowid");
 
     let snapshot = candidate_b::ReadSnapshot::begin(&reader).expect("reader snapshot");
     let view = build_view(&snapshot);
@@ -385,21 +391,35 @@ fn issue494_cross_connection_data_version_is_not_a_shared_generation() {
         )
         .expect("commit an update through the other connection");
 
-    // On `writer`, its own commit leaves data_version unchanged. It also does
-    // not change MAX(rowid), so the old cross-connection tuple can exactly
-    // match the values captured on `reader` despite a committed fact update.
-    let other_connection_data_version: i64 = writer
+    // data_version is only comparable on the same connection: the writer's
+    // own commit leaves its counter unchanged, while the reader observes a
+    // different value after another connection commits. MAX(rowid) is also
+    // unchanged because this write updates an existing row.
+    let writer_data_version_after: i64 = writer
         .query_row("PRAGMA data_version", [], |row| row.get(0))
         .expect("writer data_version after own commit");
-    let other_connection_max_rowid: i64 = writer
+    let writer_max_rowid_after: i64 = writer
         .query_row(
             "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
             [],
             |row| row.get(0),
         )
         .expect("writer max rowid after update");
-    assert_eq!(other_connection_data_version, reader_data_version);
-    assert_eq!(other_connection_max_rowid, max_rowid);
+    let reader_data_version_after: i64 = reader
+        .query_row("PRAGMA data_version", [], |row| row.get(0))
+        .expect("reader data_version after external commit");
+    let reader_max_rowid_after: i64 = snapshot
+        .connection()
+        .query_row(
+            "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
+            [],
+            |row| row.get(0),
+        )
+        .expect("reader snapshot max rowid after external commit");
+    assert_eq!(writer_data_version_before, writer_data_version_after);
+    assert_eq!(writer_max_rowid_before, writer_max_rowid_after);
+    assert_ne!(reader_data_version, reader_data_version_after);
+    assert_eq!(reader_max_rowid_after, reader_max_rowid);
     assert_ne!(
         writer
             .query_row(
@@ -416,7 +436,7 @@ fn issue494_cross_connection_data_version_is_not_a_shared_generation() {
                 |row| row.get::<_, Option<i64>>(0),
             )
             .expect("snapshot fact"),
-        "the databases expose different facts even though the old counter tuple matches"
+        "the current writer and the reader's stable snapshot expose different facts"
     );
 
     let other_snapshot = candidate_b::ReadSnapshot::begin(&writer).expect("writer snapshot");

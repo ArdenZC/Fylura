@@ -245,10 +245,12 @@ describe a supported production update contract.
 - The experiment has **no incremental patch path**. The corrected view belongs to exactly one
   `ReadSnapshot`; after that transaction ends, the view is rejected and the caller must use the
   authoritative SQL path or build a new view. This is deliberately bounded to the research harness.
-- `PRAGMA data_version` is not a persistent source generation. The cross-connection test performs an
-  UPDATE on a second connection while the `data_version` + `MAX(rowid)` pair still matches the value
-  read by the builder. The same-connection test reproduces the documented own-commit behavior: an
-  UPDATE changes row facts without advancing that connection's `data_version` or `MAX(rowid)`.
+- `PRAGMA data_version` is not a persistent source generation and is only comparable on the same
+  connection. The cross-connection test observes the writer's value stay unchanged on its own
+  commit while the reader's value advances; the reader's SQLite snapshot still exposes the old
+  facts. The same-connection test shows an UPDATE after the snapshot ends changes row facts without
+  advancing that connection's `data_version` or `MAX(rowid)`, so the old view is rejected by its
+  snapshot identity.
 - The experiment now uses a unique in-memory snapshot identity, sets `query_only` on the reader
   connection, and builds, selects and hydrates inside that same SQLite transaction. Another
   connection may commit while the read snapshot stays stable; another snapshot or connection cannot

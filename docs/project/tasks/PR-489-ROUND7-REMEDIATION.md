@@ -33,7 +33,12 @@ real DatabaseIndexSink and Coordinator against an isolated SQLite database.
 The native watcher startup fails only on a unique nonexistent fixture path;
 MFT/USN work is injected as an admitted checkpoint write, never a real-drive scan.
 The failure-first Windows candidate also checks failed Journal creation 5/1314
-followed by 1179. Final Windows outcomes are linked in the PR acceptance matrix.
+followed by 1179. Windows failure-first CI reports 1372 passed, 6 failed,
+37 pre-existing ignored tests. The additional failures explicitly show missing
+full-index timestamp, watcher_unavailable instead of paused, and lost create
+permission error. These are the six intended regressions; no unrelated Rust
+failure occurs on that Windows candidate. Final Windows outcomes are linked in
+the PR acceptance matrix.
 The separate frontend consent test first fails on missing `NTFS USN` disclosure.
 No assertion or performance threshold was removed to obtain a pass.
 
@@ -140,9 +145,16 @@ in that container; production dependency manifests were not changed.
 - All four failures are Managed AI fixture timeouts/no requests at the local
   Ollama fixture: disabled-control wake, scheduler-policy wake, queue refill,
   and live assessment consumption. On unchanged master `df940915`, in the same
-  container, those same four fail (3 other Managed AI tests PASS). This proves
-  a baseline failure in this environment, not its underlying cause. The exact
-  provider/readiness/transport cause remains UNVERIFIED; no AI code was changed.
+  container, those same four fail (3 other Managed AI tests PASS). The independent
+  `ai::settings::validation_tests::system_credential_store_fails_closed_on_unsupported_platforms`
+  test also PASSes. Source tracing identifies the cause: fixtures save with an
+  InMemoryCredentialStore, but the live worker calls `get_ai_settings_for_db`,
+  which reads SystemCredentialStore even for Ollama. On Linux that deliberately
+  returns `system_credential_store_unsupported_platform`; the worker converts
+  the settings error to None and never contacts the local fixture. Installing
+  GTK/WebKit does not change this intentional unsupported-platform policy.
+  This baseline AI limitation is separate from SQLite ReadOnly. No AI/security
+  behavior was changed to make these failures green.
 
 Local raw logs are retained in `/workspace/scratch/round7-*.log`; hosted test
 logs are retained by their linked Actions runs. The original missing-glib build

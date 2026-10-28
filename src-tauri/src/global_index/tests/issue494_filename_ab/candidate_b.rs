@@ -350,7 +350,8 @@ impl CompactView {
             view.extension_index.push(extension_id);
 
             // Fail fast instead of exhausting memory on an oversized source.
-            if view.name_span.len() % 65_536 == 0 && view.estimated_bytes() > budget_bytes {
+            if view.name_span.len().is_multiple_of(65_536) && view.estimated_bytes() > budget_bytes
+            {
                 return Ok(None);
             }
         }

@@ -154,7 +154,7 @@ enum ProductionTier {
 /// Mirrors `layer_limit` in `search.rs`.
 fn layer_limit(target: u32, seen: usize) -> u32 {
     target
-        .saturating_add(seen.min(MAX_WINDOW as usize) as u32)
+        .saturating_add(seen.min(MAX_WINDOW) as u32)
         .clamp(1, MAX_WINDOW as u32)
 }
 

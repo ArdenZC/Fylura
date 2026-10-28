@@ -384,6 +384,11 @@ struct DatabaseIndexSink {
     owners: HashMap<String, SourceOperationOwner>,
 }
 
+#[cfg(test)]
+pub(crate) fn database_sink_for_test(db: Database) -> impl GlobalIndexSink {
+    DatabaseIndexSink { db, owners: HashMap::new() }
+}
+
 impl DatabaseIndexSink {
     fn owner(&self, volume_id: &str) -> Result<&SourceOperationOwner, GlobalIndexError> {
         self.owners.get(volume_id).ok_or_else(|| {

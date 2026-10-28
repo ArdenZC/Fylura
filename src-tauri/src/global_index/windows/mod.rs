@@ -783,6 +783,52 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn disable_completed_before_stale_request_cannot_leave_native_watcher() {
+        use crate::db::Database;
+        use crate::global_index::coordinator::database_sink_for_test;
+        use std::sync::{Arc, Barrier};
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(".tmp-tests").join(format!("round8-revocation-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let db = Database::open(root.join("fixture.sqlite3")).unwrap();
+        let mut source = windows_source();
+        let watched = root.join("watched");
+        std::fs::create_dir(&watched).unwrap();
+        source.volume.mount_path = watched.to_string_lossy().into_owned();
+        db.upsert_global_volume(&source.volume).unwrap();
+        let mut provider = WindowsGlobalIndexProvider::with_wake(
+            Arc::new(GlobalIndexWakeSlot::default()), db.path().to_path_buf());
+        provider.force_direct = true;
+        let provider = Arc::new(provider);
+        let selected = Arc::new(Barrier::new(2));
+        let resume = Arc::new(Barrier::new(2));
+        std::thread::scope(|scope| {
+            let task = scope.spawn(|| {
+                let stale = db.get_global_volume(&source.volume.id).unwrap().unwrap();
+                selected.wait();
+                resume.wait();
+                let stale = GlobalSourceDescriptor { volume: stale };
+                let request = WindowsGlobalIndexProvider::source_request(
+                    IndexServiceCommand::StartInitialIndex { source_id: stale.volume.id.clone() }, &stale);
+                let mut sink = database_sink_for_test(db.clone());
+                assert!(provider.run_source_request(&request, &stale, &mut sink, |_, _| {
+                    panic!("disabled source reached native indexing")
+                }).is_err());
+            });
+            selected.wait();
+            db.set_global_volume_enabled(&source.volume.id, false).unwrap();
+            provider.source_enabled_changed(&source.volume.id, false);
+            assert!(!db.get_global_volume(&source.volume.id).unwrap().unwrap().enabled);
+            resume.wait();
+            task.join().unwrap();
+        });
+        assert!(provider.change_watchers.lock().unwrap().is_empty(), "stale request leaked a real recursive watcher after disable returned");
+        drop(provider);
+        drop(db);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     use super::*;
     use crate::global_index::models::{
         GlobalEntry, GlobalEntryInput, GlobalVolume, INDEX_STATUS_PERMISSION_REQUIRED,

@@ -15,7 +15,7 @@ use crate::db::{Database, DbError};
 use rusqlite::{params, Connection, Params};
 use std::collections::HashSet;
 
-const MAX_SEARCH_LIMIT: u32 = 200;
+pub(crate) const MAX_SEARCH_LIMIT: u32 = 200;
 const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 // The final page is taken from this bounded, de-duplicated candidate window.
 // A layer may fetch up to target + already-seen ids to compensate for overlap,

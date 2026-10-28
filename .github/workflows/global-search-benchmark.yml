@@ -103,7 +103,7 @@ jobs:
           cache-on-failure: true
       - name: Run adversarial Candidate B correctness cases
         run: >-
-          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo test --release --manifest-path src-tauri/Cargo.toml
           --features desktop-runtime
           --lib
           global_index::tests::global_search_benchmark::filename_search_ab::cases::

@@ -289,6 +289,14 @@ pub(super) struct Lookup {
     pub narrowed: bool,
 }
 
+/// Result route for a caller that requires a complete page even when the
+/// in-memory preselected window fails hydration. The fallback uses the
+/// authoritative production SQL under the same pinned snapshot.
+pub(super) enum LookupRoute {
+    CandidateB(Lookup),
+    ProductionSql(Vec<crate::global_index::models::GlobalSearchResult>),
+}
+
 struct Span {
     start: u32,
     len: u32,
@@ -859,6 +867,28 @@ pub(super) fn lookup(
         hydrated_dropped,
         narrowed,
     })
+}
+
+/// Use Candidate B only when every preselected row hydrates without filtering
+/// or reclassification. Otherwise run the full production lookup under the
+/// same `ReadSnapshot`; never return the surviving subset as a complete page.
+pub(super) fn lookup_page_with_production_sql_fallback(
+    view: &CompactView,
+    snapshot: &ReadSnapshot<'_>,
+    query: &str,
+    page_limit: usize,
+    previous: Option<&NarrowCache>,
+) -> Result<LookupRoute, DbError> {
+    // This API returns one user page, not Candidate B's 4,096-row research
+    // window. Keep the fallback contract aligned with production's page cap.
+    let page_limit = page_limit.clamp(1, crate::global_index::search::MAX_SEARCH_LIMIT as usize);
+    let lookup = lookup(view, snapshot, query, page_limit, previous)?;
+    if lookup.fence == Fence::Valid {
+        Ok(LookupRoute::CandidateB(lookup))
+    } else {
+        let sql_rows = snapshot.production_search(query, page_limit as u32, 0)?;
+        Ok(LookupRoute::ProductionSql(sql_rows))
+    }
 }
 
 /// Which channel a hydrated row belongs to. The extension channel must be

@@ -17,7 +17,10 @@ use crate::db::Database;
 use crate::global_index::models::GlobalEntryInput;
 use crate::global_index::tests::{test_db_path, test_volume};
 use rusqlite::Connection;
+use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// A disposable fixture database plus its pooled handle.
 pub(super) struct Fixture {
@@ -50,9 +53,67 @@ fn open_fixture() -> Fixture {
     Fixture { path, db: Some(db) }
 }
 
+struct CachedSeed {
+    image: Arc<[u8]>,
+    remaining_uses: usize,
+}
+
+/// Build large correctness fixtures once per test process, then copy the
+/// immutable SQLite image into a fresh, isolated database for each test. This
+/// avoids repeating tens of thousands of FTS-triggered inserts while keeping
+/// test mutations independent. Scale probes deliberately call the uncached
+/// builders below so this optimization cannot affect their resource samples.
+fn cached_fixture(key: String, expected_uses: usize, build: impl FnOnce() -> Fixture) -> Fixture {
+    static SEEDS: OnceLock<Mutex<HashMap<String, CachedSeed>>> = OnceLock::new();
+    let seeds = SEEDS.get_or_init(|| Mutex::new(HashMap::new()));
+    let image = {
+        let mut seeds = seeds.lock().expect("fixture seed cache");
+        if let Some(seed) = seeds.get_mut(&key) {
+            seed.remaining_uses = seed.remaining_uses.saturating_sub(1);
+            let image = Arc::clone(&seed.image);
+            if seed.remaining_uses == 0 {
+                seeds.remove(&key);
+            }
+            image
+        } else {
+            assert!(expected_uses > 0, "cached fixture needs a use count");
+            let mut generated = build();
+            let seed_path = generated.path.clone();
+            drop(generated.db.take());
+            let bytes = fs::read(&seed_path).expect("read generated fixture image");
+            drop(generated);
+            let image = Arc::<[u8]>::from(bytes);
+            if expected_uses > 1 {
+                seeds.insert(
+                    key,
+                    CachedSeed {
+                        image: Arc::clone(&image),
+                        remaining_uses: expected_uses - 1,
+                    },
+                );
+            }
+            image
+        }
+    };
+
+    let path = test_db_path();
+    fs::write(&path, image.as_ref()).expect("copy cached fixture image");
+    drop(image);
+    let db = Database::open(&path).expect("open copied fixture database");
+    Fixture { path, db: Some(db) }
+}
+
 /// The official 12-class synthetic fixture. `entries` must be one of the values
 /// the official generator accepts.
 pub(super) fn official(entries: u64) -> Fixture {
+    cached_fixture(
+        format!("official-{entries}"),
+        if entries == 100_000 { 3 } else { 1 },
+        || official_uncached(entries),
+    )
+}
+
+pub(super) fn official_uncached(entries: u64) -> Fixture {
     let fixture = open_fixture();
     let _ = populate_synthetic_database(fixture.db(), entries);
     fixture
@@ -72,7 +133,7 @@ pub(super) const DENSITY_QUERIES: [(&str, u64); 9] = [
     ("pdf", 2_000),
 ];
 
-const INSERT_BATCH: usize = 512;
+const INSERT_BATCH: usize = 5_000;
 const FILLER_MODIFIED_BASE: i64 = 1_700_000_000;
 
 fn entry(
@@ -113,6 +174,14 @@ fn push_row(
 
 /// Controlled-density fixture with exactly `total` authorized rows.
 pub(super) fn density(total: u64) -> Fixture {
+    cached_fixture(
+        format!("density-{total}"),
+        if total == 100_000 { 12 } else { 1 },
+        || density_uncached(total),
+    )
+}
+
+pub(super) fn density_uncached(total: u64) -> Fixture {
     let fixture = open_fixture();
     let mut disabled = test_volume();
     disabled.id = "gv_disabled_494".to_string();

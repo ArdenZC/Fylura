@@ -62,8 +62,8 @@ fn queries() -> Vec<&'static str> {
 
 fn build_fixture(entries: u64) -> Fixture {
     match std::env::var("ZC_ISSUE494_FIXTURE").as_deref() {
-        Ok("density") => fixtures::density(entries),
-        _ => fixtures::official(entries),
+        Ok("density") => fixtures::density_uncached(entries),
+        _ => fixtures::official_uncached(entries),
     }
 }
 

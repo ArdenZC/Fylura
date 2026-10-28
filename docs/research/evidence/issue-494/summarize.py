@@ -1,6 +1,7 @@
 """Turn the #494 JSONL evidence into markdown tables.
 
-Reads every *.jsonl under .qa-494/evidence and prints the tables used in
+Reads historical JSONL in this directory and native runner JSONL under
+native/*.jsonl, then prints the source-separated tables used in
 docs/research/ISSUE_494_FILENAME_AB_PROTOTYPE.md. Read-only: it never edits the
 repository or the evidence.
 """
@@ -15,7 +16,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 def load():
     records = []
-    for path in sorted(glob.glob(os.path.join(ROOT, "evidence", "*.jsonl"))):
+    paths = glob.glob(os.path.join(ROOT, "*.jsonl"))
+    paths.extend(glob.glob(os.path.join(ROOT, "native", "*.jsonl")))
+    for path in sorted(paths):
         with open(path, encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
@@ -43,23 +46,34 @@ def main():
 
     fixtures = {}
     for record in queries:
-        fixtures.setdefault((record.get("fixture"), record.get("entries")), []).append(record)
+        fixtures.setdefault(
+            (
+                record.get("source_sha") or "historical",
+                record.get("os", "unknown"),
+                record.get("fixture"),
+                record.get("entries"),
+            ),
+            [],
+        ).append(record)
 
-    for (fixture, entries), rows in sorted(fixtures.items(), key=lambda kv: (kv[0][0], kv[0][1] or 0)):
-        print(f"\n### {fixture} / {entries} rows\n")
+    for (source_sha, os_name, fixture, entries), rows in sorted(
+        fixtures.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2], kv[0][3] or 0)
+    ):
+        print(f"\n### {fixture} / {entries} rows / {os_name} / source {source_sha}\n")
         header = (
-            "| Query | Hits | FTS matches | Prod SQL page | Prod pooled page | Prod Snapshot page | "
+            "| Query | Hits | N | FTS matches | Prod SQL page | Prod pooled page | Prod Snapshot page | "
             "A page | A window | A enumerate | B filename page | B filename window | "
             "B full page | B full window | Extension SQL |"
         )
         print(header)
-        print("|" + "---|" * 14)
+        print("|" + "---|" * 15)
         for record in rows:
             print(
-                "| `{q}` | {hits} | {fts} | {p} | {pp} | {ps} | {ap} | {a} | {ae} | "
+                "| `{q}` | {hits} | {samples} | {fts} | {p} | {pp} | {ps} | {ap} | {a} | {ae} | "
                 "{bfp} | {bf} | {bfullp} | {bfull} | {ext} |".format(
                     q=record.get("query"),
                     hits=record.get("oracle_hits"),
+                    samples=record.get("percentile_samples", record.get("samples", "?")),
                     fts=record.get("production_fts_matches"),
                     p=fmt(record.get("production_sql", [0, 0, 0])),
                     pp=fmt(record.get("production_pooled", [0, 0, 0])),
@@ -78,14 +92,16 @@ def main():
     builds = [r for r in records if r.get("record") == "compact_view_build"]
     if builds:
         print("\n### B cold build and resources\n")
-        print("| Fixture | Rows | Build ms | Estimated heap MB | Name MB | Dir MB | Id MB | Slot MB | Dirs | Peak RSS MB | CPU peak % | Read MB | Written MB |")
-        print("|" + "---|" * 13)
+        print("| Source SHA | OS | Fixture | Rows | Build ms | Estimated heap MiB | Name MiB | Dir MiB | Id MiB | Slot MiB | Dirs | RSS start MiB | RSS peak MiB | Peak delta MiB | RSS samples | CPU peak % | Read MiB | Written MiB |")
+        print("|" + "---|" * 18)
         for record in builds:
             stats = record.get("stats", {})
             resources = record.get("resources", {})
             mb = 1024 * 1024
             print(
-                "| {f} | {rows} | {ms:.0f} | {total:.1f} | {names:.1f} | {dirs_b:.1f} | {ids:.1f} | {slots:.1f} | {distinct} | {peak:.1f} | {cpu:.0f} | {read:.1f} | {written:.1f} |".format(
+                "| {source} | {os} | {f} | {rows} | {ms:.0f} | {total:.1f} | {names:.1f} | {dirs_b:.1f} | {ids:.1f} | {slots:.1f} | {distinct} | {start:.1f} | {peak:.1f} | {delta:.1f} | {samples} | {cpu:.0f} | {read:.1f} | {written:.1f} |".format(
+                    source=record.get("source_sha", "historical"),
+                    os=record.get("os", "unknown"),
                     f=record.get("fixture"),
                     rows=record.get("rows"),
                     ms=record.get("cold_build_ms", 0),
@@ -95,7 +111,10 @@ def main():
                     ids=stats.get("id_bytes", 0) / mb,
                     slots=stats.get("slot_bytes", 0) / mb,
                     distinct=stats.get("distinct_directories"),
+                    start=resources.get("rss_start_bytes", 0) / mb,
                     peak=resources.get("rss_peak_bytes", 0) / mb,
+                    delta=(resources.get("rss_peak_bytes", 0) - resources.get("rss_start_bytes", 0)) / mb,
+                    samples=resources.get("samples", 0),
                     cpu=resources.get("cpu_peak_percent", 0),
                     read=resources.get("read_bytes", 0) / mb,
                     written=resources.get("written_bytes", 0) / mb,
@@ -105,11 +124,13 @@ def main():
     fixtures = [r for r in records if r.get("record") == "fixture"]
     if fixtures:
         print("\n### Fixture build\n")
-        print("| Fixture | Entries | Build ms | DB MB |")
-        print("|---|---|---|---|")
+        print("| Source SHA | OS | Fixture | Entries | Build ms | DB MiB |")
+        print("|---|---|---|---|---|---|")
         for record in fixtures:
             print(
-                "| {f} | {e} | {ms:.0f} | {db:.1f} |".format(
+                "| {source} | {os} | {f} | {e} | {ms:.0f} | {db:.1f} |".format(
+                    source=record.get("source_sha", "historical"),
+                    os=record.get("os", "unknown"),
                     f=record.get("fixture"),
                     e=record.get("entries"),
                     ms=record.get("fixture_build_ms", 0),
@@ -120,12 +141,14 @@ def main():
     incremental = [r for r in records if r.get("record") == "incremental"]
     if incremental:
         print("\n### Incremental write and rebuild\n")
-        print("| Fixture | Entries | Insert 512 ms | Delete 512 ms | Rebuild after insert ms | Rebuild after delete ms | Bytes/row | Narrow cache slots | Narrowed p50/95/99 | Full p50/95/99 |")
-        print("|" + "---|" * 10)
+        print("| Source SHA | OS | Fixture | Entries | Insert 512 ms | Delete 512 ms | Rebuild after insert ms | Rebuild after delete ms | Bytes/row | Narrow cache slots | Narrowed p50/95/99 | Full p50/95/99 |")
+        print("|" + "---|" * 12)
         for record in incremental:
             data = record.get("incremental", {})
             print(
-                "| {f} | {e} | {i:.0f} | {d:.0f} | {ri:.0f} | {rd:.0f} | {amp:.0f} | {cache} | {n} | {full} |".format(
+                "| {source} | {os} | {f} | {e} | {i:.0f} | {d:.0f} | {ri:.0f} | {rd:.0f} | {amp:.0f} | {cache} | {n} | {full} |".format(
+                    source=record.get("source_sha", "historical"),
+                    os=record.get("os", "unknown"),
                     f=record.get("fixture"),
                     e=record.get("entries"),
                     i=data.get("insert_512_ms", 0),

@@ -761,6 +761,10 @@ fn issue494_hydration_mismatch_falls_back_instead_of_returning_partial_or_misord
     let initial = oracle::proposed_name_path_oracle(&initial_rows, query);
     assert_eq!(initial.len(), 40);
     let preselected = &initial[..2];
+    let broad_query = "density-five-thousand";
+    let broad_initial = oracle::proposed_name_path_oracle(&initial_rows, broad_query);
+    assert_eq!(broad_initial.len(), 5_000);
+    let broad_preselected = &broad_initial[..2];
 
     // Deliberately bypass the guard through a test-only fault injector to model
     // a broken caller. Delete one selected row and reorder the other: returning
@@ -777,11 +781,24 @@ fn issue494_hydration_mismatch_falls_back_instead_of_returning_partial_or_misord
             [&preselected[1].id],
         )
         .expect("reorder the other selected top-k row");
+        conn.execute(
+            "DELETE FROM global_entries WHERE id = ?1",
+            [&broad_preselected[0].id],
+        )
+        .expect("delete a selected row from the broad page");
+        conn.execute(
+            "UPDATE global_entries SET modified_at_fs = 2100000000 WHERE id = ?1",
+            [&broad_preselected[1].id],
+        )
+        .expect("reorder a selected row from the broad page");
     });
 
     let current_rows = oracle::authorized_rows(&snapshot.connection()).expect("current facts");
     let authoritative = oracle::proposed_name_path_oracle(&current_rows, query);
     assert_eq!(authoritative.len(), 39);
+    let expected_sql =
+        oracle::production_oracle(&snapshot.connection(), &current_rows, query, 2, 0)
+            .expect("same-snapshot production oracle");
     let lookup = candidate_b::lookup(&view, &snapshot, query, 2, None)
         .expect("mismatched hydration returns fallback");
     assert_eq!(lookup.fence, Fence::HydrationMismatch);
@@ -789,6 +806,62 @@ fn issue494_hydration_mismatch_falls_back_instead_of_returning_partial_or_misord
     assert!(lookup.extension.is_empty());
     assert!(lookup.hydrated_dropped > 0);
     assert_ne!(ids(&authoritative[..2]), ids(preselected));
+
+    let route =
+        candidate_b::lookup_page_with_production_sql_fallback(&view, &snapshot, query, 2, None)
+            .expect("mismatch must fall back under the same snapshot");
+    let sql_rows = match route {
+        candidate_b::LookupRoute::ProductionSql(rows) => rows,
+        candidate_b::LookupRoute::CandidateB(lookup) => {
+            assert_eq!(lookup.fence, Fence::Valid);
+            panic!("a hydration mismatch must use the complete SQL fallback");
+        }
+    };
+    let actual_sql = sql_rows.into_iter().map(|row| row.id).collect::<Vec<_>>();
+    assert_eq!(
+        actual_sql, expected_sql,
+        "fallback must preserve SQL ordering"
+    );
+    assert_eq!(
+        actual_sql.len(),
+        2,
+        "fallback must refill the requested page"
+    );
+
+    let expected_capped_sql = oracle::production_oracle(
+        &snapshot.connection(),
+        &current_rows,
+        broad_query,
+        crate::global_index::search::MAX_SEARCH_LIMIT,
+        0,
+    )
+    .expect("fallback page-limit oracle");
+    let capped_route = candidate_b::lookup_page_with_production_sql_fallback(
+        &view,
+        &snapshot,
+        broad_query,
+        usize::MAX,
+        None,
+    )
+    .expect("oversized page request must safely fall back");
+    let capped_rows = match capped_route {
+        candidate_b::LookupRoute::ProductionSql(rows) => rows,
+        candidate_b::LookupRoute::CandidateB(_) => {
+            panic!("broad hydration mismatch must use the SQL fallback");
+        }
+    };
+    assert_eq!(
+        capped_rows
+            .into_iter()
+            .map(|row| row.id)
+            .collect::<Vec<_>>(),
+        expected_capped_sql,
+        "fallback must clamp oversized requests to the production page limit"
+    );
+    assert_eq!(
+        expected_capped_sql.len(),
+        crate::global_index::search::MAX_SEARCH_LIMIT as usize
+    );
 }
 
 #[test]

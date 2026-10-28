@@ -1,0 +1,31 @@
+# Issue #474 — Exact sidecar postings / block-pruning architecture gate
+
+**Status: RESEARCH ONLY, NO PRODUCTION CODE, NO PERF GO.** Branch base master df940915084b810101a8a3eb78796cdf8730d55b. The tested Windows 1M Release baseline still has \`fts_substring_report\` p95 331.420ms and \`fts_substring_invoice\` p95 346.993ms versus 100ms. Ext-prefix #488 is merged. #490 rank-only 512+1 cannot certify the top 80 because rank #80 and #513 tie. #491 recency-first is rejected as default: zero-hit 70.758ms vs production 1.153ms, old-sparse 72.402ms vs production 1.738ms at 100k; BM25 order and macOS casefolding also diverge. Do not repeat these search-SQL variants.
+
+## Exact shipping contract — cannot silently change
+
+Global Search has five ordered tiers (exact name, name prefix, extension exact, extension prefix, FTS/punctuation fallback). Within the last FTS tier the SQLite external-content \`fts5(name,path,extension,tokenize='trigram')\` uses the exact quoted phrase MATCH and negative \`bm25(global_entries_fts,8,2,1)\` (smaller is better). Secondary keys are \`modified_at_fs DESC, id ASC\`. Volume \`enabled=1\` and file \`is_stale=0\` apply BEFORE limit, de-duplication precedes offset, and the candidate budget is 4096 (per-page request <=200). Managed status, source facts and candidate rows belong to the same SQLite WAL read snapshot. Cross-platform Unicode, Chinese, punctuation, casefolding, 3-character boundary and embedded-quote behavior must be covered. FTS uses triggers on insert/delete and name/path/extension updates; freshness and volume availability also affect visible results even without a text index mutation.
+
+## Hypothesis: an auxiliary positional inverted index with conservative block score bounds
+
+The **only** potentially useful advantage over FTS5 full per-hit ranking is to avoid scoring entire *low-value posting blocks* while still proving every unseen candidate cannot outrank the exact top-K. The model in \`fts_block_pruning_contract.rs\` verifies the selection invariant with actual SQLite FTS5 BM25 scores on an isolated fixture, as well as synthetic separable-score, cross-block all-tie, disabled/stale and stale-generation scenarios. A block may be pruned only when a **proven conservative lower bound on negative BM25 rank is strictly worse** than the current complete worst top-K result. On equal score, the full block must remain eligible for mtime/id tie breakers. Visibility is checked before the heap. Sidecar generation mismatch fails closed, and stale score bounds after an update must be rebuilt. The proof is intentionally at score-collector level, **not the unbuilt postings/scorer layer**.
+
+**Critical limitation of the model:** the reference blocks are constructed *after computing every score*. This is an oracle to catch rank-order, tie, filtering and invalidation mistakes; it demonstrates **zero real runtime saving by itself**. Any viable sidecar must instead derive conservative per-query upper bounds cheaply from stored positional term-frequency/norm statistics and maintain them over writes. Do not report the model's skipped blocks, timings or memory as 100k/1M FTS improvements.
+
+### Work required before a production candidate
+
+1. Define SQLite trigram/phrase **exact** tokenizer semantics and query escaping for 3+ Unicode codepoints. Store positional postings per field; a simple set of trigrams does not prove contiguous phrase occurrence or FTS5 BM25 term frequency, including overlaps and repetition. A Tantivy standard tokenizer/BM25 score is *not* necessarily byte-equivalent.
+2. Match FTS5's negative weighted BM25, doc frequency and global document/field length normalization (including empty field and negative/low IDF behavior). Provide an independent SQL-oracle score vector, not an assumption that another engine's BM25 matches. Scores, \`Option<mtime>\`, and stable \`id\` compare in full order; ties across all blocks must be processed.
+3. Provide a **conservative upper bound proof** for all query classes, even when IDF/statistics change. Do not calculate per-hit BM25 first and then claim a fast upper bound; prove the bound can be obtained before scoring all entries.
+4. Design snapshot lifecycle: a sidecar must not publish mixed SQLite/sidecar revisions, miss replays, or serve stale metadata. Use a durable SQLite generation + incremental journal or deterministic rebuild; source enabling, stale flags, mtime changes, scopes and managed state require coherent read filtering. On mismatch **fallback to the original exact SQLite query** and record the reason.
+5. Bound CPU, RAM, disk and write amplification: measure sidecar bytes at 100k/1M, rebuild duration, incremental update throughput and read idle power on both Windows/macOS. Low-value files remain excluded by the authorized source indexing policy; the sidecar cannot silently broaden scope.
+6. Acceptance sequence: a small fixture with exact \`row-id, rank bits, mtime, id, visibility\` oracle; randomized mixed Chinese/Unicode/phrase/tie/disabled/stale differential cases; deterministic 100k Release with paired 30-sample p95 and full paging; only then 1M Windows Release, 100ms both FTS cases, with write, restart, crash and restore tests. Never lower the gate or remove the 4096 window.
+
+### Alternatives and stop conditions
+
+- **SQL-only rank frontier / fixed 512 Top-K:** rejected by #490 and earlier test regression.
+- **Modified-time scanning default:** rejected by #491 sparse/zero tails, semantic divergence and case sensitivity.
+- **Result cache:** helps repeat identical queries, not cold first lookup; exact corpus/global-stat invalidation is high.
+- **Third-party Tantivy:** consider only as an explicitly dual-index/index-writer prototype; first establish tokenizer, phrase and weighted BM25 score equivalence or a clearly *opt-in* changed ranking contract. Do not add a large dependency until memory, disk and write budget measurements demonstrate a net benefit.
+
+The new tests assert the collector safety contract; they do not claim a working inverted index, a production speedup, or completed 1M Release. This research PR is to be left Draft, separate from CI transport remediation in #491, with no merge or release authorization.

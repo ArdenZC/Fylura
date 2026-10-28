@@ -4,17 +4,16 @@
 //!
 //! * `ZC_ISSUE494_ENTRIES`   – 100000 | 500000 | 1000000
 //! * `ZC_ISSUE494_FIXTURE`   – `official` (default) | `density`
-//! * `ZC_ISSUE494_MAX_HITS`  – optional cap; queries whose oracle hit count
-//!   exceeds it are measured with a shortened sample budget so a 50k-hit
-//!   substring query cannot blow the job timeout.
+//! All query timings use 5 warmups and 30 measured calls. High-hit queries are
+//! no longer down-sampled to five observations.
 //!
 //! Every row states which call it timed. `b_filename_only` is RAM only and is
-//! never presented as complete search latency; `b_full` includes the revision
-//! read and SQLite hydration; `production_*` are the shipped path.
+//! never presented as complete search latency; `b_full` includes a snapshot
+//! identity check and SQLite hydration; `production_*` are the shipped path.
 
 use super::bench::{self, ResourceSampler};
 use super::candidate_a;
-use super::candidate_b::{self, CompactView, NarrowCache};
+use super::candidate_b::{self, CompactView, NarrowCache, ReadSnapshot};
 use super::fixtures::{self, Fixture};
 use super::oracle::{self, AuthorizedRow};
 use super::{PAGE_LIMIT, SAMPLES, WARMUP};
@@ -120,10 +119,11 @@ fn issue494_filename_ab_scale_probe() {
 
     // Phase 1: cold build of B with resource sampling, before any oracle fact
     // set is materialised, so the RSS delta is attributable to B.
+    let snapshot = ReadSnapshot::begin(&conn).expect("coherent read snapshot");
     let sampler = ResourceSampler::start();
     let build_started = std::time::Instant::now();
-    let view =
-        CompactView::build(&conn, candidate_b::memory_budget_bytes()).expect("build compact view");
+    let view = CompactView::build(&snapshot, candidate_b::memory_budget_bytes())
+        .expect("build compact view");
     let cold_build_ms = build_started.elapsed().as_secs_f64() * 1_000.0;
     let resources = sampler.finish();
     let view = view.expect("compact view must fit the configured budget");
@@ -135,28 +135,28 @@ fn issue494_filename_ab_scale_probe() {
             "rows": view.rows(),
             "cold_build_ms": cold_build_ms,
             "stats": view.stats(),
-            "revision": {
-                "entry_count": view.revision().entry_count,
-                "enabled_volumes": view.revision().enabled_volumes,
-                "stale_entries": view.revision().stale_entries,
+            "source_summary": {
+                "entry_count": view.source_summary().entry_count,
+                "enabled_volumes": view.source_summary().enabled_volumes,
+                "stale_entries": view.source_summary().stale_entries,
             },
             "resources": resources,
-            "note": "estimated_total_bytes is capacity accounting; resources are sampled process RSS/CPU/IO around the build only",
+            "note": "source_summary is descriptive only and not a cache generation; estimated_total_bytes is capacity accounting; resources are sampled process RSS/CPU/IO around the build only",
         }),
     ));
 
     // Phase 2: correctness. The oracle fact set is materialised here and kept
     // for the whole run; it is deliberately built after the RSS sample.
-    conn.execute_batch("BEGIN").expect("coherent read snapshot");
-    let rows: Vec<AuthorizedRow> = oracle::authorized_rows(&conn).expect("authorized facts");
+    let rows: Vec<AuthorizedRow> =
+        oracle::authorized_rows(snapshot.connection()).expect("authorized facts");
     let mut measured = 0usize;
     for query in queries() {
         let expected = oracle::proposed_name_path_oracle(&rows, query);
         let expected_extension = oracle::extension_oracle(&rows, query);
         let a = candidate_a::search(&conn, query, super::MAX_WINDOW).expect("candidate A");
         assert_equal(&a.name_path, &expected, &format!("A {query}"));
-        let b =
-            candidate_b::lookup(&view, &conn, query, super::MAX_WINDOW, None).expect("candidate B");
+        let b = candidate_b::lookup(&view, &snapshot, query, super::MAX_WINDOW, None)
+            .expect("candidate B");
         assert_eq!(b.fence, candidate_b::Fence::Valid);
         assert_equal(&b.name_path, &expected, &format!("B {query}"));
         assert_equal(&b.extension, &expected_extension, &format!("B ext {query}"));
@@ -169,7 +169,7 @@ fn issue494_filename_ab_scale_probe() {
     for query in queries() {
         let expected = oracle::proposed_name_path_oracle(&rows, query);
         let hits = expected.len();
-        let sample_budget = if hits > 20_000 { 5 } else { SAMPLES };
+        let sample_budget = SAMPLES;
 
         let production_sql = bench::timed(
             || {
@@ -241,7 +241,7 @@ fn issue494_filename_ab_scale_probe() {
         );
         let b_full_page = bench::timed(
             || {
-                let _ = candidate_b::lookup(&view, &conn, query, PAGE_LIMIT as usize, None)
+                let _ = candidate_b::lookup(&view, &snapshot, query, PAGE_LIMIT as usize, None)
                     .expect("B page");
             },
             WARMUP,
@@ -249,8 +249,8 @@ fn issue494_filename_ab_scale_probe() {
         );
         let b_full = bench::timed(
             || {
-                let _ =
-                    candidate_b::lookup(&view, &conn, query, super::MAX_WINDOW, None).expect("B");
+                let _ = candidate_b::lookup(&view, &snapshot, query, super::MAX_WINDOW, None)
+                    .expect("B");
             },
             WARMUP,
             sample_budget,
@@ -279,6 +279,7 @@ fn issue494_filename_ab_scale_probe() {
                 "production_fts_matches": fts_matches,
                 "samples": sample_budget,
                 "percentile_samples": production_sql.samples,
+                "percentile_interpretation": "linear_interpolation_over_30_measured_calls",
                 "production_sql": production_sql.triple(),
                 "production_pooled": production_pooled.triple(),
                 "production_snapshot": production_snapshot.triple(),
@@ -295,10 +296,15 @@ fn issue494_filename_ab_scale_probe() {
                 "b_full_page": b_full_page.triple(),
                 "extension_channel_sql": b_extension.triple(),
                 "oracle_full_scan_once_ms": oracle_scan,
-                "note": "b_filename_only is RAM only; b_full adds revision read + SQLite hydration; percentiles are per-call, never summed",
+                "note": "b_filename_only is RAM only; b_full adds an in-memory snapshot identity check + SQLite hydration; paths have different coverage and are exploratory, not production replacement qualification",
             }),
         ));
     }
+
+    // Release the read snapshot before measuring writes and rebuilds.
+    drop(view);
+    drop(rows);
+    drop(snapshot);
 
     // Phase 4: incremental write and rebuild cost.
     let incremental = incremental_cost(&fixture, &conn, entries);
@@ -311,9 +317,7 @@ fn issue494_filename_ab_scale_probe() {
         }),
     ));
 
-    conn.execute_batch("ROLLBACK").expect("end snapshot");
     drop(conn);
-    drop(rows);
 }
 
 fn incremental_cost(fixture: &Fixture, conn: &Connection, entries: u64) -> serde_json::Value {
@@ -348,8 +352,9 @@ fn incremental_cost(fixture: &Fixture, conn: &Connection, entries: u64) -> serde
     let after_bytes = db_bytes(&fixture.path);
 
     let rebuild_ms = bench::once(|| {
-        let rebuilt =
-            CompactView::build(conn, candidate_b::memory_budget_bytes()).expect("rebuild attempt");
+        let snapshot = ReadSnapshot::begin(conn).expect("rebuild snapshot");
+        let rebuilt = CompactView::build(&snapshot, candidate_b::memory_budget_bytes())
+            .expect("rebuild attempt");
         assert!(rebuilt.is_some(), "rebuild must fit the budget");
     });
 
@@ -364,13 +369,15 @@ fn incremental_cost(fixture: &Fixture, conn: &Connection, entries: u64) -> serde
     });
     let after_delete_bytes = db_bytes(&fixture.path);
     let rebuild_after_delete_ms = bench::once(|| {
-        let rebuilt =
-            CompactView::build(conn, candidate_b::memory_budget_bytes()).expect("rebuild attempt");
+        let snapshot = ReadSnapshot::begin(conn).expect("rebuild snapshot");
+        let rebuilt = CompactView::build(&snapshot, candidate_b::memory_budget_bytes())
+            .expect("rebuild attempt");
         assert!(rebuilt.is_some(), "rebuild must fit the budget");
     });
 
     // Narrowing cache: how much does one keystroke cost once a prefix is warm?
-    let view = CompactView::build(conn, candidate_b::memory_budget_bytes())
+    let snapshot = ReadSnapshot::begin(conn).expect("narrowing snapshot");
+    let view = CompactView::build(&snapshot, candidate_b::memory_budget_bytes())
         .expect("view")
         .expect("view fits");
     let cache = NarrowCache::build(&view, "density-five");
@@ -410,6 +417,6 @@ fn incremental_cost(fixture: &Fixture, conn: &Connection, entries: u64) -> serde
         "narrow_cache_slots": cache_len,
         "narrowed_query": narrowed_ms.triple(),
         "full_scan_query": full_ms.triple(),
-        "note": "B has no incremental patch path: any revision change forces a full rebuild, which is what these numbers price",
+        "note": "the experiment has no incremental patch path; its snapshot-bound view is rebuilt after each write transaction",
     })
 }

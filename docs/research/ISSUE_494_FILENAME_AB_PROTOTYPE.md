@@ -1,14 +1,19 @@
-# Issue #494 — Global Search filename A/B executable prototype and 1M qualification
+# Issue #494 — Global Search filename A/B research prototype and benchmark evidence
 
-Status: **READY_FOR_OWNER_REVIEW** for the experiment. No production search path, schema, source
+Status: **CORRECTNESS FOLLOW-UP FOR OWNER REVIEW**. No production search path, schema, source
 authority, index scope or ranking contract is changed by this PR. Draft PR #495 stays draft.
+
+The performance tables below are historical measurements from pre-fix commit
+`e2bab5018ca3fa93dc7385dc3d02f96e7afc51aa`. They are exploratory baseline data only; they do not
+measure the corrected snapshot-scoped Candidate B implementation or qualify a 100 ms gate.
 
 - Base: `df940915084b810101a8a3eb78796cdf8730d55b` (`origin/master`, #488).
 - Experiment commit: this PR head. Test-only module
   `src-tauri/src/global_index/tests/issue494_filename_ab/`.
 - Windows x64, Rust 1.97.1, bundled SQLite, `--release`, `--features desktop-runtime`.
-- **macOS: UNVERIFIED for performance.** The correctness tests run on `macos-latest` in the normal
-  Rust quality job; no macOS latency, RSS or build-cost number exists in this report.
+- **Native Windows/macOS measurements for the corrected HEAD are pending.** The PR workflow now
+  runs the adversarial cases and the official 100k/1M fixtures on both platforms. The report will
+  only describe those results after the exact HEAD's jobs and artifacts finish.
 
 ## 1. What this PR contains
 
@@ -17,12 +22,12 @@ authority, index scope or ranking contract is changed by this PR. Draft PR #495 
 | `tests/issue494_filename_ab/mod.rs` | Shared `Class` / `Hit` ordering, folding rules, window helpers, the "recorded window equals production window" guard |
 | `tests/issue494_filename_ab/oracle.rs` | Production oracle (five-tier composition), proposed-order oracle, extension oracle, FTS-vs-substring divergence probe |
 | `tests/issue494_filename_ab/candidate_a.rs` | Candidate A: full FTS5 posting enumeration, no BM25 ordering, Rust classification, bounded Top-K, index-served extension channel |
-| `tests/issue494_filename_ab/candidate_b.rs` | Candidate B: disposable compact view (contiguous folded name bytes, interned directories, stable ids), O(1) revision fence, bounded Top-K, SQLite hydration |
+| `tests/issue494_filename_ab/candidate_b.rs` | Candidate B: disposable compact view (contiguous folded name bytes, interned directories, stable ids), read-snapshot identity fence, bounded Top-K, SQLite hydration |
 | `tests/issue494_filename_ab/fixtures.rs` | Official generator reuse plus a controlled-density fixture (exact 1/40/5 000/50 000 hit groups, path-only, extension, Chinese, punctuation, mixed case, stale rows, a disabled volume) |
-| `tests/issue494_filename_ab/cases.rs` | 20 correctness tests |
+| `tests/issue494_filename_ab/cases.rs` | Correctness tests, including cross-connection and same-connection invalidation, stale narrow-cache shrink/grow, and hydration fallback |
 | `tests/issue494_filename_ab/scale.rs` | The `#[ignore]`d 100k/500k/1M probe and the JSONL evidence emitter |
 | `src/global_index/search.rs` | One test-only accessor: `diagnostic_candidate_window()` |
-| `.github/workflows/global-search-benchmark.yml` | Two dispatch-only modes: `issue494_ab`, `issue494_ab_density` |
+| `.github/workflows/global-search-benchmark.yml` | Dispatch-only `issue494_ab` / `issue494_ab_density` modes plus a branch-scoped Windows/macOS correctness and measurement job |
 
 The previous single-file prototype (`tests/filename_search_ab.rs`) is replaced, not extended: its
 ranking oracle returned the empty set for every query (the extension filter was inverted), its
@@ -52,7 +57,10 @@ Three channels are compared, never merged:
 Ranking differences between the proposal and production are emitted as `ranking_diff` records. They
 are never asserted equal. Missing matches are always a failure.
 
-### 2.2 Tests (all passing, `--test-threads=1`)
+### 2.2 Correctness case inventory
+
+The cases run with `--test-threads=1`. Their pass/fail state is recorded against the exact HEAD in
+§8; this inventory is not a result claim for a later commit.
 
 | Test | What it pins |
 | --- | --- |
@@ -63,9 +71,12 @@ are never asserted equal. Missing matches are always a failure.
 | `issue494_candidate_a_paginates_without_gaps_or_repeats` | 4 096 window reachable in 64-row pages, no repeats, no gaps |
 | `issue494_candidate_b_matches_proposed_oracle_on_edge_cases` / `..._on_density_fixture` | B == proposed oracle, both channels |
 | `issue494_extension_channel_is_identical_across_architectures` | A, B and the oracle agree on extension exact/prefix |
-| `issue494_incremental_narrowing_equals_full_scan` | 10-step typed prefix: narrowed == full scan == oracle |
-| `issue494_revision_fence_blocks_a_stale_view` | A post-build write fences the view; a rebuild sees the new facts |
-| `issue494_hydration_drops_rows_that_changed_under_a_matching_revision` | With the fence forced to `Valid`, hydration still drops 20 deleted rows |
+| `issue494_incremental_narrowing_equals_full_scan` | 10-step typed prefix: narrowed == full scan == oracle within one view |
+| `issue494_cross_connection_data_version_is_not_a_shared_generation` | A second connection can commit an UPDATE while `data_version` + `MAX(rowid)` still match; a view cannot cross snapshots |
+| `issue494_same_connection_write_invalidates_a_snapshot_view` | A same-connection UPDATE leaves both old counters unchanged; the next snapshot rejects the view |
+| `issue494_cross_connection_mutations_are_snapshot_consistent_and_rebuild_completely` | External delete, rename, mtime reorder and inserts preserve the old snapshot result, then a new snapshot rebuild restores the complete ordered page |
+| `issue494_hydration_mismatch_falls_back_instead_of_returning_partial_or_misordered_top_k` | If hydration drops/reorders preselected Top-K rows, the lookup returns an empty fallback result |
+| `issue494_narrow_cache_is_bound_to_view_identity_across_shrink_and_growth` | Old slot cache is bypassed across rebuilt views; both shrink and growth match the oracle |
 | `issue494_budget_degradation_falls_back_instead_of_overrunning` | Impossible RAM budget degrades instead of allocating |
 | `issue494_fts_match_set_matches_plain_substring_scan` | Trigram MATCH set == plain Rust substring set on 9 queries at 100k |
 | `issue494_ranking_diff_report_is_produced_not_asserted` | Diffs are emitted as evidence, not asserted |
@@ -102,15 +113,19 @@ extension/name overlap instead.
 
 ## 3. Performance
 
-Method: one fixture per size, one process, `--release`, 5 warmups + 30 samples (5 samples when the
-oracle reports more than 20 000 hits, to keep the run bounded). Percentiles are per call and are
-never summed across stages. `B filename` is RAM only; `B full` adds the O(1) revision fence and
-SQLite hydration; `A` includes full posting enumeration.
+Method on the historical commit: one fixture per size, one process, `--release`, 5 warmups + 30
+measured calls, except queries with more than 20 000 oracle hits used only **5 measured calls** to
+bound runtime. For those high-hit rows, both p95 and p99 are the sample maximum; they are not stable
+tail estimates. Percentiles are per call and are never summed across stages. `B filename` is RAM
+only; historical `B full` adds the old `data_version`/`MAX(rowid)` check and SQLite hydration; `A`
+includes full posting enumeration.
 
 **These are warm-cache numbers.** The historical cold-cache 1M `fts_substring_report` p95 of
 331.420 ms is not reproduced or replaced here; the existing 100 ms pooled gate is untouched and was
-not re-run. Relative comparisons between the three architectures are valid because all of them were
-measured in the same process on the same fixture.
+not re-run. Same-process and same-fixture timing does not make the paths equivalent: they differ in
+ranking semantics, source-fact work, pooling and result coverage. Treat cross-path ratios as
+exploratory signals, not production replacement evidence. The corrected code has not yet been
+measured.
 
 All values are p50/p95/p99 ms.
 
@@ -132,8 +147,9 @@ All values are p50/p95/p99 ms.
 | `pdf` (extension intent) | 181 250 | 0.3/0.4/0.4 | 0.4/0.5/0.5 | 0.4/0.5/0.5 | 167.7/173.0/173.0 | 199.8/201.7/201.7 | 41.5/43.0/43.0 | 52.3/52.7/52.7 | 85.9/87.4/87.4 |
 | `jp` (2 codepoints) | 81 249 | 5.1/5.7/5.7 | 9.8/10.4/10.4 | 10.7/11.3/11.3 | 596.7/616.5/616.5 | 610.2/619.5/619.5 | 30.5/32.3/32.3 | 36.8/37.9/37.9 | 65.9/77.7/77.7 |
 
-Against a 100 ms warm p95 budget on this matrix (page = 80 rows, window = the 4 096 candidate
-window):
+Exploratory comparison with the 100 ms warm p95 target (page = 80 rows, window = the 4 096
+candidate window; these historical data do **not** qualify the target). Every listed high-hit row
+has only five observations, so its displayed p95 and p99 are the largest of five calls.
 
 | Architecture | Page p95 over 100 ms | Window p95 over 100 ms |
 | --- | --- | --- |
@@ -141,11 +157,11 @@ window):
 | A | `Month-03` 104.7, `pdf` 173.0, `jp` 616.5 | `Month-03` 116.9, `meeting-notes.md` 121.4, `pdf` 201.7, `jp` 619.5 |
 | B | none (worst 52.7) | none (worst 87.4) |
 
-Two readings matter and they point in different directions:
+These results are insufficient for architecture acceptance. The structural coverage findings remain
+useful, while latency comparisons require 30-call measurements on the corrected HEAD:
 
-- **A does fix the historical problem.** `report`/`invoice` go from 226–243 ms pooled to 60.7–63.1 ms
-  page p95, which is under the gate. A's unconditional enumeration is not automatically slower than
-  BM25.
+- **A showed an exploratory signal on `report`/`invoice`.** The five-call p95 values were 60.7–63.1
+  ms versus 226–243 ms pooled. They do not establish a stable tail or qualify the 100 ms gate.
 - **A cannot serve the proposed semantics.** The classes the Owner asked for — word-boundary match,
   path-only match, and substring for queries shorter than 3 codepoints — are not expressible as
   SQLite index ranges. A therefore either scans the authorized fact set (`jp`: 616.5 ms,
@@ -195,8 +211,10 @@ extension-intent queries (`pdf`: 173.0 ms) where production answers from
 A that keeps the cheap tiers in front would avoid that particular regression; it would not avoid
 `jp` or `Month-03`, because those need a scan.
 
-**Verdict on A:** GO for the narrow goal "replace the BM25 substring tier and keep the index tiers";
-NO-GO as a replacement for the whole ladder, and NO-GO for the proposed filename semantics.
+**Verdict on A:** no performance acceptance is made from these historical samples. Replacing the
+BM25 substring tier while retaining index tiers still requires matched 30-call measurements and
+Owner approval of the ranking semantics. The coverage table documents why replacing the whole
+ladder would change results.
 
 ## 4. Resources (candidate B)
 
@@ -215,117 +233,138 @@ NO-GO as a replacement for the whole ladder, and NO-GO for the proposed filename
 
 ## 5. Incremental writes, invalidation and rebuild
 
+The table below is historical pre-fix evidence from `e2bab50`; it prices a full rebuild and does not
+describe a supported production update contract.
+
 | Rows | Insert 512 | Delete 512 | Full rebuild after insert | Full rebuild after delete |
 | --- | --- | --- | --- | --- |
 | 100 000 | 23 ms | 37 ms | 149 ms | 150 ms |
 | 500 000 | 23 ms | 156 ms | 798 ms | 789 ms |
 | 1 000 000 | 23 ms | 343 ms | 1 802 ms | 1 726 ms |
 
-- **B has no incremental patch path.** Any revision change invalidates the view and forces a full
-  rebuild: 1.8 s at 1M. During that window the caller must fall back to SQLite.
-- The incremental narrowing cache is correct but only helps while a query extends the previous one:
-  at 100k density, 5 000 cached slots gave 1.3 ms versus 2.2 ms for a full scan.
-- Safety is **not** claimed from the fence. `PRAGMA data_version` plus `MAX(rowid)` is an O(1)
-  heuristic that can miss a counter-preserving change. The test
-  `issue494_hydration_drops_rows_that_changed_under_a_matching_revision` forces the fence to
-  `Valid` after deleting 20 rows and shows hydration still drops them, so a stale view cannot leak a
-  deleted, renamed, stale or de-authorized file. Completeness depends on the fence; correctness does
-  not.
-- Memory pressure: `ZC_ISSUE494_B_MEMORY_BUDGET_BYTES` (default 256 MB) aborts the build and returns
-  no view, which makes the caller fall back instead of overrunning. Tested with a 1-byte budget.
+- The experiment has **no incremental patch path**. The corrected view belongs to exactly one
+  `ReadSnapshot`; after that transaction ends, the view is rejected and the caller must use the
+  authoritative SQL path or build a new view. This is deliberately bounded to the research harness.
+- `PRAGMA data_version` is not a persistent source generation. The cross-connection test performs an
+  UPDATE on a second connection while the `data_version` + `MAX(rowid)` pair still matches the value
+  read by the builder. The same-connection test reproduces the documented own-commit behavior: an
+  UPDATE changes row facts without advancing that connection's `data_version` or `MAX(rowid)`.
+- The experiment now uses a unique in-memory snapshot identity, sets `query_only` on the reader
+  connection, and builds, selects and hydrates inside that same SQLite transaction. Another
+  connection may commit while the read snapshot stays stable; another snapshot or connection cannot
+  reuse the view. This is not a durable or cross-process generation and does not make B a persistent
+  application cache.
+- Hydration that drops a selected row or observes a changed rank returns
+  `Fence::HydrationMismatch` with empty result vectors. The caller must use SQL fallback; the code
+  does not return a partial page. If a new transaction is needed, its view is rebuilt from that
+  transaction, which supplies the refill and correct ordering.
+- `NarrowCache` holds the originating view identity plus the folded query and slots. A different
+  rebuilt view bypasses it before slot access; a defensive range check also rejects invalid slots.
+  The shrink and growth tests compare the bypass result with the complete oracle.
+- Memory pressure: `ZC_ISSUE494_B_MEMORY_BUDGET_BYTES` (default 256 MiB) aborts the build and returns
+  no view. This current estimate counts the view buffers only; it is not a process-wide budget and
+  omits build-time maps and allocator overhead. The 1-byte degradation check remains covered.
 
 ## 6. Failures, risks and unresolved limits
 
-1. **No incremental update.** 1.8 s rebuild per write batch at 1M is a production blocker on its own.
-2. **145 MB resident at 1M rows.** Zen Zero has no published budget for this; the Owner must decide.
-3. **macOS is UNVERIFIED** for latency, RSS, build cost, path separators and case folding.
-4. **Warm-cache only.** No cold-cache 1M run was performed, so this report cannot claim the
-   historical cold 331 ms is fixed. What it can claim is that B's steady-state query touches RAM
-   only, so repeated cold page-cache misses move from every query into one build.
-5. **A is measured as a whole-ladder replacement.** Its `pdf` row is pessimistic for the reason in
-   §3.5; the structural failures (`jp`, `Month-03`) are not.
-6. **Synthetic corpus.** 334 585 distinct directories, 16 extensions, fixed-width names. Real disks
+1. **No incremental update.** 1.8 s rebuild per write batch at 1M is old exploratory evidence; there
+   is no production update implementation or latency claim in this follow-up.
+2. **Memory evidence is incomplete.** The old view-buffer estimate is 145 MiB at 1M. It is not a
+   resident-set or incremental-cost measurement. The sampled whole-process RSS includes SQLite and
+   fixture setup. A production budget still needs native paired measurements.
+3. **High-hit historical percentiles are weak.** Those rows have five samples, so their p95/p99 are
+   the maximum observed call. They do not qualify the 100 ms target.
+4. **The corrected implementation has no new performance data until the final Windows/macOS
+   benchmark jobs complete.** This report does not promote the old numbers to the corrected HEAD.
+5. **Cold-cache behavior is unverified.** No cold-cache 1M run was performed, so the historical cold
+   331 ms is not shown fixed.
+6. **A is measured as a whole-ladder replacement.** Its `pdf` row is not production-shaped; the
+   structural failures (`jp`, `Month-03`) remain coverage findings.
+7. **Synthetic corpus.** 334 585 distinct directories, 16 extensions, fixed-width names. Real disks
    have longer tails; the directory interning ratio is the number most likely to move.
-7. **Extension-intent collision** is unresolved and is a product decision, not a defect.
-8. **`pdf` at 181 250 hits** costs B 52.7 ms page p95. It passes 100 ms but is the worst case and
-   should stay on the extension index instead.
-9. **Local build instability.** On this machine `rustc` repeatedly died with
+8. **Extension-intent collision** is unresolved and is a product decision, not a defect.
+9. **Local native Linux tests are blocked by missing GTK/GLib development packages.** The exact
+   test-only search code is scheduled in the hosted Windows/macOS research job; no local Linux test
+   result is claimed.
+10. **The prior Windows local build note** recorded `rustc` repeatedly dying with
    `STATUS_ACCESS_VIOLATION` and hung while the sandbox denied access to
    `F:\CargoTarget\incremental\*.lock`. Builds had to run with `CARGO_INCREMENTAL=0` and a single
-   job, and the benchmark binary was executed directly rather than through `cargo test`. This is an
-   environment artefact, but it means the local numbers come from a hand-built binary whose
-   provenance is the `--release` build in this PR, not a hosted CI run.
+   job. This is a historical environment note, not a current test result.
 
 ## 7. Architecture recommendation
 
-**Adopt B's architecture for name/path substring search, keep the existing index-backed tiers, and
-reject A.**
+**No production adoption is approved by this PR.** Keep the exact-name, name-prefix,
+extension-exact and extension-prefix tiers unchanged. Candidate B remains a test-only experiment;
+the product ranking and extension-intent decision remain open.
 
 | Decision | Verdict |
 | --- | --- |
-| A (FTS5 enumeration + Rust ranking, no BM25) | 🟡 **GO only as a narrow BM25 replacement** — 1.6× better on high-hit substring, but cannot serve word-boundary, path-only or sub-3-codepoint semantics without a full scan |
-| B (compact RAM filename index) | 🟡 **GO, conditional** — only if the five conditions below are met |
-| Replace production now | 🔴 **NO** — this PR changes no production behaviour |
+| A (FTS5 enumeration + Rust ranking, no BM25) | **No decision** — old path measurements are exploratory and do not qualify a replacement |
+| B (compact RAM filename index) | **Research only** — snapshot-scoped correctness is covered; persistent invalidation, incremental updates and memory are not production-ready |
+| Replace production now | **NO** — this PR changes no production behaviour |
 
-Conditions before any production change:
+### Executable incremental-update proposal for a separate production gate
 
-1. Implement an incremental patch path (or a debounced background rebuild with a bounded staleness
-   window) so a single file write does not cost 1.8 s at 1M.
-2. Publish a RAM budget and degradation policy; make the view optional and fall back to the current
-   tiers when the budget is exceeded.
-3. Keep exact-name, exact-extension and extension-prefix on their existing covering indexes; they
-   are 10–50× faster than any scan.
-4. Obtain an explicit Owner decision on extension-intent ranking before merging extension results
-   into the ranked channel.
-5. Verify macOS natively (path separators, Unicode folding, RSS) before any release claim.
+1. In a later additive schema migration, maintain a monotone `global_search_generation` and a bounded
+   `global_search_changes` feed in the same write transaction as source facts. SQLite triggers must
+   cover insert/update/delete on `global_entries` fields that affect membership or rank (id, volume,
+   stale state, normalized name/path, extension, mtime) and authorization changes on
+   `global_volumes`. A volume disable/removal event invalidates every row for that volume.
+2. A worker reads the generation, change feed and current rows in one read transaction. It coalesces
+   entry changes by stable id, patches the compact view, checks there are no missing feed generations,
+   then publishes the immutable view atomically. Readers keep their current `Arc` until completion.
+3. Bound each patch batch to 5,000 changed rows or 50 ms, whichever comes first. If the feed has a
+   gap, volume-wide invalidation exceeds the batch, or the patch cannot fit the memory limit, mark B
+   unavailable and answer via the current SQL path until a fresh view is ready. Never publish a
+   partially applied generation.
+4. Keep B limited to the FTS/BM25 substring tier until an Owner approves product semantics. Exact
+   name, name prefix, extension exact and extension prefix remain on their existing covering indexes.
+   Extension results remain separate until ranking is decided.
+5. Begin with shadow comparison against SQL on the same generation and record missing/extra ids and
+   order differences. Only after zero correctness divergence and paired native qualification should
+   a feature flag allow guarded requests to use B. Generation mismatch, hydration mismatch, budget
+   refusal or update lag always falls back to SQL.
 
-If approved, the production shape is: existing tiers unchanged → B's RAM index replaces only the
-FTS/BM25 substring tier → every returned page is hydrated from SQLite inside one read transaction →
-on any fence mismatch or budget failure the request falls back to today's `search_global_entries`.
+### Provisional RAM policy for the production evaluation
 
-Rollback is trivial because nothing persists: delete the view and restore the previous tier order.
-No schema, migration or rollback script is required.
+- Cap all B-owned memory at **256 MiB total**, including the active view, pending deltas, staging
+  allocations and any retired view still held by a reader. Keep a single active view at or below
+  **160 MiB**, and a patch/staging allowance at or below **64 MiB**.
+- The historical 1M view estimate is 145 MiB, so one view is below the proposed active limit. A
+  second full copy would be about 290 MiB before temporary maps and exceeds the total cap; the
+  incremental path must patch within the allowance or use SQL fallback. The current buffer estimator
+  is not complete enough to certify these caps; native allocation/RSS accounting must include maps,
+  allocator overhead and overlap.
+- On budget refusal, generation lag or low-memory pressure, use SQL for search and discard an
+  over-budget staging view. No ranking or result limit changes accompany this degradation.
 
-Independent acceptance conditions: a hosted Windows 100k + 1M paired run reproducing these rows, a
-native macOS run, a cold-cache 1M measurement that keeps the historical 100 ms gate as the only
-gate, and a real-disk corpus (not the synthetic generator).
+### Production migration sequence
+
+1. Owner approves ranking semantics and the 256 MiB B-owned budget proposal.
+2. Implement generation triggers and the incremental feed behind a separate schema migration with
+   migration/reopen/rollback coverage; do not change the production search path yet.
+3. Run SQL-vs-B shadow checks, 100k and 1M paired Windows/macOS Release measurements, cold-start
+   and memory-pressure cases, and a real-disk corpus. Bind every artifact to the exact SHA/tree.
+4. Enable guarded B only for the FTS substring tier behind an opt-in flag; keep SQL fallback on every
+   incomplete or over-budget state. Expand only after native acceptance.
+5. Roll back by disabling the flag and returning to SQL. Retain additive generation data until the
+   Owner approves a later schema cleanup; this PR has no migration to reverse.
 
 ## 8. CI evidence
 
-Hosted CI for this commit: <https://github.com/ArdenZC/Zen-Canvas/actions/runs/40650100384>
-
-| Job | Result |
-| --- | --- |
-| Source checkout / evidence contract | ✅ |
-| Change scope / routing contract | ✅ |
-| Validation lane plan | ✅ |
-| Rust format (windows-latest) | ✅ |
-| Rust format (macos-latest) | ✅ |
-| Rust tests (macos-latest) | ✅ |
-| Rust clippy (macos-latest) | ✅ |
-| Release compile (windows-latest) | ✅ |
-| Release compile (macos-latest) | ✅ |
-| Performance / Prepare, Workspace Foundation, Intelligence, Search, Preview Platform, Library & Content | ✅ |
-| Performance / Search | ✅ — the existing 100 ms pooled gate is untouched and still passes |
-| Windows Global Index service qualification | ✅ |
-| Rust tests / clippy (windows-latest) | still running when this report was written |
-
-The first commit on this branch failed CI on two counts, both now fixed:
-
-- `cargo fmt --check` on the single-file prototype (the original reported blocker);
-- `clippy -D warnings` on this module: `manual_is_multiple_of` on the memory-budget probe and an
-  unnecessary `usize -> usize` cast in the oracle layer limit. Neither changes behaviour, so the
-  measurements in §3–§5 still describe the current code.
-
-macOS correctness is therefore verified by hosted CI. macOS **performance** remains UNVERIFIED:
-the `Native macOS performance (arm64)` job runs the workspace-foundation and preview-platform
-suites, not the global search benchmark.
+CI results are recorded only after runs for the final HEAD complete. The previous run
+`40650100384` belongs to an earlier commit and is not evidence for this follow-up. The
+branch-scoped native job runs the correctness cases and produces separate 100k and 1M JSONL files
+on `windows-latest` and `macos-latest`; each record contains its source SHA and tree. The existing
+100 ms pooled gate result is reported separately from the research benchmark.
 
 ## 9. Reproduction
 
 ```bash
-# Correctness (runs in the normal Rust quality job)
-cargo test --features desktop-runtime --lib issue494 -- --test-threads=1
+# Adversarial Candidate B correctness cases
+cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib \
+  global_index::tests::global_search_benchmark::filename_search_ab::cases:: \
+  -- --nocapture --test-threads=1
 
 # Scale probe, one size at a time, release only
 ZC_ISSUE494_ENTRIES=1000000 ZC_ISSUE494_FIXTURE=official \
@@ -340,9 +379,10 @@ ZC_ISSUE494_ENTRIES=100000 ZC_ISSUE494_FIXTURE=density \
   -- --ignored --exact --nocapture --test-threads=1
 ```
 
-The hosted equivalents are the dispatch-only `issue494_ab` and `issue494_ab_density` modes in
-`.github/workflows/global-search-benchmark.yml`. They are never release gates and never replace the
-existing 100 ms pooled-search gate.
+The branch-scoped Windows/macOS job runs the same official scale command at both 100k and 1M and
+uploads SHA/tree-bound JSONL artifacts. The dispatch-only `issue494_ab` and `issue494_ab_density`
+modes remain available for further exploration. These are research measurements; the existing
+100 ms pooled-search gate is a separate CI result.
 
 Raw JSONL for every number in this report is committed under
 `docs/research/evidence/issue-494/`:

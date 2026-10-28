@@ -156,7 +156,20 @@ impl ResourceSampler {
 }
 
 pub(super) fn emit(record: serde_json::Value) {
-    eprintln!("{record}");
+    let line = record.to_string();
+    eprintln!("{line}");
+    if let Ok(path) = std::env::var("ZC_ISSUE494_OUTPUT") {
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            std::fs::create_dir_all(parent).expect("create issue494 evidence directory");
+        }
+        use std::io::Write;
+        let mut output = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .expect("open issue494 evidence output");
+        writeln!(output, "{line}").expect("write issue494 evidence record");
+    }
 }
 
 pub(super) fn record(kind: &str, fields: serde_json::Value) -> serde_json::Value {
@@ -164,6 +177,12 @@ pub(super) fn record(kind: &str, fields: serde_json::Value) -> serde_json::Value
     object.insert("experiment".to_string(), json!("issue494_filename_ab"));
     object.insert("record".to_string(), json!(kind));
     object.insert("os".to_string(), json!(std::env::consts::OS));
+    if let Ok(source_sha) = std::env::var("ZEN_CANVAS_BENCHMARK_SOURCE_SHA") {
+        object.insert("source_sha".to_string(), json!(source_sha));
+    }
+    if let Ok(source_tree) = std::env::var("ZEN_CANVAS_BENCHMARK_SOURCE_TREE") {
+        object.insert("source_tree".to_string(), json!(source_tree));
+    }
     object.insert(
         "build".to_string(),
         json!(if cfg!(debug_assertions) {

@@ -65,6 +65,80 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  issue494-native-ab:
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'test/issue-494-filename-search-ab-prototype' && github.event.pull_request.head.repo.full_name == github.repository }}
+    name: Issue 494 native A/B (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify and record source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          source_tree="$(git rev-parse 'HEAD^{tree}')"
+          test "$source_sha" = "$ZEN_CANVAS_BENCHMARK_SOURCE_SHA"
+          echo "ZEN_CANVAS_BENCHMARK_SOURCE_TREE=$source_tree" >> "$GITHUB_ENV"
+          echo "source_sha=$source_sha tree=$source_tree" >> "$GITHUB_STEP_SUMMARY"
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-issue494-${{ matrix.os }}-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Run adversarial Candidate B correctness cases
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::filename_search_ab::cases::
+          -- --nocapture --test-threads=1
+      - name: Measure the official 100k fixture (5 warmups + 30 calls)
+        env:
+          ZC_ISSUE494_ENTRIES: "100000"
+          ZC_ISSUE494_FIXTURE: official
+          ZC_ISSUE494_OUTPUT: ${{ github.workspace }}/ci-evidence/issue494-${{ matrix.os }}-100k.jsonl
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::filename_search_ab::scale::issue494_filename_ab_scale_probe
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Measure the official 1M fixture (5 warmups + 30 calls)
+        env:
+          ZC_ISSUE494_ENTRIES: "1000000"
+          ZC_ISSUE494_FIXTURE: official
+          ZC_ISSUE494_OUTPUT: ${{ github.workspace }}/ci-evidence/issue494-${{ matrix.os }}-1m.jsonl
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::filename_search_ab::scale::issue494_filename_ab_scale_probe
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Upload native A/B evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue494-native-ab-${{ matrix.os }}-${{ github.run_id }}
+          path: ci-evidence/issue494-${{ matrix.os }}-*.jsonl
+          if-no-files-found: error
+          retention-days: 30
+
   # Keep manual baseline/diagnostic modes and the two branch-scoped diagnostics;
   # ordinary PRs use only the bounded 1k-row smoke in the index-cost job below.
   synthetic-global-search:

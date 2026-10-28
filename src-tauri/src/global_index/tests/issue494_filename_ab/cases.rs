@@ -214,8 +214,8 @@ fn issue494_candidate_a_paginates_without_gaps_or_repeats() {
 // Candidate B
 // ---------------------------------------------------------------------------
 
-fn build_view(conn: &Connection) -> CompactView {
-    CompactView::build(conn, candidate_b::memory_budget_bytes())
+fn build_view(snapshot: &candidate_b::ReadSnapshot<'_>) -> CompactView {
+    CompactView::build(snapshot, candidate_b::memory_budget_bytes())
         .expect("build compact view")
         .expect("compact view fits the budget")
 }
@@ -224,13 +224,13 @@ fn build_view(conn: &Connection) -> CompactView {
 fn issue494_candidate_b_matches_proposed_oracle_on_edge_cases() {
     let fixture = fixtures::edge_cases();
     let conn = fixture.connection();
-    conn.execute_batch("BEGIN").expect("read snapshot");
-    let rows = oracle::authorized_rows(&conn).expect("authorized facts");
-    let view = build_view(&conn);
+    let snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("read snapshot");
+    let rows = oracle::authorized_rows(snapshot.connection()).expect("authorized facts");
+    let view = build_view(&snapshot);
     for query in EDGE_QUERIES {
         let expected = oracle::proposed_name_path_oracle(&rows, query);
         let lookup =
-            candidate_b::lookup(&view, &conn, query, MAX_WINDOW, None).expect("candidate B");
+            candidate_b::lookup(&view, &snapshot, query, MAX_WINDOW, None).expect("candidate B");
         assert_eq!(lookup.fence, Fence::Valid);
         assert_eq!(lookup.hydrated_dropped, 0, "{query} dropped rows");
         assert_same_order(
@@ -246,20 +246,19 @@ fn issue494_candidate_b_matches_proposed_oracle_on_edge_cases() {
             &format!("B extension {query}"),
         );
     }
-    conn.execute_batch("ROLLBACK").expect("end snapshot");
 }
 
 #[test]
 fn issue494_candidate_b_matches_proposed_oracle_on_density_fixture() {
     let fixture = fixtures::density(100_000);
     let conn = fixture.connection();
-    conn.execute_batch("BEGIN").expect("read snapshot");
-    let rows = oracle::authorized_rows(&conn).expect("authorized facts");
-    let view = build_view(&conn);
+    let snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("read snapshot");
+    let rows = oracle::authorized_rows(snapshot.connection()).expect("authorized facts");
+    let view = build_view(&snapshot);
     for (query, _) in fixtures::DENSITY_QUERIES {
         let expected = oracle::proposed_name_path_oracle(&rows, query);
         let lookup =
-            candidate_b::lookup(&view, &conn, query, MAX_WINDOW, None).expect("candidate B");
+            candidate_b::lookup(&view, &snapshot, query, MAX_WINDOW, None).expect("candidate B");
         assert_eq!(lookup.fence, Fence::Valid);
         assert_same_order(
             &lookup.name_path,
@@ -273,20 +272,19 @@ fn issue494_candidate_b_matches_proposed_oracle_on_density_fixture() {
             &format!("B extension {query}"),
         );
     }
-    conn.execute_batch("ROLLBACK").expect("end snapshot");
 }
 
 #[test]
 fn issue494_extension_channel_is_identical_across_architectures() {
     let fixture = fixtures::density(100_000);
     let conn = fixture.connection();
-    conn.execute_batch("BEGIN").expect("read snapshot");
-    let rows = oracle::authorized_rows(&conn).expect("authorized facts");
-    let view = build_view(&conn);
+    let snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("read snapshot");
+    let rows = oracle::authorized_rows(snapshot.connection()).expect("authorized facts");
+    let view = build_view(&snapshot);
     for query in ["pdf", "jp", "tx", "docx", "zzz", "md"] {
         let expected = oracle::extension_oracle(&rows, query);
         let a_extension = candidate_a::extension_channel(&conn, query, MAX_WINDOW).expect("A ext");
-        let b_lookup = candidate_b::lookup(&view, &conn, query, MAX_WINDOW, None).expect("B");
+        let b_lookup = candidate_b::lookup(&view, &snapshot, query, MAX_WINDOW, None).expect("B");
         assert_same_order(
             &a_extension,
             window(&expected),
@@ -298,16 +296,15 @@ fn issue494_extension_channel_is_identical_across_architectures() {
             &format!("B extension {query}"),
         );
     }
-    conn.execute_batch("ROLLBACK").expect("end snapshot");
 }
 
 #[test]
 fn issue494_incremental_narrowing_equals_full_scan() {
     let fixture = fixtures::density(100_000);
     let conn = fixture.connection();
-    conn.execute_batch("BEGIN").expect("read snapshot");
-    let rows = oracle::authorized_rows(&conn).expect("authorized facts");
-    let view = build_view(&conn);
+    let snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("read snapshot");
+    let rows = oracle::authorized_rows(snapshot.connection()).expect("authorized facts");
+    let view = build_view(&snapshot);
 
     let typed = [
         "den",
@@ -324,9 +321,10 @@ fn issue494_incremental_narrowing_equals_full_scan() {
     let mut cache: Option<candidate_b::NarrowCache> = None;
     for query in typed {
         let expected = oracle::proposed_name_path_oracle(&rows, query);
-        let narrowed = candidate_b::lookup(&view, &conn, query, MAX_WINDOW, cache.as_ref())
+        let narrowed = candidate_b::lookup(&view, &snapshot, query, MAX_WINDOW, cache.as_ref())
             .expect("narrowed lookup");
-        let full = candidate_b::lookup(&view, &conn, query, MAX_WINDOW, None).expect("full lookup");
+        let full =
+            candidate_b::lookup(&view, &snapshot, query, MAX_WINDOW, None).expect("full lookup");
         assert_same_order(
             &narrowed.name_path,
             window(&expected),
@@ -345,90 +343,439 @@ fn issue494_incremental_narrowing_equals_full_scan() {
         }
         cache = candidate_b::NarrowCache::build(&view, query);
     }
-    conn.execute_batch("ROLLBACK").expect("end snapshot");
 }
 
 #[test]
-fn issue494_revision_fence_blocks_a_stale_view() {
+fn issue494_cross_connection_data_version_is_not_a_shared_generation() {
+    let fixture = fixtures::edge_cases();
+    let reader = fixture.connection();
+    let writer = fixture.connection();
+    let reader_data_version: i64 = reader
+        .query_row("PRAGMA data_version", [], |row| row.get(0))
+        .expect("reader data_version");
+    let writer_data_version: i64 = writer
+        .query_row("PRAGMA data_version", [], |row| row.get(0))
+        .expect("writer data_version");
+    assert_eq!(reader_data_version, writer_data_version);
+    let max_rowid: i64 = reader
+        .query_row(
+            "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
+            [],
+            |row| row.get(0),
+        )
+        .expect("baseline max rowid");
+
+    let snapshot = candidate_b::ReadSnapshot::begin(&reader).expect("reader snapshot");
+    let view = build_view(&snapshot);
+    let target_id: String = writer
+        .query_row(
+            "SELECT ge.id FROM global_entries ge
+             JOIN global_volumes gv ON gv.id = ge.volume_id
+             WHERE ge.is_stale = 0 AND gv.enabled = 1
+             ORDER BY ge.rowid LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("choose an existing fact");
+    writer
+        .execute(
+            "UPDATE global_entries SET modified_at_fs = COALESCE(modified_at_fs, 0) + 1
+             WHERE id = ?1",
+            [&target_id],
+        )
+        .expect("commit an update through the other connection");
+
+    // On `writer`, its own commit leaves data_version unchanged. It also does
+    // not change MAX(rowid), so the old cross-connection tuple can exactly
+    // match the values captured on `reader` despite a committed fact update.
+    let other_connection_data_version: i64 = writer
+        .query_row("PRAGMA data_version", [], |row| row.get(0))
+        .expect("writer data_version after own commit");
+    let other_connection_max_rowid: i64 = writer
+        .query_row(
+            "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
+            [],
+            |row| row.get(0),
+        )
+        .expect("writer max rowid after update");
+    assert_eq!(other_connection_data_version, reader_data_version);
+    assert_eq!(other_connection_max_rowid, max_rowid);
+    assert_ne!(
+        writer
+            .query_row(
+                "SELECT modified_at_fs FROM global_entries WHERE id = ?1",
+                [&target_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .expect("updated fact"),
+        snapshot
+            .connection()
+            .query_row(
+                "SELECT modified_at_fs FROM global_entries WHERE id = ?1",
+                [&target_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .expect("snapshot fact"),
+        "the databases expose different facts even though the old counter tuple matches"
+    );
+
+    let other_snapshot = candidate_b::ReadSnapshot::begin(&writer).expect("writer snapshot");
+    let lookup = candidate_b::lookup(&view, &other_snapshot, "report", MAX_WINDOW, None)
+        .expect("cross-connection old view lookup");
+    assert_eq!(lookup.fence, Fence::StaleSnapshot);
+    assert!(lookup.name_path.is_empty());
+}
+
+#[test]
+fn issue494_same_connection_write_invalidates_a_snapshot_view() {
     let fixture = fixtures::density(100_000);
     let conn = fixture.connection();
-    conn.execute_batch("BEGIN").expect("read snapshot");
-    let view = build_view(&conn);
-    conn.execute_batch("ROLLBACK").expect("end snapshot");
-
-    // A rename after the view was built must invalidate it.
-    fixture
-        .db()
-        .conn()
-        .expect("writer")
-        .execute(
-            "UPDATE global_entries SET name = 'renamed-after-view.txt',
-                name_normalized = 'renamed-after-view.txt',
-                path = 'C:\\Density\\Single\\renamed-after-view.txt',
-                path_normalized = 'c:\\density\\single\\renamed-after-view.txt'
-             WHERE name = 'density-singleton.pdf'",
+    let snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("read snapshot");
+    let view = build_view(&snapshot);
+    let before_data_version: i64 = snapshot
+        .connection()
+        .query_row("PRAGMA data_version", [], |row| row.get(0))
+        .expect("data_version before same-connection write");
+    let before_max_rowid: i64 = snapshot
+        .connection()
+        .query_row(
+            "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
             [],
+            |row| row.get(0),
         )
-        .expect("rename after view build");
+        .expect("max rowid before same-connection write");
+    assert!(
+        snapshot
+            .connection()
+            .execute(
+                "UPDATE global_entries SET last_seen_at = last_seen_at + 1
+                 WHERE name = 'density-singleton.pdf'",
+                [],
+            )
+            .is_err(),
+        "the snapshot wrapper must reject writes through its reader connection"
+    );
+    drop(snapshot);
 
-    let lookup = candidate_b::lookup(&view, &conn, "density-singleton", MAX_WINDOW, None)
-        .expect("fenced lookup");
+    // SQLite does not advance data_version for commits made by the connection
+    // doing the comparison, and an UPDATE preserves MAX(rowid). The old tuple
+    // therefore remains unchanged even though visible facts have changed.
+    conn.execute(
+        "UPDATE global_entries SET name = 'renamed-after-view.txt',
+            name_normalized = 'renamed-after-view.txt',
+            path = 'C:\\Density\\Single\\renamed-after-view.txt',
+            path_normalized = 'c:\\density\\single\\renamed-after-view.txt',
+            modified_at_fs = COALESCE(modified_at_fs, 0) + 1
+         WHERE name = 'density-singleton.pdf'",
+        [],
+    )
+    .expect("same-connection update after view build");
+    let after_data_version: i64 = conn
+        .query_row("PRAGMA data_version", [], |row| row.get(0))
+        .expect("data_version after same-connection write");
+    let after_max_rowid: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
+            [],
+            |row| row.get(0),
+        )
+        .expect("max rowid after same-connection write");
+    assert_eq!(before_data_version, after_data_version);
+    assert_eq!(before_max_rowid, after_max_rowid);
+
+    let next_snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("new read snapshot");
+    let lookup = candidate_b::lookup(&view, &next_snapshot, "density-singleton", MAX_WINDOW, None)
+        .expect("snapshot-fenced lookup");
     assert_eq!(
         lookup.fence,
-        Fence::StaleRevision,
-        "a post-build write must fence the view instead of returning stale facts"
+        Fence::StaleSnapshot,
+        "the old view must be rejected even when data_version and MAX(rowid) match"
     );
     assert!(lookup.name_path.is_empty());
 
-    // And a rebuild must see the new facts.
-    let rebuilt = build_view(&conn);
-    let lookup = candidate_b::lookup(&rebuilt, &conn, "density-singleton", MAX_WINDOW, None)
-        .expect("rebuilt lookup");
+    let rebuilt = build_view(&next_snapshot);
+    let lookup = candidate_b::lookup(
+        &rebuilt,
+        &next_snapshot,
+        "density-singleton",
+        MAX_WINDOW,
+        None,
+    )
+    .expect("rebuilt lookup");
     assert_eq!(lookup.fence, Fence::Valid);
     assert!(lookup.name_path.is_empty(), "the renamed row must be gone");
 }
 
 #[test]
-fn issue494_hydration_drops_rows_that_changed_under_a_matching_revision() {
+fn issue494_cross_connection_mutations_are_snapshot_consistent_and_rebuild_completely() {
     let fixture = fixtures::density(100_000);
-    let conn = fixture.connection();
-    conn.execute_batch("BEGIN").expect("read snapshot");
-    let mut view = build_view(&conn);
-    let before = candidate_b::lookup(&view, &conn, "density-dozen", MAX_WINDOW, None)
-        .expect("baseline lookup");
-    assert_eq!(before.name_path.len(), 40);
-    conn.execute_batch("ROLLBACK").expect("end snapshot");
+    let reader = fixture.connection();
+    let snapshot = candidate_b::ReadSnapshot::begin(&reader).expect("reader snapshot");
+    let old_rows = oracle::authorized_rows(snapshot.connection()).expect("old snapshot facts");
+    let old_view = build_view(&snapshot);
+    let query = "density-five-thousand";
+    let old_expected = oracle::proposed_name_path_oracle(&old_rows, query);
+    assert_eq!(old_expected.len(), 5_000);
+    let old_top =
+        candidate_b::lookup(&old_view, &snapshot, query, 80, None).expect("baseline top-k lookup");
+    assert_eq!(old_top.fence, Fence::Valid);
+    assert_same_order(
+        &old_top.name_path,
+        &old_expected[..80],
+        "old snapshot baseline",
+    );
 
-    // Delete half of the group behind the view's back.
-    fixture
-        .db()
-        .conn()
-        .expect("writer")
+    // A second connection commits deletes, a rename, an mtime reorder and new
+    // best-ranked rows while the reader retains its original SQLite snapshot.
+    let writer = fixture.db().conn().expect("second connection writer");
+    writer
         .execute(
-            "DELETE FROM global_entries WHERE name LIKE 'density-dozen-0%' AND name < 'density-dozen-020'",
+            "DELETE FROM global_entries
+             WHERE name LIKE 'density-five-thousand-0%'
+               AND name < 'density-five-thousand-01000'",
             [],
         )
-        .expect("delete rows after view build");
+        .expect("delete old top candidates");
+    writer
+        .execute(
+            "UPDATE global_entries SET name = 'renamed-out-of-query.txt',
+                name_normalized = 'renamed-out-of-query.txt',
+                path = 'C:\\Density\\Five\\renamed-out-of-query.txt',
+                path_normalized = 'c:\\density\\five\\renamed-out-of-query.txt'
+             WHERE name = 'density-five-thousand-01001.md'",
+            [],
+        )
+        .expect("rename a selected candidate out of the query");
+    writer
+        .execute(
+            "UPDATE global_entries SET modified_at_fs = 2100000000
+             WHERE name = 'density-five-thousand-01000.md'",
+            [],
+        )
+        .expect("change an existing candidate's rank");
+    {
+        let mut insert = writer
+            .prepare(
+                "INSERT INTO global_entries(
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, source_provider,
+                    last_seen_at, is_stale
+                 ) VALUES (?1, 'gv_test', ?1, 'frn:parent', ?2, ?2, ?3, ?4, 'md',
+                           0, 1024, 1600000000, ?5, 0, 0, 0,
+                           'synthetic_issue494_density', 1800000000, 0)",
+            )
+            .expect("prepare external inserts");
+        for index in 0..80 {
+            let name = format!("density-five-thousand-{index:05}.md");
+            let path = format!(r"C:\Density\Five\{name}");
+            insert
+                .execute(rusqlite::params![
+                    format!("external-new-{index}"),
+                    name,
+                    path.clone(),
+                    path.to_lowercase(),
+                    2_000_000_000 + index
+                ])
+                .expect("insert new best-ranked hit");
+        }
+    }
 
-    // Force the fence to report Valid so only hydration can protect the result.
-    let current = candidate_b::read_revision(&conn).expect("current revision");
-    view.force_revision_for_test(current);
-    let lookup = candidate_b::lookup(&view, &conn, "density-dozen", MAX_WINDOW, None)
-        .expect("hydration lookup");
-    assert_eq!(lookup.fence, Fence::Valid);
-    assert_eq!(
-        lookup.name_path.len(),
-        20,
-        "hydration must drop deleted rows even when the revision fence is bypassed"
+    let still_old = candidate_b::lookup(&old_view, &snapshot, query, 80, None)
+        .expect("lookup remains inside original snapshot");
+    assert_eq!(still_old.fence, Fence::Valid);
+    assert_eq!(still_old.hydrated_dropped, 0);
+    assert_same_order(
+        &still_old.name_path,
+        &old_expected[..80],
+        "old snapshot remains complete after external commit",
     );
-    assert_eq!(lookup.hydrated_dropped, 20);
+
+    let other_reader = fixture.connection();
+    let other_snapshot =
+        candidate_b::ReadSnapshot::begin(&other_reader).expect("different-connection snapshot");
+    let cross_connection = candidate_b::lookup(&old_view, &other_snapshot, query, 80, None)
+        .expect("a view cannot cross connections");
+    assert_eq!(cross_connection.fence, Fence::StaleSnapshot);
+    assert!(cross_connection.name_path.is_empty());
+    drop(other_snapshot);
+    drop(snapshot);
+
+    let next_snapshot = candidate_b::ReadSnapshot::begin(&reader).expect("latest reader snapshot");
+    let stale = candidate_b::lookup(&old_view, &next_snapshot, query, 80, None)
+        .expect("stale view is safely rejected");
+    assert_eq!(stale.fence, Fence::StaleSnapshot);
+    assert!(stale.name_path.is_empty());
+
+    let new_rows = oracle::authorized_rows(next_snapshot.connection()).expect("latest facts");
+    let new_expected = oracle::proposed_name_path_oracle(&new_rows, query);
+    let new_view = build_view(&next_snapshot);
+    let rebuilt = candidate_b::lookup(&new_view, &next_snapshot, query, 80, None)
+        .expect("rebuilt top-k lookup");
+    assert_eq!(rebuilt.fence, Fence::Valid);
+    assert_eq!(rebuilt.hydrated_dropped, 0);
+    assert_eq!(new_expected.len(), 4_079);
+    assert_same_order(
+        &rebuilt.name_path,
+        &new_expected[..80],
+        "rebuilt snapshot fills and orders the top-k after delete, rename, mtime update and insert",
+    );
+    assert!(
+        rebuilt
+            .name_path
+            .iter()
+            .any(|hit| hit.id == "external-new-79"),
+        "the highest-ordered inserted result must not disappear after hydration"
+    );
+    assert_eq!(rebuilt.name_path[0].modified, Some(2_100_000_000));
+    assert_eq!(rebuilt.name_path[1].id, "external-new-79");
+}
+
+#[test]
+fn issue494_hydration_mismatch_falls_back_instead_of_returning_partial_or_misordered_top_k() {
+    let fixture = fixtures::density(100_000);
+    let conn = fixture.connection();
+    let snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("read snapshot");
+    let initial_rows = oracle::authorized_rows(snapshot.connection()).expect("initial facts");
+    let view = build_view(&snapshot);
+    let query = "density-dozen";
+    let initial = oracle::proposed_name_path_oracle(&initial_rows, query);
+    assert_eq!(initial.len(), 40);
+    let preselected = &initial[..2];
+
+    // Deliberately bypass query_only to model a broken caller that mutates the
+    // connection after building its view. Delete one selected row and reorder
+    // the other: returning the surviving hydrated subset would have a hole and
+    // could not prove which third row belongs in the page.
+    snapshot
+        .connection()
+        .execute_batch("PRAGMA query_only = OFF")
+        .expect("disable read-only guard for adversarial test");
+    snapshot
+        .connection()
+        .execute(
+            "DELETE FROM global_entries WHERE id = ?1",
+            [&preselected[0].id],
+        )
+        .expect("delete a selected top-k row on the same connection");
+    snapshot
+        .connection()
+        .execute(
+            "UPDATE global_entries SET modified_at_fs = 2100000000 WHERE id = ?1",
+            [&preselected[1].id],
+        )
+        .expect("reorder the other selected top-k row");
+
+    let current_rows = oracle::authorized_rows(snapshot.connection()).expect("current facts");
+    let authoritative = oracle::proposed_name_path_oracle(&current_rows, query);
+    assert_eq!(authoritative.len(), 39);
+    let lookup = candidate_b::lookup(&view, &snapshot, query, 2, None)
+        .expect("mismatched hydration returns fallback");
+    assert_eq!(lookup.fence, Fence::HydrationMismatch);
+    assert!(lookup.name_path.is_empty());
+    assert!(lookup.extension.is_empty());
+    assert!(lookup.hydrated_dropped > 0);
+    assert_ne!(ids(&authoritative[..2]), ids(&preselected));
+}
+
+#[test]
+fn issue494_narrow_cache_is_bound_to_view_identity_across_shrink_and_growth() {
+    let fixture = fixtures::density(100_000);
+    let conn = fixture.connection();
+
+    let first_snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("initial snapshot");
+    let first_view = build_view(&first_snapshot);
+    let broad_query = "density-five-thousand";
+    let old_cache =
+        candidate_b::NarrowCache::build(&first_view, broad_query).expect("cache original 5k view");
+    assert_eq!(old_cache.len(), 5_000);
+    drop(first_snapshot);
+
+    // Shrink the active view to one row. The old cached slot indices include
+    // values beyond the new view's name_span; identity mismatch must bypass
+    // before indexing.
+    conn.execute(
+        "DELETE FROM global_entries WHERE name <> 'density-five-thousand-04999.md'",
+        [],
+    )
+    .expect("shrink view source");
+    let shrink_snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("shrunken snapshot");
+    let shrink_rows = oracle::authorized_rows(shrink_snapshot.connection()).expect("shrink facts");
+    let shrink_view = build_view(&shrink_snapshot);
+    let narrow_query = "density-five-thousand-0499";
+    let shrink_expected = oracle::proposed_name_path_oracle(&shrink_rows, narrow_query);
+    let after_shrink = candidate_b::lookup(
+        &shrink_view,
+        &shrink_snapshot,
+        narrow_query,
+        MAX_WINDOW,
+        Some(&old_cache),
+    )
+    .expect("old cache safely bypassed after shrink");
+    assert_eq!(after_shrink.fence, Fence::Valid);
+    assert!(!after_shrink.narrowed);
+    assert_same_order(&after_shrink.name_path, &shrink_expected, "shrunken view");
+    let small_cache =
+        candidate_b::NarrowCache::build(&shrink_view, broad_query).expect("cache small view");
+    assert_eq!(small_cache.len(), 1);
+    drop(shrink_snapshot);
+
+    // Grow the next view. Reusing the one-slot cache would omit new matches;
+    // the new view identity must force a complete scan.
+    {
+        let mut insert = conn
+            .prepare(
+                "INSERT INTO global_entries(
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, source_provider,
+                    last_seen_at, is_stale
+                 ) VALUES (?1, 'gv_test', ?1, 'frn:parent', ?2, ?2, ?3, ?4, 'md',
+                           0, 1024, 1600000000, ?5, 0, 0, 0,
+                           'synthetic_issue494_density', 1800000000, 0)",
+            )
+            .expect("prepare growth inserts");
+        for index in 0..9 {
+            let name = format!("density-five-thousand-0499{index}.md");
+            let path = format!(r"C:\Density\Five\{name}");
+            insert
+                .execute(rusqlite::params![
+                    format!("growth-{index}"),
+                    name,
+                    path.clone(),
+                    path.to_lowercase(),
+                    1_800_000_000 + index
+                ])
+                .expect("insert growth row");
+        }
+    }
+
+    let growth_snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("grown snapshot");
+    let growth_rows = oracle::authorized_rows(growth_snapshot.connection()).expect("growth facts");
+    let growth_view = build_view(&growth_snapshot);
+    let growth_expected = oracle::proposed_name_path_oracle(&growth_rows, narrow_query);
+    let after_growth = candidate_b::lookup(
+        &growth_view,
+        &growth_snapshot,
+        narrow_query,
+        MAX_WINDOW,
+        Some(&small_cache),
+    )
+    .expect("old cache safely bypassed after growth");
+    assert_eq!(after_growth.fence, Fence::Valid);
+    assert!(!after_growth.narrowed);
+    assert_eq!(growth_expected.len(), 10);
+    assert_same_order(&after_growth.name_path, &growth_expected, "grown view");
 }
 
 #[test]
 fn issue494_budget_degradation_falls_back_instead_of_overrunning() {
     let fixture = fixtures::density(100_000);
     let conn = fixture.connection();
-    let refused = CompactView::build(&conn, 1).expect("build attempt");
+    let snapshot = candidate_b::ReadSnapshot::begin(&conn).expect("read snapshot");
+    let refused = CompactView::build(&snapshot, 1).expect("build attempt");
     assert!(
         refused.is_none(),
         "an impossible RAM budget must degrade instead of allocating"

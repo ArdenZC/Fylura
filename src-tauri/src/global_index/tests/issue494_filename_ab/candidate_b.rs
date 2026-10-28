@@ -10,16 +10,19 @@
 //! * Directory prefixes are interned once per distinct directory instead of
 //!   duplicating a full path per file.
 //! * Ranking is a bounded Top-K heap; the view never materialises every hit.
-//! * The view is fenced by a [`SourceRevision`] captured in the same read
-//!   transaction that built it, **and** every returned row is hydrated from
-//!   SQLite before it leaves the function. Revision fencing protects
-//!   completeness; hydration protects correctness and authorisation. Neither is
-//!   claimed to be a proof of WAL consistency.
+//! * The view is bound to one explicit, read-only SQLite snapshot. The view is
+//!   never reused by a later transaction or a different connection. SQLite
+//!   remains the authority; snapshot identity is in-memory lifetime state, not
+//!   a persistent change generation.
+//! * Every returned row is hydrated inside that same snapshot. A mismatch or a
+//!   dropped/reclassified top-K candidate returns an empty fallback result;
+//!   callers must answer through the authoritative SQL path.
 
 use super::{extension_class, fold, proposed_class, sqlite_lower, Class, Hit, MAX_WINDOW};
 use crate::db::DbError;
 use rusqlite::Connection;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Upper bound for the incremental narrowing cache. A query that matched more
 /// slots than this is not cached, because filtering it would cost more than a
@@ -29,55 +32,73 @@ const NARROW_CACHE_CAPACITY: usize = 300_000;
 /// can be exercised without building a 1M fixture.
 const DEFAULT_MEMORY_BUDGET_BYTES: usize = 256 * 1024 * 1024;
 
-/// Change detector for the source facts the view was built from.
-///
-/// `data_version` is SQLite's cross-connection change counter; the counters
-/// catch same-connection writes that `data_version` does not report. The tuple
-/// is a heuristic fence: it can miss a change that preserves every counter,
-/// which is exactly why results are hydrated before they are returned.
+/// Build-time facts for the report only. These values are not used as a cache
+/// generation or invalidation token.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct SourceRevision {
-    pub data_version: i64,
+pub(super) struct SourceSummary {
     pub entry_count: i64,
-    pub max_rowid: i64,
-    pub max_last_seen_at: i64,
     pub enabled_volumes: i64,
     pub stale_entries: i64,
 }
 
-/// O(1) fence used on the hot path.
+/// A bounded read transaction with a unique process-local identity.
 ///
-/// `PRAGMA data_version` changes whenever another connection commits, and
-/// `MAX(rowid)` is answered from the rowid b-tree without a scan. The full
-/// counter set below is only read while building, so a query never pays for a
-/// table-wide aggregate just to check that its view is current.
-pub(super) fn revision_fence(conn: &Connection) -> rusqlite::Result<(i64, i64)> {
-    let data_version: i64 = conn.query_row("PRAGMA data_version", [], |row| row.get(0))?;
-    let max_rowid: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(rowid), 0) FROM global_entries",
-        [],
-        |row| row.get(0),
-    )?;
-    Ok((data_version, max_rowid))
+/// `query_only` prevents writes through this connection while the view is
+/// alive. Writers on other connections may commit concurrently, but SQLite
+/// keeps this snapshot stable. A later transaction receives a different
+/// identity, so an old view is rejected before candidate selection.
+pub(super) struct ReadSnapshot<'conn> {
+    conn: &'conn Connection,
+    identity: Arc<()>,
+    query_only_before: bool,
 }
 
-/// Full change descriptor, read once at build time.
-pub(super) fn read_revision(conn: &Connection) -> rusqlite::Result<SourceRevision> {
-    let data_version: i64 = conn.query_row("PRAGMA data_version", [], |row| row.get(0))?;
+impl<'conn> ReadSnapshot<'conn> {
+    pub(super) fn begin(conn: &'conn Connection) -> rusqlite::Result<Self> {
+        let query_only_before: bool = conn.query_row("PRAGMA query_only", [], |row| row.get(0))?;
+        conn.pragma_update(None, "query_only", true)?;
+        if let Err(error) = conn.execute_batch("BEGIN DEFERRED") {
+            let _ = conn.pragma_update(None, "query_only", query_only_before);
+            return Err(error);
+        }
+        Ok(Self {
+            conn,
+            identity: Arc::new(()),
+            query_only_before,
+        })
+    }
+
+    pub(super) fn connection(&self) -> &Connection {
+        self.conn
+    }
+
+    fn identity(&self) -> &Arc<()> {
+        &self.identity
+    }
+}
+
+impl Drop for ReadSnapshot<'_> {
+    fn drop(&mut self) {
+        let _ = self.conn.execute_batch("ROLLBACK");
+        let _ = self
+            .conn
+            .pragma_update(None, "query_only", self.query_only_before);
+    }
+}
+
+/// Build-time source summary, read once from the same snapshot as the view.
+fn read_source_summary(conn: &Connection) -> rusqlite::Result<SourceSummary> {
     conn.query_row(
-        "SELECT COUNT(*), COALESCE(MAX(ge.rowid), 0), COALESCE(MAX(ge.last_seen_at), 0),
+        "SELECT COUNT(*),
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
                 (SELECT COUNT(*) FROM global_entries WHERE is_stale = 1)
          FROM global_entries ge",
         [],
         |row| {
-            Ok(SourceRevision {
-                data_version,
+            Ok(SourceSummary {
                 entry_count: row.get(0)?,
-                max_rowid: row.get(1)?,
-                max_last_seen_at: row.get(2)?,
-                enabled_volumes: row.get(3)?,
-                stale_entries: row.get(4)?,
+                enabled_volumes: row.get(1)?,
+                stale_entries: row.get(2)?,
             })
         },
     )
@@ -100,8 +121,10 @@ pub(super) struct BuildStats {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Fence {
     Valid,
-    /// The source revision moved since the view was built.
-    StaleRevision,
+    /// The view belongs to another transaction or connection.
+    StaleSnapshot,
+    /// Hydration did not reproduce the selected top-K facts exactly.
+    HydrationMismatch,
     /// Building the view would exceed the configured RAM budget.
     BudgetExceeded,
 }
@@ -123,7 +146,9 @@ struct Span {
 }
 
 pub(super) struct CompactView {
-    revision: SourceRevision,
+    snapshot_identity: Arc<()>,
+    view_identity: Arc<()>,
+    source_summary: SourceSummary,
     names: String,
     name_span: Vec<Span>,
     directories: String,
@@ -235,18 +260,12 @@ impl CompactView {
         &self.stats
     }
 
-    pub(super) fn revision(&self) -> SourceRevision {
-        self.revision
+    pub(super) fn source_summary(&self) -> SourceSummary {
+        self.source_summary
     }
 
     pub(super) fn rows(&self) -> usize {
         self.name_span.len()
-    }
-
-    /// Test-only: overwrite the fence so the hydration safety path can be
-    /// exercised on its own, without the revision check short-circuiting it.
-    pub(super) fn force_revision_for_test(&mut self, revision: SourceRevision) {
-        self.revision = revision;
     }
 
     /// Estimated resident bytes. Capacity-based, not an RSS measurement; the
@@ -264,12 +283,18 @@ impl CompactView {
             + self.extensions.iter().map(String::len).sum::<usize>()
     }
 
-    /// Build from one coherent read snapshot. The caller must hold the read
-    /// transaction for the whole build.
-    pub(super) fn build(conn: &Connection, budget_bytes: usize) -> Result<Option<Self>, DbError> {
-        let revision = read_revision(conn)?;
+    /// Build from one explicit read snapshot. The caller must use this view
+    /// only with the same `ReadSnapshot` identity.
+    pub(super) fn build(
+        snapshot: &ReadSnapshot<'_>,
+        budget_bytes: usize,
+    ) -> Result<Option<Self>, DbError> {
+        let conn = snapshot.connection();
+        let source_summary = read_source_summary(conn)?;
         let mut view = Self {
-            revision,
+            snapshot_identity: Arc::clone(snapshot.identity()),
+            view_identity: Arc::new(()),
+            source_summary,
             names: String::new(),
             name_span: Vec::new(),
             directories: String::new(),
@@ -516,7 +541,12 @@ impl CompactView {
         let mut narrowed = false;
 
         let cached = previous.filter(|cache| {
-            !cache.query.is_empty()
+            Arc::ptr_eq(&cache.view_identity, &self.view_identity)
+                && cache
+                    .slots
+                    .iter()
+                    .all(|slot| (*slot as usize) < self.name_span.len())
+                && !cache.query.is_empty()
                 && folded.starts_with(cache.query.as_str())
                 && cache.query.len() < folded.len()
                 && cache.slots.len() <= NARROW_CACHE_CAPACITY
@@ -585,6 +615,7 @@ impl CompactView {
 
 /// Cache of the slot list a query matched. Bounded by [`NARROW_CACHE_CAPACITY`].
 pub(super) struct NarrowCache {
+    view_identity: Arc<()>,
     query: String,
     slots: Vec<u32>,
 }
@@ -600,6 +631,7 @@ impl NarrowCache {
             return None;
         }
         Some(Self {
+            view_identity: Arc::clone(&view.view_identity),
             query: folded,
             slots,
         })
@@ -634,38 +666,48 @@ pub(super) fn filename_only(
 /// and re-classified inside the caller's read transaction.
 pub(super) fn lookup(
     view: &CompactView,
-    conn: &Connection,
+    snapshot: &ReadSnapshot<'_>,
     query: &str,
     window: usize,
     previous: Option<&NarrowCache>,
 ) -> Result<Lookup, DbError> {
     let trimmed = query.trim();
     let window = window.min(MAX_WINDOW);
-    let (data_version, max_rowid) = revision_fence(conn)?;
-    if data_version != view.revision.data_version || max_rowid != view.revision.max_rowid {
+    if !Arc::ptr_eq(&view.snapshot_identity, snapshot.identity()) {
         return Ok(Lookup {
-            fence: Fence::StaleRevision,
+            fence: Fence::StaleSnapshot,
             name_path: Vec::new(),
             extension: Vec::new(),
             hydrated_dropped: 0,
             narrowed: false,
         });
     }
+    let conn = snapshot.connection();
     let folded = fold(trimmed);
     let sql_lower = sqlite_lower(trimmed);
     let (name_path, narrowed) = view.name_path_channel(&folded, &sql_lower, window, previous);
     let extension = view.extension_channel(&sql_lower, window);
 
-    let (name_path, dropped_name) =
+    let (name_path, dropped_name, changed_name) =
         hydrate(conn, name_path, Channel::NamePath, &folded, &sql_lower)?;
-    let (extension, dropped_extension) =
+    let (extension, dropped_extension, changed_extension) =
         hydrate(conn, extension, Channel::Extension, &folded, &sql_lower)?;
+    let hydrated_dropped = dropped_name + dropped_extension;
+    if hydrated_dropped > 0 || changed_name || changed_extension {
+        return Ok(Lookup {
+            fence: Fence::HydrationMismatch,
+            name_path: Vec::new(),
+            extension: Vec::new(),
+            hydrated_dropped,
+            narrowed: false,
+        });
+    }
 
     Ok(Lookup {
         fence: Fence::Valid,
         name_path,
         extension,
-        hydrated_dropped: dropped_name + dropped_extension,
+        hydrated_dropped,
         narrowed,
     })
 }
@@ -688,9 +730,9 @@ fn hydrate(
     channel: Channel,
     folded: &str,
     sql_lower: &str,
-) -> Result<(Vec<Hit>, u64), DbError> {
+) -> Result<(Vec<Hit>, u64, bool), DbError> {
     if ranked.is_empty() {
-        return Ok((Vec::new(), 0));
+        return Ok((Vec::new(), 0, false));
     }
     let ids: Vec<&str> = ranked.iter().map(|hit| hit.id.as_str()).collect();
     let mut placeholders = String::with_capacity(ids.len() * 2);
@@ -744,6 +786,7 @@ fn hydrate(
 
     let mut kept = Vec::with_capacity(ranked.len());
     let mut dropped = 0u64;
+    let mut changed = false;
     for hit in ranked {
         let Some((name, path, extension, modified)) = facts.get(&hit.id) else {
             dropped += 1;
@@ -758,6 +801,9 @@ fn hydrate(
             dropped += 1;
             continue;
         };
+        if class != hit.class || *modified != hit.modified {
+            changed = true;
+        }
         kept.push(Hit {
             id: hit.id,
             class,
@@ -765,5 +811,5 @@ fn hydrate(
         });
     }
     kept.sort();
-    Ok((kept, dropped))
+    Ok((kept, dropped, changed))
 }

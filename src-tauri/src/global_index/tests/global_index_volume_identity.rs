@@ -168,6 +168,17 @@ fn capability_downgrade_recovery_requires_new_consent_and_preserves_history() {
             db.conn()
                 .unwrap()
                 .query_row(
+                    "SELECT path, allow_cloud_ai FROM managed_scopes WHERE id='round7-scope'",
+                    [],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                )
+                .unwrap(),
+            ("fixture".into(), 1)
+        );
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
                     "SELECT COUNT(*) FROM ai_jobs WHERE id='round7-job' AND global_entry_id=?1",
                     [&entry],
                     |r| r.get::<_, i64>(0)

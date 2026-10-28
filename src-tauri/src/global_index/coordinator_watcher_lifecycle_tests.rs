@@ -187,6 +187,32 @@ fn watcher_failure_pause_disable_and_new_rebuild_fence_old_completion() {
     }
 }
 
+// Always stop/join before the database path guard removes WAL/SHM, including
+// assertion-unwind paths. A detached worker would make fixture cleanup unsafe.
+struct WatcherFixtureWorker {
+    cancel: Arc<AtomicBool>,
+    wake: Arc<GlobalIndexWakeSlot>,
+    worker: Option<JoinHandle<Result<(), GlobalIndexError>>>,
+}
+impl WatcherFixtureWorker {
+    fn stop(&mut self) -> Result<(), GlobalIndexError> {
+        self.cancel.store(true, Ordering::Release);
+        self.wake.shutdown();
+        self.worker
+            .take()
+            .unwrap()
+            .join()
+            .expect("join fixture worker")
+    }
+}
+impl Drop for WatcherFixtureWorker {
+    fn drop(&mut self) {
+        if self.worker.is_some() {
+            let _ = self.stop();
+        }
+    }
+}
+
 #[test]
 fn watcher_poll_worker_uses_incremental_then_stops_after_recovery() {
     let (_path, db, provider) = watcher_fixture();
@@ -199,6 +225,11 @@ fn watcher_poll_worker_uses_incremental_then_stops_after_recovery() {
         let cancel = cancel.clone();
         let wake = wake.clone();
         thread::spawn(move || run_index(provider, db, cancel, wake))
+    };
+    let mut worker_guard = WatcherFixtureWorker {
+        cancel: cancel.clone(),
+        wake: wake.clone(),
+        worker: Some(worker),
     };
     let deadline = Instant::now() + Duration::from_secs(5);
     while provider.calls.lock().unwrap().len() < 3 && Instant::now() < deadline {
@@ -235,9 +266,7 @@ fn watcher_poll_worker_uses_incremental_then_stops_after_recovery() {
         count,
         "unchanged topology + healthy watcher must stay idle"
     );
-    cancel.store(true, Ordering::Release);
-    wake.shutdown();
-    worker.join().unwrap().unwrap();
+    worker_guard.stop().unwrap();
     let calls = provider.calls.lock().unwrap();
     assert_eq!(calls[0], SourceOperationKind::Initial);
     assert!(calls[1..]

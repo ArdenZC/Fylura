@@ -151,25 +151,31 @@ pub fn get_global_index_status(
 pub fn list_global_index_sources(
     db: State<'_, Database>,
 ) -> Result<Vec<GlobalIndexSource>, String> {
-    db.list_global_volumes()
-        .map(|volumes| {
-            volumes
-                .into_iter()
-                .map(|volume| GlobalIndexSource {
-                    can_pause: volume.index_status == INDEX_STATUS_INDEXING
-                        || volume.index_status == INDEX_STATUS_SYNCING,
-                    can_rebuild: true,
-                    technical_detail: Some(GlobalIndexTechnicalDetail {
-                        journal_id: volume.journal_id.clone(),
-                        journal_cursor: volume.journal_cursor.clone(),
-                        provider: volume.provider.clone(),
-                        filesystem_type: volume.filesystem_type.clone(),
-                    }),
-                    volume,
-                })
-                .collect()
+    let mut volumes = db.list_global_volumes().map_err(global_index_database_error)?;
+    // A cloud mount (e.g. Google Drive for desktop) can re-register under a
+    // fresh volume GUID when it reconnects, leaving an older row behind for the
+    // same drive letter. Present only the newest row per mount path; the
+    // historical row stays in the database untouched — nothing is deleted,
+    // merged or re-linked. Duplicates are additionally harmless for coverage
+    // because they are never authorized or enabled.
+    volumes.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    let mut seen_mount_paths = std::collections::HashSet::new();
+    volumes.retain(|volume| seen_mount_paths.insert(volume.mount_path.clone()));
+    Ok(volumes
+        .into_iter()
+        .map(|volume| GlobalIndexSource {
+            can_pause: volume.index_status == INDEX_STATUS_INDEXING
+                || volume.index_status == INDEX_STATUS_SYNCING,
+            can_rebuild: true,
+            technical_detail: Some(GlobalIndexTechnicalDetail {
+                journal_id: volume.journal_id.clone(),
+                journal_cursor: volume.journal_cursor.clone(),
+                provider: volume.provider.clone(),
+                filesystem_type: volume.filesystem_type.clone(),
+            }),
+            volume,
         })
-        .map_err(global_index_database_error)
+        .collect())
 }
 
 #[tauri::command]

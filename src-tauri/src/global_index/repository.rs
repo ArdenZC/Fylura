@@ -359,6 +359,25 @@ impl Database {
                     drive_kind IS NOT excluded.drive_kind OR
                     provider IS NOT excluded.provider
                     THEN NULL ELSE operation_state END,
+                -- Whole-volume consent is bound to a specific volume identity
+                -- *and* capability. If the same stable id now reports a
+                -- different provider, filesystem or drive kind, the previous
+                -- authorization cannot be assumed to describe this volume
+                -- (GUID->serial drift, letter reuse, cloned serials, a cloud
+                -- mount replacing a local disk). Fail closed: reset consent to
+                -- the freshly discovered default instead of carrying it over.
+                -- Index entries are deliberately left untouched.
+                enabled = CASE WHEN
+                    global_volumes.filesystem_type IS NOT excluded.filesystem_type OR
+                    global_volumes.drive_kind IS NOT excluded.drive_kind OR
+                    global_volumes.provider IS NOT excluded.provider
+                    THEN excluded.enabled ELSE global_volumes.enabled END,
+                scope_authorization_state = CASE WHEN
+                    global_volumes.filesystem_type IS NOT excluded.filesystem_type OR
+                    global_volumes.drive_kind IS NOT excluded.drive_kind OR
+                    global_volumes.provider IS NOT excluded.provider
+                    THEN excluded.scope_authorization_state
+                    ELSE global_volumes.scope_authorization_state END,
                 updated_at = excluded.updated_at
             "#,
             params![
@@ -1338,7 +1357,7 @@ fn global_index_status_with_total(
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('error', 'database_busy', 'service_busy')),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('error', 'database_busy', 'service_busy', 'watcher_unavailable')),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
             (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
             (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
@@ -1400,12 +1419,16 @@ fn global_index_status_with_total(
         status: status.to_string(),
         provider_status: None,
         processed_entries: total_entries,
+        // Completion is defined positively: every enabled source must be
+        // genuinely `ready`, and no enabled source may still be awaiting
+        // authorization. Deriving it from a partial exclusion list is what let
+        // `permission_required` / `spotlight_*` / `fsevents_unavailable`
+        // sources report a "complete" empty result. The authorization term is
+        // kept explicitly because a legacy source can report `ready` while its
+        // consent has not been re-confirmed.
         collection_complete: indexed_volumes > 0
-            && pending_volumes == 0
-            && authorization_required_volumes == 0
-            && unavailable_volumes == 0
-            && error_volumes == 0
-            && paused_volumes == 0,
+            && ready_volumes == indexed_volumes
+            && authorization_required_volumes == 0,
         total_entries,
         indexed_volumes,
         ready_volumes,

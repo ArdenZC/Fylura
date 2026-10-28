@@ -678,11 +678,22 @@ pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, Globa
         // A freshly formatted or virtual NTFS volume may have no active change
         // journal. Creating it is the documented Windows prerequisite for any
         // USN-based indexing, and only runs for a volume the user already
-        // authorized. If creation fails we keep the original error so the
-        // volume still reports the truthful failure.
+        // authorized. Note `FSCTL_CREATE_USN_JOURNAL` also *modifies* an
+        // existing journal, so it is issued only after a definitive 1179 and
+        // immediately re-queried.
         Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE)) => {
-            create_journal(handle)?;
-            query_journal_once(handle)
+            match create_journal(handle) {
+                Ok(()) => query_journal_once(handle),
+                // Creation failed (privilege denial, read-only volume, or a
+                // journal created concurrently by another process). Report the
+                // original 1179 so the UI keeps the stable "journal not active"
+                // classification; the creation failure is logged for diagnosis
+                // instead of replacing a meaningful code with an opaque one.
+                Err(error) => {
+                    eprintln!("global_index usn_journal_create_failed: {error}");
+                    Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE))
+                }
+            }
         }
         Err(error) => Err(error),
     }

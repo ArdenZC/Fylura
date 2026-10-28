@@ -1865,3 +1865,9 @@ mod global_search_source_health;
 
 #[path = "tests/global_index_scope_authorization.rs"]
 mod global_index_scope_authorization;
+
+#[path = "tests/global_search_coverage_completeness.rs"]
+mod global_search_coverage_completeness;
+
+#[path = "tests/global_index_volume_identity.rs"]
+mod global_index_volume_identity;

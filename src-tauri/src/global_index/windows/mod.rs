@@ -338,8 +338,37 @@ impl WindowsGlobalIndexProvider {
         ) -> Result<(), GlobalIndexError>,
     ) -> Result<(), GlobalIndexError> {
         ensure_source_authorized(&source.volume)?;
-        self.ensure_native_change_watcher(source)?;
-        self.run_with_fallback(request, sink, direct)
+        // The change watcher only accelerates incremental pickup. Treating a
+        // watcher failure as fatal turned a degraded incremental path into a
+        // total indexing failure, even though the authoritative MFT/USN
+        // baseline could have succeeded. Run the baseline anyway and then
+        // downgrade the reported status so the volume is never presented as
+        // `ready` while silently unable to observe further changes.
+        let watcher_error = match self.ensure_native_change_watcher(source) {
+            Ok(()) => None,
+            Err(error) => {
+                eprintln!(
+                    "global_index native_change_watcher_unavailable source={}: {error}",
+                    source.volume.id
+                );
+                Some(error.to_string())
+            }
+        };
+        let result = self.run_with_fallback(request, sink, direct);
+        if result.is_ok() {
+            if let Some(reason) = watcher_error {
+                // The baseline succeeded, but coverage will not self-update.
+                sink.finish_source_operation(
+                    &source.volume.id,
+                    crate::global_index::models::INDEX_STATUS_WATCHER_UNAVAILABLE,
+                    Some(&reason),
+                    None,
+                    None,
+                    false,
+                )?;
+            }
+        }
+        result
     }
 
     fn run_direct_admitted(

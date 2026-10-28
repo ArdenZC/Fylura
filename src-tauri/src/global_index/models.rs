@@ -37,6 +37,11 @@ pub const INDEX_STATUS_SPOTLIGHT_UNAVAILABLE: &str = "spotlight_unavailable";
 pub const INDEX_STATUS_SPOTLIGHT_NOT_INDEXED: &str = "spotlight_not_indexed";
 pub const INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED: &str = "spotlight_external_not_indexed";
 pub const INDEX_STATUS_FSEVENTS_UNAVAILABLE: &str = "fsevents_unavailable";
+/// The authoritative MFT/USN baseline completed, but the change watcher that
+/// drives incremental pickup could not start. The index content is real, yet
+/// it will not keep itself up to date, so it must never be reported as
+/// `ready`.
+pub const INDEX_STATUS_WATCHER_UNAVAILABLE: &str = "watcher_unavailable";
 pub const INDEX_STATUS_UNAVAILABLE: &str = "unavailable";
 pub const INDEX_STATUS_ERROR: &str = "error";
 

@@ -29,6 +29,12 @@ export function globalSearchFeedback(response: GlobalSearchResponse, t: Translat
   if (response.indexStatus.status === "permission_required" || statuses.includes("permission_required")) {
     return { title: t("globalIndexStatusPermissionRequired"), description: t("globalSearchPermissionRequiredDesc") };
   }
+  // The baseline index completed but incremental change watching failed, so
+  // results are real yet frozen. Surface that honestly instead of falling
+  // through to a generic "partial" message.
+  if (response.indexStatus.status === "watcher_unavailable" || statuses.includes("watcher_unavailable")) {
+    return { title: t("globalIndexStatusWatcherUnavailable"), description: t("globalSearchWatcherUnavailableDesc") };
+  }
   if (response.indexStatus.status === "error" || statuses.includes("error")) {
     return { title: t("globalIndexStatusError"), description: t("globalSearchUnavailableDesc") };
   }

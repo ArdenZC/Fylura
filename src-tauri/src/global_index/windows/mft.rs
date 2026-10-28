@@ -17,8 +17,9 @@ use windows_sys::Win32::Storage::FileSystem::{
     OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Ioctl::{
-    FSCTL_ENUM_USN_DATA, FSCTL_QUERY_USN_JOURNAL, MFT_ENUM_DATA_V0, USN_JOURNAL_DATA_V0,
-    USN_RECORD_COMMON_HEADER, USN_RECORD_V2, USN_RECORD_V3,
+    CREATE_USN_JOURNAL_DATA, FSCTL_CREATE_USN_JOURNAL, FSCTL_ENUM_USN_DATA,
+    FSCTL_QUERY_USN_JOURNAL, MFT_ENUM_DATA_V0, USN_JOURNAL_DATA_V0, USN_RECORD_COMMON_HEADER,
+    USN_RECORD_V2, USN_RECORD_V3,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
@@ -27,6 +28,15 @@ const ENUM_BUFFER_SIZE: usize = 1024 * 1024;
 const STAGING_READ_BATCH: i64 = 2048;
 const NTFS_ROOT_FILE_RECORD_NUMBER: u64 = 5;
 const NTFS_FILE_RECORD_NUMBER_MASK: u64 = 0x0000_ffff_ffff_ffff;
+/// `ERROR_JOURNAL_NOT_ACTIVE`: the volume has no active USN change journal.
+/// This is distinct from a deleted/invalid journal history (1178/1181): the
+/// journal was never created, so a rebuild alone cannot recover it.
+const ERROR_JOURNAL_NOT_ACTIVE: u32 = 1179;
+/// Bounded default when Zen Canvas has to create the change journal on a
+/// volume the user already authorized for indexing. Matches the Windows
+/// default order of magnitude and keeps the footprint predictable.
+const USN_JOURNAL_MAXIMUM_BYTES: u64 = 32 * 1024 * 1024;
+const USN_JOURNAL_ALLOCATION_DELTA: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub(crate) struct MftRecord {
@@ -663,6 +673,22 @@ fn open_volume_error(code: u32) -> GlobalIndexError {
 }
 
 pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, GlobalIndexError> {
+    match query_journal_once(handle) {
+        Ok(journal) => Ok(journal),
+        // A freshly formatted or virtual NTFS volume may have no active change
+        // journal. Creating it is the documented Windows prerequisite for any
+        // USN-based indexing, and only runs for a volume the user already
+        // authorized. If creation fails we keep the original error so the
+        // volume still reports the truthful failure.
+        Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE)) => {
+            create_journal(handle)?;
+            query_journal_once(handle)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn query_journal_once(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, GlobalIndexError> {
     let mut output = USN_JOURNAL_DATA_V0::default();
     let output_bytes = unsafe {
         std::slice::from_raw_parts_mut(
@@ -672,6 +698,20 @@ pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, Globa
     };
     device_io_control(handle, FSCTL_QUERY_USN_JOURNAL, &[], output_bytes)?;
     Ok(output)
+}
+
+fn create_journal(handle: HANDLE) -> Result<(), GlobalIndexError> {
+    let data = CREATE_USN_JOURNAL_DATA {
+        MaximumSize: USN_JOURNAL_MAXIMUM_BYTES,
+        AllocationDelta: USN_JOURNAL_ALLOCATION_DELTA,
+    };
+    let input_bytes = unsafe {
+        std::slice::from_raw_parts(
+            (&data as *const CREATE_USN_JOURNAL_DATA).cast::<u8>(),
+            std::mem::size_of::<CREATE_USN_JOURNAL_DATA>(),
+        )
+    };
+    device_io_control(handle, FSCTL_CREATE_USN_JOURNAL, input_bytes, &mut []).map(|_| ())
 }
 
 pub(crate) fn is_win32_error(error: &GlobalIndexError, code: u32) -> bool {

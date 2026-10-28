@@ -56,6 +56,11 @@ pub trait GlobalIndexSink: Send {
     fn source_operation_admitted(&self, _volume_id: &str) -> bool {
         false
     }
+    /// Called only under the provider's resource lifecycle lock. A sink which
+    /// cannot prove current database ownership must not authorize a watcher.
+    fn native_watcher_admitted(&self, _source: &GlobalVolume) -> Result<bool, GlobalIndexError> {
+        Ok(false)
+    }
     fn mark_source_operation_unknown(&mut self, _volume_id: &str) -> Result<(), GlobalIndexError> {
         Ok(())
     }
@@ -156,6 +161,18 @@ pub trait GlobalIndexProvider: Send + Sync {
     }
 
     fn source_enabled_changed(&self, _source_id: &str, _enabled: bool) {}
+
+    /// Serialize a short authority change with native resource registration.
+    /// The callback returns whether existing resources must be discarded.
+    /// Never perform scans, IPC, scheduler waits or callbacks into this provider
+    /// inside the authority change.
+    fn update_source_lifecycle(
+        &self,
+        _source_id: &str,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        update().map(|_| ())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -313,7 +330,10 @@ impl GlobalIndexCoordinator {
         source_id: &str,
         enabled: bool,
     ) -> Result<(), GlobalIndexError> {
-        self.db.set_global_volume_enabled(source_id, enabled)?;
+        self.provider.update_source_lifecycle(source_id, &mut || {
+            self.db.set_global_volume_enabled(source_id, enabled)?;
+            Ok(true)
+        })?;
         self.provider.source_enabled_changed(source_id, enabled);
         self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
         Ok(())
@@ -335,8 +355,11 @@ impl GlobalIndexCoordinator {
             .into_iter()
             .find(|source| source.volume.id == source_id)
             .ok_or_else(|| GlobalIndexError::Provider("global_index_source_unavailable".into()))?;
-        self.db
-            .authorize_global_volume(source_id, true, &discovered.volume)?;
+        self.provider.update_source_lifecycle(source_id, &mut || {
+            self.db
+                .authorize_global_volume(source_id, true, &discovered.volume)?;
+            Ok(true)
+        })?;
         self.provider.source_enabled_changed(source_id, true);
         self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
         Ok(())
@@ -386,7 +409,10 @@ struct DatabaseIndexSink {
 
 #[cfg(test)]
 pub(crate) fn database_sink_for_test(db: Database) -> impl GlobalIndexSink {
-    DatabaseIndexSink { db, owners: HashMap::new() }
+    DatabaseIndexSink {
+        db,
+        owners: HashMap::new(),
+    }
 }
 
 impl DatabaseIndexSink {
@@ -431,6 +457,12 @@ impl Drop for DatabaseIndexSink {
 }
 
 impl GlobalIndexSink for DatabaseIndexSink {
+    fn native_watcher_admitted(&self, source: &GlobalVolume) -> Result<bool, GlobalIndexError> {
+        let Some(owner) = self.owners.get(&source.id) else {
+            return Ok(false);
+        };
+        Ok(self.db.native_watcher_operation_is_current(source, owner)?)
+    }
     fn admit_source_operation(
         &mut self,
         source: &GlobalVolume,
@@ -767,7 +799,15 @@ fn run_index_cycle_with_topology(
                 && (current.platform != "windows"
                     || current.scope_authorization_state == SCOPE_AUTHORIZATION_AUTHORIZED)
         });
-        db.upsert_global_volume(&source.volume)?;
+        provider.update_source_lifecycle(&source.volume.id, &mut || {
+            // Compare the durable revision, not the unapproved discovery
+            // snapshot: ordinary rediscovery must keep healthy watchers alive.
+            let before = db.global_index_operation_state(&source.volume.id)?;
+            db.upsert_global_volume(&source.volume)?;
+            let after = db.global_index_operation_state(&source.volume.id)?;
+            Ok(before.as_ref().map(|state| state.revision)
+                != after.as_ref().map(|state| state.revision))
+        })?;
         if legacy_recursive_fallback_needs_rebuild {
             let error = existing
                 .as_ref()
@@ -820,6 +860,18 @@ fn run_index_cycle_with_topology(
             continue;
         }
         let Some(discovered_source) = discovered_by_id.get(&volume.id) else {
+            if volume.platform == "windows" {
+                let replaced = discovered_by_id.values().any(|source| {
+                    source
+                        .volume
+                        .mount_path
+                        .eq_ignore_ascii_case(&volume.mount_path)
+                });
+                provider.update_source_lifecycle(&volume.id, &mut || {
+                    db.invalidate_missing_global_index_source(&volume.id, replaced)?;
+                    Ok(true)
+                })?;
+            }
             if volume.index_status != INDEX_STATUS_UNAVAILABLE
                 || volume.last_error.as_deref() != Some("global_index_source_unavailable")
             {

@@ -287,6 +287,55 @@ struct GlobalIndexStatusCounts {
 }
 
 impl Database {
+    /// Resource admission uses the existing operation fence. The desktop
+    /// lifecycle lock excludes all Coordinator authority mutations until native
+    /// registration completes; this read alone is deliberately not the fence.
+    pub(crate) fn native_watcher_operation_is_current(
+        &self,
+        source: &GlobalVolume,
+        owner: &SourceOperationOwner,
+    ) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        Ok(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM global_volumes
+             WHERE id = ?1 AND stable_volume_id = ?2 AND mount_path = ?3
+               AND operation_revision = ?4 AND operation_owner_id = ?5
+               AND operation_state = 'running' AND enabled = 1
+               AND platform = 'windows' AND provider = 'windows_mft_usn'
+               AND lower(filesystem_type) = 'ntfs' AND drive_kind = 'fixed'
+               AND scope_authorization_state = 'authorized')",
+            params![
+                source.id,
+                source.stable_volume_id,
+                source.mount_path,
+                owner.revision,
+                owner.operation_id
+            ],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// A disappeared mount invalidates in-flight work without deleting history
+    /// or deleting consent on an ordinary disconnect. A different identity at
+    /// the same mount revokes consent; capability recovery cannot reauthorize it.
+    pub(crate) fn invalidate_missing_global_index_source(
+        &self,
+        id: &str,
+        replaced: bool,
+    ) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE global_volumes SET operation_revision = operation_revision + 1,
+                operation_owner_id = NULL, operation_owner_pid = NULL,
+                operation_owner_started_at = NULL, operation_owner_route = NULL,
+                operation_kind = NULL, operation_state = NULL,
+                enabled = CASE WHEN ?2 THEN 0 ELSE enabled END,
+                scope_authorization_state = CASE WHEN ?2 THEN 'not_authorized' ELSE scope_authorization_state END
+             WHERE id = ?1 AND (operation_owner_id IS NOT NULL OR ?2)", params![id, replaced],
+        )?;
+        Ok(())
+    }
+
     pub fn upsert_global_volume(&self, volume: &GlobalVolume) -> Result<(), DbError> {
         let conn = self.conn()?;
         conn.execute(

@@ -231,6 +231,14 @@ impl GlobalIndexProvider for ProbeProvider {
     fn has_external_source_operation_admission(&self) -> bool {
         self.inner.has_external_source_operation_admission()
     }
+
+    fn update_source_lifecycle(
+        &self,
+        source_id: &str,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        self.inner.update_source_lifecycle(source_id, update)
+    }
 }
 struct PauseSink<'a> {
     sink: &'a mut dyn GlobalIndexSink,

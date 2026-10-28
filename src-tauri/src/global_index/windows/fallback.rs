@@ -8,7 +8,7 @@ use notify::{recommended_watcher, Event, RecommendedWatcher, RecursiveMode, Watc
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 struct FallbackScanSummary {
@@ -30,9 +30,46 @@ impl FallbackScanSummary {
 pub(crate) struct ChangeSignalWatcher {
     _watcher: Option<RecommendedWatcher>,
     failed: Arc<AtomicBool>,
+    active: Arc<Mutex<bool>>,
+}
+
+// Serialize publication with revocation, including callbacks already queued by
+// notify. Drop never joins the native watcher while holding the callback lock.
+fn notify_if_active(active: &Mutex<bool>, wake: &GlobalIndexWakeSlot) {
+    let active = active
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *active {
+        wake.notify(GlobalIndexWakeReason::ProviderChange);
+    }
+}
+
+impl Drop for ChangeSignalWatcher {
+    fn drop(&mut self) {
+        *self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+        self._watcher.take();
+    }
 }
 
 impl ChangeSignalWatcher {
+    pub(crate) fn publication_gate(&self) -> std::sync::MutexGuard<'_, bool> {
+        self.active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn queued_signal_for_test(
+        &self,
+        wake: Arc<GlobalIndexWakeSlot>,
+    ) -> impl Fn() + Send + 'static {
+        let active = self.active.clone();
+        move || notify_if_active(&active, &wake)
+    }
+
     pub(crate) fn start(
         root: &Path,
         wake: Arc<GlobalIndexWakeSlot>,
@@ -59,6 +96,8 @@ impl ChangeSignalWatcher {
     ) -> Result<Self, GlobalIndexError> {
         let failed = Arc::new(AtomicBool::new(false));
         let failed_for_callback = failed.clone();
+        let active = Arc::new(Mutex::new(true));
+        let active_for_callback = active.clone();
         let ignored_database_path = ignored_database_path.clone();
         let ignored_event_root = ignored_event_root.clone();
         let mut watcher = recommended_watcher(move |event: notify::Result<Event>| match event {
@@ -73,13 +112,13 @@ impl ChangeSignalWatcher {
                                 .is_some_and(|ignored_root| is_path_within(path, ignored_root))
                     });
                 if !is_ignored_only {
-                    wake.notify(GlobalIndexWakeReason::ProviderChange);
+                    notify_if_active(&active_for_callback, &wake);
                 }
             }
             Err(error) => {
                 if !failed_for_callback.swap(true, Ordering::AcqRel) {
                     eprintln!("Windows Global Index change watcher failed: {error}");
-                    wake.notify(GlobalIndexWakeReason::ProviderChange);
+                    notify_if_active(&active_for_callback, &wake);
                 }
             }
         })
@@ -98,6 +137,7 @@ impl ChangeSignalWatcher {
         Ok(Self {
             _watcher: Some(watcher),
             failed,
+            active,
         })
     }
 
@@ -106,6 +146,7 @@ impl ChangeSignalWatcher {
         Self {
             _watcher: None,
             failed: Arc::new(AtomicBool::new(false)),
+            active: Arc::new(Mutex::new(true)),
         }
     }
 
@@ -231,6 +272,33 @@ fn walk(
 #[cfg(test)]
 mod tests {
     use super::{is_database_artifact, *};
+
+    #[test]
+    fn revoked_real_watcher_blocks_late_callback_publication_and_releases_directory() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(".tmp-tests")
+            .join(format!("round8-callback-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let wake = Arc::new(GlobalIndexWakeSlot::default());
+        let watcher = ChangeSignalWatcher::start(&root, wake.clone(), None).unwrap();
+        // This is the same publication gate captured by the real notify callback.
+        // Retain it to deterministically deliver a queued callback after Drop.
+        let queued_callback = watcher.active.clone();
+        fs::write(root.join("before.txt"), b"real event").unwrap();
+        assert!(matches!(
+            wake.wait(
+                &AtomicBool::new(false),
+                Some(std::time::Duration::from_secs(5))
+            ),
+            crate::global_index::wake::GlobalIndexWaitResult::Notified(_)
+        ));
+        drop(watcher);
+        let notifications = wake.snapshot().notifications;
+        notify_if_active(&queued_callback, &wake);
+        fs::write(root.join("after.txt"), b"revoked").unwrap();
+        assert_eq!(wake.snapshot().notifications, notifications);
+        fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn fallback_provider_name_is_explicit() {

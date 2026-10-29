@@ -35,6 +35,9 @@ export const globalSearchApi = {
   setGlobalIndexSourceEnabled(sourceId: string, enabled: boolean): Promise<void> {
     return invokeCommand<void>("set_global_index_source_enabled", { sourceId, enabled });
   },
+  authorizeGlobalIndexSource(sourceId: string, confirmed: boolean): Promise<void> {
+    return invokeCommand<void>("authorize_global_index_source", { sourceId, confirmed });
+  },
   openGlobalSearchResult(entryId: string): Promise<void> {
     return invokeCommand<void>("open_global_search_result", { entryId });
   },

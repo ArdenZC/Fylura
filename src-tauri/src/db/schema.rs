@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 44;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 45;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -1039,6 +1039,11 @@ pub(crate) fn migrate_with_cancellation(
             guard.check_cancelled()?;
             super::schema_global_source_facts::install(conn)?;
             set_schema_version(conn, 44)?;
+        }
+        if version < 45 {
+            guard.check_cancelled()?;
+            migrate_global_index_scope_authorization(conn)?;
+            set_schema_version(conn, 45)?;
         }
         guard.check_cancelled()?;
         Ok(())
@@ -2199,7 +2204,9 @@ fn ensure_global_index_schema(conn: &Connection) -> Result<(), DbError> {
             mount_path TEXT NOT NULL,
             filesystem_type TEXT NOT NULL,
             drive_kind TEXT NOT NULL,
-            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+            scope_authorization_state TEXT NOT NULL DEFAULT 'not_authorized'
+                CHECK (scope_authorization_state IN ('not_required', 'not_authorized', 'legacy_confirmation_required', 'authorized')),
             provider TEXT NOT NULL,
             index_status TEXT NOT NULL DEFAULT 'discovered',
             last_error TEXT,
@@ -2360,6 +2367,29 @@ fn ensure_global_index_schema(conn: &Connection) -> Result<(), DbError> {
             [],
         )?;
     }
+    Ok(())
+}
+
+fn migrate_global_index_scope_authorization(conn: &Connection) -> Result<(), DbError> {
+    let has_column = conn
+        .prepare("PRAGMA table_info('global_volumes')")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "scope_authorization_state");
+    if !has_column {
+        conn.execute_batch(
+            "ALTER TABLE global_volumes ADD COLUMN scope_authorization_state TEXT NOT NULL DEFAULT 'not_authorized' CHECK (scope_authorization_state IN ('not_required', 'not_authorized', 'legacy_confirmation_required', 'authorized'));
+",
+        )?;
+    }
+    // Pre-45 Windows rows only recorded `enabled`; the old default also set
+    // it automatically. No row can prove explicit user consent, so preserve
+    // every durable row and require a one-time confirmation before new work.
+    conn.execute(
+        "UPDATE global_volumes SET scope_authorization_state = CASE WHEN platform = 'windows' THEN 'legacy_confirmation_required' ELSE 'not_required' END WHERE scope_authorization_state != 'authorized'",
+        [],
+    )?;
     Ok(())
 }
 
@@ -3446,12 +3476,12 @@ mod issue381_b4_p0_tests {
         );
         assert!(upgraded[0].contains("id ASC, volume_id"));
         assert!(upgraded[1].contains("volume_id, last_seen_at, id"));
-        assert_eq!(schema_version(&conn).unwrap(), 44);
+        assert_eq!(schema_version(&conn).unwrap(), 45);
         migrate(&conn).unwrap();
         assert_eq!(schema43_index_sql(&conn), upgraded);
-        conn.execute_batch("PRAGMA user_version = 45").unwrap();
+        conn.execute_batch("PRAGMA user_version = 46").unwrap();
         assert!(migrate(&conn).is_err());
-        assert_eq!(schema_version(&conn).unwrap(), 45);
+        assert_eq!(schema_version(&conn).unwrap(), 46);
     }
 
     #[test]
@@ -3469,7 +3499,117 @@ mod issue381_b4_p0_tests {
         assert_eq!(schema43_index_sql(&conn), old);
         assert_eq!(schema_version(&conn).unwrap(), 42);
         migrate(&conn).unwrap();
-        assert_eq!(schema_version(&conn).unwrap(), 44);
+        assert_eq!(schema_version(&conn).unwrap(), 45);
+    }
+
+    #[test]
+    fn schema44_scope_authorization_migration_preserves_all_existing_index_and_ai_data() {
+        type LegacyVolumeSnapshot = (
+            String,
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+            i64,
+            String,
+        );
+
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        conn.execute(
+            r#"INSERT INTO global_volumes (
+                id, platform, stable_volume_id, display_name, mount_path, filesystem_type,
+                drive_kind, enabled, scope_authorization_state, provider, index_status,
+                last_error, journal_id, journal_cursor, last_full_index_at,
+                last_incremental_sync_at, entry_count, created_at, updated_at
+            ) VALUES (
+                'legacy-win', 'windows', 'volume-guid', 'C', 'C:\\', 'ntfs',
+                'fixed', 1, 'authorized', 'windows_mft_usn', 'ready', 'prior diagnostic',
+                '17', '900', 100, 101, 1, 1, 2
+            )"#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"INSERT INTO global_entries (
+                id, volume_id, platform_file_id, name, name_normalized, path, path_normalized,
+                source_provider, last_seen_at
+            ) VALUES ('entry-1', 'legacy-win', 'frn-1', 'note.txt', 'note.txt',
+                      'C:\\note.txt', 'c:/note.txt', 'windows_mft_usn', 200)"#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO managed_scopes (id, path, global_entry_id, allow_cloud_ai, created_at, updated_at) VALUES ('scope-1', 'C:\\Managed', 'entry-1', 1, 1, 2)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO ai_analysis_state (global_entry_id, status, input_fingerprint, content_summary, classification_json, updated_at) VALUES ('entry-1', 'completed', 'fingerprint-1', 'kept summary', '{\"topic\":\"kept\"}', 3)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO ai_jobs (id, global_entry_id, managed_scope_id, input_fingerprint, provider, status, created_at) VALUES ('job-1', 'entry-1', 'scope-1', 'fingerprint-1', 'local', 'completed', 3)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO global_volumes (id, platform, stable_volume_id, display_name, mount_path, filesystem_type, drive_kind, enabled, scope_authorization_state, provider, index_status, created_at, updated_at) VALUES ('legacy-mac', 'macos', 'mac-volume', 'Mac', '/', 'apfs', 'fixed', 1, 'authorized', 'macos_spotlight', 'ready', 1, 2)",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch("ALTER TABLE global_volumes DROP COLUMN scope_authorization_state; PRAGMA user_version=44;").unwrap();
+
+        migrate(&conn).unwrap();
+
+        let volume: LegacyVolumeSnapshot = conn.query_row(
+            "SELECT stable_volume_id, enabled, index_status, provider, last_error, journal_id, journal_cursor, last_full_index_at, last_incremental_sync_at, entry_count, scope_authorization_state FROM global_volumes WHERE id='legacy-win'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?)),
+        ).unwrap();
+        assert_eq!(
+            volume,
+            (
+                "volume-guid".into(),
+                1,
+                "ready".into(),
+                "windows_mft_usn".into(),
+                Some("prior diagnostic".into()),
+                Some("17".into()),
+                Some("900".into()),
+                Some(100),
+                Some(101),
+                2,
+                "legacy_confirmation_required".into()
+            )
+        );
+        let non_windows_authorization: String = conn
+            .query_row(
+                "SELECT scope_authorization_state FROM global_volumes WHERE id='legacy-mac'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(non_windows_authorization, "not_required");
+        let data_counts: (i64, i64, i64, i64) = conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM global_entries), (SELECT COUNT(*) FROM managed_scopes), (SELECT COUNT(*) FROM ai_analysis_state), (SELECT COUNT(*) FROM ai_jobs)",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(data_counts, (1, 1, 1, 1));
+        let ai: (String, String, String) = conn.query_row(
+            "SELECT status, content_summary, classification_json FROM ai_analysis_state WHERE global_entry_id='entry-1'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(
+            ai,
+            (
+                "completed".into(),
+                "kept summary".into(),
+                "{\"topic\":\"kept\"}".into()
+            )
+        );
+        assert_eq!(schema_version(&conn).unwrap(), 45);
     }
 
     fn remove_identity_foundation(conn: &Connection, version: i32) {
@@ -3967,7 +4107,7 @@ mod issue381_b4_p0_tests {
         holder.execute_batch("COMMIT").unwrap();
         a.resume.send(()).unwrap();
         let after_a = a.thread.join().unwrap().expect("first migration succeeds");
-        assert_eq!(after_a.version, 44);
+        assert_eq!(after_a.version, 45);
         b.resume.send(()).unwrap();
         let after_b = b
             .thread
@@ -4017,7 +4157,7 @@ mod issue381_b4_p0_tests {
         for (label, mutation, expected_error) in [
             (
                 "issue441-future",
-                "PRAGMA user_version=45",
+                "PRAGMA user_version=46",
                 "newer than this app supports",
             ),
             (

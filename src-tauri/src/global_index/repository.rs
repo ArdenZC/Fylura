@@ -273,6 +273,7 @@ struct GlobalIndexStatusCounts {
     indexed_volumes: i64,
     ready_volumes: i64,
     pending_volumes: i64,
+    authorization_required_volumes: i64,
     spotlight_not_indexed_volumes: i64,
     permission_required_volumes: i64,
     spotlight_unavailable_volumes: i64,
@@ -286,23 +287,83 @@ struct GlobalIndexStatusCounts {
 }
 
 impl Database {
+    /// Resource admission uses the existing operation fence. The desktop
+    /// lifecycle lock excludes all Coordinator authority mutations until native
+    /// registration completes; this read alone is deliberately not the fence.
+    pub(crate) fn native_watcher_operation_is_current(
+        &self,
+        source: &GlobalVolume,
+        owner: &SourceOperationOwner,
+    ) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        Ok(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM global_volumes
+             WHERE id = ?1 AND stable_volume_id = ?2 AND mount_path = ?3
+               AND operation_revision = ?4 AND operation_owner_id = ?5
+               AND operation_state = 'running' AND enabled = 1
+               AND platform = 'windows' AND provider = 'windows_mft_usn'
+               AND lower(filesystem_type) = 'ntfs' AND drive_kind = 'fixed'
+               AND scope_authorization_state = 'authorized')",
+            params![
+                source.id,
+                source.stable_volume_id,
+                source.mount_path,
+                owner.revision,
+                owner.operation_id
+            ],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// A disappeared mount invalidates in-flight work without deleting history
+    /// or deleting consent on an ordinary disconnect. A different identity at
+    /// the same mount revokes consent; capability recovery cannot reauthorize it.
+    pub(crate) fn invalidate_missing_global_index_source(
+        &self,
+        id: &str,
+        replaced: bool,
+    ) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE global_volumes SET operation_revision = operation_revision + 1,
+                operation_owner_id = NULL, operation_owner_pid = NULL,
+                operation_owner_started_at = NULL, operation_owner_route = NULL,
+                operation_kind = NULL, operation_state = NULL,
+                enabled = CASE WHEN ?2 THEN 0 ELSE enabled END,
+                scope_authorization_state = CASE WHEN ?2 THEN 'not_authorized' ELSE scope_authorization_state END
+             WHERE id = ?1 AND (operation_owner_id IS NOT NULL OR ?2)", params![id, replaced],
+        )?;
+        Ok(())
+    }
+
     pub fn upsert_global_volume(&self, volume: &GlobalVolume) -> Result<(), DbError> {
         let conn = self.conn()?;
         conn.execute(
             r#"
             INSERT INTO global_volumes (
                 id, platform, stable_volume_id, display_name, mount_path,
-                filesystem_type, drive_kind, enabled, provider, index_status,
+                filesystem_type, drive_kind, enabled, scope_authorization_state,
+                provider, index_status,
                 last_error, journal_id, journal_cursor, last_full_index_at,
                 last_incremental_sync_at, entry_count, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
             ON CONFLICT(stable_volume_id) DO UPDATE SET
                 platform = excluded.platform,
                 display_name = excluded.display_name,
                 mount_path = excluded.mount_path,
                 filesystem_type = excluded.filesystem_type,
                 drive_kind = excluded.drive_kind,
-                provider = excluded.provider,
+                provider = CASE
+                    -- Keep the legacy fallback marker until explicit schema-44
+                    -- reconfirmation can request its required native rebuild.
+                    -- All other rows track freshly discovered capability even
+                    -- while consent remains revoked.
+                    WHEN global_volumes.platform = 'windows'
+                     AND global_volumes.scope_authorization_state != 'authorized'
+                     AND global_volumes.provider = 'windows_recursive_fallback'
+                    THEN global_volumes.provider
+                    ELSE excluded.provider
+                END,
                 operation_revision = operation_revision + CASE WHEN
                     platform IS NOT excluded.platform OR
                     mount_path IS NOT excluded.mount_path OR
@@ -352,6 +413,25 @@ impl Database {
                     drive_kind IS NOT excluded.drive_kind OR
                     provider IS NOT excluded.provider
                     THEN NULL ELSE operation_state END,
+                -- Whole-volume consent is bound to a specific volume identity
+                -- *and* capability. If the same stable id now reports a
+                -- different provider, filesystem or drive kind, the previous
+                -- authorization cannot be assumed to describe this volume
+                -- (GUID->serial drift, letter reuse, cloned serials, a cloud
+                -- mount replacing a local disk). Fail closed: reset consent to
+                -- the freshly discovered default instead of carrying it over.
+                -- Index entries are deliberately left untouched.
+                enabled = CASE WHEN
+                    global_volumes.filesystem_type IS NOT excluded.filesystem_type OR
+                    global_volumes.drive_kind IS NOT excluded.drive_kind OR
+                    global_volumes.provider IS NOT excluded.provider
+                    THEN excluded.enabled ELSE global_volumes.enabled END,
+                scope_authorization_state = CASE WHEN
+                    global_volumes.filesystem_type IS NOT excluded.filesystem_type OR
+                    global_volumes.drive_kind IS NOT excluded.drive_kind OR
+                    global_volumes.provider IS NOT excluded.provider
+                    THEN excluded.scope_authorization_state
+                    ELSE global_volumes.scope_authorization_state END,
                 updated_at = excluded.updated_at
             "#,
             params![
@@ -363,6 +443,7 @@ impl Database {
                 volume.filesystem_type,
                 volume.drive_kind,
                 bool_to_i64(volume.enabled),
+                volume.scope_authorization_state,
                 volume.provider,
                 volume.index_status,
                 volume.last_error,
@@ -383,7 +464,8 @@ impl Database {
         let mut statement = conn.prepare(
             r#"
             SELECT id, platform, stable_volume_id, display_name, mount_path,
-                   filesystem_type, drive_kind, enabled, provider, index_status,
+                   filesystem_type, drive_kind, enabled, scope_authorization_state,
+                   provider, index_status,
                    last_error, journal_id, journal_cursor, last_full_index_at,
                    last_incremental_sync_at, entry_count, created_at, updated_at
             FROM global_volumes
@@ -399,7 +481,8 @@ impl Database {
         conn.query_row(
             r#"
             SELECT id, platform, stable_volume_id, display_name, mount_path,
-                   filesystem_type, drive_kind, enabled, provider, index_status,
+                   filesystem_type, drive_kind, enabled, scope_authorization_state,
+                   provider, index_status,
                    last_error, journal_id, journal_cursor, last_full_index_at,
                    last_incremental_sync_at, entry_count, created_at, updated_at
             FROM global_volumes WHERE id = ?1
@@ -453,6 +536,7 @@ impl Database {
                     ELSE rebuild_intent_revision
                 END
             WHERE id = ?1 AND enabled = 1
+              AND (platform != 'windows' OR scope_authorization_state = 'authorized')
             "#,
             params![id],
         )?;
@@ -832,8 +916,18 @@ impl Database {
     }
 
     pub fn set_global_volume_enabled(&self, id: &str, enabled: bool) -> Result<(), DbError> {
+        self.set_global_volume_enabled_before_update(id, enabled, || {})
+    }
+
+    pub(crate) fn set_global_volume_enabled_before_update(
+        &self,
+        id: &str,
+        enabled: bool,
+        before_update: impl FnOnce(),
+    ) -> Result<(), DbError> {
         let conn = self.conn()?;
-        conn.execute(
+        before_update();
+        let changed = conn.execute(
             r#"
             UPDATE global_volumes
             SET enabled = ?2,
@@ -846,10 +940,82 @@ impl Database {
                 operation_state = CASE WHEN enabled != ?2 THEN NULL ELSE operation_state END,
                 updated_at = ?3
             WHERE id = ?1
+              AND (?2 = 0 OR platform != 'windows' OR scope_authorization_state = 'authorized')
             "#,
             params![id, bool_to_i64(enabled), unix_now()],
         )?;
-        Ok(())
+        if changed == 1 {
+            return Ok(());
+        }
+        // This read only selects an error message; it never authorizes a write.
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM global_volumes WHERE id = ?1)",
+            [id],
+            |row| row.get(0),
+        )?;
+        Err(DbError::Validation(if exists {
+            "global_index_source_authorization_required".into()
+        } else {
+            "global_index_source_missing".into()
+        }))
+    }
+
+    pub fn authorize_global_volume(
+        &self,
+        id: &str,
+        confirmed: bool,
+        discovered: &GlobalVolume,
+    ) -> Result<(), DbError> {
+        if !confirmed {
+            return Err(DbError::Validation(
+                "global_index_scope_confirmation_required".into(),
+            ));
+        }
+        if discovered.id != id
+            || discovered.platform != "windows"
+            || discovered.drive_kind != "fixed"
+            || !discovered.filesystem_type.eq_ignore_ascii_case("ntfs")
+            || discovered.provider != PROVIDER_WINDOWS_MFT_USN
+            || discovered.stable_volume_id.is_empty()
+        {
+            return Err(DbError::Validation(
+                "global_index_source_not_authorizable".into(),
+            ));
+        }
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET scope_authorization_state = 'authorized', enabled = 1,
+                provider = 'windows_mft_usn',
+                index_status = CASE
+                    WHEN provider = 'windows_recursive_fallback' THEN 'rebuild_required'
+                    ELSE index_status
+                END,
+                operation_revision = operation_revision + CASE
+                    WHEN provider != 'windows_mft_usn' THEN 1 ELSE 0
+                END,
+                operation_owner_id = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_owner_id END,
+                operation_owner_pid = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_owner_pid END,
+                operation_owner_started_at = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_owner_started_at END,
+                operation_owner_route = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_owner_route END,
+                operation_kind = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_kind END,
+                operation_state = CASE WHEN provider != 'windows_mft_usn' THEN NULL ELSE operation_state END,
+                updated_at = ?2
+            WHERE id = ?1 AND platform = 'windows' AND drive_kind = 'fixed'
+              AND lower(filesystem_type) = 'ntfs'
+              AND stable_volume_id = ?3
+              AND provider IN ('windows_mft_usn', 'windows_recursive_fallback')
+            "#,
+            params![id, unix_now(), discovered.stable_volume_id],
+        )?;
+        if changed == 1 {
+            Ok(())
+        } else {
+            Err(DbError::Validation(
+                "global_index_source_not_authorizable".into(),
+            ))
+        }
     }
 
     pub fn update_global_volume_provider(&self, id: &str, provider: &str) -> Result<(), DbError> {
@@ -1076,6 +1242,22 @@ impl Database {
         global_index_status_from_connection(&conn)
     }
 
+    /// True while an enabled source cannot observe changes.
+    ///
+    /// The coordinator uses this to keep a bounded poll fallback alive: a
+    /// source whose change watcher never started is degraded, not ready, and
+    /// must still be reconciled on the low-frequency audit tick until the
+    /// watcher recovers.
+    pub fn has_watcher_unavailable_sources(&self) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = ?1",
+            [super::models::INDEX_STATUS_WATCHER_UNAVAILABLE],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     pub fn search_global_entries(
         &self,
         query: &str,
@@ -1231,6 +1413,7 @@ fn global_index_status_with_total(
         indexed_volumes,
         ready_volumes,
         pending_volumes,
+        authorization_required_volumes,
         spotlight_not_indexed_volumes,
         permission_required_volumes,
         spotlight_unavailable_volumes,
@@ -1247,14 +1430,15 @@ fn global_index_status_with_total(
             CASE WHEN ?1 >= 0 THEN ?1 ELSE {exact_count} END,
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND (index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required') OR (platform = 'windows' AND scope_authorization_state != 'authorized'))),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND platform = 'windows' AND scope_authorization_state != 'authorized'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_not_indexed'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'permission_required'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_unavailable'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
-            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('error', 'database_busy', 'service_busy', 'watcher_unavailable')),
             (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
             (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
             (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
@@ -1266,16 +1450,17 @@ fn global_index_status_with_total(
                 indexed_volumes: row.get(1)?,
                 ready_volumes: row.get(2)?,
                 pending_volumes: row.get(3)?,
-                spotlight_not_indexed_volumes: row.get(4)?,
-                permission_required_volumes: row.get(5)?,
-                spotlight_unavailable_volumes: row.get(6)?,
-                spotlight_external_not_indexed_volumes: row.get(7)?,
-                fsevents_unavailable_volumes: row.get(8)?,
-                unavailable_volumes: row.get(9)?,
-                error_volumes: row.get(10)?,
-                paused_volumes: row.get(11)?,
-                last_sync_at: row.get(12)?,
-                last_error: row.get(13)?,
+                authorization_required_volumes: row.get(4)?,
+                spotlight_not_indexed_volumes: row.get(5)?,
+                permission_required_volumes: row.get(6)?,
+                spotlight_unavailable_volumes: row.get(7)?,
+                spotlight_external_not_indexed_volumes: row.get(8)?,
+                fsevents_unavailable_volumes: row.get(9)?,
+                unavailable_volumes: row.get(10)?,
+                error_volumes: row.get(11)?,
+                paused_volumes: row.get(12)?,
+                last_sync_at: row.get(13)?,
+                last_error: row.get(14)?,
             })
         },
     )?;
@@ -1284,6 +1469,8 @@ fn global_index_status_with_total(
     }
     let status = if indexed_volumes == 0 {
         INDEX_STATUS_UNAVAILABLE
+    } else if authorization_required_volumes > 0 {
+        "authorization_required"
     } else if ready_volumes == indexed_volumes {
         INDEX_STATUS_READY
     } else if ready_volumes > 0 {
@@ -1313,11 +1500,16 @@ fn global_index_status_with_total(
         status: status.to_string(),
         provider_status: None,
         processed_entries: total_entries,
+        // Completion is defined positively: every enabled source must be
+        // genuinely `ready`, and no enabled source may still be awaiting
+        // authorization. Deriving it from a partial exclusion list is what let
+        // `permission_required` / `spotlight_*` / `fsevents_unavailable`
+        // sources report a "complete" empty result. The authorization term is
+        // kept explicitly because a legacy source can report `ready` while its
+        // consent has not been re-confirmed.
         collection_complete: indexed_volumes > 0
-            && pending_volumes == 0
-            && unavailable_volumes == 0
-            && error_volumes == 0
-            && paused_volumes == 0,
+            && ready_volumes == indexed_volumes
+            && authorization_required_volumes == 0,
         total_entries,
         indexed_volumes,
         ready_volumes,
@@ -1820,16 +2012,17 @@ fn map_global_volume(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalVolume> 
         filesystem_type: row.get(5)?,
         drive_kind: row.get(6)?,
         enabled: row.get::<_, i64>(7)? != 0,
-        provider: row.get(8)?,
-        index_status: row.get(9)?,
-        last_error: row.get(10)?,
-        journal_id: row.get(11)?,
-        journal_cursor: row.get(12)?,
-        last_full_index_at: row.get(13)?,
-        last_incremental_sync_at: row.get(14)?,
-        entry_count: row.get(15)?,
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        scope_authorization_state: row.get(8)?,
+        provider: row.get(9)?,
+        index_status: row.get(10)?,
+        last_error: row.get(11)?,
+        journal_id: row.get(12)?,
+        journal_cursor: row.get(13)?,
+        last_full_index_at: row.get(14)?,
+        last_incremental_sync_at: row.get(15)?,
+        entry_count: row.get(16)?,
+        created_at: row.get(17)?,
+        updated_at: row.get(18)?,
     })
 }
 
@@ -1844,6 +2037,7 @@ pub(super) fn ensure_source_operation_owner_tx(
             WHERE id = ?1 AND operation_revision = ?2
               AND operation_owner_id = ?3 AND operation_state = 'running'
               AND enabled = 1
+              AND (platform != 'windows' OR scope_authorization_state = 'authorized')
         )
         "#,
         params![owner.volume_id, owner.revision, owner.operation_id],
@@ -1876,6 +2070,7 @@ fn query_global_index_operation_claim_snapshot(
                operation_state
         FROM global_volumes
         WHERE id = ?1 AND stable_volume_id = ?2 AND provider = ?3 AND enabled = 1
+          AND (platform != 'windows' OR scope_authorization_state = 'authorized')
         "#,
         params![volume.id, volume.stable_volume_id, volume.provider],
         |row| {

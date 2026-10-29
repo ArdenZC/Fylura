@@ -12,6 +12,7 @@ const COMMANDS: &[&str] = &[
     "resume_global_index",
     "rebuild_global_index_source",
     "set_global_index_source_enabled",
+    "authorize_global_index_source",
     "open_global_search_result",
     "reveal_global_search_result",
     "list_managed_scopes",

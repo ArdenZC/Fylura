@@ -11,7 +11,10 @@ use zen_canvas_tauri::db::{
     UserTagMutationOperation,
 };
 use zen_canvas_tauri::file_ops::OperationLogDto;
-use zen_canvas_tauri::global_index::{GlobalEntryInput, GlobalVolume, PROVIDER_WINDOWS_MFT_USN};
+use zen_canvas_tauri::global_index::{
+    GlobalEntryInput, GlobalVolume, PROVIDER_WINDOWS_MFT_USN,
+    SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED,
+};
 
 static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -825,7 +828,7 @@ fn schema_34_normalizes_cleanup_identity_components_and_fails_closed_on_conflict
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema 35 version");
-    assert_eq!(version, 44);
+    assert_eq!(version, 45);
     assert!(column_names(&conn, "cleanup_trash_items")
         .contains(&"source_platform_volume_id".to_string()));
 
@@ -1039,7 +1042,7 @@ fn schema_34_cleanup_identity_migration_rolls_back_column_and_rows_together() {
 }
 
 #[test]
-fn schema_43_reopen_is_idempotent_and_future_schema_45_is_rejected() {
+fn schema_43_reopen_is_idempotent_and_future_schema_46_is_rejected() {
     let path = test_db_path("td014-idempotent");
     downgrade_current_fixture_to_schema_34(&path);
     let db = Database::open(&path).expect("migrate schema 34 fixture to schema 42");
@@ -1049,7 +1052,7 @@ fn schema_43_reopen_is_idempotent_and_future_schema_45_is_rejected() {
         first
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        44
+        45
     );
     let before_schema = full_schema_snapshot(&first);
     let before = cleanup_identity_snapshot(&first);
@@ -1063,10 +1066,10 @@ fn schema_43_reopen_is_idempotent_and_future_schema_45_is_rejected() {
         second
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        44
+        45
     );
     second
-        .execute_batch("PRAGMA user_version = 45;")
+        .execute_batch("PRAGMA user_version = 46;")
         .expect("set future schema version");
     drop(second);
     let error = match Database::open(&path) {
@@ -1109,7 +1112,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 44);
+    assert_eq!(version, 45);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -1177,7 +1180,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 44);
+        assert_eq!(migrated_version, 45);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -1432,7 +1435,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        44
+        45
     );
     assert_schema_23_journal_columns(&conn);
 
@@ -1513,7 +1516,7 @@ fn p0_t01_fresh_and_repeated_open_keep_identity_authority_dormant() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 44);
+    assert_eq!(version, 45);
     let tables: Vec<String> = {
         let mut statement = conn
             .prepare(
@@ -1671,7 +1674,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read migrated version");
-    assert_eq!(version, 44);
+    assert_eq!(version, 45);
     for (table, expected) in before_rows {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");
     }
@@ -1768,7 +1771,7 @@ fn p0_t03_schema_36_migrates_to_38_without_rewriting_files() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated version"),
-        44
+        45
     );
     assert_eq!(table_snapshot(&conn, "files"), before_file);
     assert_eq!(fts_rows_matching(&conn, "v36preserved"), before_fts);
@@ -1940,6 +1943,7 @@ fn schema_38_to_42_adds_source_and_operation_fencing_without_changing_global_ind
         filesystem_type: "ntfs".into(),
         drive_kind: "fixed".into(),
         enabled: true,
+        scope_authorization_state: SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED.into(),
         provider: PROVIDER_WINDOWS_MFT_USN.into(),
         index_status: "discovered".into(),
         last_error: None,
@@ -2022,6 +2026,10 @@ fn schema_38_to_42_adds_source_and_operation_fencing_without_changing_global_ind
     assert_eq!(stored.journal_cursor.as_deref(), Some("cursor-93"));
     assert_eq!(stored.last_full_index_at, Some(101));
     assert_eq!(stored.last_incremental_sync_at, Some(202));
+    assert_eq!(
+        stored.scope_authorization_state,
+        SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+    );
     drop(migrated);
     let conn = Connection::open(&path).expect("inspect migrated entry and version");
     let version: i64 = conn
@@ -2042,7 +2050,7 @@ fn schema_38_to_42_adds_source_and_operation_fencing_without_changing_global_ind
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("read default operation state");
-    assert_eq!(version, 44);
+    assert_eq!(version, 45);
     assert_eq!(entry, ("preserved.txt".into(), 0));
     assert_eq!(operation, (0, 0, 0));
 }
@@ -2089,7 +2097,7 @@ fn schema_39_to_42_adds_writer_claims_without_changing_legacy_file_authority() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated version"),
-        44
+        45
     );
     assert_eq!(table_snapshot(&conn, "files"), before_file);
     assert_eq!(
@@ -2231,7 +2239,7 @@ fn schema_40_to_42_adds_lookup_and_dormant_generations_and_preserves_existing_fa
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("read migrated schema version"),
-        44
+        45
     );
     for (table, expected) in before {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");

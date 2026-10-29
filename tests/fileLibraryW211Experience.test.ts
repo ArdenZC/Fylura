@@ -115,7 +115,8 @@ describe("Issue #502: Grid Blob URL retention during rapid unmounts", () => {
     ImageProbe.instances[0].onload?.();
     ImageProbe.instances[0].onerror?.();
     vi.advanceTimersByTime(THUMBNAIL_BLOB_SETTLE_TIMEOUT_MS);
-    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:pending");
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith("blob:pending");
   });
 
   it("releases a failed decode after error without waiting for the watchdog", () => {
@@ -123,13 +124,15 @@ describe("Issue #502: Grid Blob URL retention during rapid unmounts", () => {
     releaseThumbnailBlobUrl("blob:invalid", false);
     expect(revoke).not.toHaveBeenCalled();
     ImageProbe.instances[0].onerror?.();
-    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:invalid");
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith("blob:invalid");
   });
 
   it("releases already-settled images immediately without adding a probe", () => {
     const revoke = setup();
     releaseThumbnailBlobUrl("blob:loaded", true);
-    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:loaded");
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith("blob:loaded");
     expect(ImageProbe.instances).toHaveLength(0);
   });
 
@@ -139,7 +142,8 @@ describe("Issue #502: Grid Blob URL retention during rapid unmounts", () => {
     vi.advanceTimersByTime(THUMBNAIL_BLOB_SETTLE_TIMEOUT_MS - 1);
     expect(revoke).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
-    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:stalled");
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith("blob:stalled");
   });
 
   it("wires the real Grid image load/error and effect cleanup through the retention seam", () => {

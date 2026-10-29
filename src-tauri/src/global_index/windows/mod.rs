@@ -412,14 +412,69 @@ impl WindowsGlobalIndexProvider {
             || cancel.load(Ordering::Acquire)
             || watcher_epoch != self.watcher_epoch.load(Ordering::Acquire)
         {
+            let same_registration = previous_registration.as_ref().is_some_and(|registration| {
+                watchers
+                    .get(&source.volume.id)
+                    .is_some_and(|watcher| &watcher.registration_id == registration)
+            });
+            let operation_result_is_uncertain = matches!(
+                &result,
+                Err(GlobalIndexError::ServiceProtocol(_)
+                    | GlobalIndexError::ServiceOutcomeUnknown(_)
+                    | GlobalIndexError::SourceBusy(_)
+                    | GlobalIndexError::Paused)
+            );
+            let may_preserve_watcher = result.is_err()
+                && !operation_result_is_uncertain
+                && !cancel.load(Ordering::Acquire)
+                && watcher_epoch == self.watcher_epoch.load(Ordering::Acquire)
+                && sink.source_operation_admitted(&source.volume.id)
+                && same_registration;
+
+            if may_preserve_watcher {
+                // A failed index request does not imply a failed change hint.
+                // Validate the still-current owner while holding the lifecycle
+                // lock, and keep a healthy lease so a later filesystem event
+                // can wake the coordinator. SQLite contention is inconclusive,
+                // not evidence that this healthy watcher lost authorization;
+                // lifecycle mutations use this same lock and remain fenced.
+                let admission = sink.native_watcher_admitted(&source.volume);
+                let watcher_failed = watchers
+                    .get(&source.volume.id)
+                    .is_some_and(fallback::ChangeSignalWatcher::has_failed);
+                let owner_still_current = matches!(&admission, Ok(true))
+                    || admission.as_ref().err().is_some_and(|error| {
+                        super::coordinator::sqlite_contention_kind(error).is_some()
+                    });
+                if owner_still_current && !watcher_failed {
+                    return result;
+                }
+
+                if watcher_failed && matches!(&admission, Ok(true)) {
+                    let operation_error = result
+                        .as_ref()
+                        .err()
+                        .expect("watcher degradation is only handled for an error")
+                        .to_string();
+                    watchers.remove(&source.volume.id);
+                    drop(watchers);
+                    // Keep the coordinator's existing bounded degraded-source
+                    // poll active. The operation error remains in last_error;
+                    // this is a separate, real watcher health failure.
+                    sink.set_source_state(
+                        &source.volume.id,
+                        crate::global_index::models::INDEX_STATUS_WATCHER_UNAVAILABLE,
+                        Some(&operation_error),
+                    )?;
+                    return result;
+                }
+            }
+
             // Failed admission created no resource and must not stop another
             // owner's healthy watcher. Nor may an old request clean a lease
             // since transferred to a successful successor operation.
             if (result.is_ok() || sink.source_operation_admitted(&source.volume.id))
-                && watchers
-                    .get(&source.volume.id)
-                    .map(|watcher| &watcher.registration_id)
-                    == previous_registration.as_ref()
+                && same_registration
             {
                 watchers.remove(&source.volume.id);
             }

@@ -106,6 +106,16 @@ impl ResourceFixture {
         self.provider.source_enabled_changed(id, false);
     }
 
+    fn revoke_authorization(&self, id: &str) {
+        self.provider
+            .update_source_lifecycle(id, &mut || {
+                self.db.invalidate_missing_global_index_source(id, true)?;
+                Ok(true)
+            })
+            .unwrap();
+        self.provider.source_enabled_changed(id, false);
+    }
+
     fn has_watcher(&self, id: &str) -> bool {
         self.provider
             .change_watchers
@@ -340,6 +350,211 @@ fn admitted_transient_incremental_error_keeps_healthy_watcher_and_next_change_re
         .iter()
         .all(|kind| *kind == SourceOperationKind::Incremental));
     drop(kinds);
+    worker.stop().unwrap();
+}
+
+#[test]
+fn failed_watcher_is_degraded_then_recovers_on_the_bounded_incremental_poll() {
+    use crate::global_index::models::{
+        INDEX_STATUS_READY, INDEX_STATUS_WATCHER_UNAVAILABLE,
+    };
+    use std::time::Duration;
+
+    let fixture = std::sync::Arc::new(ResourceFixture::new_with_poll(Some(
+        Duration::from_millis(600),
+    )));
+    fixture.cycle();
+    let source = fixture.selected();
+    let id = source.volume.id.clone();
+    let initial_calls = fixture.calls.load(Ordering::Acquire);
+    fixture
+        .provider
+        .change_watchers
+        .lock()
+        .unwrap()
+        .get(&id)
+        .expect("real watcher installed")
+        .mark_failed_for_test();
+    fixture.fail_next.store(true, Ordering::Release);
+
+    let blocked_waits_before_worker = fixture.provider.wake.snapshot().blocked_waits;
+    let mut worker = ResourceFixtureWorker::start(fixture.clone());
+    wait_for_resource_fixture(
+        || {
+            fixture.calls.load(Ordering::Acquire) == initial_calls + 1
+                && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
+                    == INDEX_STATUS_WATCHER_UNAVAILABLE
+                && !fixture.has_watcher(&id)
+                && fixture.provider.wake.snapshot().blocked_waits > blocked_waits_before_worker
+        },
+        "failed native watcher did not release its resource and report degradation",
+    );
+    assert!(fixture.db.has_watcher_unavailable_sources().unwrap());
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(
+        fixture.calls.load(Ordering::Acquire),
+        initial_calls + 1,
+        "degraded watcher recovery must wait for the bounded poll"
+    );
+    let degraded = fixture.db.get_global_volume(&id).unwrap().unwrap();
+    assert_eq!(degraded.index_status, INDEX_STATUS_WATCHER_UNAVAILABLE);
+    assert!(degraded
+        .last_error
+        .as_deref()
+        .is_some_and(|error| error.contains("injected transient index failure")));
+
+    wait_for_resource_fixture(
+        || {
+            fixture.calls.load(Ordering::Acquire) == initial_calls + 2
+                && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
+                    == INDEX_STATUS_READY
+                && fixture.has_watcher(&id)
+        },
+        "bounded incremental poll did not reinstall the failed watcher",
+    );
+    assert!(!fixture.db.has_watcher_unavailable_sources().unwrap());
+    assert!(fixture
+        .provider
+        .change_watchers
+        .lock()
+        .unwrap()
+        .get(&id)
+        .is_some_and(|watcher| !watcher.has_failed()));
+    std::thread::sleep(Duration::from_millis(650));
+    assert_eq!(
+        fixture.calls.load(Ordering::Acquire),
+        initial_calls + 2,
+        "successful watcher recovery must stop the extra polling"
+    );
+    let kinds = fixture.operation_kinds.lock().unwrap();
+    assert_eq!(kinds[0], SourceOperationKind::Initial);
+    assert!(kinds[1..]
+        .iter()
+        .all(|kind| *kind == SourceOperationKind::Incremental));
+    drop(kinds);
+    worker.stop().unwrap();
+}
+
+#[test]
+fn authorization_revocation_during_failed_incremental_revokes_watcher_and_blocks_followup_indexing() {
+    use crate::global_index::coordinator::database_sink_for_test;
+    use crate::global_index::models::SCOPE_AUTHORIZATION_NOT_AUTHORIZED;
+    use std::sync::Barrier;
+    use std::time::Duration;
+
+    let fixture = ResourceFixture::new();
+    fixture.cycle();
+    let source = fixture.selected();
+    let id = source.volume.id.clone();
+    let reached = Barrier::new(2);
+    let resume = Barrier::new(2);
+    std::thread::scope(|scope| {
+        let task = scope.spawn(|| {
+            let mut sink = database_sink_for_test(fixture.db.clone());
+            fixture.operate(
+                &source,
+                &mut sink,
+                &AtomicBool::new(false),
+                SourceOperationKind::Incremental,
+                |sink| {
+                    sink.checkpoint(&id, Some("fixture-journal"), Some("44"))?;
+                    reached.wait();
+                    resume.wait();
+                    Err(GlobalIndexError::Provider(
+                        "injected error concurrent with consent withdrawal".into(),
+                    ))
+                },
+            )
+        });
+        reached.wait();
+        fixture.revoke_authorization(&id);
+        resume.wait();
+        assert!(task.join().unwrap().is_err());
+    });
+    assert!(!fixture.has_watcher(&id));
+    let disabled = fixture.db.get_global_volume(&id).unwrap().unwrap();
+    assert!(!disabled.enabled);
+    assert_eq!(
+        disabled.scope_authorization_state,
+        SCOPE_AUTHORIZATION_NOT_AUTHORIZED
+    );
+    let notifications_after_revoke = fixture.provider.wake.snapshot().notifications;
+    let indexed_calls_after_revoke = fixture.calls.load(Ordering::Acquire);
+    std::fs::write(
+        Path::new(&source.volume.mount_path).join("after-consent-withdrawal.txt"),
+        b"must not be observed",
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(250));
+    assert_eq!(
+        fixture.provider.wake.snapshot().notifications,
+        notifications_after_revoke,
+        "revoked watcher published a later filesystem event"
+    );
+    fixture.cycle();
+    assert_eq!(
+        fixture.calls.load(Ordering::Acquire),
+        indexed_calls_after_revoke,
+        "disabled source was indexed after its in-flight error"
+    );
+    assert!(!fixture.db.get_global_volume(&id).unwrap().unwrap().enabled);
+}
+
+#[test]
+fn unknown_service_outcome_does_not_enter_watcher_unavailable_poll_recovery() {
+    use crate::global_index::models::INDEX_STATUS_WATCHER_UNAVAILABLE;
+    use crate::global_index::wake::GlobalIndexWakeReason;
+    use std::time::Duration;
+
+    let fixture = std::sync::Arc::new(ResourceFixture::new_with_poll(Some(
+        Duration::from_millis(100),
+    )));
+    fixture.cycle();
+    let source = fixture.selected();
+    let id = source.volume.id.clone();
+    let initial_calls = fixture.calls.load(Ordering::Acquire);
+    fixture
+        .provider
+        .change_watchers
+        .lock()
+        .unwrap()
+        .get(&id)
+        .expect("real watcher installed")
+        .mark_failed_for_test();
+    fixture.unknown_next.store(true, Ordering::Release);
+    // Model the one callback wake emitted when the real watcher reports its
+    // failure. The coordinator consumes it for this cycle before the uncertain
+    // Service outcome is returned.
+    fixture
+        .provider
+        .wake
+        .notify(GlobalIndexWakeReason::ProviderChange);
+    let mut worker = ResourceFixtureWorker::start(fixture.clone());
+
+    wait_for_resource_fixture(
+        || {
+            fixture.calls.load(Ordering::Acquire) == initial_calls + 1
+                && fixture
+                    .db
+                    .global_index_operation_state(&id)
+                    .unwrap()
+                    .unwrap()
+                    .operation_state
+                    .as_deref()
+                    == Some("unknown")
+        },
+        "uncertain Service result was not retained as unknown",
+    );
+    let source_after_unknown = fixture.db.get_global_volume(&id).unwrap().unwrap();
+    assert_ne!(source_after_unknown.index_status, INDEX_STATUS_WATCHER_UNAVAILABLE);
+    assert!(!fixture.db.has_watcher_unavailable_sources().unwrap());
+    let calls_after_unknown = fixture.calls.load(Ordering::Acquire);
+    std::thread::sleep(Duration::from_millis(250));
+    assert_eq!(
+        fixture.calls.load(Ordering::Acquire),
+        calls_after_unknown,
+        "unknown Service result was replayed by bounded watcher recovery"
+    );
     worker.stop().unwrap();
 }
 
@@ -691,6 +906,20 @@ fn rejected_admission_and_stale_cleanup_preserve_successor_watcher_lease() {
             resume.wait();
             let result = task.join().unwrap();
             assert_eq!(result.is_ok(), boundary == "busy");
+            let notifications_before_change = fixture.provider.wake.snapshot().notifications;
+            std::fs::write(
+                Path::new(&source.volume.mount_path)
+                    .join(format!("successor-{boundary}.txt")),
+                b"successor watcher must remain live",
+            )
+            .unwrap();
+            wait_for_resource_fixture(
+                || {
+                    fixture.provider.wake.snapshot().notifications
+                        > notifications_before_change
+                },
+                "stale request failure left no live watcher to publish a file change",
+            );
             let watchers = fixture.provider.change_watchers.lock().unwrap();
             let current = watchers
                 .get(&source.volume.id)

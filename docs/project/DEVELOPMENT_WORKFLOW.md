@@ -24,22 +24,22 @@ failures separate from code defects; never treat skipped checks as PASS.
 
 ### Default Codex usage (not an additional CI gate)
 
-Before pushing a bounded change, run \`npm run dev:preflight -- --plan\`
+Before pushing a bounded change, run `npm run dev:preflight -- --plan`
 against the current branch. Run the relevant mapped check(s) where the
 toolchain is available and record a concrete environment block when not.
 Do not turn this into duplicate full suites, new mandatory commit hooks, or
 an excuse to mark an unrun check PASS. Existing required CI remains decisive.
 
 For concurrent implementation, inspect overlapping open PRs and the existing
-\`ARCHITECTURE_MAP.md\` authority before editing. Assign nonoverlapping
+`ARCHITECTURE_MAP.md` authority before editing. Assign nonoverlapping
 source ownership per work lane, sequence the occasional shared-file edit,
 and route other modules' changes to their active owner. No parallel
 branch may replace or reset another worker's unmerged work.
 
-For lightweight CI feedback use \`npm run dev:ci-metrics -- --limit=10\`;
+For lightweight CI feedback use `npm run dev:ci-metrics -- --limit=10`;
 the report reads recent master workflow/job metadata, summarizes observed
 completion and slow jobs without persisting a second metrics ledger. Optional
-\`--cache-log=FILE\` parses a separately obtained Performance / Prepare job
+`--cache-log=FILE` parses a separately obtained Performance / Prepare job
 log. **Cache hit ratios cannot be inferred from GitHub job metadata**;
 if no log was supplied the cache result is unknown, not a miss.
 

@@ -68,7 +68,7 @@ and [ADR-0015](docs/project/DECISIONS/0015-delivery-first-engineering.md).
 
 ### Before an ordinary PR — fast feedback by default
 
-- Inspect changed paths and run \`npm run dev:preflight -- --plan\` before
+- Inspect changed paths and run `npm run dev:preflight -- --plan` before
   pushing a normal code PR. Execute the relevant mapped checks locally when the
   toolchain is available; otherwise name the environment constraint and rely on
   applicable CI. The plan is a developer feedback habit, **not a new required
@@ -79,7 +79,7 @@ and [ADR-0015](docs/project/DECISIONS/0015-delivery-first-engineering.md).
   overlap explicitly before the second worker modifies it. Never force-push
   another worker's branch or promote mocked native acceptance into PASS.
 - Make a short handoff: user-visible result, PR, relevant checks, concrete
-  blockers. Prefer current \`STATUS.md\` snapshot to scanning old taskbooks.
+  blockers. Prefer current `STATUS.md` snapshot to scanning old taskbooks.
 
 ## Current truth and scope
 

@@ -5,10 +5,10 @@ Last verified: 2026-10-29 (active snapshot; dated records below retained)
 ## Active execution snapshot — 2026-10-29
 
 This short section supersedes dated status claims below. For changing facts, check
-the linked PR/Issue and the current remote \`master\`; do not treat historical
+the linked PR/Issue and the current remote `master`; do not treat historical
 HEADs, Draft labels or Hosted CI results as native release qualification.
 
-- **Integrated baseline:** \`master@264326659326bf81ff4d018d5ab3f19f2186aa87\`.
+- **Integrated baseline:** `master@264326659326bf81ff4d018d5ab3f19f2186aa87`.
   [Master CI 40818041649](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40818041649)
   completed **SUCCESS**, including the post-#504 real-Chromium W2-11 gate.
   This is CI evidence, **not** whole-product native GUI or Release acceptance.
@@ -42,8 +42,8 @@ HEADs, Draft labels or Hosted CI results as native release qualification.
 
 ### Current work-start rule
 
-For ordinary Codex tasks use \`AGENTS.md → this Active execution snapshot
-→ the current linked Issue/PR → relevant owning source/tests\`. The dated
+For ordinary Codex tasks use `AGENTS.md → this Active execution snapshot
+→ the current linked Issue/PR → relevant owning source/tests`. The dated
 entries below are useful historical evidence, **not newer project state**.
 For a normal scoped change, implement and test in one coherent PR; only
 additional high-risk claims need extra validation. Coordinate overlapping
@@ -515,7 +515,7 @@ Activation PR #316 is merged at the exact implementation base 91589a89974324e821
 - Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
-- W6-09 status: **COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED**. Production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has fresh hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. The accepted production baseline `88fc663392371049fda2d71b85bd4815d073bfe0` (tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`) and its functional/native evidence remain unchanged. The exact Windows visual evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with package `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`.
+- W6-09 status: **COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED**. Production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has fresh hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. The accepted production baseline `88fc663392371049fda2d71b85bd4815d073bfe0` (tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`) and its functional/native evidence remain unchanged. The exact Windows visual evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows` with package `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`.
 - Final closeout authority: [W6-09 Whole-Product Native Regression — Closeout Result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). Evidence package SHA-256 is `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8`. W6-10A is **COMPLETE / CLOSED / MERGED**. W6-10B historical RC1 qualification is **FAIL / BLOCKED**, while R1 diagnosis proves **RC1 clean-profile startup PASS**. Owner has retained RC1 for a separate clean-profile requalification and has not authorized RC2. W6-10C remains **ELIGIBLE / NOT ACTIVE**; publication remains deferred.
 
 ## W6-07 closeout record

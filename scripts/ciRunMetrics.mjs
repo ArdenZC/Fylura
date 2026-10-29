@@ -47,15 +47,15 @@ export function summarizeCiRuns(runs) {
 export function formatCiMetrics(summary, cache = null) {
   const { outcomes } = summary;
   const lines = [
-    \`Master CI runs: \${summary.total} (success=\${outcomes.success}, failure=\${outcomes.failure}, cancelled=\${outcomes.cancelled}, active/other=\${outcomes.other})\`,
+    `Master CI runs: ${summary.total} (success=${outcomes.success}, failure=${outcomes.failure}, cancelled=${outcomes.cancelled}, active/other=${outcomes.other})`,
     "Longest observed job executions (minutes; these are job durations, not full run wall times):",
-    ...summary.slowJobs.map((job) => \`- \${job.name}: \${job.minutes.toFixed(2)}m, run \${job.runId}\`),
+    ...summary.slowJobs.map((job) => `- ${job.name}: ${job.minutes.toFixed(2)}m, run ${job.runId}`),
     "Failing jobs:",
-    ...(summary.failures.length ? summary.failures.map(([name, count]) => \`- \${name}: \${count}\`) : ["- none in sampled job metadata"]),
+    ...(summary.failures.length ? summary.failures.map(([name, count]) => `- ${name}: ${count}`) : ["- none in sampled job metadata"]),
     "Cache state (explicit Performance / Prepare log evidence only):"
   ];
   if (cache === null || Object.keys(cache).length === 0) lines.push("- unknown; supply --cache-log=PATH to inspect a retrieved job log");
-  else for (const label of CACHE_LABELS) lines.push(\`- \${label}: \${cache[label] ?? "unknown"}\`);
+  else for (const label of CACHE_LABELS) lines.push(`- ${label}: ${cache[label] ?? "unknown"}`);
   lines.push("Sampling is descriptive; skipped jobs are never PASS and a cache hit does not prove a performance speedup.");
   return lines.join("\n");
 }

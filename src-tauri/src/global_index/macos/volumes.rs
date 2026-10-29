@@ -186,15 +186,29 @@ impl GlobalIndexProvider for MacosVolumeProvider {
             .collect::<Result<Vec<_>, _>>()?;
         let result = update();
         if !matches!(result, Ok(false)) {
+            let mut stop_errors = Vec::new();
             for p in providers.values() {
                 p.stopped.store(true, Ordering::Release);
-                p.stop_watchers();
+                if let Err(error) = p.stop_watchers() {
+                    stop_errors.push(error.to_string());
+                }
                 p.baseline_established.store(false, Ordering::Release);
                 p.clear_known_entries();
                 *p.pending
                     .lock()
                     .map_err(|_| GlobalIndexError::Provider("macos_pending_poisoned".into()))? =
                     PendingUpdates::default();
+            }
+            if !stop_errors.is_empty() {
+                let stop_error = stop_errors.join(";");
+                return match result {
+                    Ok(_) => Err(GlobalIndexError::Provider(format!(
+                        "macOS coverage watcher shutdown failed: {stop_error}"
+                    ))),
+                    Err(update_error) => Err(GlobalIndexError::Provider(format!(
+                        "{update_error}; coverage watcher shutdown failed: {stop_error}"
+                    ))),
+                };
             }
         }
         result.map(|_| ())

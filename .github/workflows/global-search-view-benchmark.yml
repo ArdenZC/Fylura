@@ -6,6 +6,7 @@ on:
       - codex/global-search-production
     paths:
       - "src-tauri/src/db/**"
+      - "src-tauri/src/fs_safety/**"
       - "src-tauri/src/global_index/repository.rs"
       - "src-tauri/src/global_index/search.rs"
       - "src-tauri/src/global_index/search_view/**"

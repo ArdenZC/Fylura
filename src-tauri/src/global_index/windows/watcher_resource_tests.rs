@@ -330,14 +330,45 @@ fn admitted_transient_incremental_error_keeps_healthy_watcher_and_next_change_re
         b"wake the coordinator",
     )
     .unwrap();
-    wait_for_resource_fixture(
-        || {
-            fixture.calls.load(Ordering::Acquire) == error_calls + 1
-                && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
-                    == INDEX_STATUS_READY
-        },
-        "file change did not wake the coordinator after the transient error",
-    );
+    // Issue #506 diagnostic-only: retain the same 5-second condition, but
+    // capture whether an OS event was published, consumed, or never observed.
+    let event_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut event_recovered = false;
+    while std::time::Instant::now() < event_deadline {
+        if fixture.calls.load(Ordering::Acquire) == error_calls + 1
+            && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
+                == INDEX_STATUS_READY
+        {
+            event_recovered = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    if !event_recovered {
+        let snap = fixture.provider.wake.snapshot();
+        let watchers = fixture.provider.change_watchers.lock().unwrap();
+        let watcher = watchers.get(&id);
+        let volume = fixture.db.get_global_volume(&id).unwrap().unwrap();
+        let owner = fixture.db.global_index_operation_state(&id).unwrap().unwrap();
+        eprintln!(
+            "ISSUE506_EVENT_TIMEOUT calls={} wanted={} initial_calls={} before_notifications={} now_wake={snap:?} watcher_present={} watcher_failed={:?} watcher_registration={:?} db_status={} db_error={:?} owner_state={:?} owner_id={:?} source_enabled={} authorized={} written_file_exists={}",
+            fixture.calls.load(Ordering::Acquire),
+            error_calls + 1,
+            initial_calls,
+            notifications_before_change,
+            watcher.is_some(),
+            watcher.map(|w| w.has_failed()),
+            watcher.map(|w| w.registration_id.as_str()),
+            volume.index_status,
+            volume.last_error,
+            owner.operation_state,
+            owner.owner_id,
+            volume.enabled,
+            volume.scope_authorization_state,
+            Path::new(&source.volume.mount_path).join("after-transient-error.txt").exists(),
+        );
+    }
+    assert!(event_recovered, "file change did not wake the coordinator after the transient error");
     assert!(fixture.provider.wake.snapshot().notifications > notifications_before_change);
     assert_eq!(
         fixture.db.get_global_volume(&id).unwrap().unwrap().last_full_index_at,

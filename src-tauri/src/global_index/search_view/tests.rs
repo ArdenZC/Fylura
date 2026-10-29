@@ -410,6 +410,7 @@ fn real_repository_upserts_rename_stale_and_source_disable_survive_database_reop
         filesystem_type: "apfs".into(),
         drive_kind: "fixed".into(),
         enabled: true,
+        scope_authorization_state: "not_required".into(),
         provider: "macos_spotlight".into(),
         index_status: "ready".into(),
         last_error: None,

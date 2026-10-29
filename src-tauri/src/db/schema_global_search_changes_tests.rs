@@ -154,13 +154,8 @@ fn full_snapshot_can_clear_only_the_feed_captured_at_its_generation() {
 }
 
 #[test]
-fn authorization_changes_are_an_invalidation_when_schema_45_adds_the_column() {
+fn authorization_changes_are_an_invalidation() {
     let conn = database();
-    conn.execute_batch(
-        "ALTER TABLE global_volumes ADD COLUMN scope_authorization_state TEXT NOT NULL DEFAULT 'not_authorized';",
-    )
-    .unwrap();
-    install(&conn).unwrap();
     insert_volume(&conn);
     let before = read_state(&conn).unwrap();
     conn.execute(

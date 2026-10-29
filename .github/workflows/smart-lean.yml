@@ -1,0 +1,52 @@
+name: Smart Lean product qualification
+on:
+  pull_request:
+    paths:
+      - 'src-tauri/src/global_index/**'
+      - 'src-tauri/src/db/schema_index_coverage.rs'
+      - '.github/workflows/smart-lean.yml'
+  workflow_dispatch:
+    inputs:
+      entries:
+        description: Task-owned production admission corpus size
+        type: choice
+        default: '100000'
+        options: ['1000', '100000', '200000']
+permissions:
+  contents: read
+concurrency:
+  group: smart-lean-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  product:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ZEN_SMART_LEAN_ENTRIES: ${{ inputs.entries || '1000' }}
+      ZEN_SMART_LEAN_REPORT: smart-lean-ab.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - run: npm ci --no-audit --no-fund
+      - name: Record tested source
+        run: git log -1 --format="%H %T"
+      - name: Production policy and recovery tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime global_index::coverage::tests -- --nocapture
+      - name: Paired production ingestion benchmark
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime smart_lean_ingestion_cost -- --ignored --nocapture
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: smart-lean-${{ matrix.os }}-${{ env.ZEN_SMART_LEAN_ENTRIES }}
+          path: smart-lean-ab.json
+          if-no-files-found: warn

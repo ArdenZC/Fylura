@@ -380,7 +380,7 @@ impl GlobalVolume {
                 .filesystem_type
                 .unwrap_or_else(|| "unknown".to_string()),
             drive_kind: "fixed".to_string(),
-            enabled: true,
+            enabled: false,
             scope_authorization_state: SCOPE_AUTHORIZATION_NOT_REQUIRED.to_string(),
             provider: PROVIDER_MACOS_SPOTLIGHT.to_string(),
             index_status: INDEX_STATUS_DISCOVERED.to_string(),

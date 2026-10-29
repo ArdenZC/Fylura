@@ -6,6 +6,7 @@ const COMMANDS: &[&str] = &[
     "search_files",
     "search_global_entries",
     "get_global_index_status",
+    "global_index_coverage",
     "list_global_index_sources",
     "start_global_index",
     "pause_global_index",

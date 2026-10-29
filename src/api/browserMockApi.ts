@@ -1,3 +1,4 @@
+import { mockIndexCoverage } from "./mockIndexCoverage";
 import { isManagementCommand, managementMock, managementHistory } from "./fileManagementMock";
 import { resolveManagementMockEntry, resolveManagementMockLocation } from "./fileWorkspaceMockApi";
 import { createAutomationMock } from "./automationMock";
@@ -838,6 +839,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     return mockFileWorkspaceInvoke<T>(command, args);
   }
   switch (command) {
+    case "global_index_coverage":
+      return mockIndexCoverage(args?.request) as T;
     case "init_db":
     case "cancel_scan":
     case "cancel_operations":

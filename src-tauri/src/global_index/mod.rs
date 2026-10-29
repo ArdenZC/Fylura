@@ -1,5 +1,7 @@
 pub mod commands;
 pub mod coordinator;
+#[path = "index_scope/mod.rs"]
+pub mod coverage;
 mod generation_repository;
 mod legacy_queue;
 pub mod managed_scope;

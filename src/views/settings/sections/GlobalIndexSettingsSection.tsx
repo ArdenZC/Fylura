@@ -1,3 +1,4 @@
+import { IndexCoverageSettings } from "./IndexCoverageSettings";
 import { useState } from "react";
 import { Play } from "lucide-react";
 import type { GlobalIndexSource, GlobalIndexStatus } from "../../../types/domain";
@@ -99,6 +100,7 @@ export function GlobalIndexSettingsSection({
   };
   return (
     <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")} progressiveDisclosure>
+      <IndexCoverageSettings t={t} sources={sources} disabled={isUpdating || loadState !== "loaded"} />
       {loadState === "error" ? (
         <SettingsInlineMessage tone="warning" role="alert" status="load_failed">
           <div className="flex flex-wrap items-center justify-between gap-2">

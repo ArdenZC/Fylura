@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 45;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 46;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -1044,6 +1044,11 @@ pub(crate) fn migrate_with_cancellation(
             guard.check_cancelled()?;
             migrate_global_index_scope_authorization(conn)?;
             set_schema_version(conn, 45)?;
+        }
+        if version < 46 {
+            guard.check_cancelled()?;
+            super::schema_index_coverage::install(conn)?;
+            set_schema_version(conn, 46)?;
         }
         guard.check_cancelled()?;
         Ok(())
@@ -3476,10 +3481,10 @@ mod issue381_b4_p0_tests {
         );
         assert!(upgraded[0].contains("id ASC, volume_id"));
         assert!(upgraded[1].contains("volume_id, last_seen_at, id"));
-        assert_eq!(schema_version(&conn).unwrap(), 45);
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
         migrate(&conn).unwrap();
         assert_eq!(schema43_index_sql(&conn), upgraded);
-        conn.execute_batch("PRAGMA user_version = 46").unwrap();
+        conn.execute_batch("PRAGMA user_version = 47").unwrap();
         assert!(migrate(&conn).is_err());
         assert_eq!(schema_version(&conn).unwrap(), 46);
     }
@@ -3499,7 +3504,7 @@ mod issue381_b4_p0_tests {
         assert_eq!(schema43_index_sql(&conn), old);
         assert_eq!(schema_version(&conn).unwrap(), 42);
         migrate(&conn).unwrap();
-        assert_eq!(schema_version(&conn).unwrap(), 45);
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
     }
 
     #[test]
@@ -3609,7 +3614,7 @@ mod issue381_b4_p0_tests {
                 "{\"topic\":\"kept\"}".into()
             )
         );
-        assert_eq!(schema_version(&conn).unwrap(), 45);
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
     }
 
     fn remove_identity_foundation(conn: &Connection, version: i32) {
@@ -4107,7 +4112,7 @@ mod issue381_b4_p0_tests {
         holder.execute_batch("COMMIT").unwrap();
         a.resume.send(()).unwrap();
         let after_a = a.thread.join().unwrap().expect("first migration succeeds");
-        assert_eq!(after_a.version, 45);
+        assert_eq!(after_a.version, CURRENT_SCHEMA_VERSION);
         b.resume.send(()).unwrap();
         let after_b = b
             .thread
@@ -4157,7 +4162,7 @@ mod issue381_b4_p0_tests {
         for (label, mutation, expected_error) in [
             (
                 "issue441-future",
-                "PRAGMA user_version=46",
+                "PRAGMA user_version=47",
                 "newer than this app supports",
             ),
             (

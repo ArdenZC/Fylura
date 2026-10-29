@@ -84,6 +84,8 @@ const FRONTEND_INFRASTRUCTURE_PATHS = new Set([
   "scripts/runw2-11browsergate.mjs",
   "scripts/runw3-10phaseabrowserharness.mjs",
   "scripts/runw3-10browsergate.mjs",
+  "scripts/runu3filelibrarybrowser.mjs",
+  "scripts/runu4filelibrarybrowser.mjs",
 ]);
 
 function normalizePath(value) {

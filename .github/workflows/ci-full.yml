@@ -263,6 +263,48 @@ jobs:
           path: .tmp-tests/w2-11-browser-gate
           if-no-files-found: ignore
 
+      - name: U3 File Library product browser gate
+        env:
+          U3_SOURCE_HEAD: ${{ github.sha }}
+          U3_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+        run: npm run test:browser:u3
+      - name: Upload U3 browser failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: u3-browser-failure
+          path: .tmp-tests/u3-browser
+          if-no-files-found: ignore
+          retention-days: 2
+      - name: U4 File Library product browser gate
+        env:
+          U4_SOURCE_HEAD: ${{ github.sha }}
+          U4_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+        run: npm run test:browser:u4
+      - name: Upload U4 browser failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: u4-browser-failure
+          path: .tmp-tests/u4-browser
+          if-no-files-found: ignore
+          retention-days: 2
+      - name: W3-10 Preview integration browser gate
+        env:
+          W310_SOURCE_HEAD: ${{ github.sha }}
+          W310_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+        run: npm run test:browser:w3-10:real
+      - name: Upload W3-10 browser failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w3-10-browser-failure
+          path: |
+            .tmp-tests/w3-10-browser-gate-*
+            .tmp-tests/w3-09-browser-gate
+          if-no-files-found: ignore
+          retention-days: 2
+
   rust-windows:
     name: Rust quality (windows-latest)
     needs: [source-evidence, validation-plan]

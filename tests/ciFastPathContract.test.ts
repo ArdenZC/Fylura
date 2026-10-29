@@ -611,4 +611,26 @@ describe("CI final performance remediation contract", () => {
       expect(frontend).toContain("w2-11-browser-gate-failure");
     }
   });
+  it("runs U3/U4 mock product gates with exact candidate identity and W3-10 only in Full", () => {
+    const interactive = section(interactiveWorkflow, "frontend-quality", "rust-windows");
+    const full = section(fullWorkflow, "frontend-quality", "rust-windows");
+    for (const [id, script] of [["U3", "u3"], ["U4", "u4"]]) {
+      for (const frontend of [interactive, full]) {
+        expect(frontend).toContain(`run: npm run test:browser:${script}`);
+        expect(frontend).toContain(`${id}_EXPECTED_CHECKOUT_SHA:`);
+        expect(frontend).toContain(`name: ${script}-browser-failure`);
+      }
+      expect(interactive).toContain(`${id}_EXPECTED_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}`);
+      expect(full).toContain(`${id}_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}`);
+      const source = readFileSync(`scripts/run${id}FileLibraryBrowser.mjs`, "utf8");
+      expect(source).toContain('port: 0, strictPort: false');
+      expect(source).toContain("assertCheckoutEvidence(expectedCheckoutSha, actualCheckoutSha)");
+      expect(source).toContain("server.resolvedUrls?.local");
+      expect(source).not.toMatch(/127\\.0\\.0\\.1:517[45]/u);
+    }
+    expect(interactive).not.toContain("npm run test:browser:w3-10:real");
+    expect(full).toContain("npm run test:browser:w3-10:real");
+    expect(full).toContain("W310_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}");
+  });
+
 });

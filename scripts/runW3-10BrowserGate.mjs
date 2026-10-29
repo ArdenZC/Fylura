@@ -294,6 +294,7 @@ async function runRapidSwitchViewport(viewport) {
 }
 
 const evidence = [];
+let completed = false;
 try {
   for (const viewport of VIEWPORTS) evidence.push(await runRapidSwitchViewport(viewport));
   await writeFile(path.join(ARTIFACT_DIR, "rapid-switch.json"), JSON.stringify({
@@ -306,10 +307,11 @@ try {
   }, null, 2));
   console.log(`[w3-10-rapid-switch] PASS sourceHead=${sourceHead} actualSha=${actualCheckoutSha} tree=${actualCheckoutTree}`);
   console.log(JSON.stringify({ fixtureQuery: FIXTURE_QUERY, evidence }, null, 2));
+  completed = true;
 } finally {
   await browser.close();
   await server.close();
-  await rm(ARTIFACT_DIR, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  if (completed) await rm(ARTIFACT_DIR, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   await rm(TASK_TEMP_DIR, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
 

@@ -223,46 +223,6 @@ jobs:
           npm run test:performance:architecture
       - name: Build frontend
         run: npm run build:frontend
-      - name: W2-01 real browser regression gate
-        env:
-          W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          W201_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
-          W201_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
-        run: npm run test:browser:w2-01:real
-      - name: Upload W2-01 browser gate failure artifacts
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: w2-01-browser-gate-failure
-          path: .tmp-tests/w2-01-browser-gate
-          if-no-files-found: ignore
-      - name: W2-10 interaction accessibility responsive browser gate
-        env:
-          W210_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          W210_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
-          W210_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
-        run: npm run test:browser:w2-10:real
-      - name: Upload W2-10 browser gate failure artifacts
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: w2-10-browser-gate-failure
-          path: .tmp-tests/w2-10-browser-gate
-          if-no-files-found: ignore
-      - name: W2-11 integrated experience performance browser gate
-        env:
-          W211_SOURCE_HEAD: ${{ github.sha }}
-          W211_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
-          W211_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
-        run: npm run test:browser:w2-11:real
-      - name: Upload W2-11 browser gate failure artifacts
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: w2-11-browser-gate-failure
-          path: .tmp-tests/w2-11-browser-gate
-          if-no-files-found: ignore
-
       - name: U3 File Library product browser gate
         env:
           U3_SOURCE_HEAD: ${{ github.sha }}
@@ -304,6 +264,45 @@ jobs:
             .tmp-tests/w3-09-browser-gate
           if-no-files-found: ignore
           retention-days: 2
+      - name: W2-01 real browser regression gate
+        env:
+          W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          W201_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+          W201_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: npm run test:browser:w2-01:real
+      - name: Upload W2-01 browser gate failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w2-01-browser-gate-failure
+          path: .tmp-tests/w2-01-browser-gate
+          if-no-files-found: ignore
+      - name: W2-10 interaction accessibility responsive browser gate
+        env:
+          W210_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          W210_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+          W210_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: npm run test:browser:w2-10:real
+      - name: Upload W2-10 browser gate failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w2-10-browser-gate-failure
+          path: .tmp-tests/w2-10-browser-gate
+          if-no-files-found: ignore
+      - name: W2-11 integrated experience performance browser gate
+        env:
+          W211_SOURCE_HEAD: ${{ github.sha }}
+          W211_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+          W211_LANE: ${{ github.event_name == 'workflow_dispatch' && 'manual_full_validation' || 'scheduled_full_validation' }}
+        run: npm run test:browser:w2-11:real
+      - name: Upload W2-11 browser gate failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w2-11-browser-gate-failure
+          path: .tmp-tests/w2-11-browser-gate
+          if-no-files-found: ignore
 
   rust-windows:
     name: Rust quality (windows-latest)

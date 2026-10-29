@@ -1664,7 +1664,9 @@ mod tests {
         let historical = rusqlite::Connection::open(&path.0).expect("open schema44 fixture");
         historical
             .execute_batch(
-                "ALTER TABLE global_volumes DROP COLUMN scope_authorization_state; PRAGMA user_version=44;",
+                "DROP TRIGGER IF EXISTS global_search_changes_scope_authorization_au;
+                 ALTER TABLE global_volumes DROP COLUMN scope_authorization_state;
+                 PRAGMA user_version=44;",
             )
             .expect("restore schema44 volume shape");
         drop(historical);

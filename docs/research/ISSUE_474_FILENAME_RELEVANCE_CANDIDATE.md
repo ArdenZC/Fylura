@@ -1,6 +1,6 @@
 # Issue #474 — filename relevance candidate
 
-Status: **default-off candidate for Owner comparison; production ranking is unchanged.** This prototype intentionally changes ranking in its opt-in fuzzy tier. It does not claim equivalence to BM25 and is not approved for user-visible cutover.
+Status: **default-off candidate for Owner comparison; production activation is NO-GO on the 100ms p95 gate.** At 1M entries/50k hits, candidate Search p95 is 120.654ms first page and 153.439ms at offset 4016. Production ranking remains unchanged. This prototype intentionally changes ranking in its opt-in fuzzy tier and does not claim equivalence to BM25.
 
 ## Product search contract
 
@@ -65,9 +65,36 @@ The contract test also verifies two same-name files in different directories rem
 
 - An independent Rust oracle classifies the complete FTS match set and compares all candidate result fields, relevance order, and page slices. It does not use BM25 as the candidate oracle.
 - Focused cases cover ties, duplicate names/paths, directories, extension-only hits, stale/disabled rows, managed flags, Windows-style and POSIX-style paths, fast-tier precedence, Unicode/punctuation/short queries, sparse/zero fallback, and offsets 0/4016/4096.
-- Same-process Windows Debug comparisons reuse the deterministic production-schema 100k and 200k generator, then redistribute its 5% `report` hits among boundary, substring, and path-only cases through the existing FTS triggers. Five warmups and 30 alternating paired samples cover raw FTS SQL, pooled Search, Repository Snapshot, and 80/4096 windows. Additional paired Search/Snapshot runs cover 63-hit, 1-hit, and zero-hit supported ASCII fallback queries, including the 4096 window for the 63-hit query. Evidence records p50/p95/p99, SQLite VM/sort and allocator high-water counters, Windows process CPU/working-set/private bytes, database/WAL sizes, exact source SHA/tree, and raw JSONL.
-- No 500k/1M or Release qualification is dispatched until the 100k/200k correctness and resource results are reviewed. Owner decides whether the proposed UX contract is acceptable and whether one larger native qualification is worthwhile.
 - Rollback is immediate: leave the feature absent or unset `ZC_GLOBAL_SEARCH_FILENAME_RELEVANCE_CANDIDATE`; the default BM25 code path, existing FTS triggers, schema, and index authorization remain unchanged.
+
+### Windows qualification and decision
+
+These are same-build Windows x86_64 Debug runs with the `desktop-runtime` and candidate Cargo features, SQLite 3.51.3, source `08d8b07f5058cc51e8b282b8aed85079fb045a50`, and a clean tree. Every pair used five warmups and 30 alternating old/candidate samples. The fixture has a 5% `report` hit rate and deliberately produces different old/new ID orders. `80@4016` measures the page beginning at offset 4016 and therefore requires the complete sorted candidate window through 4096.
+
+| Entries / `report` hits | Page | Raw FTS SQL p95/p99, BM25 → candidate | Search p95/p99, BM25 → candidate | Snapshot p95/p99, BM25 → candidate |
+| --- | --- | ---: | ---: | ---: |
+| 100k / 5k | 80@0 | 20.285/21.035 → 13.252/13.526 ms | 20.519/20.898 → 14.876/15.873 ms | 19.933/20.479 → 14.237/14.476 ms |
+| 100k / 5k | 80@4016 | 38.891/39.010 → 29.007/29.540 ms | 40.974/41.150 → 34.483/34.841 ms | 41.587/42.090 → 34.825/36.085 ms |
+| 200k / 10k | 80@0 | 37.039/37.483 → 23.675/26.104 ms | 37.306/37.401 → 24.705/24.999 ms | 37.651/37.860 → 25.747/25.933 ms |
+| 200k / 10k | 80@4016 | 56.020/56.445 → 43.060/44.357 ms | 61.778/61.957 → 48.502/49.217 ms | 61.187/62.096 → 48.836/49.475 ms |
+| 1M / 50k | 80@0 | 193.953/196.441 → 125.915/129.045 ms | 188.027/188.587 → 120.654/121.197 ms | 184.427/185.524 → 121.577/121.687 ms |
+| 1M / 50k | 80@4016 | 235.843/243.573 → 154.081/154.541 ms | 222.397/224.888 → 153.439/154.302 ms | 221.405/223.243 → 153.818/156.281 ms |
+
+The candidate returns the exact independently computed new order and page at all three scales. It reduces high-hit latency and CPU in this synthetic fixture, with SQLite allocator high-water about 5.3 MiB for the first page and 5.8 MiB through offset 4016 at 1M; the BM25 route used about 5.5 MiB and 6.0 MiB. At 1M, pooled Search process CPU across the 30 measured calls fell from 5,578 to 3,516 ms at offset 0 and from 6,594 to 4,500 ms at offset 4016. These are process boundary counters, not SQL-attributed CPU. The candidate's VM-step count is higher because it computes the explicit categories for every FTS match.
+
+**Production activation is NO-GO against the 100ms p95 goal.** At 1M entries and 50k eligible hits, candidate Search p95 is 120.654 ms on the first page and 153.439 ms at offset 4016; p99 is 121.197 and 154.302 ms. Snapshot p95 is 121.577 and 153.818 ms. The candidate is materially faster than BM25, but it does not meet the target. This is evidence about this implementation and synthetic workload, not a claim that all BM25 queries or real corpora have the same behavior.
+
+Sparse and zero-hit queries preserve full BM25 result objects and order. In the 1M run, candidate-route Search p95 was 2.949 ms for 63 hits at offset 0 (BM25 1.481 ms), 3.209 ms at offset 4016 (1.614 ms), 1.436 ms for one hit (1.027 ms), and 1.026 ms for zero hits (0.615 ms). The added probe therefore costs roughly 0.4–1.6 ms on these low-hit cases. The 1M synthetic database used 1,381,838,848 bytes for the main file and 286,298,832 bytes for WAL at capture; the candidate adds zero persistent indexes, triggers, or file facts, and the schema and existing FTS trigger SQL were unchanged.
+
+The native 1M result gives Owner a concrete product/performance choice: retain BM25 for high-hit queries and accept that this workload exceeds the target, or approve a separately budgeted derived filename-ranking index to pursue the proposed relevance order below 100ms. The latter needs explicit memory, write-amplification, startup/idle CPU, generation-consistency, and rollback limits before implementation. No such index or default-on route is included here. No 500k run or further optimization loop is planned in this candidate.
+
+Raw JSONL evidence for all three same-SHA runs is committed beside this document:
+
+- `evidence/issue-474-filename-relevance/100k-windows-desktop-runtime.jsonl` — SHA-256 `D604CE6BEF17D424AF639CAA02C61995DCDC8F2FEE70C959DC3E419E868FB211`.
+- `evidence/issue-474-filename-relevance/200k-windows-desktop-runtime.jsonl` — SHA-256 `3A775C20E67FC8A23BDE1003EDD75163935A32FD45F018BAB2DD032C8FA21E5A`.
+- `evidence/issue-474-filename-relevance/1m-windows-desktop-runtime.jsonl` — SHA-256 `85CF250F01CE406F5D2EDBA86C24CD97E4872ED93524D04EFAD0A939F7CAC48F`.
+
+The harness used the existing deterministic global-search fixture and existing FTS update triggers. It is a Windows-native database qualification, not an installed-app GUI acceptance; macOS validation is delegated to the pull request's native CI. Benchmark results are Debug observations, not Release forecasts.
 
 ### Reproduction and manual comparison
 
@@ -79,10 +106,10 @@ $env:TMP = $env:TEMP
 $env:CARGO_TARGET_DIR = 'F:\CargoTarget'
 $env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES = '100000'
 $env:ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT = 'F:\issue-474\evidence\100k-filename-relevance.jsonl'
-cargo test --manifest-path src-tauri/Cargo.toml --lib filename_relevance_candidate_paired_100k_200k -- --ignored --nocapture
+cargo test --manifest-path src-tauri/Cargo.toml --features 'desktop-runtime,global-search-filename-relevance-candidate' --lib filename_relevance_candidate_paired_100k_200k -- --ignored --nocapture
 ```
 
-Repeat with `ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES=200000` and a new `200k-filename-relevance.jsonl` output. The golden contract/fallback test runs without `--ignored`:
+Repeat with `ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES=200000` and a new output path. After 100k/200k correctness and resource checks pass, the same harness can perform the single 1M qualification by setting `ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES=1000000`. To reproduce the committed Windows runs, include `--features 'desktop-runtime,global-search-filename-relevance-candidate'`. The golden contract/fallback test runs without `--ignored`:
 
 ```powershell
 cargo test --manifest-path src-tauri/Cargo.toml --lib filename_relevance_contract_oracle_and_fallbacks -- --nocapture

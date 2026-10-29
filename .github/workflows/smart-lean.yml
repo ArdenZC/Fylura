@@ -24,7 +24,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       ZEN_SMART_LEAN_ENTRIES: ${{ inputs.entries || '1000' }}
@@ -47,7 +47,7 @@ jobs:
       - name: Production policy and recovery tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::coverage::tests -- --nocapture
       - name: Paired production ingestion benchmark
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+        run: cargo test ${{ github.event_name == 'workflow_dispatch' && '--release' || '' }} --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
       - name: Scoped macOS native source qualification
         if: runner.os == 'macOS'
         timeout-minutes: 10

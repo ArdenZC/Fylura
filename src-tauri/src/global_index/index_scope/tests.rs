@@ -434,18 +434,30 @@ fn smart_lean_ingestion_cost() {
             let mut rss_peak = rss_before;
             let _ = super::native::take_metadata_attempts();
             let begin = Instant::now();
-            for batch in entries.chunks(512) {
+            let mut sampling = std::time::Duration::ZERO;
+            let mut sampled_batches = 0;
+            for (batch_index, batch) in entries.chunks(512).enumerate() {
                 if raw_baseline {
                     db.upsert_global_entries_batch(batch).unwrap();
                 } else {
                     db.upsert_global_entries_batch_owned(batch, &owner).unwrap();
                 }
-                system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-                rss_peak = rss_peak.max(system.process(pid).map_or(0, sysinfo::Process::memory));
+                // Process inspection on hosted Windows is expensive. Keep its
+                // cost explicit and outside admission timing, with bounded RSS
+                // samples instead of inspecting the process after every batch.
+                if batch_index % 32 == 0 || batch_index + 1 == n.div_ceil(512) {
+                    let sample_begin = Instant::now();
+                    system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+                    rss_peak =
+                        rss_peak.max(system.process(pid).map_or(0, sysinfo::Process::memory));
+                    sampling += sample_begin.elapsed();
+                    sampled_batches += 1;
+                }
             }
             db.finish_global_index_operation(&owner, "ready", None, Some(1), Some(1), true)
                 .unwrap();
-            let elapsed = begin.elapsed().as_secs_f64();
+            let instrumented = begin.elapsed();
+            let elapsed = instrumented.saturating_sub(sampling).as_secs_f64();
             let metadata_attempts = super::native::take_metadata_attempts();
             let conn = db.conn().unwrap();
             let count: i64 = conn
@@ -550,7 +562,7 @@ fn smart_lean_ingestion_cost() {
                 );
                 serde_json::json!({"mode":reindex_mode,"seconds":reindex_seconds,"metadataAttempts":reindex_metadata_attempts,"retiredRows":retired,"activeRows":reindex_active,"retainedRows":reindex_retained})
             };
-            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"group":group,"mode":mode,"repetition":repetition,"candidates":n,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
+            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"profile":if cfg!(debug_assertions) {"debug"} else {"release"},"group":group,"mode":mode,"repetition":repetition,"candidates":n,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"instrumentedSeconds":instrumented.as_secs_f64(),"rssSamplingSeconds":sampling.as_secs_f64(),"rssSampledBatches":sampled_batches,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
             println!("SMART_LEAN_AB {record}");
             rows.push(record);
         }

@@ -438,7 +438,7 @@ pub(crate) fn database_sink_for_test(db: Database) -> impl GlobalIndexSink {
 }
 
 #[cfg(any(
-    all(test, any(windows, target_os = "macos")),
+    all(test, windows),
     all(feature = "native-qa", any(windows, target_os = "macos"))
 ))]
 pub(crate) fn database_sink_for_qualification(db: Database) -> impl GlobalIndexSink {

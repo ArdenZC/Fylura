@@ -53,6 +53,9 @@ production modules before parallel edits.
 
 ## Current execution truth
 
+- **Smart Lean default Index Scope — implementation/validation in Draft #509.**
+  [#508](https://github.com/ArdenZC/Zen-Canvas/issues/508) authorizes one production feature from master `0626e2f`, separate from merged #489 and independent Search performance work. Default Smart Lean, explicit source opt-in, source-owned admission, retained metadata, bounded reconciliation and Settings controls are implemented; Schema46 is proposed in the Draft. Native CI/paired fixture measurements and final Owner review remain pending. [Feature and acceptance](tasks/SMART-LEAN-508.md). No merge/release authorization.
+
 > **Historical, date-bound records below.** For current work consult the Active execution snapshot above and live PR/Issue status.
 
 - **U4 File Library Inspector, notes and file favorites — Draft #484; Owner review pending.**

@@ -41,9 +41,9 @@ jobs:
       - name: Record tested source
         run: git log -1 --format="%H %T"
       - name: Production policy and recovery tests
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime global_index::coverage::tests -- --nocapture
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::coverage::tests -- --nocapture
       - name: Paired production ingestion benchmark
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime smart_lean_ingestion_cost -- --ignored --nocapture
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:

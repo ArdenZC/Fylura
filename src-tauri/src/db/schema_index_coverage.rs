@@ -42,6 +42,7 @@ pub(crate) fn install(conn: &Connection) -> Result<(), DbError> {
         }
     }
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_global_entries_minimal_ancestors ON global_entries(volume_id,id) WHERE scope_decision='minimal_ancestor';")?;
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_global_entries_undetermined ON global_entries(volume_id,id) WHERE scope_decision='undetermined' AND is_stale=0;")?;
     // Existing development profiles retain Broad until an explicit policy selection.
     // Fresh databases (no source/entry/settings state) use Smart Lean at first read.
     conn.execute("INSERT INTO app_settings(key,value)

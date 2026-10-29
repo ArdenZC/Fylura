@@ -70,8 +70,16 @@ fn execute(
         return Err("coverage_revision_conflict".into());
     }
     let mode = request.mode.ok_or("coverage_mode_required")?;
-    let mut rules = Vec::new();
-    for r in request.rules {
+    let mut rules = if mode == CoverageMode::Custom {
+        Vec::new()
+    } else {
+        snapshot.policy.rules.clone()
+    };
+    for r in request
+        .rules
+        .into_iter()
+        .filter(|_| mode == CoverageMode::Custom)
+    {
         let source = db
             .get_global_volume(&r.source_id)
             .map_err(|e| e.to_string())?

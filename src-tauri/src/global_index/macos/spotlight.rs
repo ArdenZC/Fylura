@@ -102,6 +102,9 @@ where
     if cancel.load(Ordering::Acquire) {
         return Err("macos_spotlight_query_paused".to_string());
     }
+    if !super::volumes::source_id_matches(volume_id, source_root) {
+        return Err("macos_volume_identity_changed".into());
+    }
     autoreleasepool(|_| {
         let query = new_scoped_query(source_root);
         if !query.startQuery() {
@@ -401,6 +404,9 @@ fn metadata_item_to_entry(
     source_root: &Path,
     object: &AnyObject,
 ) -> Option<GlobalEntryInput> {
+    if !super::volumes::source_id_matches(volume_id, source_root) {
+        return None;
+    }
     let item = object.downcast_ref::<NSMetadataItem>()?;
     let path = metadata_string(item, unsafe { NSMetadataItemPathKey })
         .or_else(|| metadata_url_path(item, unsafe { NSMetadataItemURLKey }))?;

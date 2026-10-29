@@ -62,6 +62,18 @@ impl MacosVolumeProvider {
             .unwrap_or_default()
     }
 }
+pub(super) fn source_id_matches(id: &str, root: &Path) -> bool {
+    if !id.starts_with("gv_macos_") {
+        return true;
+    }
+    let physical = if root == Path::new("/") {
+        Path::new("/System/Volumes/Data")
+    } else {
+        root
+    };
+    volume_uuid(physical)
+        .is_some_and(|uuid| id == format!("gv_macos_{}", blake3::hash(uuid.as_bytes()).to_hex()))
+}
 fn volume_uuid(path: &Path) -> Option<String> {
     use objc2_foundation::{NSArray, NSString, NSURLVolumeUUIDStringKey, NSURL};
     objc2::rc::autoreleasepool(|_| {

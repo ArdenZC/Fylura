@@ -755,7 +755,7 @@ impl Database {
                 last_error = ?5,
                 last_full_index_at = COALESCE(?6, last_full_index_at),
                 last_incremental_sync_at = COALESCE(?7, last_incremental_sync_at),
-                rebuild_completed_revision = CASE WHEN ?8 = 1 AND ?4 IN ('ready','watcher_unavailable','fsevents_unavailable')
+                rebuild_completed_revision = CASE WHEN ?8 = 1 AND (coverage_pending=0 OR ?4 IN ('ready','watcher_unavailable','fsevents_unavailable'))
                     THEN rebuild_intent_revision ELSE rebuild_completed_revision END,
                 operation_owner_id = NULL,
                 operation_owner_pid = NULL,
@@ -1031,7 +1031,8 @@ impl Database {
         Ok(())
     }
 
-    #[cfg(test)]
+    /// Trusted repository fixture/import primitive, not a renderer command.
+    /// Native Global Index producers must use the source-owned admission method.
     pub fn upsert_global_entries_batch(
         &self,
         entries: &[GlobalEntryInput],
@@ -1072,6 +1073,12 @@ impl Database {
             {
                 return Err(DbError::Validation(
                     "global_index_operation_owner_lost".into(),
+                ));
+            }
+            #[cfg(target_os = "macos")]
+            if source.platform == "macos" && !super::macos::source_identity_current(&source) {
+                return Err(DbError::Validation(
+                    "global_index_source_identity_changed".into(),
                 ));
             }
             let policy = {
@@ -1568,7 +1575,7 @@ fn global_index_status_with_total(
         // kept explicitly because a legacy source can report `ready` while its
         // consent has not been re-confirmed.
         collection_complete: indexed_volumes > 0
-            && !conn.query_row("SELECT EXISTS(SELECT 1 FROM global_volumes WHERE enabled=1 AND (coverage_pending=1 OR coverage_undetermined>0))", [], |r|r.get::<_,bool>(0))?
+            && !conn.query_row("SELECT EXISTS(SELECT 1 FROM global_volumes v WHERE enabled=1 AND (coverage_pending=1 OR EXISTS(SELECT 1 FROM global_entries e WHERE e.volume_id=v.id AND e.scope_decision='undetermined' AND e.is_stale=0)))", [], |r|r.get::<_,bool>(0))?
             && ready_volumes == indexed_volumes
             && authorization_required_volumes == 0,
         total_entries,

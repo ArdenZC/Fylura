@@ -218,13 +218,12 @@ fn policy_switch_fences_old_writes_hides_old_results_and_survives_restart() {
         .unwrap();
     assert!(f
         .db
-        .upsert_global_entries_batch_owned(&[dependency.clone()], &owner)
+        .upsert_global_entries_batch_owned(std::slice::from_ref(&dependency), &owner)
         .is_err());
-    assert!(
-        f.db.finish_global_index_operation(&owner, "ready", None, Some(1), Some(1), true)
-            .unwrap()
-            == false
-    );
+    assert!(!f
+        .db
+        .finish_global_index_operation(&owner, "ready", None, Some(1), Some(1), true)
+        .unwrap());
     assert!(f
         .db
         .search_global_entries("keep", 20, 0)
@@ -285,7 +284,7 @@ fn lawful_include_and_broad_restore_excluded_files_without_source_opt_in() {
         ..CoveragePolicy::default()
     };
     assert_eq!(
-        observe_batch(&p, &f.source, &[dependency.clone()]),
+        observe_batch(&p, &f.source, std::slice::from_ref(&dependency)),
         vec![Decision::Include]
     );
     p.mode = CoverageMode::BroadCoverage;
@@ -308,7 +307,7 @@ fn moves_and_context_loss_reclassify_without_cached_false_exclusions() {
     let dependency = f.dependencies();
     let p = CoveragePolicy::default();
     assert_eq!(
-        observe_batch(&p, &f.source, &[dependency.clone()]),
+        observe_batch(&p, &f.source, std::slice::from_ref(&dependency)),
         vec![Decision::Exclude("npm_dependencies")]
     );
     let target = f.root.join("restored.js");
@@ -484,7 +483,7 @@ fn source_revoke_and_failed_reconcile_cannot_publish_policy_completion() {
     f.db.save_global_index_coverage(1, CoverageMode::SmartLean, vec![])
         .unwrap();
     let owner = f.owner();
-    f.db.upsert_global_entries_batch_owned(&[e.clone()], &owner)
+    f.db.upsert_global_entries_batch_owned(std::slice::from_ref(&e), &owner)
         .unwrap();
     f.db.finish_global_index_operation(
         &owner,
@@ -506,7 +505,7 @@ fn source_revoke_and_failed_reconcile_cannot_publish_policy_completion() {
     f.db.set_global_volume_enabled(&f.source.id, false).unwrap();
     assert!(f
         .db
-        .upsert_global_entries_batch_owned(&[e.clone()], &owner)
+        .upsert_global_entries_batch_owned(std::slice::from_ref(&e), &owner)
         .is_err());
     assert!(f
         .db
@@ -536,7 +535,7 @@ fn rule_specificity_and_identity_replacement_are_conservative() {
         ..CoveragePolicy::default()
     };
     assert_eq!(
-        observe_batch(&p, &f.source, &[dependency.clone()]),
+        observe_batch(&p, &f.source, std::slice::from_ref(&dependency)),
         vec![Decision::Include]
     );
     // Keep the original directory alive, so its inode/file ID cannot be reused.

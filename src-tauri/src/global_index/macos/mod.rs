@@ -25,6 +25,10 @@ use std::sync::{
     Arc, Mutex,
 };
 
+pub(crate) fn source_identity_current(source: &GlobalVolume) -> bool {
+    volumes::source_id_matches(&source.id, std::path::Path::new(&source.mount_path))
+}
+
 pub(crate) const MAX_PENDING_SPOTLIGHT_ENTRIES: usize = 4096;
 
 #[derive(Default)]

@@ -17,7 +17,7 @@ export function IndexCoverageSettings({ t, sources, disabled }: { t: Translator;
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const initialized = useRef(false);
-  const pending = snapshot?.sources.some((s) => s.pending) ?? false;
+  const pending = snapshot?.sources.some((s) => s.enabled && s.pending) ?? false;
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -31,14 +31,14 @@ export function IndexCoverageSettings({ t, sources, disabled }: { t: Translator;
           setMode(response.snapshot.policy.mode);
           setRules(response.snapshot.policy.rules.map(({ sourceId, path, include }) => ({ sourceId, path, include })));
         }
-        if (response.snapshot.sources.some((s) => s.pending)) timer = setTimeout(() => void read(), 2500);
+        if (response.snapshot.sources.some((s) => s.enabled && s.pending)) timer = setTimeout(() => void read(), 2500);
       } catch (e) { if (!disposed) setError(String(e)); }
     }
     void read();
     return () => { disposed = true; if (timer) clearTimeout(timer); };
   }, [reload, sources]);
   const authorized = sources.filter((s) => s.volume.enabled && (s.volume.platform !== "windows" || s.volume.scopeAuthorizationState === "authorized"));
-  const totals = snapshot?.sources.reduce((a, s) => ({ included: a.included + s.included, excluded: a.excluded + s.excluded, undetermined: a.undetermined + s.undetermined }), { included: 0, excluded: 0, undetermined: 0 });
+  const totals = snapshot?.sources.filter((s) => s.enabled).reduce((a, s) => ({ included: a.included + s.included, excluded: a.excluded + s.excluded, undetermined: a.undetermined + s.undetermined }), { included: 0, excluded: 0, undetermined: 0 });
   const editable = !disabled && !busy && snapshot !== null;
   const clearPreview = () => { setPreview(null); setError(null); };
   function addRule(include: boolean) {
@@ -76,10 +76,10 @@ export function IndexCoverageSettings({ t, sources, disabled }: { t: Translator;
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonSecondary} disabled={!editable || !path.trim() || !authorized.length || rules.length >= 128} onClick={() => addRule(true)}>{t("indexCoverageInclude")}</button><button type="button" className={buttonSecondary} disabled={!editable || !path.trim() || !authorized.length || rules.length >= 128} onClick={() => addRule(false)}>{t("indexCoverageExclude")}</button></div>
       <ul className="grid max-h-56 gap-2 overflow-auto text-sm">{rules.map((rule, i) => <li key={`${rule.sourceId}:${rule.path}`} className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 break-all">{rule.include ? t("indexCoverageInclude") : t("indexCoverageExclude")} · {rule.path}</span><button type="button" className={buttonSecondary} aria-label={`${t("indexCoverageRemove")} ${rule.path}`} onClick={() => { setRules((r) => r.filter((_, index) => index !== i)); clearPreview(); }}>{t("indexCoverageRemove")}</button></li>)}</ul>
     </div> : null}
-    <p role="status" className={quietText}>{!snapshot ? t("loading") : pending ? t("indexCoverageReconfiguring") : totals?.undetermined ? t("indexCoveragePartial") : t("indexCoverageCurrent")}</p>
+    <p role="status" className={quietText}>{!snapshot ? t("loading") : pending ? t("indexCoverageReconfiguring") : snapshot.sources.some((s) => s.enabled && s.hasUndetermined) ? t("indexCoveragePartial") : t("indexCoverageCurrent")}</p>
     {totals ? <p className={quietText}>{t("indexCoverageObservations")} · {t("indexCoverageIncluded")}: {totals.included} · {t("indexCoverageExcluded")}: {totals.excluded} · {t("indexCoverageUndetermined")}: {totals.undetermined}</p> : null}
     {preview ? <div role="status" className="grid gap-1 text-sm"><p>{t("indexCoveragePreviewHelp")}</p><p>{preview.sampled} / {preview.sampleLimit} · {t("indexCoverageIncluded")}: {preview.included} · {t("indexCoverageExcluded")}: {preview.excluded} · {t("indexCoverageUndetermined")}: {preview.undetermined}</p><p>{t("indexCoverageApplyHelp")}</p></div> : null}
     {error ? <p role="alert" className="break-words text-sm">{t("indexCoverageFailed")} {error}</p> : null}
-    <div className="flex flex-wrap gap-2"><button type="button" className={buttonSecondary} disabled={!editable} onClick={() => void submit("preview")}>{t("indexCoveragePreview")}</button><button type="button" className={buttonSecondary} disabled={!editable || !preview} onClick={() => void submit("save")}>{t("indexCoverageApply")}</button><button type="button" className={buttonSecondary} onClick={() => setReload((v) => v + 1)}>{t("indexCoverageRefresh")}</button></div>
+    <div className="flex flex-wrap gap-2"><button type="button" className={buttonSecondary} disabled={!editable} onClick={() => void submit("preview")}>{t("indexCoveragePreview")}</button><button type="button" className={buttonSecondary} disabled={!editable || !preview} onClick={() => void submit("save")}>{t("indexCoverageApply")}</button><button type="button" className={buttonSecondary} onClick={() => { initialized.current = false; clearPreview(); setReload((v) => v + 1); }}>{t("indexCoverageRefresh")}</button></div>
   </fieldset>;
 }

@@ -117,6 +117,11 @@ fn execute(
         {
             continue;
         }
+        // Preview observes native directory context too. An old enabled source
+        // must not authorize probing a replacement volume at the same mount.
+        if !source_identity_current(&source) {
+            return Err("global_index_source_identity_changed".into());
+        }
         let remaining = 1000 - preview.sampled;
         if remaining == 0 {
             break;

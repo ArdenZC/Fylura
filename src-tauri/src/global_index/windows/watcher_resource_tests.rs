@@ -366,7 +366,7 @@ fn admitted_transient_incremental_error_keeps_healthy_watcher_and_next_change_re
             // One filesystem write can produce multiple coalesced wake hints
             // and more than one valid incremental cycle. Verify observable
             // recovery, not an exact scheduling count.
-            fixture.calls.load(Ordering::Acquire) >= error_calls + 1
+            fixture.calls.load(Ordering::Acquire) > error_calls
                 && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
                     == INDEX_STATUS_READY
                 && wake.notifications > wake_before_change.notifications

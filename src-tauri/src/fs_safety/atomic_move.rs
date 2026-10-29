@@ -440,7 +440,7 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         }
     }
     #[cfg(target_os = "macos")]
-    crate::platform::macos::mutation::ensure_path_eligible(source, _target_parent.path())
+    crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
         .map_err(AtomicMoveError::MacMutationNotSupported)?;
     #[cfg(target_os = "macos")]
     {

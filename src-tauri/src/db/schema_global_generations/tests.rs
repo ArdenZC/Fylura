@@ -214,6 +214,6 @@ fn schema42_fresh_reopen_signature_drift_and_future_version_fail_closed() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        46
+        47
     );
 }

@@ -318,7 +318,14 @@ fn record_realtime_start_failure(pending: &Mutex<PendingUpdates>, wake: &GlobalI
 
 fn new_scoped_query(source_root: &Path) -> Retained<NSMetadataQuery> {
     let query = NSMetadataQuery::new();
-    let predicate = NSPredicate::predicateWithValue(true);
+    // NSMetadataQuery accepts metadata comparison predicates, not TRUEPREDICATE.
+    // The constant format contains no interpolation or caller-controlled input.
+    let predicate = unsafe {
+        NSPredicate::predicateWithFormat_argumentArray(
+            &NSString::from_str("kMDItemFSName LIKE '*'"),
+            None,
+        )
+    };
     query.setPredicate(Some(&predicate));
     let root = NSURL::fileURLWithPath(&NSString::from_str(&source_root.to_string_lossy()));
     let scope: &AnyObject = root.as_ref();

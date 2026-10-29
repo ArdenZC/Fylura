@@ -42,7 +42,9 @@ impl Fixture {
         let full = self.root.join(path);
         fs::create_dir_all(full.parent().unwrap()).unwrap();
         fs::write(&full, b"fixture").unwrap();
-        GlobalEntryInput::from_path(&self.source.id, &full, &self.source.provider)
+        let mut entry = GlobalEntryInput::from_path(&self.source.id, &full, &self.source.provider);
+        super::native::enrich_fixture_identity(&mut entry);
+        entry
     }
     fn owner(&self) -> super::super::repository::SourceOperationOwner {
         self.db
@@ -380,8 +382,10 @@ fn smart_lean_ingestion_cost() {
     let entries = (0..n)
         .map(|i| {
             f.file(&match i % 10 {
-                0..=3 => format!("project/node_modules/lib/dependency{i}.js"),
-                4..=5 => format!("rust/target/debug/generated{i}.o"),
+                0..=2 => format!("project/node_modules/lib/dependency{i}.js"),
+                3 => format!("rust/target/debug/generated{i}.o"),
+                4 => format!("project/src/source{i}.rs"),
+                5 => format!("project/docs/README{i}.md"),
                 6 => format!("documents/report{i}.pdf"),
                 7 => format!("Projects/Windows/README{i}.md"),
                 8 => format!("Design/build/logo{i}.ai"),
@@ -389,18 +393,29 @@ fn smart_lean_ingestion_cost() {
             })
         })
         .collect::<Vec<_>>();
-    let expected_lean = (0..n).filter(|i| i % 10 >= 6).count() as i64;
+    let expected_lean = (0..n).filter(|i| i % 10 >= 4).count() as i64;
     let mut rows = Vec::new();
     for repetition in 0..3 {
-        // Alternate order to reduce warm-cache ordering bias.
-        let modes = if repetition % 2 == 0 {
-            [CoverageMode::BroadCoverage, CoverageMode::SmartLean]
-        } else {
-            [CoverageMode::SmartLean, CoverageMode::BroadCoverage]
+        // Three paired groups preserve ISG-00E's ungated writer control as
+        // well as the selectable Broad/Smart modes. Rotate ordering each round.
+        let raw = (CoverageMode::BroadCoverage, true);
+        let broad = (CoverageMode::BroadCoverage, false);
+        let lean = (CoverageMode::SmartLean, false);
+        let modes = match repetition % 3 {
+            0 => [raw, broad, lean],
+            1 => [lean, raw, broad],
+            _ => [broad, lean, raw],
         };
-        for mode in modes {
+        for (mode, raw_baseline) in modes {
+            let group = if raw_baseline {
+                "ungated_repository"
+            } else if mode == CoverageMode::BroadCoverage {
+                "broad_coverage"
+            } else {
+                "smart_lean"
+            };
             let db =
-                Database::open(f.root.join(format!("bench-{repetition}-{mode:?}.sqlite"))).unwrap();
+                Database::open(f.root.join(format!("bench-{repetition}-{group}.sqlite"))).unwrap();
             db.upsert_global_volume(&f.source).unwrap();
             db.save_global_index_coverage(1, mode, vec![]).unwrap();
             let owner = db
@@ -420,7 +435,11 @@ fn smart_lean_ingestion_cost() {
             let _ = super::native::take_metadata_attempts();
             let begin = Instant::now();
             for batch in entries.chunks(512) {
-                db.upsert_global_entries_batch_owned(batch, &owner).unwrap();
+                if raw_baseline {
+                    db.upsert_global_entries_batch(batch).unwrap();
+                } else {
+                    db.upsert_global_entries_batch_owned(batch, &owner).unwrap();
+                }
                 system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
                 rss_peak = rss_peak.max(system.process(pid).map_or(0, sysinfo::Process::memory));
             }
@@ -466,7 +485,72 @@ fn smart_lean_ingestion_cost() {
                 .query_row("PRAGMA page_size", [], |r| r.get(0))
                 .unwrap();
             let observation = db.global_index_coverage().unwrap().sources.remove(0);
-            let record = serde_json::json!({"platform":std::env::consts::OS,"mode":mode,"repetition":repetition,"candidates":n,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured"});
+            drop(conn);
+            let reindex = if raw_baseline {
+                serde_json::Value::Null
+            } else {
+                let reindex_mode = if mode == CoverageMode::SmartLean {
+                    CoverageMode::BroadCoverage
+                } else {
+                    CoverageMode::SmartLean
+                };
+                let reindex_begin = Instant::now();
+                db.save_global_index_coverage(
+                    db.global_index_coverage().unwrap().policy.revision,
+                    reindex_mode,
+                    vec![],
+                )
+                .unwrap();
+                let owner = db
+                    .claim_global_index_operation(
+                        &f.source,
+                        &uuid::Uuid::new_v4().to_string(),
+                        SourceOperationKind::Rebuild,
+                        SourceOperationRoute::Coordinator,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let retired = db
+                    .mark_global_entries_stale_for_volume_owned(&owner)
+                    .unwrap();
+                for batch in entries.chunks(512) {
+                    db.upsert_global_entries_batch_owned(batch, &owner).unwrap();
+                }
+                db.finish_global_index_operation(&owner, "ready", None, Some(2), Some(2), true)
+                    .unwrap();
+                let reindex_seconds = reindex_begin.elapsed().as_secs_f64();
+                let reindex_metadata_attempts = super::native::take_metadata_attempts();
+                let conn = db.conn().unwrap();
+                let reindex_active: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM global_entries WHERE is_stale=0",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    reindex_active,
+                    if reindex_mode == CoverageMode::SmartLean {
+                        expected_lean
+                    } else {
+                        n as i64
+                    }
+                );
+                let reindex_retained: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM global_entries", [], |r| r.get(0))
+                    .unwrap();
+                conn.execute("INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",[]).unwrap();
+                assert_eq!(
+                    conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                        .get::<_, i64>(
+                        0
+                    ))
+                    .unwrap(),
+                    0
+                );
+                serde_json::json!({"mode":reindex_mode,"seconds":reindex_seconds,"metadataAttempts":reindex_metadata_attempts,"retiredRows":retired,"activeRows":reindex_active,"retainedRows":reindex_retained})
+            };
+            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"group":group,"mode":mode,"repetition":repetition,"candidates":n,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
             println!("SMART_LEAN_AB {record}");
             rows.push(record);
         }
@@ -636,5 +720,27 @@ fn policy_retirement_preserves_managed_ai_corrections_and_references() {
         ))
         .unwrap(),
         0
+    );
+}
+
+#[test]
+fn in_source_cmake_build_never_excludes_the_project_sources() {
+    let f = Fixture::new();
+    f.file("project/CMakeLists.txt");
+    f.file("project/CMakeCache.txt");
+    let generated = f.file("project/CMakeFiles/generated.o");
+    let source = f.file("project/src/main.cpp");
+    let readme = f.file("project/README.md");
+    assert_eq!(
+        observe_batch(
+            &CoveragePolicy::default(),
+            &f.source,
+            &[generated, source, readme]
+        ),
+        vec![
+            Decision::Exclude("cmake_build_output"),
+            Decision::Include,
+            Decision::Include
+        ]
     );
 }

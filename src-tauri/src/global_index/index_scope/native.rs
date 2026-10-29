@@ -44,8 +44,11 @@ fn plain(path: &Path, directory: bool) -> bool {
     metadata(path).is_ok_and(|m| !fenced(&m) && m.is_dir() == directory)
 }
 fn identity(path: &Path) -> Option<String> {
+    object_identity(path, true)
+}
+fn object_identity(path: &Path, directory_only: bool) -> Option<String> {
     let m = metadata(path).ok()?;
-    if fenced(&m) || !m.is_dir() {
+    if fenced(&m) || (directory_only && !m.is_dir()) {
         return None;
     }
     #[cfg(unix)]
@@ -67,6 +70,8 @@ fn identity(path: &Path) -> Option<String> {
             .open(path)
             .ok()?;
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        #[cfg(test)]
+        METADATA_ATTEMPTS.with(|n| n.set(n.get() + 1));
         if unsafe { GetFileInformationByHandle(f.as_raw_handle(), &mut info) } == 0 {
             return None;
         }
@@ -78,6 +83,26 @@ fn identity(path: &Path) -> Option<String> {
     #[cfg(not(any(unix, windows)))]
     {
         None
+    }
+}
+#[cfg(test)]
+pub(super) fn enrich_fixture_identity(entry: &mut GlobalEntryInput) {
+    let path = Path::new(&entry.path);
+    let to_provider_id = |stamp: String| {
+        #[cfg(windows)]
+        {
+            stamp.rsplit(':').next().unwrap().to_string()
+        }
+        #[cfg(not(windows))]
+        {
+            stamp
+        }
+    };
+    if let Some(id) = object_identity(path, false) {
+        entry.platform_file_id = to_provider_id(id);
+    }
+    if let Some(id) = path.parent().and_then(|p| object_identity(p, true)) {
+        entry.parent_platform_file_id = to_provider_id(id);
     }
 }
 fn single_link(path: &Path, m: &fs::Metadata) -> bool {
@@ -155,8 +180,10 @@ fn performance_root(path: &Path, root: &Path) -> Option<&'static str> {
             {
                 "rust_build_output"
             }
+            "CMakeFiles" if plain(&parent.join("CMakeCache.txt"), false) => "cmake_build_output",
             _ if plain(&dir.join("CMakeCache.txt"), false)
-                && plain(&dir.join("CMakeFiles"), true) =>
+                && plain(&dir.join("CMakeFiles"), true)
+                && !plain(&dir.join("CMakeLists.txt"), false) =>
             {
                 "cmake_build_output"
             }

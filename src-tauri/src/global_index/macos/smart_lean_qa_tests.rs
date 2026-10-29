@@ -13,7 +13,10 @@ fn scoped_spotlight_fsevents_qualification() {
     let root = PathBuf::from(
         std::env::var_os("ZEN_SMART_LEAN_VOLUME_ROOT").expect("controlled APFS root required"),
     );
-    let task = root.parent().expect("task boundary");
+    let task = PathBuf::from(
+        std::env::var_os("ZEN_SMART_LEAN_TASK_ROOT").expect("controlled task root required"),
+    );
+    let task = task.as_path();
     let runner = PathBuf::from(std::env::var_os("RUNNER_TEMP").expect("runner root required"));
     assert!(task.starts_with(&runner));
     assert_eq!(
@@ -69,7 +72,13 @@ fn scoped_spotlight_fsevents_qualification() {
             &mut sink,
             &cancel,
         ) {
-            report["capabilityGap"] = error.to_string().into();
+            let message = error.to_string();
+            if !message.contains("macos_spotlight_query_unavailable")
+                && !message.contains("macos_fsevents_unavailable")
+            {
+                return Err(message);
+            }
+            report["capabilityGap"] = message.into();
             return Ok(());
         }
         if !visible(&db, &included) {
@@ -106,7 +115,9 @@ fn scoped_spotlight_fsevents_qualification() {
             .arg(&root)
             .output();
         let begin = Instant::now();
-        while !visible(&db, &restored_file) && begin.elapsed() < Duration::from_secs(35) {
+        while (!visible(&db, &restored_file) || visible(&db, &excluded))
+            && begin.elapsed() < Duration::from_secs(35)
+        {
             let _ = wake.wait(&AtomicBool::new(false), Some(Duration::from_secs(1)));
             let current = db.get_global_volume(&source.id).unwrap().unwrap();
             let mut sink =

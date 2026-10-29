@@ -21,12 +21,10 @@ impl MemoryBudget {
         })
     }
 
-    #[cfg(test)]
     pub(super) fn used(&self) -> usize {
         self.used.load(Ordering::Acquire)
     }
 
-    #[cfg(test)]
     pub(super) fn peak(&self) -> usize {
         self.peak.load(Ordering::Acquire)
     }

@@ -190,3 +190,34 @@ fn saturated_feed_stays_bounded_and_marks_incremental_view_unusable() {
         .unwrap()
         .is_empty());
 }
+
+#[test]
+fn disabling_shadow_removes_write_triggers_and_reenable_resumes_generations() {
+    let conn = database();
+    insert_volume(&conn);
+    insert_entry(&conn, "entry-a", "Report.txt");
+    let before_disable = read_state(&conn).unwrap();
+
+    disable_write_triggers(&conn).unwrap();
+    assert!(!REQUIRED_TRIGGERS.iter().any(|name| {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE type='trigger' AND name=?1)",
+            [name],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap()
+    }));
+    insert_entry(&conn, "entry-b", "Invoice.txt");
+    assert_eq!(read_state(&conn).unwrap(), before_disable);
+
+    install(&conn).unwrap();
+    insert_entry(&conn, "entry-c", "Archive.txt");
+    assert_eq!(
+        read_state(&conn).unwrap().generation,
+        before_disable.generation + 1
+    );
+    assert_eq!(
+        read_state(&conn).unwrap().event_count,
+        before_disable.event_count + 1
+    );
+}

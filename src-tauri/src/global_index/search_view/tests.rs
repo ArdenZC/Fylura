@@ -12,7 +12,7 @@ use crate::{
 };
 use r2d2::PooledConnection;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use std::{
     cmp::Ordering,
     ops::{Deref, DerefMut},
@@ -67,7 +67,7 @@ fn database() -> TestConnection {
         std::process::id()
     ));
     let _ = std::fs::remove_file(&path);
-    let database = Database::open(&path).unwrap();
+    let database = Database::open_with_search_change_feed_for_test(&path, true).unwrap();
     let connection = database.conn().unwrap();
     TestConnection {
         path,
@@ -217,6 +217,119 @@ fn compact_view_matches_independent_ascii_oracle_and_fts_for_names_paths_and_ext
 }
 
 #[test]
+fn production_search_route_keeps_sqlite_tier_precedence_and_rejects_sparse_or_ambiguous_probes() {
+    let conn = database();
+    insert_volume(&conn);
+    insert_entry(
+        &conn,
+        "report-exact",
+        "report",
+        "A:\\report",
+        "txt",
+        Some(1),
+    );
+    insert_entry(
+        &conn,
+        "report-prefix",
+        "Report quarterly.txt",
+        "A:\\Reports\\Report quarterly.txt",
+        "txt",
+        Some(2),
+    );
+    insert_entry(
+        &conn,
+        "report-fts",
+        "Annual filing report.txt",
+        "A:\\Archive\\Annual filing report.txt",
+        "txt",
+        Some(3),
+    );
+    insert_entry(
+        &conn,
+        "invoice-fts",
+        "Annual invoice summary.txt",
+        "A:\\Archive\\Annual invoice summary.txt",
+        "txt",
+        Some(4),
+    );
+    insert_entry(
+        &conn,
+        "pdf-extension",
+        "Unrelated document",
+        "A:\\Archive\\Unrelated document",
+        "pdf",
+        Some(5),
+    );
+    insert_entry(
+        &conn,
+        "duplicate-b",
+        "Duplicate record.txt",
+        "A:\\Duplicate record.txt",
+        "txt",
+        Some(10),
+    );
+    insert_entry(
+        &conn,
+        "duplicate-a",
+        "Duplicate record.txt",
+        "B:\\Duplicate record.txt",
+        "txt",
+        Some(10),
+    );
+
+    let report = search::search_global_entries_with_route(&conn, "report", 10, 0).unwrap();
+    assert_eq!(report.route.deepest_tier, search::SearchTier::FullText);
+    assert!(report.route.earlier_tiers_returned_rows);
+    assert_eq!(
+        report
+            .results
+            .iter()
+            .take(2)
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        ["report-exact", "report-prefix"]
+    );
+
+    let invoice = search::search_global_entries_with_route(&conn, "invoice", 80, 0).unwrap();
+    assert_eq!(invoice.route.deepest_tier, search::SearchTier::FullText);
+    assert!(!invoice.route.earlier_tiers_returned_rows);
+    assert_eq!(invoice.results.len(), 1, "the sparse page is complete");
+
+    let extension = search::search_global_entries_with_route(&conn, "pdf", 1, 0).unwrap();
+    assert_eq!(
+        extension.route.deepest_tier,
+        search::SearchTier::ExactExtension
+    );
+    assert_eq!(extension.results[0].id, "pdf-extension");
+
+    for (query, tier) in [
+        ("Month-03", search::SearchTier::PunctuationPrefix),
+        ("jp", search::SearchTier::ExtensionPrefix),
+        ("中文查询", search::SearchTier::FullText),
+        ("résumé", search::SearchTier::FullText),
+        ("zzznomatchtoken", search::SearchTier::FullText),
+    ] {
+        let execution = search::search_global_entries_with_route(&conn, query, 80, 0).unwrap();
+        assert_eq!(execution.route.deepest_tier, tier, "query: {query}");
+        if query == "zzznomatchtoken" {
+            assert!(execution.results.is_empty());
+        }
+    }
+
+    let duplicates = search::search_global_entries_with_route(&conn, "Duplicate", 80, 0).unwrap();
+    assert_eq!(duplicates.route.deepest_tier, search::SearchTier::FullText);
+    assert!(duplicates.route.earlier_tiers_returned_rows);
+    assert_eq!(
+        duplicates
+            .results
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        ["duplicate-a", "duplicate-b"]
+    );
+}
+
+#[test]
 fn incremental_insert_rename_move_sort_change_and_delete_publish_complete_views() {
     let mut conn = database();
     insert_volume(&conn);
@@ -273,6 +386,84 @@ fn incremental_insert_rename_move_sort_change_and_delete_publish_complete_views(
     assert!(view.active_bytes() <= MAX_ACTIVE_VIEW_BYTES);
     assert!(budget.used() <= 256 * 1024 * 1024);
     assert!(budget.peak() <= 256 * 1024 * 1024);
+}
+
+#[test]
+fn delta_replaces_superseded_documents_without_forcing_a_5000_event_rebuild() {
+    let mut conn = database();
+    insert_volume(&conn);
+    insert_entry(
+        &conn,
+        "delta-entry",
+        "Version 0000.txt",
+        "A:\\Versions\\Version 0000.txt",
+        "txt",
+        Some(0),
+    );
+    let budget = MemoryBudget::new(256 * 1024 * 1024);
+    let start_generation = generation(&conn);
+    let mut view = SearchView::build(&conn, start_generation, budget.clone()).unwrap();
+    assert!(
+        schema_global_search_changes::reset_after_full_snapshot(&mut conn, start_generation)
+            .unwrap()
+    );
+
+    const BATCHES: usize = 8;
+    const UPDATES_PER_BATCH: usize = 750;
+    let mut first_active_bytes = None;
+    for batch in 0..BATCHES {
+        let transaction = conn.transaction().unwrap();
+        {
+            let mut update = transaction
+                .prepare("UPDATE global_entries SET name=?1, name_normalized=?2, path=?3, path_normalized=?4, modified_at_fs=?5 WHERE id='delta-entry'")
+                .unwrap();
+            for update_index in 0..UPDATES_PER_BATCH {
+                let version = batch * UPDATES_PER_BATCH + update_index + 1;
+                let name = format!("Version {version:04}.txt");
+                let path = format!("A:\\Versions\\{name}");
+                update
+                    .execute(params![
+                        name,
+                        name.to_ascii_lowercase(),
+                        path,
+                        path.to_ascii_lowercase().replace('\\', "/"),
+                        version as i64,
+                    ])
+                    .unwrap();
+            }
+        }
+        transaction.commit().unwrap();
+
+        let events = schema_global_search_changes::changes_since(
+            &conn,
+            view.generation,
+            MAX_INCREMENTAL_CHANGES + 1,
+        )
+        .unwrap();
+        assert_eq!(events.len(), UPDATES_PER_BATCH);
+        view = view
+            .apply_changes(&conn, &events, budget.clone(), Instant::now())
+            .unwrap();
+        let active_bytes = view.active_bytes();
+        if let Some(first) = first_active_bytes {
+            assert!(
+                active_bytes <= first + 1024,
+                "superseded delta storage accumulated: first={first}, now={active_bytes}"
+            );
+        } else {
+            first_active_bytes = Some(active_bytes);
+        }
+    }
+
+    assert_eq!(
+        view.generation,
+        start_generation + (BATCHES * UPDATES_PER_BATCH) as i64
+    );
+    assert_eq!(
+        candidate_ids(&view, "version 6000", &budget),
+        ["delta-entry"]
+    );
+    assert!(budget.used() <= 256 * 1024 * 1024);
 }
 
 #[test]
@@ -400,7 +591,7 @@ fn real_repository_upserts_rename_stale_and_source_disable_survive_database_reop
         "zen-canvas-search-view-{}-{sequence}.db",
         std::process::id()
     ));
-    let db = Database::open(&path).unwrap();
+    let db = Database::open_with_search_change_feed_for_test(&path, true).unwrap();
     let volume = GlobalVolume {
         id: "volume-real-path".into(),
         platform: "macos".into(),
@@ -502,7 +693,7 @@ fn real_repository_upserts_rename_stale_and_source_disable_survive_database_reop
     drop(conn);
     drop(db);
 
-    let restored = Database::open(&path).unwrap();
+    let restored = Database::open_with_search_change_feed_for_test(&path, true).unwrap();
     let conn = restored.conn().unwrap();
     assert_eq!(
         schema_global_search_changes::read_state(&conn)
@@ -525,16 +716,18 @@ fn real_repository_upserts_rename_stale_and_source_disable_survive_database_reop
 }
 
 #[test]
-fn shadow_router_accepts_ascii_punctuation_and_falls_back_for_short_or_unicode_queries() {
+fn shadow_router_accepts_only_dense_ascii_word_probes() {
     assert_eq!(
-        supported_candidate_query(" Month-03 ").as_deref(),
-        Some("month-03")
+        supported_candidate_query(" report ").as_deref(),
+        Some("report")
     );
     assert_eq!(
-        supported_candidate_query("archive\\quarter").as_deref(),
-        Some("archive/quarter")
+        supported_candidate_query("invoice").as_deref(),
+        Some("invoice")
     );
-    assert_eq!(supported_candidate_query("pdf").as_deref(), Some("pdf"));
+    assert!(supported_candidate_query("Month-03").is_none());
+    assert!(supported_candidate_query("archive\\quarter").is_none());
+    assert!(supported_candidate_query("pdf").is_some());
     assert!(supported_candidate_query("jp").is_none());
     assert!(supported_candidate_query("résumé").is_none());
     assert!(supported_candidate_query("中文查询").is_none());

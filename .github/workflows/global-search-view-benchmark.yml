@@ -19,8 +19,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  native-view-qualification:
-    name: Search view / ${{ matrix.os }} / ${{ matrix.entries }} rows
+  native-view-preflight:
+    name: Search view preflight / ${{ matrix.os }} / ${{ matrix.entries }} rows
     runs-on: ${{ matrix.os }}
     timeout-minutes: 240
     strategy:
@@ -32,7 +32,6 @@ jobs:
         entries:
           - 100000
           - 500000
-          - 1000000
     env:
       ZEN_CANVAS_SEARCH_VIEW_BENCHMARK_ENTRIES: ${{ matrix.entries }}
     steps:
@@ -83,4 +82,218 @@ jobs:
           path: |
             global-search-view-${{ runner.os }}-debug.log
             global-search-view-${{ runner.os }}-release.log
+          if-no-files-found: ignore
+
+  native-view-million:
+    name: Search view / ${{ matrix.os }} / 1M rows
+    needs: native-view-preflight
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    env:
+      ZEN_CANVAS_SEARCH_VIEW_BENCHMARK_ENTRIES: 1000000
+    steps:
+      - name: Checkout selected candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-global-search-view-${{ runner.os }}
+          cache-workspace-crates: true
+          cache-targets: true
+
+      - name: Run release-profile 1M search view qualification
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib \
+            global_index::search_view::benchmark::global_search_view_scale_benchmark \
+            -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee global-search-view-${{ runner.os }}-1000000-release.log
+
+      - name: Upload native 1M benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-view-${{ runner.os }}-1000000-rows
+          path: global-search-view-${{ runner.os }}-1000000-release.log
+          if-no-files-found: ignore
+
+  paired-change-feed-write-cost-preflight:
+    name: Change Feed write preflight / ${{ matrix.os }} / ${{ matrix.entries }} rows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+        entries:
+          - 100000
+          - 500000
+    env:
+      ZEN_CANVAS_SEARCH_VIEW_WRITE_COST_ENTRIES: ${{ matrix.entries }}
+    steps:
+      - name: Checkout selected candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-global-search-write-cost-${{ runner.os }}
+          cache-workspace-crates: true
+          cache-targets: true
+
+      - name: Run paired no-feed, feed-off, and feed-on write qualification
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib \
+            global_index::search_view::benchmark::global_search_view_change_feed_write_cost_benchmark \
+            -- --ignored --nocapture --test-threads=1 2>&1 | tee global-search-write-cost-${{ runner.os }}-${{ matrix.entries }}.log
+
+      - name: Upload paired write-cost evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-write-cost-${{ runner.os }}-${{ matrix.entries }}-rows
+          path: global-search-write-cost-${{ runner.os }}-${{ matrix.entries }}.log
+          if-no-files-found: ignore
+
+  paired-change-feed-write-cost-million:
+    name: Change Feed write cost / ${{ matrix.os }} / 1M rows
+    needs: paired-change-feed-write-cost-preflight
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    env:
+      ZEN_CANVAS_SEARCH_VIEW_WRITE_COST_ENTRIES: 1000000
+    steps:
+      - name: Checkout selected candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-global-search-write-cost-${{ runner.os }}
+          cache-workspace-crates: true
+          cache-targets: true
+
+      - name: Run paired 1M no-feed, feed-off, and feed-on write qualification
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib \
+            global_index::search_view::benchmark::global_search_view_change_feed_write_cost_benchmark \
+            -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee global-search-write-cost-${{ runner.os }}-1000000.log
+
+      - name: Upload paired 1M write-cost evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-write-cost-${{ runner.os }}-1000000-rows
+          path: global-search-write-cost-${{ runner.os }}-1000000.log
+          if-no-files-found: ignore
+
+  native-worker-idle-stability:
+    name: Search view worker idle / ${{ matrix.os }} / 100k rows / 30 min
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    env:
+      ZEN_CANVAS_SEARCH_VIEW_IDLE_ENTRIES: 100000
+      ZEN_CANVAS_SEARCH_VIEW_IDLE_SECONDS: 1800
+    steps:
+      - name: Checkout selected candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-global-search-idle-${{ runner.os }}
+          cache-workspace-crates: true
+          cache-targets: true
+
+      - name: Run 30-minute opt-in worker idle qualification
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib \
+            global_index::search_view::benchmark::global_search_view_worker_idle_stability_benchmark \
+            -- --ignored --exact --nocapture --test-threads=1 2>&1 | tee global-search-worker-idle-${{ runner.os }}-30m.log
+
+      - name: Upload native worker-idle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-worker-idle-${{ runner.os }}-30m
+          path: global-search-worker-idle-${{ runner.os }}-30m.log
           if-no-files-found: ignore

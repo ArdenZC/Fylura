@@ -3,7 +3,7 @@ use crate::db::{schema_global_search_changes, DbError};
 use rusqlite::Connection;
 use std::{
     cmp::Ordering,
-    collections::{hash_map::DefaultHasher, BinaryHeap, HashMap},
+    collections::{hash_map::DefaultHasher, BinaryHeap, HashMap, HashSet},
     hash::{Hash, Hasher},
     mem::size_of,
     sync::Arc,
@@ -98,11 +98,15 @@ struct DeltaDocument {
     modified_at: Option<i64>,
 }
 
+#[derive(Clone)]
+struct DeltaEntry {
+    document: Option<Arc<DeltaDocument>>,
+    _charge: Arc<BudgetCharge>,
+}
+
 struct DeltaView {
-    entries: HashMap<Arc<str>, Option<Arc<DeltaDocument>>>,
+    entries: HashMap<Arc<str>, DeltaEntry>,
     _map_charge: Arc<BudgetCharge>,
-    document_charges: Vec<Arc<BudgetCharge>>,
-    applied_events: usize,
 }
 
 pub(super) struct SearchView {
@@ -163,8 +167,6 @@ impl SearchView {
             delta: Arc::new(DeltaView {
                 entries: HashMap::new(),
                 _map_charge: delta_charge,
-                document_charges: Vec::new(),
-                applied_events: 0,
             }),
         })
     }
@@ -175,10 +177,17 @@ impl SearchView {
             + self.delta._map_charge.bytes()
             + self
                 .delta
-                .document_charges
-                .iter()
-                .map(|charge| charge.bytes())
+                .entries
+                .values()
+                .map(|entry| entry._charge.bytes())
                 .sum::<usize>()
+    }
+
+    pub(super) fn indexed_entry_upper_bound(&self) -> usize {
+        self.base
+            .entries
+            .len()
+            .saturating_add(self.delta.entries.len())
     }
 
     pub(super) fn candidate_window<'a>(
@@ -212,7 +221,10 @@ impl SearchView {
             }
         }
 
-        for document in self.delta.entries.values().flatten() {
+        for delta_entry in self.delta.entries.values() {
+            let Some(document) = &delta_entry.document else {
+                continue;
+            };
             let _source_identity = document.source_id.as_ref();
             if document.name.contains(&query)
                 || document.path.contains(&query)
@@ -267,20 +279,15 @@ impl SearchView {
         {
             return Err(ViewError::RebuildRequired);
         }
-        if self.delta.applied_events.saturating_add(events.len()) > MAX_INCREMENTAL_CHANGES {
-            return Err(ViewError::RebuildRequired);
-        }
-
         let operation_charge = BudgetCharge::reserved(
             budget.clone(),
             events.len().saturating_mul(
-                size_of::<(Arc<str>, Option<Arc<DeltaDocument>>)>()
+                size_of::<(Arc<str>, DeltaEntry)>()
                     .saturating_mul(3)
                     .saturating_add(32),
             ),
         )
         .ok_or(ViewError::MemoryBudget)?;
-        let document_charge = BudgetCharge::empty(budget.clone());
         let mut latest_by_id =
             HashMap::<&str, (&schema_global_search_changes::ChangeEvent, i64)>::new();
         latest_by_id
@@ -305,7 +312,7 @@ impl SearchView {
         // can then advance to the earliest event belonging to any unprocessed
         // ID without skipping a fact change.
         latest_events.sort_unstable_by_key(|(_, first_generation)| *first_generation);
-        let mut operations = Vec::new();
+        let mut operations: Vec<(Arc<str>, DeltaEntry)> = Vec::new();
         operations
             .try_reserve_exact(latest_events.len())
             .map_err(|error| ViewError::Database(format!("search_view_batch_reserve:{error}")))?;
@@ -322,7 +329,7 @@ impl SearchView {
                 return Err(ViewError::UpdateBudget);
             }
             let mut rows = delta_entry.query([&event.entity_id])?;
-            let current = if let Some(row) = rows.next()? {
+            let (key, document, entry_charge) = if let Some(row) = rows.next()? {
                 let id = row.get_ref(0)?.as_str()?;
                 let source_id = row.get_ref(1)?.as_str()?;
                 let name = row.get_ref(2)?.as_str()?;
@@ -337,31 +344,31 @@ impl SearchView {
                     .saturating_add(extension.len())
                     .saturating_add(5 * STRING_ALLOCATION_OVERHEAD)
                     .saturating_add(size_of::<DeltaDocument>() + 16);
-                if !document_charge.grow(document_bytes) {
-                    return Err(ViewError::MemoryBudget);
-                }
-                Some(Arc::new(DeltaDocument {
+                let entry_charge = BudgetCharge::reserved(budget.clone(), document_bytes)
+                    .ok_or(ViewError::MemoryBudget)?;
+                let document = Arc::new(DeltaDocument {
                     id: Arc::from(id),
                     source_id: Arc::from(source_id),
                     name: Arc::from(name.to_ascii_lowercase()),
                     path: Arc::from(path.to_ascii_lowercase()),
                     extension: Arc::from(extension.to_ascii_lowercase()),
                     modified_at,
-                }))
-            } else {
-                None
-            };
-            drop(rows);
-            let key = if let Some(document) = &current {
-                document.id.clone()
+                });
+                (document.id.clone(), Some(document), entry_charge)
             } else {
                 let tombstone_bytes = event.entity_id.len() + STRING_ALLOCATION_OVERHEAD;
-                if !document_charge.grow(tombstone_bytes) {
-                    return Err(ViewError::MemoryBudget);
-                }
-                Arc::from(event.entity_id.as_str())
+                let entry_charge = BudgetCharge::reserved(budget.clone(), tombstone_bytes)
+                    .ok_or(ViewError::MemoryBudget)?;
+                (Arc::from(event.entity_id.as_str()), None, entry_charge)
             };
-            operations.push((key, current));
+            drop(rows);
+            operations.push((
+                key,
+                DeltaEntry {
+                    document,
+                    _charge: entry_charge,
+                },
+            ));
             processed_unique += 1;
         }
         drop(delta_entry);
@@ -380,26 +387,38 @@ impl SearchView {
             return Err(ViewError::UpdateBudget);
         }
 
-        let next_entries = self.delta.entries.len().saturating_add(operations.len());
+        let added_entries = operations
+            .iter()
+            .filter(|(key, _)| !self.delta.entries.contains_key(key.as_ref()))
+            .count();
+        let next_entries = self.delta.entries.len().saturating_add(added_entries);
         let map_capacity = self.delta.entries.capacity().max(next_entries);
-        // Account for cloned hash buckets and retained document-charge handles
-        // before allocating the next immutable overlay.
+        // Reserve for the cloned hash buckets before allocating the next
+        // immutable overlay. Per-entry charges follow the latest delta value;
+        // readers of the old generation retain its old charges.
         let map_bytes = map_capacity
-            .saturating_mul(size_of::<(Arc<str>, Option<Arc<DeltaDocument>>)>())
+            .saturating_mul(size_of::<(Arc<str>, DeltaEntry)>())
             .saturating_mul(3)
-            .saturating_add(map_capacity.saturating_mul(32))
-            .saturating_add(
-                (self.delta.document_charges.len() + 1) * size_of::<Arc<BudgetCharge>>(),
-            );
+            .saturating_add(map_capacity.saturating_mul(32));
         let map_charge =
             BudgetCharge::reserved(budget, map_bytes).ok_or(ViewError::MemoryBudget)?;
+        let changed_keys = operations
+            .iter()
+            .map(|(key, _)| key.as_ref())
+            .collect::<HashSet<_>>();
         let retained_document_bytes = self
             .delta
-            .document_charges
+            .entries
             .iter()
-            .map(|charge| charge.bytes())
+            .filter(|(key, _)| !changed_keys.contains(key.as_ref()))
+            .map(|(_, entry)| entry._charge.bytes())
             .sum::<usize>()
-            .saturating_add(document_charge.bytes());
+            .saturating_add(
+                operations
+                    .iter()
+                    .map(|(_, entry)| entry._charge.bytes())
+                    .sum::<usize>(),
+            );
         if self
             .base
             ._charge
@@ -412,23 +431,17 @@ impl SearchView {
         }
 
         let mut entries = self.delta.entries.clone();
-        entries.reserve(operations.len());
-        for (key, current) in operations {
-            entries.insert(key, current);
+        entries.reserve(added_entries);
+        for (key, entry) in operations {
+            entries.insert(key, entry);
         }
         drop(operation_charge);
-        let mut document_charges = self.delta.document_charges.clone();
-        document_charges.push(document_charge);
-        let applied_events = usize::try_from(safe_generation - self.generation)
-            .map_err(|_| ViewError::InvalidFeed)?;
         Ok(Self {
             generation: safe_generation,
             base: self.base.clone(),
             delta: Arc::new(DeltaView {
                 entries,
                 _map_charge: map_charge,
-                document_charges,
-                applied_events: self.delta.applied_events + applied_events,
             }),
         })
     }

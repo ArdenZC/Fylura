@@ -440,7 +440,7 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         }
     }
     #[cfg(target_os = "macos")]
-    crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
+    crate::platform::macos::mutation::ensure_path_eligible(source, _target_parent.path())
         .map_err(AtomicMoveError::MacMutationNotSupported)?;
     #[cfg(target_os = "macos")]
     {
@@ -1097,8 +1097,8 @@ fn atomic_replace_uncoordinated(
         return Err(AtomicMoveError::Cancelled);
     }
     let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
-    let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
-    let target_parent =
+    let _target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
+    let _target_parent =
         VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
     let source_claim_path = match planned_source_claim_path {
         Some(path) => source_claim::rebind_claim_path(source, path),
@@ -1109,7 +1109,7 @@ fn atomic_replace_uncoordinated(
         callback(source, target, Some(&source_claim_path))?;
     }
     #[cfg(target_os = "macos")]
-    crate::platform::macos::mutation::ensure_path_eligible(source, target_parent.path())
+    crate::platform::macos::mutation::ensure_path_eligible(source, _target_parent.path())
         .map_err(AtomicMoveError::MacMutationNotSupported)?;
     #[cfg(target_os = "macos")]
     if !crate::platform::macos::strategy::verify_source_retirement_capability(source).eligible {
@@ -1190,17 +1190,17 @@ fn atomic_replace_uncoordinated(
     #[cfg(target_os = "macos")]
     let commit_result = crate::platform::macos::copy::copy_commit_claim(
         &mut source_claim,
-        target_parent,
-        target_name,
+        _target_parent,
+        _target_name,
         cancel,
         None,
     );
     #[cfg(windows)]
     let commit_result = {
-        let same_volume = source_claim.original_volume_id() == target_parent.identity().volume_id;
+        let same_volume = source_claim.original_volume_id() == _target_parent.identity().volume_id;
         if same_volume {
             source_claim
-                .commit_to_with_cancel(target_parent, target_name, cancel)
+                .commit_to_with_cancel(_target_parent, _target_name, cancel)
                 .map(|_| ())
                 .map_err(map_claim_error)
         } else {
@@ -1209,8 +1209,8 @@ fn atomic_replace_uncoordinated(
             } else {
                 copy_commit::copy_commit_claim(
                     &mut source_claim,
-                    target_parent,
-                    target_name,
+                    _target_parent,
+                    _target_name,
                     cancel,
                     None,
                 )
@@ -1330,7 +1330,7 @@ fn atomic_copy_noreplace_uncoordinated(
     #[cfg(not(target_os = "macos"))]
     {
         let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
-        let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
+        let _target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
         let target_parent =
             VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
         if expected_target_parent.is_some_and(|expected| expected != target_parent.identity()) {
@@ -1374,7 +1374,7 @@ fn atomic_copy_noreplace_uncoordinated(
             copy_commit::copy_commit_claim_preserving_source(
                 &mut claim,
                 target_parent,
-                target_name,
+                _target_name,
                 cancel,
                 observer,
             )

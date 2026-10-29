@@ -1275,16 +1275,22 @@ impl Database {
     ) -> Result<GlobalSearchSnapshot, DbError> {
         let mut conn = self.conn()?;
         let transaction = conn.transaction()?;
-        let results =
-            super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
-        self.global_search_view
-            .observe_snapshot(&transaction, query, limit, offset, &results);
+        let execution =
+            super::search::search_global_entries_with_route(&transaction, query, limit, offset)?;
+        self.global_search_view.observe_snapshot(
+            &transaction,
+            query,
+            limit,
+            offset,
+            execution.route,
+            &execution.results,
+        );
         let (source_health, source_revision, enabled_rows) =
             load_snapshot_source_health(&transaction)?;
         let index_status = global_index_status_with_total(&transaction, enabled_rows)?;
         transaction.commit()?;
         Ok(GlobalSearchSnapshot {
-            results,
+            results: execution.results,
             source_health,
             source_revision,
             index_status,

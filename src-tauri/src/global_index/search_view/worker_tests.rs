@@ -6,6 +6,109 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+#[test]
+fn candidate_query_router_short_circuits_sqlite_tiers_empty_sparse_and_ambiguous_queries() {
+    let full_text = SearchRoute {
+        deepest_tier: search::SearchTier::FullText,
+        earlier_tiers_returned_rows: false,
+    };
+    let route = |query, limit, offset, search_route, count| {
+        candidate_probe_route(query, limit, offset, search_route, count)
+    };
+
+    assert_eq!(
+        route("report", 80, 0, full_text, 80),
+        CandidateProbeRoute::Probe("report".into())
+    );
+    assert_eq!(
+        route(
+            "pdf",
+            80,
+            0,
+            SearchRoute {
+                deepest_tier: search::SearchTier::ExactExtension,
+                earlier_tiers_returned_rows: false,
+            },
+            80,
+        ),
+        CandidateProbeRoute::SqliteTier
+    );
+    assert_eq!(
+        route(
+            "Month-03",
+            80,
+            0,
+            SearchRoute {
+                deepest_tier: search::SearchTier::PunctuationPrefix,
+                earlier_tiers_returned_rows: false,
+            },
+            80,
+        ),
+        CandidateProbeRoute::SqliteTier
+    );
+    assert_eq!(
+        route("report", 80, 0, full_text, 0),
+        CandidateProbeRoute::EmptyOrSparse
+    );
+    assert_eq!(
+        route("invoice", 80, 0, full_text, 1),
+        CandidateProbeRoute::EmptyOrSparse
+    );
+    assert_eq!(
+        route("report", 10, 0, full_text, 10),
+        CandidateProbeRoute::EmptyOrSparse
+    );
+    assert_eq!(
+        route("中文查询", 80, 0, full_text, 80),
+        CandidateProbeRoute::UnsupportedQuery
+    );
+    assert_eq!(
+        route(
+            "report",
+            80,
+            0,
+            SearchRoute {
+                deepest_tier: search::SearchTier::FullText,
+                earlier_tiers_returned_rows: true,
+            },
+            80,
+        ),
+        CandidateProbeRoute::SqliteTier
+    );
+}
+
+#[test]
+fn candidate_probe_never_scans_corpora_above_the_measured_100k_budget() {
+    assert!(candidate_probe_corpus_supported(100_000));
+    assert!(!candidate_probe_corpus_supported(100_001));
+    assert!(!candidate_probe_corpus_supported(1_000_000));
+}
+
+#[test]
+fn worker_retry_policy_is_bounded_and_backs_off_after_transient_errors() {
+    let delays = (0..MAX_CONSECUTIVE_RETRIES)
+        .map(|attempt| retry_delay_after_error(&ViewError::UpdateBudget, attempt).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(delays[0], Duration::from_millis(100));
+    assert_eq!(delays[1], Duration::from_millis(200));
+    assert_eq!(delays[2], Duration::from_millis(400));
+    assert!(delays.iter().all(|delay| *delay <= RETRY_MAX_DELAY));
+    assert!(retry_delay_after_error(&ViewError::Database("busy".into()), 0).is_some());
+    assert!(retry_delay_after_error(&ViewError::UpdateBudget, MAX_CONSECUTIVE_RETRIES).is_none());
+    assert!(retry_delay_after_error(&ViewError::MemoryBudget, 0).is_none());
+    assert!(retry_delay_after_error(&ViewError::InvalidFeed, 0).is_none());
+}
+
+#[test]
+fn worker_retry_backoff_cannot_be_bypassed_by_queued_refresh_wakes() {
+    let (sender, receiver) = sync_channel(1);
+    sender.try_send(()).unwrap();
+    let delay = Duration::from_millis(30);
+    let started = Instant::now();
+    assert!(wait_for_retry_delay(&receiver, delay));
+    assert!(started.elapsed() >= delay);
+}
+
 fn candidate_ids(view: &SearchView, query: &str, budget: Arc<MemoryBudget>) -> Vec<String> {
     view.candidate_window(query, budget)
         .unwrap()
@@ -32,7 +135,7 @@ fn refresh_worker_rebuilds_incrementally_and_falls_back_on_source_invalidation()
         std::process::id()
     ));
     remove_database(&path);
-    let database = Database::open(&path).unwrap();
+    let database = Database::open_with_search_change_feed_for_test(&path, true).unwrap();
     let mut conn = database.conn().unwrap();
     conn.execute(
         "INSERT INTO global_volumes (id, platform, stable_volume_id, display_name, mount_path, filesystem_type, drive_kind, enabled, provider, index_status, created_at, updated_at) VALUES ('worker-volume', 'windows', 'worker-volume-id', 'Worker fixture', 'C:\\Synthetic', 'ntfs', 'fixed', 1, 'windows_mft', 'ready', 1, 1)",

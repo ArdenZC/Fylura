@@ -2,21 +2,52 @@
 
 ## Decision
 
-**NO-GO for Stage B or production routing.** This branch keeps the SQLite search result authoritative and leaves the shadow worker disabled by default. The latest Windows and Apple Silicon macOS 100k/500k/1M matrix completed successfully, but `pdf` and `Month-03` candidate windows diverge from FTS/BM25 at the 4,096 window on every native size; `Month-03` also returns a different first page. Candidate-only p95 exceeds 100 ms for high-hit and zero-hit queries at 1M. The full existing route also exceeds the historical 100 ms p95 gate for high-hit queries on Windows at 500k and both platforms at 1M. These correctness and latency failures block Stage B.
+**NO-GO for Stage B or production routing.** This branch keeps the SQLite search result authoritative and leaves the shadow worker disabled by default. The prior Windows and Apple Silicon macOS 100k/500k/1M matrix found `pdf` and `Month-03` candidate-window differences from FTS/BM25 at all sizes; `Month-03` also returned a different first page. Candidate-only p95 exceeded 100 ms for high-hit and zero-hit queries at 1M. The full existing route also exceeded the historical 100 ms p95 gate for high-hit queries on Windows at 500k and both platforms at 1M. The exact follow-up native run is pending; these correctness and latency failures continue to block Stage B.
+
+## Current remediation snapshot — 2026-10-29
+
+This section supersedes older implementation/status statements below where they conflict. The follow-up starts from PR head `d2e2a24b2c2e370ec82934b63b9e69c9d48c6e3a`, merged with master `0626e2f6` in local merge `5878469d2a3dd9438cb0824b0bd95b489c0b556f`. The final follow-up SHA, exact-head CI, and paired native write-cost artifacts will be recorded after delivery.
+
+### Search contract and router
+
+The existing SQLite order remains the only user-visible contract: exact name → name prefix → exact extension → extension prefix → FTS/BM25 or punctuation-prefix. The shadow view only observes a production page and cannot provide visible results. Candidate B still chooses `modified_at DESC, id ASC`; matching a few fixture queries is not evidence that this order is interchangeable with BM25.
+
+| Query/shape | Production SQLite route | Shadow action | Result authority |
+| --- | --- | --- | --- |
+| `report`, `invoice` | FTS/BM25 only when earlier tiers did not fill the page | Eligible only for a first page of at least 80 rows, entirely ASCII letters, and a current view with at most 100,000 indexed entries; candidate IDs are compared with SQLite | SQLite |
+| `pdf` | Exact extension when that tier returns rows | Skip | SQLite |
+| `Month-03`, path punctuation | Punctuation-prefix tier | Skip | SQLite |
+| `jp` | Extension-prefix / SQLite route (two-character query) | Skip: below Candidate B's three-character minimum | SQLite |
+| Chinese, accented Unicode | Existing FTS route when applicable | Skip: outside ASCII candidate contract | SQLite |
+| Zero-hit, sparse page, offset page, or limit below 80 | Existing indexed route | Skip before the candidate scan, using the production route and returned row count | SQLite |
+| Duplicate names with rows from an earlier tier | Existing tier precedence with stable ID de-duplication | Skip because an earlier tier contributed | SQLite |
+| Corpus above 100,000 entries, including 500k and 1M | Existing indexed route | Skip before candidate traversal | SQLite |
+
+The route uses the actual deepest production tier and whether an earlier tier contributed; it does not guess from query spelling. It does not scan Candidate B first to classify a zero or sparse query. The independent SQL search tests preserve exact IDs and ordering for the synthetic cases, including duplicates and the 4,096 bound. The candidate oracle remains diagnostic only. No trigram or other second in-memory retrieval index was added: narrowing substring membership cannot preserve BM25 top-K order or remove SQLite's scoring work, and the extra memory/update cost would not authorize visible routing. The shadow probe is bounded to 100k entries; higher-volume and ambiguous classes stay on SQLite before candidate traversal. This is a safe routing boundary, not a fix for the separately measured SQLite latency misses at 500k/1M. A future retrieval index needs a proven BM25-preserving design and native resource evidence before it can help production.
+
+### Default write path and worker recovery
+
+Ordinary `Database::open()` now removes only this feature's stale write triggers and does not install the optional sidecar triggers. `ZEN_CANVAS_GLOBAL_SEARCH_SHADOW=1` explicitly installs the feed and starts the shadow worker; a normal reopen disables those triggers but retains the disposable sidecar tables. The test-only A/B/C fixture entry point selects feed and worker state without changing normal migration behavior. SQLite remains the source of truth, and the main schema migration version is unchanged.
+
+The worker applies bounded batches and retries transient `UpdateBudget` and SQLite errors after 100 ms exponential backoff capped at 5 seconds, up to five retries. Memory-budget refusal, feed/source invalidation, and exhausted retries disable the worker; SQLite continues returning the complete page. The explicit `get_global_search_view_diagnostics` command returns feed/view generations and lag, saturation/fallback reason, memory accountant used/peak, refresh/build/update counts, comparison equality, route skips, retry/exhaustion, memory refusal, and database errors. It reports aggregates only and is queried on demand, so search requests do not pay diagnostic SQL work.
+
+The write benchmark measures paired A (no feed), B (feed/worker off), and C (feed/worker on), with D-style high-frequency rename/move/delete/restore transactions, at 100k, 500k, and 1M. It verifies trigger/sidecar presence, records seed and transaction timings, update p50/p95/p99, feed saturation, worker catch-up, WAL growth after a clean checkpoint with auto-checkpoint disabled, process I/O counters, CPU, and RSS. WAL growth is SQLite logical log bytes, not physical-device bytes. Process I/O counters are process-wide, not attributable to this database.
+
+Default-off no longer adds the feature's trigger work. Feed-enabled write overhead is an explicit Stage A cost, not a reason to enable the worker. A dedicated 30-minute opt-in worker idle benchmark records generation, memory-accountant, RSS, and process CPU stability on Windows and Apple Silicon macOS; application private bytes, low-memory OS pressure, volume/source lifecycle write cost, and production performance still require separate qualification. Stage B stays NO-GO until semantic, latency, and resource gates pass.
 
 ## Scope and safety
 
-- The original candidate qualification was based on master `df940915084b810101a8a3eb78796cdf8730d55b` (tree `fa65a8fd1fe6f45a774024f575010c1928292ae4`). This PR includes master `53efe62e75c291e365058365426ac788b93688d8` for the latest Global Index authorization schema and is now synced through master `a0716c0adfe0677dcb6e554d835f63c30a3a88db` (tree `79b07d31908584ccf1565bdc82065a5c0f2010c3`).
+- The original candidate qualification was based on master `df940915084b810101a8a3eb78796cdf8730d55b` (tree `fa65a8fd1fe6f45a774024f575010c1928292ae4`). This PR includes master `53efe62e75c291e365058365426ac788b93688d8` for the latest Global Index authorization schema and was later synced through master `a0716c0adfe0677dcb6e554d835f63c30a3a88db`; the current follow-up also merges master `0626e2f6`.
 - #495 remains a separate research Draft PR. Its static view did not provide a durable generation, bounded incremental feed, or production resource proof. This branch does not cherry-pick its branch or dependency changes.
 - The main schema migration chain remains untouched. The optional feed is additive and self-versioned, so it does not claim or change `PRAGMA user_version`; this avoids collision with the independent #489 authorization migration. When the optional `scope_authorization_state` column exists, an invalidation trigger is installed and validated.
 - SQLite remains the durable source of file and source facts. Installation does not scan or copy indexed rows. A bounded feed records up to 100,000 events; saturation invalidates incremental use until a full snapshot safely resets the feed.
 - `ZEN_CANVAS_GLOBAL_SEARCH_SHADOW=1` is required to start the worker. The worker builds an immutable compact view, applies at most 5,000 generations per batch with a 50 ms work target, and refuses publication on gaps, source changes, budget failure, or stale generations. The SQLite route still produces every visible result. Exact-name, name-prefix, exact-extension, extension-prefix, and BM25 SQL remain unchanged.
-- The sidecar tables and triggers are installed when the database opens, even while the worker is off. The PR's Windows/macOS ingestion smoke jobs passed at 1k synthetic rows, but each used one repeat and no no-feed control; marginal trigger write cost is still unqualified.
+- Historical state before this follow-up installed sidecar triggers on ordinary opens. The current follow-up disables owned write triggers on ordinary opens and installs them only for explicit shadow runs. Prior Windows/macOS 1k smoke runs were not a no-feed comparison; local paired write-cost evidence is below and native paired runs are pending.
 - No test accesses a user disk or indexes a real volume. Scale fixtures write synthetic rows through the real schema and FTS/change triggers in a temporary database.
 
 ## Correctness evidence
 
-Targeted Rust view tests: **9 passed, 0 failed** (plus one ignored scale qualification). Change-feed tests: **6 passed, 0 failed**. The schema-44 legacy source migration fixture test passed **1/1** after it was updated to remove the optional authorization trigger before dropping that schema column. `cargo check --lib`, formatting, governance checks, and Clippy passed for the changed modules. The repository's exact Linux `desktop-runtime --all-targets -- -D warnings` command is blocked by existing OS-gated unused-variable and dead-code warnings in `fs_safety` and `startup_upgrade`; Clippy passes when only those two Linux-only warning classes are allowed. On the original candidate source, Windows and macOS full Rust quality, native service qualification, Release builds, performance profile, and quality aggregate all passed in CI. The first macOS Rust test attempt ended with a process-level `SIGBUS` and no failed assertion; its full rerun passed, including Rust tests, Clippy, native lifecycle, and race checks. After syncing the latest master, the search-view tests passed **9/9**, change-feed tests **6/6**, and the schema-44 fixture test **1/1** locally. PR CI run 40823681818 exposed a Windows watcher test assertion that required exactly one coordinator cycle after a file event; one event can produce multiple notifications and valid incremental cycles. The test fix accepts one or more recovery cycles, requires a new delivered wake, and retries fixture-directory cleanup. The next head run exposed Clippy's `int_plus_one` warning for `calls >= error_calls + 1`; commit `2e6e56b75edc6526f2f77713155333fa8e5d0f4b` uses the equivalent `calls > error_calls`. PR CI run **40829744164** and ingestion smoke run **40829744126** completed successfully at code head `9db9966ced6b06b9b23cf2ddd91ccc89aaeb42a4`. After merging master `a0716c0adfe0677dcb6e554d835f63c30a3a88db`, PR CI run **40832014785** completed successfully at `35971d3f9a0fadd2d8fd9dd43dac9cba48b1561f`, including Windows and macOS Rust quality, Windows watcher durable event regression, Windows service qualification, Release builds, and native performance. The current PR documentation update does not change that source code. Ingestion run **40832014818** also passed the 1k-row smoke on both Windows and macOS; the larger paired A/B/C/D experiment was skipped by the pull-request event condition, so marginal trigger write cost remains unqualified. Raw smoke artifacts: [Windows](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40832014818/artifacts/12879008504) and [macOS](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40832014818/artifacts/12879122951). The tests cover independent ASCII substring oracles, stable Top-K and the 4,096 window, punctuation/path/extension cases, insert/delete/rename/move/stale/source disable, actual repository writes, transaction rollback, feed saturation and gaps, the optional authorization trigger, low-memory refusal, database reopen/rebuild, worker refresh behavior, and a reader holding the prior immutable generation while an update is built.
+Final local follow-up validation: 15 search-view tests passed, 7 change-feed tests passed, and the explicit trigger lifecycle test passed 1/1. The three ignored search-view cases are manual scale, paired-write, and 30-minute idle qualifications. The idle harness passed a 1-second smoke with stable generation, accounted memory, build count, and retries; the native 30-minute run is pending. `cargo fmt -- --check`, `npm run test:governance`, and the `npm run dev:preflight -- --plan` selection passed. `cargo clippy --all-targets -- -D warnings` passed after platform-gating the Windows/macOS-only startup-dialog helpers and correcting Linux-only unused local names. The current Windows/macOS CI and native qualification are pending after the follow-up push.
 
 ### Evidence source identity
 
@@ -47,9 +78,40 @@ One 512-event incremental update batch applied in 2.59 ms. The in-code memory ac
 
 The process sampler observed 159.3 MB peak RSS during view construction (132.7 MB above pre-build RSS), 151.7 MB peak during the 30-second idle interval, and 274.7 MB during the later query/update workload. These process figures include SQLite page residency, FTS pages, and the test process, so they cannot be attributed to B alone. The idle average was 1.34% with a noisy 56% sampled peak; incremental CPU had too few samples to report. Native application RSS, worker CPU, and long-duration stability remain unqualified.
 
-## Latest Windows and macOS Release qualification
+## Linux Release paired Change Feed write-cost evidence
 
-The latest [native qualification workflow](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40822120096) passed all six Windows/macOS runs at 100k, 500k, and 1M rows. Each fixture used the application schema, FTS/change triggers, synthetic rows, 5 warmups, and 30 measured samples. It records B-only, FTS-only, full SQLite search, and snapshot endpoint p50/p95/p99 for `report`, `invoice`, `pdf`, `jp`, `Month-03`, zero-hit, Chinese, and accented queries.
+Machine: Linux x86_64 container, Rust 1.97.1, Release test profile. One 100k synthetic fixture was seeded independently for each A/B/C scenario in the same benchmark process and database schema. Before measuring, the benchmark disabled WAL auto-checkpointing, truncated/checkpointed the seed WAL, and verified a non-busy checkpoint with zero pending frames. Each update group used 5 warmups and 30 measured transactions. WAL figures are append-only logical SQLite WAL bytes for that group. The process I/O counters reported zero throughout this run despite measured WAL growth, so they are unavailable evidence here; this report does not interpret zero counters as zero writes.
+
+| Scenario | Feed / worker verified | Seed seconds | Single update p50/p95/p99 ms | 512 updates p50/p95/p99 ms | 5,000 updates p50/p95/p99 ms | Peak process RSS MiB |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| A, no feed | 0 triggers, no sidecar | 8.34 | 0.08 / 0.22 / 0.24 | 30.34 / 38.31 / 45.78 | 305.91 / 523.82 / 607.80 | 123.0 |
+| B, feed, worker off | 7 triggers, sidecar present | 9.04 | 0.14 / 0.26 / 0.29 | 33.66 / 39.96 / 50.90 | 353.17 / 566.22 / 656.13 | 129.1 |
+| C, feed and worker on | 7 triggers, sidecar present | 9.14 | 0.22 / 0.34 / 0.37 | 33.59 / 39.57 / 53.05 | 352.04 / 547.41 / 652.62 | 165.7 |
+
+| Scenario | WAL growth for 1 / 512 / 5,000 updates MiB | D-style mixed transaction p50/p95/p99 ms | D WAL growth MiB | D wall time ms |
+| --- | ---: | ---: | ---: | ---: |
+| A, no feed | 1.90 / 35.06 / 300.40 | 2.97 / 3.98 / 12.65 | 22.35 | 346 |
+| B, feed, worker off | 2.48 / 38.65 / 314.92 | 3.52 / 4.26 / 13.51 | 26.16 | 405 |
+| C, feed and worker on | 3.00 / 38.47 / 321.90 | 3.80 / 4.74 / 14.32 | 26.31 | 437 |
+
+Against A, B's write p95 was 20.8%, 4.3%, and 8.1% higher for one, 512, and 5,000 updates; C was 58.3%, 3.3%, and 4.5% higher. The one-row p95 changes were 0.05 ms for B and 0.13 ms for C, and are sensitive to scheduling noise. WAL growth was 30.6%, 10.2%, and 4.8% higher for B, and 58.0%, 9.7%, and 7.2% higher for C. The B 5,000-update group saturated its bounded feed; C did not. C's worker completed 1 full build and 205 incremental batches, ended at generation lag 0, used 15,581,432 accounted bytes (18,822,034 peak), and recorded no retries or errors. The D-style workload ran 100 transactions of 50 operations, alternating rename, move, delete, and restore patterns. Process RSS includes the database and test fixture, so it is not attributed to the worker. These Linux measurements are a single-run screening result; native repeated A/B/C/D evidence follows in the Windows/macOS workflow. Raw logs: [100k paired writes](evidence/linux-x86_64-release-write-cost-100k.log).
+
+## Linux Release 500k resource and query preflight
+
+The 500k synthetic fixture completed the Release qualification on the same Linux container before the gated native 1M jobs. The bounded view used 57,155,648 bytes active (54.5 MiB); building a replacement while the old view remained retained peaked at 114,541,321 bytes (109.2 MiB), then returned to 57,155,648 bytes and reached zero after both views were dropped. View build took 658 ms and the 512-event delta applied in 1.82 ms. The code accountant stayed below the 160 MiB active-view and 256 MiB total limits.
+
+| Query | B view p95 ms | FTS-only p95 ms | Full SQLite p95 ms | Snapshot p95 ms | Membership / order / first-page check |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `report` (25k matches) | 51.10 | 88.68 | 75.99 | 74.98 | yes / yes / yes |
+| `invoice` (25k matches) | 61.17 | 95.62 | 88.40 | 78.84 | yes / yes / yes |
+| `pdf` (103,125 matches) | 51.30 | 198.86 | 0.61 | 1.25 | no / no / yes; exact-extension production tier wins |
+| zero-hit ASCII query | 101.95 | 0.09 | 0.63 | 0.75 | yes / yes / yes |
+
+The zero-hit probe exceeded 100 ms but is skipped by the current router before Candidate B traversal; the production SQLite route returned in 0.63 ms. `Month-03` used the punctuation-prefix route and returned in 0.43 ms; two-character `jp`, Chinese, and accented queries remained SQLite-only. The 100k shadow-probe cap keeps all these 500k Candidate B measurements diagnostic and prevents production queries from traversing the 500k view. Whole-process RSS was 680 MiB after the build and peaked at 1,218 MiB during the later update workload; those values include the SQLite database, FTS cache, and fixture and are not attributable to B. The 30-second no-worker idle sample averaged 1.12% process CPU with a noisy 30.2% sampled peak. This preflight clears the view-accounting gate for the staged matrix but does not certify private RSS, OS low-memory behavior, or production routing. Raw log: [500k view preflight](evidence/linux-x86_64-release-view-preflight-500k.log).
+
+## Prior Windows and macOS Release qualification
+
+The prior [native qualification workflow](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40822120096) passed all six Windows/macOS runs at 100k, 500k, and 1M rows. Each fixture used the application schema, FTS/change triggers, synthetic rows, 5 warmups, and 30 measured samples. It records B-only, FTS-only, full SQLite search, and snapshot endpoint p50/p95/p99 for `report`, `invoice`, `pdf`, `jp`, `Month-03`, zero-hit, Chinese, and accented queries. This is prior-head evidence. The follow-up workflow runs 100k/500k preflight jobs first, gates the 1M Release jobs on those results, and adds paired A/B/C writes plus a 30-minute worker-idle run; those jobs are pending.
 
 | Runner / rows | B `report` p50/p95/p99 ms | B `invoice` p50/p95/p99 ms | FTS-only `report` / `invoice` p95 ms | Full SQLite `report` / `invoice` / `jp` p95 ms | Snapshot `report` / `invoice` / `jp` p95 ms |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -82,9 +144,9 @@ The full [PR CI run](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803153
 ## Remaining qualification gates
 
 - Resolve FTS/BM25 membership, order, and pagination mismatches for `pdf` and `Month-03` before enabling Stage B.
-- Preserve the 100 ms p95 gate. The current full route misses it for high-hit Windows 500k and both 1M native fixtures; B-only p95 also misses it at 1M and for Windows 500k zero-hit. Improve the candidate generation and ranking path without degrading exact-name, prefix, or extension tiers.
-- Measure marginal Change Feed trigger cost against a no-feed control at realistic write volumes on Windows and macOS; the automatic 1k smoke is not sufficient.
-- Capture application startup RSS, private bytes during build/update, worker CPU, and longer idle stability. Current RSS is from a standalone synthetic process and includes SQLite/FTS page residency; incremental CPU had too few samples.
+- Preserve the 100 ms p95 gate. The existing full SQLite route missed it for high-hit Windows 500k and both 1M native fixtures. Historical full-scan B-only p95 also missed it at 1M and for Windows 500k zero-hit; the current router skips B above 100k. Improve the SQLite production baseline and any future candidate path without degrading exact-name, prefix, or extension tiers.
+- Complete the gated native 100k/500k/1M paired Change Feed write measurements and report feed cost, saturation, and worker catch-up on Windows and macOS.
+- Complete the native 30-minute idle run, then capture application startup RSS/private bytes, worker CPU attribution, OS low-memory behavior, and volume/source lifecycle write cost. Current process RSS includes SQLite/FTS page residency and is not a B-only attribution.
 - Keep the default SQLite route and opt-in shadow-only worker until correctness, resource attribution, and latency gates pass. Do not enable B for user-visible routing.
 
 ## Enable and rollback

@@ -80,6 +80,41 @@ pub(crate) fn install(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Remove only the disposable feed's write hooks when Stage A is not
+/// requested. Tables may remain for a later opt-in open, but ordinary index
+/// writes no longer pay the trigger and sidecar insertion cost.
+pub(crate) fn disable_write_triggers(conn: &Connection) -> Result<(), DbError> {
+    let trigger_names = [
+        "global_search_changes_entry_ai",
+        "global_search_changes_entry_ad",
+        "global_search_changes_entry_au",
+        "global_search_changes_source_ai",
+        "global_search_changes_source_ad",
+        "global_search_changes_source_au",
+        "global_search_changes_scope_authorization_au",
+    ];
+    let has_trigger = trigger_names.iter().try_fold(false, |found, name| {
+        Ok::<_, DbError>(
+            found
+                || conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE type='trigger' AND name=?1)",
+                    [name],
+                    |row| row.get::<_, bool>(0),
+                )?,
+        )
+    })?;
+    if !has_trigger {
+        return Ok(());
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    for name in trigger_names {
+        tx.execute_batch(&format!("DROP TRIGGER IF EXISTS {name}"))?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub(crate) fn validate(conn: &Connection) -> Result<(), DbError> {
     if !relation_exists(conn, "table", "global_search_change_state")?
         || !relation_exists(conn, "table", "global_search_changes")?
@@ -238,6 +273,17 @@ pub(crate) fn reset_after_full_snapshot(
     )?;
     tx.commit()?;
     Ok(true)
+}
+
+/// Isolate a controlled feed-enabled benchmark cohort after seeding. This is
+/// test-only and has no search view to publish; it must never be used by the
+/// application refresh path.
+#[cfg(test)]
+pub(crate) fn reset_for_controlled_benchmark(
+    conn: &mut Connection,
+    captured_generation: i64,
+) -> Result<bool, DbError> {
+    reset_after_full_snapshot(conn, captured_generation)
 }
 
 #[cfg(test)]

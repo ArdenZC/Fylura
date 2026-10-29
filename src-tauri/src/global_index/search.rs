@@ -22,6 +22,32 @@ const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 // but never turns a keystroke into an unbounded result materialization.
 const MAX_TIER_CANDIDATES: u32 = 4_096;
 
+/// The deepest SQLite tier consulted while constructing a production page.
+/// This is execution metadata for the opt-in shadow observer; it never changes
+/// which tier owns visible results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SearchTier {
+    Empty,
+    ExactName,
+    NamePrefix,
+    ExactExtension,
+    ExtensionPrefix,
+    FullText,
+    PunctuationPrefix,
+    CandidateCap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SearchRoute {
+    pub(crate) deepest_tier: SearchTier,
+    pub(crate) earlier_tiers_returned_rows: bool,
+}
+
+pub(crate) struct SearchExecution {
+    pub(crate) results: Vec<GlobalSearchResult>,
+    pub(crate) route: SearchRoute,
+}
+
 #[cfg(test)]
 std::thread_local! {
     static KEY_ONLY_CTE_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -156,22 +182,48 @@ pub(crate) fn search_global_entries_on_connection(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    Ok(search_global_entries_with_route(conn, query, limit, offset)?.results)
+}
+
+/// Runs the production search and returns the actual SQLite tier route used.
+/// The shadow view consumes this metadata to reject exact, prefix, extension,
+/// punctuation, sparse, and capped searches without another database query.
+pub(crate) fn search_global_entries_with_route(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+    offset: u32,
+) -> Result<SearchExecution, DbError> {
     #[cfg(test)]
     extension_recency_probe::page(limit, offset);
     let query = query.trim();
     if query.is_empty() {
-        return Ok(Vec::new());
+        return Ok(SearchExecution {
+            results: Vec::new(),
+            route: SearchRoute {
+                deepest_tier: SearchTier::Empty,
+                earlier_tiers_returned_rows: false,
+            },
+        });
     }
 
     let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
     let offset = offset.min(MAX_SEARCH_OFFSET);
     if offset >= MAX_TIER_CANDIDATES {
-        return Ok(Vec::new());
+        return Ok(SearchExecution {
+            results: Vec::new(),
+            route: SearchRoute {
+                deepest_tier: SearchTier::CandidateCap,
+                earlier_tiers_returned_rows: false,
+            },
+        });
     }
 
     let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
     let mut results = Vec::with_capacity(target as usize);
     let mut seen = HashSet::new();
+    let mut deepest_tier = SearchTier::ExactName;
+    let mut earlier_tiers_returned_rows = false;
 
     let tier_limit = layer_limit(target, seen.len());
     append_unique(
@@ -181,6 +233,8 @@ pub(crate) fn search_global_entries_on_connection(
         target,
     );
     if results.len() < target as usize {
+        deepest_tier = SearchTier::NamePrefix;
+        earlier_tiers_returned_rows = !results.is_empty();
         let tier_limit = layer_limit(target, seen.len());
         append_unique(
             &mut results,
@@ -190,6 +244,8 @@ pub(crate) fn search_global_entries_on_connection(
         );
     }
     if results.len() < target as usize {
+        deepest_tier = SearchTier::ExactExtension;
+        earlier_tiers_returned_rows = !results.is_empty();
         let tier_limit = layer_limit(target, seen.len());
         append_unique(
             &mut results,
@@ -199,6 +255,8 @@ pub(crate) fn search_global_entries_on_connection(
         );
     }
     if results.len() < target as usize {
+        deepest_tier = SearchTier::ExtensionPrefix;
+        earlier_tiers_returned_rows = !results.is_empty();
         let tier_limit = layer_limit(target, seen.len());
         append_unique(
             &mut results,
@@ -213,6 +271,8 @@ pub(crate) fn search_global_entries_on_connection(
             .chars()
             .all(|character| character.is_alphanumeric() || character.is_whitespace())
         {
+            deepest_tier = SearchTier::FullText;
+            earlier_tiers_returned_rows = !results.is_empty();
             let tier_limit = layer_limit(target, seen.len());
             append_unique(
                 &mut results,
@@ -221,6 +281,8 @@ pub(crate) fn search_global_entries_on_connection(
                 target,
             );
         } else if !query.is_empty() {
+            deepest_tier = SearchTier::PunctuationPrefix;
+            earlier_tiers_returned_rows = !results.is_empty();
             let tier_limit = layer_limit(target, seen.len());
             append_unique(
                 &mut results,
@@ -231,11 +293,17 @@ pub(crate) fn search_global_entries_on_connection(
         }
     }
 
-    Ok(results
-        .into_iter()
-        .skip(offset as usize)
-        .take(limit as usize)
-        .collect())
+    Ok(SearchExecution {
+        results: results
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect(),
+        route: SearchRoute {
+            deepest_tier,
+            earlier_tiers_returned_rows,
+        },
+    })
 }
 
 fn layer_limit(target: u32, seen: usize) -> u32 {

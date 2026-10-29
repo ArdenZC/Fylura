@@ -1,8 +1,59 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-27
+Last verified: 2026-10-29 (active snapshot; dated records below retained)
+
+## Active execution snapshot — 2026-10-29
+
+This short section supersedes dated status claims below. For changing facts, check
+the linked PR/Issue and the current remote `master`; do not treat historical
+HEADs, Draft labels or Hosted CI results as native release qualification.
+
+- **Integrated baseline:** `master@264326659326bf81ff4d018d5ab3f19f2186aa87`.
+  [Master CI 40818041649](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40818041649)
+  completed **SUCCESS**, including the post-#504 real-Chromium W2-11 gate.
+  This is CI evidence, **not** whole-product native GUI or Release acceptance.
+- **Recent completed delivery:** #489 (Windows Global Index explicit volume authorization),
+  #496 (opt-in preflight + CI failure digest), #498 (Rust lint early checks),
+  #499 (RustSec patch), #501 (U3/U4 browser and exact fixture handoff),
+  #503 (W2-11 Blob lifecycle diagnostics), and #504 (pending-image Blob URL
+  cleanup correction) are merged. #502 remains **OPEN** because the historical
+  intermittent failure's precise cause was not independently proven.
+- **Next product acceptance:** [#487](https://github.com/ArdenZC/Zen-Canvas/issues/487)
+  is the consolidated Windows/macOS native whole-product test: File Library U1–U5,
+  actual file operations/Restore, Global Index/Search, permissions, cancellation,
+  read/preview and recovery. A green browser mock does not close this gate.
+  [#486](https://github.com/ArdenZC/Zen-Canvas/pull/486) U5 remains Draft
+  with native GUI acceptance unverified; do not silently merge it.
+- **Index Scope still unfinished:** [#370](https://github.com/ArdenZC/Zen-Canvas/issues/370)
+  and [#371](https://github.com/ArdenZC/Zen-Canvas/issues/371) cover
+  Smart Lean / low-value-file exclusion and migration. Explicit Windows volume
+  authorization in #489 is **not** a completed low-value exclusion policy.
+  Preserve existing-user coverage until scope/migration decisions are accepted.
+- **Independent Search performance track:** [#494](https://github.com/ArdenZC/Zen-Canvas/issues/494)
+  owns 1M FTS latency and relevance decisions; Drafts #495 (A/B oracle) and
+  #497 (NO-GO shadow candidate) do not constitute a production Search speedup.
+  Do not alter another active owner's production search branch from this track.
+- **CI and backlog disposition:** Prepared binary and fixture caches showed hits
+  on recent master runs. #500 was **closed unmerged** for no measured incremental
+  Rust-cache benefit; exploratory #490/#491/#492 and stale status #392 were
+  also closed **unmerged**, retaining their historical evidence. Other
+  unfinished production, security and native candidates remain individually
+  reviewable; no blanket Draft purge or release readiness is claimed.
+
+### Current work-start rule
+
+For ordinary Codex tasks use `AGENTS.md → this Active execution snapshot
+→ the current linked Issue/PR → relevant owning source/tests`. The dated
+entries below are useful historical evidence, **not newer project state**.
+For a normal scoped change, implement and test in one coherent PR; only
+additional high-risk claims need extra validation. Coordinate overlapping
+production modules before parallel edits.
+
+---
 
 ## Current execution truth
+
+> **Historical, date-bound records below.** For current work consult the Active execution snapshot above and live PR/Issue status.
 
 - **U4 File Library Inspector, notes and file favorites — Draft #484; Owner review pending.**
   Issue [#482](https://github.com/ArdenZC/Zen-Canvas/issues/482), based on latest
@@ -464,7 +515,7 @@ Activation PR #316 is merged at the exact implementation base 91589a89974324e821
 - Organization Plan authoritative safe-preview degradation: **ENVIRONMENT-SPECIFIC**; supported-native fixture reproduction remains required and must stay fail-closed.
 - Global Index unavailable / zero-source state: **ACCEPTED DEFER**; exact-head native source/state truth remains to be re-evaluated.
 - Browse first-scan / recovery friction: **ACCEPTED DEFER**; exact-head native first-launch/restart recovery remains to be re-evaluated.
-- W6-09 status: **COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED**. Production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has fresh hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. The accepted production baseline `88fc663392371049fda2d71b85bd4815d073bfe0` (tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`) and its functional/native evidence remain unchanged. The exact Windows visual evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows\` with package `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`.
+- W6-09 status: **COMPLETE / CLOSED — OWNER WINDOWS NATIVE PRODUCT ACCEPTANCE PASS; SOLID / CALM WINDOWS VISUAL ACCEPTANCE PASS; FULL SUPPORTED-PLATFORM NATIVE PASS NOT CLAIMED**. Production source `8fd246476e025636d4606a44d23688865ab89cc2` / tree `475a8d0e0295abbe37b3afa115738fa3602785e7` has fresh hosted CI [35685110417](https://github.com/ArdenZC/Zen-Canvas/actions/runs/35685110417) — **SUCCESS**. The accepted production baseline `88fc663392371049fda2d71b85bd4815d073bfe0` (tree `5ca511f055b02bb511bc0873ffc5c2a2d26efadf`) and its functional/native evidence remain unchanged. The exact Windows visual evidence is retained externally at `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888\windows` with package `F:\CargoTarget\w6-09-solid-calm-owner-review-00787888.zip`.
 - Final closeout authority: [W6-09 Whole-Product Native Regression — Closeout Result](tasks/W6-09-WHOLE-PRODUCT-NATIVE-REGRESSION-CLOSEOUT-RESULT.md). Evidence package SHA-256 is `43236C3E82ACF409261436E598EBE191EA048715CCCB2832C84795C705F0BEF8`. W6-10A is **COMPLETE / CLOSED / MERGED**. W6-10B historical RC1 qualification is **FAIL / BLOCKED**, while R1 diagnosis proves **RC1 clean-profile startup PASS**. Owner has retained RC1 for a separate clean-profile requalification and has not authorized RC2. W6-10C remains **ELIGIBLE / NOT ACTIVE**; publication remains deferred.
 
 ## W6-07 closeout record

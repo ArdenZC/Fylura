@@ -1,14 +1,23 @@
 /** Focused U3 product workflow. Browser mock only; never native filesystem evidence. */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { createServer } from "vite";
+import { assertCheckoutEvidence } from "./ciEvidence.mjs";
 
+const actualCheckoutSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const actualCheckoutTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
+const sourceHead = process.env.U3_SOURCE_HEAD ?? actualCheckoutSha;
+const expectedCheckoutSha = process.env.U3_EXPECTED_CHECKOUT_SHA;
+if (expectedCheckoutSha) assertCheckoutEvidence(expectedCheckoutSha, actualCheckoutSha);
 const output = path.resolve(process.env.U3_OUTPUT_DIR ?? ".tmp-tests/u3-browser");
 await mkdir(output, { recursive: true });
-const server = await createServer({ server: { host: "127.0.0.1", port: 5174, strictPort: true } });
+const server = await createServer({ server: { host: "127.0.0.1", port: 0, strictPort: false } });
 await server.listen();
+const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
+if (!baseUrl) throw new Error("U3 browser gate: Vite did not expose a local URL.");
 const browser = await chromium.launch({ headless: true });
 const errors = [];
 const checks = [];
@@ -23,7 +32,7 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   const screenshot = (name) => page.screenshot({ path: path.join(output, name), fullPage: false });
-  await page.goto("http://127.0.0.1:5174/?browser-mock=1");
+  await page.goto(`${baseUrl}/?browser-mock=1`);
   await page.getByRole("button", { name: "Files", exact: true }).click();
   assert.equal(await page.title(), "Zen Canvas");
   const left = page.locator("[data-pane-id]").first();
@@ -130,7 +139,7 @@ try {
     Object.defineProperty(navigator, "platform", { get: () => "Win32" });
     localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "zh");
   });
-  await chinese.goto("http://127.0.0.1:5174/?browser-mock=1");
+  await chinese.goto(`${baseUrl}/?browser-mock=1`);
   await chinese.getByRole("button", { name: "文件", exact: true }).click();
   const chinesePane = chinese.locator("[data-pane-id]").first();
   await chinesePane.getByRole("button", { name: "编辑路径（Ctrl/Cmd+L）", exact: true }).click();
@@ -143,8 +152,8 @@ try {
   checks.push("Chinese and English, light and dark, 820/980/1280/1600 widths without page overflow");
   assert.equal(await page.locator("vite-error-overlay").count(), 0);
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, "checks.json"), JSON.stringify({ environment: "Playwright Chromium / browser mock / simulated Windows renderer", viewports: ["1600x1000", "1280x800", "980x800", "820x800"], checks, errors }, null, 2));
-  console.log(JSON.stringify({ result: "PASS", output, checks }, null, 2));
+  await writeFile(path.join(output, "checks.json"), JSON.stringify({ sourceHead, actualCheckoutSha, actualCheckoutTree, environment: "Playwright Chromium / browser mock / simulated Windows renderer", viewports: ["1600x1000", "1280x800", "980x800", "820x800"], checks, errors }, null, 2));
+  console.log(JSON.stringify({ result: "PASS", sourceHead, actualCheckoutSha, actualCheckoutTree, output, checks }, null, 2));
 } catch (error) {
   if (page) { await page.screenshot({ path: path.join(output, "failure.png") }); await writeFile(path.join(output, "failure.txt"), await page.locator("body").innerText()); }
   throw error;

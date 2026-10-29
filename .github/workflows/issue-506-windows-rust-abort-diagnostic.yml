@@ -1,0 +1,105 @@
+name: Issue 506 - Windows Rust fail-fast diagnosis
+
+on:
+  push:
+    branches:
+      - diagnostics/issue-506-windows-rust-abort
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue506-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: full
+
+jobs:
+  bounded-windows-rust-diagnosis:
+    name: Windows 0xC0000409 serial vs parallel
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable diagnostic branch commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Record source/toolchain identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path diagnostics | Out-Null
+          "Commit: $(git rev-parse HEAD)" | Tee-Object -FilePath diagnostics/issue506-identity.txt
+          "Tree: $(git rev-parse 'HEAD^{tree}')" | Tee-Object -Append -FilePath diagnostics/issue506-identity.txt
+          "Runner: $env:ImageOS / $env:ImageVersion" | Tee-Object -Append -FilePath diagnostics/issue506-identity.txt
+          "OS: $([System.Environment]::OSVersion.VersionString)" | Tee-Object -Append -FilePath diagnostics/issue506-identity.txt
+          rustc --version --verbose | Tee-Object -Append -FilePath diagnostics/issue506-identity.txt
+          cargo --version | Tee-Object -Append -FilePath diagnostics/issue506-identity.txt
+
+      - name: Rust cache (isolated diagnostic key)
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-Windows-issue506-only
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: false
+
+      - name: Build Windows library tests once
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib --no-run
+
+      - name: Bounded serial, parallel and optional full-suite comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $out = 'diagnostics/issue506-results.txt'
+          function Invoke-Diagnostic {
+            param([string]$Label, [string[]]$TestArguments)
+            Write-Host "::group::$Label"
+            $start = Get-Date
+            "BEGIN $Label at $($start.ToUniversalTime().ToString('o'))" | Tee-Object -Append -FilePath $out
+            & cargo @TestArguments
+            $code = $LASTEXITCODE
+            "END $Label exit=$code at $((Get-Date).ToUniversalTime().ToString('o'))" | Tee-Object -Append -FilePath $out
+            if ($code -ne 0) {
+              Start-Sleep -Seconds 2
+              try {
+                Get-WinEvent -FilterHashtable @{ LogName='Application'; StartTime=$start.AddSeconds(-3) } -MaxEvents 80 -ErrorAction Stop |
+                  Where-Object { $_.Id -in 1000,1001 } |
+                  Select-Object TimeCreated,Id,ProviderName,Message |
+                  Format-List |
+                  Out-String |
+                  Tee-Object -Append -FilePath $out
+              } catch {
+                "Windows Event Log unavailable: $($_.Exception.Message)" | Tee-Object -Append -FilePath $out
+              }
+            }
+            Write-Host "::endgroup::"
+            return [int]$code
+          }
+
+          $prefix = @('test', '--manifest-path', 'src-tauri/Cargo.toml', '--features', 'desktop-runtime', '--lib')
+          $serial = Invoke-Diagnostic 'global-index-windows-serial' ($prefix + @('global_index::windows::tests::', '--', '--nocapture', '--test-threads=1'))
+          $parallel = Invoke-Diagnostic 'global-index-windows-four-threads' ($prefix + @('global_index::windows::tests::', '--', '--nocapture', '--test-threads=4'))
+          if ($serial -eq 0 -and $parallel -eq 0) {
+            $full = Invoke-Diagnostic 'single-full-lib-comparison' ($prefix + @('--', '--nocapture'))
+          } else {
+            "Full library comparison skipped because a focused case reproduced the failure" | Tee-Object -Append -FilePath $out
+            $full = 0
+          }
+          if ($serial -ne 0 -or $parallel -ne 0 -or $full -ne 0) { exit 1 }
+
+      - name: Upload sanitized Windows diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue506-windows-rust-diagnostics
+          path: diagnostics/issue506-*.txt
+          if-no-files-found: warn
+          retention-days: 14

@@ -233,11 +233,7 @@ fn golden_entries() -> Vec<GlobalEntryInput> {
             "reporté notes.pdf",
             Some(1_007),
         ),
-        (
-            "",
-            "Report from empty path.pdf",
-            Some(1_008),
-        ),
+        ("", "Report from empty path.pdf", Some(1_008)),
     ] {
         add_entry(&mut entries, path, name, "pdf", false, modified_at_fs);
     }
@@ -513,7 +509,11 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
 
     let before_schema = schema_signature(&conn);
     let report_oracle = filename_relevance_oracle(&conn, "report");
-    assert_eq!(report_oracle.len(), 85, "only eligible report FTS hits count");
+    assert_eq!(
+        report_oracle.len(),
+        85,
+        "only eligible report FTS hits count"
+    );
     let report_boundary = report_oracle
         .iter()
         .filter(|result| result.rank == 0.0)
@@ -769,17 +769,17 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
             .expect("sparse supported query is not a BM25 fallback"),
         sparse_oracle
     );
+    assert!(with_filename_relevance_candidate(true, || {
+        search_global_entries_on_connection(&conn, "zzznomatch", 80, 0)
+    })
+    .unwrap()
+    .is_empty());
     assert!(
-        with_filename_relevance_candidate(true, || {
-            search_global_entries_on_connection(&conn, "zzznomatch", 80, 0)
-        })
-        .unwrap()
-        .is_empty()
+        diagnostic_search_filename_relevance(&conn, "zzznomatch", 80)
+            .unwrap()
+            .expect("zero-hit supported query follows relevance route")
+            .is_empty()
     );
-    assert!(diagnostic_search_filename_relevance(&conn, "zzznomatch", 80)
-        .unwrap()
-        .expect("zero-hit supported query follows relevance route")
-        .is_empty());
 
     // Existing FTS triggers remain the only write path. Prove insert, rename,
     // path move and delete are visible without rebuilding or refreshing a cache.
@@ -975,11 +975,7 @@ fn filename_relevance_63_64_65_hits_keep_one_order_and_live_state() {
         };
         let mut entry = super::test_entry(&entry_path, &name, false);
         entry.extension = "pdf".to_string();
-        entry.modified_at_fs = if index == 0 {
-            None
-        } else {
-            Some(index % 4)
-        };
+        entry.modified_at_fs = if index == 0 { None } else { Some(index % 4) };
         initial_entries.push(entry);
     }
     db.upsert_global_entries_batch(&initial_entries)
@@ -1003,9 +999,16 @@ fn filename_relevance_63_64_65_hits_keep_one_order_and_live_state() {
         let oracle = filename_relevance_oracle(conn, "needle");
         let candidate = read_candidate(conn);
         assert_eq!(oracle.len(), expected_count);
-        assert_eq!(candidate, oracle, "complete match order at {expected_count} hits");
+        assert_eq!(
+            candidate, oracle,
+            "complete match order at {expected_count} hits"
+        );
         for _ in 0..3 {
-            assert_eq!(read_candidate(conn), oracle, "repeat query is deterministic");
+            assert_eq!(
+                read_candidate(conn),
+                oracle,
+                "repeat query is deterministic"
+            );
         }
         assert_eq!(read_public(conn, 0), page(&oracle, 0, 20));
         assert_eq!(read_public(conn, 20), page(&oracle, 20, 20));
@@ -1088,7 +1091,11 @@ fn filename_relevance_63_64_65_hits_keep_one_order_and_live_state() {
         .expect("find 65th hit for delete transition");
     conn.execute("DELETE FROM global_entries WHERE id = ?1", [&id_65])
         .expect("delete 65th hit through existing FTS triggers");
-    assert_eq!(assert_state(&conn, 63), at_63, "return to the original 63-hit order");
+    assert_eq!(
+        assert_state(&conn, 63),
+        at_63,
+        "return to the original 63-hit order"
+    );
 
     let stale_id = &initial_ids[0];
     conn.execute(
@@ -1127,7 +1134,10 @@ fn filename_relevance_63_64_65_hits_keep_one_order_and_live_state() {
     let snapshot_before = read_candidate(&snapshot_transaction);
     let writer = super::configured_connection(&path).expect("open concurrent status writer");
     writer
-        .execute("UPDATE global_volumes SET enabled = 0 WHERE id = 'gv_test'", [])
+        .execute(
+            "UPDATE global_volumes SET enabled = 0 WHERE id = 'gv_test'",
+            [],
+        )
         .expect("disable search source concurrently");
     assert_eq!(
         read_candidate(&snapshot_transaction),
@@ -1137,11 +1147,21 @@ fn filename_relevance_63_64_65_hits_keep_one_order_and_live_state() {
     snapshot_transaction
         .commit()
         .expect("finish consistent read snapshot");
-    assert!(read_candidate(&conn).is_empty(), "new snapshot sees disabled source");
+    assert!(
+        read_candidate(&conn).is_empty(),
+        "new snapshot sees disabled source"
+    );
     writer
-        .execute("UPDATE global_volumes SET enabled = 1 WHERE id = 'gv_test'", [])
+        .execute(
+            "UPDATE global_volumes SET enabled = 1 WHERE id = 'gv_test'",
+            [],
+        )
         .expect("re-enable search source");
-    assert_eq!(read_candidate(&conn), at_63, "re-enabled source restores full order");
+    assert_eq!(
+        read_candidate(&conn),
+        at_63,
+        "re-enabled source restores full order"
+    );
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1456,7 +1476,9 @@ fn diversify_report_matches(conn: &Connection, entries: u64) -> f64 {
                         path.clone(),
                         path.to_lowercase()
                     ])
-                    .expect("update one single-hit sparse relevance row through existing FTS triggers");
+                    .expect(
+                        "update one single-hit sparse relevance row through existing FTS triggers",
+                    );
             }
         }
         assert_eq!(sparse_count, 63);
@@ -1486,12 +1508,7 @@ fn eligible_fts_hit_count(conn: &Connection, query: &str) -> i64 {
     .expect("count enabled non-stale FTS hits")
 }
 
-fn explain_fts_plan(
-    conn: &Connection,
-    candidate: bool,
-    query: &str,
-    limit: u32,
-) -> Vec<String> {
+fn explain_fts_plan(conn: &Connection, candidate: bool, query: &str, limit: u32) -> Vec<String> {
     let sql = if candidate {
         diagnostic_search_filename_relevance_sql()
     } else {
@@ -1710,7 +1727,10 @@ fn emit_low_hit_pair(
     eligible_hit_count: i64,
 ) -> bool {
     let limit = 80;
-    assert!(eligible_hit_count < 80, "low-hit pair must fit in one result page");
+    assert!(
+        eligible_hit_count < 80,
+        "low-hit pair must fit in one result page"
+    );
     let old_complete = with_filename_relevance_candidate(false, || {
         search_global_entries_on_connection(conn, query, 4_096, 0)
     })
@@ -1732,15 +1752,7 @@ fn emit_low_hit_pair(
         db.search_global_entries_snapshot(query, limit, offset)
     })
     .expect("read low-hit snapshot source facts");
-    let search = paired_route_samples(
-        db,
-        query,
-        limit,
-        offset,
-        &old_expected,
-        &new_expected,
-        None,
-    );
+    let search = paired_route_samples(db, query, limit, offset, &old_expected, &new_expected, None);
     let snapshot = paired_route_samples(
         db,
         query,

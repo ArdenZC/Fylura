@@ -2,6 +2,25 @@
 
 This workflow is the default engineering operating model for new work after G1. A narrower security/task contract may add stricter gates; it may not weaken these rules silently.
 
+## Opt-in pre-push feedback and CI failure triage
+
+For Codex Cloud and local worktrees, these optional tools provide earlier feedback
+but do not replace required CI, security, cross-platform or native acceptance.
+
+- npm run dev:preflight -- --plan: list changed paths and commands without executing.
+  The diff includes committed branch changes from the merge-base against
+  origin/master (fallback master), local changes and non-ignored untracked files.
+  Specify --base=REF for another locally available base.
+- npm run dev:preflight: run relevant frontend typecheck/tests/build or Rust
+  formatting/Clippy. Rust runtime tests require --rust-test=FILTER (affected
+  behavior) or --full (suite); quick mode alone does not certify Rust behavior.
+- npm run dev:ci-failure -- RUN_ID: summarize failed jobs and failed steps
+  from authenticated GitHub CLI (gh). Read the original logs for root cause.
+  Aggregate Quality failures follow their potential originating jobs.
+
+These are **optional** feedback aids, not new approval gates. Do not retry
+unchanged failed CI without a concrete remediation. Keep environmental
+failures separate from code defects; never treat skipped checks as PASS.
 ## Delivery-first operating rule
 
 **Primary objective: ship observable user value without losing data or violating

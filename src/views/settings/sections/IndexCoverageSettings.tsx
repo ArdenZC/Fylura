@@ -3,7 +3,7 @@ import { tauriApi } from "../../../api/tauriApi";
 import type { GlobalIndexSource } from "../../../types/domain";
 import type { IndexCoverageMode, IndexCoveragePreview, IndexCoverageRule, IndexCoverageSnapshot } from "../../../types/indexCoverage";
 import type { Translator } from "../../../types/ui";
-import { buttonSecondary } from "../../../utils/tw";
+import { focusVisibleState, buttonSecondary } from "../../../utils/tw";
 import { quietText } from "../../shared/ui";
 
 export function IndexCoverageSettings({ t, sources, disabled }: { t: Translator; sources: GlobalIndexSource[]; disabled: boolean }) {
@@ -58,21 +58,21 @@ export function IndexCoverageSettings({ t, sources, disabled }: { t: Translator;
     } catch (e) { setError(String(e)); setPreview(null); }
     finally { setBusy(false); }
   }
-  return <fieldset className="grid min-w-0 gap-3 rounded-lg border border-[var(--border)] p-3" disabled={disabled || busy} aria-busy={busy}>
+  return <fieldset className="grid min-w-0 gap-3 rounded-lg border border-[var(--zc-control-border)] p-3" disabled={disabled || busy} aria-busy={busy}>
     <legend className="px-1 text-sm font-medium">{t("indexCoverageTitle")}</legend>
     <p className={quietText}>{t("indexCoverageAuthorization")}</p>
     <label className="grid gap-1 text-sm">{t("indexCoverageMode")}
-      <select aria-label={t("indexCoverageMode")} value={mode} disabled={!editable} onChange={(e) => { setMode(e.target.value as IndexCoverageMode); clearPreview(); }} className="min-h-9 max-w-full rounded border border-[var(--border)] bg-[var(--bg-surface)] p-2">
+      <select aria-label={t("indexCoverageMode")} value={mode} disabled={!editable} onChange={(e) => { setMode(e.target.value as IndexCoverageMode); clearPreview(); }} className={`${focusVisibleState} min-h-9 max-w-full rounded border border-[var(--zc-control-border)] bg-[var(--zc-surface)] p-2`}>
         <option value="smart_lean">{t("indexCoverageSmart")}</option><option value="broad_coverage">{t("indexCoverageBroad")}</option><option value="custom">{t("indexCoverageCustom")}</option>
       </select>
     </label>
     <p className={quietText}>{t("indexCoverageRulesHelp")}</p>
     {mode === "custom" ? <div className="grid min-w-0 gap-2">
-      <label className="grid gap-1 text-sm">{t("indexCoverageSource")}<select value={sourceId || authorized[0]?.volume.id || ""} onChange={(e) => { setSourceId(e.target.value); clearPreview(); }} className="min-h-9 min-w-0 rounded border border-[var(--border)] bg-[var(--bg-surface)] p-2">
+      <label className="grid gap-1 text-sm">{t("indexCoverageSource")}<select value={sourceId || authorized[0]?.volume.id || ""} onChange={(e) => { setSourceId(e.target.value); clearPreview(); }} className="zc-focus-visible focus-visible:outline-none min-h-9 min-w-0 rounded border border-[var(--zc-control-border)] bg-[var(--zc-surface)] p-2">
         {!authorized.length ? <option value="">{t("indexCoverageNoSource")}</option> : null}
         {authorized.map((s) => <option key={s.volume.id} value={s.volume.id}>{s.volume.displayName} · {s.volume.mountPath}</option>)}
       </select></label>
-      <label className="grid gap-1 text-sm">{t("indexCoverageFolder")}<input value={path} onChange={(e) => { setPath(e.target.value); clearPreview(); }} className="min-h-9 min-w-0 rounded border border-[var(--border)] bg-transparent p-2" /></label>
+      <label className="grid gap-1 text-sm">{t("indexCoverageFolder")}<input value={path} onChange={(e) => { setPath(e.target.value); clearPreview(); }} className="zc-focus-visible focus-visible:outline-none min-h-9 min-w-0 rounded border border-[var(--zc-control-border)] bg-transparent p-2" /></label>
       <div className="flex flex-wrap gap-2"><button type="button" className={buttonSecondary} disabled={!editable || !path.trim() || !authorized.length || rules.length >= 128} onClick={() => addRule(true)}>{t("indexCoverageInclude")}</button><button type="button" className={buttonSecondary} disabled={!editable || !path.trim() || !authorized.length || rules.length >= 128} onClick={() => addRule(false)}>{t("indexCoverageExclude")}</button></div>
       <ul className="grid max-h-56 gap-2 overflow-auto text-sm">{rules.map((rule, i) => <li key={`${rule.sourceId}:${rule.path}`} className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 break-all">{rule.include ? t("indexCoverageInclude") : t("indexCoverageExclude")} · {rule.path}</span><button type="button" className={buttonSecondary} aria-label={`${t("indexCoverageRemove")} ${rule.path}`} onClick={() => { setRules((r) => r.filter((_, index) => index !== i)); clearPreview(); }}>{t("indexCoverageRemove")}</button></li>)}</ul>
     </div> : null}

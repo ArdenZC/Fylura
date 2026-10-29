@@ -8,6 +8,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(test)]
+thread_local! { static METADATA_ATTEMPTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+pub(super) fn take_metadata_attempts() -> u64 {
+    METADATA_ATTEMPTS.with(|n| n.replace(0))
+}
+fn metadata(path: &Path) -> std::io::Result<fs::Metadata> {
+    #[cfg(test)]
+    METADATA_ATTEMPTS.with(|n| n.set(n.get() + 1));
+    fs::symlink_metadata(path)
+}
 fn fenced(metadata: &fs::Metadata) -> bool {
     if metadata.file_type().is_symlink() {
         return true;
@@ -30,10 +41,10 @@ fn fenced(metadata: &fs::Metadata) -> bool {
     false
 }
 fn plain(path: &Path, directory: bool) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|m| !fenced(&m) && m.is_dir() == directory)
+    metadata(path).is_ok_and(|m| !fenced(&m) && m.is_dir() == directory)
 }
 fn identity(path: &Path) -> Option<String> {
-    let m = fs::symlink_metadata(path).ok()?;
+    let m = metadata(path).ok()?;
     if fenced(&m) || !m.is_dir() {
         return None;
     }
@@ -48,10 +59,10 @@ fn identity(path: &Path) -> Option<String> {
         use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
         use windows_sys::Win32::Storage::FileSystem::{
             GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
-            FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
         };
         let f = OpenOptions::new()
-            .read(true)
+            .access_mode(FILE_READ_ATTRIBUTES)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
             .open(path)
             .ok()?;
@@ -69,12 +80,45 @@ fn identity(path: &Path) -> Option<String> {
         None
     }
 }
+fn single_link(path: &Path, m: &fs::Metadata) -> bool {
+    let _ = (path, m);
+    #[cfg(windows)]
+    {
+        if m.is_file() {
+            use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+            use windows_sys::Win32::Storage::FileSystem::{
+                GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+                FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+            };
+            let Ok(file) = fs::OpenOptions::new()
+                .access_mode(FILE_READ_ATTRIBUTES)
+                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+                .open(path)
+            else {
+                return false;
+            };
+            #[cfg(test)]
+            METADATA_ATTEMPTS.with(|n| n.set(n.get() + 1));
+            let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+            return unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } != 0
+                && info.nNumberOfLinks == 1;
+        }
+    }
+    true
+}
 fn checked_chain(path: &Path, root: &Path) -> bool {
-    if !path.is_absolute() || !path.starts_with(root) {
+    if !path.is_absolute()
+        || !path.starts_with(root)
+        || path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return false;
     }
     for (depth, ancestor) in path.ancestors().enumerate() {
-        if depth >= 64 || !fs::symlink_metadata(ancestor).is_ok_and(|m| !fenced(&m)) {
+        if depth >= 64
+            || !metadata(ancestor).is_ok_and(|m| !fenced(&m) && single_link(ancestor, &m))
+        {
             return false;
         }
         if ancestor == root {
@@ -120,29 +164,78 @@ fn performance_root(path: &Path, root: &Path) -> Option<&'static str> {
     }
     None
 }
-fn protected(path: &Path) -> bool {
+fn protected_roots(source_root: &Path) -> Vec<PathBuf> {
+    let _ = source_root;
+    let mut roots = Vec::new();
     #[cfg(windows)]
     {
-        // GetWindowsDirectoryW obtains the OS-owned location, not a basename/env guess.
         use windows_sys::Win32::System::SystemInformation::GetWindowsDirectoryW;
-        let mut buffer = [0u16; 32768];
+        let mut buffer = vec![0u16; 32768];
         let len =
             unsafe { GetWindowsDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
         if len > 0 && len < buffer.len() {
-            let os_root = PathBuf::from(String::from_utf16_lossy(&buffer[..len]));
-            if path.starts_with(&os_root) && identity(&os_root).is_some() {
-                return true;
+            let root = PathBuf::from(String::from_utf16_lossy(&buffer[..len]));
+            if root.starts_with(source_root) && identity(&root).is_some() {
+                roots.push(root);
             }
         }
     }
     #[cfg(target_os = "macos")]
     {
-        if path.starts_with("/System") && identity(Path::new("/System")).is_some() {
-            return true;
+        if Path::new("/System").starts_with(source_root) && identity(Path::new("/System")).is_some()
+        {
+            roots.push(PathBuf::from("/System"));
         }
     }
-    let _ = path;
-    false
+    // Keep an explicit mutable collection on unsupported test platforms too.
+    roots.shrink_to_fit();
+    roots
+}
+fn protected(path: &Path, source_root: &Path) -> bool {
+    protected_roots(source_root)
+        .iter()
+        .any(|root| path.starts_with(root))
+}
+fn known_cache_roots(source_root: &Path) -> Vec<PathBuf> {
+    let _ = source_root;
+    let mut roots = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(root) = dirs::cache_dir() {
+            if root.starts_with(source_root) && identity(&root).is_some() {
+                roots.push(root);
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::{
+            System::Com::CoTaskMemFree,
+            UI::Shell::{FOLDERID_InternetCache, SHGetKnownFolderPath},
+        };
+        let mut ptr = std::ptr::null_mut();
+        if unsafe {
+            SHGetKnownFolderPath(&FOLDERID_InternetCache, 0, std::ptr::null_mut(), &mut ptr)
+        } >= 0
+            && !ptr.is_null()
+        {
+            let mut len = 0;
+            while len < 32768 && unsafe { *ptr.add(len) } != 0 {
+                len += 1;
+            }
+            if len < 32768 {
+                let path = PathBuf::from(String::from_utf16_lossy(unsafe {
+                    std::slice::from_raw_parts(ptr, len)
+                }));
+                if path.starts_with(source_root) && identity(&path).is_some() {
+                    roots.push(path);
+                }
+            }
+            unsafe { CoTaskMemFree(ptr.cast()) };
+        }
+    }
+    roots.shrink_to_fit();
+    roots
 }
 pub fn bind_rule(
     source: &GlobalVolume,
@@ -156,7 +249,7 @@ pub fn bind_rule(
     }
     let path = PathBuf::from(path);
     let root = Path::new(&source.mount_path);
-    if !checked_chain(&path, root) || protected(&path) {
+    if !checked_chain(&path, root) || protected(&path, root) {
         return Err(DbError::Validation("coverage_folder_not_permitted".into()));
     }
     let directory_identity = identity(&path)
@@ -178,6 +271,8 @@ pub(crate) fn observe_batch(
     // mounts or permission epochs. No filesystem I/O while SQLite owns the writer.
     let mut contexts: HashMap<PathBuf, Option<&'static str>> = HashMap::new();
     let root = Path::new(&source.mount_path);
+    let boundaries = protected_roots(root);
+    let caches = known_cache_roots(root);
     entries
         .iter()
         .map(|entry| {
@@ -195,6 +290,9 @@ pub(crate) fn observe_batch(
             {
                 return Decision::Exclude("outside_authorized_source");
             }
+            if boundaries.iter().any(|boundary| path.starts_with(boundary)) {
+                return Decision::Exclude("protected_boundary");
+            }
             if entry.file_attributes
                 & (crate::global_index::MACOS_FILE_ATTRIBUTE_CLOUD_NOT_LOCAL
                     | crate::global_index::MACOS_FILE_ATTRIBUTE_CONTENT_UNKNOWN)
@@ -205,7 +303,7 @@ pub(crate) fn observe_batch(
             if !checked_chain(path, root) {
                 e.uncertain = Some("identity_permission_or_alias_unverified");
             } else {
-                e.protected = protected(path);
+                e.protected = false;
                 let dir = if entry.is_directory {
                     path
                 } else {
@@ -214,9 +312,13 @@ pub(crate) fn observe_batch(
                 if contexts.len() >= 4096 {
                     contexts.clear();
                 }
-                e.performance_reason = *contexts
-                    .entry(dir.to_path_buf())
-                    .or_insert_with(|| performance_root(dir, root));
+                e.performance_reason = *contexts.entry(dir.to_path_buf()).or_insert_with(|| {
+                    if caches.iter().any(|cache| dir.starts_with(cache)) {
+                        Some("known_user_cache")
+                    } else {
+                        performance_root(dir, root)
+                    }
+                });
                 if policy.mode == CoverageMode::Custom {
                     if let Some(rule) = policy
                         .rules

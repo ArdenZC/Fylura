@@ -319,6 +319,8 @@ export function readableError(error: unknown): string {
 
 export function localizedStableError(error: unknown, t: Translator): string {
   const message = readableError(error);
+  if (message === "global_search_result_excluded") return t("indexCoverageExcludedResult");
+  if (message === "global_search_coverage_reconfiguring") return t("indexCoverageReconfiguring");
   if (message === "global_index_database_busy") return t("globalIndexErrorDatabaseBusy");
   if (message === "global_index_service_busy") return t("globalIndexErrorServiceBusy");
   if (message === "global_index_permission_required") return t("globalIndexErrorPermissionRequired");

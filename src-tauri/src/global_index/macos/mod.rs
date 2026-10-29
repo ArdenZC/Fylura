@@ -7,6 +7,8 @@
 
 mod fsevents;
 mod spotlight;
+mod volumes;
+pub(crate) use volumes::MacosVolumeProvider;
 
 use super::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use super::models::{
@@ -18,7 +20,6 @@ use super::models::{
 };
 use super::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -161,6 +162,8 @@ impl KnownEntries {
 }
 
 pub struct MacosSpotlightProvider {
+    root: std::path::PathBuf,
+    lifecycle: Mutex<()>,
     stopped: Arc<AtomicBool>,
     pending: Arc<Mutex<PendingUpdates>>,
     known_entries: Arc<Mutex<KnownEntries>>,
@@ -176,7 +179,12 @@ impl MacosSpotlightProvider {
     }
 
     pub(crate) fn with_wake(wake: Arc<GlobalIndexWakeSlot>) -> Self {
+        Self::with_root(wake, std::path::PathBuf::from("/"))
+    }
+    pub(super) fn with_root(wake: Arc<GlobalIndexWakeSlot>, root: std::path::PathBuf) -> Self {
         Self {
+            root,
+            lifecycle: Mutex::new(()),
             stopped: Arc::new(AtomicBool::new(false)),
             pending: Arc::new(Mutex::new(PendingUpdates::default())),
             known_entries: Arc::new(Mutex::new(KnownEntries::default())),
@@ -189,9 +197,20 @@ impl MacosSpotlightProvider {
 
     fn start_watchers(
         &self,
-        volume_id: &str,
+        source: &GlobalSourceDescriptor,
+        sink: &mut dyn GlobalIndexSink,
         since_event_id: Option<u64>,
     ) -> Result<(), GlobalIndexError> {
+        let _guard = self
+            .lifecycle
+            .lock()
+            .map_err(|_| GlobalIndexError::Provider("macos_source_lifecycle_poisoned".into()))?;
+        if !sink.native_watcher_admitted(&source.volume)? {
+            return Err(GlobalIndexError::SourceBusy(
+                "macos_source_authority_changed".into(),
+            ));
+        }
+        let volume_id = &source.volume.id;
         let mut spotlight_slot = self.spotlight_watcher.lock().map_err(|_| {
             GlobalIndexError::Provider("macOS Spotlight watcher lock poisoned".to_string())
         })?;
@@ -199,6 +218,7 @@ impl MacosSpotlightProvider {
             *spotlight_slot = Some(
                 spotlight::spawn_update_watcher(
                     volume_id.to_string(),
+                    self.root.clone(),
                     self.pending.clone(),
                     self.known_entries.clone(),
                     self.stopped.clone(),
@@ -215,7 +235,7 @@ impl MacosSpotlightProvider {
         if fsevents_slot.is_none() {
             *fsevents_slot = Some(
                 fsevents::start_reconcile_watcher(
-                    Path::new("/"),
+                    &self.root,
                     self.pending.clone(),
                     self.stopped.clone(),
                     self.wake.clone(),
@@ -300,7 +320,7 @@ impl MacosSpotlightProvider {
         volume_id: &str,
         cancel: &AtomicBool,
     ) -> Result<spotlight::SpotlightCollectionSummary, GlobalIndexError> {
-        match spotlight::stream_local_computer_entries(volume_id, cancel, |batch| {
+        match spotlight::stream_source_entries(volume_id, &self.root, cancel, |batch| {
             sink.write_batch(batch).map_err(|error| error.to_string())?;
             self.remember_entries(batch);
             Ok(())
@@ -404,13 +424,17 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         sink.mark_volume_entries_stale(&source.volume.id)?;
         self.clear_known_entries();
         if let Err(error) = self.start_watchers(
-            &source.volume.id,
+            source,
+            sink,
             source
                 .volume
                 .journal_cursor
                 .as_deref()
                 .and_then(|value| value.parse::<u64>().ok()),
         ) {
+            if matches!(error, GlobalIndexError::SourceBusy(_)) {
+                return Err(error);
+            }
             let error = error.to_string();
             return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
         }
@@ -428,13 +452,17 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
     ) -> Result<(), GlobalIndexError> {
         self.stopped.store(false, Ordering::Release);
         if let Err(error) = self.start_watchers(
-            &source.volume.id,
+            source,
+            sink,
             source
                 .volume
                 .journal_cursor
                 .as_deref()
                 .and_then(|value| value.parse::<u64>().ok()),
         ) {
+            if matches!(error, GlobalIndexError::SourceBusy(_)) {
+                return Err(error);
+            }
             let error = error.to_string();
             return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
         }
@@ -470,6 +498,28 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
                 .unwrap_or(true)
     }
 
+    fn update_source_lifecycle(
+        &self,
+        _source_id: &str,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        let _guard = self
+            .lifecycle
+            .lock()
+            .map_err(|_| GlobalIndexError::Provider("macos_source_lifecycle_poisoned".into()))?;
+        if update()? {
+            self.stopped.store(true, Ordering::Release);
+            self.stop_watchers();
+            self.baseline_established.store(false, Ordering::Release);
+            self.clear_known_entries();
+            *self
+                .pending
+                .lock()
+                .map_err(|_| GlobalIndexError::Provider("macos_pending_poisoned".into()))? =
+                PendingUpdates::default();
+        }
+        Ok(())
+    }
     fn pause(&self) -> Result<(), GlobalIndexError> {
         self.stopped.store(true, Ordering::Release);
         self.baseline_established.store(false, Ordering::Release);

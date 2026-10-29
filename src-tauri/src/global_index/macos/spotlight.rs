@@ -14,11 +14,10 @@ use objc2_foundation::{
     NSArray, NSDate, NSMetadataItem, NSMetadataItemFSContentChangeDateKey,
     NSMetadataItemFSCreationDateKey, NSMetadataItemFSNameKey, NSMetadataItemFSSizeKey,
     NSMetadataItemPathKey, NSMetadataItemURLKey, NSMetadataQuery,
-    NSMetadataQueryIndexedLocalComputerScope, NSMetadataQueryUpdateAddedItemsKey,
-    NSMetadataQueryUpdateChangedItemsKey, NSMetadataQueryUpdateRemovedItemsKey, NSNotification,
-    NSNotificationCenter, NSNumber, NSObjectProtocol, NSPredicate, NSRunLoop, NSString, NSURL,
+    NSMetadataQueryUpdateAddedItemsKey, NSMetadataQueryUpdateChangedItemsKey,
+    NSMetadataQueryUpdateRemovedItemsKey, NSNotification, NSNotificationCenter, NSNumber,
+    NSObjectProtocol, NSPredicate, NSRunLoop, NSString, NSURL,
 };
-use std::collections::HashSet;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -54,12 +53,6 @@ pub struct SpotlightCollectionSummary {
     pub external_volume_not_indexed: bool,
 }
 
-#[derive(Debug)]
-struct ExternalVolumeProbe {
-    root: PathBuf,
-    has_readable_content: bool,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpotlightUpdateAction {
     Upsert,
@@ -77,8 +70,29 @@ fn classify_spotlight_update(removed: bool, path_identity_fallback: bool) -> Spo
     }
 }
 
+#[cfg(test)]
 pub fn stream_local_computer_entries<F>(
     volume_id: &str,
+    cancel: &AtomicBool,
+    on_batch: F,
+) -> Result<SpotlightCollectionSummary, String>
+where
+    F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
+{
+    stream_source_entries(volume_id, Path::new("/"), cancel, on_batch)
+}
+pub(super) fn path_in_source(root: &Path, path: &Path) -> bool {
+    path.is_absolute()
+        && path.starts_with(root)
+        && !path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        && (root != Path::new("/")
+            || (!path.starts_with("/Volumes") && !path.starts_with("/Network")))
+}
+pub fn stream_source_entries<F>(
+    volume_id: &str,
+    source_root: &Path,
     cancel: &AtomicBool,
     mut on_batch: F,
 ) -> Result<SpotlightCollectionSummary, String>
@@ -89,13 +103,12 @@ where
         return Err("macos_spotlight_query_paused".to_string());
     }
     autoreleasepool(|_| {
-        let query = new_local_computer_query();
+        let query = new_scoped_query(source_root);
         if !query.startQuery() {
             return Err("macos_spotlight_query_unavailable".to_string());
         }
         let run_loop = NSRunLoop::currentRunLoop();
-        let external_volumes = mounted_external_volume_probes();
-        let mut external_volume_hits = HashSet::new();
+
         while query.isGathering() {
             if cancel.load(Ordering::Acquire) {
                 query.stopQuery();
@@ -112,15 +125,13 @@ where
                 return Err("macos_spotlight_query_paused".to_string());
             }
             let object = query.resultAtIndex(index);
-            if let Some(path) = path_from_object(&object) {
-                if let Some(volume) = external_volumes
-                    .iter()
-                    .find(|volume| Path::new(&path).starts_with(&volume.root))
-                {
-                    external_volume_hits.insert(volume.root.clone());
-                }
+            if path_from_object(&object)
+                .as_deref()
+                .is_some_and(|p| !path_in_source(source_root, Path::new(p)))
+            {
+                continue;
             }
-            let Some(entry) = metadata_item_to_entry(volume_id, &object) else {
+            let Some(entry) = metadata_item_to_entry(volume_id, source_root, &object) else {
                 summary.skipped += 1;
                 continue;
             };
@@ -144,16 +155,17 @@ where
             }
         }
         query.stopQuery();
-        summary.full_disk_access_required = full_disk_access_required();
-        summary.external_volume_not_indexed = external_volumes.iter().any(|volume| {
-            volume.has_readable_content && !external_volume_hits.contains(&volume.root)
-        });
+        summary.full_disk_access_required =
+            source_root == Path::new("/") && full_disk_access_required();
+        summary.external_volume_not_indexed =
+            source_root != Path::new("/") && summary.processed == 0;
         Ok(summary)
     })
 }
 
 pub fn spawn_update_watcher(
     volume_id: String,
+    source_root: PathBuf,
     pending: Arc<Mutex<PendingUpdates>>,
     known_entries: Arc<Mutex<KnownEntries>>,
     stopped: Arc<AtomicBool>,
@@ -168,6 +180,7 @@ pub fn spawn_update_watcher(
             autoreleasepool(|_| {
                 run_update_watcher(
                     &volume_id,
+                    &source_root,
                     &pending,
                     &known_entries,
                     &stopped,
@@ -184,19 +197,25 @@ pub fn spawn_update_watcher(
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "source-bound native watcher lifecycle"
+)]
 fn run_update_watcher(
     volume_id: &str,
+    source_root: &Path,
     pending: &Arc<Mutex<PendingUpdates>>,
     known_entries: &Arc<Mutex<KnownEntries>>,
     stopped: &AtomicBool,
     wake: &Arc<GlobalIndexWakeSlot>,
     stop_signal: &NativeRunLoopStopSignal,
 ) {
-    let query = new_local_computer_query();
+    let query = new_scoped_query(source_root);
     let center = NSNotificationCenter::defaultCenter();
     let pending_for_block = pending.clone();
     let known_entries_for_block = known_entries.clone();
     let volume_id_for_block = volume_id.to_string();
+    let source_root_for_block = source_root.to_path_buf();
     let wake_for_block = wake.clone();
     let update_block = RcBlock::new(move |notification: NonNull<NSNotification>| {
         let notification = unsafe { notification.as_ref() };
@@ -211,6 +230,7 @@ fn run_update_watcher(
             typed_info,
             unsafe { NSMetadataQueryUpdateAddedItemsKey },
             &volume_id_for_block,
+            &source_root_for_block,
             &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
@@ -221,6 +241,7 @@ fn run_update_watcher(
             typed_info,
             unsafe { NSMetadataQueryUpdateChangedItemsKey },
             &volume_id_for_block,
+            &source_root_for_block,
             &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
@@ -231,6 +252,7 @@ fn run_update_watcher(
             typed_info,
             unsafe { NSMetadataQueryUpdateRemovedItemsKey },
             &volume_id_for_block,
+            &source_root_for_block,
             &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
@@ -282,11 +304,12 @@ fn record_realtime_start_failure(pending: &Mutex<PendingUpdates>, wake: &GlobalI
     );
 }
 
-fn new_local_computer_query() -> Retained<NSMetadataQuery> {
+fn new_scoped_query(source_root: &Path) -> Retained<NSMetadataQuery> {
     let query = NSMetadataQuery::new();
     let predicate = NSPredicate::predicateWithValue(true);
     query.setPredicate(Some(&predicate));
-    let scope: &AnyObject = unsafe { NSMetadataQueryIndexedLocalComputerScope }.as_ref();
+    let root = NSString::from_str(&source_root.to_string_lossy());
+    let scope: &AnyObject = root.as_ref();
     let scopes: Retained<NSArray<AnyObject>> = NSArray::from_slice(&[scope]);
     unsafe { query.setSearchScopes(&scopes) };
     query
@@ -313,36 +336,6 @@ fn full_disk_access_required() -> bool {
     })
 }
 
-fn mounted_external_volume_probes() -> Vec<ExternalVolumeProbe> {
-    let Some(root_device) = fs::symlink_metadata("/")
-        .ok()
-        .map(|metadata| metadata.dev())
-    else {
-        return Vec::new();
-    };
-    let Ok(entries) = fs::read_dir("/Volumes") else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let root = entry.path();
-            let metadata = fs::symlink_metadata(&root).ok()?;
-            if !metadata.is_dir() || metadata.dev() == root_device {
-                return None;
-            }
-            let has_readable_content = match fs::read_dir(&root) {
-                Ok(mut children) => children.next().is_some(),
-                Err(_) => false,
-            };
-            Some(ExternalVolumeProbe {
-                root,
-                has_readable_content,
-            })
-        })
-        .collect()
-}
-
 #[expect(
     clippy::too_many_arguments,
     reason = "native metadata notifications keep callback state explicit for validation"
@@ -351,6 +344,7 @@ fn collect_update_items(
     user_info: &objc2_foundation::NSDictionary<NSString, AnyObject>,
     key: &NSString,
     volume_id: &str,
+    source_root: &Path,
     known_entries: &Arc<Mutex<KnownEntries>>,
     entries: &mut Vec<GlobalEntryInput>,
     stale_entry_ids: &mut Vec<String>,
@@ -366,6 +360,12 @@ fn collect_update_items(
     for index in 0..items.count() {
         let object = items.objectAtIndex(index);
         let path = path_from_object(&object).map(|path| normalize_path(&path));
+        if path
+            .as_deref()
+            .is_some_and(|p| !path_in_source(source_root, Path::new(p)))
+        {
+            continue;
+        }
         if removed {
             if let Some(entry_id) = path.as_deref().and_then(|path| {
                 known_entries
@@ -378,7 +378,7 @@ fn collect_update_items(
             }
         }
         if let Some(entry) = object.downcast_ref::<NSMetadataItem>() {
-            match metadata_item_to_entry(volume_id, entry.as_ref()) {
+            match metadata_item_to_entry(volume_id, source_root, entry.as_ref()) {
                 Some(input) => {
                     match classify_spotlight_update(removed, has_path_identity(&input)) {
                         SpotlightUpdateAction::Upsert => entries.push(input),
@@ -396,7 +396,11 @@ fn collect_update_items(
     }
 }
 
-fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalEntryInput> {
+fn metadata_item_to_entry(
+    volume_id: &str,
+    source_root: &Path,
+    object: &AnyObject,
+) -> Option<GlobalEntryInput> {
     let item = object.downcast_ref::<NSMetadataItem>()?;
     let path = metadata_string(item, unsafe { NSMetadataItemPathKey })
         .or_else(|| metadata_url_path(item, unsafe { NSMetadataItemURLKey }))?;
@@ -404,7 +408,22 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
         return None;
     }
     let path_buf = PathBuf::from(&path);
+    if !path_in_source(source_root, &path_buf) {
+        return None;
+    }
     let metadata = std::fs::symlink_metadata(&path_buf).ok();
+    // A path scope may contain a nested mount. Admit metadata only from the
+    // explicitly enabled physical volume; missing identity remains partial.
+    let physical_root = if source_root == Path::new("/") {
+        Path::new("/System/Volumes/Data")
+    } else {
+        source_root
+    };
+    if let (Some(candidate), Ok(root)) = (&metadata, fs::symlink_metadata(physical_root)) {
+        if candidate.dev() != root.dev() {
+            return None;
+        }
+    }
     let is_directory = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
     let semantics = crate::platform::macos::file_semantics::inspect(&path_buf);
     let mut file_attributes = 0;

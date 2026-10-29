@@ -9,9 +9,17 @@ use std::{
 };
 
 struct Fixture {
-    root: PathBuf,
+    // Drop database connections before the task-owned directory on Windows.
     db: Database,
     source: GlobalVolume,
+    root: PathBuf,
+    _cleanup: FixtureCleanup,
+}
+struct FixtureCleanup(PathBuf);
+impl Drop for FixtureCleanup {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 impl Fixture {
     fn new() -> Self {
@@ -23,7 +31,12 @@ impl Fixture {
         source.scope_authorization_state = "authorized".into();
         source.enabled = true;
         db.upsert_global_volume(&source).unwrap();
-        Self { root, db, source }
+        Self {
+            _cleanup: FixtureCleanup(root.clone()),
+            root,
+            db,
+            source,
+        }
     }
     fn file(&self, path: &str) -> GlobalEntryInput {
         let full = self.root.join(path);
@@ -46,11 +59,6 @@ impl Fixture {
         self.file("project/package.json");
         self.file("project/node_modules/.package-lock.json");
         self.file("project/node_modules/lib/noise.js")
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 #[test]
@@ -405,13 +413,22 @@ fn smart_lean_ingestion_cost() {
                 )
                 .unwrap()
                 .unwrap();
+            let mut system = sysinfo::System::new();
+            let pid = sysinfo::get_current_pid().unwrap();
+            system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+            let rss_before = system.process(pid).map_or(0, sysinfo::Process::memory);
+            let mut rss_peak = rss_before;
+            let _ = super::native::take_metadata_attempts();
             let begin = Instant::now();
             for batch in entries.chunks(512) {
                 db.upsert_global_entries_batch_owned(batch, &owner).unwrap();
+                system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+                rss_peak = rss_peak.max(system.process(pid).map_or(0, sysinfo::Process::memory));
             }
             db.finish_global_index_operation(&owner, "ready", None, Some(1), Some(1), true)
                 .unwrap();
             let elapsed = begin.elapsed().as_secs_f64();
+            let metadata_attempts = super::native::take_metadata_attempts();
             let conn = db.conn().unwrap();
             let count: i64 = conn
                 .query_row(
@@ -450,7 +467,7 @@ fn smart_lean_ingestion_cost() {
                 .query_row("PRAGMA page_size", [], |r| r.get(0))
                 .unwrap();
             let observation = db.global_index_coverage().unwrap().sources.remove(0);
-            let record = serde_json::json!({"platform":std::env::consts::OS,"mode":mode,"repetition":repetition,"candidates":n,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","metadataReads":"not yet instrumented","rss":"not measured","wakeCycles":"not measured"});
+            let record = serde_json::json!({"platform":std::env::consts::OS,"mode":mode,"repetition":repetition,"candidates":n,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured"});
             println!("SMART_LEAN_AB {record}");
             rows.push(record);
         }
@@ -458,4 +475,89 @@ fn smart_lean_ingestion_cost() {
     if let Ok(path) = std::env::var("ZEN_SMART_LEAN_REPORT") {
         fs::write(path, serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
     }
+}
+
+#[test]
+fn source_revoke_and_failed_reconcile_cannot_publish_policy_completion() {
+    let f = Fixture::new();
+    let e = f.file("docs/important.md");
+    f.db.save_global_index_coverage(1, CoverageMode::SmartLean, vec![])
+        .unwrap();
+    let owner = f.owner();
+    f.db.upsert_global_entries_batch_owned(&[e.clone()], &owner)
+        .unwrap();
+    f.db.finish_global_index_operation(
+        &owner,
+        "permission_required",
+        Some("controlled_fixture_permission"),
+        None,
+        None,
+        true,
+    )
+    .unwrap();
+    assert!(f.db.global_index_coverage().unwrap().sources[0].pending);
+    assert!(f
+        .db
+        .global_index_operation_state(&f.source.id)
+        .unwrap()
+        .unwrap()
+        .rebuild_pending());
+    let owner = f.owner();
+    f.db.set_global_volume_enabled(&f.source.id, false).unwrap();
+    assert!(f
+        .db
+        .upsert_global_entries_batch_owned(&[e.clone()], &owner)
+        .is_err());
+    assert!(f
+        .db
+        .search_global_entries("important", 10, 0)
+        .unwrap()
+        .is_empty());
+    f.db.set_global_volume_enabled(&f.source.id, true).unwrap();
+    assert!(f
+        .db
+        .upsert_global_entries_batch_owned(&[e], &owner)
+        .is_err());
+}
+#[test]
+fn rule_specificity_and_identity_replacement_are_conservative() {
+    let f = Fixture::new();
+    let dependency = f.dependencies();
+    let outer = bind_rule(&f.source, &f.root.join("project").to_string_lossy(), false).unwrap();
+    let inner = bind_rule(
+        &f.source,
+        &f.root.join("project/node_modules/lib").to_string_lossy(),
+        true,
+    )
+    .unwrap();
+    let p = CoveragePolicy {
+        mode: CoverageMode::Custom,
+        rules: vec![outer, inner],
+        ..CoveragePolicy::default()
+    };
+    assert_eq!(
+        observe_batch(&p, &f.source, &[dependency.clone()]),
+        vec![Decision::Include]
+    );
+    // Keep the original directory alive, so its inode/file ID cannot be reused.
+    fs::rename(
+        f.root.join("project/node_modules/lib"),
+        f.root.join("original-lib"),
+    )
+    .unwrap();
+    let replacement = f.file("project/node_modules/lib/noise.js");
+    assert_eq!(
+        observe_batch(&p, &f.source, &[replacement]),
+        vec![Decision::Undetermined("rule_directory_identity_changed")]
+    );
+}
+#[test]
+fn hardlinks_are_fenced_on_native_filesystems() {
+    let f = Fixture::new();
+    let e = f.dependencies();
+    fs::hard_link(&e.path, f.root.join("user-copy.js")).unwrap();
+    assert!(matches!(
+        observe_batch(&CoveragePolicy::default(), &f.source, &[e])[0],
+        Decision::Undetermined(_)
+    ));
 }

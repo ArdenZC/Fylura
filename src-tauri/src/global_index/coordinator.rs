@@ -325,6 +325,15 @@ impl GlobalIndexCoordinator {
         self.start()
     }
 
+    pub fn coverage_policy_changed(&self) -> Result<(), GlobalIndexError> {
+        self.wake.notify(GlobalIndexWakeReason::RecoveryRequired);
+        for source in self.db.list_global_volumes()? {
+            self.provider
+                .update_source_lifecycle(&source.id, &mut || Ok(true))?;
+        }
+        self.start()
+    }
+
     pub fn set_source_enabled(
         &self,
         source_id: &str,
@@ -1281,7 +1290,9 @@ fn platform_provider(
     #[cfg(all(not(target_os = "windows"), target_os = "macos"))]
     {
         let _ = database_path;
-        Box::new(crate::global_index::macos::MacosSpotlightProvider::with_wake(wake))
+        Box::new(crate::global_index::macos::MacosVolumeProvider::with_wake(
+            wake,
+        ))
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {

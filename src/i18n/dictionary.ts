@@ -2,6 +2,7 @@ import type { Language } from "./types";
 export type { Language } from "./types";
 
 const zh = {
+  indexCoverageExcludedResult: "此结果已被当前搜索覆盖策略排除，并不表示文件不存在。可在设置中包含该文件夹。",
   indexCoverageTitle: "搜索覆盖",
   indexCoverageAuthorization: "覆盖策略仅在明确启用的位置内生效，不授权新磁盘；排除仅影响搜索，不删除文件，也不授予 AI、内容读取或文件操作权限。",
   indexCoverageMode: "覆盖模式",
@@ -2973,6 +2974,7 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
+  indexCoverageExcludedResult: "This result is excluded by the current coverage policy. It does not mean the file is absent. Include its folder in Settings to restore coverage.",
   indexCoverageTitle: "Search coverage",
   indexCoverageAuthorization: "Coverage applies only to explicitly enabled sources. It never authorizes a new disk, deletes files or grants AI, content or file-operation permission.",
   indexCoverageMode: "Coverage mode",

@@ -106,41 +106,111 @@ pub(crate) fn record_decisions(
     entries: &[GlobalEntryInput],
     decisions: &[Decision],
 ) -> Result<(), DbError> {
+    let mut counts = std::collections::HashMap::<&str, [i64; 3]>::new();
+    let mut retire =
+        conn.prepare("UPDATE global_entries SET is_stale=1,scope_decision=?2 WHERE id=?1")?;
+    let mut explain = conn.prepare(
+        "UPDATE global_entries SET scope_decision=?2 WHERE id=?1 AND scope_decision!=?2",
+    )?;
     for (entry, d) in entries.iter().zip(decisions) {
-        let mut counts = [0i64; 3];
-        counts[if matches!(d, Decision::Undetermined(_)) {
+        let totals = counts.entry(&entry.volume_id).or_default();
+        totals[if matches!(d, Decision::Undetermined(_)) {
             2
         } else if d.visible() {
             0
         } else {
             1
-        }] = 1;
-        conn.execute("UPDATE global_volumes SET coverage_included=coverage_included+?2,coverage_excluded=coverage_excluded+?3,coverage_undetermined=coverage_undetermined+?4 WHERE id=?1",params![entry.volume_id, counts[0],counts[1],counts[2]])?;
+        }] += 1;
         if !d.visible() {
-            conn.execute(
-                "UPDATE global_entries SET is_stale=1,scope_decision=?2 WHERE id=?1",
-                params![
-                    entry.entry_id(),
-                    if entry.is_directory {
-                        "minimal_ancestor"
-                    } else {
-                        d.reason()
-                    }
-                ],
-            )?;
+            retire.execute(params![
+                entry.entry_id(),
+                if entry.is_directory {
+                    "minimal_ancestor"
+                } else {
+                    d.reason()
+                }
+            ])?;
         } else {
-            conn.execute(
-                "UPDATE global_entries SET scope_decision=?2 WHERE id=?1",
-                params![
-                    entry.entry_id(),
-                    if matches!(d, Decision::Undetermined(_)) {
-                        "undetermined"
-                    } else {
-                        "include"
-                    }
-                ],
-            )?;
+            explain.execute(params![
+                entry.entry_id(),
+                if matches!(d, Decision::Undetermined(_)) {
+                    "undetermined"
+                } else {
+                    "include"
+                }
+            ])?;
         }
     }
+    for (source, totals) in counts {
+        conn.execute("UPDATE global_volumes SET coverage_included=coverage_included+?2,coverage_excluded=coverage_excluded+?3,coverage_undetermined=coverage_undetermined+?4 WHERE id=?1",params![source,totals[0],totals[1],totals[2]])?;
+    }
     Ok(())
+}
+
+impl Database {
+    /// Pending policy reconciliation retires at most 512 entries per writer
+    /// transaction. Inactive rows are the durable progress marker: restart
+    /// repeats only unfinished work, with no DELETE/VACUUM or second index.
+    pub(crate) fn retire_coverage_for_rebuild(
+        &self,
+        owner: &super::super::repository::SourceOperationOwner,
+    ) -> Result<Option<usize>, DbError> {
+        let pending: bool = self.conn()?.query_row(
+            "SELECT coverage_pending FROM global_volumes WHERE id=?1",
+            [&owner.volume_id],
+            |r| r.get(0),
+        )?;
+        if !pending {
+            return Ok(None);
+        }
+        let mut total = 0;
+        loop {
+            let mut conn = self.conn()?;
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            super::super::repository::ensure_source_operation_owner_tx(&tx, owner)?;
+            let ids = {
+                let mut stmt = tx.prepare(
+                    "SELECT id FROM global_entries WHERE volume_id=?1 AND is_stale=0 LIMIT 512",
+                )?;
+                let mut ids = stmt
+                    .query_map([&owner.volume_id], |r| r.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                if ids.is_empty() {
+                    ids=tx.prepare("SELECT id FROM global_entries WHERE volume_id=?1 AND scope_decision='minimal_ancestor' LIMIT 512")?.query_map([&owner.volume_id],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+                }
+                ids
+            };
+            if ids.is_empty() {
+                tx.commit()?;
+                break;
+            }
+            // One stable JSON parameter keeps statements bounded and reusable.
+            let json =
+                serde_json::to_string(&ids).map_err(|e| DbError::Validation(e.to_string()))?;
+            tx.execute("UPDATE global_entries SET is_stale=1,scope_decision='unseen' WHERE id IN (SELECT value FROM json_each(?1))",[&json])?;
+            // Retain every FK/user correction/analysis row. Existing AI/Managed
+            // authorities are not rewritten by an Index Scope retirement.
+            total += ids.len();
+            tx.commit()?;
+        }
+        Ok(Some(total))
+    }
+    pub(crate) fn entry_coverage_rejection(
+        &self,
+        id: &str,
+    ) -> Result<Option<&'static str>, DbError> {
+        let row:Option<(bool,String)>=self.conn()?.query_row("SELECT v.coverage_pending,e.scope_decision FROM global_entries e JOIN global_volumes v ON v.id=e.volume_id WHERE e.id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        Ok(row.and_then(|(pending, decision)| {
+            if pending {
+                Some("global_search_coverage_reconfiguring")
+            } else if !matches!(
+                decision.as_str(),
+                "include" | "undetermined" | "deleted" | "unseen"
+            ) {
+                Some("global_search_result_excluded")
+            } else {
+                None
+            }
+        }))
+    }
 }

@@ -87,8 +87,9 @@ fn execute(
     if request.action == "save" {
         db.save_global_index_coverage(revision, mode, policy.rules)
             .map_err(|e| e.to_string())?;
-        coordinator.notify_runtime_resume();
-        coordinator.start().map_err(|e| e.to_string())?;
+        coordinator
+            .coverage_policy_changed()
+            .map_err(|e| e.to_string())?;
         return Ok(CoverageResponse {
             snapshot: db.global_index_coverage().map_err(|e| e.to_string())?,
             preview: None,
@@ -114,7 +115,7 @@ fn execute(
             let conn = db.conn().map_err(|e| e.to_string())?;
             let mut stmt=conn.prepare("SELECT path,platform_file_id,parent_platform_file_id,is_directory,file_attributes FROM global_entries WHERE volume_id=?1 ORDER BY id LIMIT ?2").map_err(|e|e.to_string())?;
             let rows = stmt
-                .query_map(rusqlite::params![source.id, remaining], |r| {
+                .query_map(rusqlite::params![source.id, remaining as i64], |r| {
                     let path: String = r.get(0)?;
                     // Construct from persisted metadata; never stat before authorization.
                     Ok(GlobalEntryInput {

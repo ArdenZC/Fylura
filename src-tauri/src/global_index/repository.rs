@@ -751,11 +751,11 @@ impl Database {
             r#"
             UPDATE global_volumes
             SET index_status = ?4,
-                coverage_pending = CASE WHEN ?8 = 1 THEN 0 ELSE coverage_pending END,
+                coverage_pending = CASE WHEN ?8 = 1 AND ?4 IN ('ready','watcher_unavailable','fsevents_unavailable') THEN 0 ELSE coverage_pending END,
                 last_error = ?5,
                 last_full_index_at = COALESCE(?6, last_full_index_at),
                 last_incremental_sync_at = COALESCE(?7, last_incremental_sync_at),
-                rebuild_completed_revision = CASE WHEN ?8 = 1
+                rebuild_completed_revision = CASE WHEN ?8 = 1 AND ?4 IN ('ready','watcher_unavailable','fsevents_unavailable')
                     THEN rebuild_intent_revision ELSE rebuild_completed_revision END,
                 operation_owner_id = NULL,
                 operation_owner_pid = NULL,
@@ -1074,7 +1074,10 @@ impl Database {
                     "global_index_operation_owner_lost".into(),
                 ));
             }
-            let policy = super::coverage::load_policy(&self.conn()?)?;
+            let policy = {
+                let conn = self.conn()?;
+                super::coverage::load_policy(&conn)?
+            };
             let decisions = super::coverage::observe_batch(&policy, &source, entries);
             Some((policy, decisions))
         } else {
@@ -1176,6 +1179,9 @@ impl Database {
         &self,
         owner: &SourceOperationOwner,
     ) -> Result<usize, DbError> {
+        if let Some(count) = self.retire_coverage_for_rebuild(owner)? {
+            return Ok(count);
+        }
         self.mark_global_entries_stale_for_volume_inner(&owner.volume_id, Some(owner))
     }
 

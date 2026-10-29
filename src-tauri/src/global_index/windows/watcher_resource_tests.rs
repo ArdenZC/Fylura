@@ -16,7 +16,22 @@ struct ResourceFixture {
 struct ResourceDirectory(PathBuf);
 impl Drop for ResourceDirectory {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).unwrap();
+        // Windows notify/SQLite can briefly retain a handle after the watcher
+        // is dropped. Retry boundedly; never panic while another test panic is
+        // unwinding (that converts a useful assertion into a process abort).
+        for attempt in 0..20 {
+            match std::fs::remove_dir_all(&self.0) {
+                Ok(()) => return,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+                Err(error) if attempt == 19 => {
+                    eprintln!(
+                        "ISSUE506_FIXTURE_CLEANUP_FAILED path={} error={error}",
+                        self.0.display()
+                    );
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            }
+        }
     }
 }
 
@@ -267,6 +282,22 @@ fn wait_for_resource_fixture(predicate: impl Fn() -> bool, message: &str) {
 }
 
 #[test]
+fn real_watcher_fixture_teardown_releases_test_owned_directory() {
+    let root = {
+        let fixture = ResourceFixture::new();
+        fixture.cycle();
+        let root = fixture.root.clone();
+        assert!(fixture.has_watcher(&fixture.selected().volume.id));
+        root
+    };
+    assert!(
+        !root.exists(),
+        "test-only Windows watcher and SQLite resources retained the fixture directory: {}",
+        root.display()
+    );
+}
+
+#[test]
 fn admitted_transient_incremental_error_keeps_healthy_watcher_and_next_change_recovers() {
     use crate::global_index::models::{INDEX_STATUS_ERROR, INDEX_STATUS_READY};
     use crate::global_index::wake::GlobalIndexWakeReason;
@@ -324,7 +355,8 @@ fn admitted_transient_incremental_error_keeps_healthy_watcher_and_next_change_re
         assert!(!current.has_failed());
     }
     let error_calls = fixture.calls.load(Ordering::Acquire);
-    let notifications_before_change = fixture.provider.wake.snapshot().notifications;
+    let wake_before_change = fixture.provider.wake.snapshot();
+    let notifications_before_change = wake_before_change.notifications;
     std::fs::write(
         Path::new(&source.volume.mount_path).join("after-transient-error.txt"),
         b"wake the coordinator",
@@ -335,9 +367,11 @@ fn admitted_transient_incremental_error_keeps_healthy_watcher_and_next_change_re
     let event_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let mut event_recovered = false;
     while std::time::Instant::now() < event_deadline {
-        if fixture.calls.load(Ordering::Acquire) == error_calls + 1
+        if fixture.calls.load(Ordering::Acquire) >= error_calls + 1
             && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
                 == INDEX_STATUS_READY
+            && fixture.provider.wake.snapshot().notifications > notifications_before_change
+            && fixture.provider.wake.snapshot().delivered > wake_before_change.delivered
         {
             event_recovered = true;
             break;

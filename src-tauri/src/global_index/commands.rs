@@ -1,6 +1,6 @@
-use super::coordinator::GlobalIndexCoordinator;
+use super::coordinator::{sqlite_contention_kind, GlobalIndexCoordinator, GlobalIndexError};
 use super::models::*;
-use crate::db::Database;
+use crate::db::{Database, DbError};
 use crate::window_auth::require_main_window;
 use std::fs;
 #[cfg(not(target_os = "macos"))]
@@ -16,13 +16,32 @@ pub fn search_global_entries(
     let (request_id, normalized_query, offset) = validate_global_search_request(&request)?;
     let snapshot = db
         .search_global_entries_snapshot(&normalized_query, request.limit, offset)
-        .map_err(|error| error.to_string())?;
-    let coordinator_status = coordinator.status().ok();
+        .map_err(global_index_database_error)?;
+    let coordinator_status_result = coordinator.status();
+    let coordinator_database_busy = coordinator_status_result
+        .as_ref()
+        .err()
+        .is_some_and(|error| sqlite_contention_kind(error).is_some());
+    let coordinator_status = coordinator_status_result.as_ref().ok();
     let coordinator_conflict = coordinator_status
         .as_ref()
         .map(|status| !same_global_index_facts(status, &snapshot.index_status))
         .unwrap_or(true);
     let mut index_status = snapshot.index_status;
+    if let Some(status) = coordinator_status.filter(|status| {
+        matches!(
+            status.status.as_str(),
+            INDEX_STATUS_DATABASE_BUSY | INDEX_STATUS_SERVICE_BUSY
+        )
+    }) {
+        index_status.status = status.status.clone();
+        index_status.last_error = status.last_error.clone();
+        index_status.collection_complete = false;
+    } else if coordinator_database_busy {
+        index_status.status = INDEX_STATUS_DATABASE_BUSY.to_string();
+        index_status.last_error = Some("global_index_database_busy".to_string());
+        index_status.collection_complete = false;
+    }
     index_status.provider_status = coordinator.provider_status().ok();
     let has_enabled_sources = snapshot.source_health.iter().any(|source| source.enabled);
     let collection_complete = index_status.collection_complete && !coordinator_conflict;
@@ -101,6 +120,8 @@ fn global_search_result_state(
         } else if matches!(
             index_status.status.as_str(),
             INDEX_STATUS_ERROR
+                | INDEX_STATUS_DATABASE_BUSY
+                | INDEX_STATUS_SERVICE_BUSY
                 | INDEX_STATUS_UNAVAILABLE
                 | INDEX_STATUS_PERMISSION_REQUIRED
                 | INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
@@ -126,29 +147,55 @@ pub fn get_global_index_status(
     load_global_index_status(coordinator.inner())
 }
 
+/// Collapse only inert unsupported duplicates (e.g. reconnected cloud mounts).
+/// Active, indexed or actionable historical identities remain visible. This is
+/// a display projection; it never deletes or merges persistent source rows.
+pub(crate) fn newest_row_per_mount_path(mut volumes: Vec<GlobalVolume>) -> Vec<GlobalVolume> {
+    volumes.sort_by(|a, b| {
+        b.updated_at
+            .cmp(&a.updated_at)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let mut seen_mount_paths = std::collections::HashSet::new();
+    volumes.retain(|volume| {
+        let newest = seen_mount_paths.insert(volume.mount_path.clone());
+        let inert = !volume.enabled
+            && volume.scope_authorization_state == SCOPE_AUTHORIZATION_NOT_AUTHORIZED
+            && volume.provider == PROVIDER_WINDOWS_UNSUPPORTED
+            && volume.entry_count == 0
+            && volume.journal_id.is_none()
+            && volume.journal_cursor.is_none()
+            && matches!(
+                volume.index_status.as_str(),
+                INDEX_STATUS_DISCOVERED | INDEX_STATUS_UNAVAILABLE
+            );
+        newest || !inert
+    });
+    volumes
+}
+
 #[tauri::command]
 pub fn list_global_index_sources(
     db: State<'_, Database>,
 ) -> Result<Vec<GlobalIndexSource>, String> {
-    db.list_global_volumes()
-        .map(|volumes| {
-            volumes
-                .into_iter()
-                .map(|volume| GlobalIndexSource {
-                    can_pause: volume.index_status == INDEX_STATUS_INDEXING
-                        || volume.index_status == INDEX_STATUS_SYNCING,
-                    can_rebuild: true,
-                    technical_detail: Some(GlobalIndexTechnicalDetail {
-                        journal_id: volume.journal_id.clone(),
-                        journal_cursor: volume.journal_cursor.clone(),
-                        provider: volume.provider.clone(),
-                        filesystem_type: volume.filesystem_type.clone(),
-                    }),
-                    volume,
-                })
-                .collect()
+    let volumes = db
+        .list_global_volumes()
+        .map_err(global_index_database_error)?;
+    Ok(newest_row_per_mount_path(volumes)
+        .into_iter()
+        .map(|volume| GlobalIndexSource {
+            can_pause: volume.index_status == INDEX_STATUS_INDEXING
+                || volume.index_status == INDEX_STATUS_SYNCING,
+            can_rebuild: true,
+            technical_detail: Some(GlobalIndexTechnicalDetail {
+                journal_id: volume.journal_id.clone(),
+                journal_cursor: volume.journal_cursor.clone(),
+                provider: volume.provider.clone(),
+                filesystem_type: volume.filesystem_type.clone(),
+            }),
+            volume,
         })
-        .map_err(|error| error.to_string())
+        .collect())
 }
 
 #[tauri::command]
@@ -157,7 +204,7 @@ pub fn start_global_index<R: Runtime>(
     coordinator: State<'_, GlobalIndexCoordinator>,
 ) -> Result<(), String> {
     require_main_window(&window)?;
-    coordinator.start().map_err(|error| error.to_string())
+    coordinator.start().map_err(global_index_error_message)
 }
 
 #[tauri::command]
@@ -166,7 +213,7 @@ pub fn pause_global_index<R: Runtime>(
     coordinator: State<'_, GlobalIndexCoordinator>,
 ) -> Result<(), String> {
     require_main_window(&window)?;
-    coordinator.pause().map_err(|error| error.to_string())
+    coordinator.pause().map_err(global_index_error_message)
 }
 
 #[tauri::command]
@@ -175,7 +222,7 @@ pub fn resume_global_index<R: Runtime>(
     coordinator: State<'_, GlobalIndexCoordinator>,
 ) -> Result<(), String> {
     require_main_window(&window)?;
-    coordinator.resume().map_err(|error| error.to_string())
+    coordinator.resume().map_err(global_index_error_message)
 }
 
 #[tauri::command]
@@ -187,7 +234,7 @@ pub fn rebuild_global_index_source<R: Runtime>(
     require_main_window(&window)?;
     coordinator
         .rebuild(source_id)
-        .map_err(|error| error.to_string())
+        .map_err(global_index_error_message)
 }
 
 #[tauri::command]
@@ -200,7 +247,20 @@ pub fn set_global_index_source_enabled<R: Runtime>(
     require_main_window(&window)?;
     coordinator
         .set_source_enabled(&source_id, enabled)
-        .map_err(|error| error.to_string())
+        .map_err(global_index_error_message)
+}
+
+#[tauri::command]
+pub fn authorize_global_index_source<R: Runtime>(
+    window: WebviewWindow<R>,
+    coordinator: State<'_, GlobalIndexCoordinator>,
+    source_id: String,
+    confirmed: bool,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    coordinator
+        .authorize_source(&source_id, confirmed)
+        .map_err(global_index_error_message)
 }
 
 #[tauri::command]
@@ -220,7 +280,8 @@ pub fn reveal_global_search_result(
 
 #[tauri::command]
 pub fn list_managed_scopes(db: State<'_, Database>) -> Result<Vec<ManagedScope>, String> {
-    db.list_managed_scopes().map_err(|error| error.to_string())
+    db.list_managed_scopes()
+        .map_err(global_index_database_error)
 }
 
 #[tauri::command]
@@ -231,7 +292,7 @@ pub fn add_managed_scope<R: Runtime>(
 ) -> Result<ManagedScope, String> {
     require_main_window(&window)?;
     db.add_managed_scope(request)
-        .map_err(|error| error.to_string())
+        .map_err(global_index_database_error)
 }
 
 #[tauri::command]
@@ -242,7 +303,7 @@ pub fn remove_managed_scope<R: Runtime>(
 ) -> Result<bool, String> {
     require_main_window(&window)?;
     db.remove_managed_scope(&id)
-        .map_err(|error| error.to_string())
+        .map_err(global_index_database_error)
 }
 
 #[tauri::command]
@@ -253,18 +314,38 @@ pub fn update_managed_scope_policy<R: Runtime>(
 ) -> Result<ManagedScope, String> {
     require_main_window(&window)?;
     db.update_managed_scope_policy(request)
-        .map_err(|error| error.to_string())
+        .map_err(global_index_database_error)
 }
 
 #[tauri::command]
 pub fn get_ai_management_status(db: State<'_, Database>) -> Result<AiManagementStatus, String> {
-    db.ai_management_status().map_err(|error| error.to_string())
+    db.ai_management_status()
+        .map_err(global_index_database_error)
+}
+
+fn global_index_database_error(error: DbError) -> String {
+    global_index_error_message(GlobalIndexError::Database(error))
+}
+
+pub(crate) fn global_index_error_message(error: GlobalIndexError) -> String {
+    if sqlite_contention_kind(&error).is_some() {
+        "global_index_database_busy".to_string()
+    } else if matches!(&error, GlobalIndexError::ServiceBusy(_)) {
+        "global_index_service_busy".to_string()
+    } else if matches!(
+        &error,
+        GlobalIndexError::PermissionRequired(_) | GlobalIndexError::WindowsIo(5 | 1314)
+    ) {
+        "global_index_permission_required".to_string()
+    } else {
+        error.to_string()
+    }
 }
 
 fn load_global_index_status(
     coordinator: &GlobalIndexCoordinator,
 ) -> Result<GlobalIndexStatus, String> {
-    let mut status = coordinator.status().map_err(|error| error.to_string())?;
+    let mut status = coordinator.status().map_err(global_index_error_message)?;
     status.provider_status = coordinator.provider_status().ok();
     // Coverage is complete only when every enabled source is ready. Degraded,
     // paused, permission, rebuild and unavailable states remain explicitly
@@ -292,12 +373,12 @@ pub(crate) fn revalidated_global_entry(
     }
     let entry = db
         .get_global_entry(entry_id)
-        .map_err(|error| error.to_string())?
+        .map_err(global_index_database_error)?
         .filter(|entry| !entry.is_stale)
         .ok_or_else(|| "global_search_result_not_found".to_string())?;
     let volume = db
         .get_global_volume(&entry.volume_id)
-        .map_err(|error| error.to_string())?
+        .map_err(global_index_database_error)?
         .ok_or_else(|| "global_search_source_not_found".to_string())?;
     if !volume.enabled {
         return Err("global_search_source_disabled".to_string());
@@ -422,6 +503,109 @@ fn open_path(path: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    fn volume(id: &str, mount_path: &str, updated_at: i64) -> GlobalVolume {
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.id = id.to_string();
+        volume.stable_volume_id = format!(r"\\?\Volume{{{id}}}\");
+        volume.mount_path = mount_path.to_string();
+        volume.updated_at = updated_at;
+        volume.enabled = false;
+        volume.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_AUTHORIZED.into();
+        volume.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
+        volume.entry_count = 0;
+        volume
+    }
+
+    #[test]
+    fn duplicate_rows_for_one_mount_path_present_only_the_newest() {
+        // Google Drive for desktop re-registers under a fresh volume GUID when
+        // it reconnects, leaving two rows for G:\ with different stable ids.
+        let rows = newest_row_per_mount_path(vec![
+            volume("42ff7b96-d1ab-11f1", "G:\\", 1_760_000_000),
+            volume("f8cd1153-d296-11f1", "G:\\", 1_760_000_900),
+        ]);
+
+        assert_eq!(rows.len(), 1, "one card per mount path");
+        assert_eq!(rows[0].stable_volume_id, r"\\?\Volume{f8cd1153-d296-11f1}\");
+        assert!(
+            rows[0].updated_at > 1_760_000_000,
+            "the newest identity wins so a stale row cannot mask a reconnect"
+        );
+    }
+
+    #[test]
+    fn dedupe_keeps_every_other_mount_and_orders_by_recency() {
+        let rows = newest_row_per_mount_path(vec![
+            volume("a", "G:\\", 10),
+            volume("b", "C:\\", 30),
+            volume("c", "G:\\", 20),
+            volume("d", "Z:\\", 5),
+        ]);
+
+        let mounts: Vec<&str> = rows.iter().map(|row| row.mount_path.as_str()).collect();
+        assert_eq!(mounts, vec!["C:\\", "G:\\", "Z:\\"]);
+        assert_eq!(rows[1].stable_volume_id, r"\\?\Volume{c}\");
+    }
+
+    #[test]
+    fn reused_letter_does_not_hide_active_or_actionable_history() {
+        for state in ["enabled", "permission", "legacy", "entries"] {
+            let mut old = volume("old", "G:\\", 1);
+            match state {
+                "enabled" => old.enabled = true,
+                "permission" => old.index_status = INDEX_STATUS_PERMISSION_REQUIRED.into(),
+                "legacy" => {
+                    old.scope_authorization_state =
+                        SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED.into()
+                }
+                _ => old.entry_count = 1,
+            }
+            let rows = newest_row_per_mount_path(vec![old, volume("new", "G:\\", 2)]);
+            assert_eq!(rows.len(), 2, "must retain actionable history: {state}");
+        }
+    }
+
+    #[test]
+    fn sqlite_and_service_busy_use_distinct_stable_error_codes() {
+        let database_busy =
+            GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                None,
+            )));
+        let remote_database_busy = GlobalIndexError::DatabaseBusy("database busy".into());
+        let service_busy = GlobalIndexError::ServiceBusy("database is locked".into());
+
+        assert_eq!(
+            global_index_error_message(database_busy),
+            "global_index_database_busy"
+        );
+        assert_eq!(
+            global_index_error_message(remote_database_busy),
+            "global_index_database_busy"
+        );
+        assert_eq!(
+            global_index_error_message(service_busy),
+            "global_index_service_busy",
+            "a service error containing SQLite-like words stays a service error"
+        );
+    }
+
+    #[test]
+    fn windows_access_denied_codes_surface_as_permission_required_without_losing_ipc_code() {
+        for code in [5, 1314] {
+            assert_eq!(
+                global_index_error_message(GlobalIndexError::WindowsIo(code)),
+                "global_index_permission_required"
+            );
+        }
+        assert_eq!(
+            global_index_error_message(GlobalIndexError::PermissionRequired(
+                "native access denied".into()
+            )),
+            "global_index_permission_required"
+        );
+    }
+
     #[test]
     fn m1_r3_owned_result_revalidates_for_open_and_reveal_without_launching() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -518,6 +702,41 @@ mod tests {
         assert_eq!(
             global_search_result_state(true, false, true, &ready, false),
             "pending"
+        );
+        for busy_status in [INDEX_STATUS_DATABASE_BUSY, INDEX_STATUS_SERVICE_BUSY] {
+            assert_eq!(
+                global_search_result_state(
+                    true,
+                    false,
+                    true,
+                    &GlobalIndexStatus {
+                        enabled: true,
+                        status: busy_status.to_string(),
+                        collection_complete: false,
+                        ..ready.clone()
+                    },
+                    false
+                ),
+                "failed",
+                "busy indexes must not be reported as zero-match searches"
+            );
+        }
+        assert_eq!(
+            global_search_result_state(
+                true,
+                false,
+                true,
+                &GlobalIndexStatus {
+                    enabled: true,
+                    status: "authorization_required".to_string(),
+                    indexed_volumes: 1,
+                    pending_volumes: 1,
+                    ..ready.clone()
+                },
+                false
+            ),
+            "pending",
+            "an unconfirmed legacy source must not turn an empty cache into a zero-result claim"
         );
         assert_eq!(
             global_search_result_state(false, false, true, &ready, false),

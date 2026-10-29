@@ -108,6 +108,7 @@ const explicitContracts: CommandContract[] = [
     "resume_global_index",
     "rebuild_global_index_source",
     "set_global_index_source_enabled",
+    "authorize_global_index_source",
     "add_managed_scope",
     "remove_managed_scope",
     "update_managed_scope_policy",

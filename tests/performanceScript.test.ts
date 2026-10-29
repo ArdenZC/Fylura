@@ -765,7 +765,7 @@ describe("performance profile and manifest contract", () => {
     expect(full.schemaVersion).toBe(44);
     expect(full.payload.schemaVersion).toBe(44);
     expect(fs.readFileSync("src-tauri/tests/support/performance_fixture.rs", "utf8"))
-      .toContain("pub const FIXTURE_SCHEMA_VERSION: i64 = 44;");
+      .toContain("pub const FIXTURE_SCHEMA_VERSION: i64 = 45;");
     expect(full.payload.inputs).toEqual(expect.arrayContaining([
       { path: "src-tauri/src/db/schema_global_generations.rs", sha256: sha256File("src-tauri/src/db/schema_global_generations.rs") },
       { path: "src-tauri/src/db/schema_global_generations.sql", sha256: sha256File("src-tauri/src/db/schema_global_generations.sql") },

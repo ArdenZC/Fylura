@@ -451,7 +451,7 @@ fn schema_upgrade_42_43_backfill_faults_rollback_and_restart() {
             assert_eq!(user_fingerprint(&conn), before);
             drop(conn);
             let db = crate::db::Database::open(&path).unwrap();
-            assert_eq!(schema_version(&db.conn().unwrap()).unwrap(), 44);
+            assert_eq!(schema_version(&db.conn().unwrap()).unwrap(), 45);
             drop(db);
             cleanup(&path);
         }
@@ -459,8 +459,8 @@ fn schema_upgrade_42_43_backfill_faults_rollback_and_restart() {
 }
 
 #[test]
-fn schema_upgrade_43_44_missing_required_index_fails_closed() {
-    for version in [43, 44] {
+fn schema_upgrade_43_45_missing_required_index_fails_closed() {
+    for version in [43, 45] {
         let path = path("missing-index");
         let conn = historical_fixture(&path);
         if version == 43 {

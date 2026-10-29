@@ -420,7 +420,7 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
             |row| row.get(0),
         )
         .expect("read migrated file library indexes");
-    assert_eq!(version, 44);
+    assert_eq!(version, 45);
     assert_eq!(file_count, row_count as i64);
     assert_eq!(index_count, 5);
     println!(
@@ -489,7 +489,7 @@ fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
         .expect("read catalog revision");
     let size_after = fs::metadata(&path).expect("schema34 size").len();
     let size_delta = size_after.saturating_sub(size_before);
-    assert_eq!(version, 44);
+    assert_eq!(version, 45);
     for table in [
         "content_scope_policies",
         "content_runs",

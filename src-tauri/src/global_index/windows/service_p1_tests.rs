@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 pub(crate) fn source() -> GlobalVolume {
     serde_json::from_value(serde_json::json!({
         "id":"v", "platform":"windows", "stableVolumeId":"native-v", "displayName":"test", "mountPath":"Z:\\",
-        "filesystemType":"NTFS", "driveKind":"fixed", "enabled":true, "provider":PROVIDER_WINDOWS_MFT_USN,
+        "filesystemType":"NTFS", "driveKind":"fixed", "enabled":true, "scopeAuthorizationState":"authorized", "provider":PROVIDER_WINDOWS_MFT_USN,
         "indexStatus":INDEX_STATUS_READY, "lastError":null, "journalId":null, "journalCursor":null,
         "lastFullIndexAt":null, "lastIncrementalSyncAt":null, "entryCount":0, "createdAt":0, "updatedAt":0
     })).unwrap()
@@ -35,7 +35,7 @@ fn request(full: bool) -> IndexServiceRequest {
 }
 pub(super) fn response(request: &IndexServiceRequest, code: Option<&str>) -> IndexServiceResponse {
     IndexServiceResponse {
-        protocol_version: 3,
+        protocol_version: super::IPC_PROTOCOL_VERSION,
         request_id: request.request_id.clone(),
         ok: code.is_none(),
         error_code: code.map(str::to_string),
@@ -219,7 +219,7 @@ fn p1_t02_wrong_response_or_event_identity_and_version_are_rejected_before_callb
     for frame in [
         IndexServiceFrame::Response {
             response: IndexServiceResponse {
-                protocol_version: 4,
+                protocol_version: super::IPC_PROTOCOL_VERSION + 1,
                 ..response(&request, None)
             },
         },

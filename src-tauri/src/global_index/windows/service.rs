@@ -9,8 +9,8 @@
 use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
 use serde::{Deserialize, Serialize};
 
-pub const IPC_PROTOCOL_VERSION: u16 = 3;
-pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v3";
+pub const IPC_PROTOCOL_VERSION: u16 = 4;
+pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v4";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1225,6 +1225,36 @@ mod tests {
     }
 
     #[test]
+    fn v3_installed_service_request_cannot_reach_an_unapproved_source() {
+        let mut unapproved = crate::global_index::tests::test_volume();
+        unapproved.enabled = false;
+        unapproved.scope_authorization_state = "not_authorized".into();
+        let legacy_request = IndexServiceRequest {
+            protocol_version: 3,
+            request_id: "legacy-v3-index".into(),
+            command: IndexServiceCommand::StartInitialIndex {
+                source_id: unapproved.id.clone(),
+            },
+            source: Some(unapproved.clone()),
+        };
+        assert_eq!(
+            validate_request(&legacy_request),
+            Err("unsupported_index_service_protocol".to_string()),
+            "protocol rejection must happen before an old request can enter the v4 service"
+        );
+
+        let current_request = IndexServiceRequest {
+            protocol_version: IPC_PROTOCOL_VERSION,
+            ..legacy_request
+        };
+        // The service-host authorization test exercises the next boundary:
+        // after a structurally valid v4 envelope, it rejects this source
+        // before provider discovery or index work.
+        validate_request(&current_request)
+            .expect("v4 validates the envelope before runtime authorization");
+    }
+
+    #[test]
     fn index_commands_require_a_bounded_source_snapshot() {
         let request = IndexServiceRequest::new(
             IndexServiceCommand::Rebuild {
@@ -1239,9 +1269,9 @@ mod tests {
     }
 
     #[test]
-    fn v3_service_protocol_and_event_frame_shape_remain_stable() {
-        assert_eq!(IPC_PROTOCOL_VERSION, 3);
-        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\ZenCanvas.GlobalIndex.v3");
+    fn v4_service_protocol_and_event_frame_shape_remain_stable() {
+        assert_eq!(IPC_PROTOCOL_VERSION, 4);
+        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\ZenCanvas.GlobalIndex.v4");
 
         let request = IndexServiceRequest {
             protocol_version: IPC_PROTOCOL_VERSION,
@@ -1250,9 +1280,9 @@ mod tests {
             source: None,
         };
         assert_eq!(
-            serde_json::to_value(request).expect("serialize v3 request"),
+            serde_json::to_value(request).expect("serialize v4 request"),
             serde_json::json!({
-                "protocol_version": 3,
+                "protocol_version": 4,
                 "request_id": "request-1",
                 "command": "status",
                 "source": null,

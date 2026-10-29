@@ -410,6 +410,7 @@ fn main() {
             zen_canvas_tauri::global_index::commands::resume_global_index,
             zen_canvas_tauri::global_index::commands::rebuild_global_index_source,
             zen_canvas_tauri::global_index::commands::set_global_index_source_enabled,
+            zen_canvas_tauri::global_index::commands::authorize_global_index_source,
             zen_canvas_tauri::global_index::commands::open_global_search_result,
             zen_canvas_tauri::global_index::commands::reveal_global_search_result,
             zen_canvas_tauri::global_index::commands::list_managed_scopes,

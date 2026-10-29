@@ -396,6 +396,7 @@ mod tests {
                 filesystem_type: "NTFS".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
                 index_status: "ready".to_string(),
                 last_error: None,

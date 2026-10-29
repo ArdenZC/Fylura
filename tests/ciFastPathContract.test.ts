@@ -120,7 +120,10 @@ describe("CI final performance remediation contract", () => {
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       const prepare = section(workflow, "performance-prepare");
       expect(prepare).toContain("Swatinem/rust-cache");
-      expect(prepare).toContain("shared-key: zen-canvas-Windows-performance-v3");
+      // Reuse the trusted default-branch dependency cache across PR, push and full validation.
+      // GitHub Actions prevents sibling PRs from restoring each other's merge-ref caches.
+      expect(prepare).toContain("shared-key: zen-canvas-Windows-performance-v3-push");
+      expect(prepare).not.toContain("shared-key: zen-canvas-Windows-performance-v3-${{ matrix.validation_lane }}");
       expect(prepare).toContain("add-job-id-key: false");
       expect(prepare).toContain("cache-workspace-crates: true");
       expect(prepare).toContain("cache-targets: true");

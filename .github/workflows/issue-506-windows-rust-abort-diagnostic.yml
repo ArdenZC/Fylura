@@ -63,10 +63,10 @@ jobs:
             param([string]$Label, [string[]]$TestArguments)
             Write-Host "::group::$Label"
             $start = Get-Date
-            "BEGIN $Label at $($start.ToUniversalTime().ToString('o'))" | Tee-Object -Append -FilePath $out
-            & cargo @TestArguments
+            "BEGIN $Label at $($start.ToUniversalTime().ToString('o'))" | Tee-Object -Append -FilePath $out | Out-Host
+            & cargo @TestArguments 2>&1 | Tee-Object -FilePath "diagnostics/issue506-$Label.log" | Out-Host
             $code = $LASTEXITCODE
-            "END $Label exit=$code at $((Get-Date).ToUniversalTime().ToString('o'))" | Tee-Object -Append -FilePath $out
+            "END $Label exit=$code at $((Get-Date).ToUniversalTime().ToString('o'))" | Tee-Object -Append -FilePath $out | Out-Host
             if ($code -ne 0) {
               Start-Sleep -Seconds 2
               try {
@@ -75,9 +75,9 @@ jobs:
                   Select-Object TimeCreated,Id,ProviderName,Message |
                   Format-List |
                   Out-String |
-                  Tee-Object -Append -FilePath $out
+                  Tee-Object -Append -FilePath $out | Out-Host
               } catch {
-                "Windows Event Log unavailable: $($_.Exception.Message)" | Tee-Object -Append -FilePath $out
+                "Windows Event Log unavailable: $($_.Exception.Message)" | Tee-Object -Append -FilePath $out | Out-Host
               }
             }
             Write-Host "::endgroup::"
@@ -90,7 +90,7 @@ jobs:
           if ($serial -eq 0 -and $parallel -eq 0) {
             $full = Invoke-Diagnostic 'single-full-lib-comparison' ($prefix + @('--', '--nocapture'))
           } else {
-            "Full library comparison skipped because a focused case reproduced the failure" | Tee-Object -Append -FilePath $out
+            "Full library comparison skipped because a focused case reproduced the failure" | Tee-Object -Append -FilePath $out | Out-Host
             $full = 0
           }
           if ($serial -ne 0 -or $parallel -ne 0 -or $full -ne 0) { exit 1 }
@@ -100,6 +100,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: issue506-windows-rust-diagnostics
-          path: diagnostics/issue506-*.txt
+          path: diagnostics/issue506-*
           if-no-files-found: warn
           retention-days: 14

@@ -528,6 +528,8 @@ jobs:
           cache-on-failure: true
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Windows fixture lifecycle concurrency regression
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib file_workspace::change::tests::concurrent_fixture_lifecycles_preserve_their_shared_parent -- --exact --nocapture
       - name: Rust tests
@@ -541,8 +543,6 @@ jobs:
           ZC_NATIVE_QA_WATCHER_FIXTURE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
           ZC_NATIVE_QA_WATCHER_TRACE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "performance-test-tauri native-qa" --lib watcher::tests::windows_recommended_watcher_publishes_real_file_create_and_append -- --exact --nocapture --test-threads=1
-      - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Native filesystem hardening smoke
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
       - name: Setup Node for resident lifecycle assets
@@ -608,10 +608,10 @@ jobs:
           cache-on-failure: true
       - name: Native workspace format
         run: cargo fmt --manifest-path src-tauri/native/Cargo.toml --all -- --check
-      - name: Native workspace tests
-        run: cargo test --manifest-path src-tauri/native/Cargo.toml
       - name: Native workspace clippy
         run: cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings
+      - name: Native workspace tests
+        run: cargo test --manifest-path src-tauri/native/Cargo.toml
       - name: Compile test-only Explorer registration runner
         run: cargo check --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --bin zen-canvas-windows-preview-handler-real-host --features test-registration
       - name: Build Windows Preview Handler DLL
@@ -855,6 +855,8 @@ jobs:
           cache-on-failure: true
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
       - name: Rust tests
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" -- \
@@ -867,8 +869,6 @@ jobs:
       - name: Managed Scan name-only exclusion characterization
         if: ${{ !cancelled() }}
         run: cargo test --manifest-path src-tauri/Cargo.toml --features performance-test-tauri --lib issue375_ -- --nocapture --test-threads=1
-      - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
       - name: Native macOS lifecycle blocking lifetime
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --lib platform::macos::lifecycle::native_tests -- --nocapture --test-threads=1
       - name: macOS race validation (serial, once)

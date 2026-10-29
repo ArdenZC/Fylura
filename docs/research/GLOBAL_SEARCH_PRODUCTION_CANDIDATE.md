@@ -2,7 +2,7 @@
 
 ## Decision
 
-**NO-GO for Stage B or production routing.** This branch keeps the SQLite search result authoritative and leaves the shadow worker disabled by default. Linux Release candidate latency was below 100 ms at 100k synthetic rows, but high-hit candidate sets diverged from FTS/BM25 at the 4,096 window. Windows/macOS native qualification at 100k, 500k, and 1M rows is still required, and the ranking/window mismatch must be resolved before an Owner production review.
+**NO-GO for Stage B or production routing.** This branch keeps the SQLite search result authoritative and leaves the shadow worker disabled by default. The Windows and Apple Silicon macOS 100k/500k/1M matrix completed, but `pdf` and `Month-03` candidate windows diverge from FTS/BM25 at the 4,096 window on every native size; `Month-03` also returns a different first page. Candidate-only p95 exceeds 100 ms for high-hit and zero-hit queries at 1M. The full existing route also exceeds the historical 100 ms p95 gate for high-hit queries on Windows at 500k and both platforms at 1M. These correctness and latency failures block Stage B.
 
 ## Scope and safety
 
@@ -11,14 +11,14 @@
 - The main schema migration chain remains untouched. The optional feed is additive and self-versioned, so it does not claim or change `PRAGMA user_version`; this avoids collision with the independent #489 authorization migration. When the optional `scope_authorization_state` column exists, an invalidation trigger is installed and validated.
 - SQLite remains the durable source of file and source facts. Installation does not scan or copy indexed rows. A bounded feed records up to 100,000 events; saturation invalidates incremental use until a full snapshot safely resets the feed.
 - `ZEN_CANVAS_GLOBAL_SEARCH_SHADOW=1` is required to start the worker. The worker builds an immutable compact view, applies at most 5,000 generations per batch with a 50 ms work target, and refuses publication on gaps, source changes, budget failure, or stale generations. The SQLite route still produces every visible result. Exact-name, name-prefix, exact-extension, extension-prefix, and BM25 SQL remain unchanged.
-- The sidecar tables and triggers are installed when the database opens, even while the worker is off. They add bounded SQLite write work, which still needs native ingestion-cost qualification.
+- The sidecar tables and triggers are installed when the database opens, even while the worker is off. The PR's Windows/macOS ingestion smoke jobs passed at 1k synthetic rows, but each used one repeat and no no-feed control; marginal trigger write cost is still unqualified.
 - No test accesses a user disk or indexes a real volume. Scale fixtures write synthetic rows through the real schema and FTS/change triggers in a temporary database.
 
 ## Correctness evidence
 
-Targeted Rust view tests: **9 passed, 0 failed** (plus one ignored scale qualification). Change-feed tests: **6 passed, 0 failed**. `cargo check --lib`, formatting, governance checks, and Clippy passed for the changed modules. The repository's exact Linux `desktop-runtime --all-targets -- -D warnings` command is blocked by existing OS-gated unused-variable and dead-code warnings in `fs_safety` and `startup_upgrade`; Clippy passes when only those two Linux-only warning classes are allowed. Windows/macOS CI will run the unmodified native lint gate. The tests cover independent ASCII substring oracles, stable Top-K and the 4,096 window, punctuation/path/extension cases, insert/delete/rename/move/stale/source disable, actual repository writes, transaction rollback, feed saturation and gaps, the optional authorization trigger, low-memory refusal, database reopen/rebuild, worker refresh behavior, and a reader holding the prior immutable generation while an update is built.
+Targeted Rust view tests: **9 passed, 0 failed** (plus one ignored scale qualification). Change-feed tests: **6 passed, 0 failed**. `cargo check --lib`, formatting, governance checks, and Clippy passed for the changed modules. The repository's exact Linux `desktop-runtime --all-targets -- -D warnings` command is blocked by existing OS-gated unused-variable and dead-code warnings in `fs_safety` and `startup_upgrade`; Clippy passes when only those two Linux-only warning classes are allowed. Windows and macOS full Rust quality, native service qualification, Release builds, performance profile, and quality aggregate all passed in CI. The first macOS Rust test attempt ended with a process-level `SIGBUS` and no failed assertion; its full rerun passed, including Rust tests, Clippy, native lifecycle, and race checks. The tests cover independent ASCII substring oracles, stable Top-K and the 4,096 window, punctuation/path/extension cases, insert/delete/rename/move/stale/source disable, actual repository writes, transaction rollback, feed saturation and gaps, the optional authorization trigger, low-memory refusal, database reopen/rebuild, worker refresh behavior, and a reader holding the prior immutable generation while an update is built.
 
-An earlier full Linux `cargo test --lib -- --test-threads=1` run, before the final matcher normalization and worker refresh test, reported **1,106 passed, 54 failed, 36 ignored**. Failures were in AI/provider and native file-workspace/managed-worker suites outside the changed search modules; this is not final-head regression evidence. The PR's Windows and Apple Silicon CI lanes will run the full suite against the final head.
+An earlier full Linux `cargo test --lib -- --test-threads=1` run, before the final matcher normalization and worker refresh test, reported **1,106 passed, 54 failed, 36 ignored**. Failures were in AI/provider and native file-workspace/managed-worker suites outside the changed search modules; this is not final-head regression evidence. Final-head Windows and macOS full Rust quality both passed in the PR CI run.
 
 ## Linux Release performance evidence
 
@@ -40,14 +40,45 @@ One 512-event incremental update batch applied in 2.59 ms. The in-code memory ac
 
 The process sampler observed 159.3 MB peak RSS during view construction (132.7 MB above pre-build RSS), 151.7 MB peak during the 30-second idle interval, and 274.7 MB during the later query/update workload. These process figures include SQLite page residency, FTS pages, and the test process, so they cannot be attributed to B alone. The idle average was 1.34% with a noisy 56% sampled peak; incremental CPU had too few samples to report. Native application RSS, worker CPU, and long-duration stability remain unqualified.
 
+## Windows and macOS Release qualification
+
+The branch-scoped [native qualification workflow](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803125504) passed all six Windows/macOS runs at 100k, 500k, and 1M rows. Each fixture used the application schema, FTS/change triggers, synthetic rows, 5 warmups, and 30 measured samples. It records B-only, FTS-only, full SQLite search, and snapshot endpoint p50/p95/p99 for `report`, `invoice`, `pdf`, `jp`, `Month-03`, zero-hit, Chinese, and accented queries.
+
+| Runner / rows | B `report` p50/p95/p99 ms | B `invoice` p50/p95/p99 ms | FTS-only `report` / `invoice` p95 ms | Full SQLite `report` / `invoice` / `jp` p95 ms | Snapshot `report` / `invoice` / `jp` p95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Windows / 100k | 9.42 / 9.48 / 9.58 | 9.76 / 9.87 / 9.87 | 39.3 / 44.3 | 35.7 / 40.3 / 29.0 | 16.7 / 18.3 / 13.5 |
+| macOS / 100k | 10.08 / 12.77 / 13.29 | 12.43 / 13.97 / 16.13 | 17.2 / 21.3 | 18.2 / 17.0 / 15.4 | 17.6 / 15.3 / 11.5 |
+| Windows / 500k | 47.43 / 48.11 / 49.14 | 49.03 / 50.10 / 55.61 | 194.7 / 193.4 | 174.7 / 176.9 / 142.7 | 75.9 / 92.2 / 64.6 |
+| macOS / 500k | 43.18 / 53.97 / 57.29 | 45.85 / 50.88 / 54.99 | 52.7 / 59.3 | 42.8 / 47.1 / 48.1 | 44.5 / 44.8 / 70.6 |
+| Windows / 1M | 95.73 / 106.41 / 109.59 | 98.55 / 106.21 / 113.65 | 389.6 / 382.2 | 340.2 / 352.0 / 288.0 | 157.6 / 175.6 / 135.1 |
+| macOS / 1M | 89.58 / 108.17 / 114.49 | 101.74 / 120.70 / 141.96 | 120.5 / 138.3 | 118.1 / 110.0 / 91.0 | 100.8 / 109.4 / 89.1 |
+
+`report` and `invoice` had matching FTS-window membership and order at each size. `pdf` membership/order differed at all six sizes, although its first production page matched because the unchanged exact-extension tier wins. `Month-03` membership/order and first page differed at all six sizes. Zero-hit membership was equal, but B-only p95 rose to 172.9 ms on macOS and 193.9 ms on Windows at 1M. At 1M, B-only `report` and `invoice` p95 exceeded 100 ms on both platforms. The full SQLite route exceeded 100 ms for `report`/`invoice` on both 1M platforms and for `report`, `invoice`, and `jp` on Windows at 500k. The snapshot endpoint stayed below 100 ms for those Windows 500k cases, but exceeded 100 ms for the listed Windows 1M queries and macOS 1M `report`/`invoice`.
+
+The resource accountant reported the following view and process measurements. “Two views” includes a replacement full view while the old view remains retained. Process RSS includes SQLite/FTS page residency and the test process and is not attributable to B alone; the RSS sampler can miss short peaks (macOS 100k post-build RSS exceeded its sampled build peak). Incremental CPU had one sample at every size and is not a useful peak measurement.
+
+| Runner / rows | Accounted B active / two views MiB | Build ms | RSS after build / sampled build peak / sampled update peak MiB | Idle CPU average | 512-event apply ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Windows / 100k | 12.38 / 24.97 | 215 | 27.3 / 34.8 / 59.9 | 2.03% | 3.28 |
+| macOS / 100k | 12.38 / 24.97 | 115 | 138.4 / 23.3 / 245.9 | 0.66% | 2.19 |
+| Windows / 500k | 54.51 / 109.22 | 1,866 | 71.3 / 112.8 / 216.5 | 0.57% | 3.18 |
+| macOS / 500k | 54.51 / 109.22 | 444 | 586.4 / 570.8 / 1,021.7 | 0.77% | 1.93 |
+| Windows / 1M | 108.88 / 217.97 | 6,748 | 124.7 / 212.2 / 313.8 | 0.99% | 3.30 |
+| macOS / 1M | 108.88 / 217.97 | 2,518 | 1,113.7 / 1,108.0 / 1,988.9 | 1.05% | 2.01 |
+
+The 1M two-view accountant total of 217.97 MiB is below the 256 MiB limit, leaving about 38 MiB headroom; it is a code-level accounting result, not private-RSS attribution. At 1M, the standalone macOS process reached about 1.11 GiB RSS after build and a sampled 1.94 GiB during incremental update, while Windows was about 125 MiB after build and 314 MiB during update. Long-idle samples lasted 30 seconds. These standalone measurements do not establish application startup RSS, private bytes, long-duration stability, or worker CPU.
+
+Raw Debug and Release logs, including all p50/p95/p99 query results and correctness comparisons, are attached to each matrix job: [Windows 100k](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803125504/artifacts/12868076042), [macOS 100k](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803125504/artifacts/12866804179), [Windows 500k](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803125504/artifacts/12867558093), [macOS 500k](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803125504/artifacts/12867637231), [Windows 1M](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803125504/artifacts/12868113479), and [macOS 1M](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803125504/artifacts/12868012045).
+
+The full [PR CI run](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803153773) passed after the macOS Rust job rerun. The automatic [Windows/macOS ingestion smoke run](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40803153821) also passed; it is a 1k-row, single-repeat fixture and does not isolate marginal Change Feed trigger cost.
+
 ## Remaining qualification gates
 
-- Run the branch-scoped `Global Search view native qualification` workflow at 100k, 500k, and 1M rows on Windows and Apple Silicon macOS. It is limited to candidate code and database changes and does not run for ordinary documentation changes.
-- Resolve high-hit membership/order mismatch before enabling any Stage B route; preserve complete pagination and the unchanged 100 ms gate.
-- Review native Release p50/p95/p99 for candidate-only, FTS-only, full SQLite search, and the snapshot endpoint, plus fallback and 4,096-boundary correctness.
-- Capture native application startup RSS, peak RSS/private bytes during view build and updates, idle CPU, update-worker CPU, long-idle resource stability, and prior-view release. The current standalone Rust process sample is preliminary and does not qualify these application-level gates.
-- Confirm search-change trigger write cost on both native platforms and inspect CI/clippy results for the PR head.
-- Improve candidate generation and ranking parity before considering Stage B. The current view scans all indexed rows per query and has not been measured above 100k in this environment; do not enable it for user-visible routing.
+- Resolve FTS/BM25 membership, order, and pagination mismatches for `pdf` and `Month-03` before enabling Stage B.
+- Preserve the 100 ms p95 gate. The current full route misses it for high-hit Windows 500k and both 1M native fixtures; B-only p95 also misses it at 1M and for Windows 500k zero-hit. Improve the candidate generation and ranking path without degrading exact-name, prefix, or extension tiers.
+- Measure marginal Change Feed trigger cost against a no-feed control at realistic write volumes on Windows and macOS; the automatic 1k smoke is not sufficient.
+- Capture application startup RSS, private bytes during build/update, worker CPU, and longer idle stability. Current RSS is from a standalone synthetic process and includes SQLite/FTS page residency; incremental CPU had too few samples.
+- Keep the default SQLite route and opt-in shadow-only worker until correctness, resource attribution, and latency gates pass. Do not enable B for user-visible routing.
 
 ## Enable and rollback
 

@@ -630,6 +630,14 @@ describe("performance profile and manifest contract", () => {
     }).schemaVersion).toBe(35);
     expect(() => validateFixtureManifest(tempRoot, { expectedFixtureIdentity: "wrong" }))
       .toThrow("identity mismatch");
+    expect(() => validateFixtureManifest(tempRoot, {
+      expectedFixtureIdentity: "fixture-identity-1",
+      expectedRowCounts: [1_000_000],
+      requiredFiles: ["fixture.sqlite3"],
+    })).toThrow("row-count identity mismatch");
+    // The consumer must enforce row-count identity, not just manifest hashes.
+    expect(read("scripts/runPerformanceSuite.mjs"))
+      .toContain("expectedRowCounts: fixtureIdentityInfo.rowCounts");
     const staleSchema41 = createFixtureManifest({
       commit: "commit-1", profile: "extended", suites: ["library-content"],
       schemaVersion: 41, fixtureFormatVersion: 1, fixtureIdentity: "fixture-identity-1",

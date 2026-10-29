@@ -165,7 +165,8 @@ function main(argv) {
   const requiredFixtures = getFixtureWorkingFiles(suite, profile);
   if (requiredFixtures.length > 0) {
     if (!fixtureRoot) throw new Error(`Suite ${suite} requires --fixture-root.`);
-    const fixtureIdentity = selection.fixtureIdentity ?? createPerformanceFixtureIdentity({ profile }).fixtureIdentity;
+    const fixtureIdentityInfo = createPerformanceFixtureIdentity({ profile });
+    const fixtureIdentity = selection.fixtureIdentity ?? fixtureIdentityInfo.fixtureIdentity;
     fixtureRoot = resolveFixtureRoot(fixtureRoot, fixtureIdentity);
     validateFixtureManifest(fixtureRoot, {
       expectedProfile: profile,
@@ -174,6 +175,7 @@ function main(argv) {
       expectedSchemaVersion: PERFORMANCE_FIXTURE_SCHEMA_VERSION,
       expectedFixtureFormatVersion: 1,
       expectedCacheScope: "fixture-cache",
+      expectedRowCounts: fixtureIdentityInfo.rowCounts,
       requiredFiles: requiredFixtures,
     });
   }

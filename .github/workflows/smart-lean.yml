@@ -44,9 +44,14 @@ jobs:
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::coverage::tests -- --nocapture
       - name: Paired production ingestion benchmark
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+      - name: Scoped macOS native source qualification
+        if: runner.os == 'macOS'
+        run: bash scripts/qualifySmartLeanMacos.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: smart-lean-${{ matrix.os }}-${{ env.ZEN_SMART_LEAN_ENTRIES }}
-          path: smart-lean-ab.json
+          path: |
+            smart-lean-ab.json
+            smart-lean-native-macos.json
           if-no-files-found: warn

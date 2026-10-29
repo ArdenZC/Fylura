@@ -5,6 +5,8 @@ pub mod recovery_qa;
 pub mod service;
 mod service_errors;
 pub mod service_host;
+#[cfg(feature = "native-qa")]
+pub mod smart_lean_qa;
 pub mod usn;
 pub mod volumes;
 
@@ -885,6 +887,32 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
         &self,
     ) -> Result<Option<Vec<GlobalSourceDescriptor>>, GlobalIndexError> {
         volumes::discover_windows_volumes().map(Some)
+    }
+
+    fn update_coverage_lifecycle(
+        &self,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut watchers = self.change_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".into())
+        })?;
+        let result = {
+            let mut gates = watchers
+                .values()
+                .map(|w| w.publication_gate())
+                .collect::<Vec<_>>();
+            let result = update();
+            if !matches!(result, Ok(false)) {
+                for gate in &mut gates {
+                    **gate = false;
+                }
+            }
+            result
+        };
+        if !matches!(result, Ok(false)) {
+            watchers.clear();
+        }
+        result.map(|_| ())
     }
 
     fn update_source_lifecycle(

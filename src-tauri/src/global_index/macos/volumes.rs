@@ -74,7 +74,7 @@ pub(super) fn source_id_matches(id: &str, root: &Path) -> bool {
     volume_uuid(physical)
         .is_some_and(|uuid| id == format!("gv_macos_{}", blake3::hash(uuid.as_bytes()).to_hex()))
 }
-fn volume_uuid(path: &Path) -> Option<String> {
+pub(super) fn volume_uuid(path: &Path) -> Option<String> {
     use objc2_foundation::{NSArray, NSString, NSURLVolumeUUIDStringKey, NSURL};
     objc2::rc::autoreleasepool(|_| {
         let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?));
@@ -163,6 +163,37 @@ impl GlobalIndexProvider for MacosVolumeProvider {
         self.source_provider(s)
             .map(|p| p.requires_background_admission(s))
             .unwrap_or(true)
+    }
+    fn update_coverage_lifecycle(
+        &self,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        let providers = self
+            .providers
+            .lock()
+            .map_err(|_| GlobalIndexError::Provider("macos_volume_provider_poisoned".into()))?;
+        let _guards = providers
+            .values()
+            .map(|p| {
+                p.lifecycle.lock().map_err(|_| {
+                    GlobalIndexError::Provider("macos_source_lifecycle_poisoned".into())
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let result = update();
+        if !matches!(result, Ok(false)) {
+            for p in providers.values() {
+                p.stopped.store(true, Ordering::Release);
+                p.stop_watchers();
+                p.baseline_established.store(false, Ordering::Release);
+                p.clear_known_entries();
+                *p.pending
+                    .lock()
+                    .map_err(|_| GlobalIndexError::Provider("macos_pending_poisoned".into()))? =
+                    PendingUpdates::default();
+            }
+        }
+        result.map(|_| ())
     }
     fn update_source_lifecycle(
         &self,

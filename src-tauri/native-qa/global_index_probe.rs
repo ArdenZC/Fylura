@@ -105,6 +105,29 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err("profile preparation is supported only on Windows".into());
         }
     }
+    if arguments
+        .first()
+        .is_some_and(|a| a == "--qualify-smart-lean-direct")
+    {
+        if arguments.len() != 5 {
+            return Err("usage: --qualify-smart-lean-direct <profile> <source-id> <included-file> <excluded-file>".into());
+        }
+        #[cfg(windows)]
+        {
+            let result = zen_canvas_tauri::global_index::windows::smart_lean_qa::run(
+                std::path::Path::new(&arguments[1]),
+                &arguments[2],
+                std::path::Path::new(&arguments[3]),
+                std::path::Path::new(&arguments[4]),
+            )?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        #[cfg(not(windows))]
+        {
+            return Err("Direct qualification requires Windows".into());
+        }
+    }
     if !arguments.is_empty() {
         return Err("unexpected QA probe arguments".into());
     }
@@ -155,7 +178,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         serde_json::to_writer(
             &mut stdout,
-            &json!({"volumes": volumes, "results": results}),
+            &json!({"volumes": volumes, "results": results, "coverage": database.global_index_coverage()?}),
         )?;
         stdout.write_all(b"\n")?;
         stdout.flush()?;

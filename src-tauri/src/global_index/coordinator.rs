@@ -162,6 +162,15 @@ pub trait GlobalIndexProvider: Send + Sync {
 
     fn source_enabled_changed(&self, _source_id: &str, _enabled: bool) {}
 
+    /// Publish a global coverage revision under the provider's registration
+    /// locks. Implementations discard old leases before releasing those locks.
+    fn update_coverage_lifecycle(
+        &self,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        update().map(|_| ())
+    }
+
     /// Serialize a short authority change with native resource registration.
     /// The callback returns whether existing resources must be discarded.
     /// Never perform scans, IPC, scheduler waits or callbacks into this provider
@@ -325,12 +334,19 @@ impl GlobalIndexCoordinator {
         self.start()
     }
 
-    pub fn coverage_policy_changed(&self) -> Result<(), GlobalIndexError> {
+    pub fn set_coverage_policy(
+        &self,
+        expected: u64,
+        mode: super::coverage::CoverageMode,
+        rules: Vec<super::coverage::CoverageRule>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut rules = Some(rules);
+        self.provider.update_coverage_lifecycle(&mut || {
+            self.db
+                .save_global_index_coverage(expected, mode, rules.take().unwrap_or_default())?;
+            Ok(true)
+        })?;
         self.wake.notify(GlobalIndexWakeReason::RecoveryRequired);
-        for source in self.db.list_global_volumes()? {
-            self.provider
-                .update_source_lifecycle(&source.id, &mut || Ok(true))?;
-        }
         self.start()
     }
 
@@ -418,6 +434,14 @@ struct DatabaseIndexSink {
 
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) fn database_sink_for_test(db: Database) -> impl GlobalIndexSink {
+    database_sink_for_qualification(db)
+}
+
+#[cfg(any(
+    all(test, any(windows, target_os = "macos")),
+    all(feature = "native-qa", windows)
+))]
+pub(crate) fn database_sink_for_qualification(db: Database) -> impl GlobalIndexSink {
     DatabaseIndexSink {
         db,
         owners: HashMap::new(),
@@ -440,6 +464,14 @@ impl DatabaseIndexSink {
                     || message == "global_index_operation_foreign_volume_write" =>
             {
                 GlobalIndexError::ServiceOutcomeUnknown(message)
+            }
+            DbError::Validation(message)
+                if message == "global_index_entry_outside_authorized_source" =>
+            {
+                GlobalIndexError::ServiceProtocol(message)
+            }
+            DbError::Validation(message) if message == "global_index_source_identity_changed" => {
+                GlobalIndexError::PermissionRequired(message)
             }
             other => GlobalIndexError::Database(other),
         }

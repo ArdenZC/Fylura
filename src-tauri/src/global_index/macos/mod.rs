@@ -6,6 +6,8 @@
 //! Spotlight remains the source of file metadata.
 
 mod fsevents;
+#[cfg(test)]
+mod smart_lean_qa_tests;
 mod spotlight;
 mod volumes;
 pub(crate) use volumes::MacosVolumeProvider;
@@ -209,6 +211,11 @@ impl MacosSpotlightProvider {
             .lifecycle
             .lock()
             .map_err(|_| GlobalIndexError::Provider("macos_source_lifecycle_poisoned".into()))?;
+        if !source_identity_current(&source.volume) {
+            return Err(GlobalIndexError::PermissionRequired(
+                "macos_volume_identity_changed".into(),
+            ));
+        }
         if !sink.native_watcher_admitted(&source.volume)? {
             return Err(GlobalIndexError::SourceBusy(
                 "macos_source_authority_changed".into(),

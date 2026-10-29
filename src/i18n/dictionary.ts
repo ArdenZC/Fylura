@@ -2,6 +2,8 @@ import type { Language } from "./types";
 export type { Language } from "./types";
 
 const zh = {
+  indexCoverageWaiting: "覆盖重建尚未完成；请核对位置健康和权限，修复后重建或重启。",
+  indexCoverageSourceHealth: "位置健康",
   indexCoverageExcludedResult: "此结果已被当前搜索覆盖策略排除，并不表示文件不存在。可在设置中包含该文件夹。",
   indexCoverageTitle: "搜索覆盖",
   indexCoverageAuthorization: "覆盖策略仅在明确启用的位置内生效，不授权新磁盘；排除仅影响搜索，不删除文件，也不授予 AI、内容读取或文件操作权限。",
@@ -453,7 +455,7 @@ const zh = {
   openSearchScopeSettings: "打开搜索范围设置",
   globalIndexSettings: "全局索引与 AI 管理",
   globalSearchRefreshResults: "刷新结果",
-  globalSearchWindowsScopeDesc: "Windows 全局搜索以 NTFS 卷为索引单位，不支持单独指定文件夹。新发现磁盘默认不会扫描；启用前会要求确认，之后会为整个卷建立文件名、路径等元数据索引，而不是只扫描个人文件。文件库扫描和 AI 管理范围不会建立全局搜索覆盖。",
+  globalSearchWindowsScopeDesc: "Windows 以 NTFS 卷为授权单位，新磁盘默认不扫描。确认授权后，覆盖模式决定收录哪些文件：默认智能精简，自定义可包含或排除卷内文件夹。卷授权范围不限于个人文件；文件库扫描和 AI 管理范围不授予全局索引权限。",
   globalSearchReadyEmptyDesc: "当前已授权且就绪的搜索覆盖范围中没有匹配结果，并不表示文件不存在。请在管理索引中核对来源授权和覆盖模式，或包含目标文件夹。",
   globalSearchPausedDesc: "索引已暂停，本次结果不能证明全部位置均已收录。可查看来源，状态变化后刷新结果。",
   globalSearchIndexingDesc: "部分来源仍在收录，尚未收录的位置可能没有结果。请在管理索引中核对具体来源，收录完成后刷新结果。",
@@ -2974,6 +2976,8 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
+  indexCoverageWaiting: "Coverage rebuild is incomplete. Check source health and permissions, then rebuild or restart after recovery.",
+  indexCoverageSourceHealth: "Source health",
   indexCoverageExcludedResult: "This result is excluded by the current coverage policy. It does not mean the file is absent. Include its folder in Settings to restore coverage.",
   indexCoverageTitle: "Search coverage",
   indexCoverageAuthorization: "Coverage applies only to explicitly enabled sources. It never authorizes a new disk, deletes files or grants AI, content or file-operation permission.",
@@ -3425,7 +3429,7 @@ const en: Record<keyof typeof zh, string> = {
   openSearchScopeSettings: "Open search scope settings",
   globalIndexSettings: "Global index & AI management",
   globalSearchRefreshResults: "Refresh results",
-  globalSearchWindowsScopeDesc: "Windows Global Search indexes NTFS volumes; folders cannot be selected individually. Newly discovered disks are not scanned by default. Enabling a disk requires confirmation and indexes metadata across the entire volume, not only personal files. File Library scans and AI managed scopes do not establish Global Search coverage.",
+  globalSearchWindowsScopeDesc: "Windows requires explicit NTFS volume authorization; newly discovered disks stay unscanned. Coverage mode then selects indexed files: Smart Lean by default, or Custom folder Include/Exclude rules within that volume. Volume authorization extends beyond personal files. File Library scans and AI scopes do not grant Global Index access.",
   globalSearchReadyEmptyDesc: "No match in the current authorized, ready coverage. This does not mean the file is absent. Check source authorization and coverage mode in Manage index, or include its folder.",
   globalSearchPausedDesc: "Indexing is paused; this snapshot does not establish complete coverage. Check sources and refresh results after their state changes.",
   globalSearchIndexingDesc: "Some sources are still indexing; uncovered locations may have no results. Check the specific source in Manage index, then refresh results after publication.",

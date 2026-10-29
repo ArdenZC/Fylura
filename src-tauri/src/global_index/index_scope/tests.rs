@@ -560,3 +560,81 @@ fn hardlinks_are_fenced_on_native_filesystems() {
         Decision::Undetermined(_)
     ));
 }
+
+#[test]
+fn resolved_uncertainty_does_not_make_cumulative_observations_a_permanent_blocker() {
+    let f = Fixture::new();
+    let entry = f.file("resolved.txt");
+    fs::remove_file(&entry.path).unwrap();
+    let owner = f.owner();
+    f.db.upsert_global_entries_batch_owned(std::slice::from_ref(&entry), &owner)
+        .unwrap();
+    f.db.finish_global_index_operation(&owner, "ready", None, Some(1), Some(1), false)
+        .unwrap();
+    assert!(!f.db.global_index_status().unwrap().collection_complete);
+    fs::write(&entry.path, b"fixture").unwrap();
+    let owner =
+        f.db.claim_global_index_operation(
+            &f.source,
+            &uuid::Uuid::new_v4().to_string(),
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Coordinator,
+        )
+        .unwrap()
+        .unwrap();
+    f.db.upsert_global_entries_batch_owned(std::slice::from_ref(&entry), &owner)
+        .unwrap();
+    f.db.finish_global_index_operation(&owner, "ready", None, None, Some(2), false)
+        .unwrap();
+    let snapshot = f.db.global_index_coverage().unwrap();
+    assert_eq!(
+        snapshot.sources[0].undetermined, 1,
+        "observation counter remains cumulative"
+    );
+    assert!(
+        !snapshot.sources[0].has_undetermined,
+        "current repository truth has resolved the uncertainty"
+    );
+    assert!(f.db.global_index_status().unwrap().collection_complete);
+}
+#[test]
+fn policy_retirement_preserves_managed_ai_corrections_and_references() {
+    let f = Fixture::new();
+    let entry = f.dependencies();
+    f.db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+        .unwrap();
+    {
+        let conn = f.db.conn().unwrap();
+        conn.execute("INSERT INTO managed_scopes(id,path,enabled,created_at,updated_at) VALUES('scope',?1,1,1,1)",[f.root.to_string_lossy().as_ref()]).unwrap();
+        conn.execute("INSERT INTO managed_entries(id,global_entry_id,managed_scope_id,enabled,created_at,updated_at) VALUES('managed',?1,'scope',1,1,1)",[entry.entry_id()]).unwrap();
+        conn.execute("INSERT INTO ai_analysis_state(global_entry_id,status,classification_json,user_corrected,updated_at) VALUES(?1,'completed','user-owned-correction',1,1)",[entry.entry_id()]).unwrap();
+    }
+    f.db.save_global_index_coverage(1, CoverageMode::SmartLean, vec![])
+        .unwrap();
+    let owner = f.owner();
+    f.db.mark_global_entries_stale_for_volume_owned(&owner)
+        .unwrap();
+    f.db.upsert_global_entries_batch_owned(std::slice::from_ref(&entry), &owner)
+        .unwrap();
+    f.db.finish_global_index_operation(&owner, "ready", None, Some(1), Some(1), true)
+        .unwrap();
+    let conn = f.db.conn().unwrap();
+    assert_eq!(
+        conn.query_row(
+            "SELECT enabled FROM managed_entries WHERE id='managed'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(conn.query_row("SELECT classification_json,user_corrected FROM ai_analysis_state WHERE global_entry_id=?1",[entry.entry_id()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?))).unwrap(),("user-owned-correction".into(),1));
+    assert_eq!(
+        conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+            .get::<_, i64>(
+            0
+        ))
+        .unwrap(),
+        0
+    );
+}

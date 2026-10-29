@@ -137,7 +137,9 @@ fn performance_root(path: &Path, root: &Path) -> Option<&'static str> {
         let reason = match name {
             "node_modules"
                 if plain(&parent.join("package.json"), false)
-                    && plain(&dir.join(".package-lock.json"), false) =>
+                    && [".package-lock.json", ".modules.yaml", ".yarn-integrity"]
+                        .iter()
+                        .any(|marker| plain(&dir.join(marker), false)) =>
             {
                 "npm_dependencies"
             }
@@ -237,6 +239,18 @@ fn known_cache_roots(source_root: &Path) -> Vec<PathBuf> {
     roots.shrink_to_fit();
     roots
 }
+pub(crate) fn source_identity_current(source: &GlobalVolume) -> bool {
+    #[cfg(windows)]
+    if source.platform == "windows" {
+        return crate::global_index::windows::volumes::source_identity_current(source);
+    }
+    #[cfg(target_os = "macos")]
+    if source.platform == "macos" {
+        return crate::global_index::macos::source_identity_current(source);
+    }
+    let _ = source;
+    true
+}
 pub fn bind_rule(
     source: &GlobalVolume,
     path: &str,
@@ -244,6 +258,7 @@ pub fn bind_rule(
 ) -> Result<CoverageRule, DbError> {
     if !source.enabled
         || (source.platform == "windows" && source.scope_authorization_state != "authorized")
+        || !source_identity_current(source)
     {
         return Err(DbError::Validation("coverage_source_not_authorized".into()));
     }

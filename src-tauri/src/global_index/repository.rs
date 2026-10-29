@@ -301,9 +301,10 @@ impl Database {
              WHERE id = ?1 AND stable_volume_id = ?2 AND mount_path = ?3
                AND operation_revision = ?4 AND operation_owner_id = ?5
                AND operation_state = 'running' AND enabled = 1
-               AND platform = 'windows' AND provider = 'windows_mft_usn'
+               AND ((platform = 'windows' AND provider = 'windows_mft_usn'
                AND lower(filesystem_type) = 'ntfs' AND drive_kind = 'fixed'
-               AND scope_authorization_state = 'authorized')",
+               AND scope_authorization_state = 'authorized')
+               OR (platform='macos' AND provider='macos_spotlight' AND scope_authorization_state='not_required')))",
             params![
                 source.id,
                 source.stable_volume_id,
@@ -1075,8 +1076,7 @@ impl Database {
                     "global_index_operation_owner_lost".into(),
                 ));
             }
-            #[cfg(target_os = "macos")]
-            if source.platform == "macos" && !super::macos::source_identity_current(&source) {
+            if !super::coverage::source_identity_current(&source) {
                 return Err(DbError::Validation(
                     "global_index_source_identity_changed".into(),
                 ));
@@ -1086,6 +1086,14 @@ impl Database {
                 super::coverage::load_policy(&conn)?
             };
             let decisions = super::coverage::observe_batch(&policy, &source, entries);
+            if decisions
+                .iter()
+                .any(|d| d.reason() == "outside_authorized_source")
+            {
+                return Err(DbError::Validation(
+                    "global_index_entry_outside_authorized_source".into(),
+                ));
+            }
             Some((policy, decisions))
         } else {
             None

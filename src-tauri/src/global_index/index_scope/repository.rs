@@ -12,6 +12,7 @@ pub struct CoverageSourceProgress {
     pub source_id: String,
     pub pending: bool,
     pub enabled: bool,
+    pub status: String,
     pub has_undetermined: bool,
     /// Counts are admitted candidate observations in this rebuild, not distinct file totals.
     pub included: i64,
@@ -47,7 +48,7 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         let policy = load_policy(&tx)?;
-        let sources = tx.prepare("SELECT id,coverage_pending,coverage_included,coverage_excluded,coverage_undetermined,enabled,EXISTS(SELECT 1 FROM global_entries e WHERE e.volume_id=global_volumes.id AND e.scope_decision='undetermined' AND e.is_stale=0) FROM global_volumes ORDER BY id")?.query_map([], |r| Ok(CoverageSourceProgress { source_id:r.get(0)?, pending:r.get(1)?, included:r.get(2)?, excluded:r.get(3)?, undetermined:r.get(4)?,enabled:r.get(5)?,has_undetermined:r.get(6)? }))?.collect::<Result<Vec<_>,_>>()?;
+        let sources = tx.prepare("SELECT id,coverage_pending,coverage_included,coverage_excluded,coverage_undetermined,enabled,EXISTS(SELECT 1 FROM global_entries e WHERE e.volume_id=global_volumes.id AND e.scope_decision='undetermined' AND e.is_stale=0),index_status FROM global_volumes ORDER BY id")?.query_map([], |r| Ok(CoverageSourceProgress { source_id:r.get(0)?, pending:r.get(1)?, included:r.get(2)?, excluded:r.get(3)?, undetermined:r.get(4)?,enabled:r.get(5)?,has_undetermined:r.get(6)?,status:r.get(7)? }))?.collect::<Result<Vec<_>,_>>()?;
         tx.commit()?;
         Ok(CoverageSnapshot { policy, sources })
     }

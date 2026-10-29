@@ -101,6 +101,6 @@ pub fn evaluate(policy: &CoveragePolicy, evidence: &Evidence) -> Decision {
 }
 
 pub use native::bind_rule;
-pub(crate) use native::observe_batch;
+pub(crate) use native::{observe_batch, source_identity_current};
 pub(crate) use repository::{load_policy, record_decisions};
 pub use repository::{CoverageSnapshot, CoverageSourceProgress};

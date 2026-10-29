@@ -39,14 +39,18 @@ pub struct CoveragePreview {
     pub is_complete: bool,
 }
 #[tauri::command]
-pub fn global_index_coverage<R: Runtime>(
+pub async fn global_index_coverage<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
     coordinator: State<'_, GlobalIndexCoordinator>,
     request: CoverageRequest,
 ) -> Result<CoverageResponse, String> {
     require_main_window(&window)?;
-    execute(db.inner(), coordinator.inner(), request)
+    let db = db.inner().clone();
+    let coordinator = coordinator.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || execute(&db, &coordinator, request))
+        .await
+        .map_err(|_| "coverage_task_failed".to_string())?
 }
 fn execute(
     db: &Database,
@@ -93,10 +97,8 @@ fn execute(
         rules,
     };
     if request.action == "save" {
-        db.save_global_index_coverage(revision, mode, policy.rules)
-            .map_err(|e| e.to_string())?;
         coordinator
-            .coverage_policy_changed()
+            .set_coverage_policy(revision, mode, policy.rules)
             .map_err(|e| e.to_string())?;
         return Ok(CoverageResponse {
             snapshot: db.global_index_coverage().map_err(|e| e.to_string())?,

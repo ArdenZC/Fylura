@@ -1130,7 +1130,7 @@ fn filename_relevance_63_64_65_hits_keep_one_order_and_live_state() {
     .expect("move matching row back to enabled source");
     assert_eq!(assert_state(&conn, 63), at_63);
 
-    let mut snapshot_transaction = conn.transaction().expect("begin search snapshot");
+    let snapshot_transaction = conn.transaction().expect("begin search snapshot");
     let snapshot_before = read_candidate(&snapshot_transaction);
     let writer = super::configured_connection(&path).expect("open concurrent status writer");
     writer
@@ -1534,6 +1534,14 @@ fn explain_fts_plan(conn: &Connection, candidate: bool, query: &str, limit: u32)
     plan
 }
 
+#[cfg(debug_assertions)]
+fn require_release_benchmark() {
+    panic!("the qualification harness must run from a Release build");
+}
+
+#[cfg(not(debug_assertions))]
+fn require_release_benchmark() {}
+
 enum MeasuredRoute {
     Search(Vec<GlobalSearchResult>),
     Snapshot(Box<GlobalSearchSnapshot>),
@@ -1795,10 +1803,7 @@ fn emit_low_hit_pair(
 #[test]
 #[ignore = "Owner #474 bounded mixed filename relevance candidate qualification"]
 fn filename_relevance_candidate_paired_100k_200k() {
-    assert!(
-        !cfg!(debug_assertions),
-        "the qualification harness must run from a Release build"
-    );
+    require_release_benchmark();
     let entries = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
         .expect("set ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES to 100000, 200000, or 1000000")
         .parse::<u64>()

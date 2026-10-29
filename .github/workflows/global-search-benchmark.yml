@@ -52,6 +52,8 @@ on:
           - exact_sql_1m_diagnostic
           - covering_indexes
           - source_facts_pair
+          - filename_relevance_release_preflight
+          - filename_relevance_release_million
           - schema_upgrade
 
 permissions:
@@ -65,7 +67,7 @@ jobs:
   # Keep manual baseline/diagnostic modes and the two branch-scoped diagnostics;
   # ordinary PRs use only the bounded 1k-row smoke in the index-cost job below.
   synthetic-global-search:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost' && inputs.mode != 'exact_sql_1m_diagnostic' && inputs.mode != 'covering_indexes' && inputs.mode != 'source_facts_pair' && inputs.mode != 'schema_upgrade') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode != 'index_cost' && inputs.mode != 'exact_sql_1m_diagnostic' && inputs.mode != 'covering_indexes' && inputs.mode != 'source_facts_pair' && inputs.mode != 'filename_relevance_release_preflight' && inputs.mode != 'filename_relevance_release_million' && inputs.mode != 'schema_upgrade') || (github.event_name == 'pull_request' && ((github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository) || (github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository))) }}
     name: Global Search ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && 'source_health_topology_diagnostic' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && 'query_cost_diagnostic' || github.event_name == 'pull_request' && 'baseline' || inputs.mode || 'baseline' }} (${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-359-global-search-source-health-snapshot' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || inputs.mode == 'source_health_topology_diagnostic' && '500000' || github.event_name == 'pull_request' && github.head_ref == 'research/issue-352-global-search-500k-performance' && github.event.pull_request.head.repo.full_name == github.repository && '500000' || github.event_name == 'pull_request' && '100000' || inputs.entries || '100000' }} rows)
     runs-on: windows-latest
     timeout-minutes: 180
@@ -518,6 +520,129 @@ jobs:
         with:
           name: source-facts-pair-${{ inputs.entries }}-${{ github.run_id }}
           path: ${{ github.workspace }}/ci-evidence/source-facts-pair.jsonl
+          if-no-files-found: warn
+          retention-days: 90
+
+  filename-relevance-release-pair:
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.mode == 'filename_relevance_release_preflight' || inputs.mode == 'filename_relevance_release_million') }}
+    name: Filename relevance Release pair (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify Apple Silicon runner, disk headroom and source identity
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --short
+          source_sha="$(git rev-parse HEAD)"
+          source_tree="$(git rev-parse 'HEAD^{tree}')"
+          test "$(uname -m)" = "arm64" || { echo 'macOS qualification requires Apple Silicon.'; exit 1; }
+          cpu_model="$(sysctl -n machdep.cpu.brand_string)"
+          free_kib="$(df -Pk "$RUNNER_TEMP" | awk 'END {print $4}')"
+          test "$free_kib" -gt 10485760 || { echo 'Need at least 10 GiB free for the SQLite fixture.'; exit 1; }
+          echo "ZEN_CANVAS_BENCHMARK_RUNNER=${{ matrix.os }} / $RUNNER_NAME / $cpu_model / $ImageOS $ImageVersion" >> "$GITHUB_ENV"
+          echo "source=$source_sha tree=$source_tree" >> "$GITHUB_STEP_SUMMARY"
+          echo "runner=${{ matrix.os }} / $RUNNER_NAME / $cpu_model / $ImageOS $ImageVersion" >> "$GITHUB_STEP_SUMMARY"
+          echo "free_temp_kib=$free_kib" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify Windows runner, disk headroom and source identity
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $source = git rev-parse HEAD
+          $tree = git rev-parse 'HEAD^{tree}'
+          $cpu = $env:PROCESSOR_IDENTIFIER
+          $drive = Get-PSDrive -Name $env:RUNNER_TEMP.Substring(0,1)
+          if ($drive.Free -lt 10GB) { throw 'Need at least 10 GiB free for the SQLite fixture.' }
+          "ZEN_CANVAS_BENCHMARK_RUNNER=windows-latest / $env:RUNNER_NAME / $cpu / $env:ImageOS $env:ImageVersion" >> $env:GITHUB_ENV
+          "source=$source tree=$tree" >> $env:GITHUB_STEP_SUMMARY
+          "runner=windows-latest / $env:RUNNER_NAME / $cpu / $env:ImageOS $env:ImageVersion" >> $env:GITHUB_STEP_SUMMARY
+          "free_temp_bytes=$($drive.Free)" >> $env:GITHUB_STEP_SUMMARY
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-filename-relevance-release-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Run focused correctness and collect golden comparisons on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/filename-relevance-contract.jsonl
+        run: |
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features 'desktop-runtime,global-search-filename-relevance-candidate' --lib 'global_index::tests::global_search_benchmark::filename_relevance_candidate::filename_relevance_contract_oracle_and_fallbacks' -- --exact --nocapture --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw 'Filename relevance contract/oracle test failed.' }
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features 'desktop-runtime,global-search-filename-relevance-candidate' --lib 'global_index::tests::global_search_benchmark::filename_relevance_candidate::filename_relevance_63_64_65_hits_keep_one_order_and_live_state' -- --exact --nocapture --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw 'Filename relevance 63/64/65 transition test failed.' }
+      - name: Run focused correctness and collect golden comparisons on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/filename-relevance-contract.jsonl
+        run: |
+          set -euo pipefail
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features 'desktop-runtime,global-search-filename-relevance-candidate' --lib 'global_index::tests::global_search_benchmark::filename_relevance_candidate::filename_relevance_contract_oracle_and_fallbacks' -- --exact --nocapture --test-threads=1
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features 'desktop-runtime,global-search-filename-relevance-candidate' --lib 'global_index::tests::global_search_benchmark::filename_relevance_candidate::filename_relevance_63_64_65_hits_keep_one_order_and_live_state' -- --exact --nocapture --test-threads=1
+      - name: Run native Windows Release pairs
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $fixtureRoot = Join-Path $env:RUNNER_TEMP 'issue474'
+          New-Item -ItemType Directory -Force -Path $fixtureRoot | Out-Null
+          $env:TEMP = $fixtureRoot
+          $env:TMP = $fixtureRoot
+          if ('${{ inputs.mode }}' -eq 'filename_relevance_release_million') {
+            if ('${{ inputs.entries }}' -ne '1000000') { throw 'Million qualification requires entries=1000000.' }
+            $scales = @('1000000')
+          } else {
+            $scales = @('100000', '200000')
+          }
+          foreach ($scale in $scales) {
+            $env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES = $scale
+            $env:ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT = Join-Path $env:GITHUB_WORKSPACE "ci-evidence/filename-relevance-${scale}.jsonl"
+            cargo test --release --manifest-path src-tauri/Cargo.toml --features 'desktop-runtime,global-search-filename-relevance-candidate' --lib 'global_index::tests::global_search_benchmark::filename_relevance_candidate::filename_relevance_candidate_paired_100k_200k' -- --ignored --exact --nocapture --test-threads=1
+            if ($LASTEXITCODE -ne 0) { throw "Release qualification failed at $scale rows." }
+          }
+      - name: Run native Apple Silicon macOS Release pairs
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_root="$RUNNER_TEMP/issue474"
+          mkdir -p "$fixture_root"
+          export TMPDIR="$fixture_root"
+          export TMP="$fixture_root"
+          export TEMP="$fixture_root"
+          if [ '${{ inputs.mode }}' = 'filename_relevance_release_million' ]; then
+            test '${{ inputs.entries }}' = '1000000' || { echo 'Million qualification requires entries=1000000.'; exit 1; }
+            scales=(1000000)
+          else
+            scales=(100000 200000)
+          fi
+          for scale in "${scales[@]}"; do
+            export ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES="$scale"
+            export ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT="$GITHUB_WORKSPACE/ci-evidence/filename-relevance-$scale.jsonl"
+            cargo test --release --manifest-path src-tauri/Cargo.toml --features 'desktop-runtime,global-search-filename-relevance-candidate' --lib 'global_index::tests::global_search_benchmark::filename_relevance_candidate::filename_relevance_candidate_paired_100k_200k' -- --ignored --exact --nocapture --test-threads=1
+          done
+      - name: Upload complete or partial native Release evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: filename-relevance-release-${{ inputs.mode }}-${{ matrix.os }}-${{ github.run_id }}
+          path: ${{ github.workspace }}/ci-evidence/filename-relevance-*.jsonl
           if-no-files-found: warn
           retention-days: 90
 

@@ -21,8 +21,6 @@ const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 // A layer may fetch up to target + already-seen ids to compensate for overlap,
 // but never turns a keystroke into an unbounded result materialization.
 const MAX_TIER_CANDIDATES: u32 = 4_096;
-#[cfg(any(test, feature = "global-search-filename-relevance-candidate"))]
-const FILENAME_RELEVANCE_MIN_HITS: usize = 64;
 
 #[cfg(test)]
 std::thread_local! {
@@ -414,21 +412,22 @@ fn key_only_fts_sql() -> String {
 
 #[cfg(any(test, feature = "global-search-filename-relevance-candidate"))]
 fn filename_relevance_fts_sql() -> String {
-    let name_position = "instr(ge.name_normalized, lower(?2))";
-    let name_contains = format!("{name_position} > 0");
-    let before_boundary = format!(
-        "({name_position} = 1 OR substr(ge.name_normalized, {name_position} - 1, 1) NOT GLOB '[A-Za-z0-9_]')"
+    // The slash sentinels make a single GLOB pattern cover filename starts
+    // and ends as well as internal boundaries. Query eligibility excludes
+    // GLOB metacharacters, so the bound query remains literal. This checks
+    // every possible occurrence without recursion or per-character queries.
+    let whole_query_boundary = concat!(
+        "('/' || ge.name_normalized || '/') ",
+        "GLOB ('*[^A-Za-z0-9_]' || ?2 || '[^A-Za-z0-9_]*')"
     );
-    let after_boundary = format!(
-        "({name_position} + length(?2) > length(ge.name_normalized) OR substr(ge.name_normalized, {name_position} + length(?2), 1) NOT GLOB '[A-Za-z0-9_]')"
-    );
+    let name_contains = "instr(ge.name_normalized, ?2) > 0";
     let relevance = format!(
-        "CASE WHEN ({name_contains}) AND ({before_boundary}) AND ({after_boundary}) THEN 0 WHEN ({name_contains}) OR instr(ge.extension, lower(?2)) > 0 THEN 1 ELSE 2 END"
+        "CASE WHEN {whole_query_boundary} THEN 0 WHEN ({name_contains}) OR instr(ge.extension, ?2) > 0 THEN 1 ELSE 2 END"
     );
 
     key_only_candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0",
         "candidate_rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         &relevance,
         "candidates.candidate_rank ASC, candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -457,21 +456,15 @@ fn search_filename_relevance(
         return Ok(None);
     }
 
-    // Asking for at least 64 fully ordered rows doubles as a sparse-query
-    // proof: fewer than 64 rows means the entire eligible match set is sparse,
-    // so the caller retains the existing BM25 route. The SQL orders the whole
-    // enabled, non-stale FTS match set before this bounded output window.
-    let probe_limit = limit.max(FILENAME_RELEVANCE_MIN_HITS as u32);
+    // Every supported query uses the same order, including zero and sparse
+    // matches. The FTS statement ranks its complete eligible match set before
+    // applying this bounded output window; unsupported query shapes retain
+    // the existing SQLite BM25 path.
     let sql = filename_relevance_fts_sql();
     let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+    let normalized_query = query.to_ascii_lowercase();
     let mut statement = conn.prepare(&sql)?;
-    let mut candidates =
-        collect_candidates(&mut statement, params![fts_query, query, probe_limit])?;
-    if candidates.len() < FILENAME_RELEVANCE_MIN_HITS {
-        return Ok(None);
-    }
-    candidates.truncate(limit as usize);
-    Ok(Some(candidates))
+    collect_candidates(&mut statement, params![fts_query, normalized_query, limit]).map(Some)
 }
 
 #[cfg(test)]

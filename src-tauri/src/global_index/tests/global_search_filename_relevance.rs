@@ -39,18 +39,31 @@ fn ascii_word(character: Option<char>) -> bool {
     character.is_some_and(|value| value.is_ascii_alphanumeric() || value == '_')
 }
 
+fn has_whole_query_boundary(name: &str, query: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let query = query.to_ascii_lowercase();
+
+    // Visit every Unicode scalar boundary in the name. The supported query is
+    // ASCII, so an exact match always ends at a valid UTF-8 boundary. This is
+    // intentionally independent from SQL's sentinel-and-GLOB predicate.
+    name.char_indices().any(|(start, _)| {
+        if !name[start..].starts_with(&query) {
+            return false;
+        }
+        let end = start + query.len();
+        let before = name[..start].chars().next_back();
+        let after = name[end..].chars().next();
+        !ascii_word(before) && !ascii_word(after)
+    })
+}
+
 fn relevance_class(result: &GlobalSearchResult, query: &str) -> u8 {
     let query = query.to_ascii_lowercase();
     let name = result.name.to_ascii_lowercase();
-    if let Some(position) = name.find(&query) {
-        let before = name[..position].chars().next_back();
-        let after = name[position + query.len()..].chars().next();
-        if !ascii_word(before) && !ascii_word(after) {
-            return 0;
-        }
-        return 1;
+    if has_whole_query_boundary(&name, &query) {
+        return 0;
     }
-    if result.extension.to_ascii_lowercase().contains(&query) {
+    if name.contains(&query) || result.extension.to_ascii_lowercase().contains(&query) {
         1
     } else {
         2
@@ -78,6 +91,7 @@ fn filename_relevance_oracle(conn: &Connection, query: &str) -> Vec<GlobalSearch
           AND ge.rowid = global_entries_fts.rowid
           AND gv.id = ge.volume_id
           AND gv.enabled = 1
+          AND gv.coverage_pending = 0
           AND ge.is_stale = 0
     "#;
     let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
@@ -177,6 +191,72 @@ fn golden_entries() -> Vec<GlobalEntryInput> {
             },
         );
     }
+
+    for (path, name, modified_at_fs) in [
+        (
+            r"C:\Global\Adversarial\prereport-report.pdf",
+            "prereport-report.pdf",
+            Some(1_001),
+        ),
+        (
+            r"C:\Global\Adversarial\xreporty-report.txt",
+            "xreporty-report.txt",
+            Some(1_001),
+        ),
+        (
+            r"C:\Global\Adversarial\prereport.txt",
+            "prereport.txt",
+            Some(1_002),
+        ),
+        (
+            r"/Users/owner/Adversarial/reporting-guide.pdf",
+            "reporting-guide.pdf",
+            Some(1_003),
+        ),
+        (
+            r"C:\Global\Adversarial\annual-report.pdf",
+            "annual-report.pdf",
+            Some(1_004),
+        ),
+        (
+            r"C:\Global\Adversarial\annual-report-repeated.pdf",
+            "annual reportx annual report.pdf",
+            Some(1_005),
+        ),
+        (
+            r"C:\Global\Adversarial\report-archive-repeated.pdf",
+            "prereport archivex report archive.pdf",
+            Some(1_006),
+        ),
+        (
+            r"C:\Global\Adversarial\unicode-after-report.pdf",
+            "reporté notes.pdf",
+            Some(1_007),
+        ),
+        (
+            "",
+            "Report from empty path.pdf",
+            Some(1_008),
+        ),
+    ] {
+        add_entry(&mut entries, path, name, "pdf", false, modified_at_fs);
+    }
+    let mut hidden = super::test_entry(
+        r"C:\Global\Adversarial\hidden-report.pdf",
+        "hidden report record.pdf",
+        false,
+    );
+    hidden.is_hidden = true;
+    hidden.modified_at_fs = Some(1_009);
+    entries.push(hidden);
+    let mut system = super::test_entry(
+        r"C:\Global\Adversarial\system-report.pdf",
+        "system report record.pdf",
+        false,
+    );
+    system.is_system = true;
+    system.modified_at_fs = Some(1_010);
+    entries.push(system);
 
     for index in 0..24_i64 {
         let name = match index % 3 {
@@ -329,13 +409,13 @@ fn golden_entries() -> Vec<GlobalEntryInput> {
 
 fn comparison_positions(
     query: &str,
-    names: &[&str],
+    examples: &[(&str, &str, &str)],
     old: &[GlobalSearchResult],
     proposed: &[GlobalSearchResult],
 ) -> Vec<JsonValue> {
-    names
+    examples
         .iter()
-        .map(|name| {
+        .map(|(name, why_new, limitation)| {
             let old_position = old.iter().position(|result| result.name == *name);
             let proposed_position = proposed.iter().position(|result| result.name == *name);
             json!({
@@ -344,6 +424,8 @@ fn comparison_positions(
                 "old_bm25_position_1_based": old_position.map(|position| position + 1),
                 "proposed_category": proposed_position.map(|position| proposed[position].rank),
                 "proposed_position_1_based": proposed_position.map(|position| position + 1),
+                "why_new_order_matches_intent": why_new,
+                "limitation": limitation,
             })
         })
         .collect()
@@ -362,6 +444,11 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     disabled_volume.enabled = false;
     db.upsert_global_volume(&disabled_volume)
         .expect("create disabled test source");
+    let mut coverage_pending_volume = super::test_volume();
+    coverage_pending_volume.id = "gv_coverage_pending".to_string();
+    coverage_pending_volume.stable_volume_id = "coverage-pending-volume".to_string();
+    db.upsert_global_volume(&coverage_pending_volume)
+        .expect("create coverage-pending test source");
 
     let mut entries = golden_entries();
     let mut disabled = super::test_entry(
@@ -372,6 +459,14 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     disabled.volume_id = disabled_volume.id.clone();
     disabled.modified_at_fs = Some(i64::MAX);
     entries.push(disabled);
+    let mut coverage_pending = super::test_entry(
+        r"C:\Global\CoveragePending\Report\latest-pending.pdf",
+        "Latest Report Coverage Pending.pdf",
+        false,
+    );
+    coverage_pending.volume_id = coverage_pending_volume.id.clone();
+    coverage_pending.modified_at_fs = Some(i64::MAX - 1);
+    entries.push(coverage_pending);
     let mut stale = super::test_entry(
         r"C:\Global\Stale\Report\latest-stale.pdf",
         "Latest Report Stale.pdf",
@@ -383,6 +478,11 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         .expect("insert golden relevance fixture through FTS triggers");
 
     let conn = super::configured_connection(&path).expect("open configured relevance reader");
+    conn.execute(
+        "UPDATE global_volumes SET coverage_pending = 1 WHERE id = ?1",
+        [&coverage_pending_volume.id],
+    )
+    .expect("mark one enabled source coverage-pending before ranking");
     let stale_id: String = conn
         .query_row(
             "SELECT id FROM global_entries WHERE name = 'Latest Report Stale.pdf'",
@@ -413,7 +513,7 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
 
     let before_schema = schema_signature(&conn);
     let report_oracle = filename_relevance_oracle(&conn, "report");
-    assert_eq!(report_oracle.len(), 74, "only active report FTS hits count");
+    assert_eq!(report_oracle.len(), 85, "only eligible report FTS hits count");
     let report_boundary = report_oracle
         .iter()
         .filter(|result| result.rank == 0.0)
@@ -455,6 +555,16 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         "filename relevance outranks newer path-only hits"
     );
     assert!(new_report.iter().any(|result| result.managed));
+    assert!(new_report.iter().any(|result| {
+        result.name == "Quarterly Report 0.pdf"
+            && result.path == r"C:\Global\Documents\Annual\quarterly-report-0"
+    }));
+    assert!(new_report
+        .iter()
+        .any(|result| result.name == "hidden report record.pdf" && result.is_hidden));
+    assert!(new_report
+        .iter()
+        .any(|result| result.name == "system report record.pdf" && result.is_system));
     let duplicate_name_rows = new_report
         .iter()
         .filter(|result| result.name == "Quarterly Report duplicate.pdf")
@@ -474,6 +584,36 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     assert!(!new_report
         .iter()
         .any(|result| result.name.contains("Stale")));
+    assert!(!new_report
+        .iter()
+        .any(|result| result.name.contains("Coverage Pending")));
+    let null_time = new_report
+        .iter()
+        .position(|result| result.name == "Quarterly Report 1.pdf")
+        .expect("retain row with NULL modification time");
+    assert_eq!(new_report[null_time].modified_at_fs, None);
+    assert!(new_report[null_time - 1].modified_at_fs.is_some());
+    assert_eq!(new_report[null_time - 1].rank, 0.0);
+    assert_eq!(new_report[null_time + 1].rank, 1.0);
+
+    for (name, expected_rank) in [
+        ("prereport-report.pdf", 0.0),
+        ("xreporty-report.txt", 0.0),
+        ("prereport.txt", 1.0),
+        ("reporting-guide.pdf", 1.0),
+        ("annual-report.pdf", 0.0),
+        ("annual reportx annual report.pdf", 0.0),
+        ("prereport archivex report archive.pdf", 0.0),
+        ("reporté notes.pdf", 0.0),
+        ("Report from empty path.pdf", 0.0),
+        ("pre_report_suffix.pdf", 1.0),
+    ] {
+        let row = new_report
+            .iter()
+            .find(|result| result.name == name)
+            .unwrap_or_else(|| panic!("expected adversarial filename {name:?}"));
+        assert_eq!(row.rank, expected_rank, "relevance category for {name:?}");
+    }
     assert_eq!(
         with_filename_relevance_candidate(true, || {
             search_global_entries_on_connection(&conn, "report", 10, 64)
@@ -487,6 +627,32 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     })
     .unwrap()
     .is_empty());
+
+    let repeated_phrase_oracle = filename_relevance_oracle(&conn, "report archive");
+    assert_eq!(repeated_phrase_oracle.len(), 1);
+    assert_eq!(repeated_phrase_oracle[0].rank, 0.0);
+    assert_eq!(
+        with_filename_relevance_candidate(true, || {
+            search_global_entries_on_connection(&conn, "report archive", 80, 0)
+        })
+        .unwrap(),
+        repeated_phrase_oracle,
+        "a later whole-phrase occurrence wins when an earlier occurrence is unbounded"
+    );
+    let repeated_word_phrase_oracle = filename_relevance_oracle(&conn, "annual report");
+    let repeated_word_phrase = repeated_word_phrase_oracle
+        .iter()
+        .find(|result| result.name == "annual reportx annual report.pdf")
+        .expect("repeated full phrase remains in FTS candidates");
+    assert_eq!(repeated_word_phrase.rank, 0.0);
+    assert_eq!(
+        with_filename_relevance_candidate(true, || {
+            search_global_entries_on_connection(&conn, "annual report", 80, 0)
+        })
+        .unwrap(),
+        repeated_word_phrase_oracle,
+        "phrases use the same all-occurrence boundary rule as single words"
+    );
 
     let contract_oracle = filename_relevance_oracle(&conn, "contract");
     assert_eq!(contract_oracle.len(), 66);
@@ -565,8 +731,6 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         "数据库",
         "café",
         "annual.report",
-        "needle",
-        "zzznomatch",
         "annual  report",
         "re",
         "",
@@ -581,9 +745,41 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         .unwrap();
         assert_eq!(
             candidate, baseline,
-            "fallback must preserve full old result for {query:?}"
+            "unsupported query fallback must preserve full old result for {query:?}"
         );
+        assert!(diagnostic_search_filename_relevance(&conn, query, 80)
+            .unwrap()
+            .is_none());
     }
+
+    let sparse_oracle = filename_relevance_oracle(&conn, "needle");
+    assert_eq!(sparse_oracle.len(), 1);
+    assert_eq!(sparse_oracle[0].rank, 0.0);
+    assert_eq!(
+        with_filename_relevance_candidate(true, || {
+            search_global_entries_on_connection(&conn, "needle", 80, 0)
+        })
+        .unwrap(),
+        sparse_oracle,
+        "supported one-hit queries follow the new relevance rule"
+    );
+    assert_eq!(
+        diagnostic_search_filename_relevance(&conn, "needle", 80)
+            .unwrap()
+            .expect("sparse supported query is not a BM25 fallback"),
+        sparse_oracle
+    );
+    assert!(
+        with_filename_relevance_candidate(true, || {
+            search_global_entries_on_connection(&conn, "zzznomatch", 80, 0)
+        })
+        .unwrap()
+        .is_empty()
+    );
+    assert!(diagnostic_search_filename_relevance(&conn, "zzznomatch", 80)
+        .unwrap()
+        .expect("zero-hit supported query follows relevance route")
+        .is_empty());
 
     // Existing FTS triggers remain the only write path. Prove insert, rename,
     // path move and delete are visible without rebuilding or refreshing a cache.
@@ -597,7 +793,7 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         .unwrap();
     let mut renamed = incremental.clone();
     renamed.name = "Newest Report candidate.pdf".to_string();
-    renamed.path = r"C:\Global\Incremental\Newest Report candidate.pdf".to_string();
+    renamed.path = r"C:\Global\Moved\Newest Report candidate.pdf".to_string();
     renamed.modified_at_fs = Some(30_001);
     db.upsert_global_entries_batch(std::slice::from_ref(&renamed))
         .unwrap();
@@ -635,29 +831,85 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     let comparisons = comparison_positions(
         "report",
         &[
-            "Quarterly Report 0.pdf",
-            "中文report中文.pdf",
-            "Dossier-report-final.pdf",
-            "Annual reporting guide 0.pdf",
-            "Subreport archive 1.pdf",
-            "Supportreport scan 2.pdf",
-            "pre_report_suffix.pdf",
-            "summary file 0.pdf",
-            "summary file 21.pdf",
-            "Team Report Archive",
+            (
+                "Quarterly Report 0.pdf",
+                "The full filename phrase is visible, so it ranks with other whole-word basename matches.",
+                "Equal relevance still uses file modification time and stable ID, not query term frequency.",
+            ),
+            (
+                "中文report中文.pdf",
+                "CJK neighbors are delimiters under the documented ASCII word-boundary rule.",
+                "This deliberately does not apply language-specific segmentation for CJK text.",
+            ),
+            (
+                "Dossier-report-final.pdf",
+                "Hyphens separate the searched word from surrounding filename terms.",
+                "The rule treats all non-ASCII-word punctuation as a delimiter.",
+            ),
+            (
+                "prereport-report.pdf",
+                "A later bounded occurrence outranks the earlier embedded substring.",
+                "Only the best relevance class is kept; occurrences are not individually scored.",
+            ),
+            (
+                "xreporty-report.txt",
+                "A later complete word match is found even though the first occurrence is embedded.",
+                "The Unicode boundary rule is intentionally ASCII-defined for supported queries.",
+            ),
+            (
+                "Annual reporting guide 0.pdf",
+                "The query continues into a word, so this remains an ordinary substring.",
+                "The system does not use stemming or linguistic word forms.",
+            ),
+            (
+                "Subreport archive 1.pdf",
+                "A query embedded at the start of a larger word ranks below a bounded match.",
+                "Substring matches remain searchable and are not discarded.",
+            ),
+            (
+                "pre_report_suffix.pdf",
+                "Underscore is defined as a word character, so this is not a whole-word match.",
+                "Projects that use underscores as separators may prefer another boundary contract.",
+            ),
+            (
+                "reporté notes.pdf",
+                "A non-ASCII accented neighbor is a delimiter under the stated ASCII rule.",
+                "Accent folding is unsupported and remains on the existing route for accented queries.",
+            ),
+            (
+                "Report from empty path.pdf",
+                "Basename relevance works even when the indexed path is empty.",
+                "The empty path still limits path navigation and source identity outside ranking.",
+            ),
+            (
+                "summary file 0.pdf",
+                "Windows path-only matches remain below any basename or extension match.",
+                "Path-only rows still use modification time and stable ID within their class.",
+            ),
+            (
+                "summary file 21.pdf",
+                "POSIX path-only matches receive the same class as Windows path-only matches.",
+                "Path separator style does not affect ranking, but path normalization remains platform-owned.",
+            ),
+            (
+                "Team Report Archive",
+                "Directories use their basename like files and remain eligible results.",
+                "Directory/file type is not an additional relevance tie-breaker.",
+            ),
         ],
         &old_contract,
         &new_contract,
     );
+    let comparison_example_count = comparisons.len();
     let route_comparisons = [
         ("数据库", "档案-数据库-历史.pdf", "SQLite fallback"),
         ("café", "Café résumé notes.pdf", "SQLite fallback"),
         ("pdf", "summary file 0.pdf", "exact extension tier"),
         ("do", "manual-file-0.file", "extension prefix tier"),
         ("umen", "manual-file-0.file", "filename substring tier via extension field"),
-        ("needle", "Monocle needle notes.pdf", "sparse BM25 fallback"),
+        ("needle", "Monocle needle notes.pdf", "supported sparse relevance query"),
         ("annual.report", "Quarterly annual.report archive.pdf", "punctuation fallback"),
-        ("zzznomatch", "(no result)", "zero-hit fallback"),
+        ("zzznomatch", "(no result)", "supported zero-hit relevance query"),
     ]
     .into_iter()
     .map(|(query, name, route)| {
@@ -693,14 +945,210 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         "candidate_matches_independent_rust_oracle": true,
         "fuzzy_candidate_schema_change": false,
         "incremental_insert_update_delete_fts_visibility": true,
+        "comparison_example_count": comparison_example_count,
     }));
+}
+
+#[test]
+fn filename_relevance_63_64_65_hits_keep_one_order_and_live_state() {
+    let path = super::test_db_path();
+    let _cleanup = super::BenchmarkCleanup(path.clone());
+    let db = Database::open(&path).expect("open hit-transition database");
+    db.upsert_global_volume(&super::test_volume())
+        .expect("create enabled transition source");
+
+    let mut initial_entries = Vec::with_capacity(63);
+    for index in 0..63_i64 {
+        let (name, entry_path) = match index % 3 {
+            0 => (
+                format!("Archive Needle case {index:02}.pdf"),
+                format!(r"C:\Global\Transition\Boundary\case-{index:02}.pdf"),
+            ),
+            1 => (
+                format!("Archive supersneedle case {index:02}.pdf"),
+                format!(r"C:\Global\Transition\Substring\case-{index:02}.pdf"),
+            ),
+            _ => (
+                format!("Archive case {index:02}.pdf"),
+                format!(r"C:\Global\Transition\Needle\case-{index:02}.pdf"),
+            ),
+        };
+        let mut entry = super::test_entry(&entry_path, &name, false);
+        entry.extension = "pdf".to_string();
+        entry.modified_at_fs = if index == 0 {
+            None
+        } else {
+            Some(index % 4)
+        };
+        initial_entries.push(entry);
+    }
+    db.upsert_global_entries_batch(&initial_entries)
+        .expect("insert exact 63-hit fixture");
+    let mut conn = super::configured_connection(&path).expect("open transition reader");
+
+    let read_candidate = |conn: &Connection| {
+        with_filename_relevance_candidate(true, || {
+            diagnostic_search_filename_relevance(conn, "needle", 4_096)
+        })
+        .expect("run supported relevance query")
+        .expect("supported query always uses the relevance contract")
+    };
+    let read_public = |conn: &Connection, offset| {
+        with_filename_relevance_candidate(true, || {
+            search_global_entries_on_connection(conn, "needle", 20, offset)
+        })
+        .expect("run paged candidate search")
+    };
+    let assert_state = |conn: &Connection, expected_count: usize| {
+        let oracle = filename_relevance_oracle(conn, "needle");
+        let candidate = read_candidate(conn);
+        assert_eq!(oracle.len(), expected_count);
+        assert_eq!(candidate, oracle, "complete match order at {expected_count} hits");
+        for _ in 0..3 {
+            assert_eq!(read_candidate(conn), oracle, "repeat query is deterministic");
+        }
+        assert_eq!(read_public(conn, 0), page(&oracle, 0, 20));
+        assert_eq!(read_public(conn, 20), page(&oracle, 20, 20));
+        assert_eq!(read_public(conn, 40), page(&oracle, 40, 20));
+        oracle
+    };
+
+    let at_63 = assert_state(&conn, 63);
+    let initial_ids = at_63
+        .iter()
+        .map(|result| result.id.clone())
+        .collect::<Vec<_>>();
+
+    let sixty_fourth = super::test_entry(
+        r"C:\Global\Transition\Boundary\case-63.pdf",
+        "Archive Needle case 63.pdf",
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&sixty_fourth))
+        .expect("insert 64th eligible hit through existing FTS triggers");
+    let at_64 = assert_state(&conn, 64);
+    assert_eq!(
+        at_64
+            .iter()
+            .filter(|result| initial_ids.contains(&result.id))
+            .map(|result| result.id.clone())
+            .collect::<Vec<_>>(),
+        initial_ids,
+        "adding hit 64 inserts one row without reordering the existing 63"
+    );
+
+    let sixty_fifth = super::test_entry(
+        r"C:\Global\Transition\Needle\case-64.pdf",
+        "Archive case 64.pdf",
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&sixty_fifth))
+        .expect("insert 65th path-only hit through existing FTS triggers");
+    let at_65 = assert_state(&conn, 65);
+    let at_64_ids = at_64
+        .iter()
+        .map(|result| result.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        at_65
+            .iter()
+            .filter(|result| at_64_ids.contains(&result.id))
+            .map(|result| result.id.clone())
+            .collect::<Vec<_>>(),
+        at_64_ids,
+        "adding hit 65 preserves relative order across all existing matches"
+    );
+
+    let id_64 = conn
+        .query_row(
+            "SELECT id FROM global_entries WHERE name = 'Archive Needle case 63.pdf'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("find 64th hit for delete transition");
+    conn.execute("DELETE FROM global_entries WHERE id = ?1", [&id_64])
+        .expect("delete 64th hit through existing FTS triggers");
+    let after_delete_64 = assert_state(&conn, 64);
+    assert_eq!(
+        after_delete_64,
+        at_65
+            .iter()
+            .filter(|result| result.id != id_64)
+            .cloned()
+            .collect::<Vec<_>>(),
+        "removing hit 64 removes only that row from the stable order"
+    );
+
+    let id_65 = conn
+        .query_row(
+            "SELECT id FROM global_entries WHERE name = 'Archive case 64.pdf'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("find 65th hit for delete transition");
+    conn.execute("DELETE FROM global_entries WHERE id = ?1", [&id_65])
+        .expect("delete 65th hit through existing FTS triggers");
+    assert_eq!(assert_state(&conn, 63), at_63, "return to the original 63-hit order");
+
+    let stale_id = &initial_ids[0];
+    conn.execute(
+        "UPDATE global_entries SET is_stale = 1 WHERE id = ?1",
+        [stale_id],
+    )
+    .expect("mark one match stale");
+    assert_eq!(assert_state(&conn, 62).len(), 62);
+    conn.execute(
+        "UPDATE global_entries SET is_stale = 0 WHERE id = ?1",
+        [stale_id],
+    )
+    .expect("restore active match");
+    assert_eq!(assert_state(&conn, 63), at_63);
+
+    let mut disabled_volume = super::test_volume();
+    disabled_volume.id = "gv_disabled_transition".to_string();
+    disabled_volume.stable_volume_id = "disabled-transition-volume".to_string();
+    disabled_volume.enabled = false;
+    db.upsert_global_volume(&disabled_volume)
+        .expect("create disabled target for cross-source update");
+    conn.execute(
+        "UPDATE global_entries SET volume_id = ?1 WHERE id = ?2",
+        params![disabled_volume.id, stale_id],
+    )
+    .expect("move one matching row to another source");
+    assert_eq!(assert_state(&conn, 62).len(), 62);
+    conn.execute(
+        "UPDATE global_entries SET volume_id = 'gv_test' WHERE id = ?1",
+        [stale_id],
+    )
+    .expect("move matching row back to enabled source");
+    assert_eq!(assert_state(&conn, 63), at_63);
+
+    let mut snapshot_transaction = conn.transaction().expect("begin search snapshot");
+    let snapshot_before = read_candidate(&snapshot_transaction);
+    let writer = super::configured_connection(&path).expect("open concurrent status writer");
+    writer
+        .execute("UPDATE global_volumes SET enabled = 0 WHERE id = 'gv_test'", [])
+        .expect("disable search source concurrently");
+    assert_eq!(
+        read_candidate(&snapshot_transaction),
+        snapshot_before,
+        "search keeps the same SQLite snapshot while source state changes"
+    );
+    snapshot_transaction
+        .commit()
+        .expect("finish consistent read snapshot");
+    assert!(read_candidate(&conn).is_empty(), "new snapshot sees disabled source");
+    writer
+        .execute("UPDATE global_volumes SET enabled = 1 WHERE id = 'gv_test'", [])
+        .expect("re-enable search source");
+    assert_eq!(read_candidate(&conn), at_63, "re-enabled source restores full order");
 }
 
 #[derive(Debug, Clone, Copy)]
 struct NativeSample {
     cpu_100ns: u64,
     working_set_bytes: u64,
-    private_bytes: u64,
+    private_bytes: Option<u64>,
 }
 
 #[cfg(target_os = "windows")]
@@ -737,11 +1185,34 @@ fn native_sample() -> Option<NativeSample> {
     Some(NativeSample {
         cpu_100ns: filetime(kernel).saturating_add(filetime(user)),
         working_set_bytes: counters.WorkingSetSize as u64,
-        private_bytes: counters.PrivateUsage as u64,
+        private_bytes: Some(counters.PrivateUsage as u64),
     })
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn native_sample() -> Option<NativeSample> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+    let result = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if result != 0 {
+        return None;
+    }
+    let usage = unsafe { usage.assume_init() };
+    let timeval_100ns = |value: libc::timeval| {
+        (value.tv_sec.max(0) as u64)
+            .saturating_mul(10_000_000)
+            .saturating_add((value.tv_usec.max(0) as u64).saturating_mul(10))
+    };
+    Some(NativeSample {
+        cpu_100ns: timeval_100ns(usage.ru_utime).saturating_add(timeval_100ns(usage.ru_stime)),
+        // macOS reports ru_maxrss in bytes. It is a process high-water mark,
+        // not a per-query resident-set sample.
+        working_set_bytes: usage.ru_maxrss.max(0) as u64,
+        // Standard getrusage does not expose the macOS private footprint.
+        private_bytes: None,
+    })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn native_sample() -> Option<NativeSample> {
     None
 }
@@ -782,7 +1253,12 @@ fn measure<T>(operation: impl FnOnce() -> T) -> (T, f64, ResourceSample) {
         }),
         working_set_bytes: process
             .map(|(before, after)| before.working_set_bytes.max(after.working_set_bytes)),
-        private_bytes: process.map(|(before, after)| before.private_bytes.max(after.private_bytes)),
+        private_bytes: process.and_then(|(before, after)| {
+            before
+                .private_bytes
+                .zip(after.private_bytes)
+                .map(|(before, after)| before.max(after))
+        }),
         sqlite_highwater_bytes: sqlite_memory_status(false).map(|(_, highwater)| highwater),
     };
     (value, elapsed_ms, resources)
@@ -795,7 +1271,9 @@ struct Samples {
     peak_working_set: u64,
     peak_private_bytes: u64,
     sqlite_highwater_bytes: u64,
-    process_samples: usize,
+    cpu_samples: usize,
+    working_set_samples: usize,
+    private_samples: usize,
     sqlite_samples: usize,
 }
 
@@ -804,13 +1282,15 @@ impl Samples {
         self.elapsed_ms.push(elapsed_ms);
         if let Some(cpu_ms) = resource.cpu_ms {
             self.cpu_ms += cpu_ms;
+            self.cpu_samples += 1;
         }
-        if let (Some(working_set), Some(private_bytes)) =
-            (resource.working_set_bytes, resource.private_bytes)
-        {
+        if let Some(working_set) = resource.working_set_bytes {
             self.peak_working_set = self.peak_working_set.max(working_set);
+            self.working_set_samples += 1;
+        }
+        if let Some(private_bytes) = resource.private_bytes {
             self.peak_private_bytes = self.peak_private_bytes.max(private_bytes);
-            self.process_samples += 1;
+            self.private_samples += 1;
         }
         if let Some(sqlite_highwater_bytes) = resource.sqlite_highwater_bytes {
             self.sqlite_highwater_bytes = self.sqlite_highwater_bytes.max(sqlite_highwater_bytes);
@@ -821,14 +1301,22 @@ impl Samples {
     fn json(&self) -> JsonValue {
         json!({
             "latency_ms": super::summarize_samples(&self.elapsed_ms),
-            "process_cpu_ms": if self.process_samples == 0 { JsonValue::Null } else { json!(self.cpu_ms) },
-            "peak_sampled_working_set_bytes": if self.process_samples == 0 { JsonValue::Null } else { json!(self.peak_working_set) },
-            "peak_sampled_private_bytes": if self.process_samples == 0 { JsonValue::Null } else { json!(self.peak_private_bytes) },
-            "process_sample_count": self.process_samples,
+            "process_cpu_ms": if self.cpu_samples == 0 { JsonValue::Null } else { json!(self.cpu_ms) },
+            "process_cpu_sample_count": self.cpu_samples,
+            "peak_sampled_working_set_bytes": if self.working_set_samples == 0 { JsonValue::Null } else { json!(self.peak_working_set) },
+            "working_set_sample_count": self.working_set_samples,
+            "peak_sampled_private_bytes": if self.private_samples == 0 { JsonValue::Null } else { json!(self.peak_private_bytes) },
+            "private_memory_sample_count": self.private_samples,
             "sqlite_global_highwater_bytes": if self.sqlite_samples == 0 { JsonValue::Null } else { json!(self.sqlite_highwater_bytes) },
             "sqlite_sample_count": self.sqlite_samples,
-            "resource_scope": "SQLite global allocator high-water reset just before and read just after each call; Windows process working-set/private bytes and CPU are boundary samples, not SQL-attributed OS peaks",
+            "resource_scope": "SQLite global allocator high-water is reset just before and read just after each call; Windows reports process working-set/private bytes and CPU at call boundaries; macOS reports CPU and cumulative process peak RSS through getrusage, but not private footprint or per-query RSS peaks",
         })
+    }
+
+    fn p95_ms(&self) -> f64 {
+        super::summarize_samples(&self.elapsed_ms)["p95"]
+            .as_f64()
+            .expect("measured p95 is numeric")
     }
 }
 
@@ -854,6 +1342,7 @@ fn raw_sql_sample(
         diagnostic_search_fts_sql()
     };
     let phrase = format!("\"{}\"", query.replace('"', "\"\""));
+    let normalized_query = query.to_ascii_lowercase();
     let process_before = native_sample();
     let _ = sqlite_memory_status(true);
     let started = Instant::now();
@@ -866,7 +1355,7 @@ fn raw_sql_sample(
         statement.reset_status(status);
     }
     let mut rows = if candidate {
-        statement.query(params![phrase, query, limit])
+        statement.query(params![phrase, normalized_query, limit])
     } else {
         statement.query(params![phrase, limit])
     }
@@ -891,7 +1380,12 @@ fn raw_sql_sample(
         }),
         working_set_bytes: process
             .map(|(before, after)| before.working_set_bytes.max(after.working_set_bytes)),
-        private_bytes: process.map(|(before, after)| before.private_bytes.max(after.private_bytes)),
+        private_bytes: process.and_then(|(before, after)| {
+            before
+                .private_bytes
+                .zip(after.private_bytes)
+                .map(|(before, after)| before.max(after))
+        }),
         sqlite_highwater_bytes,
     };
     (results, elapsed_ms, counters, resources)
@@ -949,7 +1443,7 @@ fn diversify_report_matches(conn: &Connection, entries: u64) -> f64 {
                         path.clone(),
                         path.to_lowercase()
                     ])
-                    .expect("update one 63-hit sparse fallback row through existing FTS triggers");
+                    .expect("update one 63-hit sparse relevance row through existing FTS triggers");
                 sparse_count += 1;
             } else if index == entries - 1 {
                 let name = format!("Monocle needle note {index:07}.pdf");
@@ -962,9 +1456,7 @@ fn diversify_report_matches(conn: &Connection, entries: u64) -> f64 {
                         path.clone(),
                         path.to_lowercase()
                     ])
-                    .expect(
-                        "update one single-hit sparse fallback row through existing FTS triggers",
-                    );
+                    .expect("update one single-hit sparse relevance row through existing FTS triggers");
             }
         }
         assert_eq!(sparse_count, 63);
@@ -987,11 +1479,42 @@ fn page(results: &[GlobalSearchResult], offset: u32, limit: u32) -> Vec<GlobalSe
 fn eligible_fts_hit_count(conn: &Connection, query: &str) -> i64 {
     let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
     conn.query_row(
-        "SELECT COUNT(*) FROM global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv WHERE global_entries_fts MATCH ?1 AND ge.rowid=global_entries_fts.rowid AND gv.id=ge.volume_id AND gv.enabled=1 AND ge.is_stale=0",
+        "SELECT COUNT(*) FROM global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv WHERE global_entries_fts MATCH ?1 AND ge.rowid=global_entries_fts.rowid AND gv.id=ge.volume_id AND gv.enabled=1 AND gv.coverage_pending=0 AND ge.is_stale=0",
         [fts_query],
         |row| row.get(0),
     )
     .expect("count enabled non-stale FTS hits")
+}
+
+fn explain_fts_plan(
+    conn: &Connection,
+    candidate: bool,
+    query: &str,
+    limit: u32,
+) -> Vec<String> {
+    let sql = if candidate {
+        diagnostic_search_filename_relevance_sql()
+    } else {
+        diagnostic_search_fts_sql()
+    };
+    let explain_sql = format!("EXPLAIN QUERY PLAN {sql}");
+    let mut statement = conn.prepare(&explain_sql).expect("prepare FTS query plan");
+    let phrase = format!("\"{}\"", query.replace('"', "\"\""));
+    let normalized_query = query.to_ascii_lowercase();
+    let mut rows = if candidate {
+        statement.query(params![phrase, normalized_query, limit])
+    } else {
+        statement.query(params![phrase, limit])
+    }
+    .expect("execute FTS query plan");
+    let mut plan = Vec::new();
+    while let Some(row) = rows.next().expect("advance FTS query plan") {
+        let id: i64 = row.get(0).expect("read query-plan step id");
+        let parent: i64 = row.get(1).expect("read query-plan parent id");
+        let detail: String = row.get(3).expect("read query-plan detail");
+        plan.push(format!("{id}:{parent}:{detail}"));
+    }
+    plan
 }
 
 enum MeasuredRoute {
@@ -1109,16 +1632,18 @@ struct PairInput<'a> {
     query: &'a str,
     limit: u32,
     offset: u32,
+    eligible_hit_count: usize,
     old_complete: &'a [GlobalSearchResult],
     new_complete: &'a [GlobalSearchResult],
 }
 
-fn emit_pair(db: &Database, conn: &Connection, input: PairInput<'_>) {
+fn emit_pair(db: &Database, conn: &Connection, input: PairInput<'_>) -> bool {
     let PairInput {
         context,
         query,
         limit,
         offset,
+        eligible_hit_count,
         old_complete,
         new_complete,
     } = input;
@@ -1143,67 +1668,77 @@ fn emit_pair(db: &Database, conn: &Connection, input: PairInput<'_>) {
         Some(&snapshot_oracle),
     );
     let search = paired_route_samples(db, query, limit, offset, &old_expected, &new_expected, None);
+    let search_p95_passed = search[1].p95_ms() <= 100.0;
+    let snapshot_p95_passed = snapshot[1].p95_ms() <= 100.0;
     super::emit_record(&json!({
         "schema_version": 1,
         "record_type": "filename_relevance_paired_window",
         "context": context,
         "query": query,
-        "hit_count": new_complete.len(),
+        "hit_count": eligible_hit_count,
         "limit": limit,
         "offset": offset,
         "candidate_window": tier_limit,
         "warmups": 5,
         "samples": 30,
         "route_order": "paired, alternating baseline/candidate first by iteration",
-        "complete_candidate_order_matches_independent_oracle": true,
+        "candidate_output_window_matches_independent_oracle": true,
         "first_page_ids": {"old_bm25_blake3": ids_hash(&page(old_complete, 0, limit)), "candidate_blake3": ids_hash(&page(new_complete, 0, limit))},
         "this_page_ids": {"old_bm25_blake3": ids_hash(&old_expected), "candidate_blake3": ids_hash(&new_expected)},
         "raw_fts_sql": {"old_bm25": raw[0].json(), "filename_relevance": raw[1].json()},
         "raw_fts_sql_counters": {"old_bm25": raw_counters[0], "filename_relevance": raw_counters[1]},
         "pooled_search": {"old_bm25": search[0].json(), "filename_relevance": search[1].json()},
         "repository_snapshot": {"old_bm25": snapshot[0].json(), "filename_relevance": snapshot[1].json()},
+        "candidate_100ms_p95_gate": {
+            "pooled_search_passed": search_p95_passed,
+            "repository_snapshot_passed": snapshot_p95_passed,
+            "passed": search_p95_passed && snapshot_p95_passed
+        },
         "snapshot_source_health_revision_status_equal": true,
         "output_fields_checked_against_each_route_oracle": true,
-        "resources_note": "Windows process counters are sampled around calls; non-Windows currently reports NOT_VERIFIED, SQL counters are per raw statement and not bytes or CPU attribution"
+        "resources_note": "Windows process CPU/working-set/private memory is sampled at call boundaries. macOS reports CPU and cumulative peak RSS through getrusage, but not private footprint or per-query RSS peaks. SQLite memory and SQL statement counters are collected independently."
     }));
+    search_p95_passed && snapshot_p95_passed
 }
 
-fn emit_fallback_pair(
+fn emit_low_hit_pair(
     db: &Database,
+    conn: &Connection,
     context: &JsonValue,
     query: &str,
     offset: u32,
     eligible_hit_count: i64,
-) {
+) -> bool {
     let limit = 80;
-    assert!(
-        eligible_hit_count < 64,
-        "fallback pair must exercise a sub-64 query"
-    );
+    assert!(eligible_hit_count < 80, "low-hit pair must fit in one result page");
     let old_complete = with_filename_relevance_candidate(false, || {
-        search_global_entries_on_connection(&db.conn().unwrap(), query, 4_096, 0)
+        search_global_entries_on_connection(conn, query, 4_096, 0)
     })
-    .expect("read sparse BM25 baseline results");
+    .expect("read low-hit BM25 baseline results");
     let candidate_complete = with_filename_relevance_candidate(true, || {
-        search_global_entries_on_connection(&db.conn().unwrap(), query, 4_096, 0)
+        search_global_entries_on_connection(conn, query, 4_096, 0)
     })
-    .expect("read candidate with authoritative sparse fallback");
+    .expect("read low-hit candidate results");
+    let oracle = filename_relevance_oracle(conn, query);
     assert_eq!(
-        candidate_complete, old_complete,
-        "sparse/zero route keeps exact BM25 result objects"
+        candidate_complete, oracle,
+        "supported sparse/zero query follows the independent relevance oracle"
     );
-    let expected_page = page(&old_complete, offset, limit);
+    assert_eq!(oracle.len(), eligible_hit_count as usize);
+    let old_expected = page(&old_complete, offset, limit);
+    let new_expected = page(&oracle, offset, limit);
+    let raw = paired_raw_sql_samples(conn, query, 4_096, &old_complete, &oracle);
     let snapshot_oracle = with_filename_relevance_candidate(false, || {
         db.search_global_entries_snapshot(query, limit, offset)
     })
-    .expect("read sparse fallback snapshot source facts");
+    .expect("read low-hit snapshot source facts");
     let search = paired_route_samples(
         db,
         query,
         limit,
         offset,
-        &expected_page,
-        &expected_page,
+        &old_expected,
+        &new_expected,
         None,
     );
     let snapshot = paired_route_samples(
@@ -1211,13 +1746,15 @@ fn emit_fallback_pair(
         query,
         limit,
         offset,
-        &expected_page,
-        &expected_page,
+        &old_expected,
+        &new_expected,
         Some(&snapshot_oracle),
     );
+    let search_p95_passed = search[1].p95_ms() <= 100.0;
+    let snapshot_p95_passed = snapshot[1].p95_ms() <= 100.0;
     super::emit_record(&json!({
         "schema_version": 1,
-        "record_type": "filename_relevance_sparse_zero_fallback_pair",
+        "record_type": "filename_relevance_low_hit_pair",
         "context": context,
         "query": query,
         "eligible_fts_hits": eligible_hit_count,
@@ -1225,17 +1762,31 @@ fn emit_fallback_pair(
         "offset": offset,
         "warmups": 5,
         "samples": 30,
-        "fallback_to_current_bm25": true,
-        "complete_result_objects_and_order_equal": true,
+        "fallback_to_current_bm25": false,
+        "candidate_complete_order_matches_independent_oracle": true,
+        "hit_count_changes_do_not_switch_the_candidate_order": true,
+        "old_bm25_and_candidate_full_results_equal": old_complete == oracle,
+        "raw_fts_sql": {"old_bm25": raw.0[0].json(), "filename_relevance": raw.0[1].json()},
+        "raw_fts_sql_counters": {"old_bm25": raw.1[0], "filename_relevance": raw.1[1]},
         "pooled_search": {"old_bm25": search[0].json(), "candidate_route": search[1].json()},
         "repository_snapshot": {"old_bm25": snapshot[0].json(), "candidate_route": snapshot[1].json()},
+        "candidate_100ms_p95_gate": {
+            "pooled_search_passed": search_p95_passed,
+            "repository_snapshot_passed": snapshot_p95_passed,
+            "passed": search_p95_passed && snapshot_p95_passed
+        },
         "snapshot_source_health_revision_status_equal": true,
     }));
+    search_p95_passed && snapshot_p95_passed
 }
 
 #[test]
 #[ignore = "Owner #474 bounded mixed filename relevance candidate qualification"]
 fn filename_relevance_candidate_paired_100k_200k() {
+    assert!(
+        !cfg!(debug_assertions),
+        "the qualification harness must run from a Release build"
+    );
     let entries = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
         .expect("set ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES to 100000, 200000, or 1000000")
         .parse::<u64>()
@@ -1268,7 +1819,7 @@ fn filename_relevance_candidate_paired_100k_200k() {
     let before_schema = schema_signature(&conn);
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM global_entries_fts JOIN global_entries ge ON ge.rowid=global_entries_fts.rowid JOIN global_volumes gv ON gv.id=ge.volume_id WHERE global_entries_fts MATCH ?1 AND gv.enabled=1 AND ge.is_stale=0",
+            "SELECT COUNT(*) FROM global_entries_fts JOIN global_entries ge ON ge.rowid=global_entries_fts.rowid JOIN global_volumes gv ON gv.id=ge.volume_id WHERE global_entries_fts MATCH ?1 AND gv.enabled=1 AND gv.coverage_pending=0 AND ge.is_stale=0",
             ["\"report\""],
             |row| row.get(0),
         )
@@ -1325,12 +1876,19 @@ fn filename_relevance_candidate_paired_100k_200k() {
         "mixed-category benchmark fixture must demonstrate an actual old/new ID order difference"
     );
     assert!(old_complete.iter().any(|result| result.rank < 0.0));
+    let rank_class_counts = json!({
+        "filename_boundary": oracle.iter().filter(|row| row.rank == 0.0).count(),
+        "filename_substring": oracle.iter().filter(|row| row.rank == 1.0).count(),
+        "path_only": oracle.iter().filter(|row| row.rank == 2.0).count()
+    });
+    let bm25_plan = explain_fts_plan(&conn, false, "report", 4_096);
+    let relevance_plan = explain_fts_plan(&conn, true, "report", 4_096);
     assert_eq!(
         with_filename_relevance_candidate(true, || {
             search_global_entries_on_connection(&conn, "report", 80, 4_016)
         })
         .unwrap(),
-        page(&oracle, 4_016, 80),
+        page(&expected_window, 4_016, 80),
         "offset 4016 is a slice of the full new-order top-4096 window"
     );
     assert!(with_filename_relevance_candidate(true, || {
@@ -1338,17 +1896,14 @@ fn filename_relevance_candidate_paired_100k_200k() {
     })
     .unwrap()
     .is_empty());
+    drop(oracle);
     super::emit_record(&json!({
         "schema_version": 1,
         "record_type": "filename_relevance_environment",
         "context": context,
         "entries": entries,
         "report_eligible_hits": count,
-        "rank_class_counts": {
-            "filename_boundary": oracle.iter().filter(|row| row.rank == 0.0).count(),
-            "filename_substring": oracle.iter().filter(|row| row.rank == 1.0).count(),
-            "path_only": oracle.iter().filter(|row| row.rank == 2.0).count()
-        },
+        "rank_class_counts": rank_class_counts,
         "fixture_mutation": "reuse existing global_search_benchmark.rs synthetic production-schema fixture; transform its 5 percent report-hit population into equal boundary/substring/path-only classes and prepare 63-hit, 1-hit and 0-hit supported queries; existing FTS update triggers maintain all query terms",
         "fixture_generation_ms": generation_ms,
         "fixture_population_ms": population_ms,
@@ -1359,15 +1914,17 @@ fn filename_relevance_candidate_paired_100k_200k() {
             "top_4096_equal": first_order_difference.is_none(),
             "first_differing_position_1_based": first_order_difference.map(|index| index + 1),
         },
-        "complete_candidate_order_matches_independent_rust_oracle": true,
+        "top_4096_candidate_window_matches_full_independent_rust_oracle": true,
         "schema_signature_before_benchmark": before_schema,
         "sqlite_version": rusqlite::version(),
-        "build_profile": if cfg!(feature = "desktop-runtime") { "cargo test desktop-runtime feature; bundled rusqlite" } else { "cargo test default dev/test profile; bundled rusqlite; no desktop runtime feature" },
+        "build_profile": if cfg!(debug_assertions) { "debug" } else { "release" },
+        "explain_query_plan": {"old_bm25": bm25_plan, "filename_relevance": relevance_plan},
         "one_million_qualification": entries == 1_000_000
     }));
 
+    let mut failed_p95_gates = Vec::new();
     for (limit, offset) in [(80, 0), (80, 4_016)] {
-        emit_pair(
+        if !emit_pair(
             &db,
             &conn,
             PairInput {
@@ -1375,15 +1932,24 @@ fn filename_relevance_candidate_paired_100k_200k() {
                 query: "report",
                 limit,
                 offset,
+                eligible_hit_count: count as usize,
                 old_complete: &old_complete,
-                new_complete: &oracle,
+                new_complete: &expected_window,
             },
-        );
+        ) {
+            failed_p95_gates.push(format!("report 80@{offset}"));
+        }
     }
-    emit_fallback_pair(&db, &context, "sparseword", 0, sparseword_count);
-    emit_fallback_pair(&db, &context, "sparseword", 4_016, sparseword_count);
-    emit_fallback_pair(&db, &context, "needle", 0, needle_count);
-    emit_fallback_pair(&db, &context, "zzznomatchtoken", 0, no_match_count);
+    for (query, offset, hits) in [
+        ("sparseword", 0, sparseword_count),
+        ("sparseword", 4_016, sparseword_count),
+        ("needle", 0, needle_count),
+        ("zzznomatchtoken", 0, no_match_count),
+    ] {
+        if !emit_low_hit_pair(&db, &conn, &context, query, offset, hits) {
+            failed_p95_gates.push(format!("{query} 80@{offset}"));
+        }
+    }
     assert_eq!(
         schema_signature(&conn),
         before_schema,
@@ -1401,6 +1967,11 @@ fn filename_relevance_candidate_paired_100k_200k() {
         "additional_candidate_write_amplification": "zero persistent objects or facts; existing FTS5 triggers maintain their current name/path/extension data and the candidate derives rank at read time",
         "fts_trigger_sql_unchanged": true,
         "production_route_default": "BM25 unless the Cargo feature and environment opt-in are both set",
+        "candidate_100ms_search_and_snapshot_p95_failures": failed_p95_gates,
         "default_index_authorization_changed": false
     }));
+    assert!(
+        failed_p95_gates.is_empty(),
+        "the unchanged 100ms p95 target failed for candidate queries: {failed_p95_gates:?}"
+    );
 }

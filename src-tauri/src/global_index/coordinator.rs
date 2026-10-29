@@ -635,7 +635,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
 }
 
 #[cfg(test)]
-fn run_index(
+pub(crate) fn run_index(
     provider: Arc<dyn GlobalIndexProvider>,
     db: Database,
     cancel: Arc<AtomicBool>,

@@ -6,6 +6,10 @@ struct ResourceFixture {
     provider: WindowsGlobalIndexProvider,
     sources: Mutex<Vec<GlobalSourceDescriptor>>,
     calls: std::sync::atomic::AtomicUsize,
+    operation_kinds: Mutex<Vec<SourceOperationKind>>,
+    fail_next: std::sync::atomic::AtomicBool,
+    unknown_next: std::sync::atomic::AtomicBool,
+    poll_interval: Option<std::time::Duration>,
     _cleanup: ResourceDirectory,
 }
 
@@ -18,9 +22,13 @@ impl Drop for ResourceDirectory {
 
 impl ResourceFixture {
     fn new() -> Self {
+        Self::new_with_poll(None)
+    }
+
+    fn new_with_poll(poll_interval: Option<std::time::Duration>) -> Self {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join(".tmp-tests")
-            .join(format!("round8-resources-{}", uuid::Uuid::new_v4()));
+            .join(format!("round9-resources-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("watched")).unwrap();
         let db = crate::db::Database::open(root.join("fixture.sqlite3")).unwrap();
         let mut provider = WindowsGlobalIndexProvider::with_wake(
@@ -40,6 +48,10 @@ impl ResourceFixture {
             provider,
             sources: Mutex::new(vec![source]),
             calls: Default::default(),
+            operation_kinds: Mutex::new(Vec::new()),
+            fail_next: Default::default(),
+            unknown_next: Default::default(),
+            poll_interval,
         }
     }
 
@@ -111,7 +123,19 @@ impl ResourceFixture {
     ) -> Result<(), GlobalIndexError> {
         self.operate(source, sink, cancel, kind, |sink| {
             self.calls.fetch_add(1, Ordering::AcqRel);
-            sink.checkpoint(&source.volume.id, Some("fixture-journal"), Some("43"))
+            self.operation_kinds.lock().unwrap().push(kind);
+            sink.checkpoint(&source.volume.id, Some("fixture-journal"), Some("43"))?;
+            if self.fail_next.swap(false, Ordering::AcqRel) {
+                return Err(GlobalIndexError::Provider(
+                    "injected transient index failure".into(),
+                ));
+            }
+            if self.unknown_next.swap(false, Ordering::AcqRel) {
+                return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                    "injected unknown Service outcome".into(),
+                ));
+            }
+            Ok(())
         })
     }
 }
@@ -156,6 +180,16 @@ impl GlobalIndexProvider for ResourceFixture {
     fn status(&self) -> Result<String, GlobalIndexError> {
         Ok("resource-fixture".into())
     }
+    fn topology_audit_interval(&self) -> Option<std::time::Duration> {
+        self.poll_interval
+    }
+    fn audit_source_topology(
+        &self,
+    ) -> Result<Option<Vec<GlobalSourceDescriptor>>, GlobalIndexError> {
+        Ok(self
+            .poll_interval
+            .map(|_| self.sources.lock().unwrap().clone()))
+    }
     fn update_source_lifecycle(
         &self,
         id: &str,
@@ -170,6 +204,143 @@ impl Drop for ResourceFixture {
         self.provider.clear_native_change_watchers();
         // Database pool closes after the fixture; preserve its files until then.
     }
+}
+
+struct ResourceFixtureWorker {
+    cancel: std::sync::Arc<AtomicBool>,
+    wake: std::sync::Arc<GlobalIndexWakeSlot>,
+    worker: Option<std::thread::JoinHandle<Result<(), GlobalIndexError>>>,
+}
+
+impl ResourceFixtureWorker {
+    fn start(fixture: std::sync::Arc<ResourceFixture>) -> Self {
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let wake = fixture.provider.wake.clone();
+        let worker_cancel = cancel.clone();
+        let worker_wake = wake.clone();
+        let worker = std::thread::spawn(move || {
+            crate::global_index::coordinator::run_index(
+                fixture.clone(),
+                fixture.db.clone(),
+                worker_cancel,
+                worker_wake,
+            )
+        });
+        Self {
+            cancel,
+            wake,
+            worker: Some(worker),
+        }
+    }
+
+    fn stop(&mut self) -> Result<(), GlobalIndexError> {
+        self.cancel.store(true, Ordering::Release);
+        self.wake.shutdown();
+        self.worker.take().unwrap().join().expect("join index worker")
+    }
+}
+
+impl Drop for ResourceFixtureWorker {
+    fn drop(&mut self) {
+        if self.worker.is_some() {
+            let _ = self.stop();
+        }
+    }
+}
+
+fn wait_for_resource_fixture(predicate: impl Fn() -> bool, message: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !predicate() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(predicate(), "{message}");
+}
+
+#[test]
+fn admitted_transient_incremental_error_keeps_healthy_watcher_and_next_change_recovers() {
+    use crate::global_index::models::{INDEX_STATUS_ERROR, INDEX_STATUS_READY};
+    use crate::global_index::wake::GlobalIndexWakeReason;
+
+    let fixture = std::sync::Arc::new(ResourceFixture::new());
+    fixture.cycle();
+    let source = fixture.selected();
+    let id = source.volume.id.clone();
+    let last_full_index_at = source.volume.last_full_index_at;
+    let initial_calls = fixture.calls.load(Ordering::Acquire);
+    let mut worker = ResourceFixtureWorker::start(fixture.clone());
+
+    wait_for_resource_fixture(
+        || {
+            fixture.calls.load(Ordering::Acquire) == initial_calls + 1
+                && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
+                    == INDEX_STATUS_READY
+                && fixture.provider.wake.snapshot().blocked_waits > 0
+        },
+        "coordinator did not finish its initial incremental cycle",
+    );
+    let lease_before_error = fixture
+        .provider
+        .change_watchers
+        .lock()
+        .unwrap()
+        .get(&id)
+        .expect("healthy native watcher installed")
+        .registration_id
+        .clone();
+
+    fixture.fail_next.store(true, Ordering::Release);
+    fixture.provider.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
+    wait_for_resource_fixture(
+        || {
+            fixture.calls.load(Ordering::Acquire) == initial_calls + 2
+                && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
+                    == INDEX_STATUS_ERROR
+        },
+        "accepted transient failure was not recorded",
+    );
+    let failed = fixture.db.get_global_volume(&id).unwrap().unwrap();
+    assert_eq!(failed.index_status, INDEX_STATUS_ERROR);
+    assert!(failed
+        .last_error
+        .as_deref()
+        .is_some_and(|error| error.contains("injected transient index failure")));
+    assert_eq!(failed.last_full_index_at, last_full_index_at);
+    {
+        let watchers = fixture.provider.change_watchers.lock().unwrap();
+        let current = watchers
+            .get(&id)
+            .expect("transient index failure removed the healthy watcher");
+        assert_eq!(current.registration_id, lease_before_error);
+        assert!(!current.has_failed());
+    }
+    let error_calls = fixture.calls.load(Ordering::Acquire);
+    let notifications_before_change = fixture.provider.wake.snapshot().notifications;
+    std::fs::write(
+        Path::new(&source.volume.mount_path).join("after-transient-error.txt"),
+        b"wake the coordinator",
+    )
+    .unwrap();
+    wait_for_resource_fixture(
+        || {
+            fixture.calls.load(Ordering::Acquire) == error_calls + 1
+                && fixture.db.get_global_volume(&id).unwrap().unwrap().index_status
+                    == INDEX_STATUS_READY
+        },
+        "file change did not wake the coordinator after the transient error",
+    );
+    assert!(fixture.provider.wake.snapshot().notifications > notifications_before_change);
+    assert_eq!(
+        fixture.db.get_global_volume(&id).unwrap().unwrap().last_full_index_at,
+        last_full_index_at,
+        "event recovery must stay incremental instead of replaying MFT baseline"
+    );
+    let kinds = fixture.operation_kinds.lock().unwrap();
+    assert_eq!(kinds[0], SourceOperationKind::Initial);
+    assert!(kinds[1..]
+        .iter()
+        .all(|kind| *kind == SourceOperationKind::Incremental));
+    drop(kinds);
+    worker.stop().unwrap();
 }
 
 #[test]

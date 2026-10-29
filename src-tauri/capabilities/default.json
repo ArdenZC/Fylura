@@ -24,6 +24,7 @@
     "allow-search-files",
     "allow-search-global-entries",
     "allow-get-global-index-status",
+    "allow-global-index-coverage",
     "allow-list-global-index-sources",
     "allow-start-global-index",
     "allow-pause-global-index",

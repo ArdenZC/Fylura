@@ -5,6 +5,8 @@ pub mod recovery_qa;
 pub mod service;
 mod service_errors;
 pub mod service_host;
+#[cfg(feature = "native-qa")]
+pub mod smart_lean_qa;
 pub mod usn;
 pub mod volumes;
 
@@ -887,6 +889,32 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
         volumes::discover_windows_volumes().map(Some)
     }
 
+    fn update_coverage_lifecycle(
+        &self,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut watchers = self.change_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".into())
+        })?;
+        let result = {
+            let mut gates = watchers
+                .values()
+                .map(|w| w.publication_gate())
+                .collect::<Vec<_>>();
+            let result = update();
+            if !matches!(result, Ok(false)) {
+                for gate in &mut gates {
+                    **gate = false;
+                }
+            }
+            result
+        };
+        if !matches!(result, Ok(false)) {
+            watchers.clear();
+        }
+        result.map(|_| ())
+    }
+
     fn update_source_lifecycle(
         &self,
         source_id: &str,
@@ -1442,7 +1470,10 @@ mod tests {
         source.volume.id = id.into();
         source.volume.stable_volume_id = format!("stable-{id}");
         source.volume.display_name = id.into();
-        source.volume.mount_path = format!("{id}:\\");
+        source.volume.mount_path = std::env::temp_dir()
+            .join(format!("zen-coordinator-fixture-{id}"))
+            .to_string_lossy()
+            .into_owned();
         // Keep scripted checkpoints valid for the real v3 admission validator,
         // which accepts canonical decimal USN values only.
         source.volume.journal_id = Some("42".into());
@@ -1456,7 +1487,11 @@ mod tests {
             platform_file_id: format!("file-{volume_id}"),
             parent_platform_file_id: "root".into(),
             name: "preserved.txt".into(),
-            path: format!("{volume_id}:\\preserved.txt"),
+            path: std::env::temp_dir()
+                .join(format!("zen-coordinator-fixture-{volume_id}"))
+                .join("preserved.txt")
+                .to_string_lossy()
+                .into_owned(),
             extension: "txt".into(),
             is_directory: false,
             size: 42,

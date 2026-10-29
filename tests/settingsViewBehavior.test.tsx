@@ -39,6 +39,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
+    globalIndexCoverage: vi.fn(async () => ({ snapshot: { policy: { version: 1, revision: 1, mode: "smart_lean", rules: [] }, sources: [] }, preview: null })),
     getAISettings: mocks.getAISettings,
     getRuntimeCapabilities: mocks.getRuntimeCapabilities,
     listAIProviderPresets: mocks.listAIProviderPresets,
@@ -612,7 +613,7 @@ describe("settings view behavior", () => {
     await flushEffects();
     expect(mocks.publishAIProcessingMode).toHaveBeenCalledWith({ enabled: false, provider: "openai_compatible" });
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
-    expect(container.querySelector("fieldset")?.getAttribute("data-ai-dirty")).toBe("false");
+    expect(container.querySelector("fieldset[data-ai-dirty]")?.getAttribute("data-ai-dirty")).toBe("false");
   });
 
   it("publishes runtime only after save success and clears the dirty draft", async () => {
@@ -627,7 +628,7 @@ describe("settings view behavior", () => {
     await flushEffects();
 
     expect(mocks.publishAIProcessingMode).toHaveBeenCalledWith({ enabled: false, provider: "openai_compatible" });
-    expect(container.querySelector("fieldset")?.getAttribute("data-ai-dirty")).toBe("false");
+    expect(container.querySelector("fieldset[data-ai-dirty]")?.getAttribute("data-ai-dirty")).toBe("false");
     expect(container.querySelector("[data-ai-unsaved-draft]")).toBeNull();
     expect(save.disabled).toBe(true);
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);

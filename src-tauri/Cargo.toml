@@ -23,6 +23,11 @@ name = "zb05-global-index-qa"
 path = "native-qa/global_index_probe.rs"
 required-features = ["native-qa"]
 
+[[bin]]
+name = "smart-lean-macos-qa"
+path = "native-qa/smart_lean_macos.rs"
+required-features = ["native-qa"]
+
 [features]
 default = []
 ai-debug = []
@@ -92,6 +97,9 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Power",
     "Win32_System_Services",
     "Win32_System_SystemServices",
+    "Win32_System_SystemInformation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
     "Win32_System_Threading",
     "Win32_System_WindowsProgramming",
 ] }
@@ -100,7 +108,7 @@ windows-sys = { version = "0.61.2", features = [
 block2 = "0.6.2"
 fsevent-sys = "4.1.0"
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
-objc2 = "0.6.4"
+objc2 = { version = "0.6.4", features = ["exception"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSResponder", "NSView", "NSWorkspace", "NSAlert", "NSButton", "NSControl", "NSWindow"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["CFRunLoop", "objc2"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [

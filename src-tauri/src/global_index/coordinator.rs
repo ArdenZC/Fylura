@@ -162,6 +162,15 @@ pub trait GlobalIndexProvider: Send + Sync {
 
     fn source_enabled_changed(&self, _source_id: &str, _enabled: bool) {}
 
+    /// Publish a global coverage revision under the provider's registration
+    /// locks. Implementations discard old leases before releasing those locks.
+    fn update_coverage_lifecycle(
+        &self,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        update().map(|_| ())
+    }
+
     /// Serialize a short authority change with native resource registration.
     /// The callback returns whether existing resources must be discarded.
     /// Never perform scans, IPC, scheduler waits or callbacks into this provider
@@ -325,18 +334,71 @@ impl GlobalIndexCoordinator {
         self.start()
     }
 
+    pub fn set_coverage_policy(
+        &self,
+        expected: u64,
+        mode: super::coverage::CoverageMode,
+        rules: Vec<super::coverage::CoverageRule>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut rules = Some(rules);
+        let mut committed = false;
+        let lifecycle_result = self.provider.update_coverage_lifecycle(&mut || {
+            self.db
+                .save_global_index_coverage(expected, mode, rules.take().unwrap_or_default())?;
+            committed = true;
+            Ok(true)
+        });
+        if !committed {
+            return lifecycle_result;
+        }
+        self.wake.notify(GlobalIndexWakeReason::RecoveryRequired);
+        let mut recovery_errors = Vec::new();
+        if let Err(error) = lifecycle_result {
+            recovery_errors.push(error.to_string());
+        }
+        if let Err(error) = self.start() {
+            recovery_errors.push(format!("recovery worker start failed: {error}"));
+        }
+        if recovery_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(GlobalIndexError::Provider(format!(
+                "global_index_change_committed_recovery_pending: {}",
+                recovery_errors.join("; ")
+            )))
+        }
+    }
+
     pub fn set_source_enabled(
         &self,
         source_id: &str,
         enabled: bool,
     ) -> Result<(), GlobalIndexError> {
-        self.provider.update_source_lifecycle(source_id, &mut || {
+        let mut committed = false;
+        let lifecycle_result = self.provider.update_source_lifecycle(source_id, &mut || {
             self.db.set_global_volume_enabled(source_id, enabled)?;
+            committed = true;
             Ok(true)
-        })?;
+        });
+        if !committed {
+            return lifecycle_result;
+        }
         self.provider.source_enabled_changed(source_id, enabled);
         self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
-        Ok(())
+        match lifecycle_result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let recovery_error = self.start().err();
+                let mut details = vec![error.to_string()];
+                if let Some(error) = recovery_error {
+                    details.push(format!("recovery worker start failed: {error}"));
+                }
+                Err(GlobalIndexError::Provider(format!(
+                    "global_index_change_committed_recovery_pending: {}",
+                    details.join("; ")
+                )))
+            }
+        }
     }
 
     pub fn authorize_source(
@@ -409,6 +471,14 @@ struct DatabaseIndexSink {
 
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) fn database_sink_for_test(db: Database) -> impl GlobalIndexSink {
+    database_sink_for_qualification(db)
+}
+
+#[cfg(any(
+    all(test, windows),
+    all(feature = "native-qa", any(windows, target_os = "macos"))
+))]
+pub(crate) fn database_sink_for_qualification(db: Database) -> impl GlobalIndexSink {
     DatabaseIndexSink {
         db,
         owners: HashMap::new(),
@@ -431,6 +501,14 @@ impl DatabaseIndexSink {
                     || message == "global_index_operation_foreign_volume_write" =>
             {
                 GlobalIndexError::ServiceOutcomeUnknown(message)
+            }
+            DbError::Validation(message)
+                if message == "global_index_entry_outside_authorized_source" =>
+            {
+                GlobalIndexError::ServiceProtocol(message)
+            }
+            DbError::Validation(message) if message == "global_index_source_identity_changed" => {
+                GlobalIndexError::PermissionRequired(message)
             }
             other => GlobalIndexError::Database(other),
         }
@@ -1151,6 +1229,11 @@ fn source_error_status(error: &GlobalIndexError) -> &'static str {
         GlobalIndexError::PermissionRequired(_) => INDEX_STATUS_PERMISSION_REQUIRED,
         GlobalIndexError::WindowsIo(5 | 1314) => INDEX_STATUS_PERMISSION_REQUIRED,
         GlobalIndexError::ServiceBusy(_) => INDEX_STATUS_SERVICE_BUSY,
+        GlobalIndexError::Provider(message)
+            if message.starts_with("macos_watcher_cleanup_pending") =>
+        {
+            INDEX_STATUS_WATCHER_UNAVAILABLE
+        }
         error if sqlite_contention_kind(error).is_some() => INDEX_STATUS_DATABASE_BUSY,
         _ => INDEX_STATUS_ERROR,
     }
@@ -1281,7 +1364,9 @@ fn platform_provider(
     #[cfg(all(not(target_os = "windows"), target_os = "macos"))]
     {
         let _ = database_path;
-        Box::new(crate::global_index::macos::MacosSpotlightProvider::with_wake(wake))
+        Box::new(crate::global_index::macos::MacosVolumeProvider::with_wake(
+            wake,
+        ))
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {

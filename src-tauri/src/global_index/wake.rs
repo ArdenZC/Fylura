@@ -122,7 +122,7 @@ impl GlobalIndexWakeSlot {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, all(feature = "native-qa", target_os = "macos")))]
     pub(crate) fn snapshot(&self) -> GlobalIndexWakeSnapshot {
         self.state
             .lock()

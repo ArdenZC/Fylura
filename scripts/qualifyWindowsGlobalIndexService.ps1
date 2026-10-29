@@ -416,6 +416,20 @@ try {
     Set-Content -LiteralPath $preexistingPath -Value "created before the Global Index baseline" -NoNewline
     $script:evidence.baselineFixturePath = $preexistingPath
 
+    # Smart Lean fixtures are independent of the existing manifest oracle.
+    # Every path lives on the already-validated disposable NTFS VHD.
+    $smartToken = "zcsmartlean$([Guid]::NewGuid().ToString('N'))"
+    $smartProject = Join-Path $fixtureRoot "smart-lean-project"
+    $smartLib = Join-Path $smartProject "node_modules\lib"
+    $smartSource = Join-Path $smartProject "src"
+    New-Item -ItemType Directory -Path $smartLib, $smartSource -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $smartProject "package.json") -Value '{}' -NoNewline
+    Set-Content -LiteralPath (Join-Path $smartProject "node_modules\.package-lock.json") -Value '{}' -NoNewline
+    $smartExcluded = Join-Path $smartLib "$smartToken-dependency.js"
+    $smartIncluded = Join-Path $smartSource "$smartToken-source.ts"
+    Set-Content -LiteralPath $smartExcluded -Value 'task-owned dependency' -NoNewline
+    Set-Content -LiteralPath $smartIncluded -Value 'task-owned source' -NoNewline
+
     $manifestDirectory = Join-Path $fixtureRoot "manifest"
     $manifestFiles = @()
     for ($manifestIndex = 0; $manifestIndex -lt 12; $manifestIndex++) {
@@ -458,6 +472,13 @@ try {
     New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
 
     Initialize-QualificationProfile
+
+    $directProfile = Join-Path $taskRoot "smart-lean-direct-profile"
+    & $ProbeExe --prepare-profile $directProfile $script:fixtureVolume | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Smart Lean Direct profile preparation failed" }
+    $directJson = & $ProbeExe --qualify-smart-lean-direct $directProfile $script:evidence.expectedQualificationSourceId $smartIncluded $smartExcluded
+    if ($LASTEXITCODE -ne 0) { throw "Smart Lean Direct native qualification failed" }
+    $script:evidence.smartLeanDirect = $directJson | ConvertFrom-Json
 
     $serviceImagePath = '"' + $CandidateExe + '" --index-service'
     $create = Invoke-ServiceControl @("create", $serviceName, "binPath=", $serviceImagePath, "start=", "demand", "obj=", "LocalSystem")
@@ -649,6 +670,21 @@ try {
     if (-not $script:evidence.independentManifest.matchedAfterServiceRecovery) {
         throw "independent file manifest did not match Global Search after service recovery: expected=$($expectedManifestRelativePaths.Count) indexed=$($indexedManifestRelativePaths.Count) missing=$($script:evidence.independentManifest.missingRelativePaths -join ',') unexpected=$($script:evidence.independentManifest.unexpectedRelativePaths -join ',') recovery=$($script:evidence.recovery.finalStatus)"
     }
+
+    $smartSnapshot = Get-ProbeSnapshot $smartToken
+    if ($smartSnapshot.coverage.policy.mode -ne 'smart_lean') { throw "new VHD profile did not default to Smart Lean" }
+    if (-not (Test-SearchPath "$smartToken-source.ts" $smartIncluded) -or (Test-SearchPath "$smartToken-dependency.js" $smartExcluded)) { throw "Service MFT Smart Lean admission mismatch" }
+    # Included -> excluded file move and excluded -> included subtree backfill.
+    $smartMovedIntoExcluded = Join-Path $smartProject "node_modules\$smartToken-source.ts"
+    Move-Item -LiteralPath $smartIncluded -Destination $smartMovedIntoExcluded
+    [void](Wait-ForSearchPath "$smartToken-source.ts" $smartIncluded $false 60 "Smart Lean include to exclude")
+    if (Test-SearchPath "$smartToken-source.ts" $smartMovedIntoExcluded) { throw "excluded move remained searchable" }
+    $smartRestoredLib = Join-Path $smartSource "restored-lib"
+    Move-Item -LiteralPath $smartLib -Destination $smartRestoredLib
+    $smartRestoredFile = Join-Path $smartRestoredLib "$smartToken-dependency.js"
+    [void](Wait-ForSearchPath "$smartToken-dependency.js" $smartRestoredFile $true 60 "Smart Lean excluded subtree backfill")
+    if (Test-SearchPath "$smartToken-dependency.js" $smartExcluded) { throw "old excluded subtree path survived rename" }
+    $script:evidence.smartLeanService = [ordered]@{ defaultMode = 'smart_lean'; initialAdmission = $true; includeToExclude = $true; excludedSubtreeBackfill = $true; coverage = (Get-ProbeSnapshot).coverage }
 
     $moveToken = "zb05qamove$([Guid]::NewGuid().ToString('N'))"
     $moveName = "$moveToken.txt"

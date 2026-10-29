@@ -453,8 +453,7 @@ impl WindowsGlobalIndexProvider {
                 if watcher_failed && matches!(&admission, Ok(true)) {
                     let operation_error = result
                         .as_ref()
-                        .err()
-                        .expect("watcher degradation is only handled for an error")
+                        .expect_err("watcher degradation is only handled for an error")
                         .to_string();
                     watchers.remove(&source.volume.id);
                     drop(watchers);

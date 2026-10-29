@@ -38,6 +38,13 @@ describe("W2-11 integrated experience QA contract", () => {
     expect(gate).toContain("const MAX_NETWORK_DIAGNOSTIC_ITEMS = 64");
     expect(gate).toContain('page.on("requestfailed"');
     expect(gate).toContain('page.on("response"');
+    expect(gate).toContain("maxRetainedUrls = 2048");
+    expect(gate).toContain("window.__zcW211TraceBlobUrls");
+    expect(gate).toContain("networkDiagnostics.blobLifecycle");
+    expect(gate).toContain("await captureBlobLifecycle()");
+    expect(gate).toContain('failedBlobUrls.add(request.url())');
+    expect(gate).toContain("assert(consoleErrors.length === 0 && pageErrors.length === 0,");
+    expect(gate).not.toContain("ignoreBlobErrors");
     expect(gate).toContain("message.location()");
     expect(gate).toContain("request.failure()?.errorText");
     expect(gate).toContain("responseStatusCounts");

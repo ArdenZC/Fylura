@@ -59,4 +59,5 @@ jobs:
           path: |
             smart-lean-ab.json
             smart-lean-native-macos.json
+            smart-lean-native-macos-sample.txt
           if-no-files-found: warn

@@ -22,4 +22,21 @@ mdutil -i on "$mount_root" > "$task_root/mdutil.log" 2>&1 || true
 export ZEN_SMART_LEAN_TASK_ROOT="$task_root"
 export ZEN_SMART_LEAN_VOLUME_ROOT="$mount_root"
 export ZEN_SMART_LEAN_NATIVE_REPORT="$PWD/smart-lean-native-macos.json"
-cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib scoped_spotlight_fsevents_qualification -- --ignored --nocapture --test-threads=1
+# Compile before starting the bounded native run. On a stalled native call,
+# sample only this task's test child, then fail rather than hanging the runner.
+cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib scoped_spotlight_fsevents_qualification --no-run
+cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib scoped_spotlight_fsevents_qualification -- --ignored --nocapture --test-threads=1 &
+test_owner=$!
+(
+  sleep 120
+  for child in $(pgrep -P "$test_owner" || true); do
+    sample "$child" 3 -file "$PWD/smart-lean-native-macos-sample.txt" || true
+    kill -TERM "$child" || true
+  done
+) &
+watchdog=$!
+result=0
+wait "$test_owner" || result=$?
+kill "$watchdog" 2>/dev/null || true
+wait "$watchdog" 2>/dev/null || true
+exit "$result"

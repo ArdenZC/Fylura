@@ -28,7 +28,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       ZEN_SMART_LEAN_ENTRIES: ${{ inputs.entries || '1000' }}
-      ZEN_SMART_LEAN_REPORT: smart-lean-ab.json
+      ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-ab.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

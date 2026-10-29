@@ -20,6 +20,7 @@ fn scoped_spotlight_fsevents_qualification() {
         fs::read_to_string(task.join("owned-volume.txt")).unwrap(),
         root.to_string_lossy()
     );
+    eprintln!("SMART_LEAN_NATIVE stage=volume_identity");
     let stable = volumes::volume_uuid(&root).expect("native APFS volume UUID");
     let mut source = crate::global_index::tests::test_volume();
     source.id = format!("gv_macos_{}", blake3::hash(stable.as_bytes()).to_hex());
@@ -60,6 +61,7 @@ fn scoped_spotlight_fsevents_qualification() {
         )
         .map_err(|e| e.to_string())?;
         let cancel = bounded_cancel();
+        eprintln!("SMART_LEAN_NATIVE stage=scoped_initial_provider");
         if let Err(error) = provider.start_initial_index(
             &GlobalSourceDescriptor {
                 volume: source.clone(),

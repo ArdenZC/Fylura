@@ -76,19 +76,23 @@ pub(super) fn source_id_matches(id: &str, root: &Path) -> bool {
 }
 pub(super) fn volume_uuid(path: &Path) -> Option<String> {
     use objc2_foundation::{NSArray, NSString, NSURLVolumeUUIDStringKey, NSURL};
-    objc2::rc::autoreleasepool(|_| {
-        let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?));
-        let key = unsafe { NSURLVolumeUUIDStringKey };
-        let values = url
-            .resourceValuesForKeys_error(&NSArray::from_slice(&[key]))
-            .ok()?;
-        let uuid = values
-            .objectForKey(key)?
-            .downcast::<NSString>()
-            .ok()?
-            .to_string();
-        (!uuid.is_empty()).then(|| format!("macos:volume-uuid:{uuid}"))
-    })
+    objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+        objc2::rc::autoreleasepool(|_| {
+            let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?));
+            let key = unsafe { NSURLVolumeUUIDStringKey };
+            let values = url
+                .resourceValuesForKeys_error(&NSArray::from_slice(&[key]))
+                .ok()?;
+            let uuid = values
+                .objectForKey(key)?
+                .downcast::<NSString>()
+                .ok()?
+                .to_string();
+            (!uuid.is_empty()).then(|| format!("macos:volume-uuid:{uuid}"))
+        })
+    }))
+    .ok()
+    .flatten()
 }
 fn discover_volumes() -> Vec<GlobalSourceDescriptor> {
     let mut roots = vec![(PathBuf::from("/"), PathBuf::from("/System/Volumes/Data"))];

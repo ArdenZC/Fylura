@@ -1470,7 +1470,10 @@ mod tests {
         source.volume.id = id.into();
         source.volume.stable_volume_id = format!("stable-{id}");
         source.volume.display_name = id.into();
-        source.volume.mount_path = format!("{id}:\\");
+        source.volume.mount_path = std::env::temp_dir()
+            .join(format!("zen-coordinator-fixture-{id}"))
+            .to_string_lossy()
+            .into_owned();
         // Keep scripted checkpoints valid for the real v3 admission validator,
         // which accepts canonical decimal USN values only.
         source.volume.journal_id = Some("42".into());
@@ -1484,7 +1487,11 @@ mod tests {
             platform_file_id: format!("file-{volume_id}"),
             parent_platform_file_id: "root".into(),
             name: "preserved.txt".into(),
-            path: format!("{volume_id}:\\preserved.txt"),
+            path: std::env::temp_dir()
+                .join(format!("zen-coordinator-fixture-{volume_id}"))
+                .join("preserved.txt")
+                .to_string_lossy()
+                .into_owned(),
             extension: "txt".into(),
             is_directory: false,
             size: 42,

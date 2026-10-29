@@ -5108,7 +5108,7 @@ pub(crate) mod tests {
             edited_filename: None,
         };
         let before = snapshot(&db);
-        assert_eq!(before.0, 45);
+        assert_eq!(before.0, i64::from(crate::db::SUPPORTED_SCHEMA_VERSION));
         for (revision, safe_batch, mutations, expected_error) in [
             (
                 0,

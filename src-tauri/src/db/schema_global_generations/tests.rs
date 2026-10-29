@@ -97,7 +97,7 @@ fn schema42_populated41_upgrade_preserves_all_legacy_facts_and_marks_no_complete
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        45
+        i64::from(crate::db::SUPPORTED_SCHEMA_VERSION)
     );
     assert_eq!(legacy_snapshot(&conn), before);
     assert_eq!(
@@ -206,7 +206,7 @@ fn schema42_fresh_reopen_signature_drift_and_future_version_fail_closed() {
         "do not repair away signature drift"
     );
     let conn = Connection::open(&path.0).unwrap();
-    conn.execute_batch("PRAGMA user_version=46").unwrap();
+    conn.execute_batch("PRAGMA user_version=47").unwrap();
     drop(conn);
     let error = Database::open(&path.0).err().unwrap();
     assert!(error.to_string().contains("newer than this app supports"));

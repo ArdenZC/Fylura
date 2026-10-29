@@ -3486,7 +3486,7 @@ mod issue381_b4_p0_tests {
         assert_eq!(schema43_index_sql(&conn), upgraded);
         conn.execute_batch("PRAGMA user_version = 47").unwrap();
         assert!(migrate(&conn).is_err());
-        assert_eq!(schema_version(&conn).unwrap(), 46);
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION + 1);
     }
 
     #[test]

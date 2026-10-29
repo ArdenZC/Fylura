@@ -105,65 +105,68 @@ where
     if !super::volumes::source_id_matches(volume_id, source_root) {
         return Err("macos_volume_identity_changed".into());
     }
-    autoreleasepool(|_| {
-        let query = new_scoped_query(source_root);
-        if !query.startQuery() {
-            return Err("macos_spotlight_query_unavailable".to_string());
-        }
-        let run_loop = NSRunLoop::currentRunLoop();
+    objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+        autoreleasepool(|_| {
+            let query = new_scoped_query(source_root);
+            if !query.startQuery() {
+                return Err("macos_spotlight_query_unavailable".to_string());
+            }
+            let run_loop = NSRunLoop::currentRunLoop();
 
-        while query.isGathering() {
-            if cancel.load(Ordering::Acquire) {
-                query.stopQuery();
-                return Err("macos_spotlight_query_paused".to_string());
+            while query.isGathering() {
+                if cancel.load(Ordering::Acquire) {
+                    query.stopQuery();
+                    return Err("macos_spotlight_query_paused".to_string());
+                }
+                let deadline = NSDate::dateWithTimeIntervalSinceNow(0.2);
+                run_loop.runUntilDate(&deadline);
             }
-            let deadline = NSDate::dateWithTimeIntervalSinceNow(0.2);
-            run_loop.runUntilDate(&deadline);
-        }
-        let mut entries = Vec::with_capacity(512);
-        let mut summary = SpotlightCollectionSummary::default();
-        for index in 0..query.resultCount() {
-            if cancel.load(Ordering::Acquire) {
-                query.stopQuery();
-                return Err("macos_spotlight_query_paused".to_string());
+            let mut entries = Vec::with_capacity(512);
+            let mut summary = SpotlightCollectionSummary::default();
+            for index in 0..query.resultCount() {
+                if cancel.load(Ordering::Acquire) {
+                    query.stopQuery();
+                    return Err("macos_spotlight_query_paused".to_string());
+                }
+                let object = query.resultAtIndex(index);
+                if path_from_object(&object)
+                    .as_deref()
+                    .is_some_and(|p| !path_in_source(source_root, Path::new(p)))
+                {
+                    continue;
+                }
+                let Some(entry) = metadata_item_to_entry(volume_id, source_root, &object) else {
+                    summary.skipped += 1;
+                    continue;
+                };
+                summary.processed += 1;
+                if has_path_identity(&entry) {
+                    summary.path_fallbacks += 1;
+                }
+                entries.push(entry);
+                if entries.len() >= 512 {
+                    if let Err(error) = on_batch(&entries) {
+                        query.stopQuery();
+                        return Err(format!("callback:{error}"));
+                    }
+                    entries.clear();
+                }
             }
-            let object = query.resultAtIndex(index);
-            if path_from_object(&object)
-                .as_deref()
-                .is_some_and(|p| !path_in_source(source_root, Path::new(p)))
-            {
-                continue;
-            }
-            let Some(entry) = metadata_item_to_entry(volume_id, source_root, &object) else {
-                summary.skipped += 1;
-                continue;
-            };
-            summary.processed += 1;
-            if has_path_identity(&entry) {
-                summary.path_fallbacks += 1;
-            }
-            entries.push(entry);
-            if entries.len() >= 512 {
+            if !entries.is_empty() {
                 if let Err(error) = on_batch(&entries) {
                     query.stopQuery();
                     return Err(format!("callback:{error}"));
                 }
-                entries.clear();
             }
-        }
-        if !entries.is_empty() {
-            if let Err(error) = on_batch(&entries) {
-                query.stopQuery();
-                return Err(format!("callback:{error}"));
-            }
-        }
-        query.stopQuery();
-        summary.full_disk_access_required =
-            source_root == Path::new("/") && full_disk_access_required();
-        summary.external_volume_not_indexed =
-            source_root != Path::new("/") && summary.processed == 0;
-        Ok(summary)
-    })
+            query.stopQuery();
+            summary.full_disk_access_required =
+                source_root == Path::new("/") && full_disk_access_required();
+            summary.external_volume_not_indexed =
+                source_root != Path::new("/") && summary.processed == 0;
+            Ok(summary)
+        })
+    }))
+    .map_err(|exception| format!("macos_spotlight_native_exception:{exception:?}"))?
 }
 
 pub fn spawn_update_watcher(
@@ -180,17 +183,27 @@ pub fn spawn_update_watcher(
     let thread = thread::Builder::new()
         .name("zen-canvas-macos-spotlight".to_string())
         .spawn(move || {
-            autoreleasepool(|_| {
-                run_update_watcher(
-                    &volume_id,
-                    &source_root,
+            let result = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                autoreleasepool(|_| {
+                    run_update_watcher(
+                        &volume_id,
+                        &source_root,
+                        &pending,
+                        &known_entries,
+                        &stopped,
+                        &wake,
+                        &stop_signal_for_thread,
+                    )
+                })
+            }));
+            stop_signal_for_thread.clear();
+            if let Err(exception) = result {
+                super::record_async_watcher_error(
                     &pending,
-                    &known_entries,
-                    &stopped,
                     &wake,
-                    &stop_signal_for_thread,
-                )
-            });
+                    format!("macos_spotlight_realtime_exception:{exception:?}"),
+                );
+            }
         })
         .map_err(|error| format!("macos_spotlight_thread_start_failed: {error}"))?;
     Ok(SpotlightWatcherHandle {
@@ -200,10 +213,6 @@ pub fn spawn_update_watcher(
     })
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "source-bound native watcher lifecycle"
-)]
 fn run_update_watcher(
     volume_id: &str,
     source_root: &Path,
@@ -311,7 +320,7 @@ fn new_scoped_query(source_root: &Path) -> Retained<NSMetadataQuery> {
     let query = NSMetadataQuery::new();
     let predicate = NSPredicate::predicateWithValue(true);
     query.setPredicate(Some(&predicate));
-    let root = NSString::from_str(&source_root.to_string_lossy());
+    let root = NSURL::fileURLWithPath(&NSString::from_str(&source_root.to_string_lossy()));
     let scope: &AnyObject = root.as_ref();
     let scopes: Retained<NSArray<AnyObject>> = NSArray::from_slice(&[scope]);
     unsafe { query.setSearchScopes(&scopes) };

@@ -51,7 +51,7 @@ fn identity(path: &Path) -> Option<String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        Some(format!("{}:{}", m.dev(), m.ino()))
+        Some(format!("mac:dev:{:x}:ino:{:x}", m.dev(), m.ino()))
     }
     #[cfg(windows)]
     {
@@ -277,25 +277,50 @@ pub fn bind_rule(
         include,
     })
 }
+#[derive(Debug)]
+struct DirectoryFacts {
+    safe: bool,
+    identity: Option<String>,
+    performance_reason: Option<&'static str>,
+    explicit_rule: Option<bool>,
+    rule_uncertain: bool,
+}
+fn parent_identity_matches(expected: &str, actual: Option<&str>) -> bool {
+    if expected.starts_with("mac:dev:") {
+        return actual == Some(expected);
+    }
+    if expected.len() == 16 && expected.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return actual
+            .is_some_and(|id| id.ends_with(&format!(":{}", expected.to_ascii_lowercase())));
+    }
+    true // Native path-fallback providers still require the no-alias directory proof.
+}
 pub(crate) fn observe_batch(
     policy: &CoveragePolicy,
     source: &GlobalVolume,
     entries: &[GlobalEntryInput],
 ) -> Vec<Decision> {
-    // Context cache is batch-local: never reuses facts across moves, policy revisions,
-    // mounts or permission epochs. No filesystem I/O while SQLite owns the writer.
-    let mut contexts: HashMap<PathBuf, Option<&'static str>> = HashMap::new();
+    // Identity-proven directory context lives only in this immutable source /
+    // policy batch. Native parent IDs bind the key; source/policy/mount changes
+    // cannot reuse previous batches. File link/alias checks remain per candidate.
+    let mut contexts = HashMap::<(PathBuf, String), DirectoryFacts>::new();
     let root = Path::new(&source.mount_path);
     let boundaries = protected_roots(root);
     let caches = known_cache_roots(root);
+    let rules = if policy.mode == CoverageMode::Custom {
+        policy
+            .rules
+            .iter()
+            .filter(|r| r.source_id == source.id && r.stable_volume_id == source.stable_volume_id)
+            .map(|r| (r, identity(Path::new(&r.path))))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     entries
         .iter()
         .map(|entry| {
             let path = Path::new(&entry.path);
-            let mut e = Evidence {
-                directory: entry.is_directory,
-                ..Evidence::default()
-            };
             if entry.volume_id != source.id
                 || !path.is_absolute()
                 || !path.starts_with(root)
@@ -305,7 +330,7 @@ pub(crate) fn observe_batch(
             {
                 return Decision::Exclude("outside_authorized_source");
             }
-            if boundaries.iter().any(|boundary| path.starts_with(boundary)) {
+            if boundaries.iter().any(|b| path.starts_with(b)) {
                 return Decision::Exclude("protected_boundary");
             }
             if entry.file_attributes
@@ -315,47 +340,94 @@ pub(crate) fn observe_batch(
             {
                 return Decision::Undetermined("cloud_availability_unverified");
             }
-            if !checked_chain(path, root) {
-                e.uncertain = Some("identity_permission_or_alias_unverified");
+            let dir = if entry.is_directory {
+                path
             } else {
-                e.protected = false;
-                let dir = if entry.is_directory {
-                    path
-                } else {
-                    path.parent().unwrap_or(root)
-                };
-                if contexts.len() >= 4096 {
-                    contexts.clear();
-                }
-                e.performance_reason = *contexts.entry(dir.to_path_buf()).or_insert_with(|| {
-                    if caches.iter().any(|cache| dir.starts_with(cache)) {
+                path.parent().unwrap_or(root)
+            };
+            let parent_id = if entry.is_directory {
+                &entry.platform_file_id
+            } else {
+                &entry.parent_platform_file_id
+            };
+            if contexts.len() >= 4096 {
+                contexts.clear();
+            }
+            let facts = contexts
+                .entry((dir.to_path_buf(), parent_id.clone()))
+                .or_insert_with(|| {
+                    let safe = checked_chain(dir, root);
+                    let id = if safe { identity(dir) } else { None };
+                    let performance_reason = if !safe || policy.mode == CoverageMode::BroadCoverage
+                    {
+                        None
+                    } else if caches.iter().any(|cache| dir.starts_with(cache)) {
                         Some("known_user_cache")
                     } else {
                         performance_root(dir, root)
-                    }
-                });
-                if policy.mode == CoverageMode::Custom {
-                    if let Some(rule) = policy
-                        .rules
-                        .iter()
-                        .filter(|r| {
-                            r.source_id == source.id
-                                && r.stable_volume_id == source.stable_volume_id
-                                && path.starts_with(&r.path)
-                        })
-                        .max_by_key(|r| (r.path.len(), !r.include))
-                    {
-                        if identity(Path::new(&rule.path)).as_ref()
-                            == Some(&rule.directory_identity)
-                        {
-                            e.explicit_rule = Some(rule.include);
+                    };
+                    // Directory identities resolve native case/Unicode spellings without
+                    // applying an invented filesystem-wide case-folding rule. The current
+                    // saved path must still resolve to its bound object.
+                    let anchors = if safe && !rules.is_empty() {
+                        dir.ancestors()
+                            .take_while(|p| p.starts_with(root))
+                            .take(64)
+                            .filter_map(|p| identity(p).map(|id| (p.components().count(), id)))
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+                    let mut best: Option<(usize, bool, bool)> = None;
+                    for (rule, current) in &rules {
+                        let literal = path.starts_with(&rule.path);
+                        let current_matches = current.as_ref() == Some(&rule.directory_identity);
+                        let anchor = if current_matches {
+                            anchors
+                                .iter()
+                                .find(|(_, id)| id == &rule.directory_identity)
+                                .map(|(depth, _)| *depth)
                         } else {
-                            e.uncertain = Some("rule_directory_identity_changed");
+                            None
+                        };
+                        if !literal && anchor.is_none() {
+                            continue;
+                        }
+                        let depth =
+                            anchor.unwrap_or_else(|| Path::new(&rule.path).components().count());
+                        if best.is_none_or(|(prior, include, _)| {
+                            (depth, !rule.include) > (prior, !include)
+                        }) {
+                            best = Some((depth, rule.include, !current_matches));
                         }
                     }
-                }
+                    DirectoryFacts {
+                        safe,
+                        identity: id,
+                        performance_reason,
+                        explicit_rule: best.map(|(_, include, _)| include),
+                        rule_uncertain: best.is_some_and(|(_, _, uncertain)| uncertain),
+                    }
+                });
+            let candidate_safe = entry.is_directory
+                || metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m));
+            let mut evidence = Evidence {
+                directory: entry.is_directory,
+                performance_reason: facts.performance_reason,
+                explicit_rule: facts.explicit_rule,
+                ..Evidence::default()
+            };
+            if !facts.safe
+                || facts.identity.is_none()
+                || !candidate_safe
+                || !parent_identity_matches(parent_id, facts.identity.as_deref())
+            {
+                evidence.uncertain = Some("identity_permission_or_alias_unverified");
             }
-            evaluate(policy, &e)
+            if facts.rule_uncertain {
+                evidence.uncertain = Some("rule_directory_identity_changed");
+            }
+            evaluate(policy, &evidence)
         })
         .collect()
 }

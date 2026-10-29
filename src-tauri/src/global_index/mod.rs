@@ -9,6 +9,7 @@ pub mod models;
 pub(crate) mod qa_trace;
 mod repository;
 pub mod search;
+pub(crate) mod search_view;
 pub(crate) mod wake;
 
 #[cfg(target_os = "macos")]

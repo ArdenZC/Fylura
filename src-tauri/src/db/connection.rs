@@ -70,6 +70,7 @@ impl ManagedAiWakeSlot {
 pub struct Database {
     path: PathBuf,
     pool: Pool<SqliteConnectionManager>,
+    pub(crate) global_search_view: crate::global_index::search_view::SearchViewManager,
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
     pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
@@ -100,9 +101,28 @@ impl Database {
             super::schema::migrate_with_cancellation(&conn, cancel)?;
         }
 
+        // This is an optional, additive derived-search subsystem. If its
+        // self-versioned migration cannot be validated, keep opening the
+        // database and leave the authoritative SQLite search untouched.
+        let search_change_schema_ready = {
+            let conn = pool.get()?;
+            match super::schema_global_search_changes::install(&conn) {
+                Ok(()) => true,
+                Err(error) => {
+                    eprintln!("global_search_change_feed_unavailable reason={error}");
+                    false
+                }
+            }
+        };
+        let global_search_view = crate::global_index::search_view::SearchViewManager::start(
+            pool.clone(),
+            search_change_schema_ready,
+        );
+
         Ok(Self {
             path,
             pool,
+            global_search_view,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),
@@ -133,7 +153,8 @@ impl Database {
 
     pub fn init(&self) -> Result<(), DbError> {
         let conn = self.conn()?;
-        migrate(&conn)
+        migrate(&conn)?;
+        super::schema_global_search_changes::install(&conn)
     }
 
     pub(crate) fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>, DbError> {

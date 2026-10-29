@@ -1095,6 +1095,8 @@ impl Database {
         let transaction = conn.transaction()?;
         let results =
             super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
+        self.global_search_view
+            .observe_snapshot(&transaction, query, limit, offset, &results);
         let (source_health, source_revision, enabled_rows) =
             load_snapshot_source_health(&transaction)?;
         let index_status = global_index_status_with_total(&transaction, enabled_rows)?;

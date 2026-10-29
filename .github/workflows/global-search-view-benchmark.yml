@@ -1,0 +1,86 @@
+name: Global Search view native qualification
+
+on:
+  push:
+    branches:
+      - codex/global-search-production
+    paths:
+      - "src-tauri/src/db/**"
+      - "src-tauri/src/global_index/repository.rs"
+      - "src-tauri/src/global_index/search.rs"
+      - "src-tauri/src/global_index/search_view/**"
+      - ".github/workflows/global-search-view-benchmark.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: global-search-view-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-view-qualification:
+    name: Search view / ${{ matrix.os }} / ${{ matrix.entries }} rows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+        entries:
+          - 100000
+          - 500000
+          - 1000000
+    env:
+      ZEN_CANVAS_SEARCH_VIEW_BENCHMARK_ENTRIES: ${{ matrix.entries }}
+    steps:
+      - name: Checkout selected candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          rustc -vV
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-global-search-view-${{ runner.os }}
+          cache-workspace-crates: true
+          cache-targets: true
+
+      - name: Run isolated schema and FTS search view qualification
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib \
+            global_index::search_view::benchmark::global_search_view_scale_benchmark \
+            -- --ignored --nocapture --test-threads=1 2>&1 | tee global-search-view-${{ runner.os }}-debug.log
+
+      - name: Run release-profile search view qualification
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib \
+            global_index::search_view::benchmark::global_search_view_scale_benchmark \
+            -- --ignored --nocapture --test-threads=1 2>&1 | tee global-search-view-${{ runner.os }}-release.log
+
+      - name: Upload native benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: global-search-view-${{ runner.os }}-${{ matrix.entries }}-rows
+          path: |
+            global-search-view-${{ runner.os }}-debug.log
+            global-search-view-${{ runner.os }}-release.log
+          if-no-files-found: ignore

@@ -625,6 +625,40 @@ fn search_fts(
     collect_candidates(&mut statement, params![fts_query, limit])
 }
 
+/// Run the unchanged production FTS/BM25 tier for an opt-in shadow comparison.
+/// The result is diagnostic only; callers must keep SQLite's full search
+/// result as the user-visible authority.
+pub(crate) fn search_global_fts_shadow_reference_ids(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<String>, DbError> {
+    let mut statement = conn.prepare(
+        r#"
+        WITH candidates AS MATERIALIZED (
+            SELECT ge.id AS entry_id,
+                   ge.modified_at_fs AS modified_at_fs,
+                   bm25(global_entries_fts, 8.0, 2.0, 1.0) AS candidate_rank
+            FROM global_entries_fts
+            CROSS JOIN global_entries ge
+            CROSS JOIN global_volumes gv
+            WHERE global_entries_fts MATCH ?1
+              AND ge.rowid = global_entries_fts.rowid
+              AND gv.id = ge.volume_id
+              AND gv.enabled = 1
+              AND ge.is_stale = 0
+            ORDER BY candidate_rank ASC, ge.modified_at_fs DESC, ge.id ASC
+            LIMIT ?2
+        )
+        SELECT entry_id FROM candidates
+        ORDER BY candidate_rank ASC, modified_at_fs DESC, entry_id ASC
+        "#,
+    )?;
+    let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+    let rows = statement.query_map(params![fts_query, limit], |row| row.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 /// Test-only access to the exact production FTS query for the staged latency
 /// diagnostic. This wrapper does not change the runtime search path.
 #[cfg(test)]

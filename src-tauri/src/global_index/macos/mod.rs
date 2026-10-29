@@ -45,9 +45,7 @@ fn join_watcher(thread: JoinHandle<()>, name: &str) -> Result<(), String> {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    thread
-        .join()
-        .map_err(|_| format!("{name}_worker_panicked"))
+    thread.join().map_err(|_| format!("{name}_worker_panicked"))
 }
 
 pub(super) fn trace_native_qa_phase(phase: &str, event: &str) {
@@ -63,11 +61,16 @@ pub(super) fn trace_native_qa_phase(phase: &str, event: &str) {
             .name()
             .unwrap_or("unnamed")
             .chars()
-            .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '_' })
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>();
-        let line = format!(
-            "elapsed_ms={elapsed_ms} thread={thread_name} phase={phase} event={event}"
-        );
+        let line =
+            format!("elapsed_ms={elapsed_ms} thread={thread_name} phase={phase} event={event}");
         eprintln!("SMART_LEAN_NATIVE {line}");
         if let Some(directory) = std::env::var_os("ZEN_SMART_LEAN_NATIVE_PHASE_DIR") {
             if let Ok(_guard) = WRITE_LOCK.lock() {

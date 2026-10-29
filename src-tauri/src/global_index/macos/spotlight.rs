@@ -6,7 +6,7 @@ use crate::global_index::models::{
     PROVIDER_MACOS_SPOTLIGHT,
 };
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
-use crate::platform::macos::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
+use crate::platform::macos::run_loop::{LifecycleRunLoop, NativeRunLoopStopSignal};
 use block2::RcBlock;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -327,12 +327,21 @@ fn run_update_watcher(
         return;
     }
     super::trace_native_qa_phase("spotlight.realtime.start_query", "end");
-    let run_loop = NSRunLoop::currentRunLoop();
-    let stop_action = cross_thread_stop_action(run_loop.getCFRunLoop());
-    stop_signal.install(stop_action);
+    let lifecycle = match LifecycleRunLoop::new() {
+        Ok(lifecycle) => lifecycle,
+        Err(error) => {
+            super::record_async_watcher_error(pending, wake, error);
+            query.stopQuery();
+            let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
+            let observer_object: &AnyObject = protocol_object.as_ref();
+            unsafe { center.removeObserver(observer_object) };
+            return;
+        }
+    };
+    stop_signal.install(lifecycle.stop_action());
     if !stopped.load(Ordering::Acquire) {
         super::trace_native_qa_phase("spotlight.realtime.run_loop", "begin");
-        run_loop.run();
+        lifecycle.run();
         super::trace_native_qa_phase("spotlight.realtime.run_loop", "end");
     }
     stop_signal.clear();

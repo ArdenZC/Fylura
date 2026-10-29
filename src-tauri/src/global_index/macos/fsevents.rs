@@ -1,6 +1,6 @@
 use super::PendingUpdates;
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
-use crate::platform::macos::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
+use crate::platform::macos::run_loop::{LifecycleRunLoop, NativeRunLoopStopSignal};
 use fsevent_sys::core_foundation::{
     kCFAllocatorDefault, kCFRunLoopDefaultMode, kCFStringEncodingUTF8, kCFTypeArrayCallBacks,
     CFArrayAppendValue, CFArrayCreateMutable, CFRelease, CFRunLoopGetCurrent,
@@ -157,6 +157,13 @@ fn run_fsevents(
         return;
     };
     unsafe {
+        let lifecycle = match LifecycleRunLoop::new() {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                record_startup_failure(&pending, &wake, error);
+                return;
+            }
+        };
         let path_ref =
             CFStringCreateWithCString(kCFAllocatorDefault, path.as_ptr(), kCFStringEncodingUTF8);
         if path_ref.is_null() {
@@ -224,12 +231,10 @@ fn run_fsevents(
             return;
         }
         super::trace_native_qa_phase("fsevents.stream_start", "end");
-        let native_run_loop = objc2_foundation::NSRunLoop::currentRunLoop().getCFRunLoop();
-        let stop_action = cross_thread_stop_action(native_run_loop);
-        stop_signal.install(stop_action);
+        stop_signal.install(lifecycle.stop_action());
         if !stop.load(Ordering::Acquire) {
             super::trace_native_qa_phase("fsevents.run_loop", "begin");
-            fsevent_sys::core_foundation::CFRunLoopRun();
+            lifecycle.run();
             super::trace_native_qa_phase("fsevents.run_loop", "end");
         }
         stop_signal.clear();

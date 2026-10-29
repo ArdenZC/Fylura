@@ -23,6 +23,11 @@ name = "zb05-global-index-qa"
 path = "native-qa/global_index_probe.rs"
 required-features = ["native-qa"]
 
+[[bin]]
+name = "smart-lean-macos-qa"
+path = "native-qa/smart_lean_macos.rs"
+required-features = ["native-qa"]
+
 [features]
 default = []
 ai-debug = []

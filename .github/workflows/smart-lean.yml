@@ -50,7 +50,7 @@ jobs:
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
       - name: Scoped macOS native source qualification
         if: runner.os == 'macOS'
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: bash scripts/qualifySmartLeanMacos.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()

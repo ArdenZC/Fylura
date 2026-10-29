@@ -24,8 +24,8 @@ export ZEN_SMART_LEAN_VOLUME_ROOT="$mount_root"
 export ZEN_SMART_LEAN_NATIVE_REPORT="$PWD/smart-lean-native-macos.json"
 # Compile before starting the bounded native run. On a stalled native call,
 # sample only this task's test child, then fail rather than hanging the runner.
-cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib scoped_spotlight_fsevents_qualification --no-run
-cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib scoped_spotlight_fsevents_qualification -- --ignored --nocapture --test-threads=1 &
+cargo build --locked --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin smart-lean-macos-qa
+cargo run --locked --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin smart-lean-macos-qa &
 test_owner=$!
 (
   sleep 120

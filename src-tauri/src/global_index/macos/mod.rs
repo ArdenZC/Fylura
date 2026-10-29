@@ -6,8 +6,10 @@
 //! Spotlight remains the source of file metadata.
 
 mod fsevents;
-#[cfg(test)]
-mod smart_lean_qa_tests;
+#[cfg(feature = "native-qa")]
+mod smart_lean_qa;
+#[cfg(feature = "native-qa")]
+pub use smart_lean_qa::run_qualification;
 mod spotlight;
 mod volumes;
 pub(crate) use volumes::MacosVolumeProvider;

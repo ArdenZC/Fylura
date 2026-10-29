@@ -7,9 +7,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[test]
-#[ignore = "requires the isolated APFS volume created by qualifySmartLeanMacos.sh"]
-fn scoped_spotlight_fsevents_qualification() {
+/// Match the app's Cocoa main-loop lifecycle while the provider runs on a worker.
+/// Rust's libtest harness leaves the process main thread waiting without pumping
+/// Cocoa; native metadata initialization can then wait forever for that thread.
+pub fn run_qualification() -> Result<(), String> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+    use objc2_foundation::{NSDate, NSRunLoop};
+    let marker = MainThreadMarker::new().ok_or("native_qa_main_thread_required")?;
+    let _application = NSApplication::sharedApplication(marker);
+    let worker = std::thread::spawn(qualify_scoped_source);
+    let run_loop = NSRunLoop::currentRunLoop();
+    while !worker.is_finished() {
+        run_loop.runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.05));
+    }
+    worker
+        .join()
+        .map_err(|_| "native_qa_scoped_source_failed".to_string())
+}
+
+fn qualify_scoped_source() {
     let root = PathBuf::from(
         std::env::var_os("ZEN_SMART_LEAN_VOLUME_ROOT").expect("controlled APFS root required"),
     );
@@ -25,7 +42,7 @@ fn scoped_spotlight_fsevents_qualification() {
     );
     eprintln!("SMART_LEAN_NATIVE stage=volume_identity");
     let stable = volumes::volume_uuid(&root).expect("native APFS volume UUID");
-    let mut source = crate::global_index::tests::test_volume();
+    let mut source = GlobalVolume::macos_spotlight_local_computer();
     source.id = format!("gv_macos_{}", blake3::hash(stable.as_bytes()).to_hex());
     source.stable_volume_id = stable;
     source.platform = "macos".into();

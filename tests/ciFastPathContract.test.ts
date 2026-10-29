@@ -144,7 +144,12 @@ describe("CI final performance remediation contract", () => {
         ["rust-macos", "Rust format", "Rust clippy", "Rust tests"],
         ["windows-native-preview-handler", "Native workspace format", "Native workspace clippy", "Native workspace tests"],
       ]) {
-        const block = section(workflow, job);
+        const nextJob = job === "rust-windows"
+          ? "windows-native-preview-handler"
+          : job === "windows-native-preview-handler"
+            ? workflow === interactiveWorkflow ? "windows-global-index-service-qualification" : "rust-macos"
+            : "performance-prepare";
+        const block = section(workflow, job, nextJob);
         const fmtAt = block.indexOf("      - name: " + format);
         const clippyAt = block.indexOf("      - name: " + clippy);
         const testAt = block.indexOf("      - name: " + tests);

@@ -1,4 +1,4 @@
-//! Default-off Issue #474 filename relevance candidate and paired 100k/200k evidence.
+//! Default-off Issue #474 filename relevance candidate and paired 100k/200k/1m evidence.
 use crate::db::Database;
 use crate::global_index::models::{AddManagedScopeRequest, GlobalEntryInput, GlobalSearchResult};
 use crate::global_index::repository::GlobalSearchSnapshot;
@@ -1234,15 +1234,15 @@ fn emit_fallback_pair(
 }
 
 #[test]
-#[ignore = "Owner #474 100k/200k mixed filename relevance candidate qualification"]
+#[ignore = "Owner #474 bounded mixed filename relevance candidate qualification"]
 fn filename_relevance_candidate_paired_100k_200k() {
     let entries = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
-        .expect("set ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES to 100000 or 200000")
+        .expect("set ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES to 100000, 200000, or 1000000")
         .parse::<u64>()
         .expect("parse benchmark entry count");
     assert!(
-        matches!(entries, 100_000 | 200_000),
-        "only the authorized 100k/200k preflight runs here"
+        matches!(entries, 100_000 | 200_000 | 1_000_000),
+        "only the 100k/200k preflight and one authorized 1m qualification run here"
     );
     let output_path = env::var_os("ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT").map(PathBuf::from);
     if let Some(output_path) = &output_path {
@@ -1362,8 +1362,8 @@ fn filename_relevance_candidate_paired_100k_200k() {
         "complete_candidate_order_matches_independent_rust_oracle": true,
         "schema_signature_before_benchmark": before_schema,
         "sqlite_version": rusqlite::version(),
-        "build_profile": "cargo test default dev/test profile; bundled rusqlite; no desktop runtime feature",
-        "no_1m_run": true
+        "build_profile": if cfg!(feature = "desktop-runtime") { "cargo test desktop-runtime feature; bundled rusqlite" } else { "cargo test default dev/test profile; bundled rusqlite; no desktop runtime feature" },
+        "one_million_qualification": entries == 1_000_000
     }));
 
     for (limit, offset) in [(80, 0), (80, 4_016)] {

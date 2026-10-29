@@ -65,6 +65,22 @@ and [ADR-0015](docs/project/DECISIONS/0015-delivery-first-engineering.md).
   implements code; the Owner Windows machine is acceptance-only.
   Never use Codex Review. Merges remain Owner decisions.
 
+
+### Before an ordinary PR — fast feedback by default
+
+- Inspect changed paths and run \`npm run dev:preflight -- --plan\` before
+  pushing a normal code PR. Execute the relevant mapped checks locally when the
+  toolchain is available; otherwise name the environment constraint and rely on
+  applicable CI. The plan is a developer feedback habit, **not a new required
+  approval gate** or a reason to duplicate costly full suites.
+- For parallel Codex work, first identify the owning source module and open
+  implementation PRs. Separate editing scopes by existing architecture
+  authority; one worker owns a shared file at a time. Coordinate unavoidable
+  overlap explicitly before the second worker modifies it. Never force-push
+  another worker's branch or promote mocked native acceptance into PASS.
+- Make a short handoff: user-visible result, PR, relevant checks, concrete
+  blockers. Prefer current \`STATUS.md\` snapshot to scanning old taskbooks.
+
 ## Current truth and scope
 
 - `STATUS.md` is the project-level source for changing baseline, initiative,

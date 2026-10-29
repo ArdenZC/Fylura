@@ -1,8 +1,59 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-27
+Last verified: 2026-10-29 (active snapshot; dated records below retained)
+
+## Active execution snapshot — 2026-10-29
+
+This short section supersedes dated status claims below. For changing facts, check
+the linked PR/Issue and the current remote \`master\`; do not treat historical
+HEADs, Draft labels or Hosted CI results as native release qualification.
+
+- **Integrated baseline:** \`master@264326659326bf81ff4d018d5ab3f19f2186aa87\`.
+  [Master CI 40818041649](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40818041649)
+  completed **SUCCESS**, including the post-#504 real-Chromium W2-11 gate.
+  This is CI evidence, **not** whole-product native GUI or Release acceptance.
+- **Recent completed delivery:** #489 (Windows Global Index explicit volume authorization),
+  #496 (opt-in preflight + CI failure digest), #498 (Rust lint early checks),
+  #499 (RustSec patch), #501 (U3/U4 browser and exact fixture handoff),
+  #503 (W2-11 Blob lifecycle diagnostics), and #504 (pending-image Blob URL
+  cleanup correction) are merged. #502 remains **OPEN** because the historical
+  intermittent failure's precise cause was not independently proven.
+- **Next product acceptance:** [#487](https://github.com/ArdenZC/Zen-Canvas/issues/487)
+  is the consolidated Windows/macOS native whole-product test: File Library U1–U5,
+  actual file operations/Restore, Global Index/Search, permissions, cancellation,
+  read/preview and recovery. A green browser mock does not close this gate.
+  [#486](https://github.com/ArdenZC/Zen-Canvas/pull/486) U5 remains Draft
+  with native GUI acceptance unverified; do not silently merge it.
+- **Index Scope still unfinished:** [#370](https://github.com/ArdenZC/Zen-Canvas/issues/370)
+  and [#371](https://github.com/ArdenZC/Zen-Canvas/issues/371) cover
+  Smart Lean / low-value-file exclusion and migration. Explicit Windows volume
+  authorization in #489 is **not** a completed low-value exclusion policy.
+  Preserve existing-user coverage until scope/migration decisions are accepted.
+- **Independent Search performance track:** [#494](https://github.com/ArdenZC/Zen-Canvas/issues/494)
+  owns 1M FTS latency and relevance decisions; Drafts #495 (A/B oracle) and
+  #497 (NO-GO shadow candidate) do not constitute a production Search speedup.
+  Do not alter another active owner's production search branch from this track.
+- **CI and backlog disposition:** Prepared binary and fixture caches showed hits
+  on recent master runs. #500 was **closed unmerged** for no measured incremental
+  Rust-cache benefit; exploratory #490/#491/#492 and stale status #392 were
+  also closed **unmerged**, retaining their historical evidence. Other
+  unfinished production, security and native candidates remain individually
+  reviewable; no blanket Draft purge or release readiness is claimed.
+
+### Current work-start rule
+
+For ordinary Codex tasks use \`AGENTS.md → this Active execution snapshot
+→ the current linked Issue/PR → relevant owning source/tests\`. The dated
+entries below are useful historical evidence, **not newer project state**.
+For a normal scoped change, implement and test in one coherent PR; only
+additional high-risk claims need extra validation. Coordinate overlapping
+production modules before parallel edits.
+
+---
 
 ## Current execution truth
+
+> **Historical, date-bound records below.** For current work consult the Active execution snapshot above and live PR/Issue status.
 
 - **U4 File Library Inspector, notes and file favorites — Draft #484; Owner review pending.**
   Issue [#482](https://github.com/ArdenZC/Zen-Canvas/issues/482), based on latest

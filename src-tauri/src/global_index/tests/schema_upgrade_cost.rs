@@ -261,7 +261,7 @@ fn schema_upgrade_production_shape_cost() {
             assert_eq!(
                 conn.query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
                     .unwrap(),
-                44
+                45
             );
             let indexes_after: Vec<(String, i64)> = conn
                 .prepare("SELECT name,SUM(pgsize) FROM dbstat GROUP BY name ORDER BY name")
@@ -273,13 +273,13 @@ fn schema_upgrade_production_shape_cost() {
             let backfill_plan:Vec<String>=conn.prepare("EXPLAIN QUERY PLAN SELECT volume_id,COUNT(*),COUNT(id),MAX(last_seen_at) FROM global_entries WHERE is_stale=0 GROUP BY volume_id").unwrap().query_map([],|r|r.get(3)).unwrap().collect::<Result<_,_>>().unwrap();
             let plan:Vec<String>=conn.prepare("EXPLAIN QUERY PLAN SELECT id,volume_id FROM global_entries INDEXED BY idx_global_entries_active_name_order WHERE is_stale=0 AND name_normalized GLOB 'quarterly*' ORDER BY name_normalized,modified_at_fs DESC,id LIMIT 80").unwrap().query_map([],|r|r.get(3)).unwrap().collect::<Result<_,_>>().unwrap();
             emit_record(
-                &json!({"record_type":"upgrade_sample","rows":count,"short_ids":short,"starting_schema":starting_schema,"target_schema":44,"open_ms":elapsed_ms,"backfill_sql_ms":backfill_ms,"backfill_plan":backfill_plan,"preflight":{"available_memory_bytes":resources.available_memory_bytes,"key_bytes":resources.key_bytes,"facts_key_bytes":resources.facts_key_bytes,"page_size":resources.page_size,"page_count":resources.page_count,"freelist_pages":resources.freelist_pages,"db_reserved":resources.database_required_bytes,"temp_reserved":resources.temporary_required_bytes,"db_free":resources.database_free_bytes,"temp_free":resources.temporary_free_bytes},"files_before":before,"files_after":sizes(&path),"sampled_peak_files":peak_files,"sampled_process_rss":peak_rss,"samples":samples,"poll_sleep_ms":20,"controlled_copy_compacted":compacted,"copy_reshape_checkpoint_ms":preparation_ms,"minimum_database_free_bytes":min_db_free,"minimum_temp_free_bytes":min_temp_free,"memory_scope":"sampled process-wide current RSS; includes fixture/cache memory; not an OS peak or migration-attributed bound","indexes_before":indexes_before,"indexes_after":indexes_after,"name_plan":plan}),
+                &json!({"record_type":"upgrade_sample","rows":count,"short_ids":short,"starting_schema":starting_schema,"target_schema":45,"open_ms":elapsed_ms,"backfill_sql_ms":backfill_ms,"backfill_plan":backfill_plan,"preflight":{"available_memory_bytes":resources.available_memory_bytes,"key_bytes":resources.key_bytes,"facts_key_bytes":resources.facts_key_bytes,"page_size":resources.page_size,"page_count":resources.page_count,"freelist_pages":resources.freelist_pages,"db_reserved":resources.database_required_bytes,"temp_reserved":resources.temporary_required_bytes,"db_free":resources.database_free_bytes,"temp_free":resources.temporary_free_bytes},"files_before":before,"files_after":sizes(&path),"sampled_peak_files":peak_files,"sampled_process_rss":peak_rss,"samples":samples,"poll_sleep_ms":20,"controlled_copy_compacted":compacted,"copy_reshape_checkpoint_ms":preparation_ms,"minimum_database_free_bytes":min_db_free,"minimum_temp_free_bytes":min_temp_free,"memory_scope":"sampled process-wide current RSS; includes fixture/cache memory; not an OS peak or migration-attributed bound","indexes_before":indexes_before,"indexes_after":indexes_after,"name_plan":plan}),
             );
             drop(conn);
             drop(db);
             let reopened_started = Instant::now();
             let reopened = crate::db::schema_global_source_facts::with_backfill_hook(
-                |_, _| panic!("44 reopen repeated backfill"),
+                |_, _| panic!("45 reopen repeated backfill"),
                 || Database::open(&path).unwrap(),
             );
             let reopened_ms = reopened_started.elapsed().as_secs_f64() * 1000.0;
@@ -291,7 +291,7 @@ fn schema_upgrade_production_shape_cost() {
                 assert_eq!(before.index_status, after.index_status);
             }
             emit_record(
-                &json!({"record_type":"upgrade_reopen","rows":count,"original_schema":starting_schema,"from":44,"to":44,"open_ms":reopened_ms,"repeated_backfill":false,"full_snapshots_equal":true}),
+                &json!({"record_type":"upgrade_reopen","rows":count,"original_schema":starting_schema,"from":45,"to":45,"open_ms":reopened_ms,"repeated_backfill":false,"full_snapshots_equal":true}),
             );
             drop(reopened);
         }

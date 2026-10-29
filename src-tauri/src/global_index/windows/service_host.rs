@@ -13,6 +13,7 @@ use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, Gl
 use crate::global_index::models::{
     GlobalEntry, GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_PAUSED,
     INDEX_STATUS_READY, PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
+    SCOPE_AUTHORIZATION_AUTHORIZED,
 };
 use std::path::Path;
 use std::ptr;
@@ -131,13 +132,14 @@ impl ServiceRuntime {
         connection: &mut dyn IndexServiceConnection,
         error_code: &str,
         message: impl Into<String>,
+        status: &str,
     ) -> Result<(), String> {
         connection.send_response(self.response(
             request,
             false,
             Some(error_code),
             Some(message.into()),
-            Some(self.status()),
+            Some(status.to_string()),
         ))
     }
 
@@ -169,12 +171,10 @@ impl ServiceRuntime {
                         Some("ready".to_string()),
                     ))
                 }
-                Err(error) => self.send_error(
-                    &request,
-                    connection,
-                    &super::service_errors::classify(&error).0,
-                    error.to_string(),
-                ),
+                Err(error) => {
+                    let (code, status) = super::service_errors::classify(&error);
+                    self.send_error(&request, connection, &code, error.to_string(), status)
+                }
             },
             IndexServiceCommand::Pause => {
                 self.cancel.store(true, Ordering::Release);
@@ -216,22 +216,35 @@ impl ServiceRuntime {
             Ok(reservation) => reservation,
             Err(response) => return connection.send_response(response),
         };
-        let operation_result = (|| {
+        let operation_result: Result<(), (String, String, &'static str)> = (|| {
             let _operation_guard = self.operation_lock.lock().map_err(|_| {
                 (
                     "index_failed".to_string(),
                     "index_service_operation_lock_poisoned".to_string(),
+                    crate::global_index::models::INDEX_STATUS_ERROR,
                 )
             })?;
             let source_id = source_id(&command);
             let source = self
                 .validated_source(source_id, request.source.as_ref())
-                .map_err(|message| ("index_provider_error".to_string(), message))?;
+                .map_err(|message| {
+                    (
+                        "index_provider_error".to_string(),
+                        message,
+                        crate::global_index::models::INDEX_STATUS_ERROR,
+                    )
+                })?;
             connection
                 .send_event(IndexServiceEvent::Sources {
                     sources: vec![source.volume.clone()],
                 })
-                .map_err(|message| ("index_provider_error".to_string(), message))?;
+                .map_err(|message| {
+                    (
+                        "index_provider_error".to_string(),
+                        message,
+                        crate::global_index::models::INDEX_STATUS_ERROR,
+                    )
+                })?;
             self.cancel.store(false, Ordering::Release);
             self.set_state("indexing", None);
             let mut sink = PipeSink {
@@ -262,7 +275,7 @@ impl ServiceRuntime {
                         status,
                         (!matches!(error, GlobalIndexError::Paused)).then(|| error.to_string()),
                     );
-                    Err((code, error.to_string()))
+                    Err((code, error.to_string(), status))
                 }
             }
         })();
@@ -274,7 +287,9 @@ impl ServiceRuntime {
                 None,
                 Some(self.status()),
             )),
-            Err((code, message)) => self.send_error(&request, connection, &code, message),
+            Err((code, message, status)) => {
+                self.send_error(&request, connection, &code, message, status)
+            }
         }
     }
 
@@ -306,6 +321,12 @@ impl ServiceRuntime {
         };
         if snapshot.id != source_id {
             return Err("index_service_source_id_mismatch".to_string());
+        }
+        if snapshot.platform == "windows"
+            && (snapshot.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED
+                || !snapshot.enabled)
+        {
+            return Err("index_service_source_authorization_required".to_string());
         }
         let discovered = self
             .provider
@@ -339,6 +360,7 @@ impl ServiceRuntime {
 
 fn merge_durable_source_state(mut current: GlobalVolume, snapshot: &GlobalVolume) -> GlobalVolume {
     current.enabled = snapshot.enabled;
+    current.scope_authorization_state = snapshot.scope_authorization_state.clone();
     current.index_status = snapshot.index_status.clone();
     current.journal_id = snapshot.journal_id.clone();
     current.journal_cursor = snapshot.journal_cursor.clone();
@@ -945,6 +967,39 @@ mod tests {
     }
 
     #[test]
+    fn service_host_rejects_unconfirmed_source_before_discovery() {
+        let runtime = ServiceRuntime::new();
+        let mut legacy = GlobalVolume {
+            id: "v".into(),
+            platform: "windows".into(),
+            stable_volume_id: "native-v".into(),
+            display_name: "test".into(),
+            mount_path: "Z:\\".into(),
+            filesystem_type: "NTFS".into(),
+            drive_kind: "fixed".into(),
+            enabled: true,
+            scope_authorization_state: SCOPE_AUTHORIZATION_AUTHORIZED.into(),
+            provider: PROVIDER_WINDOWS_MFT_USN.into(),
+            index_status: INDEX_STATUS_READY.into(),
+            last_error: None,
+            journal_id: None,
+            journal_cursor: None,
+            last_full_index_at: None,
+            last_incremental_sync_at: None,
+            entry_count: 0,
+            created_at: 0,
+            updated_at: 0,
+        };
+        legacy.scope_authorization_state =
+            crate::global_index::models::SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+                .to_string();
+        let error = runtime
+            .validated_source(&legacy.id, Some(&legacy))
+            .expect_err("service entry must fail closed on unknown historical consent");
+        assert_eq!(error, "index_service_source_authorization_required");
+    }
+
+    #[test]
     fn same_source_start_resume_and_rebuild_contenders_get_busy_without_service_fault_state() {
         let runtime = ServiceRuntime::new();
         let active = index_request(
@@ -1030,6 +1085,7 @@ mod tests {
             filesystem_type: "ntfs".to_string(),
             drive_kind: "fixed".to_string(),
             enabled: true,
+            scope_authorization_state: "authorized".to_string(),
             provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
             index_status: INDEX_STATUS_DISCOVERED.to_string(),
             last_error: None,

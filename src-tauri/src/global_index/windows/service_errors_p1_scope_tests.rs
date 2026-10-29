@@ -1,12 +1,12 @@
-//! Repaired P1 contract; pre-fix outputs remain in the committed research evidence.
+//! Error taxonomy stays structured at the public IPC boundary.
 use super::{classify, decode};
 use crate::global_index::coordinator::GlobalIndexError;
-use crate::global_index::windows::service::IndexServiceResponse;
+use crate::global_index::windows::service::{IndexServiceResponse, IPC_PROTOCOL_VERSION};
 use std::mem::discriminant;
 
 fn trusted_response(code: &str) -> IndexServiceResponse {
     IndexServiceResponse {
-        protocol_version: 3,
+        protocol_version: IPC_PROTOCOL_VERSION,
         request_id: "p1-boundary-probe".into(),
         ok: false,
         error_code: Some(code.into()),
@@ -17,34 +17,44 @@ fn trusted_response(code: &str) -> IndexServiceResponse {
 }
 
 #[test]
-fn p1_scope_busy_permission_unknown_remain_distinct_at_public_error_boundary() {
-    let provider = GlobalIndexError::Provider("ordinary provider failure".into());
-    for (code, required) in [
+fn remote_sqlite_busy_service_busy_provider_permission_and_unknown_remain_typed() {
+    for (code, expected) in [
+        ("index_database_busy", "DatabaseBusy"),
         ("index_service_busy", "ServiceBusy"),
+        ("index_provider_error", "Provider"),
         ("index_permission_required", "PermissionRequired"),
+        ("index_windows_io:5", "WindowsIo"),
         ("index_outcome_unknown", "ServiceProtocol"),
     ] {
         let decoded = decode(&trusted_response(code));
-        assert!(!matches!(&decoded, GlobalIndexError::Provider(_)));
-        assert_ne!(discriminant(&decoded), discriminant(&provider));
+        let actual = match &decoded {
+            GlobalIndexError::DatabaseBusy(_) => "DatabaseBusy",
+            GlobalIndexError::ServiceBusy(_) => "ServiceBusy",
+            GlobalIndexError::Provider(_) => "Provider",
+            GlobalIndexError::PermissionRequired(_) => "PermissionRequired",
+            GlobalIndexError::WindowsIo(_) => "WindowsIo",
+            GlobalIndexError::ServiceProtocol(_) => "ServiceProtocol",
+            other => panic!("unexpected category for {code}: {other:?}"),
+        };
+        assert_eq!(actual, expected);
         println!(
-            "p1_scope_blocker code={code} required={required} actual={decoded:?} typed_contract_pass=true"
+            "global_index_error_taxonomy code={code} expected={expected} actual={decoded:?} typed_contract_pass=true"
         );
     }
 }
 
 #[test]
-fn p1_scope_true_provider_is_not_encoded_as_permission() {
+fn provider_error_is_not_encoded_as_permission() {
     let (code, status) = classify(&GlobalIndexError::Provider("ordinary failure".into()));
     assert_eq!(code, "index_provider_error");
     assert_eq!(status, "error");
     println!(
-        "p1_scope_blocker server_input=Provider actual_code={code} provider_permission_distinct=true"
+        "global_index_error_taxonomy server_input=Provider actual_code={code} provider_permission_distinct=true"
     );
 }
 
 #[test]
-fn p1_scope_real_sqlite_busy_keeps_local_database_identity() {
+fn real_sqlite_busy_stays_distinct_from_remote_database_busy_and_service_busy() {
     struct OwnedDirectory(std::path::PathBuf);
     impl Drop for OwnedDirectory {
         fn drop(&mut self) {
@@ -74,11 +84,21 @@ fn p1_scope_real_sqlite_busy_keeps_local_database_identity() {
         rusqlite::Error::SqliteFailure(error, _) if error.extended_code == rusqlite::ffi::SQLITE_BUSY
     ));
     let local = GlobalIndexError::Database(error.into());
-    let remote = decode(&trusted_response("index_service_busy"));
-    assert_ne!(discriminant(&local), discriminant(&remote));
+    let remote_database_busy = decode(&trusted_response("index_database_busy"));
+    let service_busy = decode(&trusted_response("index_service_busy"));
+    assert_ne!(discriminant(&local), discriminant(&remote_database_busy));
+    assert_ne!(
+        discriminant(&remote_database_busy),
+        discriminant(&service_busy)
+    );
+    assert!(crate::global_index::coordinator::sqlite_contention_kind(&local).is_some());
+    assert!(
+        crate::global_index::coordinator::sqlite_contention_kind(&remote_database_busy).is_some()
+    );
+    assert!(crate::global_index::coordinator::sqlite_contention_kind(&service_busy).is_none());
     writer.execute_batch("ROLLBACK").unwrap();
     println!(
-        "p1_scope_sqlite sqlite_version={} actual_sqlite_code=5 local=Database remote_service_busy=ServiceBusy sqlite_service_distinct=true",
+        "global_index_sqlite_busy sqlite_version={} actual_sqlite_code=5 local=Database remote_database_busy=DatabaseBusy service_contention=ServiceBusy sqlite_service_distinct=true",
         rusqlite::version()
     );
 }

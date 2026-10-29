@@ -29,7 +29,8 @@ const globalIndexApiMocks = vi.hoisted(() => ({
   getGlobalIndexStatus: vi.fn(),
   listGlobalIndexSources: vi.fn(),
   listManagedScopes: vi.fn(),
-  getAiManagementStatus: vi.fn()
+  getAiManagementStatus: vi.fn(),
+  authorizeGlobalIndexSource: vi.fn()
 }));
 
 vi.mock("../src/api/tauriApi", () => ({ tauriApi: globalIndexApiMocks }));
@@ -86,6 +87,7 @@ function globalIndexSource(enabled = true): GlobalIndexSource {
       filesystemType: "APFS",
       driveKind: "internal",
       enabled,
+      scopeAuthorizationState: "not_required",
       provider: "spotlight",
       indexStatus: "ready",
       lastError: null,
@@ -100,6 +102,26 @@ function globalIndexSource(enabled = true): GlobalIndexSource {
     canPause: false,
     canRebuild: true,
     technicalDetail: null
+  };
+}
+
+function unconfirmedWindowsGlobalIndexSource(): GlobalIndexSource {
+  return {
+    ...globalIndexSource(false),
+    volume: {
+      ...globalIndexSource(false).volume,
+      id: "volume-ntfs",
+      platform: "windows",
+      stableVolumeId: "volume-guid",
+      displayName: "Test NTFS volume",
+      mountPath: "R:/",
+      filesystemType: "NTFS",
+      driveKind: "fixed",
+      enabled: false,
+      scopeAuthorizationState: "not_authorized",
+      provider: "windows_mft_usn",
+      indexStatus: "discovered"
+    }
   };
 }
 
@@ -394,6 +416,49 @@ describe("settings component system", () => {
     expect(container.textContent).not.toContain("No index sources are available yet");
     expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("Start indexing"))).toBe(false);
     expect(container.querySelector('[role="switch"]')).not.toBeNull();
+  });
+
+  it("requires explicit full-volume confirmation before authorizing a Windows source", async () => {
+    const onAction = vi.fn();
+    globalIndexApiMocks.authorizeGlobalIndexSource.mockResolvedValue(undefined);
+    await act(async () => root.render(
+      <GlobalIndexSettingsSection
+        t={makeTranslator("en")}
+        status={globalIndexStatus({ indexedVolumes: 0, readyVolumes: 0 })}
+        sources={[unconfirmedWindowsGlobalIndexSource()]}
+        loadState="loaded"
+        loadError={null}
+        isLoading={false}
+        isUpdating={false}
+        statusText={(status) => status}
+        providerStatusText={() => null}
+        errorText={() => null}
+        onAction={onAction}
+      />
+    ));
+
+    expect(container.querySelector('[data-settings-status="authorization_required"]')).not.toBeNull();
+    expect(container.textContent).toContain("Discovered, not enabled");
+    const sourceSwitch = container.querySelector<HTMLInputElement>('[role="switch"]')!;
+    await act(async () => sourceSwitch.click());
+
+    expect(container.querySelector('[role="alertdialog"]')).not.toBeNull();
+    expect(container.textContent).toContain("across the entire selected NTFS volume");
+    expect(onAction).not.toHaveBeenCalled();
+
+    const cancel = [...document.querySelectorAll("button")].find((button) => button.textContent === "Cancel")!;
+    await act(async () => cancel.click());
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(onAction).not.toHaveBeenCalled();
+
+    await act(async () => sourceSwitch.click());
+    const authorize = [...document.querySelectorAll("button")].find((button) => button.textContent === "Authorize this disk")!;
+    await act(async () => authorize.click());
+    expect(onAction).toHaveBeenCalledTimes(1);
+    const [action, successMessage] = onAction.mock.calls[0] as [() => Promise<void>, string];
+    expect(successMessage).toBe("Disk authorized");
+    await act(async () => action());
+    expect(globalIndexApiMocks.authorizeGlobalIndexSource).toHaveBeenCalledWith("volume-ntfs", true);
   });
 
   it("uses the backend status and actions when an enabled source is known", async () => {

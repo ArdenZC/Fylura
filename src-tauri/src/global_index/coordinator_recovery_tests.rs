@@ -382,6 +382,7 @@ fn typed_recovery_survives_cycle_and_next_admitted_rebuild_reaches_ready() {
                 filesystem_type: "NTFS".into(),
                 drive_kind: "fixed".into(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_WINDOWS_MFT_USN.into(),
                 index_status: INDEX_STATUS_READY.into(),
                 last_error: None,
@@ -520,6 +521,7 @@ fn diagnostic_source(
             filesystem_type: "ntfs".to_string(),
             drive_kind: "fixed".to_string(),
             enabled: true,
+            scope_authorization_state: "authorized".to_string(),
             provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
             index_status: index_status.to_string(),
             last_error: None,
@@ -1129,12 +1131,14 @@ fn busy_source_waits_for_a_new_wake_before_an_explicit_retry() {
     ));
     let cancel = Arc::new(AtomicBool::new(false));
     let wake = Arc::new(GlobalIndexWakeSlot::default());
+    let state = Arc::new(Mutex::new(CoordinatorState::default()));
     let worker = {
         let db = db.clone();
         let cancel = cancel.clone();
         let wake = wake.clone();
         let provider = provider.clone();
-        thread::spawn(move || run_index(provider, db, cancel, wake))
+        let state = state.clone();
+        thread::spawn(move || run_index_with_state(provider, db, cancel, wake, state))
     };
 
     assert_eq!(
@@ -1146,6 +1150,10 @@ fn busy_source_waits_for_a_new_wake_before_an_explicit_retry() {
     wait_for_idle_wait(&wake, 0);
     assert_eq!(provider.operation_count(&source.volume.id), 1);
     assert_eq!(wake.snapshot().notifications, 0);
+    assert_eq!(
+        state.lock().unwrap().transient_busy_status,
+        Some(TransientBusyStatus::Service)
+    );
     assert_eq!(
         db.get_global_volume(&source.volume.id)
             .unwrap()
@@ -1166,6 +1174,7 @@ fn busy_source_waits_for_a_new_wake_before_an_explicit_retry() {
     let recovered = db.get_global_volume(&source.volume.id).unwrap().unwrap();
     assert_eq!(recovered.index_status, INDEX_STATUS_READY);
     assert_eq!(provider.operation_count(&source.volume.id), 2);
+    assert_eq!(state.lock().unwrap().transient_busy_status, None);
 
     cancel.store(true, Ordering::Release);
     wake.notify(GlobalIndexWakeReason::Shutdown);

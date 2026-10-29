@@ -12,7 +12,7 @@ pub const ROOT_PATH: &str = "/task05/benchmark-library";
 pub const TAG_A: &str = "task05-benchmark-tag-a";
 pub const TAG_B: &str = "task05-benchmark-tag-b";
 pub const FIXTURE_FORMAT_VERSION: i64 = 1;
-pub const FIXTURE_SCHEMA_VERSION: i64 = 44;
+pub const FIXTURE_SCHEMA_VERSION: i64 = 45;
 
 pub fn fixture_root() -> Option<PathBuf> {
     std::env::var_os("ZC_PERF_FIXTURE_ROOT").map(PathBuf::from)
@@ -426,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn schema44_fixture_rejects_schema41_cache_and_working_copy_without_relabeling() {
+    fn schema45_fixture_rejects_schema41_cache_and_working_copy_without_relabeling() {
         let root = FixtureDirectory::new();
         prepare_library_fixture(&root.0, 8);
         let source = library_fixture_path(&root.0, 8);
@@ -434,8 +434,8 @@ mod tests {
         prepare_library_working_copy(&root.0, &root.0, 8, "query");
         let working = library_working_copy_path(&root.0, 8, "query");
         validate_fixture_shape(&working, 8);
-        assert_eq!(version(&source), 44);
-        assert_eq!(version(&working), 44);
+        assert_eq!(version(&source), 45);
+        assert_eq!(version(&working), 45);
         restore_schema41(&source);
         assert!(std::panic::catch_unwind(|| prepare_library_fixture(&root.0, 8)).is_err());
         let untouched = fs::read(&working).unwrap();
@@ -474,16 +474,16 @@ mod tests {
     }
 
     #[test]
-    fn schema44_fixture_rejects_a_forged_version_with_missing_foundation() {
+    fn schema45_fixture_rejects_a_forged_version_with_missing_foundation() {
         let root = FixtureDirectory::new();
         prepare_library_fixture(&root.0, 8);
         let path = library_fixture_path(&root.0, 8);
         restore_schema41(&path);
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch("PRAGMA user_version = 44").unwrap();
+        conn.execute_batch("PRAGMA user_version = 45").unwrap();
         drop(conn);
         assert!(std::panic::catch_unwind(|| validate_fixture(&path, 8)).is_err());
         assert!(std::panic::catch_unwind(|| validate_fixture_shape(&path, 8)).is_err());
-        assert_eq!(version(&path), 44);
+        assert_eq!(version(&path), 45);
     }
 }

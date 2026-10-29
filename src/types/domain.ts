@@ -1340,6 +1340,7 @@ export interface GlobalVolume {
   filesystemType: string;
   driveKind: string;
   enabled: boolean;
+  scopeAuthorizationState: "not_required" | "not_authorized" | "legacy_confirmation_required" | "authorized";
   provider: string;
   indexStatus: string;
   lastError: string | null;

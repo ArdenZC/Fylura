@@ -36,13 +36,27 @@ it("distinguishes source readiness without declaring unindexed snapshots empty",
   for (const [status, title] of [
     ["discovered", "globalSearchNotIndexedTitle"], ["indexing", "globalIndexStatusIndexing"],
     ["paused", "globalIndexStatusPaused"], ["rebuild_required", "globalIndexStatusRebuildRequired"],
-    ["unavailable", "globalIndexStatusUnavailable"], ["permission_required", "globalIndexStatusUnavailable"]
+    ["unavailable", "globalIndexStatusUnavailable"],
+    ["permission_required", "globalIndexStatusPermissionRequired"],
+    ["error", "globalIndexStatusError"]
   ] as const) {
-    const feedback = globalSearchFeedback(scopeResponse(request, status), t);
+    const response = scopeResponse(request, status);
+    if (status === "permission_required" || status === "error" || status === "unavailable") {
+      response.indexStatus.status = status;
+    }
+    const feedback = globalSearchFeedback(response, t);
     expect(feedback.title).toBe(t(title));
     expect(feedback.title).not.toBe(t("commandNoResultsTitle"));
   }
   expect(globalSearchFeedback(scopeResponse(request, "ready"), t).title).toBe(t("commandNoResultsTitle"));
+  for (const [status, title] of [
+    ["database_busy", "globalIndexStatusDatabaseBusy"],
+    ["service_busy", "globalIndexStatusServiceBusy"]
+  ] as const) {
+    const busy = scopeResponse(request, status);
+    busy.indexStatus.status = status;
+    expect(globalSearchFeedback(busy, t).title).toBe(t(title));
+  }
   const unverified = scopeResponse(request, "ready");
   unverified.collectionComplete = false;
   unverified.resultState = "pending";

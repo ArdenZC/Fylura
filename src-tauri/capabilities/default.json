@@ -30,6 +30,7 @@
     "allow-resume-global-index",
     "allow-rebuild-global-index-source",
     "allow-set-global-index-source-enabled",
+    "allow-authorize-global-index-source",
     "allow-open-global-search-result",
     "allow-reveal-global-search-result",
     "allow-list-scan-roots",

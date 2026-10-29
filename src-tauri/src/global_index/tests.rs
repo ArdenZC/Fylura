@@ -26,6 +26,7 @@ pub(super) fn test_volume() -> GlobalVolume {
         filesystem_type: "ntfs".to_string(),
         drive_kind: "fixed".to_string(),
         enabled: true,
+        scope_authorization_state: "authorized".to_string(),
         provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
         index_status: INDEX_STATUS_DISCOVERED.to_string(),
         last_error: None,
@@ -159,7 +160,7 @@ fn migration_creates_global_and_managed_domains_separately() {
     let version: i32 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version");
-    assert_eq!(version, 44);
+    assert_eq!(version, 45);
     drop(conn);
     drop(db);
     let _ = std::fs::remove_file(path);
@@ -1861,3 +1862,15 @@ mod global_search_benchmark;
 
 #[path = "tests/global_search_source_health.rs"]
 mod global_search_source_health;
+
+#[path = "tests/global_index_scope_authorization.rs"]
+mod global_index_scope_authorization;
+
+#[path = "tests/global_search_coverage_completeness.rs"]
+mod global_search_coverage_completeness;
+
+#[path = "tests/global_index_volume_identity.rs"]
+mod global_index_volume_identity;
+
+#[path = "tests/watcher_degradation_poll.rs"]
+mod watcher_degradation_poll;

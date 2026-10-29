@@ -854,6 +854,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "resume_global_index":
     case "rebuild_global_index_source":
     case "set_global_index_source_enabled":
+    case "authorize_global_index_source":
     case "mark_main_window_ready":
     case "acknowledge_main_window_ready":
     case "acknowledge_search_navigation":
@@ -3471,6 +3472,7 @@ function mockGlobalIndexSources(): GlobalIndexSource[] {
       filesystemType: "mock",
       driveKind: "fixed",
       enabled: true,
+      scopeAuthorizationState: "not_required",
       provider: "recursive_fallback",
       indexStatus: "ready",
       lastError: null,

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use zen_canvas_tauri::db::Database;
 use zen_canvas_tauri::global_index::{
     search_global_entries, GlobalEntryInput, GlobalVolume, INDEX_STATUS_READY,
-    PROVIDER_WINDOWS_MFT_USN,
+    PROVIDER_WINDOWS_MFT_USN, SCOPE_AUTHORIZATION_AUTHORIZED,
 };
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -27,6 +27,7 @@ fn volume(id: &str, mount_path: &str, enabled: bool) -> GlobalVolume {
         filesystem_type: "ntfs".to_string(),
         drive_kind: "fixed".to_string(),
         enabled,
+        scope_authorization_state: SCOPE_AUTHORIZATION_AUTHORIZED.to_string(),
         provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
         index_status: INDEX_STATUS_READY.to_string(),
         last_error: None,

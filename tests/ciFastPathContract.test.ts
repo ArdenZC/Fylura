@@ -283,7 +283,8 @@ describe("CI final performance remediation contract", () => {
       ]) {
         expect(workflow).toContain(`name: ${artifact}`);
       }
-      expect(workflow).not.toContain("name: perf-fixture-library-content");
+      // Prepared synthetic fixtures are now handed off as exact same-run artifacts when cache scope differs.
+      expect(workflow).toContain("name: perf-fixture-library-content");
       expect(workflow).not.toContain(".performance-artifacts/fixtures");
       expect(workflow).toContain("fixture_cache_key");
       expect(workflow).toContain("fixture_identity");

@@ -16,6 +16,7 @@ import type {
 import type { PresentationInteractionProjection, PresentationSelectionIntent } from "./interactionContracts";
 import { selectionIntentFromModifiers } from "./interactionAdapters";
 import { resolvePresentationContextMenuTarget } from "./contextMenuTarget";
+import { releaseThumbnailBlobUrl } from "./thumbnailBlobUrl";
 import "./sharedFileGrid.css";
 
 const CELL_MIN_WIDTH = 144;
@@ -349,6 +350,7 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
 }) {
   const pane = usePane();
   const [thumbnail, setThumbnail] = useState<ThumbnailState>({ kind: "idle" });
+  const settledImageUrlRef = useRef<string | null>(null);
   const devicePixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
   const variant = thumbnailVariantForCell(cellWidth, devicePixelRatio);
   const sourceKey = presentationSourceKey(entry);
@@ -393,8 +395,11 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
 
     return () => {
       alive = false;
-      if (objectUrl !== undefined && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
-        URL.revokeObjectURL(objectUrl);
+      if (objectUrl !== undefined) {
+        // A fast Grid/List or pagination switch can unmount <img> during its
+        // blob fetch. Retain the URL until a detached image settles instead of
+        // revoking the resource while Chromium may still be reading it.
+        releaseThumbnailBlobUrl(objectUrl, settledImageUrlRef.current === objectUrl);
       }
       void controller.cancelThumbnail(requestId).catch(() => undefined);
     };
@@ -440,7 +445,17 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
       onContextMenu={onContextMenu}
     >
       <div className="shared-file-grid-thumbnail" aria-hidden="true">
-        {thumbnail.kind === "ready" ? <img src={thumbnail.url} alt="" /> : null}
+        {thumbnail.kind === "ready" ? (
+          <img
+            src={thumbnail.url}
+            alt=""
+            onLoad={() => { settledImageUrlRef.current = thumbnail.url; }}
+            onError={() => {
+              settledImageUrlRef.current = thumbnail.url;
+              setThumbnail({ kind: "unavailable" });
+            }}
+          />
+        ) : null}
         {thumbnail.kind === "loading" ? <LoaderCircle className="shared-file-grid-thumbnail-spinner" size={22} /> : null}
         {isDirectory ? <Folder size={32} strokeWidth={1.6} /> : thumbnail.kind !== "ready" ? <FileText size={30} strokeWidth={1.5} /> : null}
         {missingLabel ? <AlertTriangle className="shared-file-grid-warning-icon" size={14} /> : null}

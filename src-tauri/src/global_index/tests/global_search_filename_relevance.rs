@@ -916,10 +916,8 @@ fn diversify_report_matches(conn: &Connection, entries: u64) -> f64 {
                     ),
                 ),
                 1 => (
-                    format!("Annual reporting guide {index:07}.pdf"),
-                    format!(
-                        r"C:\Users\Owner\Documents\Guides\Annual reporting guide {index:07}.pdf"
-                    ),
+                    format!("Subreport {index:07}.pdf"),
+                    format!(r"C:\Users\Owner\Documents\Guides\Subreport {index:07}.pdf"),
                 ),
                 _ => (
                     format!("Summary file {index:07}.pdf"),
@@ -1287,20 +1285,44 @@ fn filename_relevance_candidate_paired_100k_200k() {
     assert_eq!(needle_count, 1);
     assert_eq!(no_match_count, 0);
 
-    let old_complete = with_filename_relevance_candidate(false, || {
-        search_global_entries_on_connection(&conn, "report", 4_096, 0)
-    })
-    .expect("read old complete 4096 window");
-    let new_complete = with_filename_relevance_candidate(true, || {
-        search_global_entries_on_connection(&conn, "report", 4_096, 0)
-    })
-    .expect("read proposed complete 4096 window");
+    // The public route clamps page size to 200. Isolate each FTS tier here so
+    // the comparison covers the full 4096-row candidate window used by the
+    // maximum supported offset rather than silently comparing only 200 rows.
+    let old_complete =
+        with_filename_relevance_candidate(false, || diagnostic_search_fts(&conn, "report", 4_096))
+            .expect("read old BM25 FTS window");
+    let new_complete = diagnostic_search_filename_relevance(&conn, "report", 4_096)
+        .expect("read proposed FTS candidate window")
+        .expect("high-hit candidate must qualify");
     let oracle = filename_relevance_oracle(&conn, "report");
     assert_eq!(oracle.len(), count as usize);
-    assert_eq!(
-        new_complete,
-        oracle.iter().take(4_096).cloned().collect::<Vec<_>>(),
-        "candidate's complete ordered window matches independent oracle"
+    let expected_window = oracle.iter().take(4_096).cloned().collect::<Vec<_>>();
+    let first_difference = new_complete
+        .iter()
+        .zip(&expected_window)
+        .position(|(actual, expected)| actual != expected);
+    assert!(
+        new_complete.len() == expected_window.len() && first_difference.is_none(),
+        "candidate/oracle window mismatch: candidate_len={}, oracle_len={}, first_difference={:?}",
+        new_complete.len(),
+        expected_window.len(),
+        first_difference.map(|index| {
+            let actual = &new_complete[index];
+            let expected = &expected_window[index];
+            json!({
+                "index":index,
+                "candidate":{"id":actual.id,"name":actual.name,"rank":actual.rank,"modified_at_fs":actual.modified_at_fs,"path":actual.path},
+                "oracle":{"id":expected.id,"name":expected.name,"rank":expected.rank,"modified_at_fs":expected.modified_at_fs,"path":expected.path},
+            })
+        })
+    );
+    let first_order_difference = old_complete
+        .iter()
+        .zip(&new_complete)
+        .position(|(old, candidate)| old.id != candidate.id);
+    assert!(
+        first_order_difference.is_some(),
+        "mixed-category benchmark fixture must demonstrate an actual old/new ID order difference"
     );
     assert!(old_complete.iter().any(|result| result.rank < 0.0));
     assert_eq!(
@@ -1316,18 +1338,6 @@ fn filename_relevance_candidate_paired_100k_200k() {
     })
     .unwrap()
     .is_empty());
-    let old_fts =
-        with_filename_relevance_candidate(false, || diagnostic_search_fts(&conn, "report", 4_096))
-            .unwrap();
-    assert_eq!(
-        old_fts, old_complete,
-        "pooled route's FTS tier agrees with isolated old SQL"
-    );
-    let direct_candidate = diagnostic_search_filename_relevance(&conn, "report", 4_096)
-        .unwrap()
-        .expect("high-hit candidate must qualify");
-    assert_eq!(direct_candidate, new_complete);
-
     super::emit_record(&json!({
         "schema_version": 1,
         "record_type": "filename_relevance_environment",
@@ -1345,6 +1355,10 @@ fn filename_relevance_candidate_paired_100k_200k() {
         "relevance_distribution_mutation_through_existing_fts_triggers_ms": rank_distribution_mutation_ms,
         "old_bm25_order_hash": ids_hash(&old_complete),
         "new_filename_relevance_order_hash": ids_hash(&new_complete),
+        "old_vs_candidate_order": {
+            "top_4096_equal": first_order_difference.is_none(),
+            "first_differing_position_1_based": first_order_difference.map(|index| index + 1),
+        },
         "complete_candidate_order_matches_independent_rust_oracle": true,
         "schema_signature_before_benchmark": before_schema,
         "sqlite_version": rusqlite::version(),

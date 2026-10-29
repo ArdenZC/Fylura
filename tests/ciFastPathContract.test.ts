@@ -137,6 +137,30 @@ describe("CI final performance remediation contract", () => {
     }
   });
 
+  it("runs Rust lint before costly test execution in interactive and full validation", () => {
+    for (const workflow of [interactiveWorkflow, fullWorkflow]) {
+      for (const [job, format, clippy, tests] of [
+        ["rust-windows", "Rust format", "Rust clippy", "Rust tests"],
+        ["rust-macos", "Rust format", "Rust clippy", "Rust tests"],
+        ["windows-native-preview-handler", "Native workspace format", "Native workspace clippy", "Native workspace tests"],
+      ]) {
+        const nextJob = job === "rust-windows"
+          ? "windows-native-preview-handler"
+          : job === "windows-native-preview-handler"
+            ? workflow === interactiveWorkflow ? "windows-global-index-service-qualification" : "rust-macos"
+            : "performance-prepare";
+        const block = section(workflow, job, nextJob);
+        const fmtAt = block.indexOf("      - name: " + format);
+        const clippyAt = block.indexOf("      - name: " + clippy);
+        const testAt = block.indexOf("      - name: " + tests);
+        expect(fmtAt, job + " format").toBeGreaterThanOrEqual(0);
+        expect(clippyAt, job + " clippy").toBeGreaterThan(fmtAt);
+        expect(testAt, job + " tests").toBeGreaterThan(clippyAt);
+        expect((block.match(new RegExp("      - name: " + clippy, "g")) ?? []).length).toBe(1);
+      }
+    }
+  });
+
   it("runs ordinary macOS coverage once and the promoted race matrix once", () => {
     const expectedRaceIterations = new Map([
       [interactiveWorkflow, "10000"],
@@ -157,7 +181,7 @@ describe("CI final performance remediation contract", () => {
       expect(stepsStart).toBeGreaterThanOrEqual(0);
       const jobHeader = macosQuality.slice(0, stepsStart);
       const ordinaryStart = macosQuality.indexOf("      - name: Rust tests");
-      const ordinaryEnd = macosQuality.indexOf("      - name: Rust clippy", ordinaryStart + 1);
+      const ordinaryEnd = macosQuality.indexOf("\n      - name:", ordinaryStart + 1);
       expect(ordinaryStart).toBeGreaterThanOrEqual(0);
       expect(ordinaryEnd).toBeGreaterThan(ordinaryStart);
       const ordinaryRustTests = macosQuality.slice(ordinaryStart, ordinaryEnd);

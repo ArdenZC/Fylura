@@ -238,13 +238,35 @@ async function installInstrumentation(context) {
     if (typeof URL.createObjectURL === "function" && typeof URL.revokeObjectURL === "function") {
       const originalCreate = URL.createObjectURL.bind(URL);
       const originalRevoke = URL.revokeObjectURL.bind(URL);
+      // Keep raw Blob URLs only inside this browser context. Evidence contains
+      // bounded numeric IDs/timestamps, never the Blob URL or file content.
+      const createdUrls = new Map();
+      const maxRetainedUrls = 2048;
+      let nextUrlId = 0;
+      window.__zcW211TraceBlobUrls = (urls) => urls.slice(-16).map((url) => {
+        const row = createdUrls.get(url);
+        return row ? { matched: true, ...row } : { matched: false };
+      });
       URL.createObjectURL = (value) => {
+        const url = originalCreate(value);
         lifecycle.objectUrlsCreated += 1;
-        return originalCreate(value);
+        createdUrls.set(url, {
+          id: ++nextUrlId,
+          createdMs: Math.round(performance.now()),
+          revokedMs: null,
+          byteSize: value instanceof Blob ? value.size : null,
+          mimeType: value instanceof Blob ? value.type : null
+        });
+        if (createdUrls.size > maxRetainedUrls) {
+          createdUrls.delete(createdUrls.keys().next().value);
+        }
+        return url;
       };
-      URL.revokeObjectURL = (value) => {
+      URL.revokeObjectURL = (url) => {
         lifecycle.objectUrlsRevoked += 1;
-        return originalRevoke(value);
+        const row = createdUrls.get(url);
+        if (row && row.revokedMs === null) row.revokedMs = Math.round(performance.now());
+        return originalRevoke(url);
       };
     }
   });
@@ -618,9 +640,21 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
   };
   const consoleErrors = networkDiagnostics.consoleErrors;
   const pageErrors = networkDiagnostics.pageErrors;
+  const failedBlobUrls = new Set();
+  const captureBlobLifecycle = async () => {
+    if (failedBlobUrls.size === 0) return;
+    const ids = [...failedBlobUrls].slice(-16);
+    networkDiagnostics.blobLifecycle = await page.evaluate(
+      (urls) => window.__zcW211TraceBlobUrls?.(urls) ?? urls.map(() => ({ matched: false })),
+      ids
+    );
+    // IDs and timestamps are safe to emit. Never emit the raw blob: URL.
+    console.log(`[w2-11-real] BLOB_LIFECYCLE ${JSON.stringify(networkDiagnostics.blobLifecycle)}`);
+  };
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     const location = message.location();
+    if (location.url?.startsWith("blob:")) failedBlobUrls.add(location.url);
     pushBoundedDiagnostic(networkDiagnostics, "consoleErrors", {
       text: sanitizeDiagnostic(message.text()),
       location: {
@@ -634,6 +668,7 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     pushBoundedDiagnostic(networkDiagnostics, "pageErrors", sanitizeDiagnostic(error?.stack ?? error));
   });
   page.on("requestfailed", (request) => {
+    if (request.url().startsWith("blob:")) failedBlobUrls.add(request.url());
     pushBoundedDiagnostic(networkDiagnostics, "requestFailures", {
       url: sanitizeRequestUrl(request.url()),
       method: sanitizeDiagnostic(request.method()),
@@ -895,12 +930,14 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     assert((metrics.resources.stats.thumbnailVariants ?? []).length > 0,
       "Integrated stress scene did not record thumbnail variants");
     await assertNoHorizontalOverflow(page, `${viewport.width}x${viewport.height}@${deviceScaleFactor}`);
+    await captureBlobLifecycle();
     assert(consoleErrors.length === 0 && pageErrors.length === 0,
       `Browser console/page errors: ${JSON.stringify({ consoleErrors, pageErrors })}`);
     console.log(`[w2-11-real] NETWORK ${viewport.width}x${viewport.height}@${deviceScaleFactor} ${JSON.stringify(networkDiagnostics)}`);
     return metrics;
   } catch (error) {
     networkDiagnostics.pageUrl = sanitizeRequestUrl(page.url());
+    await captureBlobLifecycle().catch(() => undefined);
     metrics.failure = sanitizeDiagnostic(error?.stack ?? error);
     metrics.resources = await readResourceSnapshot(page).catch(() => ({}));
     metrics.fixtureStats = await readStats(page).catch(() => ({}));

@@ -990,6 +990,16 @@ jobs:
         with:
           path: .tmp-performance-fixtures/cache
           key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
+      # Same-run artifact fallback: a restored cache in Prepare is not always readable by the consumer.
+      # Keep fixture manifest/hash/row-count validation in runPerformanceSuite.mjs.
+      - name: Upload exact Library and Content fixtures for downstream shard
+        if: ${{ needs.change-scope.outputs.perf_library_content == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-fixture-library-content-${{ matrix.validation_lane }}
+          path: .tmp-performance-fixtures/cache/${{ steps.fixture-identity.outputs.fixture_identity }}
+          if-no-files-found: error
+          retention-days: 2
       - name: Upload Search prepared binaries
         if: ${{ needs.change-scope.outputs.perf_search == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1230,10 +1240,18 @@ jobs:
         with:
           path: .tmp-performance-fixtures/cache
           key: ${{ steps.binary-identity.outputs.fixture_cache_key }}
-      - name: Require exact Library and Content fixture cache
+      - name: Download exact fixture handoff when shared cache is inaccessible
+        if: ${{ steps.fixture-cache.outputs.cache-hit != 'true' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: perf-fixture-library-content-${{ matrix.validation_lane }}
+          path: .tmp-performance-fixtures/cache/${{ steps.binary-identity.outputs.fixture_identity }}
+      - name: Require exact Library and Content fixture manifest
         shell: pwsh
         run: |
-          if ("${{ steps.fixture-cache.outputs.cache-hit }}" -ne "true") { throw "Exact prepared fixture cache was not restored." }
+          $manifest = ".tmp-performance-fixtures/cache/${{ steps.binary-identity.outputs.fixture_identity }}/manifest.json"
+          if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "Exact prepared Library and Content fixture manifest is missing after cache/artifact handoff." }
+          # The benchmark runner validates fixture identity, schema/format, sizes, SHA-256 and row counts before any benchmark.
       - name: Run Library and Content performance suite from prepared binary
         shell: pwsh
         run: |

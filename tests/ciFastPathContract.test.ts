@@ -214,6 +214,27 @@ describe("CI final performance remediation contract", () => {
     expect(fullPrepare).not.toContain("matrix.validation_lane");
   });
 
+  it("delivers exact Library/Content fixtures between jobs even when GitHub cache restore is unavailable", () => {
+    for (const [workflow, lane] of [[interactiveWorkflow, true], [fullWorkflow, false]] as const) {
+      const prepare = section(workflow, "performance-prepare", "performance-search");
+      const library = section(workflow, "performance-library-content", "performance-intelligence");
+      const artifactName = lane ? "perf-fixture-library-content-${{ matrix.validation_lane }}" : "perf-fixture-library-content";
+      expect(prepare).toContain("Upload exact Library and Content fixtures for downstream shard");
+      expect(prepare).toContain(`name: ${artifactName}\n`);
+      expect(prepare).toContain("path: .tmp-performance-fixtures/cache/${{ steps.fixture-identity.outputs.fixture_identity }}");
+      expect(prepare).toContain("if-no-files-found: error");
+      expect(library).toContain("Restore exact Library and Content fixture cache");
+      expect(library).toContain("Download exact fixture handoff when shared cache is inaccessible");
+      expect(library).toContain("if: ${{ steps.fixture-cache.outputs.cache-hit != 'true' }}");
+      expect(library).toContain(`name: ${artifactName}\n`);
+      expect(library).toContain("Require exact Library and Content fixture manifest");
+      expect(library).toContain("Test-Path -LiteralPath $manifest -PathType Leaf");
+      expect(library).toContain("runPerformanceSuite.mjs");
+      expect(library).toContain("--fixture-identity=");
+      expect(library).not.toContain("Exact prepared fixture cache was not restored.");
+    }
+  });
+
   it("reuses native prepared binaries without disconnecting Cargo target storage", () => {
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       const native = section(workflow, "performance-macos", workflow === fullWorkflow ? "quality-windows" : "build-windows");

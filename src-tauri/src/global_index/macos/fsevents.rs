@@ -34,13 +34,14 @@ pub struct FseventsHandle {
 }
 
 impl FseventsHandle {
-    pub fn stop(mut self) {
+    pub fn stop(mut self) -> Result<(), String> {
         self.stop.store(true, Ordering::Release);
         self.stopped.store(true, Ordering::Release);
         self.stop_signal.request_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            super::join_watcher(thread, "macos_fsevents_watcher")?;
         }
+        Ok(())
     }
 }
 
@@ -207,7 +208,9 @@ fn run_fsevents(
         }
         let run_loop = CFRunLoopGetCurrent();
         FSEventStreamScheduleWithRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
+        super::trace_native_qa_phase("fsevents.stream_start", "begin");
         if FSEventStreamStart(stream) == 0 {
+            super::trace_native_qa_phase("fsevents.stream_start", "unavailable");
             let info = &*context.info.cast::<FseventInfo>();
             record_startup_failure(
                 &info.pending,
@@ -220,18 +223,23 @@ fn run_fsevents(
             drop(Box::from_raw(context.info.cast::<FseventInfo>()));
             return;
         }
+        super::trace_native_qa_phase("fsevents.stream_start", "end");
         let native_run_loop = objc2_foundation::NSRunLoop::currentRunLoop().getCFRunLoop();
         let stop_action = cross_thread_stop_action(native_run_loop);
         stop_signal.install(stop_action);
         if !stop.load(Ordering::Acquire) {
+            super::trace_native_qa_phase("fsevents.run_loop", "begin");
             fsevent_sys::core_foundation::CFRunLoopRun();
+            super::trace_native_qa_phase("fsevents.run_loop", "end");
         }
         stop_signal.clear();
+        super::trace_native_qa_phase("fsevents.stream_stop", "begin");
         FSEventStreamStop(stream);
         FSEventStreamUnscheduleFromRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
         FSEventStreamInvalidate(stream);
         FSEventStreamRelease(stream);
         drop(Box::from_raw(context.info.cast::<FseventInfo>()));
+        super::trace_native_qa_phase("fsevents.stream_stop", "end");
     }
 }
 

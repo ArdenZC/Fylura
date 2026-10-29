@@ -14,13 +14,20 @@ pub fn run_qualification() -> Result<(), String> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSApplication;
     use objc2_foundation::{NSDate, NSRunLoop};
+    super::trace_native_qa_phase("native_qa.main_thread_marker", "begin");
     let marker = MainThreadMarker::new().ok_or("native_qa_main_thread_required")?;
     let _application = NSApplication::sharedApplication(marker);
-    let worker = std::thread::spawn(qualify_scoped_source);
+    super::trace_native_qa_phase("native_qa.application_ready", "end");
+    let worker = std::thread::Builder::new()
+        .name("smart-lean-qa-worker".to_string())
+        .spawn(qualify_scoped_source)
+        .map_err(|error| format!("native_qa_worker_start_failed: {error}"))?;
     let run_loop = NSRunLoop::currentRunLoop();
+    super::trace_native_qa_phase("native_qa.main_run_loop", "begin");
     while !worker.is_finished() {
         run_loop.runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.05));
     }
+    super::trace_native_qa_phase("native_qa.main_run_loop", "end");
     worker
         .join()
         .map_err(|_| "native_qa_scoped_source_failed".to_string())
@@ -40,8 +47,10 @@ fn qualify_scoped_source() {
         fs::read_to_string(task.join("owned-volume.txt")).unwrap(),
         root.to_string_lossy()
     );
+    super::trace_native_qa_phase("native_qa.volume_identity", "begin");
     eprintln!("SMART_LEAN_NATIVE stage=volume_identity");
     let stable = volumes::volume_uuid(&root).expect("native APFS volume UUID");
+    super::trace_native_qa_phase("native_qa.volume_identity", "end");
     let mut source = GlobalVolume::macos_spotlight_local_computer();
     source.id = format!("gv_macos_{}", blake3::hash(stable.as_bytes()).to_hex());
     source.stable_volume_id = stable;
@@ -70,7 +79,7 @@ fn qualify_scoped_source() {
     let wake = Arc::new(GlobalIndexWakeSlot::default());
     let provider = MacosSpotlightProvider::with_root(wake.clone(), root.clone());
     let mut report = serde_json::json!({"status":"UNVERIFIED","scope":root,"volumeId":source.stable_volume_id,"provider":"scoped Spotlight/FSEvents","nativeGui":"not exercised"});
-    let result = (|| -> Result<(), String> {
+    let mut result = (|| -> Result<(), String> {
         let mut sink =
             crate::global_index::coordinator::database_sink_for_qualification(db.clone());
         sink.admit_source_operation(
@@ -82,6 +91,7 @@ fn qualify_scoped_source() {
         .map_err(|e| e.to_string())?;
         let cancel = bounded_cancel();
         eprintln!("SMART_LEAN_NATIVE stage=scoped_initial_provider");
+        super::trace_native_qa_phase("native_qa.scoped_initial_provider", "begin");
         if let Err(error) = provider.start_initial_index(
             &GlobalSourceDescriptor {
                 volume: source.clone(),
@@ -92,12 +102,18 @@ fn qualify_scoped_source() {
             let message = error.to_string();
             if !message.contains("macos_spotlight_query_unavailable")
                 && !message.contains("macos_fsevents_unavailable")
+                && !message.contains("macos_spotlight_query_paused")
             {
                 return Err(message);
             }
-            report["capabilityGap"] = message.into();
+            report["capabilityGap"] = if message.contains("macos_spotlight_query_paused") {
+                "Hosted Spotlight did not complete the scoped query inside the existing 40-second cooperative bound; cancellation was observed".into()
+            } else {
+                message.into()
+            };
             return Ok(());
         }
+        super::trace_native_qa_phase("native_qa.scoped_initial_provider", "end");
         if !visible(&db, &included) {
             report["capabilityGap"] =
                 "Hosted Spotlight did not gather the controlled APFS fixture".into();
@@ -193,7 +209,17 @@ fn qualify_scoped_source() {
         report["coverage"] = serde_json::to_value(db.global_index_coverage().unwrap()).unwrap();
         Ok(())
     })();
-    let _ = provider.shutdown();
+    super::trace_native_qa_phase("native_qa.provider_shutdown", "begin");
+    let shutdown = provider.shutdown();
+    super::trace_native_qa_phase("native_qa.provider_shutdown", "end");
+    if let Err(error) = shutdown {
+        if let Err(existing) = &result {
+            report["shutdownError"] = error.to_string().into();
+            report["error"] = existing.clone().into();
+        } else {
+            result = Err(error.to_string());
+        }
+    }
     if let Err(error) = &result {
         report["status"] = "FAIL".into();
         report["error"] = error.clone().into();

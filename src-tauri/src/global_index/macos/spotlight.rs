@@ -27,6 +27,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 pub(super) struct SpotlightWatcherHandle {
     stopped: Arc<AtomicBool>,
@@ -35,12 +36,13 @@ pub(super) struct SpotlightWatcherHandle {
 }
 
 impl SpotlightWatcherHandle {
-    pub(super) fn stop(mut self) {
+    pub(super) fn stop(mut self) -> Result<(), String> {
         self.stopped.store(true, Ordering::Release);
         self.stop_signal.request_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            super::join_watcher(thread, "macos_spotlight_watcher")?;
         }
+        Ok(())
     }
 }
 
@@ -99,30 +101,52 @@ pub fn stream_source_entries<F>(
 where
     F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
 {
+    super::trace_native_qa_phase("spotlight.initial.cancel_check", "begin");
     if cancel.load(Ordering::Acquire) {
         return Err("macos_spotlight_query_paused".to_string());
     }
+    super::trace_native_qa_phase("spotlight.initial.cancel_check", "end");
+    super::trace_native_qa_phase("spotlight.initial.volume_identity", "begin");
     if !super::volumes::source_id_matches(volume_id, source_root) {
         return Err("macos_volume_identity_changed".into());
     }
+    super::trace_native_qa_phase("spotlight.initial.volume_identity", "end");
     objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
         autoreleasepool(|_| {
+            super::trace_native_qa_phase("spotlight.initial.query_create", "begin");
             let query = new_scoped_query(source_root);
+            super::trace_native_qa_phase("spotlight.initial.query_create", "end");
+            super::trace_native_qa_phase("spotlight.initial.start_query", "begin");
             if !query.startQuery() {
+                super::trace_native_qa_phase("spotlight.initial.start_query", "unavailable");
                 return Err("macos_spotlight_query_unavailable".to_string());
             }
+            super::trace_native_qa_phase("spotlight.initial.start_query", "end");
             let run_loop = NSRunLoop::currentRunLoop();
-
-            while query.isGathering() {
+            let gather_started = Instant::now();
+            let mut next_heartbeat = gather_started + Duration::from_secs(5);
+            super::trace_native_qa_phase("spotlight.initial.gather", "begin");
+            loop {
+                let gathering = query.isGathering();
+                if !gathering {
+                    break;
+                }
                 if cancel.load(Ordering::Acquire) {
+                    super::trace_native_qa_phase("spotlight.initial.stop_query", "cancel");
                     query.stopQuery();
                     return Err("macos_spotlight_query_paused".to_string());
+                }
+                if Instant::now() >= next_heartbeat {
+                    super::trace_native_qa_phase("spotlight.initial.gather", "heartbeat");
+                    next_heartbeat = Instant::now() + Duration::from_secs(5);
                 }
                 let deadline = NSDate::dateWithTimeIntervalSinceNow(0.2);
                 run_loop.runUntilDate(&deadline);
             }
+            super::trace_native_qa_phase("spotlight.initial.gather", "end");
             let mut entries = Vec::with_capacity(512);
             let mut summary = SpotlightCollectionSummary::default();
+            super::trace_native_qa_phase("spotlight.initial.result_iteration", "begin");
             for index in 0..query.resultCount() {
                 if cancel.load(Ordering::Acquire) {
                     query.stopQuery();
@@ -158,7 +182,10 @@ where
                     return Err(format!("callback:{error}"));
                 }
             }
+            super::trace_native_qa_phase("spotlight.initial.result_iteration", "end");
+            super::trace_native_qa_phase("spotlight.initial.stop_query", "begin");
             query.stopQuery();
+            super::trace_native_qa_phase("spotlight.initial.stop_query", "end");
             summary.full_disk_access_required =
                 source_root == Path::new("/") && full_disk_access_required();
             summary.external_volume_not_indexed =
@@ -222,7 +249,9 @@ fn run_update_watcher(
     wake: &Arc<GlobalIndexWakeSlot>,
     stop_signal: &NativeRunLoopStopSignal,
 ) {
+    super::trace_native_qa_phase("spotlight.realtime.query_create", "begin");
     let query = new_scoped_query(source_root);
+    super::trace_native_qa_phase("spotlight.realtime.query_create", "end");
     let center = NSNotificationCenter::defaultCenter();
     let pending_for_block = pending.clone();
     let known_entries_for_block = known_entries.clone();
@@ -288,21 +317,28 @@ fn run_update_watcher(
             &update_block,
         )
     };
+    super::trace_native_qa_phase("spotlight.realtime.start_query", "begin");
     if !query.startQuery() {
+        super::trace_native_qa_phase("spotlight.realtime.start_query", "unavailable");
         record_realtime_start_failure(pending, wake);
         let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
         let observer_object: &AnyObject = protocol_object.as_ref();
         unsafe { center.removeObserver(observer_object) };
         return;
     }
+    super::trace_native_qa_phase("spotlight.realtime.start_query", "end");
     let run_loop = NSRunLoop::currentRunLoop();
     let stop_action = cross_thread_stop_action(run_loop.getCFRunLoop());
     stop_signal.install(stop_action);
     if !stopped.load(Ordering::Acquire) {
+        super::trace_native_qa_phase("spotlight.realtime.run_loop", "begin");
         run_loop.run();
+        super::trace_native_qa_phase("spotlight.realtime.run_loop", "end");
     }
     stop_signal.clear();
+    super::trace_native_qa_phase("spotlight.realtime.stop_query", "begin");
     query.stopQuery();
+    super::trace_native_qa_phase("spotlight.realtime.stop_query", "end");
     let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
     let observer_object: &AnyObject = protocol_object.as_ref();
     unsafe { center.removeObserver(observer_object) };

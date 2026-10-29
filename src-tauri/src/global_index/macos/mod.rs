@@ -28,6 +28,57 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+const NATIVE_WATCHER_STOP_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn join_watcher(thread: JoinHandle<()>, name: &str) -> Result<(), String> {
+    let deadline = Instant::now() + NATIVE_WATCHER_STOP_TIMEOUT;
+    while !thread.is_finished() {
+        if Instant::now() >= deadline {
+            // Keep native state owned by the worker and let it observe stop
+            // if its current native call returns; never kill a Rust thread.
+            // Detach rather than blocking provider shutdown without a bound.
+            drop(thread);
+            return Err(format!("{name}_stop_timeout"));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    thread
+        .join()
+        .map_err(|_| format!("{name}_worker_panicked"))
+}
+
+pub(super) fn trace_native_qa_phase(phase: &str, event: &str) {
+    #[cfg(feature = "native-qa")]
+    {
+        if std::env::var_os("ZEN_SMART_LEAN_NATIVE_TRACE").is_none() {
+            return;
+        }
+        static STARTED: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        static WRITE_LOCK: Mutex<()> = Mutex::new(());
+        let elapsed_ms = STARTED.get_or_init(Instant::now).elapsed().as_millis();
+        let thread_name = std::thread::current()
+            .name()
+            .unwrap_or("unnamed")
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '_' })
+            .collect::<String>();
+        let line = format!(
+            "elapsed_ms={elapsed_ms} thread={thread_name} phase={phase} event={event}"
+        );
+        eprintln!("SMART_LEAN_NATIVE {line}");
+        if let Some(directory) = std::env::var_os("ZEN_SMART_LEAN_NATIVE_PHASE_DIR") {
+            if let Ok(_guard) = WRITE_LOCK.lock() {
+                let path = std::path::PathBuf::from(directory).join(format!("{thread_name}.txt"));
+                let _ = std::fs::write(path, line);
+            }
+        }
+    }
+    #[cfg(not(feature = "native-qa"))]
+    let _ = (phase, event);
+}
 
 pub(crate) fn source_identity_current(source: &GlobalVolume) -> bool {
     volumes::source_id_matches(&source.id, std::path::Path::new(&source.mount_path))
@@ -209,25 +260,34 @@ impl MacosSpotlightProvider {
         sink: &mut dyn GlobalIndexSink,
         since_event_id: Option<u64>,
     ) -> Result<(), GlobalIndexError> {
+        trace_native_qa_phase("provider.start_watchers.lifecycle_lock", "begin");
         let _guard = self
             .lifecycle
             .lock()
             .map_err(|_| GlobalIndexError::Provider("macos_source_lifecycle_poisoned".into()))?;
+        trace_native_qa_phase("provider.start_watchers.lifecycle_lock", "end");
+        trace_native_qa_phase("provider.start_watchers.volume_identity", "begin");
         if !source_identity_current(&source.volume) {
             return Err(GlobalIndexError::PermissionRequired(
                 "macos_volume_identity_changed".into(),
             ));
         }
+        trace_native_qa_phase("provider.start_watchers.volume_identity", "end");
+        trace_native_qa_phase("provider.start_watchers.admission", "begin");
         if !sink.native_watcher_admitted(&source.volume)? {
             return Err(GlobalIndexError::SourceBusy(
                 "macos_source_authority_changed".into(),
             ));
         }
+        trace_native_qa_phase("provider.start_watchers.admission", "end");
         let volume_id = &source.volume.id;
+        trace_native_qa_phase("provider.start_watchers.spotlight_handle_lock", "begin");
         let mut spotlight_slot = self.spotlight_watcher.lock().map_err(|_| {
             GlobalIndexError::Provider("macOS Spotlight watcher lock poisoned".to_string())
         })?;
+        trace_native_qa_phase("provider.start_watchers.spotlight_handle_lock", "end");
         if spotlight_slot.is_none() {
+            trace_native_qa_phase("provider.start_watchers.spotlight_spawn", "begin");
             *spotlight_slot = Some(
                 spotlight::spawn_update_watcher(
                     volume_id.to_string(),
@@ -239,13 +299,17 @@ impl MacosSpotlightProvider {
                 )
                 .map_err(GlobalIndexError::Provider)?,
             );
+            trace_native_qa_phase("provider.start_watchers.spotlight_spawn", "end");
         }
         drop(spotlight_slot);
 
+        trace_native_qa_phase("provider.start_watchers.fsevents_handle_lock", "begin");
         let mut fsevents_slot = self.fsevents_watcher.lock().map_err(|_| {
             GlobalIndexError::Provider("macOS FSEvents watcher lock poisoned".to_string())
         })?;
+        trace_native_qa_phase("provider.start_watchers.fsevents_handle_lock", "end");
         if fsevents_slot.is_none() {
+            trace_native_qa_phase("provider.start_watchers.fsevents_spawn", "begin");
             *fsevents_slot = Some(
                 fsevents::start_reconcile_watcher(
                     &self.root,
@@ -256,20 +320,42 @@ impl MacosSpotlightProvider {
                 )
                 .map_err(GlobalIndexError::Provider)?,
             );
+            trace_native_qa_phase("provider.start_watchers.fsevents_spawn", "end");
         }
+        trace_native_qa_phase("provider.start_watchers", "end");
         Ok(())
     }
 
-    fn stop_watchers(&self) {
-        if let Ok(mut watcher) = self.spotlight_watcher.lock() {
-            if let Some(handle) = watcher.take() {
-                handle.stop();
+    fn stop_watchers(&self) -> Result<(), GlobalIndexError> {
+        let spotlight = self
+            .spotlight_watcher
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        let fsevents = self
+            .fsevents_watcher
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        let mut errors = Vec::new();
+        if let Some(handle) = spotlight {
+            trace_native_qa_phase("provider.shutdown.spotlight_watcher", "begin");
+            if let Err(error) = handle.stop() {
+                errors.push(error);
             }
+            trace_native_qa_phase("provider.shutdown.spotlight_watcher", "end");
         }
-        if let Ok(mut watcher) = self.fsevents_watcher.lock() {
-            if let Some(handle) = watcher.take() {
-                handle.stop();
+        if let Some(handle) = fsevents {
+            trace_native_qa_phase("provider.shutdown.fsevents_watcher", "begin");
+            if let Err(error) = handle.stop() {
+                errors.push(error);
             }
+            trace_native_qa_phase("provider.shutdown.fsevents_watcher", "end");
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(GlobalIndexError::Provider(errors.join(";")))
         }
     }
 
@@ -433,9 +519,13 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         sink: &mut dyn GlobalIndexSink,
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
+        trace_native_qa_phase("provider.initial_index", "begin");
         self.stopped.store(false, Ordering::Release);
+        trace_native_qa_phase("provider.initial_index.mark_stale", "begin");
         sink.mark_volume_entries_stale(&source.volume.id)?;
+        trace_native_qa_phase("provider.initial_index.mark_stale", "end");
         self.clear_known_entries();
+        trace_native_qa_phase("provider.initial_index.start_watchers", "begin");
         if let Err(error) = self.start_watchers(
             source,
             sink,
@@ -451,9 +541,15 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
             let error = error.to_string();
             return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
         }
+        trace_native_qa_phase("provider.initial_index.start_watchers", "end");
+        trace_native_qa_phase("provider.initial_index.stream_spotlight", "begin");
         let summary = self.stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+        trace_native_qa_phase("provider.initial_index.stream_spotlight", "end");
+        trace_native_qa_phase("provider.initial_index.record_state", "begin");
         Self::record_collection_state(sink, &source.volume.id, summary)?;
+        trace_native_qa_phase("provider.initial_index.record_state", "end");
         self.baseline_established.store(true, Ordering::Release);
+        trace_native_qa_phase("provider.initial_index", "end");
         Ok(())
     }
 
@@ -522,7 +618,7 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
             .map_err(|_| GlobalIndexError::Provider("macos_source_lifecycle_poisoned".into()))?;
         if update()? {
             self.stopped.store(true, Ordering::Release);
-            self.stop_watchers();
+            let stop_result = self.stop_watchers();
             self.baseline_established.store(false, Ordering::Release);
             self.clear_known_entries();
             *self
@@ -530,13 +626,14 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
                 .lock()
                 .map_err(|_| GlobalIndexError::Provider("macos_pending_poisoned".into()))? =
                 PendingUpdates::default();
+            stop_result?;
         }
         Ok(())
     }
     fn pause(&self) -> Result<(), GlobalIndexError> {
         self.stopped.store(true, Ordering::Release);
         self.baseline_established.store(false, Ordering::Release);
-        self.stop_watchers();
+        self.stop_watchers()?;
         Ok(())
     }
 
@@ -548,7 +645,7 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
 
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         self.stopped.store(true, Ordering::Release);
-        self.stop_watchers();
+        let stop_result = self.stop_watchers();
         if let Ok(mut pending) = self.pending.lock() {
             pending.full_reconcile = false;
             pending.upserts.clear();
@@ -557,6 +654,7 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         }
         self.clear_known_entries();
         self.baseline_established.store(false, Ordering::Release);
+        stop_result?;
         Ok(())
     }
 }

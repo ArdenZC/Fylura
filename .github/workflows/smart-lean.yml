@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 120
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      ZEN_SMART_LEAN_ENTRIES: ${{ inputs.entries || '1000' }}
+      ZEN_SMART_LEAN_ENTRIES: ${{ inputs.entries || '100000' }}
       ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-ab.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -45,13 +45,16 @@ jobs:
       - name: Record tested source
         run: git log -1 --format="%H %T"
       - name: Production policy and recovery tests
+        id: policy
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::coverage::tests -- --nocapture
-      - name: Paired production ingestion benchmark
-        run: cargo test ${{ github.event_name == 'workflow_dispatch' && '--release' || '' }} --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
       - name: Scoped macOS native source qualification
+        id: native
         if: runner.os == 'macOS'
         timeout-minutes: 10
         run: bash scripts/qualifySmartLeanMacos.sh
+      - name: Paired production ingestion benchmark
+        if: always() && steps.policy.outcome == 'success'
+        run: cargo test ${{ ((inputs.entries || '100000') == '100000' && '--release') || '' }} --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -60,4 +63,5 @@ jobs:
             smart-lean-ab.json
             smart-lean-native-macos.json
             smart-lean-native-macos-sample.txt
+            smart-lean-native-phase/
           if-no-files-found: warn

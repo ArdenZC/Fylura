@@ -341,13 +341,32 @@ impl GlobalIndexCoordinator {
         rules: Vec<super::coverage::CoverageRule>,
     ) -> Result<(), GlobalIndexError> {
         let mut rules = Some(rules);
-        self.provider.update_coverage_lifecycle(&mut || {
+        let mut committed = false;
+        let lifecycle_result = self.provider.update_coverage_lifecycle(&mut || {
             self.db
                 .save_global_index_coverage(expected, mode, rules.take().unwrap_or_default())?;
+            committed = true;
             Ok(true)
-        })?;
+        });
+        if !committed {
+            return lifecycle_result;
+        }
         self.wake.notify(GlobalIndexWakeReason::RecoveryRequired);
-        self.start()
+        let mut recovery_errors = Vec::new();
+        if let Err(error) = lifecycle_result {
+            recovery_errors.push(error.to_string());
+        }
+        if let Err(error) = self.start() {
+            recovery_errors.push(format!("recovery worker start failed: {error}"));
+        }
+        if recovery_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(GlobalIndexError::Provider(format!(
+                "global_index_change_committed_recovery_pending: {}",
+                recovery_errors.join("; ")
+            )))
+        }
     }
 
     pub fn set_source_enabled(
@@ -355,13 +374,31 @@ impl GlobalIndexCoordinator {
         source_id: &str,
         enabled: bool,
     ) -> Result<(), GlobalIndexError> {
-        self.provider.update_source_lifecycle(source_id, &mut || {
+        let mut committed = false;
+        let lifecycle_result = self.provider.update_source_lifecycle(source_id, &mut || {
             self.db.set_global_volume_enabled(source_id, enabled)?;
+            committed = true;
             Ok(true)
-        })?;
+        });
+        if !committed {
+            return lifecycle_result;
+        }
         self.provider.source_enabled_changed(source_id, enabled);
         self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
-        Ok(())
+        match lifecycle_result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let recovery_error = self.start().err();
+                let mut details = vec![error.to_string()];
+                if let Some(error) = recovery_error {
+                    details.push(format!("recovery worker start failed: {error}"));
+                }
+                Err(GlobalIndexError::Provider(format!(
+                    "global_index_change_committed_recovery_pending: {}",
+                    details.join("; ")
+                )))
+            }
+        }
     }
 
     pub fn authorize_source(
@@ -1192,6 +1229,11 @@ fn source_error_status(error: &GlobalIndexError) -> &'static str {
         GlobalIndexError::PermissionRequired(_) => INDEX_STATUS_PERMISSION_REQUIRED,
         GlobalIndexError::WindowsIo(5 | 1314) => INDEX_STATUS_PERMISSION_REQUIRED,
         GlobalIndexError::ServiceBusy(_) => INDEX_STATUS_SERVICE_BUSY,
+        GlobalIndexError::Provider(message)
+            if message.starts_with("macos_watcher_cleanup_pending") =>
+        {
+            INDEX_STATUS_WATCHER_UNAVAILABLE
+        }
         error if sqlite_contention_kind(error).is_some() => INDEX_STATUS_DATABASE_BUSY,
         _ => INDEX_STATUS_ERROR,
     }

@@ -36,13 +36,10 @@ pub(super) struct SpotlightWatcherHandle {
 }
 
 impl SpotlightWatcherHandle {
-    pub(super) fn stop(mut self) -> Result<(), String> {
+    pub(super) fn stop(&mut self) -> Result<(), String> {
         self.stopped.store(true, Ordering::Release);
         self.stop_signal.request_stop();
-        if let Some(thread) = self.thread.take() {
-            super::join_watcher(thread, "macos_spotlight_watcher")?;
-        }
-        Ok(())
+        super::join_watcher(&mut self.thread, "macos_spotlight_watcher")
     }
 }
 

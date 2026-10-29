@@ -229,12 +229,9 @@ impl GlobalIndexProvider for MacosVolumeProvider {
             None => update().map(|_| ()),
         }
     }
-    fn source_enabled_changed(&self, id: &str, enabled: bool) {
-        if !enabled {
-            if let Some(provider) = self.providers.lock().ok().and_then(|p| p.get(id).cloned()) {
-                let _ = provider.pause();
-            }
-        }
+    fn source_enabled_changed(&self, _id: &str, _enabled: bool) {
+        // The lifecycle callback already stops this provider under its lock.
+        // A second best-effort stop here would hide a timeout from its caller.
     }
     fn pause(&self) -> Result<(), GlobalIndexError> {
         for p in self.all() {

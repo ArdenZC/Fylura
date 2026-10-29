@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import type { AiManagementStatus, GlobalIndexSource, GlobalIndexStatus, ManagedScope } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
-import { localizedStableError } from "../../../utils/viewHelpers";
+import { committedLifecycleRecoveryFailure, localizedStableError } from "../../../utils/viewHelpers";
 
 type StatusTone = "success" | "warning";
 type SettingsStatus = (message: string, tone?: StatusTone) => void;
@@ -68,6 +68,15 @@ export function useSettingsGlobalIndexController({ t, showStatus }: { t: Transla
       await refreshGlobalIndexData();
       showStatusRef.current(successMessage);
     } catch (error) {
+      const recoveryFailure = committedLifecycleRecoveryFailure(error);
+      if (recoveryFailure) {
+        await refreshGlobalIndexData().catch(() => undefined);
+        showStatusRef.current(
+          `${translatorRef.current("globalIndexChangeCommittedRecoveryPending")} ${recoveryFailure}`,
+          "warning"
+        );
+        return;
+      }
       showStatusRef.current(`${translatorRef.current("globalIndexActionFailed")}：${localizedStableError(error, translatorRef.current)}`, "warning");
     } finally {
       setIsUpdatingGlobalIndex(false);

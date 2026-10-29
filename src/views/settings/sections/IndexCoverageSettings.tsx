@@ -3,6 +3,7 @@ import { tauriApi } from "../../../api/tauriApi";
 import type { GlobalIndexSource } from "../../../types/domain";
 import type { IndexCoverageMode, IndexCoveragePreview, IndexCoverageRule, IndexCoverageSnapshot } from "../../../types/indexCoverage";
 import type { Translator } from "../../../types/ui";
+import { committedLifecycleRecoveryFailure } from "../../../utils/viewHelpers";
 import { focusVisibleState, buttonSecondary } from "../../../utils/tw";
 import { quietText } from "../../shared/ui";
 
@@ -32,7 +33,10 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
           setMode(response.snapshot.policy.mode);
           setRules(response.snapshot.policy.rules.map(({ sourceId, path, include }) => ({ sourceId, path, include })));
         }
-        if (response.snapshot.sources.some((s) => s.enabled && ["indexing", "syncing", "rebuild_required"].includes(s.status))) timer = setTimeout(() => void read(), 2500);
+        if (response.snapshot.sources.some((s) => s.enabled && (
+          ["indexing", "syncing", "rebuild_required"].includes(s.status)
+          || (s.pending && s.status === "watcher_unavailable")
+        ))) timer = setTimeout(() => void read(), 2500);
       } catch (e) { if (!disposed) setError(String(e)); }
     }
     void read();
@@ -56,7 +60,17 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
       const response = await tauriApi.globalIndexCoverage({ action, expectedRevision: snapshot.policy.revision, mode, rules });
       setSnapshot(response.snapshot); setPreview(response.preview);
       if (action === "save") setReload((v) => v + 1);
-    } catch (e) { setError(String(e)); setPreview(null); }
+    } catch (e) {
+      const recoveryFailure = committedLifecycleRecoveryFailure(e);
+      if (recoveryFailure) {
+        initialized.current = false;
+        setReload((v) => v + 1);
+        setError(`${t("globalIndexChangeCommittedRecoveryPending")} ${recoveryFailure}`);
+      } else {
+        setError(String(e));
+      }
+      setPreview(null);
+    }
     finally { setBusy(false); }
   }
   return <fieldset className="grid min-w-0 gap-3 rounded-lg border border-[var(--zc-control-border)] p-3" disabled={disabled || busy} aria-busy={busy}>

@@ -34,14 +34,11 @@ pub struct FseventsHandle {
 }
 
 impl FseventsHandle {
-    pub fn stop(mut self) -> Result<(), String> {
+    pub fn stop(&mut self) -> Result<(), String> {
         self.stop.store(true, Ordering::Release);
         self.stopped.store(true, Ordering::Release);
         self.stop_signal.request_stop();
-        if let Some(thread) = self.thread.take() {
-            super::join_watcher(thread, "macos_fsevents_watcher")?;
-        }
-        Ok(())
+        super::join_watcher(&mut self.thread, "macos_fsevents_watcher")
     }
 }
 

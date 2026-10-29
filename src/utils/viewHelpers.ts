@@ -317,6 +317,14 @@ export function readableError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function committedLifecycleRecoveryFailure(error: unknown): string | null {
+  const message = readableError(error);
+  const marker = "global_index_change_committed_recovery_pending:";
+  const markerIndex = message.indexOf(marker);
+  if (markerIndex < 0) return null;
+  return message.slice(markerIndex + marker.length).trim().replace(/^provider error:\s*/i, "");
+}
+
 export function localizedStableError(error: unknown, t: Translator): string {
   const message = readableError(error);
   if (message === "global_search_result_excluded") return t("indexCoverageExcludedResult");

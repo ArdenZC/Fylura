@@ -33,19 +33,24 @@ use std::time::{Duration, Instant};
 
 const NATIVE_WATCHER_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
-fn join_watcher(thread: JoinHandle<()>, name: &str) -> Result<(), String> {
+fn join_watcher(thread: &mut Option<JoinHandle<()>>, name: &str) -> Result<(), String> {
+    let Some(worker) = thread.as_ref() else {
+        return Ok(());
+    };
     let deadline = Instant::now() + NATIVE_WATCHER_STOP_TIMEOUT;
-    while !thread.is_finished() {
+    while !worker.is_finished() {
         if Instant::now() >= deadline {
-            // Keep native state owned by the worker and let it observe stop
-            // if its current native call returns; never kill a Rust thread.
-            // Detach rather than blocking provider shutdown without a bound.
-            drop(thread);
+            // Keep the handle so a later bounded retry can prove the worker
+            // exited before registering a replacement watcher.
             return Err(format!("{name}_stop_timeout"));
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    thread.join().map_err(|_| format!("{name}_worker_panicked"))
+    thread
+        .take()
+        .expect("finished watcher handle remains present")
+        .join()
+        .map_err(|_| format!("{name}_worker_panicked"))
 }
 
 pub(super) fn trace_native_qa_phase(phase: &str, event: &str) {
@@ -231,6 +236,7 @@ pub struct MacosSpotlightProvider {
     known_entries: Arc<Mutex<KnownEntries>>,
     spotlight_watcher: Mutex<Option<spotlight::SpotlightWatcherHandle>>,
     fsevents_watcher: Mutex<Option<fsevents::FseventsHandle>>,
+    watcher_stop_pending: AtomicBool,
     baseline_established: AtomicBool,
     wake: Arc<GlobalIndexWakeSlot>,
 }
@@ -252,6 +258,7 @@ impl MacosSpotlightProvider {
             known_entries: Arc::new(Mutex::new(KnownEntries::default())),
             spotlight_watcher: Mutex::new(None),
             fsevents_watcher: Mutex::new(None),
+            watcher_stop_pending: AtomicBool::new(false),
             baseline_established: AtomicBool::new(false),
             wake,
         }
@@ -269,6 +276,9 @@ impl MacosSpotlightProvider {
             .lock()
             .map_err(|_| GlobalIndexError::Provider("macos_source_lifecycle_poisoned".into()))?;
         trace_native_qa_phase("provider.start_watchers.lifecycle_lock", "end");
+        if self.watcher_stop_pending.load(Ordering::Acquire) {
+            self.stop_watchers()?;
+        }
         trace_native_qa_phase("provider.start_watchers.volume_identity", "begin");
         if !source_identity_current(&source.volume) {
             return Err(GlobalIndexError::PermissionRequired(
@@ -283,6 +293,7 @@ impl MacosSpotlightProvider {
             ));
         }
         trace_native_qa_phase("provider.start_watchers.admission", "end");
+        self.stopped.store(false, Ordering::Release);
         let volume_id = &source.volume.id;
         trace_native_qa_phase("provider.start_watchers.spotlight_handle_lock", "begin");
         let mut spotlight_slot = self.spotlight_watcher.lock().map_err(|_| {
@@ -330,35 +341,63 @@ impl MacosSpotlightProvider {
     }
 
     fn stop_watchers(&self) -> Result<(), GlobalIndexError> {
-        let spotlight = self
-            .spotlight_watcher
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        let fsevents = self
-            .fsevents_watcher
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+        self.stopped.store(true, Ordering::Release);
         let mut errors = Vec::new();
-        if let Some(handle) = spotlight {
-            trace_native_qa_phase("provider.shutdown.spotlight_watcher", "begin");
-            if let Err(error) = handle.stop() {
-                errors.push(error);
+        {
+            let mut watcher = self
+                .spotlight_watcher
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let stopped = if let Some(handle) = watcher.as_mut() {
+                trace_native_qa_phase("provider.shutdown.spotlight_watcher", "begin");
+                let result = handle.stop();
+                trace_native_qa_phase("provider.shutdown.spotlight_watcher", "end");
+                match result {
+                    Ok(()) => true,
+                    Err(error) => {
+                        errors.push(error);
+                        false
+                    }
+                }
+            } else {
+                false
+            };
+            if stopped {
+                drop(watcher.take());
             }
-            trace_native_qa_phase("provider.shutdown.spotlight_watcher", "end");
         }
-        if let Some(handle) = fsevents {
-            trace_native_qa_phase("provider.shutdown.fsevents_watcher", "begin");
-            if let Err(error) = handle.stop() {
-                errors.push(error);
+        {
+            let mut watcher = self
+                .fsevents_watcher
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let stopped = if let Some(handle) = watcher.as_mut() {
+                trace_native_qa_phase("provider.shutdown.fsevents_watcher", "begin");
+                let result = handle.stop();
+                trace_native_qa_phase("provider.shutdown.fsevents_watcher", "end");
+                match result {
+                    Ok(()) => true,
+                    Err(error) => {
+                        errors.push(error);
+                        false
+                    }
+                }
+            } else {
+                false
+            };
+            if stopped {
+                drop(watcher.take());
             }
-            trace_native_qa_phase("provider.shutdown.fsevents_watcher", "end");
         }
         if errors.is_empty() {
+            self.watcher_stop_pending.store(false, Ordering::Release);
             Ok(())
         } else {
-            Err(GlobalIndexError::Provider(errors.join(";")))
+            self.watcher_stop_pending.store(true, Ordering::Release);
+            Err(GlobalIndexError::Provider(format!(
+                "macos_watcher_cleanup_pending: {}",
+                errors.join(";")
+            )))
         }
     }
 
@@ -523,7 +562,6 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
         trace_native_qa_phase("provider.initial_index", "begin");
-        self.stopped.store(false, Ordering::Release);
         trace_native_qa_phase("provider.initial_index.mark_stale", "begin");
         sink.mark_volume_entries_stale(&source.volume.id)?;
         trace_native_qa_phase("provider.initial_index.mark_stale", "end");
@@ -538,7 +576,13 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
                 .as_deref()
                 .and_then(|value| value.parse::<u64>().ok()),
         ) {
-            if matches!(error, GlobalIndexError::SourceBusy(_)) {
+            if matches!(error, GlobalIndexError::SourceBusy(_))
+                || matches!(
+                    &error,
+                    GlobalIndexError::Provider(message)
+                        if message.starts_with("macos_watcher_cleanup_pending")
+                )
+            {
                 return Err(error);
             }
             let error = error.to_string();
@@ -562,7 +606,6 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         sink: &mut dyn GlobalIndexSink,
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
-        self.stopped.store(false, Ordering::Release);
         if let Err(error) = self.start_watchers(
             source,
             sink,
@@ -572,7 +615,13 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
                 .as_deref()
                 .and_then(|value| value.parse::<u64>().ok()),
         ) {
-            if matches!(error, GlobalIndexError::SourceBusy(_)) {
+            if matches!(error, GlobalIndexError::SourceBusy(_))
+                || matches!(
+                    &error,
+                    GlobalIndexError::Provider(message)
+                        if message.starts_with("macos_watcher_cleanup_pending")
+                )
+            {
                 return Err(error);
             }
             let error = error.to_string();

@@ -649,7 +649,7 @@ describe("performance profile and manifest contract", () => {
       expectedFixtureIdentity: "fixture-identity-1",
       expectedSchemaVersion: PERFORMANCE_FIXTURE_SCHEMA_VERSION,
       requiredFiles: ["fixture.sqlite3"],
-    })).toThrow("schema mismatch: expected 44, got 41");
+    })).toThrow("schema mismatch: expected 46, got 41");
     const persistedManifest = readJson(path.join(tempRoot, "manifest.json"));
     if (typeof persistedManifest !== "object" || persistedManifest === null
       || !("schemaVersion" in persistedManifest)
@@ -769,11 +769,11 @@ describe("performance profile and manifest contract", () => {
       runnerArch: "X64",
     });
 
-    expect(PERFORMANCE_FIXTURE_SCHEMA_VERSION).toBe(44);
-    expect(full.schemaVersion).toBe(44);
-    expect(full.payload.schemaVersion).toBe(44);
+    expect(PERFORMANCE_FIXTURE_SCHEMA_VERSION).toBe(46);
+    expect(full.schemaVersion).toBe(46);
+    expect(full.payload.schemaVersion).toBe(46);
     expect(fs.readFileSync("src-tauri/tests/support/performance_fixture.rs", "utf8"))
-      .toContain("pub const FIXTURE_SCHEMA_VERSION: i64 = 45;");
+      .toContain("pub const FIXTURE_SCHEMA_VERSION: i64 = zen_canvas_tauri::db::SUPPORTED_SCHEMA_VERSION as i64;");
     expect(full.payload.inputs).toEqual(expect.arrayContaining([
       { path: "src-tauri/src/db/schema_global_generations.rs", sha256: sha256File("src-tauri/src/db/schema_global_generations.rs") },
       { path: "src-tauri/src/db/schema_global_generations.sql", sha256: sha256File("src-tauri/src/db/schema_global_generations.sql") },

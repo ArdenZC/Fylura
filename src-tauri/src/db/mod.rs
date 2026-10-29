@@ -10,6 +10,7 @@ mod queries;
 mod schema;
 mod schema_global_generations;
 pub(crate) mod schema_global_source_facts;
+mod schema_index_coverage;
 mod types;
 pub mod upgrade;
 

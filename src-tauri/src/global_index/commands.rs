@@ -374,7 +374,6 @@ pub(crate) fn revalidated_global_entry(
     let entry = db
         .get_global_entry(entry_id)
         .map_err(global_index_database_error)?
-        .filter(|entry| !entry.is_stale)
         .ok_or_else(|| "global_search_result_not_found".to_string())?;
     let volume = db
         .get_global_volume(&entry.volume_id)
@@ -382,6 +381,15 @@ pub(crate) fn revalidated_global_entry(
         .ok_or_else(|| "global_search_source_not_found".to_string())?;
     if !volume.enabled {
         return Err("global_search_source_disabled".to_string());
+    }
+    if let Some(reason) = db
+        .entry_coverage_rejection(entry_id)
+        .map_err(global_index_database_error)?
+    {
+        return Err(reason.into());
+    }
+    if entry.is_stale {
+        return Err("global_search_result_not_found".into());
     }
     if !trusted_global_provider(&entry.source_provider)
         || !trusted_global_provider(&volume.provider)

@@ -141,6 +141,7 @@ function globalIndexStatusText(status: string, t: Translator) {
     paused: "globalIndexStatusPaused",
     rebuild_required: "globalIndexStatusRebuildRequired",
     permission_required: "globalIndexStatusPermissionRequired",
+    watcher_unavailable: "globalIndexStatusWatcherUnavailable",
     database_busy: "globalIndexStatusDatabaseBusy",
     service_busy: "globalIndexStatusServiceBusy",
     spotlight_unavailable: "globalIndexStatusSpotlightUnavailable",

@@ -1,6 +1,6 @@
 use super::PendingUpdates;
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
-use crate::platform::macos::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
+use crate::platform::macos::run_loop::{LifecycleRunLoop, NativeRunLoopStopSignal};
 use fsevent_sys::core_foundation::{
     kCFAllocatorDefault, kCFRunLoopDefaultMode, kCFStringEncodingUTF8, kCFTypeArrayCallBacks,
     CFArrayAppendValue, CFArrayCreateMutable, CFRelease, CFRunLoopGetCurrent,
@@ -34,13 +34,11 @@ pub struct FseventsHandle {
 }
 
 impl FseventsHandle {
-    pub fn stop(mut self) {
+    pub fn stop(&mut self) -> Result<(), String> {
         self.stop.store(true, Ordering::Release);
         self.stopped.store(true, Ordering::Release);
         self.stop_signal.request_stop();
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        super::join_watcher(&mut self.thread, "macos_fsevents_watcher")
     }
 }
 
@@ -156,6 +154,13 @@ fn run_fsevents(
         return;
     };
     unsafe {
+        let lifecycle = match LifecycleRunLoop::new() {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                record_startup_failure(&pending, &wake, error);
+                return;
+            }
+        };
         let path_ref =
             CFStringCreateWithCString(kCFAllocatorDefault, path.as_ptr(), kCFStringEncodingUTF8);
         if path_ref.is_null() {
@@ -207,7 +212,9 @@ fn run_fsevents(
         }
         let run_loop = CFRunLoopGetCurrent();
         FSEventStreamScheduleWithRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
+        super::trace_native_qa_phase("fsevents.stream_start", "begin");
         if FSEventStreamStart(stream) == 0 {
+            super::trace_native_qa_phase("fsevents.stream_start", "unavailable");
             let info = &*context.info.cast::<FseventInfo>();
             record_startup_failure(
                 &info.pending,
@@ -220,18 +227,21 @@ fn run_fsevents(
             drop(Box::from_raw(context.info.cast::<FseventInfo>()));
             return;
         }
-        let native_run_loop = objc2_foundation::NSRunLoop::currentRunLoop().getCFRunLoop();
-        let stop_action = cross_thread_stop_action(native_run_loop);
-        stop_signal.install(stop_action);
+        super::trace_native_qa_phase("fsevents.stream_start", "end");
+        stop_signal.install(lifecycle.stop_action());
         if !stop.load(Ordering::Acquire) {
-            fsevent_sys::core_foundation::CFRunLoopRun();
+            super::trace_native_qa_phase("fsevents.run_loop", "begin");
+            lifecycle.run();
+            super::trace_native_qa_phase("fsevents.run_loop", "end");
         }
         stop_signal.clear();
+        super::trace_native_qa_phase("fsevents.stream_stop", "begin");
         FSEventStreamStop(stream);
         FSEventStreamUnscheduleFromRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
         FSEventStreamInvalidate(stream);
         FSEventStreamRelease(stream);
         drop(Box::from_raw(context.info.cast::<FseventInfo>()));
+        super::trace_native_qa_phase("fsevents.stream_stop", "end");
     }
 }
 

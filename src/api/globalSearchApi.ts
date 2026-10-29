@@ -1,3 +1,4 @@
+import type { IndexCoverageRequest, IndexCoverageResponse } from "../types/indexCoverage";
 import { invokeCommand } from "./core";
 import type {
   AddManagedScopeRequest,
@@ -11,6 +12,9 @@ import type {
 } from "../types/domain";
 
 export const globalSearchApi = {
+  globalIndexCoverage(request: IndexCoverageRequest): Promise<IndexCoverageResponse> {
+    return invokeCommand<IndexCoverageResponse>("global_index_coverage", { request });
+  },
   searchGlobalEntries(request: GlobalSearchRequest): Promise<GlobalSearchResponse> {
     return invokeCommand<GlobalSearchResponse>("search_global_entries", { request });
   },

@@ -105,6 +105,20 @@ pub(crate) fn classify_volume(
     }
 }
 
+pub(crate) fn source_identity_current(source: &GlobalVolume) -> bool {
+    #[cfg(test)]
+    if source.id.len() != 67 || source.mount_path.len() > 3 {
+        return true;
+    }
+    let root = to_wide(&source.mount_path);
+    let kind = unsafe { GetDriveTypeW(root.as_ptr()) };
+    describe_volume(&source.mount_path, kind).is_some_and(|live| {
+        live.volume.stable_volume_id == source.stable_volume_id
+            && live.volume.id == source.id
+            && live.volume.provider == source.provider
+    })
+}
+
 fn describe_volume(mount_path: &str, drive_kind_code: u32) -> Option<GlobalSourceDescriptor> {
     let root = to_wide(mount_path);
     let mut volume_name = [0u16; 261];

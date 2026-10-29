@@ -6,7 +6,7 @@ use crate::global_index::models::{
     PROVIDER_MACOS_SPOTLIGHT,
 };
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
-use crate::platform::macos::run_loop::{cross_thread_stop_action, NativeRunLoopStopSignal};
+use crate::platform::macos::run_loop::{LifecycleRunLoop, NativeRunLoopStopSignal};
 use block2::RcBlock;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -14,11 +14,10 @@ use objc2_foundation::{
     NSArray, NSDate, NSMetadataItem, NSMetadataItemFSContentChangeDateKey,
     NSMetadataItemFSCreationDateKey, NSMetadataItemFSNameKey, NSMetadataItemFSSizeKey,
     NSMetadataItemPathKey, NSMetadataItemURLKey, NSMetadataQuery,
-    NSMetadataQueryIndexedLocalComputerScope, NSMetadataQueryUpdateAddedItemsKey,
-    NSMetadataQueryUpdateChangedItemsKey, NSMetadataQueryUpdateRemovedItemsKey, NSNotification,
-    NSNotificationCenter, NSNumber, NSObjectProtocol, NSPredicate, NSRunLoop, NSString, NSURL,
+    NSMetadataQueryUpdateAddedItemsKey, NSMetadataQueryUpdateChangedItemsKey,
+    NSMetadataQueryUpdateRemovedItemsKey, NSNotification, NSNotificationCenter, NSNumber,
+    NSObjectProtocol, NSPredicate, NSRunLoop, NSString, NSURL,
 };
-use std::collections::HashSet;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -28,6 +27,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 pub(super) struct SpotlightWatcherHandle {
     stopped: Arc<AtomicBool>,
@@ -36,12 +36,10 @@ pub(super) struct SpotlightWatcherHandle {
 }
 
 impl SpotlightWatcherHandle {
-    pub(super) fn stop(mut self) {
+    pub(super) fn stop(&mut self) -> Result<(), String> {
         self.stopped.store(true, Ordering::Release);
         self.stop_signal.request_stop();
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        super::join_watcher(&mut self.thread, "macos_spotlight_watcher")
     }
 }
 
@@ -52,12 +50,6 @@ pub struct SpotlightCollectionSummary {
     pub skipped: usize,
     pub full_disk_access_required: bool,
     pub external_volume_not_indexed: bool,
-}
-
-#[derive(Debug)]
-struct ExternalVolumeProbe {
-    root: PathBuf,
-    has_readable_content: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,83 +69,133 @@ fn classify_spotlight_update(removed: bool, path_identity_fallback: bool) -> Spo
     }
 }
 
+#[cfg(test)]
 pub fn stream_local_computer_entries<F>(
     volume_id: &str,
+    cancel: &AtomicBool,
+    on_batch: F,
+) -> Result<SpotlightCollectionSummary, String>
+where
+    F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
+{
+    stream_source_entries(volume_id, Path::new("/"), cancel, on_batch)
+}
+pub(super) fn path_in_source(root: &Path, path: &Path) -> bool {
+    path.is_absolute()
+        && path.starts_with(root)
+        && !path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        && (root != Path::new("/")
+            || (!path.starts_with("/Volumes") && !path.starts_with("/Network")))
+}
+pub fn stream_source_entries<F>(
+    volume_id: &str,
+    source_root: &Path,
     cancel: &AtomicBool,
     mut on_batch: F,
 ) -> Result<SpotlightCollectionSummary, String>
 where
     F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
 {
+    super::trace_native_qa_phase("spotlight.initial.cancel_check", "begin");
     if cancel.load(Ordering::Acquire) {
         return Err("macos_spotlight_query_paused".to_string());
     }
-    autoreleasepool(|_| {
-        let query = new_local_computer_query();
-        if !query.startQuery() {
-            return Err("macos_spotlight_query_unavailable".to_string());
-        }
-        let run_loop = NSRunLoop::currentRunLoop();
-        let external_volumes = mounted_external_volume_probes();
-        let mut external_volume_hits = HashSet::new();
-        while query.isGathering() {
-            if cancel.load(Ordering::Acquire) {
-                query.stopQuery();
-                return Err("macos_spotlight_query_paused".to_string());
+    super::trace_native_qa_phase("spotlight.initial.cancel_check", "end");
+    super::trace_native_qa_phase("spotlight.initial.volume_identity", "begin");
+    if !super::volumes::source_id_matches(volume_id, source_root) {
+        return Err("macos_volume_identity_changed".into());
+    }
+    super::trace_native_qa_phase("spotlight.initial.volume_identity", "end");
+    objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+        autoreleasepool(|_| {
+            super::trace_native_qa_phase("spotlight.initial.query_create", "begin");
+            let query = new_scoped_query(source_root);
+            super::trace_native_qa_phase("spotlight.initial.query_create", "end");
+            super::trace_native_qa_phase("spotlight.initial.start_query", "begin");
+            if !query.startQuery() {
+                super::trace_native_qa_phase("spotlight.initial.start_query", "unavailable");
+                return Err("macos_spotlight_query_unavailable".to_string());
             }
-            let deadline = NSDate::dateWithTimeIntervalSinceNow(0.2);
-            run_loop.runUntilDate(&deadline);
-        }
-        let mut entries = Vec::with_capacity(512);
-        let mut summary = SpotlightCollectionSummary::default();
-        for index in 0..query.resultCount() {
-            if cancel.load(Ordering::Acquire) {
-                query.stopQuery();
-                return Err("macos_spotlight_query_paused".to_string());
+            super::trace_native_qa_phase("spotlight.initial.start_query", "end");
+            let run_loop = NSRunLoop::currentRunLoop();
+            let gather_started = Instant::now();
+            let mut next_heartbeat = gather_started + Duration::from_secs(5);
+            super::trace_native_qa_phase("spotlight.initial.gather", "begin");
+            loop {
+                let gathering = query.isGathering();
+                if !gathering {
+                    break;
+                }
+                if cancel.load(Ordering::Acquire) {
+                    super::trace_native_qa_phase("spotlight.initial.stop_query", "cancel");
+                    query.stopQuery();
+                    return Err("macos_spotlight_query_paused".to_string());
+                }
+                if Instant::now() >= next_heartbeat {
+                    super::trace_native_qa_phase("spotlight.initial.gather", "heartbeat");
+                    next_heartbeat = Instant::now() + Duration::from_secs(5);
+                }
+                let deadline = NSDate::dateWithTimeIntervalSinceNow(0.2);
+                run_loop.runUntilDate(&deadline);
             }
-            let object = query.resultAtIndex(index);
-            if let Some(path) = path_from_object(&object) {
-                if let Some(volume) = external_volumes
-                    .iter()
-                    .find(|volume| Path::new(&path).starts_with(&volume.root))
+            super::trace_native_qa_phase("spotlight.initial.gather", "end");
+            let mut entries = Vec::with_capacity(512);
+            let mut summary = SpotlightCollectionSummary::default();
+            super::trace_native_qa_phase("spotlight.initial.result_iteration", "begin");
+            for index in 0..query.resultCount() {
+                if cancel.load(Ordering::Acquire) {
+                    query.stopQuery();
+                    return Err("macos_spotlight_query_paused".to_string());
+                }
+                let object = query.resultAtIndex(index);
+                if path_from_object(&object)
+                    .as_deref()
+                    .is_some_and(|p| !path_in_source(source_root, Path::new(p)))
                 {
-                    external_volume_hits.insert(volume.root.clone());
+                    continue;
+                }
+                let Some(entry) = metadata_item_to_entry(volume_id, source_root, &object) else {
+                    summary.skipped += 1;
+                    continue;
+                };
+                summary.processed += 1;
+                if has_path_identity(&entry) {
+                    summary.path_fallbacks += 1;
+                }
+                entries.push(entry);
+                if entries.len() >= 512 {
+                    if let Err(error) = on_batch(&entries) {
+                        query.stopQuery();
+                        return Err(format!("callback:{error}"));
+                    }
+                    entries.clear();
                 }
             }
-            let Some(entry) = metadata_item_to_entry(volume_id, &object) else {
-                summary.skipped += 1;
-                continue;
-            };
-            summary.processed += 1;
-            if has_path_identity(&entry) {
-                summary.path_fallbacks += 1;
-            }
-            entries.push(entry);
-            if entries.len() >= 512 {
+            if !entries.is_empty() {
                 if let Err(error) = on_batch(&entries) {
                     query.stopQuery();
                     return Err(format!("callback:{error}"));
                 }
-                entries.clear();
             }
-        }
-        if !entries.is_empty() {
-            if let Err(error) = on_batch(&entries) {
-                query.stopQuery();
-                return Err(format!("callback:{error}"));
-            }
-        }
-        query.stopQuery();
-        summary.full_disk_access_required = full_disk_access_required();
-        summary.external_volume_not_indexed = external_volumes.iter().any(|volume| {
-            volume.has_readable_content && !external_volume_hits.contains(&volume.root)
-        });
-        Ok(summary)
-    })
+            super::trace_native_qa_phase("spotlight.initial.result_iteration", "end");
+            super::trace_native_qa_phase("spotlight.initial.stop_query", "begin");
+            query.stopQuery();
+            super::trace_native_qa_phase("spotlight.initial.stop_query", "end");
+            summary.full_disk_access_required =
+                source_root == Path::new("/") && full_disk_access_required();
+            summary.external_volume_not_indexed =
+                source_root != Path::new("/") && summary.processed == 0;
+            Ok(summary)
+        })
+    }))
+    .map_err(|exception| format!("macos_spotlight_native_exception:{exception:?}"))?
 }
 
 pub fn spawn_update_watcher(
     volume_id: String,
+    source_root: PathBuf,
     pending: Arc<Mutex<PendingUpdates>>,
     known_entries: Arc<Mutex<KnownEntries>>,
     stopped: Arc<AtomicBool>,
@@ -165,16 +207,27 @@ pub fn spawn_update_watcher(
     let thread = thread::Builder::new()
         .name("zen-canvas-macos-spotlight".to_string())
         .spawn(move || {
-            autoreleasepool(|_| {
-                run_update_watcher(
-                    &volume_id,
+            let result = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                autoreleasepool(|_| {
+                    run_update_watcher(
+                        &volume_id,
+                        &source_root,
+                        &pending,
+                        &known_entries,
+                        &stopped,
+                        &wake,
+                        &stop_signal_for_thread,
+                    )
+                })
+            }));
+            stop_signal_for_thread.clear();
+            if let Err(exception) = result {
+                super::record_async_watcher_error(
                     &pending,
-                    &known_entries,
-                    &stopped,
                     &wake,
-                    &stop_signal_for_thread,
-                )
-            });
+                    format!("macos_spotlight_realtime_exception:{exception:?}"),
+                );
+            }
         })
         .map_err(|error| format!("macos_spotlight_thread_start_failed: {error}"))?;
     Ok(SpotlightWatcherHandle {
@@ -186,17 +239,21 @@ pub fn spawn_update_watcher(
 
 fn run_update_watcher(
     volume_id: &str,
+    source_root: &Path,
     pending: &Arc<Mutex<PendingUpdates>>,
     known_entries: &Arc<Mutex<KnownEntries>>,
     stopped: &AtomicBool,
     wake: &Arc<GlobalIndexWakeSlot>,
     stop_signal: &NativeRunLoopStopSignal,
 ) {
-    let query = new_local_computer_query();
+    super::trace_native_qa_phase("spotlight.realtime.query_create", "begin");
+    let query = new_scoped_query(source_root);
+    super::trace_native_qa_phase("spotlight.realtime.query_create", "end");
     let center = NSNotificationCenter::defaultCenter();
     let pending_for_block = pending.clone();
     let known_entries_for_block = known_entries.clone();
     let volume_id_for_block = volume_id.to_string();
+    let source_root_for_block = source_root.to_path_buf();
     let wake_for_block = wake.clone();
     let update_block = RcBlock::new(move |notification: NonNull<NSNotification>| {
         let notification = unsafe { notification.as_ref() };
@@ -211,6 +268,7 @@ fn run_update_watcher(
             typed_info,
             unsafe { NSMetadataQueryUpdateAddedItemsKey },
             &volume_id_for_block,
+            &source_root_for_block,
             &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
@@ -221,6 +279,7 @@ fn run_update_watcher(
             typed_info,
             unsafe { NSMetadataQueryUpdateChangedItemsKey },
             &volume_id_for_block,
+            &source_root_for_block,
             &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
@@ -231,6 +290,7 @@ fn run_update_watcher(
             typed_info,
             unsafe { NSMetadataQueryUpdateRemovedItemsKey },
             &volume_id_for_block,
+            &source_root_for_block,
             &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
@@ -254,21 +314,37 @@ fn run_update_watcher(
             &update_block,
         )
     };
+    super::trace_native_qa_phase("spotlight.realtime.start_query", "begin");
     if !query.startQuery() {
+        super::trace_native_qa_phase("spotlight.realtime.start_query", "unavailable");
         record_realtime_start_failure(pending, wake);
         let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
         let observer_object: &AnyObject = protocol_object.as_ref();
         unsafe { center.removeObserver(observer_object) };
         return;
     }
-    let run_loop = NSRunLoop::currentRunLoop();
-    let stop_action = cross_thread_stop_action(run_loop.getCFRunLoop());
-    stop_signal.install(stop_action);
+    super::trace_native_qa_phase("spotlight.realtime.start_query", "end");
+    let lifecycle = match LifecycleRunLoop::new() {
+        Ok(lifecycle) => lifecycle,
+        Err(error) => {
+            super::record_async_watcher_error(pending, wake, error);
+            query.stopQuery();
+            let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
+            let observer_object: &AnyObject = protocol_object.as_ref();
+            unsafe { center.removeObserver(observer_object) };
+            return;
+        }
+    };
+    stop_signal.install(lifecycle.stop_action());
     if !stopped.load(Ordering::Acquire) {
-        run_loop.run();
+        super::trace_native_qa_phase("spotlight.realtime.run_loop", "begin");
+        lifecycle.run();
+        super::trace_native_qa_phase("spotlight.realtime.run_loop", "end");
     }
     stop_signal.clear();
+    super::trace_native_qa_phase("spotlight.realtime.stop_query", "begin");
     query.stopQuery();
+    super::trace_native_qa_phase("spotlight.realtime.stop_query", "end");
     let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
     let observer_object: &AnyObject = protocol_object.as_ref();
     unsafe { center.removeObserver(observer_object) };
@@ -282,11 +358,19 @@ fn record_realtime_start_failure(pending: &Mutex<PendingUpdates>, wake: &GlobalI
     );
 }
 
-fn new_local_computer_query() -> Retained<NSMetadataQuery> {
+fn new_scoped_query(source_root: &Path) -> Retained<NSMetadataQuery> {
     let query = NSMetadataQuery::new();
-    let predicate = NSPredicate::predicateWithValue(true);
+    // NSMetadataQuery accepts metadata comparison predicates, not TRUEPREDICATE.
+    // The constant format contains no interpolation or caller-controlled input.
+    let predicate = unsafe {
+        NSPredicate::predicateWithFormat_argumentArray(
+            &NSString::from_str("kMDItemFSName LIKE '*'"),
+            None,
+        )
+    };
     query.setPredicate(Some(&predicate));
-    let scope: &AnyObject = unsafe { NSMetadataQueryIndexedLocalComputerScope }.as_ref();
+    let root = NSURL::fileURLWithPath(&NSString::from_str(&source_root.to_string_lossy()));
+    let scope: &AnyObject = root.as_ref();
     let scopes: Retained<NSArray<AnyObject>> = NSArray::from_slice(&[scope]);
     unsafe { query.setSearchScopes(&scopes) };
     query
@@ -313,36 +397,6 @@ fn full_disk_access_required() -> bool {
     })
 }
 
-fn mounted_external_volume_probes() -> Vec<ExternalVolumeProbe> {
-    let Some(root_device) = fs::symlink_metadata("/")
-        .ok()
-        .map(|metadata| metadata.dev())
-    else {
-        return Vec::new();
-    };
-    let Ok(entries) = fs::read_dir("/Volumes") else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let root = entry.path();
-            let metadata = fs::symlink_metadata(&root).ok()?;
-            if !metadata.is_dir() || metadata.dev() == root_device {
-                return None;
-            }
-            let has_readable_content = match fs::read_dir(&root) {
-                Ok(mut children) => children.next().is_some(),
-                Err(_) => false,
-            };
-            Some(ExternalVolumeProbe {
-                root,
-                has_readable_content,
-            })
-        })
-        .collect()
-}
-
 #[expect(
     clippy::too_many_arguments,
     reason = "native metadata notifications keep callback state explicit for validation"
@@ -351,6 +405,7 @@ fn collect_update_items(
     user_info: &objc2_foundation::NSDictionary<NSString, AnyObject>,
     key: &NSString,
     volume_id: &str,
+    source_root: &Path,
     known_entries: &Arc<Mutex<KnownEntries>>,
     entries: &mut Vec<GlobalEntryInput>,
     stale_entry_ids: &mut Vec<String>,
@@ -366,6 +421,12 @@ fn collect_update_items(
     for index in 0..items.count() {
         let object = items.objectAtIndex(index);
         let path = path_from_object(&object).map(|path| normalize_path(&path));
+        if path
+            .as_deref()
+            .is_some_and(|p| !path_in_source(source_root, Path::new(p)))
+        {
+            continue;
+        }
         if removed {
             if let Some(entry_id) = path.as_deref().and_then(|path| {
                 known_entries
@@ -378,7 +439,7 @@ fn collect_update_items(
             }
         }
         if let Some(entry) = object.downcast_ref::<NSMetadataItem>() {
-            match metadata_item_to_entry(volume_id, entry.as_ref()) {
+            match metadata_item_to_entry(volume_id, source_root, entry.as_ref()) {
                 Some(input) => {
                     match classify_spotlight_update(removed, has_path_identity(&input)) {
                         SpotlightUpdateAction::Upsert => entries.push(input),
@@ -396,7 +457,14 @@ fn collect_update_items(
     }
 }
 
-fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalEntryInput> {
+fn metadata_item_to_entry(
+    volume_id: &str,
+    source_root: &Path,
+    object: &AnyObject,
+) -> Option<GlobalEntryInput> {
+    if !super::volumes::source_id_matches(volume_id, source_root) {
+        return None;
+    }
     let item = object.downcast_ref::<NSMetadataItem>()?;
     let path = metadata_string(item, unsafe { NSMetadataItemPathKey })
         .or_else(|| metadata_url_path(item, unsafe { NSMetadataItemURLKey }))?;
@@ -404,7 +472,22 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
         return None;
     }
     let path_buf = PathBuf::from(&path);
+    if !path_in_source(source_root, &path_buf) {
+        return None;
+    }
     let metadata = std::fs::symlink_metadata(&path_buf).ok();
+    // A path scope may contain a nested mount. Admit metadata only from the
+    // explicitly enabled physical volume; missing identity remains partial.
+    let physical_root = if source_root == Path::new("/") {
+        Path::new("/System/Volumes/Data")
+    } else {
+        source_root
+    };
+    if let (Some(candidate), Ok(root)) = (&metadata, fs::symlink_metadata(physical_root)) {
+        if candidate.dev() != root.dev() {
+            return None;
+        }
+    }
     let is_directory = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
     let semantics = crate::platform::macos::file_semantics::inspect(&path_buf);
     let mut file_attributes = 0;

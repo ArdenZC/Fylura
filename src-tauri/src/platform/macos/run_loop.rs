@@ -3,9 +3,6 @@
 use std::sync::Mutex;
 
 #[cfg(target_os = "macos")]
-use objc2::rc::Retained;
-
-#[cfg(target_os = "macos")]
 use objc2_core_foundation::CFRunLoop;
 
 type StopAction = Box<dyn Fn() + Send + Sync + 'static>;
@@ -163,28 +160,6 @@ impl NativeRunLoopStopSignal {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.action = None;
-    }
-}
-
-/// Builds the cross-thread stop/wake action for a retained CFRunLoop. The
-/// action owns that handle until `clear` removes it from the signal.
-#[cfg(target_os = "macos")]
-pub(crate) fn cross_thread_stop_action(
-    run_loop: Retained<CFRunLoop>,
-) -> impl Fn() + Send + Sync + 'static {
-    struct ThreadSafeRunLoop(Retained<CFRunLoop>);
-
-    // Core Foundation documents run loops as thread-safe; stop and wake_up
-    // are specifically intended to be called across threads. The enclosing
-    // stop signal's mutex serializes this retained handle's lifetime with the
-    // cross-thread calls, while the run-loop thread owns execution itself.
-    unsafe impl Send for ThreadSafeRunLoop {}
-    unsafe impl Sync for ThreadSafeRunLoop {}
-
-    let run_loop = std::sync::Arc::new(ThreadSafeRunLoop(run_loop));
-    move || {
-        run_loop.0.stop();
-        run_loop.0.wake_up();
     }
 }
 

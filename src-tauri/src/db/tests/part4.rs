@@ -8,7 +8,7 @@ fn schema_30_creates_analysis_ledger_without_fabricated_history() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version");
-    assert_eq!(version, 45);
+    assert_eq!(version, i64::from(crate::db::SUPPORTED_SCHEMA_VERSION));
     for table in [
         "dedupe_authority_state",
         "analysis_runs",
@@ -111,7 +111,7 @@ fn schema_33_to_34_creates_content_ledger_without_rewriting_core_tables() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .expect("schema version"),
-        45
+        i64::from(crate::db::SUPPORTED_SCHEMA_VERSION)
     );
     for table in [
         "content_scope_policies",

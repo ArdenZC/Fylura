@@ -253,3 +253,5 @@ Main checks the original visible Search revision and expiry before publication;
 rejected or timed-out admission disposes the candidate session. No scan, index,
 managed identity or mutation authority is granted. Standalone query edits pause
 while this bounded handoff is pending; Escape still cancels the Search session.
+
+| `global_index_coverage` | `main_state_mutation` | main | Read/preview/CAS-edit Index Scope; preserves explicit source authorization and user metadata | default | yes | Index Scope tests |

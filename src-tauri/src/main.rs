@@ -404,6 +404,7 @@ fn main() {
             zen_canvas_tauri::db::search_files,
             zen_canvas_tauri::global_index::commands::search_global_entries,
             zen_canvas_tauri::global_index::commands::get_global_index_status,
+            zen_canvas_tauri::global_index::coverage::command::global_index_coverage,
             zen_canvas_tauri::global_index::commands::list_global_index_sources,
             zen_canvas_tauri::global_index::commands::start_global_index,
             zen_canvas_tauri::global_index::commands::pause_global_index,

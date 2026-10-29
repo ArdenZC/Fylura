@@ -301,9 +301,10 @@ impl Database {
              WHERE id = ?1 AND stable_volume_id = ?2 AND mount_path = ?3
                AND operation_revision = ?4 AND operation_owner_id = ?5
                AND operation_state = 'running' AND enabled = 1
-               AND platform = 'windows' AND provider = 'windows_mft_usn'
+               AND ((platform = 'windows' AND provider = 'windows_mft_usn'
                AND lower(filesystem_type) = 'ntfs' AND drive_kind = 'fixed'
-               AND scope_authorization_state = 'authorized')",
+               AND scope_authorization_state = 'authorized')
+               OR (platform='macos' AND provider='macos_spotlight' AND scope_authorization_state='not_required')))",
             params![
                 source.id,
                 source.stable_volume_id,
@@ -646,7 +647,10 @@ impl Database {
         let changed = transaction.execute(
             r#"
             UPDATE global_volumes
-            SET operation_revision = ?4,
+            SET coverage_included = CASE WHEN ?9 IN ('initial','rebuild') THEN 0 ELSE coverage_included END,
+                coverage_excluded = CASE WHEN ?9 IN ('initial','rebuild') THEN 0 ELSE coverage_excluded END,
+                coverage_undetermined = CASE WHEN ?9 IN ('initial','rebuild') THEN 0 ELSE coverage_undetermined END,
+                operation_revision = ?4,
                 operation_owner_id = ?5,
                 operation_owner_pid = ?6,
                 operation_owner_started_at = ?7,
@@ -748,10 +752,11 @@ impl Database {
             r#"
             UPDATE global_volumes
             SET index_status = ?4,
+                coverage_pending = CASE WHEN ?8 = 1 AND ?4 IN ('ready','watcher_unavailable','fsevents_unavailable') THEN 0 ELSE coverage_pending END,
                 last_error = ?5,
                 last_full_index_at = COALESCE(?6, last_full_index_at),
                 last_incremental_sync_at = COALESCE(?7, last_incremental_sync_at),
-                rebuild_completed_revision = CASE WHEN ?8 = 1
+                rebuild_completed_revision = CASE WHEN ?8 = 1 AND (coverage_pending=0 OR ?4 IN ('ready','watcher_unavailable','fsevents_unavailable'))
                     THEN rebuild_intent_revision ELSE rebuild_completed_revision END,
                 operation_owner_id = NULL,
                 operation_owner_pid = NULL,
@@ -1027,6 +1032,8 @@ impl Database {
         Ok(())
     }
 
+    /// Trusted repository fixture/import primitive, not a renderer command.
+    /// Native Global Index producers must use the source-owned admission method.
     pub fn upsert_global_entries_batch(
         &self,
         entries: &[GlobalEntryInput],
@@ -1050,6 +1057,47 @@ impl Database {
         if entries.is_empty() {
             return Ok(0);
         }
+        // Native context acquisition must precede the writer lock and follow
+        // source authorization. Unowned access is reserved for repository fixtures.
+        let coverage = if let Some(owner) = owner {
+            let source = self
+                .get_global_volume(&owner.volume_id)?
+                .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+            let state = self
+                .global_index_operation_state(&owner.volume_id)?
+                .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+            if !source.enabled
+                || (source.platform == "windows"
+                    && source.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED)
+                || state.revision != owner.revision
+                || state.owner_id.as_deref() != Some(&owner.operation_id)
+            {
+                return Err(DbError::Validation(
+                    "global_index_operation_owner_lost".into(),
+                ));
+            }
+            if !super::coverage::source_identity_current(&source) {
+                return Err(DbError::Validation(
+                    "global_index_source_identity_changed".into(),
+                ));
+            }
+            let policy = {
+                let conn = self.conn()?;
+                super::coverage::load_policy(&conn)?
+            };
+            let decisions = super::coverage::observe_batch(&policy, &source, entries);
+            if decisions
+                .iter()
+                .any(|d| d.reason() == "outside_authorized_source")
+            {
+                return Err(DbError::Validation(
+                    "global_index_entry_outside_authorized_source".into(),
+                ));
+            }
+            Some((policy, decisions))
+        } else {
+            None
+        };
         let mut conn = self.conn()?;
         // Reserve the WAL writer before reading owner/scope policy state. A
         // DEFERRED read transaction can hold an obsolete snapshot and fail
@@ -1068,11 +1116,24 @@ impl Database {
             }
             ensure_source_operation_owner_tx(&transaction, owner)?;
         }
+        if let Some((policy, _)) = &coverage {
+            if super::coverage::load_policy(&transaction)?.revision != policy.revision {
+                return Err(DbError::Validation(
+                    "global_index_operation_owner_lost".into(),
+                ));
+            }
+        }
         let scope_policies = load_enabled_scope_policies(&transaction)?;
         let mut count = 0;
         let mut has_eligible_pending_work = false;
         let mut statement = transaction.prepare(UPSERT_GLOBAL_ENTRY_SQL)?;
-        for entry in entries {
+        for (index, entry) in entries.iter().enumerate() {
+            let visible = coverage
+                .as_ref()
+                .is_none_or(|(_, decisions)| decisions[index].visible());
+            if !visible && !entry.is_directory {
+                continue;
+            }
             let entry_id = entry.entry_id();
             execute_entry_upsert(
                 &transaction,
@@ -1098,20 +1159,31 @@ impl Database {
                     entry.last_seen_at,
                 ],
             )?;
-            has_eligible_pending_work |= enqueue_ai_jobs_for_entry_with_scopes(
-                &transaction,
-                &entry_id,
-                entry,
-                &scope_policies,
-            )?;
+            if visible {
+                has_eligible_pending_work |= enqueue_ai_jobs_for_entry_with_scopes(
+                    &transaction,
+                    &entry_id,
+                    entry,
+                    &scope_policies,
+                )?;
+            }
             count += 1;
         }
         drop(statement);
+        if let Some((_, decisions)) = &coverage {
+            super::coverage::record_decisions(&transaction, entries, decisions)?;
+        }
         transaction.commit()?;
         if has_eligible_pending_work {
             self.notify_managed_ai_work();
         }
-        Ok(count)
+        // Provider emission counts consumed observations, including lawful zero
+        // search-visible rows. Native-seen=0 remains an independent provider error.
+        Ok(if owner.is_some() {
+            entries.len()
+        } else {
+            count
+        })
     }
 
     pub fn mark_global_entries_stale_for_volume(&self, volume_id: &str) -> Result<usize, DbError> {
@@ -1122,6 +1194,9 @@ impl Database {
         &self,
         owner: &SourceOperationOwner,
     ) -> Result<usize, DbError> {
+        if let Some(count) = self.retire_coverage_for_rebuild(owner)? {
+            return Ok(count);
+        }
         self.mark_global_entries_stale_for_volume_inner(&owner.volume_id, Some(owner))
     }
 
@@ -1137,7 +1212,7 @@ impl Database {
         }
         let now = unix_now();
         let changed = transaction.execute(
-            "UPDATE global_entries SET is_stale = 1 WHERE volume_id = ?1 AND is_stale = 0",
+            "UPDATE global_entries SET is_stale = 1, scope_decision = 'unseen' WHERE volume_id = ?1 AND (is_stale = 0 OR scope_decision = 'minimal_ancestor')",
             params![volume_id],
         )?;
         transaction.execute(
@@ -1189,12 +1264,12 @@ impl Database {
         let now = unix_now();
         let changed = if let Some(owner) = owner {
             transaction.execute(
-                "UPDATE global_entries SET is_stale = 1 WHERE id = ?1 AND volume_id = ?2 AND is_stale = 0",
+                "UPDATE global_entries SET is_stale = 1, scope_decision = 'deleted' WHERE id = ?1 AND volume_id = ?2 AND (is_stale = 0 OR scope_decision = 'minimal_ancestor')",
                 params![entry_id, owner.volume_id],
             )?
         } else {
             transaction.execute(
-                "UPDATE global_entries SET is_stale = 1 WHERE id = ?1 AND is_stale = 0",
+                "UPDATE global_entries SET is_stale = 1, scope_decision = 'deleted' WHERE id = ?1 AND (is_stale = 0 OR scope_decision = 'minimal_ancestor')",
                 params![entry_id],
             )?
         };
@@ -1330,7 +1405,7 @@ impl Database {
     ) -> Result<Option<String>, DbError> {
         let conn = self.conn()?;
         conn.query_row(
-            "SELECT path FROM global_entries WHERE volume_id = ?1 AND platform_file_id = ?2 AND is_stale = 0 ORDER BY length(path) LIMIT 1",
+            "SELECT path FROM global_entries WHERE volume_id = ?1 AND platform_file_id = ?2 AND (is_stale = 0 OR scope_decision = 'minimal_ancestor') ORDER BY length(path) LIMIT 1",
             params![volume_id, platform_file_id],
             |row| row.get(0),
         )
@@ -1508,6 +1583,7 @@ fn global_index_status_with_total(
         // kept explicitly because a legacy source can report `ready` while its
         // consent has not been re-confirmed.
         collection_complete: indexed_volumes > 0
+            && !conn.query_row("SELECT EXISTS(SELECT 1 FROM global_volumes v WHERE enabled=1 AND (coverage_pending=1 OR EXISTS(SELECT 1 FROM global_entries e WHERE e.volume_id=v.id AND e.scope_decision='undetermined' AND e.is_stale=0)))", [], |r|r.get::<_,bool>(0))?
             && ready_volumes == indexed_volumes
             && authorization_required_volumes == 0,
         total_entries,

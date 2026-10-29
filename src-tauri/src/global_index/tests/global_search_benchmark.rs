@@ -18,6 +18,8 @@ mod index_cost_benchmark;
 #[path = "global_search_query_cost_diagnostic.rs"]
 mod query_cost_diagnostic;
 
+#[path = "global_search_filename_relevance.rs"]
+mod filename_relevance_candidate;
 #[path = "issue474_candidates.rs"]
 mod issue474_candidates;
 

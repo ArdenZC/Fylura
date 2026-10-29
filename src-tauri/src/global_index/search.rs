@@ -21,6 +21,8 @@ const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 // A layer may fetch up to target + already-seen ids to compensate for overlap,
 // but never turns a keystroke into an unbounded result materialization.
 const MAX_TIER_CANDIDATES: u32 = 4_096;
+#[cfg(any(test, feature = "global-search-filename-relevance-candidate"))]
+const FILENAME_RELEVANCE_MIN_HITS: usize = 64;
 
 #[cfg(test)]
 std::thread_local! {
@@ -28,6 +30,7 @@ std::thread_local! {
     static KEY_ONLY_FTS_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LEGACY_NAME_PREFIX_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LEGACY_FTS_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FILENAME_RELEVANCE_SEARCH_OVERRIDE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
 }
 
 /// Enables the remaining test-only key projection candidates while exercising
@@ -106,6 +109,26 @@ pub(crate) fn with_legacy_fts_search_candidate<T>(operation: impl FnOnce() -> T)
 }
 
 #[cfg(test)]
+pub(crate) fn with_filename_relevance_candidate<T>(
+    enabled: bool,
+    operation: impl FnOnce() -> T,
+) -> T {
+    struct ResetCandidate(Option<bool>);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            FILENAME_RELEVANCE_SEARCH_OVERRIDE.with(|slot| slot.set(self.0));
+        }
+    }
+
+    FILENAME_RELEVANCE_SEARCH_OVERRIDE.with(|slot| {
+        let previous = slot.replace(Some(enabled));
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
+#[cfg(test)]
 fn key_only_cte_search_candidate_enabled() -> bool {
     KEY_ONLY_CTE_SEARCH_OVERRIDE.with(std::cell::Cell::get)
 }
@@ -123,6 +146,25 @@ fn legacy_name_prefix_search_candidate_enabled() -> bool {
 #[cfg(test)]
 fn legacy_fts_search_candidate_enabled() -> bool {
     LEGACY_FTS_SEARCH_OVERRIDE.with(std::cell::Cell::get)
+}
+
+#[cfg(any(test, feature = "global-search-filename-relevance-candidate"))]
+fn filename_relevance_candidate_enabled() -> bool {
+    #[cfg(test)]
+    if let Some(enabled) = FILENAME_RELEVANCE_SEARCH_OVERRIDE.with(std::cell::Cell::get) {
+        return enabled;
+    }
+
+    #[cfg(feature = "global-search-filename-relevance-candidate")]
+    {
+        std::env::var("ZC_GLOBAL_SEARCH_FILENAME_RELEVANCE_CANDIDATE")
+            .is_ok_and(|value| value == "1")
+    }
+
+    #[cfg(not(feature = "global-search-filename-relevance-candidate"))]
+    {
+        false
+    }
 }
 
 /// Global search is intentionally a separate entry point from the library
@@ -370,6 +412,68 @@ fn key_only_fts_sql() -> String {
     )
 }
 
+#[cfg(any(test, feature = "global-search-filename-relevance-candidate"))]
+fn filename_relevance_fts_sql() -> String {
+    let name_position = "instr(ge.name_normalized, lower(?2))";
+    let name_contains = format!("{name_position} > 0");
+    let before_boundary = format!(
+        "({name_position} = 1 OR substr(ge.name_normalized, {name_position} - 1, 1) NOT GLOB '[A-Za-z0-9_]')"
+    );
+    let after_boundary = format!(
+        "({name_position} + length(?2) > length(ge.name_normalized) OR substr(ge.name_normalized, {name_position} + length(?2), 1) NOT GLOB '[A-Za-z0-9_]')"
+    );
+    let relevance = format!(
+        "CASE WHEN ({name_contains}) AND ({before_boundary}) AND ({after_boundary}) THEN 0 WHEN ({name_contains}) OR instr(ge.extension, lower(?2)) > 0 THEN 1 ELSE 2 END"
+    );
+
+    key_only_candidate_sql(
+        "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
+        "candidate_rank ASC, ge.modified_at_fs DESC, ge.id ASC",
+        &relevance,
+        "candidates.candidate_rank ASC, candidates.modified_at_fs DESC, candidates.entry_id ASC",
+        "?3",
+    )
+}
+
+#[cfg(any(test, feature = "global-search-filename-relevance-candidate"))]
+fn filename_relevance_query_supported(query: &str) -> bool {
+    query.len() >= 3
+        && !query.starts_with(' ')
+        && !query.ends_with(' ')
+        && !query.contains("  ")
+        && query
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b' ')
+}
+
+#[cfg(any(test, feature = "global-search-filename-relevance-candidate"))]
+fn search_filename_relevance(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+) -> Result<Option<Vec<GlobalSearchResult>>, DbError> {
+    if !filename_relevance_query_supported(query) {
+        return Ok(None);
+    }
+
+    // Asking for at least 64 fully ordered rows doubles as a sparse-query
+    // proof: fewer than 64 rows means the entire eligible match set is sparse,
+    // so the caller retains the existing BM25 route. The SQL orders the whole
+    // enabled, non-stale FTS match set before this bounded output window.
+    let probe_limit = limit.max(FILENAME_RELEVANCE_MIN_HITS as u32);
+    let sql = filename_relevance_fts_sql();
+    let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+    let mut statement = conn.prepare(&sql)?;
+    let mut candidates =
+        collect_candidates(&mut statement, params![fts_query, query, probe_limit])?;
+    if candidates.len() < FILENAME_RELEVANCE_MIN_HITS {
+        return Ok(None);
+    }
+    candidates.truncate(limit as usize);
+    Ok(Some(candidates))
+}
+
 #[cfg(test)]
 pub(crate) fn diagnostic_key_only_cte_sql(tier: &str) -> String {
     match tier {
@@ -603,6 +707,12 @@ fn search_fts(
     if rank_frontier::enabled() {
         return rank_frontier::run(conn, query, limit);
     }
+    #[cfg(any(test, feature = "global-search-filename-relevance-candidate"))]
+    if filename_relevance_candidate_enabled() {
+        if let Some(results) = search_filename_relevance(conn, query, limit)? {
+            return Ok(results);
+        }
+    }
     #[cfg(test)]
     if legacy_fts_search_candidate_enabled() {
         let sql = diagnostic_legacy_fts_sql();
@@ -639,6 +749,20 @@ pub(crate) fn diagnostic_search_fts(
 #[cfg(test)]
 pub(crate) fn diagnostic_search_fts_sql() -> String {
     key_only_fts_sql()
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_search_filename_relevance_sql() -> String {
+    filename_relevance_fts_sql()
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_search_filename_relevance(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+) -> Result<Option<Vec<GlobalSearchResult>>, DbError> {
+    search_filename_relevance(conn, query, limit)
 }
 
 #[cfg(test)]

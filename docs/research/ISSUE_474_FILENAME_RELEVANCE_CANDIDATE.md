@@ -45,7 +45,7 @@ These tests are implemented but their result is not claimed until current-HEAD C
 
 ## Old/new scenario comparison
 
-The correctness fixture emits `filename_relevance_golden_comparison` JSONL with old BM25 and proposed 1-based positions, proposed category, rationale, and a stated limitation for each case. It includes more than ten file-manager scenarios:
+The correctness fixture emits `filename_relevance_golden_comparison` JSONL with old BM25 and proposed public-result positions, the public fast-tier classification, the independent FTS candidate class and position, rationale, and a stated limitation for each case. These labels distinguish a row that the unchanged fast tiers return first from the class it receives if it appears in the FTS candidate set. It includes more than ten file-manager scenarios:
 
 | Query / file scenario | Proposed class | Why that order helps | Limitation |
 | --- | --- | --- | --- |
@@ -54,11 +54,12 @@ The correctness fixture emits `filename_relevance_golden_comparison` JSONL with 
 | `report` — `Dossier-report-final.pdf` | Filename boundary | Hyphens separate the queried word. | All non-ASCII-word punctuation is treated alike. |
 | `report` — `prereport-report.pdf` | Filename boundary | The later bounded match wins over the first embedded occurrence. | Multiple occurrences do not earn extra score. |
 | `report` — `xreporty-report.txt` | Filename boundary | The later complete word is found despite an earlier embedded occurrence. | Supported queries use an ASCII-defined boundary. |
-| `report` — `Annual reporting guide.pdf` | Filename substring | A query followed by a word character stays below a whole-word hit. | No stemming or linguistic word forms. |
+| `report` — `Annual reporting guide 0.pdf` | FTS filename substring | A query followed by a word character stays below a whole-word hit. | No stemming or linguistic word forms. |
 | `report` — `Subreport archive.pdf` | Filename substring | A query embedded inside a larger word remains searchable at lower priority. | The substring is not discarded. |
 | `report` — `pre_report_suffix.pdf` | Filename substring | Underscore is a word character by contract. | Some users may expect underscore to separate words. |
-| `report` — `reporté notes.pdf` | Filename boundary | A non-ASCII neighbor is a delimiter under this rule. | Accent folding is not supported for query text. |
-| `report` — filename with empty indexed path | Filename boundary | Basename ranking does not require a path string. | Empty paths still constrain navigation and identity elsewhere. |
+| `report` — `reporting-guide.pdf` | Public filename-prefix tier; FTS class is substring | The existing prefix tier retains priority; its FTS class remains available in the candidate contract. | Prefix results precede fuzzy FTS classes by design. |
+| `report` — `reporté notes.pdf` | Public filename-prefix tier; FTS class is boundary | The non-ASCII neighbor is a delimiter under the FTS rule, while the unchanged prefix tier returns this row first. | Accent folding is not supported for query text. |
+| `report` — filename with empty indexed path | FTS filename boundary; public prefix tier | Basename relevance does not require a path string; the public route still preserves its prefix tier. | Empty paths still constrain navigation and identity elsewhere. |
 | `report` — a Windows path-only hit | Path only | Filename matches appear before path-only matches even when the path row is newer. | Recency still orders rows inside the path-only class. |
 | `report` — a POSIX path-only hit | Path only | Both separator styles receive the same relevance class. | Path normalization remains platform-owned. |
 | `report` — `Team Report Archive` directory | Filename boundary | Directory names are searchable using the same basename rule. | File versus directory is not an extra tie-breaker. |

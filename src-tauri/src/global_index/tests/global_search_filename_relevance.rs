@@ -408,18 +408,43 @@ fn comparison_positions(
     examples: &[(&str, &str, &str)],
     old: &[GlobalSearchResult],
     proposed: &[GlobalSearchResult],
+    proposed_fts: &[GlobalSearchResult],
 ) -> Vec<JsonValue> {
     examples
         .iter()
         .map(|(name, why_new, limitation)| {
             let old_position = old.iter().position(|result| result.name == *name);
             let proposed_position = proposed.iter().position(|result| result.name == *name);
+            let fts_position = proposed_fts.iter().position(|result| result.name == *name);
+            let proposed_tier = proposed_position.map(|position| {
+                let result = &proposed[position];
+                let query = query.to_ascii_lowercase();
+                let name_normalized = result.name.to_ascii_lowercase();
+                let extension_normalized = result.extension.to_ascii_lowercase();
+                if name_normalized == query {
+                    "exact_filename"
+                } else if name_normalized.starts_with(&query) {
+                    "filename_prefix"
+                } else if extension_normalized == query {
+                    "exact_extension"
+                } else if extension_normalized.starts_with(&query) {
+                    "extension_prefix"
+                } else {
+                    match result.rank {
+                        0.0 => "filename_boundary",
+                        1.0 => "filename_or_extension_substring",
+                        _ => "path_only",
+                    }
+                }
+            });
             json!({
                 "query": query,
                 "name": name,
                 "old_bm25_position_1_based": old_position.map(|position| position + 1),
-                "proposed_category": proposed_position.map(|position| proposed[position].rank),
-                "proposed_position_1_based": proposed_position.map(|position| position + 1),
+                "proposed_public_tier": proposed_tier,
+                "proposed_public_position_1_based": proposed_position.map(|position| position + 1),
+                "proposed_fts_class": fts_position.map(|position| proposed_fts[position].rank),
+                "proposed_fts_position_1_based": fts_position.map(|position| position + 1),
                 "why_new_order_matches_intent": why_new,
                 "limitation": limitation,
             })
@@ -534,13 +559,56 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         search_global_entries_on_connection(&conn, "report", 4_096, 0)
     })
     .expect("old report order");
+    let candidate_report = diagnostic_search_filename_relevance(&conn, "report", 4_096)
+        .expect("read new FTS candidate window")
+        .expect("supported report query uses filename relevance");
+    assert_eq!(
+        candidate_report, report_oracle,
+        "complete FTS candidate window matches the independent Rust oracle"
+    );
     let new_report = with_filename_relevance_candidate(true, || {
         search_global_entries_on_connection(&conn, "report", 4_096, 0)
     })
     .expect("new report order");
+    let old_fast_tiers = old_report
+        .iter()
+        .filter(|result| result.rank >= 0.0)
+        .cloned()
+        .collect::<Vec<_>>();
+    let new_fast_tiers = new_report
+        .iter()
+        .take(old_fast_tiers.len())
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        !old_fast_tiers.is_empty(),
+        "filename-prefix tier stays active"
+    );
+    assert!(old_fast_tiers
+        .iter()
+        .any(|result| result.name == "reporting-guide.pdf"));
+    assert!(old_fast_tiers
+        .iter()
+        .any(|result| result.name == "reporté notes.pdf"));
     assert_eq!(
-        new_report, report_oracle,
-        "full candidate result window matches Rust oracle"
+        new_fast_tiers, old_fast_tiers,
+        "the first four fast tiers retain their existing rows and order"
+    );
+    let mut expected_public = old_fast_tiers.clone();
+    let expected_fts_tail = report_oracle
+        .iter()
+        .filter(|result| !old_fast_tiers.iter().any(|fast| fast.id == result.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    expected_public.extend(expected_fts_tail.iter().cloned());
+    assert_eq!(
+        new_report, expected_public,
+        "public results are fast tiers then the deduplicated FTS order"
+    );
+    assert_eq!(
+        &new_report[old_fast_tiers.len()..],
+        expected_fts_tail,
+        "after the preserved filename-prefix tier, public FTS results follow candidate order"
     );
     assert!(
         old_report.iter().any(|result| result.rank < 0.0),
@@ -549,11 +617,9 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     assert!(new_report
         .iter()
         .all(|result| result.rank >= 0.0 && result.rank <= 2.0));
-    assert!(new_report[0].name.contains("Report"));
-    assert!(
-        new_report[0].modified_at_fs.unwrap() < 10_000,
-        "filename relevance outranks newer path-only hits"
-    );
+    assert!(new_report
+        .iter()
+        .any(|result| result.rank == 0.0 && result.name.contains("Report")));
     assert!(new_report.iter().any(|result| result.managed));
     assert!(new_report.iter().any(|result| {
         result.name == "Quarterly Report 0.pdf"
@@ -587,14 +653,14 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     assert!(!new_report
         .iter()
         .any(|result| result.name.contains("Coverage Pending")));
-    let null_time = new_report
+    let null_time = candidate_report
         .iter()
         .position(|result| result.name == "Quarterly Report 1.pdf")
         .expect("retain row with NULL modification time");
-    assert_eq!(new_report[null_time].modified_at_fs, None);
-    assert!(new_report[null_time - 1].modified_at_fs.is_some());
-    assert_eq!(new_report[null_time - 1].rank, 0.0);
-    assert_eq!(new_report[null_time + 1].rank, 1.0);
+    assert_eq!(candidate_report[null_time].modified_at_fs, None);
+    assert!(candidate_report[null_time - 1].modified_at_fs.is_some());
+    assert_eq!(candidate_report[null_time - 1].rank, 0.0);
+    assert_eq!(candidate_report[null_time + 1].rank, 1.0);
 
     for (name, expected_rank) in [
         ("prereport-report.pdf", 0.0),
@@ -608,7 +674,7 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         ("Report from empty path.pdf", 0.0),
         ("pre_report_suffix.pdf", 1.0),
     ] {
-        let row = new_report
+        let row = candidate_report
             .iter()
             .find(|result| result.name == name)
             .unwrap_or_else(|| panic!("expected adversarial filename {name:?}"));
@@ -619,8 +685,8 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
             search_global_entries_on_connection(&conn, "report", 10, 64)
         })
         .unwrap(),
-        report_oracle[64..].to_vec(),
-        "page slices the complete new order"
+        page(&new_report, 64, 10),
+        "public pagination slices fast tiers followed by the complete candidate order"
     );
     assert!(with_filename_relevance_candidate(true, || {
         search_global_entries_on_connection(&conn, "report", 80, 4_096)
@@ -632,10 +698,9 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     assert_eq!(repeated_phrase_oracle.len(), 1);
     assert_eq!(repeated_phrase_oracle[0].rank, 0.0);
     assert_eq!(
-        with_filename_relevance_candidate(true, || {
-            search_global_entries_on_connection(&conn, "report archive", 80, 0)
-        })
-        .unwrap(),
+        diagnostic_search_filename_relevance(&conn, "report archive", 80)
+            .unwrap()
+            .expect("supported phrase query uses filename relevance"),
         repeated_phrase_oracle,
         "a later whole-phrase occurrence wins when an earlier occurrence is unbounded"
     );
@@ -646,10 +711,9 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         .expect("repeated full phrase remains in FTS candidates");
     assert_eq!(repeated_word_phrase.rank, 0.0);
     assert_eq!(
-        with_filename_relevance_candidate(true, || {
-            search_global_entries_on_connection(&conn, "annual report", 80, 0)
-        })
-        .unwrap(),
+        diagnostic_search_filename_relevance(&conn, "annual report", 80)
+            .unwrap()
+            .expect("supported phrase query uses filename relevance"),
         repeated_word_phrase_oracle,
         "phrases use the same all-occurrence boundary rule as single words"
     );
@@ -828,6 +892,9 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         search_global_entries_on_connection(&conn, "report", 4_096, 0)
     })
     .unwrap();
+    let new_fts_contract = diagnostic_search_filename_relevance(&conn, "report", 4_096)
+        .unwrap()
+        .expect("supported report query uses filename relevance");
     let comparisons = comparison_positions(
         "report",
         &[
@@ -899,6 +966,7 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
         ],
         &old_contract,
         &new_contract,
+        &new_fts_contract,
     );
     let comparison_example_count = comparisons.len();
     let route_comparisons = [

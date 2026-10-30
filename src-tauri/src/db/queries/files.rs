@@ -3,7 +3,8 @@ use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_tr
 use super::library::{current_library_revision, selection_where, LibrarySelectionV1};
 use super::library_identity::{
     advance_root_epoch_tx, has_source_uid_attribution_tx, managed_root_ids_for_path_tx,
-    mark_root_path_absent_tx, observe_source_for_root_tx, verify_legacy_source_identity_tx,
+    mark_root_path_absent_tx, observe_source_for_root_tx,
+    verified_legacy_source_rows_for_physical_tx, verify_legacy_source_identity_tx,
     SourceObservationContext,
 };
 use super::*;
@@ -21,6 +22,19 @@ use std::{
     time::Instant,
 };
 use sysinfo::Disks;
+
+const RESTORE_FINALIZATION_MAX_ATTEMPTS: usize = 3;
+
+fn is_retryable_restore_database_lock(error: &DbError) -> bool {
+    matches!(
+        error,
+        DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _))
+            if matches!(
+                code.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            )
+    )
+}
 
 fn fence_source_root_for_user_mutation_tx(
     tx: &Transaction<'_>,
@@ -86,6 +100,23 @@ fn resolve_insert_file_row_id(
             "Path upsert cannot revive a parked legacy row without a current active row; a managed scan must establish the current source identity first.".to_string(),
         )
     })
+}
+
+fn unique_restore_file_id_tx(tx: &Transaction<'_>) -> Result<String, DbError> {
+    for _ in 0..8 {
+        let candidate = format!("zen-canvas-restore:{}", crate::ids::new_job_id("file"));
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM files WHERE id = ?1)",
+            params![candidate],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Ok(candidate);
+        }
+    }
+    Err(DbError::Validation(
+        "Restore could not allocate a file id without replacing an existing row.".to_string(),
+    ))
 }
 
 #[derive(Debug, Clone)]
@@ -426,6 +457,24 @@ impl Database {
         &self,
         log: &OperationLogDto,
     ) -> Result<(), DbError> {
+        for attempt in 0..RESTORE_FINALIZATION_MAX_ATTEMPTS {
+            match self.finalize_successful_operation_restore_once(log) {
+                Err(error)
+                    if attempt + 1 < RESTORE_FINALIZATION_MAX_ATTEMPTS
+                        && is_retryable_restore_database_lock(&error) =>
+                {
+                    std::thread::yield_now();
+                }
+                result => return result,
+            }
+        }
+        unreachable!("restore finalization attempts always return or retry")
+    }
+
+    fn finalize_successful_operation_restore_once(
+        &self,
+        log: &OperationLogDto,
+    ) -> Result<(), DbError> {
         if log.operation_type == "replace" {
             return self.finalize_successful_replace_restore(log);
         }
@@ -469,7 +518,9 @@ impl Database {
         let restored_at = current_unix_seconds();
         let target_candidates = path_lookup_candidates(&log.path_before, &normalized_target);
         let mut conn = self.conn()?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        crate::file_ops::validate_operation_restore_final_identity(log)
+            .map_err(DbError::Validation)?;
         let physical = crate::fs_safety::capture_source_object_identity(&target).ok();
         let (target_row_id, source_row_id) =
             Self::resolve_restore_index_rows(&tx, log, &target_candidates)?;
@@ -490,7 +541,7 @@ impl Database {
             }
         }
 
-        let (current_id, watcher_target_id) = match (&target_row_id, &source_row_id) {
+        let (mut current_id, mut watcher_target_id) = match (&target_row_id, &source_row_id) {
             (Some(target_row_id), Some(source_row_id)) if target_row_id != source_row_id => {
                 (Some(source_row_id.clone()), Some(target_row_id.clone()))
             }
@@ -499,6 +550,42 @@ impl Database {
                 None,
             ),
         };
+
+        let verified_legacy_rows =
+            verified_legacy_source_rows_for_physical_tx(&tx, physical.as_ref())?;
+        let verified_legacy_owners = verified_legacy_rows
+            .into_iter()
+            .filter(|(file_id, _)| !is_neutral_source_file_id(file_id))
+            .collect::<Vec<_>>();
+        if verified_legacy_owners.len() > 1 {
+            return Err(DbError::Validation(
+                "Restore has multiple verified legacy owners for the same physical file; manual review required."
+                    .to_string(),
+            ));
+        }
+        if let Some((legacy_owner_id, source_uid)) = verified_legacy_owners.first() {
+            let neutral_owner_id = format!("zen-canvas-source:{source_uid}");
+            let mut aliases = Vec::new();
+            for candidate_id in [target_row_id.as_deref(), source_row_id.as_deref()]
+                .into_iter()
+                .flatten()
+                .filter(|candidate_id| *candidate_id != legacy_owner_id)
+            {
+                if candidate_id != neutral_owner_id {
+                    return Err(DbError::Validation(format!(
+                        "Restore index owner conflicts with verified SourceUID {source_uid}; legacy facts were retained for owner review."
+                    )));
+                }
+                if !aliases.iter().any(|alias| alias == candidate_id) {
+                    aliases.push(candidate_id.to_string());
+                }
+            }
+            for alias_id in aliases {
+                Self::archive_restore_neutral_source_alias_tx(&tx, &alias_id)?;
+            }
+            current_id = Some(legacy_owner_id.clone());
+            watcher_target_id = None;
+        }
 
         let prior_source_uid = current_id
             .as_deref()
@@ -622,11 +709,33 @@ impl Database {
             }
         }
         let file_type = infer_file_type(&extension, is_dir);
-        let restored_file_id = current_id
+        let restored_file_id = if let Some(current_id) = current_id
             .as_deref()
             .filter(|file_id| is_neutral_source_file_id(file_id))
-            .map(str::to_string)
-            .unwrap_or_else(|| normalized_target.clone());
+        {
+            current_id.to_string()
+        } else {
+            let occupied_by_other_row: bool = match current_id.as_deref() {
+                Some(current_id) => tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM files WHERE id = ?1 AND id <> ?2)",
+                    params![normalized_target, current_id],
+                    |row| row.get(0),
+                )?,
+                None => tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM files WHERE id = ?1)",
+                    params![normalized_target],
+                    |row| row.get(0),
+                )?,
+            };
+            if occupied_by_other_row {
+                match current_id.as_deref() {
+                    Some(current_id) => current_id.to_string(),
+                    None => unique_restore_file_id_tx(&tx)?,
+                }
+            } else {
+                normalized_target.clone()
+            }
+        };
         if let Some(current_id) = current_id.as_deref() {
             // A compatibility row may keep a SourceUID-based id while its
             // path changes. Preserve that id so parked legacy rows whose
@@ -794,7 +903,9 @@ impl Database {
         let after_candidates = path_lookup_candidates(&log.path_after, &target_request.path);
 
         let mut conn = self.conn()?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        crate::file_ops::validate_operation_restore_final_identity(log)
+            .map_err(DbError::Validation)?;
         let before_row_id = Self::resolve_unique_restore_index_row(
             &tx,
             "replacement restore source",
@@ -1038,6 +1149,69 @@ impl Database {
                 "restore {role} index rows are ambiguous"
             ))),
         }
+    }
+
+    fn archive_restore_neutral_source_alias_tx(
+        tx: &Transaction<'_>,
+        file_id: &str,
+    ) -> Result<(), DbError> {
+        if !is_neutral_source_file_id(file_id) {
+            return Err(DbError::Validation(format!(
+                "Restore cannot archive a non-neutral SourceUID alias: {file_id}"
+            )));
+        }
+        let (path, is_stale): (String, i64) = tx.query_row(
+            "SELECT path, is_stale FROM files WHERE id = ?1",
+            params![file_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let archive_path = if super::is_legacy_unassigned_archive_path(&path) {
+            path.clone()
+        } else {
+            Self::restore_alias_archive_path(tx, file_id, &path)?
+        };
+        if is_stale == 0 || archive_path != path {
+            invalidate_file_in_transaction(tx, file_id, "stale")?;
+        }
+        tx.execute(
+            "UPDATE files SET path = ?1, is_stale = 1, content_hash = '', filesystem_observation_key = NULL WHERE id = ?2",
+            params![archive_path, file_id],
+        )?;
+        Ok(())
+    }
+
+    fn restore_alias_archive_path(
+        tx: &Transaction<'_>,
+        file_id: &str,
+        original_path: &str,
+    ) -> Result<String, DbError> {
+        let digest = blake3::hash(format!("{file_id}\0{original_path}\0restore").as_bytes())
+            .to_hex()
+            .to_string();
+        for suffix in 0..64_u32 {
+            let candidate = if suffix == 0 {
+                format!(
+                    "{}restore-{digest}",
+                    super::LEGACY_UNASSIGNED_ARCHIVE_PATH_PREFIX
+                )
+            } else {
+                format!(
+                    "{}restore-{digest}-{suffix}",
+                    super::LEGACY_UNASSIGNED_ARCHIVE_PATH_PREFIX
+                )
+            };
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM files WHERE path = ?1 AND id <> ?2)",
+                params![candidate, file_id],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Ok(candidate);
+            }
+        }
+        Err(DbError::Validation(format!(
+            "Restore could not allocate an archive path for SourceUID alias {file_id}."
+        )))
     }
 
     fn update_file_record_after_path_change(

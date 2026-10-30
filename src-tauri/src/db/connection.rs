@@ -176,6 +176,22 @@ impl Database {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_test_busy_handler_for_all_connections(
+        &self,
+        handler: fn(i32) -> bool,
+    ) -> Result<(), DbError> {
+        let pool_size = self.pool.max_size();
+        let mut connections = Vec::with_capacity(pool_size as usize);
+        for _ in 0..pool_size {
+            connections.push(self.conn()?);
+        }
+        for connection in &mut connections {
+            connection.busy_handler(Some(handler))?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn cached_library_count(
         &self,
         revision: i64,

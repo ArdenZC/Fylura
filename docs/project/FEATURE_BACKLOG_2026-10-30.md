@@ -1,5 +1,6 @@
 # Zen Canvas / Fylura 产品功能总清单与开发欠账（2026-10-30）
 
+> **实时交付追踪：** [GitHub Issue #512 — 统一产品功能台账](https://github.com/ArdenZC/Zen-Canvas/issues/512)。本页为 2026-10-30 不可直接推定后续状态的快照。
 > **核对基线：** [`master@e80161528e0c`](https://github.com/ArdenZC/Zen-Canvas/commit/e80161528e0cec564c882e43dc2b1ffc0ff5ef4c)；与 2026-10-15《统一产品蓝图 V2》及 2026-10-26《竞品迭代研究与路线评审》对照。
 > **用途：** Owner 产品管理与 Codex 交付用的审计型 Backlog；属于**状态盘点和建议交付批次**，不是声称已通过原生 QA，也不是自动授权所有长期研究落地。
 > **注意：** 原蓝图标注为研究输入而非冻结实施合同；当前 U1–U5（#469–#486）与原蓝图 U0–U5 命名不同，以下统一采用 **FL/GS/CORE/AI/PV/UX/QA 功能 ID**，避免重复编号和将研究算成已完成。

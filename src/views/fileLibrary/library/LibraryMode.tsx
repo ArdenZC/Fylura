@@ -1,14 +1,11 @@
 import { isFileLibraryFocusTarget } from "../fileLibraryInteraction";
 import { usePaneQuerySelector, usePane } from "../workbench/PaneContext";
-import { Bookmark, ChevronDown, FolderSearch, Layers, ListOrdered, SlidersHorizontal, Tag } from "lucide-react";
+import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
 import { cloneFileQuerySpec, explicitSingleSelectionId } from "../../../store/useFileLibraryV2Store";
-import type {
-  FileLibrarySummary,
-  FileLibraryDetail
-} from "../../../types/domain";
+import type { FileLibrarySummary, FileLibraryDetail } from "../../../types/domain";
 import { libraryScopeLabel, readableError } from "../../../utils/viewHelpers";
 import { buttonGhost, buttonSecondary, buttonSubtle, cn, buttonPrimary, raisedSurface } from "../../../utils/tw";
 import { NoticeBanner, StateBlock, pageFrame } from "../../shared/ui";
@@ -16,8 +13,8 @@ import { FileLibraryFilterPopover } from "../../vault/components/FileLibraryFilt
 import { ContentUnderstandingSheet } from "../../vault/components/ContentUnderstandingSheet";
 import { LibraryMetadataManagerDialog } from "../../vault/components/LibraryMetadataManagerDialog";
 import { ManualRenameDialog } from "./ManualRenameDialog";
-import { BatchRenameDialog } from "./BatchRenameDialog";
-import { BATCH_RENAME_LIMIT } from "./batchRenameModel";
+import { BatchRenameAction } from "./BatchRenameAction";
+import { useBatchRenameAction } from "./useBatchRenameAction";
 import { LibraryContextMenu } from "./LibraryContextMenu";
 import { useLibrarySourceOwner } from "./librarySourceOwner";
 import { useLibraryContextMenu } from "./useLibraryContextMenu";
@@ -73,9 +70,7 @@ export function LibraryMode() {
   useApplyLibraryNavigationTarget({ currentTarget, source });
   const [personalOpen, setPersonalOpen] = useState(false);
   const personalTrigger = useRef<HTMLButtonElement | null>(null);
-  const batchRenameTrigger = useRef<HTMLButtonElement | null>(null);
   const [renameFile, setRenameFile] = useState<FileLibrarySummary | null>(null);
-  const [batchRenameOpen, setBatchRenameOpen] = useState(false);
   const canonicalSingleSelectionId = explicitSingleSelectionId(source.selection);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -92,14 +87,6 @@ export function LibraryMode() {
     && !source.isLoading
     && !source.error;
   const showLibraryControls = !isNoIndexState;
-  const batchRenameFiles = source.selection?.kind === "explicit" ? source.selectedFiles : [];
-  const batchRenameSelectionVisible = capabilities?.renameAvailable === true && (source.selection?.kind === "all_matching" || source.selectedIdList.length > 1);
-  const batchRenameSelectionReady = source.selection?.kind === "explicit"
-    && source.selectedIdList.length >= 2
-    && source.selectedIdList.length === batchRenameFiles.length
-    && batchRenameFiles.length <= BATCH_RENAME_LIMIT
-    && batchRenameFiles.every((file) => !file.isDirectory && !file.isStale);
-  const batchRenameDisabled = !batchRenameSelectionReady;
   const sortOptions = useMemo(() => [
     { key: "modified" as const, label: t("librarySortModified") },
     { key: "created" as const, label: t("librarySortCreated") },
@@ -109,12 +96,26 @@ export function LibraryMode() {
     { key: "relevance" as const, label: t("librarySortRelevance") }
   ], [t]);
   const currentSortLabel = sortOptions.find((option) => option.key === source.querySpec.sort.kind)?.label ?? t("librarySortModified");
+  const { source: batchRenameSource, onPreview: onBatchRenamePreview } = useBatchRenameAction(source, setView);
   const commandBarActions = useMemo(() => showLibraryControls ? <>
     <div className="relative"><button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls={pane ? `library-filter-popover-${pane.id}` : "library-filter-popover"} aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>{isFilterOpen ? <div id={pane ? `library-filter-popover-${pane.id}` : "library-filter-popover"}><FileLibraryFilterPopover filters={source.querySpec.filters} tags={source.tags} t={t} onFiltersChange={source.updateFilters} onClear={source.clearFilters} onClose={() => { setIsFilterOpen(false); requestAnimationFrame(() => filterButtonRef.current?.focus()); }} /></div> : null}</div>
     <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-controls={pane ? `library-sort-menu-${pane.id}` : "library-sort-menu"} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div id={pane ? `library-sort-menu-${pane.id}` : "library-sort-menu"} className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-2 shadow-[var(--zc-shadow-menu)]" role="menu" aria-label={t("librarySortMenuLabel")} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setIsSortOpen(false); requestAnimationFrame(() => sortButtonRef.current?.focus()); } }}><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={source.querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", source.querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => { source.setSort(option.key); setIsSortOpen(false); requestAnimationFrame(() => sortButtonRef.current?.focus()); }}>{option.label}<span className="text-xs">{source.querySpec.sort.kind === option.key ? source.querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
     <select className={cn(buttonSubtle, "min-h-9 max-w-48 px-2 text-xs")} value={source.activeViewId ?? ""} onChange={(event) => source.applySavedView(source.savedViews.find((view) => view.id === event.target.value) ?? null)} aria-label={t("librarySavedViewsLabel")}><option value="">{t("librarySavedViewsPlaceholder")}</option>{source.savedViews.map((view) => <option key={view.id} value={view.id}>{view.displayName}{view.invalidReferences.length ? ` · ${t("librarySavedViewInvalid")}` : ""}</option>)}</select>
-    {batchRenameSelectionVisible ? <button ref={batchRenameTrigger} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} disabled={batchRenameDisabled} title={source.selectedIdList.length > BATCH_RENAME_LIMIT ? t("libraryBatchRenameLimit").replace("{limit}", String(BATCH_RENAME_LIMIT)) : batchRenameDisabled ? t("libraryBatchRenameSelectionUnavailable") : undefined} onClick={() => setBatchRenameOpen(true)}><ListOrdered size={15}/>{t("libraryBatchRename")} · {source.selection?.kind === "all_matching" ? source.selectionSummary?.count ?? "…" : source.selectedIdList.length}</button> : null}
-  </> : null, [activeFilterCount, batchRenameDisabled, batchRenameSelectionVisible, capabilities?.renameAvailable, currentSortLabel, isFilterOpen, isSortOpen, showLibraryControls, sortOptions, source.activeViewId, source.applySavedView, source.clearFilters, source.querySpec.filters, source.querySpec.sort.direction, source.querySpec.sort.kind, source.savedViews, source.selectedFiles, source.selectedIdList, source.selection, source.selectionSummary?.count, source.setSort, source.tags, source.updateFilters, t]);
+    <BatchRenameAction
+      source={batchRenameSource}
+      renameAvailable={capabilities?.renameAvailable === true}
+      paneVisible={pane?.visible ?? true}
+      t={t}
+      onPreview={onBatchRenamePreview}
+    />
+  </> : null, [
+    activeFilterCount, batchRenameSource, capabilities?.renameAvailable, currentSortLabel,
+    isFilterOpen, isSortOpen, onBatchRenamePreview, pane?.id, pane?.visible,
+    showLibraryControls, sortOptions, source.activeViewId, source.applySavedView,
+    source.clearFilters, source.querySpec.filters, source.querySpec.sort.direction,
+    source.querySpec.sort.kind, source.savedViews, source.setSort, source.tags,
+    source.updateFilters, t
+  ]);
   useFileLibraryLibrarySearchSurface({
     enabled: showLibraryControls,
     value: source.librarySearch,
@@ -448,19 +449,6 @@ export function LibraryMode() {
           source.clearExecutionIntent();
           source.setPreviewResult({ previews: [preview], total: 1, limit: 1, offset: 0, truncated: false, hasMore: false }, source.scope);
           setRenameFile(null);
-          setView("preview");
-        }}
-      /> : null}
-      {batchRenameOpen && (pane?.visible ?? true) ? <BatchRenameDialog
-        key={`batch-rename-${batchRenameFiles.map((file) => file.id).join("|")}`}
-        files={batchRenameFiles}
-        t={t}
-        onClose={() => setBatchRenameOpen(false)}
-        restoreFocus={() => batchRenameTrigger.current}
-        onPreview={(previews) => {
-          source.clearExecutionIntent();
-          source.setPreviewResult({ previews, total: previews.length, limit: previews.length, offset: 0, truncated: false, hasMore: false }, source.scope);
-          setBatchRenameOpen(false);
           setView("preview");
         }}
       /> : null}

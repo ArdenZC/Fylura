@@ -9,6 +9,9 @@ import { localizedStableError, readableError } from "../../../utils/viewHelpers"
 import {
   BATCH_RENAME_LIMIT,
   buildBatchRenameName,
+  collectExecutableBatchRenamePreviews,
+  duplicateBatchRenameFileIds,
+  isCurrentExecutableBatchRenamePreview,
   keepBothCandidate,
   validateBatchRenameName,
   type BatchRenameMode,
@@ -112,16 +115,11 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
         localError: templateError ? null : generationError ?? (validation ? validationKey(validation) : null)
       };
     });
-    const duplicates = new Set<string>();
-    const idsByTarget = new Map<string, string[]>();
-    for (const row of base) {
-      if (skippedIds.has(row.file.id) || row.localError || !row.name) continue;
-      const key = row.name.normalize("NFC").toLocaleLowerCase("en-US");
-      const existing = idsByTarget.get(key);
-      if (existing) existing.push(row.file.id);
-      else idsByTarget.set(key, [row.file.id]);
-    }
-    for (const ids of idsByTarget.values()) if (ids.length > 1) ids.forEach((id) => duplicates.add(id));
+    const duplicates = duplicateBatchRenameFileIds(base.map((row) => ({
+      fileId: row.file.id,
+      name: row.name,
+      hasLocalError: Boolean(row.localError)
+    })), skippedIds);
     return base.map((row) => ({
       ...row,
       localError: row.localError ?? (duplicates.has(row.file.id) ? "libraryBatchRenameDuplicate" as const : null)
@@ -129,13 +127,12 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
   }, [files, overrides, skippedIds, template, templateError]);
 
   const readyRows = rows.filter((row) => !skippedIds.has(row.file.id));
-  const executableCount = readyRows.filter((row) => {
-    const preview = previews[row.file.id];
-    return preview && preview.is_executable !== false && !preview.blocking_reason;
-  }).length;
-  const canContinue = readyRows.length > 0
-    && executableCount > 0
-    && readyRows.every((row) => !row.localError && !previewErrors[row.file.id] && previews[row.file.id]);
+  const previewRows = readyRows.map((row) => ({ fileId: row.file.id, name: row.name, hasLocalError: Boolean(row.localError) }));
+  const executableCount = readyRows.filter((row) => !row.localError
+    && !previewErrors[row.file.id]
+    && isCurrentExecutableBatchRenamePreview(previews[row.file.id], row.file.id, row.name)).length;
+  const executablePreviews = collectExecutableBatchRenamePreviews(previewRows, skippedIds, previews, previewErrors);
+  const canContinue = executablePreviews !== null;
 
   function invalidatePreviews() {
     requestEpoch.current++;
@@ -238,7 +235,7 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
         if (!alive.current || requestEpoch.current !== epoch) return;
         const candidate = keepBothCandidate(initialName, ordinal);
         const preview = await tauriApi.getManualRenameOperationPreview(fileId, candidate);
-        if (preview.is_executable !== false && !preview.blocking_reason) {
+        if (isCurrentExecutableBatchRenamePreview(preview, fileId, candidate)) {
           if (alive.current && requestEpoch.current === epoch) {
             setOverrides((current) => ({ ...current, [fileId]: candidate }));
             setPreviews((current) => ({ ...current, [fileId]: preview }));
@@ -259,11 +256,9 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
   }
 
   function continueToOperationPreview() {
-    if (!canContinue || busy) return;
-    const authoritative = readyRows.flatMap((row) => previews[row.file.id] ? [previews[row.file.id]!] : []);
-    if (!authoritative.length) return;
+    if (busy || executablePreviews === null) return;
     requestEpoch.current++;
-    onPreview(authoritative);
+    onPreview(executablePreviews);
   }
 
   function handleModeChange(event: ChangeEvent<HTMLSelectElement>) {
@@ -276,7 +271,7 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
     if (previewErrors[fileId]) return previewErrors[fileId];
     const preview = previews[fileId];
     if (!preview) return t("libraryBatchRenameNotPreviewed");
-    if (preview.is_executable === false || preview.blocking_reason) return t("libraryBatchRenameBlocked");
+    if (!isCurrentExecutableBatchRenamePreview(preview, fileId, rows.find((row) => row.file.id === fileId)?.name ?? "")) return t("libraryBatchRenameBlocked");
     return t("libraryBatchRenameReady");
   };
 
@@ -319,7 +314,7 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
             {rows.map((row) => {
               const preview = previews[row.file.id];
               const rowError = previewErrors[row.file.id];
-              const isBlocked = Boolean(preview && (preview.is_executable === false || preview.blocking_reason));
+              const isBlocked = Boolean(preview && !isCurrentExecutableBatchRenamePreview(preview, row.file.id, row.name));
               return <li key={row.file.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(160px,0.8fr)_auto] items-center gap-2 px-3 py-2" data-batch-rename-status={skippedIds.has(row.file.id) ? "skipped" : isBlocked ? "blocked" : preview ? "ready" : "pending"}>
                 <span className="min-w-0 break-all text-sm" title={row.file.name}>{row.file.name}</span>
                 <input className={inputSurface} value={row.name} disabled={busy} aria-label={`${t("libraryBatchRenameTarget")}: ${row.file.name}`} aria-invalid={Boolean(row.localError || rowError || isBlocked)} onChange={(event) => setRowName(row.file.id, event.target.value)}/>

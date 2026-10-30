@@ -1647,9 +1647,8 @@
     type RestoreTestBusyCallback = dyn Fn(i32) -> bool + Send + Sync;
     type RestoreTestBusyHandler = Option<std::sync::Arc<RestoreTestBusyCallback>>;
 
-    static RESTORE_TEST_BUSY_HANDLER: std::sync::OnceLock<
-        std::sync::Mutex<RestoreTestBusyHandler>,
-    > = std::sync::OnceLock::new();
+    static RESTORE_TEST_BUSY_HANDLER: std::sync::OnceLock<std::sync::Mutex<RestoreTestBusyHandler>> =
+        std::sync::OnceLock::new();
 
     fn restore_test_busy_dispatch(attempt: i32) -> bool {
         let handler = RESTORE_TEST_BUSY_HANDLER

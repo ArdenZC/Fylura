@@ -20,6 +20,8 @@ export interface FileLibraryInspectorProps {
   selectedFiles: FileLibrarySummary[];
   selectionKind: LibrarySelectionV1["kind"] | null;
   selectedCount: number | null;
+  /** File Library already owns Preview and Reveal in its shared selection actions. */
+  showPrimaryFileActions?: boolean;
   detail: FileLibraryDetail | null;
   selectionSummary: FileLibrarySelectionSummary | null;
   isLoading: boolean;
@@ -44,6 +46,7 @@ export function FileLibraryInspector({
   selectedFiles,
   selectionKind,
   selectedCount,
+  showPrimaryFileActions = true,
   detail,
   selectionSummary,
   isLoading,
@@ -74,7 +77,7 @@ export function FileLibraryInspector({
         ) : null}
         {contentKind === "inspector" ? (
           isLoading ? <LoadingInspector t={t} /> : error ? <DetailErrorInspector error={error} t={t} onRetry={onRetryDetail} /> : detail ? (
-            <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onPermanentDelete={onPermanentDelete} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
+            <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} showPrimaryFileActions={showPrimaryFileActions} onViewSuggestions={onViewSuggestions} onViewOperations={onViewOperations} onPermanentDelete={onPermanentDelete} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
           ) : <MissingInspector t={t} />
         ) : null}
       </div>
@@ -175,7 +178,7 @@ function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onViewOp
   );
 }
 
-function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, onViewOperations, onPermanentDelete, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; onViewOperations: () => void; onPermanentDelete?: (file: FileLibraryDetail) => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
+function SingleInspector({ detail, language, t, onPreview, onReveal, showPrimaryFileActions, onViewSuggestions, onViewOperations, onPermanentDelete, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; showPrimaryFileActions: boolean; onViewSuggestions: () => void; onViewOperations: () => void; onPermanentDelete?: (file: FileLibraryDetail) => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
   const missing = detail.isStale;
   const [showThumbnail, setShowThumbnail] = useState(false);
   const selectedTagIds = new Set(detail.tags.map((tag) => tag.id));
@@ -194,9 +197,9 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
           <InspectorField label={t("libraryNativeAvailability")} value={nativeAvailabilityLabel(detail.nativeSemantics.contentAvailability, t)} />
         </> : null}
       </dl>
-      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button></div>
+      {showPrimaryFileActions ? <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button></div> : null}
       <FilePersonalMetadataEditor key={detail.id} fileId={detail.id} t={t} />
-      <details onToggle={(event) => setShowThumbnail(event.currentTarget.open)}><summary className="cursor-pointer text-sm font-semibold">{t("libraryPreview")}</summary>{showThumbnail ? <InspectorQuickLookPreview file={detail} t={t} /> : null}</details>
+      <details onToggle={(event) => setShowThumbnail(event.currentTarget.open)}><summary className="cursor-pointer text-sm font-semibold">{t(showPrimaryFileActions ? "libraryPreview" : "libraryQuickLookThumbnail")}</summary>{showThumbnail ? <InspectorQuickLookPreview file={detail} t={t} /> : null}</details>
       <details><summary className="cursor-pointer text-sm font-semibold">{t("libraryClassification")}</summary><dl className="mt-3 grid gap-3 text-sm">
         <InspectorField label={t("libraryClassification")} value={detail.suggestedAction || t("unknown")} />
         <InspectorField label={t("lifecycle")} value={detail.lifecycle} />

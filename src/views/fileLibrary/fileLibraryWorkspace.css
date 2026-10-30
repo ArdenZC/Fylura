@@ -459,6 +459,26 @@
   overflow: auto;
 }
 
+.file-library-context-panel-pane-overlay {
+  position: absolute;
+  z-index: 60;
+  inset: 8px 8px 8px auto;
+  display: flex;
+  width: min(360px, calc(100% - 16px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--zc-divider);
+  border-radius: var(--zc-radius-floating);
+  background: var(--zc-surface-overlay);
+  box-shadow: var(--zc-shadow-float);
+}
+
+.file-library-context-panel-pane-overlay .file-library-context-panel-content {
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .file-library-context-inline-header {
   display: flex;
   min-height: 42px;

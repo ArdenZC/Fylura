@@ -7,6 +7,8 @@ export interface PaneContextValue {
   id: string;
   visible: boolean;
   focused: boolean;
+  /** True when this visible pane is one side of the wide dual-pane layout. */
+  wideDualPane?: boolean;
   rootRef: RefObject<HTMLDivElement | null>;
   projection: typeof defaultFileLibraryProjection;
   scope: LibraryScope;

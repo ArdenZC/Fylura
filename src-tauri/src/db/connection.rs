@@ -1,5 +1,6 @@
 use super::schema::migrate;
 use super::*;
+use crate::global_index::filename_search::FilenameSearchManager;
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
@@ -70,6 +71,7 @@ impl ManagedAiWakeSlot {
 pub struct Database {
     path: PathBuf,
     pool: Pool<SqliteConnectionManager>,
+    pub(crate) filename_search: Arc<FilenameSearchManager>,
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
     pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
@@ -90,7 +92,15 @@ impl Database {
             fs::create_dir_all(parent)?;
         }
 
-        let manager = SqliteConnectionManager::file(&path).with_init(configure_connection);
+        let filename_search = Arc::new(FilenameSearchManager::new(&path));
+        let hook_manager = Arc::clone(&filename_search);
+        let manager = SqliteConnectionManager::file(&path).with_init(move |connection| {
+            configure_connection(connection)?;
+            if hook_manager.should_install_mutation_hooks() {
+                hook_manager.install_mutation_hooks(connection)?;
+            }
+            Ok(())
+        });
         let pool = Pool::builder()
             .max_size(8)
             .min_idle(Some(1))
@@ -103,6 +113,7 @@ impl Database {
         Ok(Self {
             path,
             pool,
+            filename_search,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),

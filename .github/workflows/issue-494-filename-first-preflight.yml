@@ -1,0 +1,97 @@
+name: Issue 494 filename-first native preflight
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/src/db/connection.rs"
+      - "src-tauri/src/global_index/filename_search.rs"
+      - "src-tauri/src/global_index/repository.rs"
+      - "src-tauri/src/global_index/search.rs"
+      - "src-tauri/src/global_index/tests.rs"
+      - "src-tauri/src/global_index/tests/filename_first_candidate_benchmark.rs"
+      - "src-tauri/src/global_index/tests/filename_search_candidate.rs"
+      - "src-tauri/src/global_index/tests/global_search_benchmark.rs"
+      - ".github/workflows/issue-494-filename-first-preflight.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  native-release-preflight:
+    if: ${{ github.head_ref == 'codex/issue-494-filename-first-candidate' && github.event.pull_request.head.repo.full_name == github.repository }}
+    name: ${{ matrix.platform }} ${{ matrix.entries }} Release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+            entries: "100000"
+          - os: windows-latest
+            platform: windows-x86_64
+            entries: "200000"
+          - os: macos-latest
+            platform: macos-arm64
+            entries: "100000"
+          - os: macos-latest
+            platform: macos-arm64
+            entries: "200000"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ matrix.entries }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/filename-${{ matrix.platform }}-${{ matrix.entries }}.jsonl
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Prepare isolated temp storage
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $taskTemp = Join-Path $env:RUNNER_TEMP 'issue494-filename-temp'
+          $taskTarget = Join-Path $env:RUNNER_TEMP 'issue494-filename-target'
+          New-Item -ItemType Directory -Force -Path $taskTemp, $taskTarget, (Split-Path -Parent $env:ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT) | Out-Null
+          "TEMP=$taskTemp" >> $env:GITHUB_ENV
+          "TMP=$taskTemp" >> $env:GITHUB_ENV
+          "TMPDIR=$taskTemp" >> $env:GITHUB_ENV
+          "CARGO_TARGET_DIR=$taskTarget" >> $env:GITHUB_ENV
+
+      - name: Prepare isolated temp storage
+        if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          task_temp="$RUNNER_TEMP/issue494-filename-temp"
+          task_target="$RUNNER_TEMP/issue494-filename-target"
+          mkdir -p "$task_temp" "$task_target" "$(dirname "$ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT")"
+          echo "TMPDIR=$task_temp" >> "$GITHUB_ENV"
+          echo "TEMP=$task_temp" >> "$GITHUB_ENV"
+          echo "TMP=$task_temp" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$task_target" >> "$GITHUB_ENV"
+
+      - name: Run paired full Search, Snapshot, correctness, and write preflight
+        working-directory: src-tauri
+        run: >-
+          cargo test --release
+          --features global-search-filename-relevance-candidate
+          --lib
+          global_index::tests::global_search_benchmark::filename_first_candidate_benchmark::issue494_filename_first_native_preflight
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Upload raw JSONL evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue-494-filename-${{ matrix.platform }}-${{ matrix.entries }}-${{ github.run_id }}
+          path: ci-evidence/filename-${{ matrix.platform }}-${{ matrix.entries }}.jsonl
+          if-no-files-found: error
+          retention-days: 90

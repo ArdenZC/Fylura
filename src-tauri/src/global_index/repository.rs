@@ -1348,6 +1348,39 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> Result<GlobalSearchSnapshot, DbError> {
+        if self.filename_search.is_enabled()
+            && super::search::filename_relevance_query_supported(query.trim())
+        {
+            if let Ok(Some(snapshot)) =
+                self.filename_search
+                    .try_with_snapshot(|transaction, index, changes| {
+                        let Some(results) =
+                            super::search::search_global_entries_with_filename_index_on_connection(
+                                transaction,
+                                query,
+                                limit,
+                                offset,
+                                index,
+                                changes,
+                            )?
+                        else {
+                            return Ok(None);
+                        };
+                        let (source_health, source_revision, enabled_rows) =
+                            load_snapshot_source_health(transaction)?;
+                        let index_status =
+                            global_index_status_with_total(transaction, enabled_rows)?;
+                        Ok(Some(GlobalSearchSnapshot {
+                            results,
+                            source_health,
+                            source_revision,
+                            index_status,
+                        }))
+                    })
+            {
+                return Ok(snapshot);
+            }
+        }
         let mut conn = self.conn()?;
         let transaction = conn.transaction()?;
         let results =

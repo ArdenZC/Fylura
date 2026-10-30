@@ -29,6 +29,9 @@ mod schema_upgrade_cost;
 #[path = "global_search_source_facts_pair.rs"]
 mod source_facts_pair;
 
+#[path = "filename_first_candidate_benchmark.rs"]
+mod filename_first_candidate_benchmark;
+
 const DEFAULT_ENTRIES: u64 = 100_000;
 const ALLOWED_ENTRIES: [u64; 5] = [100_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
 const INSERT_BATCH_SIZE: u64 = 512;

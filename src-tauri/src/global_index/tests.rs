@@ -1874,3 +1874,6 @@ mod global_index_volume_identity;
 
 #[path = "tests/watcher_degradation_poll.rs"]
 mod watcher_degradation_poll;
+
+#[path = "tests/filename_search_candidate.rs"]
+mod filename_search_candidate;

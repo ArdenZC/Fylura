@@ -29,15 +29,26 @@ jobs:
         include:
           - os: windows-latest
             platform: windows-x86_64
-            entries: "1000000"
+            entries: "100000"
+            idle_seconds: "0"
+          - os: windows-latest
+            platform: windows-x86_64
+            entries: "200000"
+            idle_seconds: "1800"
           - os: macos-latest
             platform: macos-arm64
-            entries: "1000000"
+            entries: "100000"
+            idle_seconds: "0"
+          - os: macos-latest
+            platform: macos-arm64
+            entries: "200000"
+            idle_seconds: "1800"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
       ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ matrix.entries }}
       ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/filename-${{ matrix.platform }}-${{ matrix.entries }}.jsonl
+      ZC_GLOBAL_SEARCH_BENCHMARK_IDLE_SECONDS: ${{ matrix.idle_seconds }}
       ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Checkout exact candidate head

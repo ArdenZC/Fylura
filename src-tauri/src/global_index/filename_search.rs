@@ -9,6 +9,8 @@ use crate::db::DbError;
 use rusqlite::{hooks::Action, Connection, OpenFlags, OptionalExtension, Transaction};
 use std::borrow::Cow;
 use std::cmp::Ordering;
+#[cfg(test)]
+use std::collections::HashMap;
 use std::collections::{BinaryHeap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{
@@ -16,6 +18,36 @@ use std::sync::atomic::{
 };
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+thread_local! {
+    static CANDIDATE_SEARCH_STAGE_CAPTURE: std::cell::RefCell<Option<HashMap<&'static str, u64>>> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+pub(crate) fn capture_candidate_search_stages<T>(
+    operation: impl FnOnce() -> T,
+) -> (T, HashMap<&'static str, u64>) {
+    let previous =
+        CANDIDATE_SEARCH_STAGE_CAPTURE.with(|capture| capture.replace(Some(HashMap::new())));
+    let value = operation();
+    let captured = CANDIDATE_SEARCH_STAGE_CAPTURE
+        .with(|capture| capture.replace(previous))
+        .unwrap_or_default();
+    (value, captured)
+}
+
+#[cfg(test)]
+pub(crate) fn record_candidate_search_stage(stage: &'static str, started: Instant) {
+    let elapsed_ns = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+    CANDIDATE_SEARCH_STAGE_CAPTURE.with(|capture| {
+        if let Some(stages) = capture.borrow_mut().as_mut() {
+            let total = stages.entry(stage).or_default();
+            *total = total.saturating_add(elapsed_ns);
+        }
+    });
+}
 
 const MAX_INDEX_ENTRIES: usize = 2_000_000;
 const MAX_INDEX_PRIVATE_BYTES: usize = 112 * 1024 * 1024;
@@ -51,6 +83,22 @@ pub(crate) struct FilenameSearchDiagnostics {
     pub index_build_peak_bytes: usize,
     pub last_build_micros: u64,
     pub last_error: Option<String>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct FilenameRankStageProfile {
+    pub identity_setup_ns: u64,
+    pub lookup_and_classification_ns: u64,
+    pub top_k_heap_ns: u64,
+    pub heap_sort_ns: u64,
+    pub accepted_candidates: usize,
+    pub overlay_rows: usize,
+}
+
+#[cfg(test)]
+fn duration_ns(duration: Duration) -> u64 {
+    duration.as_nanos().min(u64::MAX as u128) as u64
 }
 
 #[derive(Default)]
@@ -187,6 +235,8 @@ impl FilenameSearchManager {
             &ChangeSet,
         ) -> Result<Option<T>, DbError>,
     ) -> Result<Option<T>, DbError> {
+        #[cfg(test)]
+        let manager_started = Instant::now();
         if !self.is_enabled() {
             return Ok(None);
         }
@@ -325,9 +375,22 @@ impl FilenameSearchManager {
         }
 
         if changes.source_state_changed {
+            #[cfg(test)]
+            let source_check_started = Instant::now();
             match index.active_sources_match(&transaction) {
-                Ok(true) => {}
+                Ok(true) => {
+                    #[cfg(test)]
+                    record_candidate_search_stage(
+                        "source_state_revalidation",
+                        source_check_started,
+                    );
+                }
                 Ok(false) => {
+                    #[cfg(test)]
+                    record_candidate_search_stage(
+                        "source_state_revalidation",
+                        source_check_started,
+                    );
                     drop(transaction);
                     self.invalidate_if_current(&index);
                     self.counters
@@ -337,6 +400,11 @@ impl FilenameSearchManager {
                     return Ok(None);
                 }
                 Err(error) => {
+                    #[cfg(test)]
+                    record_candidate_search_stage(
+                        "source_state_revalidation",
+                        source_check_started,
+                    );
                     self.record_error(format!("active_sources_check:{error}"));
                     drop(transaction);
                     self.invalidate_if_current(&index);
@@ -349,14 +417,20 @@ impl FilenameSearchManager {
             }
         }
 
+        #[cfg(test)]
+        record_candidate_search_stage("manager_snapshot_validation", manager_started);
         match operation(&transaction, &index, &changes) {
             Ok(Some(value)) => {
+                #[cfg(test)]
+                let commit_started = Instant::now();
                 if let Err(error) = transaction.commit() {
                     self.record_error(format!("reader_commit:{error}"));
                     self.invalidate_if_current(&index);
                     self.request_rebuild();
                     return Ok(None);
                 }
+                #[cfg(test)]
+                record_candidate_search_stage("reader_transaction_commit", commit_started);
                 self.counters
                     .accepted_queries
                     .fetch_add(1, AtomicOrdering::Relaxed);
@@ -440,6 +514,24 @@ impl FilenameSearchManager {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_reader_for_test<T>(
+        &self,
+        operation: impl FnOnce(&Connection) -> T,
+    ) -> Option<T> {
+        let shared_connection = {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            Arc::clone(state.connection.as_ref()?)
+        };
+        let connection = shared_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Some(operation(&connection))
     }
 
     fn invalidate_if_current(&self, index: &Arc<FilenameSearchIndex>) {
@@ -1150,6 +1242,121 @@ impl FilenameSearchIndex {
         let mut ranked = heap.into_vec();
         ranked.sort_unstable();
         ranked
+    }
+
+    #[cfg(test)]
+    pub(crate) fn diagnostic_rank_stage_profile(
+        &self,
+        query: &str,
+        trigram_candidates: &[FilenameTrigramCandidate],
+        seen: &HashSet<String>,
+        changed_rowids: &HashSet<i64>,
+        overlay_rows: &[OverlayRow],
+        capacity: usize,
+    ) -> FilenameRankStageProfile {
+        let expected = self.rank_filename_candidates(
+            query,
+            trigram_candidates,
+            seen,
+            changed_rowids,
+            overlay_rows,
+            capacity,
+        );
+        let identity_started = Instant::now();
+        let overlay_ids = overlay_rows
+            .iter()
+            .map(|overlay| overlay.id.as_str())
+            .collect::<HashSet<_>>();
+        let identity_setup_ns = duration_ns(identity_started.elapsed());
+
+        let lookup_started = Instant::now();
+        let mut candidates = Vec::with_capacity(trigram_candidates.len() + overlay_rows.len());
+        for trigram_candidate in trigram_candidates {
+            let rowid = trigram_candidate.rowid;
+            if changed_rowids.contains(&rowid) {
+                continue;
+            }
+            let Ok(position) = self
+                .rowid_order
+                .binary_search_by_key(&rowid, |entry_index| self.rowids[*entry_index as usize])
+            else {
+                continue;
+            };
+            let entry_index = self.rowid_order[position] as usize;
+            let id = self.stable_ids.get(entry_index).as_bytes();
+            if std::str::from_utf8(id).is_ok_and(|id| seen.contains(id) || overlay_ids.contains(id))
+            {
+                continue;
+            }
+            let name = self.names.get(self.name_ids[entry_index] as usize);
+            let name_class = filename_match_class(name, query);
+            let Some(class) =
+                name_class.or_else(|| trigram_candidate.extension_match.then_some(SUBSTRING_CLASS))
+            else {
+                continue;
+            };
+            candidates.push(RankedFileCandidate {
+                rowid,
+                class,
+                modified_at: (self.modified_at_present[entry_index] != 0)
+                    .then_some(self.modified_at[entry_index]),
+                stable_id: Cow::Borrowed(id),
+            });
+        }
+        for overlay in overlay_rows {
+            if seen.contains(&overlay.id) {
+                continue;
+            }
+            let name_class = filename_match_class(&overlay.name, query);
+            let extension_match = overlay.extension.contains(query);
+            let Some(class) = name_class.or_else(|| extension_match.then_some(SUBSTRING_CLASS))
+            else {
+                continue;
+            };
+            candidates.push(RankedFileCandidate {
+                rowid: overlay.rowid,
+                class,
+                modified_at: overlay.modified_at,
+                stable_id: Cow::Borrowed(overlay.id.as_bytes()),
+            });
+        }
+        let lookup_and_classification_ns = duration_ns(lookup_started.elapsed());
+        let accepted_candidates = candidates.len();
+
+        let top_k_started = Instant::now();
+        let mut heap = BinaryHeap::with_capacity(capacity.min(4096));
+        for candidate in candidates {
+            push_ranked_candidate(&mut heap, capacity, candidate);
+        }
+        let top_k_heap_ns = duration_ns(top_k_started.elapsed());
+
+        let sort_started = Instant::now();
+        let mut ranked = heap.into_vec();
+        ranked.sort_unstable();
+        let heap_sort_ns = duration_ns(sort_started.elapsed());
+        assert_eq!(
+            expected.len(),
+            ranked.len(),
+            "diagnostic rank replay length must match the real interleaved rank path"
+        );
+        assert!(
+            expected.iter().zip(&ranked).all(|(left, right)| {
+                left.rowid == right.rowid
+                    && left.class == right.class
+                    && left.modified_at == right.modified_at
+                    && left.stable_id == right.stable_id
+            }),
+            "diagnostic rank replay order must match the real interleaved rank path"
+        );
+
+        FilenameRankStageProfile {
+            identity_setup_ns,
+            lookup_and_classification_ns,
+            top_k_heap_ns,
+            heap_sort_ns,
+            accepted_candidates,
+            overlay_rows: overlay_rows.len(),
+        }
     }
 
     fn allocated_bytes(&self) -> usize {

@@ -302,7 +302,11 @@ pub(crate) fn search_global_entries_with_filename_index_on_connection(
     }
     let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
     let normalized_query = query.to_ascii_lowercase();
+    #[cfg(test)]
+    let fast_tiers_started = std::time::Instant::now();
     let (fast_results, seen) = search_fast_tiers(conn, &normalized_query, target)?;
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage("fast_tiers", fast_tiers_started);
     let fast_len = fast_results.len();
     if fast_len >= target as usize {
         return Ok(Some(
@@ -314,15 +318,35 @@ pub(crate) fn search_global_entries_with_filename_index_on_connection(
         ));
     }
 
+    #[cfg(test)]
+    let overlay_materialization_started = std::time::Instant::now();
     let changed_rowids = changes
         .changed_rowids
         .iter()
         .copied()
         .collect::<HashSet<_>>();
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage(
+        "changed_rowid_set",
+        overlay_materialization_started,
+    );
+    #[cfg(test)]
+    let overlay_read_started = std::time::Instant::now();
     let overlay_rows = index.overlay_rows(conn, &changes.changed_rowids)?;
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage("overlay_sql", overlay_read_started);
+    #[cfg(test)]
+    let trigram_collection_started = std::time::Instant::now();
     let trigram_candidates = search_filename_trigram_candidates(conn, &normalized_query)?;
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage(
+        "fts_match_candidate_collection_and_source_filter",
+        trigram_collection_started,
+    );
     index.record_trigram_candidate_rows(trigram_candidates.len());
     let remaining = (target as usize).saturating_sub(fast_len);
+    #[cfg(test)]
+    let rank_started = std::time::Instant::now();
     let mut fuzzy = index.rank_filename_candidates(
         &normalized_query,
         &trigram_candidates,
@@ -331,6 +355,13 @@ pub(crate) fn search_global_entries_with_filename_index_on_connection(
         &overlay_rows,
         remaining,
     );
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage(
+        "rank_lookup_classification_topk",
+        rank_started,
+    );
+    #[cfg(test)]
+    let path_only_started = std::time::Instant::now();
     if fuzzy.len() < remaining {
         fuzzy.extend(search_path_only_candidates(
             conn,
@@ -338,6 +369,8 @@ pub(crate) fn search_global_entries_with_filename_index_on_connection(
             remaining - fuzzy.len(),
         )?);
     }
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage("path_only_query", path_only_started);
 
     let page_start = offset as usize;
     let page_end = page_start
@@ -355,12 +388,16 @@ pub(crate) fn search_global_entries_with_filename_index_on_connection(
     };
     let fuzzy_start = page_start.saturating_sub(fast_len);
     let fuzzy_end = page_end.saturating_sub(fast_len).min(fuzzy.len());
+    #[cfg(test)]
+    let hydration_started = std::time::Instant::now();
     if fuzzy_start < fuzzy_end {
         page.extend(hydrate_ranked_filename_page(
             conn,
             &fuzzy[fuzzy_start..fuzzy_end],
         )?);
     }
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage("page_hydration_cte", hydration_started);
     Ok(Some(page))
 }
 
@@ -399,6 +436,45 @@ const FILENAME_TRIGRAM_CANDIDATES_SQL: &str = r#"
 #[cfg(test)]
 pub(crate) fn diagnostic_filename_trigram_candidates_sql() -> &'static str {
     FILENAME_TRIGRAM_CANDIDATES_SQL
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_filename_rank_stage_profile_on_connection(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+    offset: u32,
+    index: &FilenameSearchIndex,
+    changes: &ChangeSet,
+) -> Result<Option<super::filename_search::FilenameRankStageProfile>, DbError> {
+    let query = query.trim();
+    if query.is_empty() || !filename_relevance_query_supported(query) {
+        return Ok(None);
+    }
+    let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
+    let offset = offset.min(MAX_SEARCH_OFFSET);
+    if offset >= MAX_TIER_CANDIDATES {
+        return Ok(None);
+    }
+    let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
+    let normalized_query = query.to_ascii_lowercase();
+    let (fast_results, seen) = search_fast_tiers(conn, &normalized_query, target)?;
+    let capacity = (target as usize).saturating_sub(fast_results.len());
+    let changed_rowids = changes
+        .changed_rowids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    let overlay_rows = index.overlay_rows(conn, &changes.changed_rowids)?;
+    let trigram_candidates = search_filename_trigram_candidates(conn, &normalized_query)?;
+    Ok(Some(index.diagnostic_rank_stage_profile(
+        &normalized_query,
+        &trigram_candidates,
+        &seen,
+        &changed_rowids,
+        &overlay_rows,
+        capacity,
+    )))
 }
 
 fn search_path_only_candidates(

@@ -274,6 +274,17 @@ describe("W2-01 File Library Workspace shell contract", () => {
     expect(workspace).not.toContain("Query V2");
     expect(workspace).not.toContain("legacy_library");
   });
+
+  it("suspends hidden workbench panes and guards hidden Browse enumeration", () => {
+    const workbench = readFileSync(resolve("src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx"), "utf8");
+    const browseOwner = readFileSync(resolve("src/views/fileLibrary/browse/browseSourceOwner.ts"), "utf8");
+
+    expect(workbench).toContain("active={props.visible}");
+    expect(workbench).toContain("wideDualPane={tab.dual && wide}");
+    expect(browseOwner).toContain("if (!visible || state.workspace.suspended) {");
+    expect(browseOwner).toContain("activeEnumerationKeyRef.current = null;");
+    expect(browseOwner).toContain("if (state.mode !== \"browse\" || targetKey === null");
+  });
 });
 
 function ExperienceProbe({ onCapture }: { onCapture: (value: { controller: FileLibraryExperienceController; state: FileLibraryExperienceState }) => void }) {

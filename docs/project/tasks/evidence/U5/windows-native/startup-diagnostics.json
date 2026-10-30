@@ -1,0 +1,76 @@
+{
+  "evidenceClass": "Windows 11 native Tauri startup attempt; no File Library GUI operation completed",
+  "windows": {
+    "caption": "Microsoft Windows 11 Professional",
+    "version": "10.0.26300",
+    "build": "26300"
+  },
+  "source": [
+    "npm run dev -- --features native-qa --config <isolated identifier config>",
+    "CARGO_TARGET_DIR and Cargo home were on F:",
+    "ZC_NATIVE_QA_PROFILE_ROOT and TEMP/TMP were task-scoped to F:"
+  ],
+  "initialProfileEmpty": true,
+  "tauriStartupCheckpoints": [
+    "process_main_entered",
+    "tauri_setup_entered",
+    "database_ready",
+    "core_runtime_owners_ready",
+    "tray_ready",
+    "autostart_sync_complete",
+    "hotkey_setup_complete",
+    "watcher_setup_complete",
+    "setup_complete"
+  ],
+  "mainWindowCreated": true,
+  "mainWindowReady": false,
+  "viteDevServer": "Listener on 127.0.0.1:5173 did not return HTTP headers within a 5 second bounded probe while profile was inside Vite project root",
+  "nativeGuiResult": "BLOCKED before File Library interaction; no GUI PASS",
+  "isolatedProfileDb": {
+    "userVersion": 44,
+    "pageCount": 308221,
+    "pageSize": 4096,
+    "bytes": 1262473216,
+    "globalIndexVolumeRows": 5,
+    "globalEntriesRows": 561664
+  },
+  "scopeFinding": "Fresh profile startup automatically started Global Index over five mounted volumes. Global Index production source was not changed. The read-only database inspection recorded aggregate counts only, but the task-owned database remains in ignored scratch at .tmp-tests/u5-native/profile/zen-canvas.sqlite3 (1,262,473,216 bytes, 561,664 indexed entries) and the seven disposable fixture files remain at .tmp-tests/u5-native/test-root. No GUI file operation was completed. Exact-path cleanup commands were blocked by tool policy, so this scratch profile still requires cleanup on the test machine. Do not relaunch this app on a host with owner volumes mounted.",
+  "attribution": "The profile was mistakenly placed under the Vite project root. The DB growth and Vite non-response overlapped; this is strong correlation, not proof of sole cause.",
+  "fixtureManifest": [
+    {
+      "relative": "Left\\Copy-source.txt",
+      "length": 39,
+      "sha256": "75E643D5A5838CFD191BB077C38EFA60CAB651F601217F2DFABCBC2116A85B82"
+    },
+    {
+      "relative": "Left\\Move-source.txt",
+      "length": 45,
+      "sha256": "AA48F6072F2A3C7BB6F49C7BC5186BE5228496DD4460A3C1CD5AEB52D5CCD6E2"
+    },
+    {
+      "relative": "Left\\Conflict.txt",
+      "length": 41,
+      "sha256": "E8AC772A3AC3A597AEEB44ABC5A5BFFFDC070A134B9722C047823D57C03C48C8"
+    },
+    {
+      "relative": "Left\\Cancel-source.txt",
+      "length": 47,
+      "sha256": "67058BC076C61741C7EF241590D294FFDF28EEB5F089ED31BEFEE30343785331"
+    },
+    {
+      "relative": "Left\\ReadMe-验收.txt",
+      "length": 46,
+      "sha256": "DA009D45AF5E6F1EAFE80C6064B3D41F3DBA96793B46B6F423937E7B2A3C07F5"
+    },
+    {
+      "relative": "Right\\Conflict.txt",
+      "length": 46,
+      "sha256": "58B806FA16A22962196A6B048BB4DE49E376760D70D5C038D757AF0300E580E1"
+    },
+    {
+      "relative": "Right\\Keep.txt",
+      "length": 33,
+      "sha256": "22E2B63708B0C1F600BB39DD2E048635D19C63D59B6442DAAB86E66F231F5874"
+    }
+  ]
+}

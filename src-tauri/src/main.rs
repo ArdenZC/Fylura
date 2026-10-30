@@ -7,6 +7,9 @@ mod startup_upgrade;
 
 use std::io;
 
+#[cfg(feature = "native-qa")]
+use std::path::PathBuf;
+
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
@@ -157,26 +160,32 @@ fn main() {
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
             app.manage(zen_canvas_tauri::content::ContentRunManager::default());
-            let thumbnail_cache_dir = app
+            #[cfg(feature = "native-qa")]
+            let workspace_data_root = std::env::var_os("ZC_NATIVE_QA_PROFILE_ROOT")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "ZC_NATIVE_QA_PROFILE_ROOT must be an absolute path for native-qa",
+                    )
+                })?;
+            #[cfg(not(feature = "native-qa"))]
+            let workspace_data_root = app
                 .path()
                 .app_data_dir()
-                .map_err(io::Error::other)?
-                .join("quick-look");
+                .map_err(io::Error::other)?;
+            std::fs::create_dir_all(&workspace_data_root).map_err(io::Error::other)?;
+            let thumbnail_cache_dir = workspace_data_root.join("quick-look");
             app.manage(
                 zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService::new(
                     thumbnail_cache_dir,
                 ),
             );
-            let workspace_thumbnail_cache_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(io::Error::other)?
-                .join("file-workspace-thumbnails");
-            let workspace_native_preview_root = app
-                .path()
-                .app_data_dir()
-                .map_err(io::Error::other)?
-                .join("file-workspace-native-preview");
+            let workspace_thumbnail_cache_dir =
+                workspace_data_root.join("file-workspace-thumbnails");
+            let workspace_native_preview_root =
+                workspace_data_root.join("file-workspace-native-preview");
             let workspace_runtime = zen_canvas_tauri::file_workspace::integration::FileWorkspaceRuntimeOwner::new(
                 db.clone(),
                 app.state::<zen_canvas_tauri::platform::macos::quick_look::MacThumbnailService>()

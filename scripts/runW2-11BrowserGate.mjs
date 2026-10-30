@@ -630,6 +630,9 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     pageUrl: "<not-navigated>",
     requestFailures: [],
     requestFailuresDropped: 0,
+    errFileNotFoundCount: 0,
+    errFileNotFoundRequests: [],
+    errFileNotFoundRequestsDropped: 0,
     consoleErrors: [],
     consoleErrorsDropped: 0,
     pageErrors: [],
@@ -668,13 +671,26 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     pushBoundedDiagnostic(networkDiagnostics, "pageErrors", sanitizeDiagnostic(error?.stack ?? error));
   });
   page.on("requestfailed", (request) => {
+    const failure = request.failure()?.errorText ?? "<unknown-failure>";
     if (request.url().startsWith("blob:")) failedBlobUrls.add(request.url());
     pushBoundedDiagnostic(networkDiagnostics, "requestFailures", {
       url: sanitizeRequestUrl(request.url()),
       method: sanitizeDiagnostic(request.method()),
       resourceType: sanitizeDiagnostic(request.resourceType()),
-      failure: sanitizeDiagnostic(request.failure()?.errorText ?? "<unknown-failure>")
+      failure: sanitizeDiagnostic(failure)
     });
+    if (failure.includes("ERR_FILE_NOT_FOUND")) {
+      networkDiagnostics.errFileNotFoundCount += 1;
+      if (networkDiagnostics.errFileNotFoundRequests.length < 25) {
+        networkDiagnostics.errFileNotFoundRequests.push({
+          url: sanitizeRequestUrl(request.url()),
+          resourceType: sanitizeDiagnostic(request.resourceType()),
+          errorText: sanitizeDiagnostic(failure)
+        });
+      } else {
+        networkDiagnostics.errFileNotFoundRequestsDropped += 1;
+      }
+    }
   });
   page.on("response", (response) => {
     const status = response.status();
@@ -939,6 +955,10 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     networkDiagnostics.pageUrl = sanitizeRequestUrl(page.url());
     await captureBlobLifecycle().catch(() => undefined);
     metrics.failure = sanitizeDiagnostic(error?.stack ?? error);
+    metrics.consoleErrorLocations = networkDiagnostics.consoleErrors;
+    metrics.pageErrors = networkDiagnostics.pageErrors;
+    metrics.missingFileRequestCount = networkDiagnostics.errFileNotFoundCount;
+    metrics.missingFileRequests = networkDiagnostics.errFileNotFoundRequests;
     metrics.resources = await readResourceSnapshot(page).catch(() => ({}));
     metrics.fixtureStats = await readStats(page).catch(() => ({}));
     const artifactStem = `w2-11-${viewport.width}x${viewport.height}-dpr-${String(deviceScaleFactor).replace(".", "_")}`;

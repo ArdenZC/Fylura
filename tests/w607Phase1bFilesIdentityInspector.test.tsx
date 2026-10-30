@@ -154,7 +154,7 @@ describe("W6-07 Phase 1B Files identity and continuity", () => {
     expect(read("src/views/fileLibrary/FileLibraryWorkspace.tsx")).not.toContain("window.innerWidth");
   });
 
-  it("restores focus after a large Inspector close and keeps the Forced Colors cue on local search", () => {
+  it("restores focus after a large or pane-scoped Inspector close and keeps the Forced Colors cue on local search", () => {
     const toggle = document.createElement("button");
     document.body.append(toggle);
     expect(restoreFileLibraryFocus(() => toggle)).toBe(true);
@@ -165,7 +165,7 @@ describe("W6-07 Phase 1B Files identity and continuity", () => {
 
     const panel = read("src/views/fileLibrary/context/ContextPanel.tsx");
     const css = read("src/views/fileLibrary/fileLibraryV26.css");
-    expect(panel).toContain("if (layout === \"large\") restoreFileLibraryFocus(restoreFocus)");
+    expect(panel).toContain("if (layout === \"large\" || usePaneOverlay) restoreFileLibraryFocus(restoreFocus)");
     expect(css).toContain(".file-library-command-search input:focus-visible");
     expect(css).toContain("outline: 2px solid CanvasText");
     expect(css).toContain(".file-library-workspace .file-library-command-search input:focus-visible,");

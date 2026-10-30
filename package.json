@@ -54,6 +54,7 @@
     "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1",
     "test:browser:u3": "node scripts/runU3FileLibraryBrowser.mjs",
     "test:browser:u4": "node scripts/runU4FileLibraryBrowser.mjs",
+    "test:browser:u5": "node scripts/runU5FileLibraryBrowser.mjs",
     "dev:preflight": "node scripts/devPreflight.mjs",
     "dev:ci-failure": "node scripts/ciFailureDigest.mjs",
     "dev:ci-metrics": "node scripts/ciRunMetrics.mjs",

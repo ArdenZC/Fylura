@@ -28,7 +28,8 @@ export function ContextPanel({
   onClose: () => void;
   restoreFocus: () => HTMLElement | null;
 }) {
-  const layout = useContextPanelPresentation();
+  const { layout, paneOverlay } = useContextPanelPresentation();
+  const usePaneOverlay = paneOverlay && layout !== "large";
   if (!open || projection.kind === "none") return null;
 
   const title = contextTitle(projection);
@@ -36,7 +37,7 @@ export function ContextPanel({
   const closeLabel = contextCloseLabel(projection);
   const closePanel = () => {
     onClose();
-    if (layout === "large") restoreFileLibraryFocus(restoreFocus);
+    if (layout === "large" || usePaneOverlay) restoreFileLibraryFocus(restoreFocus);
   };
 
   const content = (
@@ -44,20 +45,23 @@ export function ContextPanel({
       {projection.source === "browse" && projection.actionError ? <p role="alert" className="p-3 text-sm text-[var(--zc-danger-text)]">{projection.actionError}</p> : null}
       <SelectedPreviewActions key={projection.source === "library" ? projection.inspector.selectedFiles.slice(0, SELECTED_PREVIEW_LIMIT).map((file) => file.id).join("|") : projection.selectedEntries.slice(0, SELECTED_PREVIEW_LIMIT).map((entry) => entry.entryRef.entryId).join("|")} projection={projection} />
       {projection.source === "library"
-        ? <FileLibraryInspector {...projection.inspector} />
+        ? <FileLibraryInspector {...projection.inspector} showPrimaryFileActions={false} />
         : <BrowseContextContent projection={projection} />}
     </div>
   );
 
-  if (layout === "large") {
+  if (layout === "large" || usePaneOverlay) {
     return (
       <aside
-        className={cn("file-library-context-panel", "file-library-context-panel-inline")}
+        className={cn(
+          "file-library-context-panel",
+          usePaneOverlay ? "file-library-context-panel-pane-overlay" : "file-library-context-panel-inline"
+        )}
         aria-label={title}
         onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel(); } }}
         data-file-library-context-panel="true"
         data-file-library-context-source={projection.source}
-        data-file-library-context-layout="inline"
+        data-file-library-context-layout={usePaneOverlay ? "pane-overlay" : "inline"}
       >
         <header className="file-library-context-inline-header">
           <h2 className="text-sm font-semibold text-[var(--zc-text-primary)]">{title}</h2>
@@ -192,6 +196,7 @@ function SelectedPreviewActions({ projection }: { projection: ContextPanelProjec
   const current = items[Math.min(index, Math.max(0, items.length - 1))];
   if (!current) return null;
   const name = "name" in current ? current.name : current.displayName;
+  const showSelectionNavigation = items.length > 1;
   const preview = (position: number, trigger: HTMLButtonElement) => {
     setIndex(position);
     if (projection.source === "library") {
@@ -205,13 +210,13 @@ function SelectedPreviewActions({ projection }: { projection: ContextPanelProjec
   return <section className="grid gap-2 border-b border-[var(--zc-divider)] p-3" aria-label={t("u4SelectionPreview")}>
     <p className="break-words text-xs">{name}{"isStale" in current && current.isStale ? ` · ${t("libraryFileNotFound")}` : ""} · {t("u4SelectionPreview")} {index + 1}/{items.length}</p>
     <div className="flex flex-wrap gap-2">
-      <button className={buttonSecondary} disabled={index === 0} aria-label={t("u4Previous")} onClick={(event) => preview(index - 1, event.currentTarget)}>←</button>
+      {showSelectionNavigation ? <button className={buttonSecondary} disabled={index === 0} aria-label={t("u4Previous")} onClick={(event) => preview(index - 1, event.currentTarget)}>←</button> : null}
       <button className={buttonSecondary} disabled={"isStale" in current && current.isStale} onClick={(event) => preview(index, event.currentTarget)}>{t("libraryPreview")}</button>
       <button className={buttonSecondary} disabled={"isStale" in current && current.isStale} onClick={() => {
         if (projection.source === "library") { const file = projection.inspector.selectedFiles[index]; if (file) projection.inspector.onReveal(file.id); }
         else { const entry = projection.selectedEntries[index]; if (entry) projection.onReveal?.(entry); }
       }}>{libraryRevealLabel(t)}</button>
-      <button className={buttonSecondary} disabled={index + 1 >= items.length} aria-label={t("u4Next")} onClick={(event) => preview(index + 1, event.currentTarget)}>→</button>
+      {showSelectionNavigation ? <button className={buttonSecondary} disabled={index + 1 >= items.length} aria-label={t("u4Next")} onClick={(event) => preview(index + 1, event.currentTarget)}>→</button> : null}
     </div>
   </section>;
 }

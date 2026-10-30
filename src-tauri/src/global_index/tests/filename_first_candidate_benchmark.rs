@@ -20,7 +20,7 @@ use std::time::Instant;
 
 const FILENAME_CANDIDATE_WARMUPS: usize = 5;
 const FILENAME_CANDIDATE_SAMPLES: usize = 30;
-const FILENAME_CANDIDATE_WRITE_BATCH: usize = 512;
+const FILENAME_CANDIDATE_WRITE_BATCHES: [usize; 2] = [512, 5_000];
 
 #[derive(Clone, Copy)]
 struct WriteTiming {
@@ -45,15 +45,15 @@ struct CandidateCase {
 }
 
 #[test]
-#[ignore = "Issue #494 paired native Release preflight; set scale to 100k or 200k"]
+#[ignore = "Issue #494 paired native Release qualification; set scale to 100k, 200k, or 1M"]
 fn issue494_filename_first_native_preflight() {
     let entries = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES")
-        .expect("set the authorized 100k or 200k fixture scale")
+        .expect("set an authorized fixture scale")
         .parse::<u64>()
         .expect("fixture scale is numeric");
     assert!(
-        matches!(entries, 100_000 | 200_000),
-        "only 100k/200k preflight is authorized"
+        matches!(entries, 100_000 | 200_000 | 1_000_000),
+        "only 100k/200k preflight and one 1M qualification are authorized"
     );
     assert!(
         !std::hint::black_box(cfg!(debug_assertions)),
@@ -211,25 +211,19 @@ fn issue494_filename_first_native_preflight() {
         search_records.push(measure_snapshot_pair(&db, &context, case));
     }
 
-    let (baseline_write_timings, candidate_write_timings, write_pair_order) =
-        measure_mutation_hook_write_cost(&db, &path, entries as usize);
-    let baseline_write_ms = baseline_write_timings
-        .iter()
-        .map(|sample| sample.total_ms)
+    let paired_batch_writes = FILENAME_CANDIDATE_WRITE_BATCHES
+        .into_iter()
+        .map(|batch_size| {
+            let (baseline_timings, candidate_timings, pair_order) =
+                measure_mutation_hook_write_cost(&db, &path, entries as usize, batch_size);
+            paired_write_record(
+                batch_size,
+                &baseline_timings,
+                &candidate_timings,
+                pair_order,
+            )
+        })
         .collect::<Vec<_>>();
-    let candidate_write_ms = candidate_write_timings
-        .iter()
-        .map(|sample| sample.total_ms)
-        .collect::<Vec<_>>();
-    let baseline_write = summarize_samples(&baseline_write_ms);
-    let candidate_write = summarize_samples(&candidate_write_ms);
-    let baseline_write_p95 = baseline_write["p95"].as_f64().unwrap();
-    let candidate_write_p95 = candidate_write["p95"].as_f64().unwrap();
-    let write_p95_overhead_percent = if baseline_write_p95 > 0.0 {
-        ((candidate_write_p95 / baseline_write_p95) - 1.0) * 100.0
-    } else {
-        0.0
-    };
 
     let post_write_metrics = database_metrics(&baseline_conn, &path);
     let rss_after_queries_and_writes = process_resident_bytes();
@@ -282,28 +276,7 @@ fn issue494_filename_first_native_preflight() {
             "plans": plan_records
         },
         "paired_search_and_snapshot": search_records,
-        "paired_batch_write": {
-            "warmups": FILENAME_CANDIDATE_WARMUPS,
-            "samples": FILENAME_CANDIDATE_SAMPLES,
-            "batch_size": FILENAME_CANDIDATE_WRITE_BATCH,
-            "operation": "512 UPDATEs of modified_at_fs and last_seen_at in one transaction on a pre-opened SQLite connection; production global_entries schema and triggers remain enabled",
-            "wal_checkpoint_policy": "wal_autocheckpoint=0 for both writers; a FULL checkpoint runs after every transaction and is included in total latency so checkpoint work is measured without being assigned to whichever route happened to cross the automatic threshold",
-            "baseline_connection_hooks": "none",
-            "candidate_connection_hooks": "candidate's connection-local SQLite update/commit/rollback hooks",
-            "baseline_latency_ms": baseline_write,
-            "candidate_latency_ms": candidate_write,
-            "baseline_raw_ms": baseline_write_ms,
-            "candidate_raw_ms": candidate_write_ms,
-            "baseline_update_raw_ms": baseline_write_timings.iter().map(|sample| sample.update_ms).collect::<Vec<_>>(),
-            "candidate_update_raw_ms": candidate_write_timings.iter().map(|sample| sample.update_ms).collect::<Vec<_>>(),
-            "baseline_commit_raw_ms": baseline_write_timings.iter().map(|sample| sample.commit_ms).collect::<Vec<_>>(),
-            "candidate_commit_raw_ms": candidate_write_timings.iter().map(|sample| sample.commit_ms).collect::<Vec<_>>(),
-            "baseline_checkpoint_raw_ms": baseline_write_timings.iter().map(|sample| sample.checkpoint_ms).collect::<Vec<_>>(),
-            "candidate_checkpoint_raw_ms": candidate_write_timings.iter().map(|sample| sample.checkpoint_ms).collect::<Vec<_>>(),
-            "pair_order": write_pair_order,
-            "candidate_p95_over_baseline_percent": round_ms(write_p95_overhead_percent),
-            "sample_pairing": "the same 512 rowids are updated by both connections in each iteration; first writer alternates by iteration"
-        },
+        "paired_batch_writes": paired_batch_writes,
         "post_write_database": post_write_metrics,
         "rss_after_queries_and_writes_bytes": rss_after_queries_and_writes,
         "fallback_counters": {
@@ -502,6 +475,7 @@ fn measure_mutation_hook_write_cost(
     db: &Database,
     path: &Path,
     entries: usize,
+    batch_size: usize,
 ) -> (Vec<WriteTiming>, Vec<WriteTiming>, Vec<&'static str>) {
     let mut baseline = configured_connection(path).expect("open no-hook SQLite writer");
     let mut candidate = configured_connection(path).expect("open candidate-hook SQLite writer");
@@ -530,7 +504,7 @@ fn measure_mutation_hook_write_cost(
             } else {
                 &mut baseline
             };
-            let timing = timed_write_batch(connection, entries, iteration);
+            let timing = timed_write_batch(connection, entries, iteration, batch_size);
             if iteration >= FILENAME_CANDIDATE_WARMUPS {
                 samples[usize::from(is_candidate)].push(timing);
             }
@@ -546,7 +520,61 @@ fn measure_mutation_hook_write_cost(
     (samples[0].clone(), samples[1].clone(), pair_order)
 }
 
-fn timed_write_batch(connection: &mut Connection, entries: usize, sample: usize) -> WriteTiming {
+fn paired_write_record(
+    batch_size: usize,
+    baseline_timings: &[WriteTiming],
+    candidate_timings: &[WriteTiming],
+    pair_order: Vec<&'static str>,
+) -> JsonValue {
+    let baseline_ms = baseline_timings
+        .iter()
+        .map(|sample| sample.total_ms)
+        .collect::<Vec<_>>();
+    let candidate_ms = candidate_timings
+        .iter()
+        .map(|sample| sample.total_ms)
+        .collect::<Vec<_>>();
+    let baseline_latency = summarize_samples(&baseline_ms);
+    let candidate_latency = summarize_samples(&candidate_ms);
+    let baseline_p95 = baseline_latency["p95"].as_f64().unwrap();
+    let candidate_p95 = candidate_latency["p95"].as_f64().unwrap();
+    let p95_overhead_percent = if baseline_p95 > 0.0 {
+        ((candidate_p95 / baseline_p95) - 1.0) * 100.0
+    } else {
+        0.0
+    };
+
+    json!({
+        "warmups": FILENAME_CANDIDATE_WARMUPS,
+        "samples": FILENAME_CANDIDATE_SAMPLES,
+        "batch_size": batch_size,
+        "operation": format!("{batch_size} UPDATEs of modified_at_fs and last_seen_at in one transaction on a pre-opened SQLite connection; production global_entries schema and triggers remain enabled"),
+        "wal_checkpoint_policy": "wal_autocheckpoint=0 for both writers; a FULL checkpoint runs after every transaction and is included in total latency so checkpoint work is measured without being assigned to whichever route happened to cross the automatic threshold",
+        "baseline_connection_hooks": "none",
+        "candidate_connection_hooks": "candidate's connection-local SQLite update/commit/rollback hooks",
+        "baseline_latency_ms": baseline_latency,
+        "candidate_latency_ms": candidate_latency,
+        "baseline_raw_ms": baseline_ms,
+        "candidate_raw_ms": candidate_ms,
+        "baseline_update_raw_ms": baseline_timings.iter().map(|sample| sample.update_ms).collect::<Vec<_>>(),
+        "candidate_update_raw_ms": candidate_timings.iter().map(|sample| sample.update_ms).collect::<Vec<_>>(),
+        "baseline_commit_raw_ms": baseline_timings.iter().map(|sample| sample.commit_ms).collect::<Vec<_>>(),
+        "candidate_commit_raw_ms": candidate_timings.iter().map(|sample| sample.commit_ms).collect::<Vec<_>>(),
+        "baseline_checkpoint_raw_ms": baseline_timings.iter().map(|sample| sample.checkpoint_ms).collect::<Vec<_>>(),
+        "candidate_checkpoint_raw_ms": candidate_timings.iter().map(|sample| sample.checkpoint_ms).collect::<Vec<_>>(),
+        "pair_order": pair_order,
+        "candidate_p95_over_baseline_percent": round_ms(p95_overhead_percent),
+        "sample_pairing": format!("the same {batch_size} rowids are updated by both connections in each iteration; first writer alternates by iteration")
+    })
+}
+
+fn timed_write_batch(
+    connection: &mut Connection,
+    entries: usize,
+    sample: usize,
+    batch_size: usize,
+) -> WriteTiming {
+    assert!(batch_size < entries, "write batch must fit within fixture");
     let start = Instant::now();
     let transaction = connection.transaction().expect("begin paired batch update");
     let update_start = Instant::now();
@@ -559,9 +587,8 @@ fn timed_write_batch(connection: &mut Connection, entries: usize, sample: usize)
                  WHERE id=?1",
             )
             .expect("prepare paired batch update");
-        let first =
-            (sample * FILENAME_CANDIDATE_WRITE_BATCH) % (entries - FILENAME_CANDIDATE_WRITE_BATCH);
-        for index in first..(first + FILENAME_CANDIDATE_WRITE_BATCH) {
+        let first = (sample * batch_size) % (entries - batch_size);
+        for index in first..(first + batch_size) {
             let id = format!("ge_bench_{index:07}");
             assert_eq!(
                 statement.execute([id]).expect("update one fixture row"),

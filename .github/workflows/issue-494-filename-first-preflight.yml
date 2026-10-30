@@ -29,18 +29,12 @@ jobs:
         include:
           - os: windows-latest
             platform: windows-x86_64
-            entries: "100000"
-          - os: windows-latest
-            platform: windows-x86_64
-            entries: "200000"
+            entries: "1000000"
           - os: macos-latest
             platform: macos-arm64
-            entries: "100000"
-          - os: macos-latest
-            platform: macos-arm64
-            entries: "200000"
+            entries: "1000000"
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 120
     env:
       ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: ${{ matrix.entries }}
       ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/filename-${{ matrix.platform }}-${{ matrix.entries }}.jsonl

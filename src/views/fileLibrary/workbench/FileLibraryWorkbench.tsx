@@ -8,7 +8,8 @@ import {
   useState,
   useSyncExternalStore,
   type ComponentType,
-  type DragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   FileLibraryExperienceProvider,
@@ -29,6 +30,7 @@ import {
 } from "./workbenchModel";
 import type { Translator } from "../../../types/ui";
 import { useWorkbenchDrag } from "./useWorkbenchDrag";
+import { useNativeFileDrop } from "./useNativeFileDrop";
 import "./workbench.css";
 function tabLabel(tab: WorkbenchTab, t: Translator) {
   const pane = tab.panes.find((pane) => pane.id === tab.activePaneId)!;
@@ -208,7 +210,33 @@ export function FileLibraryWorkbench({
     : undefined;
   const canTransfer =
     !!peer?.path && !!focusedSurface && focusedSurface.count !== 0 && !locked;
-  const { startDrag, drop, endDrag } = useWorkbenchDrag({ focus, locked, t });
+  const {
+    feedback: internalDrop,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+    onLostPointerCapture,
+    onClickCapture,
+  } = useWorkbenchDrag({
+    workbenchRef: root,
+    model,
+    wide,
+    dual: active.dual,
+    active: workspaceActive,
+    locked,
+    focus,
+    t,
+  });
+  const externalDrop = useNativeFileDrop({
+    workbenchRef: root,
+    model,
+    wide,
+    active: workspaceActive,
+    locked,
+    focus,
+    t,
+  });
   return (
     <div
       ref={root}
@@ -376,9 +404,14 @@ export function FileLibraryWorkbench({
                 }}
                 beforeMutation={beforeMutation}
                 afterMutation={afterMutation}
-                onDragStart={(event) => void startDrag(event, pane)}
-                onDragEnd={endDrag}
-                onDrop={(event) => void drop(event, pane, tab.id)}
+                onPointerDown={(event) => onPointerDown(event, tab.id, pane.id, tab.dual ? tab.panes.find((other) => other.id !== pane.id)?.id : undefined, visible)}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerCancel}
+                onLostPointerCapture={onLostPointerCapture}
+                onClickCapture={onClickCapture}
+                internalDrop={internalDrop?.paneId === pane.id ? `${t(internalDrop.action === "copy" ? "wbCopyOther" : "wbMoveOther")} → ${internalDrop.label}` : undefined}
+                externalDrop={externalDrop?.paneId === pane.id ? `${externalDrop.count} ${t(externalDrop.count === 1 ? "wbDropItem" : "wbDropItems")} → ${externalDrop.label}` : undefined}
               />
             );
           })}
@@ -408,9 +441,14 @@ function PaneHost({
   mutationEpoch: number;
   updateLocation: (path: string) => void;
   registerPreview: (preview: PreviewExperienceController | null) => void;
-  onDragStart: (event: DragEvent) => void;
-  onDragEnd: () => void;
-  onDrop: (event: DragEvent) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onLostPointerCapture: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onClickCapture: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  internalDrop?: string;
+  externalDrop?: string;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const globalScope = useFileLibraryStore((state) => state.scope);
@@ -460,16 +498,19 @@ function PaneHost({
       className="wb-pane"
       data-pane-id={pane.id}
       data-focused={props.focused}
+      data-external-drop={props.externalDrop ? "active" : undefined}
+      data-external-drop-label={props.externalDrop}
+      data-internal-drop={props.internalDrop ? "active" : undefined}
+      data-internal-drop-label={props.internalDrop}
       hidden={!props.visible}
       onPointerDownCapture={props.activate}
       onFocusCapture={props.activate}
-      onDragStartCapture={props.onDragStart}
-      onDragEnd={props.onDragEnd}
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = event.shiftKey ? "move" : "copy";
-      }}
-      onDrop={props.onDrop}
+      onPointerDown={props.onPointerDown}
+      onPointerMove={props.onPointerMove}
+      onPointerUp={props.onPointerUp}
+      onPointerCancel={props.onPointerCancel}
+      onLostPointerCapture={props.onLostPointerCapture}
+      onClickCapture={props.onClickCapture}
     >
       <PaneContext.Provider value={value}>
         <FileLibraryExperienceProvider

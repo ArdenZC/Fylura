@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { useEffect, useId, useRef } from "react";
-import type { EntryRef, BrowsePathRef } from "../../../types/fileWorkspace";
+import type { EntryRef, BrowseEntryRef, BrowsePathRef } from "../../../types/fileWorkspace";
 import type { LibrarySelectionV1, OperationLog } from "../../../types/domain";
 import type { TransferTicket, TransferAction } from "../../../api/fileManagementApi";
 import { usePane } from "../workbench/PaneContext";
@@ -21,8 +21,9 @@ export interface ManagementSurface {
   selectionScope?: "loaded" | "all";
 }
 export interface PendingPaneTransfer {
-  paneId: string; sourcePaneId: string; sourceSignature: string;
+  paneId: string; sourcePaneId?: string; sourceSignature?: string;
   tickets: TransferTicket[]; action: TransferAction; destination: string;
+  destinationEntry?: BrowseEntryRef; external?: boolean;
 }
 interface ManagementState {
   owner: string | null;

@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { fileManagementApi as api, type TransferAction, type TransferPreview, type TransferTicket, type SavedPlace } from "../../../api/fileManagementApi";
 import { tauriApi } from "../../../api/tauriApi";
 import type { OperationProgressPayload } from "../../../api/types";
+import type { BrowseEntryRef } from "../../../types/fileWorkspace";
 import { useChromeContext, useI18nContext, useNavigationContext } from "../../../contexts/AppContexts";
 import { useOperationQueueStore } from "../../../store/useOperationQueueStore";
 import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/tw";
@@ -14,6 +15,7 @@ import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { isFileLibraryShortcutExcludedTarget } from "../fileLibraryInteraction";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
 import { useFileManagementStore } from "./fileManagementStore";
+import { getTransferConfirmationDiagnostics } from "./transferConfirmation";
 import "./fileManagement.css";
 
 const PAGE_SIZE = 40;
@@ -75,17 +77,27 @@ export function FileManagementToolbar() {
     document.addEventListener("focusin", focusOutside);
     return () => { observer?.disconnect(); document.removeEventListener("keydown", keydown); document.removeEventListener("pointerdown", outside); document.removeEventListener("focusin", focusOutside); };
   }, [panelOpen, panel, state.basketOpen]);
-  const [transfer, setTransfer] = useState<{ tickets: TransferTicket[]; action: TransferAction; origin: "selection" | "clipboard" | "basket"; sourcePaneId?: string; sourceSignature?: string } | null>(null);
-  const [destination, setDestination] = useState(""); const [plan, setPlan] = useState<TransferPreview | null>(null);
+  const [transfer, setTransfer] = useState<{ tickets: TransferTicket[]; action: TransferAction; origin: "selection" | "clipboard" | "basket" | "external"; sourcePaneId?: string; sourceSignature?: string; destinationEntry?: BrowseEntryRef } | null>(null);
+  const transferRef = useRef(transfer); transferRef.current = transfer;
+  const [destination, setDestination] = useState(""); const [plan, setPlan] = useState<TransferPreview | null>(null); const [planEpoch, setPlanEpoch] = useState<number | null>(null);
   const [skip, setSkip] = useState<string[]>([]); const [keepBoth, setKeepBoth] = useState<string[]>([]);
   const [progress, setProgress] = useState<OperationProgressPayload | null>(null);
   const destinationRef = useRef<HTMLInputElement | null>(null); const restoreRef = useRef<HTMLElement | null>(null);
   const preparing = useRef(0); const mounted = useRef(true); const busyRef = useRef(false);
   const cancelRequested = useRef(false); const executionSent = useRef(false);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; preparing.current++; }; }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false; preparing.current++;
+      const active = transferRef.current;
+      if (!executionSent.current && active && (active.origin === "selection" || active.origin === "external")) {
+        void releaseUnused(active.tickets.map((ticket) => ticket.id)).catch(() => {});
+      }
+    };
+  }, []);
   const describeError = useCallback((value: unknown) => {
     const detail = readableError(value);
-    const key = detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
+    const key = detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
     return `${t(key)} ${detail}`;
   }, [t]);
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -117,6 +129,11 @@ export function FileManagementToolbar() {
     const releaseIds = ids.filter((id) => !retained.has(id));
     if (releaseIds.length) await api.captureTransfer({ releaseIds });
   }
+  function invalidatePlan() {
+    preparing.current++;
+    setPlan(null);
+    setPlanEpoch(null);
+  }
   function collect(action: "copy" | "cut" | "basket") {
     void run(async () => {
       const tickets = await capturedSelection(); if (!tickets.length) return;
@@ -132,17 +149,18 @@ export function FileManagementToolbar() {
       setNotice(t(action === "basket" ? "fmAdded" : "fmClipboardReady"));
     });
   }
-  function begin(tickets: TransferTicket[], action: TransferAction, origin: "selection" | "clipboard" | "basket") {
+  function begin(tickets: TransferTicket[], action: TransferAction, origin: "selection" | "clipboard" | "basket" | "external") {
     if (!tickets.length || useFileManagementStore.getState().transferOpen) return;
+    preparing.current++;
     closePanel(false);
     setCancelling(false);
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     useFileManagementStore.setState({ results: [], transferOpen: true }); setPreviewPage(0); setResultPage(0);
-    setTransfer({ tickets, action, origin }); setDestination(currentPath); setPlan(null); setSkip([]); setKeepBoth([]); setError("");
+    setTransfer({ tickets, action, origin }); setDestination(currentPath); setPlan(null); setPlanEpoch(null); setSkip([]); setKeepBoth([]); setError("");
   }
   function closeTransfer() {
-    preparing.current++; setTransfer(null); setPlan(null); useFileManagementStore.setState({ transferOpen: false });
-    if (transfer?.origin === "selection") void releaseUnused(transfer.tickets.map((ticket) => ticket.id)).catch((value) => { if (mounted.current) setError(describeError(value)); });
+    preparing.current++; setTransfer(null); setPlan(null); setPlanEpoch(null); useFileManagementStore.setState({ transferOpen: false });
+    if (transfer && (transfer.origin === "selection" || transfer.origin === "external")) void releaseUnused(transfer.tickets.map((ticket) => ticket.id)).catch((value) => { if (mounted.current) setError(describeError(value)); });
   }
   function moveSelection() { void run(async () => { begin(await capturedSelection(), "move", "selection"); }); }
   function paste() { const clipboard = useFileManagementStore.getState().clipboard; if (clipboard) begin(clipboard.tickets, clipboard.action, "clipboard"); }
@@ -180,22 +198,24 @@ export function FileManagementToolbar() {
     if (!pane || !focused || !pending || pending.paneId !== pane.id) return;
     useFileManagementStore.setState({ pendingTransfer: null });
     if (useFileManagementStore.getState().transferOpen) { void releaseUnused(pending.tickets.map((ticket) => ticket.id)); return; }
-    begin(pending.tickets, pending.action, "selection");
+    begin(pending.tickets, pending.action, pending.external ? "external" : "selection");
     setDestination(pending.destination);
-    setTransfer({ tickets: pending.tickets, action: pending.action, origin: "selection", sourcePaneId: pending.sourcePaneId, sourceSignature: pending.sourceSignature });
+    setTransfer({ tickets: pending.tickets, action: pending.action, origin: pending.external ? "external" : "selection", sourcePaneId: pending.sourcePaneId, sourceSignature: pending.sourceSignature, destinationEntry: pending.destinationEntry });
   }, [state.pendingTransfer, focused, pane?.id]);
   async function chooseDestination() {
     const result = await open({ directory: true, multiple: false, title: t("fmDestination") });
     const path = Array.isArray(result) ? result[0] : result;
-    if (path) { setDestination(path); setPlan(null); }
+    if (path) { preparing.current++; setDestination(path); setPlan(null); setPlanEpoch(null); setTransfer((current) => current ? { ...current, destinationEntry: undefined } : current); }
   }
   async function prepare(nextSkip = skip, nextBoth = keepBoth) {
     if (!transfer) return;
-    const epoch = ++preparing.current; setPlan(null);
+    const epoch = ++preparing.current; setPlan(null); setPlanEpoch(null);
     await run(async () => {
-      const next = await api.previewTransfer({ ticketIds: transfer.tickets.map((ticket) => ticket.id), action: transfer.action, destinationDirectory: destination, skip: nextSkip, keepBoth: nextBoth });
+      const next = await api.previewTransfer({ ticketIds: transfer.tickets.map((ticket) => ticket.id), action: transfer.action, destinationDirectory: transfer.destinationEntry ? "" : destination, destinationEntry: transfer.destinationEntry, skip: nextSkip, keepBoth: nextBoth });
       if (mounted.current && preparing.current === epoch) {
-        setPlan(next);
+        setPlan(next); setPlanEpoch(epoch);
+        setDestination(next.destinationDirectory);
+        setTransfer((current) => current ? { ...current, destinationEntry: undefined } : current);
         const firstProblem = next.rows.find((row) => row.error && !row.skipped);
         if (firstProblem) setPreviewPage(Math.floor(Math.max(0, transfer.tickets.findIndex((ticket) => ticket.id === firstProblem.ticketId)) / PAGE_SIZE));
         const statuses = { ...useFileManagementStore.getState().statuses };
@@ -205,7 +225,7 @@ export function FileManagementToolbar() {
     });
   }
   async function execute() {
-    if (!plan || !transfer) return;
+    if (!confirmDiagnostics.ready || !plan || !transfer) return;
     const acceptedPlan = plan; const acceptedTransfer = transfer;
     await run(async () => {
       cancelRequested.current = false; executionSent.current = false;
@@ -214,7 +234,11 @@ export function FileManagementToolbar() {
       try {
         dispose = await tauriApi.onOperationProgress((update) => { if (mounted.current && update.kind === "execute") setProgress(update); });
         if (pane) await pane.beforeMutation(); else await previewController.closeForFileOperation();
-        if (cancelRequested.current) { setTransfer(null); useFileManagementStore.setState({ transferOpen: false }); return; }
+        if (cancelRequested.current) {
+          setTransfer(null); useFileManagementStore.setState({ transferOpen: false });
+          if (acceptedTransfer.origin === "external" || acceptedTransfer.origin === "selection") await releaseUnused(acceptedTransfer.tickets.map((ticket) => ticket.id));
+          return;
+        }
         executionSent.current = true;
         let result;
         try { result = await api.executeTransfer({ previewId: acceptedPlan.id, confirmed: true }); }
@@ -225,16 +249,18 @@ export function FileManagementToolbar() {
         const current = useFileManagementStore.getState();
         useFileManagementStore.setState({ results: result.logs, statuses, basketOpen: false,
           ...(acceptedTransfer.action === "move" ? { basket: current.basket.filter((ticket) => !succeeded.has(ticket.id)), clipboard: current.clipboard ? { ...current.clipboard, tickets: current.clipboard.tickets.filter((ticket) => !succeeded.has(ticket.id)) } : null } : {}) });
-        setTransfer(null); setPlan(null); setNotice(t("fmFinished")); useFileManagementStore.setState({ transferOpen: false });
+        setTransfer(null); setPlan(null); setPlanEpoch(null); setNotice(t("fmFinished")); useFileManagementStore.setState({ transferOpen: false });
         if (result.logs.some((log) => log.status !== "success")) setPanel("results");
         previewController.close("escape");
         const affectedSurface = acceptedTransfer.sourcePaneId ? useFileManagementStore.getState().surfaces[acceptedTransfer.sourcePaneId]?.read() : currentSurface();
         if (!acceptedTransfer.sourceSignature || affectedSurface?.signature === acceptedTransfer.sourceSignature) affectedSurface?.clear();
         try { if (pane) await pane.afterMutation([acceptedPlan.destinationDirectory, ...acceptedTransfer.tickets.map((ticket) => ticket.path.replace(/[/\\][^/\\]+$/, ""))]); else await affectedSurface?.refresh(); await useOperationQueueStore.getState().refreshOperationLogs(); } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
-        if (acceptedTransfer.action === "move" || acceptedTransfer.origin === "selection") {
-          try { await releaseUnused(acceptedTransfer.origin === "selection" ? acceptedTransfer.tickets.map((ticket) => ticket.id) : [...succeeded]); } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
+        if (acceptedTransfer.origin === "selection" || acceptedTransfer.origin === "external") {
+          try { await releaseUnused(acceptedTransfer.tickets.map((ticket) => ticket.id)); } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
+        } else if (acceptedTransfer.action === "move") {
+          try { await releaseUnused([...succeeded]); } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
         }
-      } finally { dispose?.(); executionSent.current = false; setProgress(null); setPlan(null); }
+      } finally { dispose?.(); executionSent.current = false; setProgress(null); setPlan(null); setPlanEpoch(null); }
     });
   }
   async function go(path: string) {
@@ -249,15 +275,16 @@ export function FileManagementToolbar() {
   const pageControls = (count: number, page: number, change: (page: number) => void) => <PageControls count={count} page={page} change={change} previous={t("fmPrevious")} next={t("fmNext")}/>;
   const selected = surface?.count === null ? t("fmAllResults") : String(surface?.count ?? 0);
   const disabled = busy || !surface || surface.count === 0;
-  const rowsReady = plan && plan.rows.some((row) => !row.skipped && row.preview) && plan.rows.every((row) => row.skipped || !row.error);
-  const readyCount = plan?.rows.filter((row) => !row.skipped && row.preview && !row.error).length ?? 0;
+  const confirmDiagnostics = getTransferConfirmationDiagnostics({ busy, plan, planEpoch, currentEpoch: preparing.current });
+  const rowsReady = confirmDiagnostics.ready;
+  const readyCount = confirmDiagnostics.readyCount;
   const skippedCount = skip.length;
   const panelTitle = t(state.basketOpen ? "fmBasket" : panel === "places" ? "fmPlaces" : panel === "results" ? "fmResultsSummary" : "fmMore");
   const resultsSummary = `${t("fmResults")} · ${state.results.filter((log) => log.status === "success").length}/${state.results.length}`;
   const resolution = (id: string, value: string) => {
     setSkip((current) => value === "skip" ? [...current.filter((item) => item !== id), id] : current.filter((item) => item !== id));
     setKeepBoth((current) => value === "both" ? [...current.filter((item) => item !== id), id] : current.filter((item) => item !== id));
-    preparing.current++; setPlan(null);
+    invalidatePlan();
   };
   const placeGroup = (favorite: boolean) => <section className="fm-place-group">
     <h3>{t(favorite ? "fmFavorites" : "fmRecent")}</h3>
@@ -314,16 +341,87 @@ export function FileManagementToolbar() {
     </div>}
     {transfer && <ModalPortal initialFocusRef={destinationRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={() => { if (!progress) closeTransfer(); }}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-transfer-title-${pane.id}` : "fm-transfer-title"} aria-busy={busy}>
       <header className="fm-dialog-header">
-        <div className="fm-dialog-title">{transfer.action === "copy" ? <Copy size={21}/> : <FolderInput size={21}/>}<div><h2 id={pane ? `fm-transfer-title-${pane.id}` : "fm-transfer-title"}>{t(transfer.action === "copy" ? "fmCopyPreview" : "fmMovePreview")}</h2><p className="fm-muted">{transfer.tickets.length} {t("fmFiles")} · {t("fmNoOverwrite")}</p></div></div>
-        <label className="fm-destination">{t("fmDestination")}<input ref={destinationRef} value={destination} disabled={busy} onChange={(event) => { preparing.current++; setDestination(event.target.value); setPlan(null); }} placeholder={t("fmPathHint")}/></label>
-        <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy} onClick={() => void run(chooseDestination)}><FolderOpen size={14}/>{t("fmChooseFolder")}</button><select aria-label={t("fmFavoriteDestination")} value="" disabled={busy} onChange={(event) => { preparing.current++; setDestination(event.target.value); setPlan(null); }}><option value="">{t("fmFavoriteDestination")}</option>{[true, false].map((favorite) => <optgroup key={String(favorite)} label={t(favorite ? "fmFavorites" : "fmRecent")}>{places.filter((place) => place.favorite === favorite).map((place) => <option key={place.id} value={place.routingHint} disabled={place.unavailable}>{place.name}{place.unavailable ? ` · ${t("fmUnavailable")}` : ""}</option>)}</optgroup>)}</select><button className={buttonSecondary} disabled={busy || !destination.trim()} onClick={() => void prepare()}>{t("fmPrepare")}</button></div>
+        <div className="fm-dialog-title">
+          {transfer.action === "copy" ? <Copy size={21}/> : <FolderInput size={21}/>}
+          <div>
+            <h2 id={pane ? "fm-transfer-title-" + pane.id : "fm-transfer-title"}>
+              {t(transfer.action === "copy" ? "fmCopyPreview" : "fmMovePreview")}
+            </h2>
+            <p className="fm-muted">{transfer.tickets.length} {t("fmFiles")} · {t("fmNoOverwrite")}</p>
+          </div>
+        </div>
+        <label className="fm-destination">
+          {t("fmDestination")}
+          <input
+            ref={destinationRef}
+            value={destination}
+            disabled={busy}
+            onChange={(event) => {
+              invalidatePlan();
+              setDestination(event.target.value);
+              setTransfer((current) => current ? { ...current, destinationEntry: undefined } : current);
+            }}
+            placeholder={transfer.destinationEntry ? t("fmDropFolderPending") : t("fmPathHint")}
+          />
+        </label>
+        {transfer.origin === "external" && <>
+          <label className="fm-transfer-action">
+            {t("fmTransferAction")}
+            <select
+              aria-label={t("fmTransferAction")}
+              value={transfer.action}
+              disabled={busy}
+              onChange={(event) => {
+                invalidatePlan();
+                setTransfer((current) => current ? { ...current, action: event.target.value as TransferAction } : current);
+              }}
+            >
+              <option value="copy">{t("fmCopy")}</option>
+              <option value="move">{t("fmMove")}</option>
+            </select>
+          </label>
+          <p className="fm-muted">{t("fmExternalMoveHelp")}</p>
+        </>}
+        <div className="fm-toolbar">
+          <button className={buttonSecondary} disabled={busy} onClick={() => void run(chooseDestination)}>
+            <FolderOpen size={14}/>{t("fmChooseFolder")}
+          </button>
+          <select
+            aria-label={t("fmFavoriteDestination")}
+            value=""
+            disabled={busy}
+            onChange={(event) => {
+              invalidatePlan();
+              setDestination(event.target.value);
+              setTransfer((current) => current ? { ...current, destinationEntry: undefined } : current);
+            }}
+          >
+            <option value="">{t("fmFavoriteDestination")}</option>
+            {[true, false].map((favorite) => (
+              <optgroup key={String(favorite)} label={t(favorite ? "fmFavorites" : "fmRecent")}>
+                {places.filter((place) => place.favorite === favorite).map((place) => (
+                  <option key={place.id} value={place.routingHint} disabled={place.unavailable}>
+                    {place.name}{place.unavailable ? " · " + t("fmUnavailable") : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <button
+            className={buttonSecondary}
+            disabled={busy || (!destination.trim() && !transfer.destinationEntry)}
+            onClick={() => void prepare()}
+          >
+            {t("fmPrepare")}
+          </button>
+        </div>
         {error && <p role="alert" className="fm-item-error">{error}</p>}
       </header>
       <div className="fm-dialog-body">
         <ul className="fm-preview">{transfer.tickets.slice(previewPage * PAGE_SIZE, (previewPage + 1) * PAGE_SIZE).map((ticket) => {
           const row = plan?.rows.find((item) => item.ticketId === ticket.id);
           return <li key={ticket.id} data-skipped={skip.includes(ticket.id)}>
-            <div className="fm-preview-file"><File size={17}/><div><strong>{ticket.name}</strong><p className="fm-path" title={ticket.path}>{t("fmSource")} {ticket.path.replace(/[/\\][^/\\]+$/, "")}</p>{row?.preview && <p className="fm-path" title={row.preview.target_path}>{t("fmDestinationName")} · {row.preview.new_name}</p>}</div></div>
+            <div className="fm-preview-file"><File size={17}/><div><strong>{ticket.relativePath || ticket.name}</strong><p className="fm-path" title={ticket.path}>{t("fmSource")} {ticket.path.replace(/[/\\][^/\\]+$/, "")}</p>{row?.preview && <p className="fm-path" title={row.preview.target_path}>{t("fmDestinationName")} · {row.preview.new_name}</p>}</div></div>
             <select aria-label={`${ticket.name} · ${t("fmResolution")}`} disabled={busy} value={skip.includes(ticket.id) ? "skip" : keepBoth.includes(ticket.id) ? "both" : "original"} onChange={(event) => resolution(ticket.id, event.target.value)}><option value="original">{t("fmDefaultResolution")}</option><option value="skip">{t("fmSkip")}</option><option value="both">{t("fmKeepBothShort")}</option></select>
             {row?.error && !row.skipped && <p role="alert" className="fm-item-error">{describeError(row.error)}</p>}
             <details className="fm-path-details"><summary>{t("fmDetails")}</summary><p>{ticket.path}</p>{row?.preview && <p>→ {row.preview.target_path}</p>}</details>
@@ -333,7 +431,37 @@ export function FileManagementToolbar() {
       </div>
       <footer className="fm-dialog-footer">
         {progress && <div role="status" className="fm-progress"><progress max={progress.total || 1} value={progress.processed}/><span>{cancelling ? t("fmCancelPending") : `${progress.processed}/${progress.total}`} · {progress.currentPath}</span></div>}
-        <div className="fm-toolbar fm-confirm-bar"><p role="status" className="fm-transfer-summary">{plan ? `${t("fmReadyCount")} ${readyCount} / ${transfer.tickets.length} · ${t("fmSkipped")} ${skippedCount}` : t(skip.length || keepBoth.length ? "fmReviewAgain" : "fmNeedsPreview")}</p><button className={buttonSecondary} disabled={cancelling} onClick={() => { if (progress) { setCancelling(true); cancelRequested.current = true; if (executionSent.current) void tauriApi.cancelOperations().catch((value) => { setError(describeError(value)); setCancelling(false); }); } else closeTransfer(); }}>{t(progress ? "fmCancelRunning" : "fmCancel")}</button><button className={buttonPrimary} disabled={busy || !rowsReady} onClick={() => void execute()}>{t("fmConfirm")}</button></div>
+        <div className="fm-toolbar fm-confirm-bar">
+          <p role="status" className="fm-transfer-summary">
+            {plan
+              ? t("fmReadyCount") + " " + readyCount + " / " + transfer.tickets.length + " · " + t("fmSkipped") + " " + skippedCount
+              : t(skip.length || keepBoth.length ? "fmReviewAgain" : "fmNeedsPreview")}
+          </p>
+          <button
+            className={buttonSecondary}
+            disabled={cancelling}
+            onClick={() => {
+              if (progress) {
+                setCancelling(true);
+                cancelRequested.current = true;
+                if (executionSent.current) void tauriApi.cancelOperations().catch((value) => {
+                  setError(describeError(value));
+                  setCancelling(false);
+                });
+              } else closeTransfer();
+            }}
+          >
+            {t(progress ? "fmCancelRunning" : "fmCancel")}
+          </button>
+          <button
+            className={buttonPrimary}
+            data-confirm-diagnostics={JSON.stringify(confirmDiagnostics)}
+            disabled={!rowsReady}
+            onClick={() => void execute()}
+          >
+            {t("fmConfirm")}
+          </button>
+        </div>
       </footer>
     </section></div></ModalPortal>}
   </section>;

@@ -45,6 +45,7 @@
 .fm-dialog-title > svg { color: var(--zc-primary); flex-shrink: 0; }
 .fm-dialog h2 { font-size: 18px; font-weight: 650; }
 .fm-destination { display: grid; gap: 5px; font-size: 12px; }
+.fm-transfer-action { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .fm-dialog-body { padding: 4px 20px; min-height: 60px; overflow-y: auto; overscroll-behavior: contain; }
 .fm-preview li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 180px); align-items: start; gap: 6px 16px; padding: 12px 0; border-bottom: 1px solid var(--zc-divider); }
 .fm-preview li[data-skipped=true] .fm-preview-file { color: var(--zc-text-secondary); }

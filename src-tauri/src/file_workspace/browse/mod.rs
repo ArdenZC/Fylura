@@ -792,6 +792,41 @@ impl BrowseService {
         })
     }
 
+    /// Resolve a visible directory-row target only while it belongs to the
+    /// active Browse enumeration. External drop targets must not keep using a
+    /// stale row after the pane has navigated or refreshed.
+    pub(crate) fn resolve_current_entry(
+        &self,
+        entry_ref: &BrowseEntryRef,
+    ) -> Result<ResolvedBrowseEntry, BrowseError> {
+        let BrowseEntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        } = entry_ref;
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get(browse_session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        let current = session
+            .active
+            .as_ref()
+            .ok_or(BrowseError::StaleEnumeration)?;
+        let entry = session
+            .entries
+            .get(entry_id)
+            .ok_or(BrowseError::InvalidEntryRef)?;
+        if entry.enumeration_id != current.identity.enumeration_id {
+            return Err(BrowseError::StaleEnumeration);
+        }
+        Ok(ResolvedBrowseEntry {
+            path: entry.path.clone(),
+            kind: entry.kind,
+        })
+    }
+
     /// Resolve only the owning Browse enumeration for cache/deduplication
     /// namespacing. The entry registry remains the lifetime authority; this
     /// method does not expose the stored path or session state.

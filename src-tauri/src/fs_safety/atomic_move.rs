@@ -347,6 +347,62 @@ pub(crate) fn atomic_move_with_verified_destination(
     actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
     expected_target_parent: Option<&super::DirectoryIdentity>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_move_with_verified_destination_policy(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel,
+        observer,
+        operation,
+        actual_path_observer,
+        expected_target_parent,
+        false,
+    )
+}
+
+/// Transfer intents keep the target-parent identity guard while allowing the
+/// existing copy/verify/source-retirement path when selected volumes differ.
+/// Other manual Move callers retain their same-volume requirement.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn atomic_move_with_verified_destination_for_transfer(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    operation: AtomicMoveOperation,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    expected_target_parent: Option<&super::DirectoryIdentity>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_move_with_verified_destination_policy(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel,
+        observer,
+        operation,
+        actual_path_observer,
+        expected_target_parent,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn atomic_move_with_verified_destination_policy(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    operation: AtomicMoveOperation,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+    expected_target_parent: Option<&super::DirectoryIdentity>,
+    allow_cross_volume: bool,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
         crate::platform::macos::strategy::with_mutation_strategy(
@@ -378,6 +434,7 @@ pub(crate) fn atomic_move_with_verified_destination(
                     operation,
                     actual_path_observer,
                     expected_target_parent,
+                    allow_cross_volume,
                 )
             },
         )
@@ -395,6 +452,7 @@ pub(crate) fn atomic_move_with_verified_destination(
             operation,
             actual_path_observer,
             expected_target_parent,
+            allow_cross_volume,
         )
     }
 }
@@ -410,6 +468,7 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     operation: AtomicMoveOperation,
     actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
     expected_target_parent: Option<&super::DirectoryIdentity>,
+    allow_cross_volume: bool,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     let _ = operation;
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
@@ -424,16 +483,19 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         if target_parent.identity() != expected {
             return Err(AtomicMoveError::TargetParentIdentityChanged);
         }
-        if expected_identity.and_then(|source| source.platform_volume_id.as_deref())
-            != Some(expected.volume_id.as_str())
+        if !allow_cross_volume
+            && expected_identity.and_then(|source| source.platform_volume_id.as_deref())
+                != Some(expected.volume_id.as_str())
         {
             return Err(AtomicMoveError::CrossDevice);
         }
         #[cfg(target_os = "macos")]
-        if !matches!(
-            crate::platform::macos::strategy::select(source, target_parent.path()),
-            crate::platform::macos::strategy::MacMutationStrategy::LocalApfs
-        ) {
+        if !allow_cross_volume
+            && !matches!(
+                crate::platform::macos::strategy::select(source, target_parent.path()),
+                crate::platform::macos::strategy::MacMutationStrategy::LocalApfs
+            )
+        {
             return Err(AtomicMoveError::MacMutationNotSupported(
                 "manual_move_local_same_volume_required",
             ));
@@ -570,13 +632,13 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         &claim_path,
     );
 
-    if expected_target_parent.is_some()
-        && claim.original_volume_id() != target_parent.identity().volume_id
-    {
-        return Err(rollback_after_failure(
-            &mut claim,
-            SourceClaimError::CrossDevice,
-        ));
+    if let Err(error) = enforce_target_volume_policy(
+        claim.original_volume_id(),
+        &target_parent.identity().volume_id,
+        expected_target_parent.is_some(),
+        allow_cross_volume,
+    ) {
+        return Err(rollback_after_failure(&mut claim, error));
     }
     if claim.original_volume_id() == target_parent.identity().volume_id {
         #[cfg(target_os = "macos")]
@@ -709,6 +771,19 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     {
         let _ = claim.rollback_to_original();
         Err(AtomicMoveError::UnsupportedPlatformLinux)
+    }
+}
+
+fn enforce_target_volume_policy(
+    source_volume_id: &str,
+    target_volume_id: &str,
+    has_verified_target_parent: bool,
+    allow_cross_volume: bool,
+) -> Result<(), SourceClaimError> {
+    if has_verified_target_parent && !allow_cross_volume && source_volume_id != target_volume_id {
+        Err(SourceClaimError::CrossDevice)
+    } else {
+        Ok(())
     }
 }
 
@@ -1588,6 +1663,18 @@ mod tests {
         ));
         fs::create_dir_all(&path).expect("fixture");
         path
+    }
+
+    #[test]
+    fn transfer_volume_policy_allows_cross_volume_only_for_transfer_intents() {
+        assert!(matches!(
+            enforce_target_volume_policy("source-volume", "target-volume", true, false),
+            Err(SourceClaimError::CrossDevice)
+        ));
+        assert!(enforce_target_volume_policy("source-volume", "target-volume", true, true).is_ok());
+        assert!(
+            enforce_target_volume_policy("source-volume", "source-volume", true, false).is_ok()
+        );
     }
 
     #[test]

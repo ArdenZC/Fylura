@@ -1,6 +1,7 @@
 use super::manual_rename_tests::Fixture;
 use super::manual_transfer::*;
 use super::*;
+use crate::file_workspace::integration::types::BrowseEntryKindDto;
 use crate::file_workspace::integration::{
     types::{BrowseOpenRequest, BrowseSessionRequest, BrowseStartEnumerationRequest},
     FileWorkspaceRuntime,
@@ -23,6 +24,7 @@ fn capture(runtime: &FileWorkspaceRuntime, f: &Fixture) -> Vec<TransferTicket> {
             }],
             selection: None,
             release_ids: vec![],
+            external_paths: vec![],
         })
         .unwrap()
 }
@@ -39,6 +41,7 @@ fn preview(
             ticket_ids: ids,
             action,
             destination_directory: normalize_path(target),
+            destination_entry: None,
             keep_both: both,
             skip,
         })
@@ -87,6 +90,7 @@ fn u1_batch_collects_managed_and_disposed_browse_sources_then_copies_with_journa
                 refs: vec![reference],
                 selection: None,
                 release_ids: vec![],
+                external_paths: vec![],
             })
             .unwrap(),
     );
@@ -398,6 +402,7 @@ fn u1_partial_batch_cancellation_preserves_unprocessed_sources_and_durable_resul
             refs,
             selection: None,
             release_ids: vec![],
+            external_paths: vec![],
         })
         .unwrap();
     assert_eq!(tickets.len(), 11);
@@ -538,6 +543,7 @@ fn u1_macos_directory_copy_move_and_restore_reuse_the_existing_tree_transaction(
             refs: vec![reference],
             selection: None,
             release_ids: vec![],
+            external_paths: vec![],
         })
         .unwrap()
         .remove(0);
@@ -643,6 +649,7 @@ fn u1_skipped_same_name_does_not_reserve_a_batch_destination() {
                 refs: vec![reference],
                 selection: None,
                 release_ids: vec![],
+                external_paths: vec![],
             })
             .unwrap(),
     );
@@ -691,4 +698,320 @@ fn u1_skipped_same_name_does_not_reserve_a_batch_destination() {
     );
     assert!(f.source.exists());
     assert!(!target.join("original.txt").exists());
+}
+
+#[test]
+fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_preview() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("drop-source");
+    fs::create_dir_all(source.join("nested/deeper")).unwrap();
+    fs::write(source.join("root.txt"), b"root bytes").unwrap();
+    fs::write(source.join("nested/deeper/child.txt"), b"nested bytes").unwrap();
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    assert_eq!(tickets.len(), 2);
+    assert!(tickets
+        .iter()
+        .any(|ticket| ticket.relative_path == "drop-source/root.txt"));
+    assert!(tickets
+        .iter()
+        .any(|ticket| ticket.relative_path == "drop-source/nested/deeper/child.txt"));
+
+    let destination = f.root.join("destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        tickets.iter().map(|ticket| ticket.id.clone()).collect(),
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    assert!(
+        plan.rows.iter().all(|row| row.error.is_none()),
+        "{:?}",
+        plan.rows
+            .iter()
+            .map(|row| row.error.as_deref())
+            .collect::<Vec<_>>()
+    );
+    assert!(plan.rows.iter().any(|row| row
+        .preview
+        .as_ref()
+        .is_some_and(|preview| Path::new(&preview.target_path)
+            .ends_with("drop-source/nested/deeper/child.txt"))));
+
+    let stale = source.join("late.txt");
+    fs::write(&stale, b"arrived after preview").unwrap();
+    let stale_plan = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap_err();
+    assert_eq!(stale_plan, "transfer_source_tree_changed");
+    assert!(!destination.join("drop-source").exists());
+    fs::remove_file(&stale).unwrap();
+
+    let fresh = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    let plan = preview(
+        &runtime,
+        fresh.iter().map(|ticket| ticket.id.clone()).collect(),
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    let result = execute_moves_with_persistence(&f.db, request).unwrap();
+    assert_eq!(result.logs.len(), 2);
+    assert!(
+        result
+            .logs
+            .iter()
+            .all(|log| log.status == "success" && !log.can_restore),
+        "unexpected external copy journal state: {:?}",
+        result.logs
+    );
+    assert_eq!(
+        fs::read(destination.join("drop-source/root.txt")).unwrap(),
+        b"root bytes"
+    );
+    assert_eq!(
+        fs::read(destination.join("drop-source/nested/deeper/child.txt")).unwrap(),
+        b"nested bytes"
+    );
+    assert!(source.join("root.txt").exists());
+    runtime.dispose();
+}
+
+#[test]
+fn fl20_external_transfer_rejects_a_replaced_destination_root() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("external-root-identity.txt");
+    fs::write(&source, b"destination identity guard").unwrap();
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    let destination = f.root.join("replaceable-destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![tickets[0].id.clone()],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    let original = f.root.join("replaceable-destination-original");
+    let replacement = f.root.join("replacement-destination");
+    fs::create_dir(&replacement).unwrap();
+    fs::rename(&destination, &original).unwrap();
+    fs::rename(&replacement, &destination).unwrap();
+
+    let error = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap_err();
+    assert_eq!(error, "operation_preview_stale");
+    assert_eq!(fs::read(&source).unwrap(), b"destination identity guard");
+    assert!(!destination.join("external-root-identity.txt").exists());
+    runtime.dispose();
+}
+
+#[test]
+fn fl20_external_file_move_is_previewed_journaled_and_restored_without_indexing() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("external-move.txt");
+    fs::write(&source, b"external source bytes").unwrap();
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    let destination = f.root.join("destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![tickets[0].id.clone()],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    let result = execute_moves_with_persistence(&f.db, request).unwrap();
+    assert_eq!(result.logs[0].status, "success");
+    assert!(result.logs[0].can_restore);
+    assert!(!source.exists());
+    assert_eq!(
+        fs::read(destination.join("external-move.txt")).unwrap(),
+        b"external source bytes"
+    );
+    let restore =
+        restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: result.logs }).unwrap();
+    assert_eq!(restore.logs[0].restore_status, "restored");
+    assert_eq!(fs::read(&source).unwrap(), b"external source bytes");
+    assert!(!destination.join("external-move.txt").exists());
+    runtime.dispose();
+}
+
+#[test]
+fn fl20_releasing_external_candidates_invalidates_unconfirmed_previews() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("external-cancel.txt");
+    fs::write(&source, b"must remain unchanged").unwrap();
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    let destination = f.root.join("cancel-destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![tickets[0].id.clone()],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![tickets[0].id.clone()],
+            external_paths: vec![],
+        })
+        .unwrap();
+
+    let error = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap_err();
+    assert_eq!(error, "operation_preview_stale");
+    assert_eq!(fs::read(&source).unwrap(), b"must remain unchanged");
+    assert!(!destination.join("external-cancel.txt").exists());
+    runtime.dispose();
+}
+
+#[test]
+fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("external-source.txt");
+    fs::write(&source, b"external bytes").unwrap();
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    let destination = f.root.join("drop-target");
+    fs::create_dir(&destination).unwrap();
+    let browse = runtime
+        .open_browse(BrowseOpenRequest {
+            platform: if cfg!(windows) {
+                WorkspacePlatform::Windows
+            } else {
+                WorkspacePlatform::Macos
+            },
+            routing_hint: normalize_path(&f.root),
+            display_hint: None,
+            global_entry_id: None,
+        })
+        .unwrap();
+    let page = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: browse.session_id.clone(),
+            request_id: "external-destination".into(),
+            path_ref: browse.root_path_ref.clone(),
+            page_size: 64,
+            query: Default::default(),
+        })
+        .unwrap();
+    let row = page
+        .entries
+        .iter()
+        .find(|entry| entry.name == "drop-target")
+        .unwrap();
+    assert_eq!(row.kind, BrowseEntryKindDto::Directory);
+    let plan = runtime
+        .preview_transfer(TransferPreviewRequest {
+            ticket_ids: vec![tickets[0].id.clone()],
+            action: TransferAction::Copy,
+            destination_directory: String::new(),
+            destination_entry: Some(row.entry_ref.clone()),
+            keep_both: vec![],
+            skip: vec![],
+        })
+        .unwrap();
+    assert_eq!(
+        plan.destination_directory,
+        normalize_path(&destination.canonicalize().unwrap())
+    );
+
+    runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: browse.session_id.clone(),
+            request_id: "external-destination-refresh".into(),
+            path_ref: browse.root_path_ref,
+            page_size: 64,
+            query: Default::default(),
+        })
+        .unwrap();
+    let stale = runtime.preview_transfer(TransferPreviewRequest {
+        ticket_ids: vec![tickets[0].id.clone()],
+        action: TransferAction::Copy,
+        destination_directory: String::new(),
+        destination_entry: Some(row.entry_ref.clone()),
+        keep_both: vec![],
+        skip: vec![],
+    });
+    assert!(stale.is_err());
+    runtime.dispose();
 }

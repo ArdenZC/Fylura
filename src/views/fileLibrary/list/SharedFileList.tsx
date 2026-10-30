@@ -324,7 +324,7 @@ const SharedFileRow = memo(function SharedFileRow({
       )}
       style={style}
       data-file-entry-kind={entry.entryKind}
-      draggable={selected}
+      data-file-entry-name={entry.displayName}
       role="option"
       tabIndex={-1}
       aria-selected={selected}
@@ -333,6 +333,7 @@ const SharedFileRow = memo(function SharedFileRow({
       data-library-row={entry.source === "library" ? entry.entryRef.fileId : undefined}
       data-library-availability={entry.source === "library" ? entry.availability : undefined}
       data-browse-entry={entry.source === "browse" ? "true" : undefined}
+      data-browse-session-id={entry.source === "browse" ? entry.entryRef.browseSessionId : undefined}
       data-browse-entry-id={entry.source === "browse" ? entry.entryRef.entryId : undefined}
       data-browse-entry-kind={entry.source === "browse" ? entry.entryKind : undefined}
       onClick={onClick}

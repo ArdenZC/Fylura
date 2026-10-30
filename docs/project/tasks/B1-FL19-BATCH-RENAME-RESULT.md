@@ -57,4 +57,6 @@ The follow-up used the separate QA profile `D:\_qa\zen-canvas-b1-fl19\profile` a
 - Exact-HEAD hosted CI: **PASS** for `f5b9fafc317c1c038190f2d7b0c97ac689e22fb2` at run `41009844128`.
 - Merge recommendation: **MERGE_HOLD** until the restore outcome discrepancy is explained and cancellation is captured on a real operation. No source-code fix was made in this follow-up because the observed persistence/identity cause was not isolated; do not treat the five manual-review items as restored in History.
 
+The report was committed as documentation-only HEAD `9b6d866dc976c979c8b75603e40b287d43f76d7b`; its exact-head Actions run [41060625158](https://github.com/ArdenZC/Zen-Canvas/actions/runs/41060625158) completed successfully (7 jobs succeeded, 20 were skipped by the validation plan). The FL-19 source code is unchanged from the tested code candidate above.
+
 PR #514 remains Draft. No merge, release, issue closure, or FL-20 PR was performed.

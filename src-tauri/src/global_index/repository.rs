@@ -5,8 +5,128 @@ use serde::Serialize;
 use std::{
     collections::HashSet,
     path::Path,
-    sync::{Mutex, OnceLock},
+    sync::{atomic::Ordering as AtomicOrdering, Mutex, OnceLock},
 };
+
+const COMPACT_FEED_SCHEMA_VERSION: i64 = 3;
+const COMPACT_FEED_MAX_BATCH_IDS: usize = 32_768;
+
+#[cfg(test)]
+thread_local! {
+    static LAST_GLOBAL_ENTRY_BATCH_VM_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, feature = "compact-name-search-candidate"))]
+pub(crate) fn last_global_entry_batch_vm_steps() -> u64 {
+    LAST_GLOBAL_ENTRY_BATCH_VM_STEPS.with(std::cell::Cell::get)
+}
+
+/// Starts a transaction-scoped outbox batch only while the complete durable
+/// feed trigger set is installed. Any uncertain state falls back to the row
+/// triggers, which remain the correctness path for raw SQL and older handles.
+pub(super) fn begin_compact_feed_batch(
+    tx: &Transaction<'_>,
+    enabled: bool,
+) -> rusqlite::Result<bool> {
+    if !enabled {
+        return Ok(false);
+    }
+    let state = tx
+        .query_row(
+            "SELECT schema_version, batch_active,
+                    (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN (
+                        'compact_name_search_entries_ai','compact_name_search_entries_au',
+                        'compact_name_search_entries_ad','compact_name_search_changes_cap'))
+             FROM compact_name_search_state WHERE singleton=1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .optional();
+    let Ok(Some((version, batch_active, trigger_count))) = state else {
+        return Ok(false);
+    };
+    if version != COMPACT_FEED_SCHEMA_VERSION || trigger_count != 4 {
+        return Ok(false);
+    }
+    if batch_active != 0 {
+        // A committed marker can only come from a damaged/old writer. Repair
+        // it atomically and invalidate the derivative before row triggers run.
+        tx.execute(
+            "UPDATE compact_name_search_state
+             SET base_generation=-1, file_name=NULL,
+                 change_floor=MAX(change_floor, COALESCE((SELECT MAX(seq) FROM compact_name_search_changes), 0)),
+                 batch_active=0 WHERE singleton=1",
+            [],
+        )?;
+        return Ok(false);
+    }
+    Ok(tx.execute(
+        "UPDATE compact_name_search_state SET batch_active=1
+         WHERE singleton=1 AND schema_version=3 AND batch_active=0",
+        [],
+    )? == 1)
+}
+
+/// Emits one atomic, bounded outbox record for all identities changed by the
+/// enclosing SQLite transaction. If the payload would exceed the overlay
+/// bound, it records only a monotonic invalidation fence and forces rebuild.
+pub(super) fn finish_compact_feed_batch(
+    tx: &Transaction<'_>,
+    ids: &[String],
+) -> rusqlite::Result<()> {
+    if ids.is_empty() {
+        tx.execute(
+            "UPDATE compact_name_search_state SET batch_active=0 WHERE singleton=1",
+            [],
+        )?;
+        return Ok(());
+    }
+    let event_count = i64::try_from(ids.len()).map_err(|error| {
+        rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(error)))
+    })?;
+    let high_water: i64 = tx.query_row(
+        "SELECT MAX(COALESCE((SELECT MAX(seq) FROM compact_name_search_changes), 0),
+                    COALESCE((SELECT MAX(base_generation, 0) FROM compact_name_search_state WHERE singleton=1), 0))",
+        [],
+        |row| row.get(0),
+    )?;
+    let sequence_end = high_water.checked_add(event_count).ok_or_else(|| {
+        rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
+            "compact_name_search_sequence_exhausted",
+        )))
+    })?;
+    let batch_ids = if ids.len() <= COMPACT_FEED_MAX_BATCH_IDS {
+        Some(
+            serde_json::to_string(ids)
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
+        )
+    } else {
+        tx.execute(
+            "UPDATE compact_name_search_state
+             SET base_generation=-1, file_name=NULL, change_floor=?1
+             WHERE singleton=1",
+            [high_water],
+        )?;
+        None
+    };
+    tx.execute(
+        "INSERT INTO compact_name_search_changes(
+             seq, entry_rowid, entry_id, batch_ids, event_count
+         ) VALUES (?1, 0, NULL, ?2, ?3)",
+        rusqlite::params![sequence_end, batch_ids, event_count],
+    )?;
+    tx.execute(
+        "UPDATE compact_name_search_state SET batch_active=0 WHERE singleton=1",
+        [],
+    )?;
+    Ok(())
+}
 
 static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
@@ -1124,6 +1244,22 @@ impl Database {
             }
         }
         let scope_policies = load_enabled_scope_policies(&transaction)?;
+        let feed_batch = begin_compact_feed_batch(
+            &transaction,
+            self.compact_feed_batching.load(AtomicOrdering::Acquire),
+        )?;
+        let mut changed_entry_ids = if feed_batch {
+            entries
+                .iter()
+                .map(GlobalEntryInput::entry_id)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        if feed_batch {
+            changed_entry_ids.sort_unstable();
+            changed_entry_ids.dedup();
+        }
         let mut count = 0;
         let mut has_eligible_pending_work = false;
         let mut statement = transaction.prepare(UPSERT_GLOBAL_ENTRY_SQL)?;
@@ -1169,9 +1305,20 @@ impl Database {
             }
             count += 1;
         }
+        #[cfg(test)]
+        LAST_GLOBAL_ENTRY_BATCH_VM_STEPS.with(|steps| {
+            steps.set(
+                statement
+                    .get_status(rusqlite::StatementStatus::VmStep)
+                    .max(0) as u64,
+            )
+        });
         drop(statement);
         if let Some((_, decisions)) = &coverage {
             super::coverage::record_decisions(&transaction, entries, decisions)?;
+        }
+        if feed_batch {
+            finish_compact_feed_batch(&transaction, &changed_entry_ids)?;
         }
         transaction.commit()?;
         if has_eligible_pending_work {
@@ -1210,6 +1357,27 @@ impl Database {
         if let Some(owner) = owner {
             ensure_source_operation_owner_tx(&transaction, owner)?;
         }
+        let feed_batch = begin_compact_feed_batch(
+            &transaction,
+            self.compact_feed_batching.load(AtomicOrdering::Acquire),
+        )?;
+        let mut changed_entry_ids = if feed_batch {
+            let mut statement = transaction.prepare(
+                "SELECT id FROM global_entries
+                 WHERE volume_id=?1 AND (is_stale=0 OR scope_decision='minimal_ancestor')
+                 ORDER BY id COLLATE BINARY",
+            )?;
+            let rows = statement
+                .query_map([volume_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        } else {
+            Vec::new()
+        };
+        if feed_batch {
+            changed_entry_ids.sort_unstable();
+            changed_entry_ids.dedup();
+        }
         let now = unix_now();
         let changed = transaction.execute(
             "UPDATE global_entries SET is_stale = 1, scope_decision = 'unseen' WHERE volume_id = ?1 AND (is_stale = 0 OR scope_decision = 'minimal_ancestor')",
@@ -1235,6 +1403,9 @@ impl Database {
             "UPDATE global_volumes SET entry_count = 0, updated_at = ?2 WHERE id = ?1",
             params![volume_id, now],
         )?;
+        if feed_batch {
+            finish_compact_feed_batch(&transaction, &changed_entry_ids)?;
+        }
         transaction.commit()?;
         Ok(changed)
     }
@@ -1261,6 +1432,10 @@ impl Database {
         if let Some(owner) = owner {
             ensure_source_operation_owner_tx(&transaction, owner)?;
         }
+        let feed_batch = begin_compact_feed_batch(
+            &transaction,
+            self.compact_feed_batching.load(AtomicOrdering::Acquire),
+        )?;
         let now = unix_now();
         let changed = if let Some(owner) = owner {
             transaction.execute(
@@ -1290,6 +1465,14 @@ impl Database {
             "UPDATE ai_analysis_state SET status = 'stale', last_error = 'global_entry_stale', updated_at = ?2 WHERE global_entry_id = ?1 AND (?3 IS NULL OR global_entry_id IN (SELECT id FROM global_entries WHERE volume_id = ?3))",
             params![entry_id, now, volume_guard],
         )?;
+        if feed_batch {
+            let changed_ids = if changed > 0 {
+                vec![entry_id.to_owned()]
+            } else {
+                Vec::new()
+            };
+            finish_compact_feed_batch(&transaction, &changed_ids)?;
+        }
         transaction.commit()?;
         Ok(changed > 0)
     }

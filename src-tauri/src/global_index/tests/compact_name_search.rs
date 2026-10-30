@@ -403,6 +403,214 @@ fn overlay_updates_deletes_and_volume_revocation_are_snapshot_safe() {
 }
 
 #[test]
+fn owner_lease_prevents_another_process_from_removing_the_live_feed() {
+    const CHILD_DATABASE_ENV: &str = "ZC_TEST_COMPACT_OWNER_CHILD_DB";
+    if let Ok(child_path) = std::env::var(CHILD_DATABASE_ENV) {
+        let child_db = crate::db::Database::open(&child_path)
+            .expect("open database from an env-off secondary process");
+        if std::env::var("ZC_TEST_COMPACT_OWNER_CHILD_MODE").as_deref() == Ok("recover") {
+            assert!(child_db.compact_name_search().is_enabled());
+            child_db
+                .rebuild_compact_name_search_for_test()
+                .expect("restart reacquires the released owner lease and rebuilds");
+            return;
+        }
+        let child_entry = test_entry(
+            "volume-cross-process",
+            "child-stable-id",
+            "childneedle.txt",
+            r"F:\cross-process\childneedle.txt",
+            3,
+        );
+        child_db
+            .upsert_global_entries_batch(&[child_entry])
+            .expect("write through the live owner feed from a second process");
+        return;
+    }
+
+    let path = test_path();
+    let db = crate::db::Database::open(&path).expect("open owner database");
+    let volume = test_volume("volume-cross-process", r"F:\cross-process");
+    db.upsert_global_volume(&volume)
+        .expect("insert fixture source");
+    db.upsert_global_entries_batch(&[test_entry(
+        &volume.id,
+        "base-stable-id",
+        "base-entry.txt",
+        r"F:\cross-process\base-entry.txt",
+        1,
+    )])
+    .expect("insert base entry");
+    db.enable_compact_name_search_for_test()
+        .expect("acquire exclusive owner lease");
+    db.rebuild_compact_name_search_for_test()
+        .expect("build base under the owner lease");
+
+    let output = std::process::Command::new(
+        std::env::current_exe().expect("locate current Rust test executable"),
+    )
+    .args([
+        "--exact",
+        "global_index::compact_name_search::tests::owner_lease_prevents_another_process_from_removing_the_live_feed",
+        "--nocapture",
+    ])
+    .env(CHILD_DATABASE_ENV, &path)
+    .env_remove("ZC_COMPACT_NAME_SEARCH")
+    .output()
+    .expect("spawn an isolated secondary database opener");
+    assert!(
+        output.status.success(),
+        "secondary process failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let result = db
+        .search_global_entries("childneedle", 20, 0)
+        .expect("the owner observes the second process feed batch");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].name, "childneedle.txt");
+    let conn = db.conn().expect("inspect committed cross-process outbox");
+    let (batch_rows, represented_changes): (i64, i64) = conn
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(event_count), 0)
+             FROM compact_name_search_changes
+             WHERE seq > (SELECT base_generation FROM compact_name_search_state WHERE singleton=1)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("count committed batch event");
+    assert_eq!((batch_rows, represented_changes), (1, 1));
+
+    drop(conn);
+    drop(db);
+
+    let recovery = std::process::Command::new(
+        std::env::current_exe().expect("locate current Rust test executable for recovery"),
+    )
+    .args([
+        "--exact",
+        "global_index::compact_name_search::tests::owner_lease_prevents_another_process_from_removing_the_live_feed",
+        "--nocapture",
+    ])
+    .env(CHILD_DATABASE_ENV, &path)
+    .env("ZC_TEST_COMPACT_OWNER_CHILD_MODE", "recover")
+    .env("ZC_COMPACT_NAME_SEARCH", "1")
+    .output()
+    .expect("spawn candidate restart after owner release");
+    assert!(
+        recovery.status.success(),
+        "candidate restart failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&recovery.stdout),
+        String::from_utf8_lossy(&recovery.stderr)
+    );
+    cleanup(&path);
+}
+
+#[test]
+fn tracked_writer_batches_are_atomic_and_crash_rollback_keeps_the_feed_contiguous() {
+    let path = test_path();
+    let db = crate::db::Database::open(&path).expect("open batch-feed fixture");
+    let volume = test_volume("volume-batch-feed", r"F:\batch-feed");
+    db.upsert_global_volume(&volume)
+        .expect("insert feed source");
+    let entries = (0..64)
+        .map(|index| {
+            test_entry(
+                &volume.id,
+                &format!("batch-stable-{index:03}"),
+                &format!("batchmarker-{index:03}.txt"),
+                &format!(r"F:\batch-feed\batchmarker-{index:03}.txt"),
+                index,
+            )
+        })
+        .collect::<Vec<_>>();
+    db.upsert_global_entries_batch(&entries)
+        .expect("insert initial rows");
+    db.enable_compact_name_search_for_test()
+        .expect("install leased feed");
+    db.rebuild_compact_name_search_for_test()
+        .expect("build immutable base");
+    let modified = entries
+        .iter()
+        .cloned()
+        .map(|mut entry| {
+            entry.modified_at_fs = Some(entry.modified_at_fs.unwrap_or_default() + 100);
+            entry
+        })
+        .collect::<Vec<_>>();
+    db.upsert_global_entries_batch(&modified)
+        .expect("write one production batch through the feed");
+
+    let conn = db.conn().expect("inspect compact batch event");
+    let (rows, event_count, json_count): (i64, i64, i64) = conn
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(event_count), 0),
+                    COALESCE(SUM(json_array_length(batch_ids)), 0)
+             FROM compact_name_search_changes
+             WHERE seq > (SELECT base_generation FROM compact_name_search_state WHERE singleton=1)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("read single atomic outbox batch");
+    assert_eq!((rows, event_count, json_count), (1, 64, 64));
+    drop(conn);
+
+    let results = db
+        .search_global_entries("batchmarker", 80, 0)
+        .expect("search all rows from the batched overlay");
+    assert_eq!(
+        results
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        modified
+            .iter()
+            .rev()
+            .map(GlobalEntryInput::entry_id)
+            .collect::<Vec<_>>()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+    );
+
+    let mut writer = db.conn().expect("lease rollback test connection");
+    let tx = writer
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .expect("begin simulated interrupted writer transaction");
+    assert!(crate::global_index::repository::begin_compact_feed_batch(
+        &tx,
+        db.compact_feed_batching.load(AtomicOrdering::Acquire)
+    )
+    .expect("mark batch transaction"));
+    let id = modified[0].entry_id();
+    tx.execute(
+        "UPDATE global_entries SET modified_at_fs=999999 WHERE id=?1",
+        [&id],
+    )
+    .expect("change row under transaction marker");
+    drop(tx); // SQLite rolls back both the row change and batch marker.
+    let (stored_mtime, batch_active): (i64, i64) = writer
+        .query_row(
+            "SELECT e.modified_at_fs,s.batch_active FROM global_entries e
+             CROSS JOIN compact_name_search_state s WHERE e.id=?1 AND s.singleton=1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("verify rollback restored row and marker");
+    assert_eq!(stored_mtime, modified[0].modified_at_fs.unwrap());
+    assert_eq!(batch_active, 0);
+    drop(writer);
+
+    let after_rollback = db
+        .search_global_entries("batchmarker-000", 20, 0)
+        .expect("search after atomic rollback");
+    assert_eq!(after_rollback.len(), 1);
+    drop(db);
+    cleanup(&path);
+}
+
+#[test]
 fn changed_trigger_set_invalidates_manifest_before_rebuild() {
     let path = test_path();
     let db = crate::db::Database::open(&path).expect("open fixture database");

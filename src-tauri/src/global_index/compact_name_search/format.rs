@@ -104,7 +104,16 @@ pub(super) fn write_index_file(path: &Path, data: &CompactIndexData) -> io::Resu
         .create_new(true)
         .read(true)
         .write(true)
-        .open(&temporary)?;
+        .open(&temporary)
+        .map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "compact_name_search_temp_open path={} error={error}",
+                    temporary.display()
+                ),
+            )
+        })?;
     file.write_all(&vec![0u8; HEADER_SIZE])?;
     let mut offsets = [0u64; SECTION_COUNT];
     let mut checksum = blake3::Hasher::new();
@@ -157,7 +166,18 @@ pub(super) fn write_index_file(path: &Path, data: &CompactIndexData) -> io::Resu
     file.write_all(&header)?;
     file.sync_all()?;
     drop(file);
-    fs::rename(&temporary, path)?;
+    fs::rename(&temporary, path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "compact_name_search_index_rename temp={} destination={} temp_exists={} parent_exists={} error={error}",
+                temporary.display(),
+                path.display(),
+                temporary.exists(),
+                path.parent().is_some_and(Path::exists)
+            ),
+        )
+    })?;
     Ok(())
 }
 

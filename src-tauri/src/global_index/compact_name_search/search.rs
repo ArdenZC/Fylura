@@ -69,38 +69,109 @@ impl CompactNameSearchManager {
         if latest_generation < base_generation {
             return Ok(None);
         }
-        let overlay_event_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM compact_name_search_changes WHERE seq > ?1",
-                [base_generation],
-                |row| row.get(0),
-            )
-            .map_err(io::Error::other)?;
-        if overlay_event_count < 0 || overlay_event_count as u64 > MAX_OVERLAY_EVENTS {
-            return Ok(None);
-        }
-        if overlay_event_count != latest_generation.saturating_sub(base_generation) {
-            return Ok(None);
-        }
-        let mut changed_ids = conn
+        let event_rows = conn
             .prepare(
-                "SELECT DISTINCT COALESCE(c.entry_id, ge.id)
-                 FROM compact_name_search_changes c
-                 LEFT JOIN global_entries ge ON ge.rowid=c.entry_rowid
-                 WHERE c.seq > ?1 AND COALESCE(c.entry_id, ge.id) IS NOT NULL
-                 ORDER BY 1 COLLATE BINARY",
+                "SELECT seq, event_count,
+                        batch_ids IS NOT NULL,
+                        CASE WHEN batch_ids IS NULL THEN 0 ELSE json_array_length(batch_ids) END
+                 FROM compact_name_search_changes WHERE seq > ?1 ORDER BY seq",
             )
             .map_err(io::Error::other)?
-            .query_map([base_generation], |row| row.get::<_, String>(0))
+            .query_map([base_generation], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, bool>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
             .map_err(io::Error::other)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(io::Error::other)?;
-        if changed_ids.len() > MAX_OVERLAY_IDS {
+        let mut next_sequence = base_generation.saturating_add(1);
+        let mut overlay_event_count = 0u64;
+        for (sequence_end, event_count, is_batch, encoded_count) in event_rows {
+            if event_count <= 0
+                || (is_batch && encoded_count != event_count)
+                || (!is_batch && event_count != 1)
+                || sequence_end.saturating_sub(event_count).saturating_add(1) != next_sequence
+            {
+                return Ok(None);
+            }
+            overlay_event_count = overlay_event_count.saturating_add(event_count as u64);
+            if overlay_event_count > MAX_OVERLAY_EVENTS {
+                return Ok(None);
+            }
+            next_sequence = sequence_end.saturating_add(1);
+        }
+        if next_sequence != latest_generation.saturating_add(1)
+            || overlay_event_count != latest_generation.saturating_sub(base_generation) as u64
+        {
             return Ok(None);
         }
-        changed_ids.sort_unstable();
-        let changed_id_set = changed_ids.iter().cloned().collect::<HashSet<_>>();
-        let overlay_rows = load_overlay_rows(conn, &changed_ids)?;
+        let cached_overlay = self
+            .overlay_cache
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .filter(|cached| {
+                cached.file_name == file_name
+                    && cached.base_generation == base_generation
+                    && cached.latest_generation == latest_generation
+            })
+            .map(|cached| (Arc::clone(&cached.changed_ids), Arc::clone(&cached.rows)));
+        let (changed_id_set, overlay_rows) = if let Some(cached) = cached_overlay {
+            cached
+        } else {
+            let mut changed_ids = conn
+                .prepare(
+                    "SELECT DISTINCT changed_id FROM (
+                        SELECT COALESCE(c.entry_id, ge.id) AS changed_id
+                        FROM compact_name_search_changes c
+                        LEFT JOIN global_entries ge ON ge.rowid=c.entry_rowid
+                        WHERE c.seq > ?1 AND c.batch_ids IS NULL
+                        UNION ALL
+                        SELECT CAST(j.value AS TEXT) AS changed_id
+                        FROM compact_name_search_changes c, json_each(c.batch_ids) AS j
+                        WHERE c.seq > ?1 AND c.batch_ids IS NOT NULL
+                     ) WHERE changed_id IS NOT NULL
+                     ORDER BY changed_id COLLATE BINARY",
+                )
+                .map_err(io::Error::other)?
+                .query_map([base_generation], |row| row.get::<_, String>(0))
+                .map_err(io::Error::other)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(io::Error::other)?;
+            if changed_ids.len() > MAX_OVERLAY_IDS {
+                return Ok(None);
+            }
+            changed_ids.sort_unstable();
+            let changed_id_set = Arc::new(changed_ids.iter().cloned().collect::<HashSet<_>>());
+            let overlay_rows = Arc::new(load_overlay_rows(conn, &changed_ids)?);
+            let cache_bytes = changed_ids.iter().map(String::len).sum::<usize>()
+                + overlay_rows
+                    .iter()
+                    .map(|row| {
+                        row.id.len()
+                            + row.volume_id.len()
+                            + row.name_normalized.len()
+                            + row.extension.len()
+                    })
+                    .sum::<usize>();
+            if changed_ids.len() <= 4_096 && cache_bytes <= 4 * 1024 * 1024 {
+                *self
+                    .overlay_cache
+                    .write()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(CachedOverlay {
+                    file_name: file_name.clone(),
+                    base_generation,
+                    latest_generation,
+                    changed_ids: Arc::clone(&changed_id_set),
+                    rows: Arc::clone(&overlay_rows),
+                });
+            }
+            (changed_id_set, overlay_rows)
+        };
         let active_sources = load_active_sources(conn)?;
         let mut timings = SearchTimings {
             manifest_overlay_micros: elapsed_micros(manifest_overlay_started),
@@ -180,7 +251,7 @@ impl CompactNameSearchManager {
             }
         }
 
-        for row in &overlay_rows {
+        for row in overlay_rows.iter() {
             if row.is_stale
                 || !active_sources.contains(row.volume_id.as_str())
                 || already_seen.contains(&row.id)
@@ -296,7 +367,7 @@ impl CompactNameSearchManager {
         timings.page_hydration_micros = elapsed_micros(hydration_started);
         Ok(Some(SearchPageOutcome {
             page: hydrated,
-            overlay_events: overlay_event_count as u64,
+            overlay_events: overlay_event_count,
             name_candidates: name_candidate_count,
             path_candidates: path_candidate_count,
             timings,

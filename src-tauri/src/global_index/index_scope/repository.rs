@@ -187,10 +187,18 @@ impl Database {
                 tx.commit()?;
                 break;
             }
+            let feed_batch = super::super::repository::begin_compact_feed_batch(
+                &tx,
+                self.compact_feed_batching
+                    .load(std::sync::atomic::Ordering::Acquire),
+            )?;
             // One stable JSON parameter keeps statements bounded and reusable.
             let json =
                 serde_json::to_string(&ids).map_err(|e| DbError::Validation(e.to_string()))?;
             tx.execute("UPDATE global_entries SET is_stale=1,scope_decision='unseen' WHERE id IN (SELECT value FROM json_each(?1))",[&json])?;
+            if feed_batch {
+                super::super::repository::finish_compact_feed_batch(&tx, &ids)?;
+            }
             // Retain every FK/user correction/analysis row. Existing AI/Managed
             // authorities are not rewritten by an Index Scope retirement.
             total += ids.len();

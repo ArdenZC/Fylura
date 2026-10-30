@@ -70,6 +70,7 @@ impl ManagedAiWakeSlot {
 pub struct Database {
     path: PathBuf,
     pool: Pool<SqliteConnectionManager>,
+    pub(crate) compact_feed_batching: Arc<AtomicBool>,
     #[cfg(feature = "compact-name-search-candidate")]
     pub(crate) compact_name_search:
         Arc<crate::global_index::compact_name_search::CompactNameSearchManager>,
@@ -77,6 +78,13 @@ pub struct Database {
     managed_ai_waker: ManagedAiWakeSlot,
     pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
 }
+
+#[cfg(all(test, feature = "compact-name-search-candidate"))]
+pub(crate) type DatabaseUpdateHook = Arc<
+    dyn for<'database, 'table> Fn(rusqlite::hooks::Action, &'database str, &'table str, i64)
+        + Send
+        + Sync,
+>;
 
 impl Database {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, DbError> {
@@ -102,8 +110,9 @@ impl Database {
             let conn = pool.get()?;
             super::schema::migrate_with_cancellation(&conn, cancel)?;
         }
+        let compact_feed_batching = Arc::new(AtomicBool::new(false));
         #[cfg(not(feature = "compact-name-search-candidate"))]
-        disable_orphaned_compact_name_search_feed(&pool);
+        disable_orphaned_compact_name_search_feed(&path, &pool, &compact_feed_batching);
 
         #[cfg(feature = "compact-name-search-candidate")]
         let compact_name_search = Arc::new(
@@ -111,6 +120,7 @@ impl Database {
                 path.clone(),
                 pool.clone(),
                 crate::global_index::compact_name_search::CompactNameSearchManager::opted_in(),
+                Arc::clone(&compact_feed_batching),
             ),
         );
         #[cfg(feature = "compact-name-search-candidate")]
@@ -119,6 +129,7 @@ impl Database {
         Ok(Self {
             path,
             pool,
+            compact_feed_batching,
             #[cfg(feature = "compact-name-search-candidate")]
             compact_name_search,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
@@ -156,6 +167,26 @@ impl Database {
 
     pub(crate) fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>, DbError> {
         self.pool.get().map_err(DbError::from)
+    }
+
+    #[cfg(all(test, feature = "compact-name-search-candidate"))]
+    pub(crate) fn install_test_update_hook(
+        &self,
+        callback: DatabaseUpdateHook,
+    ) -> Result<(), DbError> {
+        let mut connections = Vec::with_capacity(self.pool.max_size() as usize);
+        for _ in 0..self.pool.max_size() {
+            connections.push(self.conn()?);
+        }
+        for connection in &connections {
+            let callback = Arc::clone(&callback);
+            connection.update_hook(Some(
+                move |action: rusqlite::hooks::Action, database: &str, table: &str, rowid: i64| {
+                    callback(action, database, table, rowid);
+                },
+            ))?;
+        }
+        Ok(())
     }
 
     /// Verify the normal timeout, then set the test fixture timeout on every pooled connection.
@@ -236,8 +267,12 @@ impl Database {
     }
 }
 
-#[cfg(not(feature = "compact-name-search-candidate"))]
-fn disable_orphaned_compact_name_search_feed(pool: &Pool<SqliteConnectionManager>) {
+#[cfg_attr(feature = "compact-name-search-candidate", allow(dead_code))]
+fn disable_orphaned_compact_name_search_feed(
+    database_path: &Path,
+    pool: &Pool<SqliteConnectionManager>,
+    feed_batching: &AtomicBool,
+) {
     let Ok(conn) = pool.get() else {
         return;
     };
@@ -254,6 +289,31 @@ fn disable_orphaned_compact_name_search_feed(pool: &Pool<SqliteConnectionManager
     if !state_exists {
         return;
     }
+
+    // The owner lease is created before an opted-in manager installs or
+    // migrates feed triggers. A default build may clean up a persistent feed
+    // only while holding the same exclusive lease; a busy lease means a live
+    // candidate owns it, so leave its schema and event stream untouched.
+    let sidecar_dir = PathBuf::from(format!("{}.compact-name-search", database_path.display()));
+    if fs::create_dir_all(&sidecar_dir).is_err() {
+        return;
+    }
+    let Ok(owner_lease) = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(sidecar_dir.join("owner.lock"))
+    else {
+        return;
+    };
+    if owner_lease.try_lock().is_err() {
+        if compact_feed_batching_available(&conn) {
+            feed_batching.store(true, Ordering::Release);
+        }
+        return;
+    }
+
     let Ok(tx) = conn.unchecked_transaction() else {
         return;
     };
@@ -294,7 +354,30 @@ fn disable_orphaned_compact_name_search_feed(pool: &Pool<SqliteConnectionManager
     if changes_exists {
         let _ = tx.execute("DELETE FROM compact_name_search_changes", []);
     }
-    let _ = tx.commit();
+    if tx.commit().is_ok() {
+        feed_batching.store(false, Ordering::Release);
+    }
+}
+
+#[cfg_attr(feature = "compact-name-search-candidate", allow(dead_code))]
+fn compact_feed_batching_available(conn: &Connection) -> bool {
+    let state_column: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('compact_name_search_state') WHERE name='batch_active')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    let trigger_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN (
+                'compact_name_search_entries_ai','compact_name_search_entries_au',
+                'compact_name_search_entries_ad','compact_name_search_changes_cap')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    state_column && trigger_count == 4
 }
 
 fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -433,6 +516,94 @@ mod pool_tests {
             .query_row("SELECT 1", [], |row| row.get::<_, i64>(0))
             .expect("run ordinary query");
         assert_eq!(query_result, 1);
+    }
+
+    #[cfg(feature = "compact-name-search-candidate")]
+    #[test]
+    fn default_open_cleanup_never_removes_a_live_candidate_feed() {
+        use crate::global_index::models::{
+            GlobalEntryInput, GlobalVolume, INDEX_STATUS_READY, PROVIDER_WINDOWS_MFT_USN,
+            SCOPE_AUTHORIZATION_AUTHORIZED,
+        };
+
+        let test_dir = TestDatabaseDirectory::new();
+        let path = test_dir.database_path();
+        let db = Database::open(&path).expect("open candidate database");
+        let volume = GlobalVolume {
+            id: "volume-owner-lease".into(),
+            platform: "windows".into(),
+            stable_volume_id: "stable-owner-lease".into(),
+            display_name: "Owner lease fixture".into(),
+            mount_path: r"F:\owner-lease".into(),
+            filesystem_type: "ntfs".into(),
+            drive_kind: "fixed".into(),
+            enabled: true,
+            scope_authorization_state: SCOPE_AUTHORIZATION_AUTHORIZED.into(),
+            provider: PROVIDER_WINDOWS_MFT_USN.into(),
+            index_status: INDEX_STATUS_READY.into(),
+            last_error: None,
+            journal_id: None,
+            journal_cursor: None,
+            last_full_index_at: None,
+            last_incremental_sync_at: None,
+            entry_count: 0,
+            created_at: 1,
+            updated_at: 1,
+        };
+        db.upsert_global_volume(&volume)
+            .expect("insert authorized fixture volume");
+        let entry = |file_id: &str, name: &str, modified_at_fs| GlobalEntryInput {
+            volume_id: volume.id.clone(),
+            platform_file_id: file_id.into(),
+            parent_platform_file_id: String::new(),
+            name: name.into(),
+            path: format!(r"F:\owner-lease\{name}"),
+            extension: "txt".into(),
+            is_directory: false,
+            size: 1,
+            created_at_fs: Some(1),
+            modified_at_fs: Some(modified_at_fs),
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_WINDOWS_MFT_USN.into(),
+            last_seen_at: 1,
+        };
+        let first = entry("lease-base", "lease-base.txt", 1);
+        db.upsert_global_entries_batch(&[first])
+            .expect("seed base row");
+        db.enable_compact_name_search_for_test()
+            .expect("acquire candidate owner lease");
+        db.rebuild_compact_name_search_for_test()
+            .expect("install base index");
+
+        let simulated_default_feed_flag = AtomicBool::new(false);
+        disable_orphaned_compact_name_search_feed(&path, &db.pool, &simulated_default_feed_flag);
+        assert!(simulated_default_feed_flag.load(Ordering::Acquire));
+        let conn = db.conn().expect("inspect live feed triggers");
+        let trigger_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN (
+                    'compact_name_search_entries_ai','compact_name_search_entries_au',
+                    'compact_name_search_entries_ad','compact_name_search_changes_cap')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count candidate feed triggers");
+        assert_eq!(trigger_count, 4);
+        drop(conn);
+
+        let second = entry("lease-second", "lease-second.txt", 2);
+        db.upsert_global_entries_batch(std::slice::from_ref(&second))
+            .expect("write through active feed after default open attempt");
+        let result = db
+            .search_global_entries("lease-second", 20, 0)
+            .expect("search overlay row written after default open attempt");
+        let expected_id = second.entry_id();
+        assert_eq!(
+            result.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            [expected_id.as_str()]
+        );
     }
 
     #[test]

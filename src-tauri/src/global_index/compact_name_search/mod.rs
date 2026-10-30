@@ -24,10 +24,13 @@ mod query;
 mod search;
 
 use format::{write_index_file, CompactIndex, CompactIndexData};
-use query::{change_tracking_ready, ensure_change_schema, is_safe_file_name, supported_query};
+use query::{
+    batch_schema_ready, change_tracking_ready, ensure_change_schema, is_safe_file_name,
+    supported_query, OverlayRow,
+};
 
 const FORMAT_VERSION: u32 = 1;
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const MAGIC: &[u8; 8] = b"ZCNAMES1";
 const NAME_BITMAP_WIDTH: usize = 36;
 const SECTION_COUNT: usize = 25;
@@ -42,7 +45,9 @@ const CHANGE_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS compact_name_search_changes (
     seq INTEGER PRIMARY KEY,
     entry_rowid INTEGER NOT NULL,
-    entry_id TEXT
+    entry_id TEXT,
+    batch_ids TEXT,
+    event_count INTEGER NOT NULL DEFAULT 1 CHECK(event_count > 0)
 );
 CREATE TABLE IF NOT EXISTS compact_name_search_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -50,19 +55,23 @@ CREATE TABLE IF NOT EXISTS compact_name_search_state (
     format_version INTEGER NOT NULL,
     base_generation INTEGER NOT NULL,
     file_name TEXT,
-    change_floor INTEGER NOT NULL DEFAULT 0
+    change_floor INTEGER NOT NULL DEFAULT 0,
+    batch_active INTEGER NOT NULL DEFAULT 0 CHECK(batch_active IN (0, 1))
 );
 "#;
 
 const CHANGE_TRIGGERS: &str = r#"
 CREATE TRIGGER IF NOT EXISTS compact_name_search_entries_ai
-AFTER INSERT ON global_entries WHEN NEW.id IS NOT NULL
+AFTER INSERT ON global_entries
+WHEN NEW.id IS NOT NULL
+ AND COALESCE((SELECT batch_active FROM compact_name_search_state WHERE singleton=1), 0)=0
 BEGIN
     INSERT INTO compact_name_search_changes(entry_rowid) VALUES (NEW.rowid);
 END;
 CREATE TRIGGER IF NOT EXISTS compact_name_search_entries_au
 AFTER UPDATE ON global_entries
-WHEN OLD.rowid IS NOT NEW.rowid
+WHEN COALESCE((SELECT batch_active FROM compact_name_search_state WHERE singleton=1), 0)=0
+ AND (OLD.rowid IS NOT NEW.rowid
   OR OLD.id IS NOT NEW.id
   OR OLD.volume_id IS NOT NEW.volume_id
   OR OLD.name_normalized IS NOT NEW.name_normalized
@@ -74,6 +83,7 @@ WHEN OLD.rowid IS NOT NEW.rowid
   OR OLD.is_system IS NOT NEW.is_system
   OR OLD.is_stale IS NOT NEW.is_stale
   OR OLD.parent_platform_file_id IS NOT NEW.parent_platform_file_id
+  OR OLD.scope_decision IS NOT NEW.scope_decision)
 BEGIN
     INSERT INTO compact_name_search_changes(entry_rowid, entry_id)
     SELECT OLD.rowid, OLD.id
@@ -82,7 +92,9 @@ BEGIN
     VALUES (NEW.rowid);
 END;
 CREATE TRIGGER IF NOT EXISTS compact_name_search_entries_ad
-AFTER DELETE ON global_entries WHEN OLD.id IS NOT NULL
+AFTER DELETE ON global_entries
+WHEN OLD.id IS NOT NULL
+ AND COALESCE((SELECT batch_active FROM compact_name_search_state WHERE singleton=1), 0)=0
 BEGIN
     INSERT INTO compact_name_search_changes(entry_rowid, entry_id)
     VALUES (OLD.rowid, OLD.id);
@@ -92,7 +104,7 @@ AFTER INSERT ON compact_name_search_changes
 WHEN NEW.seq > (SELECT change_floor FROM compact_name_search_state WHERE singleton=1) + 65536
 BEGIN
     UPDATE compact_name_search_state
-    SET base_generation=-1, file_name=NULL, change_floor=NEW.seq-1
+    SET base_generation=-1, file_name=NULL, change_floor=NEW.seq-NEW.event_count
     WHERE singleton=1;
     DELETE FROM compact_name_search_changes WHERE seq < NEW.seq;
 END;
@@ -161,8 +173,11 @@ fn elapsed_micros(started: Instant) -> u64 {
 pub(crate) struct CompactNameSearchManager {
     sidecar_dir: PathBuf,
     pool: Pool<SqliteConnectionManager>,
+    owner_lease: Mutex<Option<File>>,
+    feed_batching: Arc<AtomicBool>,
     enabled: AtomicBool,
     loaded: RwLock<Option<LoadedIndex>>,
+    overlay_cache: RwLock<Option<CachedOverlay>>,
     rebuild_in_progress: AtomicBool,
     last_error: Mutex<Option<String>>,
     counters: Counters,
@@ -173,19 +188,31 @@ struct LoadedIndex {
     index: Arc<CompactIndex>,
 }
 
+struct CachedOverlay {
+    file_name: String,
+    base_generation: i64,
+    latest_generation: i64,
+    changed_ids: Arc<HashSet<String>>,
+    rows: Arc<Vec<OverlayRow>>,
+}
+
 impl CompactNameSearchManager {
     pub(crate) fn new(
         database_path: PathBuf,
         pool: Pool<SqliteConnectionManager>,
         enabled: bool,
+        feed_batching: Arc<AtomicBool>,
     ) -> Self {
         let mut sidecar_dir = database_path.as_os_str().to_os_string();
         sidecar_dir.push(".compact-name-search");
         Self {
             sidecar_dir: PathBuf::from(sidecar_dir),
             pool,
+            owner_lease: Mutex::new(None),
+            feed_batching,
             enabled: AtomicBool::new(enabled),
             loaded: RwLock::new(None),
+            overlay_cache: RwLock::new(None),
             rebuild_in_progress: AtomicBool::new(false),
             last_error: Mutex::new(None),
             counters: Counters::default(),
@@ -202,24 +229,95 @@ impl CompactNameSearchManager {
 
     pub(crate) fn activate(self: &Arc<Self>) {
         if !self.is_enabled() {
-            if let Err(error) = self.disable_change_tracking() {
-                self.set_error(format!("compact_name_search_disable:{error}"));
+            match self.try_owner_lease(false) {
+                Ok(Some(lease)) => {
+                    if let Err(error) = self.disable_change_tracking() {
+                        self.set_error(format!("compact_name_search_disable:{error}"));
+                    } else {
+                        self.feed_batching.store(false, AtomicOrdering::Release);
+                    }
+                    drop(lease);
+                }
+                Ok(None) => {
+                    if self.feed_is_batchable().unwrap_or(false) {
+                        self.feed_batching.store(true, AtomicOrdering::Release);
+                    }
+                }
+                Err(error) => {
+                    self.set_error(format!("compact_name_search_owner_lease:{error}"));
+                }
             }
             return;
         }
-        if let Err(error) =
-            fs::create_dir_all(&self.sidecar_dir).and_then(|_| self.install_change_tracking())
-        {
+        let lease = match self.try_owner_lease(true) {
+            Ok(Some(lease)) => lease,
+            Ok(None) => {
+                self.enabled.store(false, AtomicOrdering::Release);
+                if self.feed_is_batchable().unwrap_or(false) {
+                    self.feed_batching.store(true, AtomicOrdering::Release);
+                }
+                self.set_error("compact_name_search_owner_already_active".into());
+                self.counters
+                    .fallbacks
+                    .fetch_add(1, AtomicOrdering::Relaxed);
+                return;
+            }
+            Err(error) => {
+                self.enabled.store(false, AtomicOrdering::Release);
+                self.set_error(format!("compact_name_search_owner_lease:{error}"));
+                self.counters
+                    .fallbacks
+                    .fetch_add(1, AtomicOrdering::Relaxed);
+                return;
+            }
+        };
+        if let Err(error) = self.install_change_tracking() {
+            self.enabled.store(false, AtomicOrdering::Release);
             self.set_error(format!("compact_name_search_init:{error}"));
             self.counters
                 .fallbacks
                 .fetch_add(1, AtomicOrdering::Relaxed);
+            drop(lease);
             return;
         }
+        *self
+            .owner_lease
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(lease);
+        self.feed_batching.store(true, AtomicOrdering::Release);
         if let Err(error) = self.load_manifest_index() {
-            self.set_error(format!("compact_name_search_load:{error}"));
+            self.set_error(format!("compact_name_search_init:{error}"));
         }
         self.request_rebuild();
+    }
+
+    fn try_owner_lease(&self, create: bool) -> io::Result<Option<File>> {
+        if create {
+            fs::create_dir_all(&self.sidecar_dir)?;
+        } else if !self.sidecar_dir.exists() {
+            return Ok(None);
+        }
+        let path = self.sidecar_dir.join("owner.lock");
+        let mut options = OpenOptions::new();
+        options.read(true).write(true);
+        if create || !path.exists() {
+            options.create(true);
+        }
+        let file = match options.truncate(false).open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        match file.try_lock() {
+            Ok(()) => Ok(Some(file)),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+            Err(std::fs::TryLockError::Error(error)) => Err(error),
+        }
+    }
+
+    fn feed_is_batchable(&self) -> io::Result<bool> {
+        let conn = self.pool.get().map_err(io::Error::other)?;
+        Ok(change_tracking_ready(&conn)? && batch_schema_ready(&conn)?)
     }
 
     fn disable_change_tracking(&self) -> io::Result<()> {
@@ -254,6 +352,20 @@ impl CompactNameSearchManager {
             "UPDATE compact_name_search_state SET base_generation=-1, file_name=NULL WHERE singleton=1"
         };
         tx.execute(invalidate, []).map_err(io::Error::other)?;
+        if tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('compact_name_search_state') WHERE name='batch_active')",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap_or(false)
+        {
+            tx.execute(
+                "UPDATE compact_name_search_state SET batch_active=0 WHERE singleton=1",
+                [],
+            )
+            .map_err(io::Error::other)?;
+        }
         tx.execute_batch(
             "DROP TRIGGER IF EXISTS compact_name_search_entries_ai;
              DROP TRIGGER IF EXISTS compact_name_search_entries_au;
@@ -271,7 +383,7 @@ impl CompactNameSearchManager {
         let tx = conn.unchecked_transaction().map_err(io::Error::other)?;
         tx.execute_batch(CHANGE_SCHEMA).map_err(io::Error::other)?;
         ensure_change_schema(&tx)?;
-        if !change_tracking_ready(&tx)? {
+        if !change_tracking_ready(&tx)? || !batch_schema_ready(&tx)? {
             tx.execute(
                 "UPDATE compact_name_search_state
                  SET base_generation=-1, file_name=NULL WHERE singleton=1",
@@ -288,7 +400,7 @@ impl CompactNameSearchManager {
         }
         tx.execute_batch(CHANGE_TRIGGERS)
             .map_err(io::Error::other)?;
-        if !change_tracking_ready(&tx)? {
+        if !change_tracking_ready(&tx)? || !batch_schema_ready(&tx)? {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "compact_name_search_change_feed_invalid",
@@ -432,6 +544,19 @@ impl CompactNameSearchManager {
     }
 
     fn rebuild_and_install(&self) -> io::Result<()> {
+        if !self.is_enabled()
+            || self
+                .owner_lease
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_none()
+            || !self.sidecar_dir.is_dir()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "compact_name_search_rebuild_without_owner_lease",
+            ));
+        }
         self.counters.rebuilds.fetch_add(1, AtomicOrdering::Relaxed);
         self.install_change_tracking()?;
         let mut conn = self.pool.get().map_err(io::Error::other)?;
@@ -671,9 +796,16 @@ impl CompactNameSearchManager {
 
     #[cfg(test)]
     pub(crate) fn enable_for_test(self: &Arc<Self>) -> io::Result<()> {
+        let lease = self
+            .try_owner_lease(true)?
+            .ok_or_else(|| io::Error::other("compact_name_search_owner_already_active"))?;
         self.enabled.store(true, AtomicOrdering::Release);
-        fs::create_dir_all(&self.sidecar_dir)?;
         self.install_change_tracking()?;
+        *self
+            .owner_lease
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(lease);
+        self.feed_batching.store(true, AtomicOrdering::Release);
         Ok(())
     }
 

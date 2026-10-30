@@ -97,7 +97,7 @@ fn compact_update_ids(conn: &Connection, count: usize) -> Vec<String> {
 }
 
 #[cfg(feature = "compact-name-search-candidate")]
-fn compact_update_samples(db: &Database, ids: &[String], repetitions: usize) -> Vec<f64> {
+fn compact_raw_update_samples(db: &Database, ids: &[String], repetitions: usize) -> Vec<f64> {
     let encoded_ids = serde_json::to_string(ids).expect("serialize modification fixture IDs");
     let mut samples = Vec::with_capacity(repetitions);
     for _ in 0..repetitions {
@@ -124,17 +124,284 @@ fn compact_update_samples(db: &Database, ids: &[String], repetitions: usize) -> 
 }
 
 #[cfg(feature = "compact-name-search-candidate")]
-fn compact_relative_overhead_percent(
-    baseline: &[f64],
-    candidate: &[f64],
-    quantile_value: f64,
-) -> f64 {
-    let mut baseline = baseline.to_vec();
-    baseline.sort_by(f64::total_cmp);
-    let mut candidate = candidate.to_vec();
-    candidate.sort_by(f64::total_cmp);
-    ((quantile(&candidate, quantile_value) / quantile(&baseline, quantile_value).max(0.001)) - 1.0)
-        * 100.0
+fn compact_writer_inputs(count: usize) -> Vec<crate::global_index::models::GlobalEntryInput> {
+    (0..count)
+        .map(|index| {
+            let name = format!("feed-cost-{index:05}.bin");
+            crate::global_index::models::GlobalEntryInput {
+                volume_id: "gv_compact_feed_write".into(),
+                platform_file_id: format!("compact-feed-id-{index:05}"),
+                parent_platform_file_id: "compact-feed-root".into(),
+                path: format!(r"F:\feed-cost\{name}"),
+                name,
+                extension: "bin".into(),
+                is_directory: false,
+                size: 1_024 + index as i64,
+                created_at_fs: Some(1_600_000_000 + index as i64),
+                modified_at_fs: Some(1_700_000_000 + index as i64),
+                file_attributes: 0,
+                is_hidden: false,
+                is_system: false,
+                source_provider: "synthetic_feed_writer_qualification".into(),
+                last_seen_at: 1_700_000_000,
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_clone_database(source: &Path, destination: &Path) {
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).expect("create paired writer database directory");
+    }
+    let connection = Connection::open(source).expect("open paired writer clone source");
+    connection
+        .execute("VACUUM INTO ?1", [destination.to_string_lossy().as_ref()])
+        .expect("create transactionally consistent paired writer database");
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_prepare_writer_fixture(
+    db: &Database,
+    inputs: &[crate::global_index::models::GlobalEntryInput],
+) {
+    let mut volume = test_volume();
+    volume.id = "gv_compact_feed_write".into();
+    volume.stable_volume_id = "stable-compact-feed-write".into();
+    volume.mount_path = r"F:\feed-cost".into();
+    volume.display_name = "Feed write qualification".into();
+    volume.enabled = false;
+    db.upsert_global_volume(&volume)
+        .expect("create disabled source for writer qualification");
+    assert_eq!(
+        db.upsert_global_entries_batch(inputs)
+            .expect("seed source-faithful production writer fixtures"),
+        inputs.len()
+    );
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+type CompactWriterSamples = (Vec<f64>, Vec<f64>, Vec<f64>, Vec<u64>, Vec<u64>);
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_paired_writer_samples(
+    baseline: &Database,
+    candidate: &Database,
+    entries: &mut [crate::global_index::models::GlobalEntryInput],
+    warmup_pairs: usize,
+    measured_pairs: usize,
+) -> CompactWriterSamples {
+    let mut baseline_samples = Vec::with_capacity(measured_pairs);
+    let mut candidate_samples = Vec::with_capacity(measured_pairs);
+    let mut paired_percent_deltas = Vec::with_capacity(measured_pairs);
+    let mut baseline_vm_steps = Vec::with_capacity(measured_pairs);
+    let mut candidate_vm_steps = Vec::with_capacity(measured_pairs);
+    for pair in 0..warmup_pairs + measured_pairs {
+        let pair_base = 1_710_000_000_i64 + pair as i64 * (entries.len() as i64 + 1);
+        for (index, entry) in entries.iter_mut().enumerate() {
+            entry.modified_at_fs = Some(pair_base + index as i64);
+        }
+        let (baseline_elapsed, candidate_elapsed) = if pair.is_multiple_of(2) {
+            let baseline_sample = compact_measure_production_batch(baseline, entries);
+            let candidate_sample = compact_measure_production_batch(candidate, entries);
+            (baseline_sample, candidate_sample)
+        } else {
+            let candidate_sample = compact_measure_production_batch(candidate, entries);
+            let baseline_sample = compact_measure_production_batch(baseline, entries);
+            (baseline_sample, candidate_sample)
+        };
+        if pair >= warmup_pairs {
+            baseline_samples.push(baseline_elapsed.0);
+            candidate_samples.push(candidate_elapsed.0);
+            paired_percent_deltas.push(
+                ((candidate_elapsed.0 - baseline_elapsed.0) / baseline_elapsed.0.max(0.001))
+                    * 100.0,
+            );
+            baseline_vm_steps.push(baseline_elapsed.1);
+            candidate_vm_steps.push(candidate_elapsed.1);
+        }
+    }
+    (
+        baseline_samples,
+        candidate_samples,
+        paired_percent_deltas,
+        baseline_vm_steps,
+        candidate_vm_steps,
+    )
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_measure_production_batch(
+    db: &Database,
+    entries: &[crate::global_index::models::GlobalEntryInput],
+) -> (f64, u64) {
+    let started = Instant::now();
+    let changed = db
+        .upsert_global_entries_batch(entries)
+        .expect("run real transactional Global Index batch writer");
+    let elapsed = started.elapsed().as_secs_f64() * 1_000.0;
+    assert_eq!(changed, entries.len());
+    (
+        elapsed,
+        crate::global_index::repository::last_global_entry_batch_vm_steps(),
+    )
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_wal_file_bytes(database_path: &Path) -> u64 {
+    fs::metadata(PathBuf::from(format!("{}-wal", database_path.display())))
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_wal_frame_snapshot(db: &Database) -> JsonValue {
+    let Ok(conn) = db.conn() else {
+        return JsonValue::Null;
+    };
+    let wal_frames = conn.query_row("PRAGMA wal_checkpoint(NOOP)", [], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    });
+    let page_size: i64 = conn
+        .query_row("PRAGMA page_size", [], |row| row.get(0))
+        .unwrap_or_default();
+    wal_frames
+        .map(|(busy, log_frames, checkpointed_frames)| {
+            json!({
+                "busy": busy,
+                "wal_log_frames": log_frames,
+                "checkpointed_frames": checkpointed_frames,
+                "page_size_bytes": page_size,
+                "wal_log_bytes_estimate": log_frames.max(0) as u64 * page_size.max(0) as u64
+            })
+        })
+        .unwrap_or(JsonValue::Null)
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_feed_ledger(db: &Database) -> JsonValue {
+    let Ok(conn) = db.conn() else {
+        return JsonValue::Null;
+    };
+    conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(event_count),0),
+                COALESCE((SELECT change_floor FROM compact_name_search_state WHERE singleton=1),0),
+                COALESCE((SELECT base_generation FROM compact_name_search_state WHERE singleton=1),-1)
+         FROM compact_name_search_changes",
+        [],
+        |row| {
+            Ok(json!({
+                "outbox_rows": row.get::<_, i64>(0)?,
+                "represented_entry_changes": row.get::<_, i64>(1)?,
+                "change_floor": row.get::<_, i64>(2)?,
+                "base_generation": row.get::<_, i64>(3)?
+            }))
+        },
+    )
+    .unwrap_or(JsonValue::Null)
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+#[derive(Default)]
+struct CompactWriteHookCounters {
+    global_entry_inserts: AtomicU64,
+    global_entry_updates: AtomicU64,
+    global_entry_deletes: AtomicU64,
+    feed_inserts: AtomicU64,
+    feed_deletes: AtomicU64,
+    feed_state_updates: AtomicU64,
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_install_write_hook(db: &Database) -> Arc<CompactWriteHookCounters> {
+    let counters = Arc::new(CompactWriteHookCounters::default());
+    let callback_counters = Arc::clone(&counters);
+    db.install_test_update_hook(Arc::new(move |action, database, table, _rowid| {
+        if database != "main" {
+            return;
+        }
+        match (table, action) {
+            ("global_entries", rusqlite::hooks::Action::SQLITE_INSERT) => {
+                callback_counters
+                    .global_entry_inserts
+                    .fetch_add(1, AtomicOrdering::Relaxed);
+            }
+            ("global_entries", rusqlite::hooks::Action::SQLITE_UPDATE) => {
+                callback_counters
+                    .global_entry_updates
+                    .fetch_add(1, AtomicOrdering::Relaxed);
+            }
+            ("global_entries", rusqlite::hooks::Action::SQLITE_DELETE) => {
+                callback_counters
+                    .global_entry_deletes
+                    .fetch_add(1, AtomicOrdering::Relaxed);
+            }
+            ("compact_name_search_changes", rusqlite::hooks::Action::SQLITE_INSERT) => {
+                callback_counters
+                    .feed_inserts
+                    .fetch_add(1, AtomicOrdering::Relaxed);
+            }
+            ("compact_name_search_changes", rusqlite::hooks::Action::SQLITE_DELETE) => {
+                callback_counters
+                    .feed_deletes
+                    .fetch_add(1, AtomicOrdering::Relaxed);
+            }
+            ("compact_name_search_state", rusqlite::hooks::Action::SQLITE_UPDATE) => {
+                callback_counters
+                    .feed_state_updates
+                    .fetch_add(1, AtomicOrdering::Relaxed);
+            }
+            _ => {}
+        }
+    }))
+    .expect("instrument all writer pool connections with SQLite update hooks");
+    counters
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_reset_write_hook(counters: &CompactWriteHookCounters) {
+    for counter in [
+        &counters.global_entry_inserts,
+        &counters.global_entry_updates,
+        &counters.global_entry_deletes,
+        &counters.feed_inserts,
+        &counters.feed_deletes,
+        &counters.feed_state_updates,
+    ] {
+        counter.store(0, AtomicOrdering::Relaxed);
+    }
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_write_hook_summary(counters: &CompactWriteHookCounters) -> JsonValue {
+    json!({
+        "global_entries_insert": counters.global_entry_inserts.load(AtomicOrdering::Relaxed),
+        "global_entries_update": counters.global_entry_updates.load(AtomicOrdering::Relaxed),
+        "global_entries_delete": counters.global_entry_deletes.load(AtomicOrdering::Relaxed),
+        "change_feed_insert": counters.feed_inserts.load(AtomicOrdering::Relaxed),
+        "change_feed_delete": counters.feed_deletes.load(AtomicOrdering::Relaxed),
+        "change_feed_state_update": counters.feed_state_updates.load(AtomicOrdering::Relaxed)
+    })
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+fn compact_vm_step_summary(samples: &[u64]) -> JsonValue {
+    let mut sorted = samples
+        .iter()
+        .map(|value| *value as f64)
+        .collect::<Vec<_>>();
+    sorted.sort_by(f64::total_cmp);
+    json!({
+        "sample_count": sorted.len(),
+        "p50": round_ms(quantile(&sorted, 0.50)),
+        "p95": round_ms(quantile(&sorted, 0.95)),
+        "p99": round_ms(quantile(&sorted, 0.99)),
+        "max": sorted.last().copied().unwrap_or_default()
+    })
 }
 
 #[cfg(feature = "compact-name-search-candidate")]
@@ -257,16 +524,96 @@ fn global_search_compact_name_search_qualification() {
             .expect("count complete candidate fixture") as u64,
         entries
     );
-    let modify_512 = compact_update_ids(&population_conn, 512);
-    let modify_5000 = compact_update_ids(&population_conn, 5_000);
     drop(population_conn);
 
-    let baseline_512_samples = compact_update_samples(&db, &modify_512, WARM_SAMPLES);
-    let baseline_5000_samples = compact_update_samples(&db, &modify_5000, WARM_SAMPLES);
+    let baseline_write_path = PathBuf::from(format!("{}.write-baseline", path.display()));
+    let candidate_write_path = PathBuf::from(format!("{}.write-candidate", path.display()));
+    let _baseline_write_cleanup = BenchmarkCleanup(baseline_write_path.clone());
+    let _candidate_write_cleanup = BenchmarkCleanup(candidate_write_path.clone());
+    compact_clone_database(&path, &baseline_write_path);
+    compact_clone_database(&path, &candidate_write_path);
+    let baseline_write_db =
+        Database::open(&baseline_write_path).expect("open matched no-feed writer database clone");
+    let candidate_write_db =
+        Database::open(&candidate_write_path).expect("open matched feed writer database clone");
+    let mut write_inputs = compact_writer_inputs(5_000);
+    compact_prepare_writer_fixture(&baseline_write_db, &write_inputs);
+    compact_prepare_writer_fixture(&candidate_write_db, &write_inputs);
+    candidate_write_db
+        .enable_compact_name_search_for_test()
+        .expect("acquire owner lease and install batched change feed");
+
+    let baseline_wal_512_before = compact_wal_file_bytes(&baseline_write_path);
+    let candidate_wal_512_before = compact_wal_file_bytes(&candidate_write_path);
+    let (
+        baseline_512_samples,
+        candidate_512_samples,
+        paired_512_percent_deltas,
+        baseline_512_vm_steps,
+        candidate_512_vm_steps,
+    ) = compact_paired_writer_samples(
+        &baseline_write_db,
+        &candidate_write_db,
+        &mut write_inputs[..512],
+        WARMUP_SAMPLES,
+        WARM_SAMPLES,
+    );
+    let baseline_wal_512_after = compact_wal_file_bytes(&baseline_write_path);
+    let candidate_wal_512_after = compact_wal_file_bytes(&candidate_write_path);
+    let candidate_512_ledger = compact_feed_ledger(&candidate_write_db);
+    let baseline_512_wal_frames = compact_wal_frame_snapshot(&baseline_write_db);
+    let candidate_512_wal_frames = compact_wal_frame_snapshot(&candidate_write_db);
+
+    let baseline_wal_5000_before = compact_wal_file_bytes(&baseline_write_path);
+    let candidate_wal_5000_before = compact_wal_file_bytes(&candidate_write_path);
+    let (
+        baseline_5000_samples,
+        candidate_5000_samples,
+        paired_5000_percent_deltas,
+        baseline_5000_vm_steps,
+        candidate_5000_vm_steps,
+    ) = compact_paired_writer_samples(
+        &baseline_write_db,
+        &candidate_write_db,
+        &mut write_inputs,
+        WARMUP_SAMPLES,
+        WARM_SAMPLES,
+    );
+    let baseline_wal_5000_after = compact_wal_file_bytes(&baseline_write_path);
+    let candidate_wal_5000_after = compact_wal_file_bytes(&candidate_write_path);
+    let candidate_5000_ledger = compact_feed_ledger(&candidate_write_db);
+    let baseline_5000_wal_frames = compact_wal_frame_snapshot(&baseline_write_db);
+    let candidate_5000_wal_frames = compact_wal_frame_snapshot(&candidate_write_db);
+
+    // Hooks are enabled only for separate diagnostic transactions so their
+    // callback cost cannot contaminate the paired latency samples.
+    let baseline_hook_counters = compact_install_write_hook(&baseline_write_db);
+    let candidate_hook_counters = compact_install_write_hook(&candidate_write_db);
+    let mut hook_probe_512 = write_inputs[..512].to_vec();
+    for (index, entry) in hook_probe_512.iter_mut().enumerate() {
+        entry.modified_at_fs = Some(1_720_000_000 + index as i64);
+    }
+    compact_reset_write_hook(&baseline_hook_counters);
+    compact_reset_write_hook(&candidate_hook_counters);
+    let _ = compact_measure_production_batch(&baseline_write_db, &hook_probe_512);
+    let _ = compact_measure_production_batch(&candidate_write_db, &hook_probe_512);
+    let baseline_512_hook_counts = compact_write_hook_summary(&baseline_hook_counters);
+    let candidate_512_hook_counts = compact_write_hook_summary(&candidate_hook_counters);
+
+    let mut hook_probe_5000 = write_inputs.clone();
+    for (index, entry) in hook_probe_5000.iter_mut().enumerate() {
+        entry.modified_at_fs = Some(1_730_000_000 + index as i64);
+    }
+    compact_reset_write_hook(&baseline_hook_counters);
+    compact_reset_write_hook(&candidate_hook_counters);
+    let _ = compact_measure_production_batch(&baseline_write_db, &hook_probe_5000);
+    let _ = compact_measure_production_batch(&candidate_write_db, &hook_probe_5000);
+    let baseline_5000_hook_counts = compact_write_hook_summary(&baseline_hook_counters);
+    let candidate_5000_hook_counts = compact_write_hook_summary(&candidate_hook_counters);
+    drop((baseline_write_db, candidate_write_db));
+
     db.enable_compact_name_search_for_test()
-        .expect("install opt-in compact change triggers");
-    let candidate_512_samples = compact_update_samples(&db, &modify_512, WARM_SAMPLES);
-    let candidate_5000_samples = compact_update_samples(&db, &modify_5000, WARM_SAMPLES);
+        .expect("acquire the production candidate owner lease for Search qualification");
     let memory_before_index_bytes = compact_process_memory_bytes();
     let (rss_sampler_stop, rss_peak_during_index, rss_sampler) = compact_start_rss_peak_sampler();
     let index_build_started = Instant::now();
@@ -287,7 +634,7 @@ fn global_search_compact_name_search_qualification() {
     assert_eq!(cold_load_results.len(), SEARCH_RESULT_LIMIT as usize);
 
     let overlay_ids = compact_update_ids(&db.conn().expect("read overlay IDs"), 512);
-    let _overlay_update_samples = compact_update_samples(&db, &overlay_ids, 1);
+    let _overlay_update_samples = compact_raw_update_samples(&db, &overlay_ids, 1);
     let inspection_connection =
         configured_connection(&path).expect("open independent SQLite oracle connection");
 
@@ -310,10 +657,30 @@ fn global_search_compact_name_search_qualification() {
         "sqlite_insert_batch_p95_ms": summarize_samples(&baseline_insert_samples),
         "fixture_profile": "synthetic_global_index_shared_with_historical_sqlite_qualification"
     }));
-    let overhead_512_p50_percent =
-        compact_relative_overhead_percent(&baseline_512_samples, &candidate_512_samples, 0.50);
-    let overhead_512_p95_percent =
-        compact_relative_overhead_percent(&baseline_512_samples, &candidate_512_samples, 0.95);
+    let overhead_512_p50_percent = quantile(
+        &{
+            let mut values = paired_512_percent_deltas.clone();
+            values.sort_by(f64::total_cmp);
+            values
+        },
+        0.50,
+    );
+    let overhead_512_p95_percent = quantile(
+        &{
+            let mut values = paired_512_percent_deltas.clone();
+            values.sort_by(f64::total_cmp);
+            values
+        },
+        0.95,
+    );
+    let overhead_512_p99_percent = quantile(
+        &{
+            let mut values = paired_512_percent_deltas.clone();
+            values.sort_by(f64::total_cmp);
+            values
+        },
+        0.99,
+    );
     emit_record(&json!({
         "schema_version": 1,
         "record_type": "compact_name_search_write_cost",
@@ -321,14 +688,55 @@ fn global_search_compact_name_search_qualification() {
         "batch_rows": 512,
         "without_change_feed": summarize_samples(&baseline_512_samples),
         "with_change_feed": summarize_samples(&candidate_512_samples),
+        "writer_vdbe_vm_steps": {
+            "no_feed": compact_vm_step_summary(&baseline_512_vm_steps),
+            "feed": compact_vm_step_summary(&candidate_512_vm_steps)
+        },
+        "sqlite_update_hook_diagnostic_transaction": {
+            "no_feed": baseline_512_hook_counts,
+            "feed": candidate_512_hook_counts
+        },
+        "paired_order": "alternating_no_feed_feed_and_feed_no_feed",
+        "warmup_pairs": WARMUP_SAMPLES,
+        "measured_pairs": WARM_SAMPLES,
         "p50_overhead_percent": round_ms(overhead_512_p50_percent),
         "p95_overhead_percent": round_ms(overhead_512_p95_percent),
+        "p99_overhead_percent": round_ms(overhead_512_p99_percent),
+        "wal_file_bytes_before_after": {
+            "no_feed": [baseline_wal_512_before, baseline_wal_512_after],
+            "feed": [candidate_wal_512_before, candidate_wal_512_after]
+        },
+        "wal_frames_after_measured_runs": {
+            "no_feed": baseline_512_wal_frames,
+            "feed": candidate_512_wal_frames
+        },
+        "feed_ledger": candidate_512_ledger,
         "sample_count": baseline_512_samples.len()
     }));
-    let overhead_5000_p50_percent =
-        compact_relative_overhead_percent(&baseline_5000_samples, &candidate_5000_samples, 0.50);
-    let overhead_5000_p95_percent =
-        compact_relative_overhead_percent(&baseline_5000_samples, &candidate_5000_samples, 0.95);
+    let overhead_5000_p50_percent = quantile(
+        &{
+            let mut values = paired_5000_percent_deltas.clone();
+            values.sort_by(f64::total_cmp);
+            values
+        },
+        0.50,
+    );
+    let overhead_5000_p95_percent = quantile(
+        &{
+            let mut values = paired_5000_percent_deltas.clone();
+            values.sort_by(f64::total_cmp);
+            values
+        },
+        0.95,
+    );
+    let overhead_5000_p99_percent = quantile(
+        &{
+            let mut values = paired_5000_percent_deltas.clone();
+            values.sort_by(f64::total_cmp);
+            values
+        },
+        0.99,
+    );
     emit_record(&json!({
         "schema_version": 1,
         "record_type": "compact_name_search_write_cost",
@@ -336,8 +744,29 @@ fn global_search_compact_name_search_qualification() {
         "batch_rows": 5000,
         "without_change_feed": summarize_samples(&baseline_5000_samples),
         "with_change_feed": summarize_samples(&candidate_5000_samples),
+        "writer_vdbe_vm_steps": {
+            "no_feed": compact_vm_step_summary(&baseline_5000_vm_steps),
+            "feed": compact_vm_step_summary(&candidate_5000_vm_steps)
+        },
+        "sqlite_update_hook_diagnostic_transaction": {
+            "no_feed": baseline_5000_hook_counts,
+            "feed": candidate_5000_hook_counts
+        },
+        "paired_order": "alternating_no_feed_feed_and_feed_no_feed",
+        "warmup_pairs": WARMUP_SAMPLES,
+        "measured_pairs": WARM_SAMPLES,
         "p50_overhead_percent": round_ms(overhead_5000_p50_percent),
         "p95_overhead_percent": round_ms(overhead_5000_p95_percent),
+        "p99_overhead_percent": round_ms(overhead_5000_p99_percent),
+        "wal_file_bytes_before_after": {
+            "no_feed": [baseline_wal_5000_before, baseline_wal_5000_after],
+            "feed": [candidate_wal_5000_before, candidate_wal_5000_after]
+        },
+        "wal_frames_after_measured_runs": {
+            "no_feed": baseline_5000_wal_frames,
+            "feed": candidate_5000_wal_frames
+        },
+        "feed_ledger": candidate_5000_ledger,
         "sample_count": baseline_5000_samples.len()
     }));
 
@@ -363,44 +792,23 @@ fn global_search_compact_name_search_qualification() {
                 .map(String::as_str)
                 .collect::<Vec<_>>();
 
-            for _ in 0..WARMUP_SAMPLES {
-                let results = db
-                    .search_global_entries(query, SEARCH_RESULT_LIMIT, offset)
-                    .expect("warm compact native Search");
-                assert_eq!(
-                    results.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
-                    expected,
-                    "compact warm results differ from independent oracle: {query_class} at offset {offset}"
-                );
-            }
             let mut search_samples = Vec::with_capacity(WARM_SAMPLES);
-            for _ in 0..WARM_SAMPLES {
+            let mut legacy_samples = Vec::with_capacity(WARM_SAMPLES);
+            let mut legacy_ids = Vec::new();
+            let run_candidate_search = || {
                 let started = Instant::now();
                 let results = db
                     .search_global_entries(query, SEARCH_RESULT_LIMIT, offset)
                     .expect("run compact native Search");
-                search_samples.push(started.elapsed().as_secs_f64() * 1_000.0);
+                let elapsed = started.elapsed().as_secs_f64() * 1_000.0;
                 assert_eq!(
                     results.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
                     expected,
                     "compact Search results differ from independent oracle: {query_class} at offset {offset}"
                 );
-            }
-
-            let mut legacy_samples = Vec::with_capacity(WARM_SAMPLES);
-            let mut legacy_ids = Vec::new();
-            for _ in 0..WARMUP_SAMPLES {
-                let results = search_global_entries_on_connection(
-                    &inspection_connection,
-                    query,
-                    SEARCH_RESULT_LIMIT,
-                    offset,
-                )
-                .expect("warm legacy SQLite Search");
-                legacy_ids = results.into_iter().map(|row| row.id).collect();
-            }
-            for _ in 0..WARM_SAMPLES {
-                let started = Instant::now();
+                elapsed
+            };
+            let run_legacy_search = || {
                 let results = search_global_entries_on_connection(
                     &inspection_connection,
                     query,
@@ -408,8 +816,37 @@ fn global_search_compact_name_search_qualification() {
                     offset,
                 )
                 .expect("run legacy SQLite Search");
-                legacy_samples.push(started.elapsed().as_secs_f64() * 1_000.0);
-                legacy_ids = results.into_iter().map(|row| row.id).collect();
+                results.into_iter().map(|row| row.id).collect::<Vec<_>>()
+            };
+            for pair in 0..WARMUP_SAMPLES {
+                if pair.is_multiple_of(2) {
+                    let _ = run_candidate_search();
+                    legacy_ids = run_legacy_search();
+                } else {
+                    legacy_ids = run_legacy_search();
+                    let _ = run_candidate_search();
+                }
+            }
+            let mut paired_search_percent_deltas = Vec::with_capacity(WARM_SAMPLES);
+            for pair in 0..WARM_SAMPLES {
+                let (candidate_elapsed, legacy_elapsed) = if pair.is_multiple_of(2) {
+                    let candidate_elapsed = run_candidate_search();
+                    let started = Instant::now();
+                    legacy_ids = run_legacy_search();
+                    let legacy_elapsed = started.elapsed().as_secs_f64() * 1_000.0;
+                    (candidate_elapsed, legacy_elapsed)
+                } else {
+                    let started = Instant::now();
+                    legacy_ids = run_legacy_search();
+                    let legacy_elapsed = started.elapsed().as_secs_f64() * 1_000.0;
+                    let candidate_elapsed = run_candidate_search();
+                    (candidate_elapsed, legacy_elapsed)
+                };
+                search_samples.push(candidate_elapsed);
+                legacy_samples.push(legacy_elapsed);
+                paired_search_percent_deltas.push(
+                    ((candidate_elapsed - legacy_elapsed) / legacy_elapsed.max(0.001)) * 100.0,
+                );
             }
             let legacy_differences = expected
                 .iter()
@@ -477,9 +914,28 @@ fn global_search_compact_name_search_qualification() {
                 },
                 0.95,
             );
+            let paired_candidate_legacy_p50_delta_percent = quantile(
+                &{
+                    let mut sorted = paired_search_percent_deltas.clone();
+                    sorted.sort_by(f64::total_cmp);
+                    sorted
+                },
+                0.50,
+            );
+            let paired_candidate_legacy_p95_delta_percent = quantile(
+                &{
+                    let mut sorted = paired_search_percent_deltas.clone();
+                    sorted.sort_by(f64::total_cmp);
+                    sorted
+                },
+                0.95,
+            );
             let query_diagnostics = db.compact_name_search().diagnostics();
             let passed = if query_class == "high_hit" {
-                search_p95 <= WARM_QUERY_P95_LIMIT_MS && snapshot_p95 <= WARM_QUERY_P95_LIMIT_MS
+                search_p95 <= WARM_QUERY_P95_LIMIT_MS
+                    && snapshot_p95 <= WARM_QUERY_P95_LIMIT_MS
+                    && paired_candidate_legacy_p50_delta_percent <= -10.0
+                    && paired_candidate_legacy_p95_delta_percent <= -10.0
             } else {
                 search_p95 <= legacy_p95 * 2.0 + 3.0
             };
@@ -498,6 +954,10 @@ fn global_search_compact_name_search_qualification() {
                 "candidate_search": search_summary,
                 "legacy_sqlite_search": legacy_summary,
                 "repository_snapshot": snapshot_summary,
+                "paired_candidate_vs_legacy_delta_percent": {
+                    "p50": round_ms(paired_candidate_legacy_p50_delta_percent),
+                    "p95": round_ms(paired_candidate_legacy_p95_delta_percent)
+                },
                 "legacy_vs_candidate_id_differences": legacy_differences,
                 "name_candidate_count": query_diagnostics.last_name_candidates,
                 "path_candidate_count": query_diagnostics.last_path_candidates,
@@ -511,6 +971,7 @@ fn global_search_compact_name_search_qualification() {
                     "top_k_sort_and_page": query_diagnostics.top_k_sort_page_micros,
                     "page_hydration": query_diagnostics.page_hydration_micros
                 },
+                "high_hit_minimum_paired_speedup_percent": 10.0,
                 "passed": passed
             }));
             assert!(
@@ -559,11 +1020,13 @@ fn global_search_compact_name_search_qualification() {
         "change_feed_write_overhead_percent": {
             "512_rows": {
                 "p50": round_ms(overhead_512_p50_percent),
-                "p95": round_ms(overhead_512_p95_percent)
+                "p95": round_ms(overhead_512_p95_percent),
+                "p99": round_ms(overhead_512_p99_percent)
             },
             "5000_rows": {
                 "p50": round_ms(overhead_5000_p50_percent),
-                "p95": round_ms(overhead_5000_p95_percent)
+                "p95": round_ms(overhead_5000_p95_percent),
+                "p99": round_ms(overhead_5000_p99_percent)
             }
         },
         "diagnostics": {
@@ -592,12 +1055,20 @@ fn global_search_compact_name_search_qualification() {
     assert_eq!(diagnostics.fallbacks, 0);
     assert!(diagnostics.last_error.is_none());
     assert!(
+        overhead_512_p50_percent <= 10.0,
+        "512-row change-feed write paired p50 overhead was {overhead_512_p50_percent:.2}% (limit 10%)"
+    );
+    assert!(
         overhead_512_p95_percent <= 10.0,
-        "512-row change-feed write p95 overhead was {overhead_512_p95_percent:.2}% (limit 10%)"
+        "512-row change-feed write paired p95 overhead was {overhead_512_p95_percent:.2}% (limit 10%)"
+    );
+    assert!(
+        overhead_5000_p50_percent <= 10.0,
+        "5000-row change-feed write paired p50 overhead was {overhead_5000_p50_percent:.2}% (limit 10%)"
     );
     assert!(
         overhead_5000_p95_percent <= 10.0,
-        "5000-row change-feed write p95 overhead was {overhead_5000_p95_percent:.2}% (limit 10%)"
+        "5000-row change-feed write paired p95 overhead was {overhead_5000_p95_percent:.2}% (limit 10%)"
     );
     assert!(
         memory_before_index_bytes

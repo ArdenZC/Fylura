@@ -12,16 +12,25 @@ HEADs, Draft labels or Hosted CI results as native release qualification.
   [Master CI 40818041649](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40818041649)
   completed **SUCCESS**, including the post-#504 real-Chromium W2-11 gate.
   This is CI evidence, **not** whole-product native GUI or Release acceptance.
-- **#513 compact filename search — Draft review; RESOURCE_NO_GO.** The candidate
-  is based on `master@5a52de0280f52f3e485e4cde7b2ad941a47d7d32`, is integrated
-  into Global Search and Repository Snapshot, and remains default-off. Six
-  compact-index tests, 56 Global Index/Search regressions, strict Clippy in
-  default and candidate configurations, and governance checks pass. Windows x64
-  synthetic 100k Release correctness passed; high-hit Search p95 was 27.936ms
-  and Snapshot p95 33.397ms. The measured change-feed write p95 overhead was
-  33.929% for 512 rows and 32.840% for 5,000 rows against a 10% budget, so
-  higher-scale qualification stopped. The Apple Silicon 100k result is pending
-  the exact-source Draft workflow. [Issue #513](https://github.com/ArdenZC/Zen-Canvas/issues/513).
+- **#513 compact filename search — PR #515 Draft; PERFORMANCE_NO_GO after the
+  single approved remediation.** The candidate remains default-off. This pass
+  adds transaction-batched Feed writes and a held cross-process owner lease;
+  focused Feed, rollback, recovery, and lifecycle tests pass (8/8), as do
+  formatting, strict Clippy in default and candidate configurations, and
+  governance checks. A Windows x64 synthetic 100k Release run on the remediation
+  working tree matched all 5,000 high-hit IDs to the independent oracle, but
+  candidate Search p95 was 32.764ms versus SQLite's 13.909ms, and Repository
+  Snapshot p95 was 32.634ms. Alternating 30-pair writer measurements still
+  exceeded the 10% p95 budget: +26.246% for 512 rows and +18.029% for 5,000.
+  Zero/one-hit queries were slower; sparse-hit queries were faster. The 100k
+  sidecar was 10,358,259 bytes and post-index process memory was 40,124,416
+  bytes (25,403,392 before indexing). This fails the required performance and
+  write-cost gates, so no 200k or 1M qualification is authorized. Exact-source
+  Windows/macOS PR workflow evidence is pending; this local run did not include
+  the desktop-runtime feature. The local raw JSONL is retained in the task-scoped
+  runtime; the exact-source PR workflow will upload its platform artifacts.
+  [PR #515](https://github.com/ArdenZC/Zen-Canvas/pull/515),
+  [Issue #513](https://github.com/ArdenZC/Zen-Canvas/issues/513).
 - **Recent completed delivery:** #489 (Windows Global Index explicit volume authorization),
   #496 (opt-in preflight + CI failure digest), #498 (Rust lint early checks),
   #499 (RustSec patch), #501 (U3/U4 browser and exact fixture handoff),

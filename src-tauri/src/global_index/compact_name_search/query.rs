@@ -191,12 +191,14 @@ pub(super) fn change_tracking_ready(conn: &Connection) -> io::Result<bool> {
         "compact_name_search_entries_ai",
         &[
             "after insert on global_entries",
+            "batch_active",
             "insert into compact_name_search_changes(entry_rowid) values (new.rowid)",
         ],
     ) && has(
         "compact_name_search_entries_au",
         &[
             "after update on global_entries",
+            "batch_active",
             "old.rowid is not new.rowid",
             "old.name_normalized is not new.name_normalized",
             "old.rowid, old.id",
@@ -206,6 +208,7 @@ pub(super) fn change_tracking_ready(conn: &Connection) -> io::Result<bool> {
         "compact_name_search_entries_ad",
         &[
             "after delete on global_entries",
+            "batch_active",
             "insert into compact_name_search_changes(entry_rowid, entry_id)",
             "values (old.rowid, old.id)",
         ],
@@ -215,6 +218,7 @@ pub(super) fn change_tracking_ready(conn: &Connection) -> io::Result<bool> {
             "after insert on compact_name_search_changes",
             "new.seq > (select change_floor from compact_name_search_state where singleton=1) + 65536",
             "base_generation=-1",
+            "change_floor=new.seq-new.event_count",
             "delete from compact_name_search_changes where seq < new.seq",
         ],
     ))
@@ -223,6 +227,7 @@ pub(super) fn change_tracking_ready(conn: &Connection) -> io::Result<bool> {
 pub(super) fn ensure_change_schema(conn: &Connection) -> io::Result<()> {
     let state_columns = table_columns(conn, "compact_name_search_state")?;
     let missing_change_floor = !state_columns.contains("change_floor");
+    let missing_batch_active = !state_columns.contains("batch_active");
     if missing_change_floor {
         conn.execute_batch(
             "ALTER TABLE compact_name_search_state
@@ -230,11 +235,18 @@ pub(super) fn ensure_change_schema(conn: &Connection) -> io::Result<()> {
         )
         .map_err(io::Error::other)?;
     }
+    if missing_batch_active {
+        conn.execute_batch(
+            "ALTER TABLE compact_name_search_state
+             ADD COLUMN batch_active INTEGER NOT NULL DEFAULT 0 CHECK(batch_active IN (0, 1))",
+        )
+        .map_err(io::Error::other)?;
+    }
 
-    let change_columns = table_columns(conn, "compact_name_search_changes")?;
+    let mut change_columns = table_columns(conn, "compact_name_search_changes")?;
     let legacy_change_table =
         !change_columns.contains("entry_rowid") || !change_columns.contains("entry_id");
-    let mut migrated = missing_change_floor || legacy_change_table;
+    let mut migrated = missing_change_floor || missing_batch_active || legacy_change_table;
     if legacy_change_table {
         let legacy_generation: i64 = conn
             .query_row(
@@ -252,7 +264,9 @@ pub(super) fn ensure_change_schema(conn: &Connection) -> io::Result<()> {
              CREATE TABLE compact_name_search_changes (
                  seq INTEGER PRIMARY KEY,
                  entry_rowid INTEGER NOT NULL,
-                 entry_id TEXT
+                  entry_id TEXT,
+                  batch_ids TEXT,
+                  event_count INTEGER NOT NULL DEFAULT 1 CHECK(event_count > 0)
              );",
         )
         .map_err(io::Error::other)?;
@@ -271,6 +285,21 @@ pub(super) fn ensure_change_schema(conn: &Connection) -> io::Result<()> {
             [legacy_generation],
         )
         .map_err(io::Error::other)?;
+        change_columns = table_columns(conn, "compact_name_search_changes")?;
+    }
+    if !change_columns.contains("batch_ids") {
+        conn.execute_batch("ALTER TABLE compact_name_search_changes ADD COLUMN batch_ids TEXT")
+            .map_err(io::Error::other)?;
+        migrated = true;
+        change_columns.insert("batch_ids".into());
+    }
+    if !change_columns.contains("event_count") {
+        conn.execute_batch(
+            "ALTER TABLE compact_name_search_changes
+             ADD COLUMN event_count INTEGER NOT NULL DEFAULT 1 CHECK(event_count > 0)",
+        )
+        .map_err(io::Error::other)?;
+        migrated = true;
     }
 
     let state: Option<(i64, i64)> = conn
@@ -283,13 +312,13 @@ pub(super) fn ensure_change_schema(conn: &Connection) -> io::Result<()> {
         .optional()
         .map_err(io::Error::other)?;
     if let Some((version, _)) = state {
-        if version != 1 && version != 2 {
+        if !(1..=3).contains(&version) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "compact_name_search_schema_version_mismatch",
             ));
         }
-        if version != 2 || missing_change_floor {
+        if version != 3 || migrated {
             let latest_generation: i64 = conn
                 .query_row(
                     "SELECT COALESCE(MAX(seq), 0) FROM compact_name_search_changes",
@@ -297,10 +326,17 @@ pub(super) fn ensure_change_schema(conn: &Connection) -> io::Result<()> {
                     |row| row.get(0),
                 )
                 .map_err(io::Error::other)?;
+            conn.execute_batch(
+                "DROP TRIGGER IF EXISTS compact_name_search_entries_ai;
+                 DROP TRIGGER IF EXISTS compact_name_search_entries_au;
+                 DROP TRIGGER IF EXISTS compact_name_search_entries_ad;
+                 DROP TRIGGER IF EXISTS compact_name_search_changes_cap;",
+            )
+            .map_err(io::Error::other)?;
             conn.execute(
                 "UPDATE compact_name_search_state
-                 SET schema_version=2, base_generation=-1, file_name=NULL,
-                     change_floor=?1 WHERE singleton=1",
+                 SET schema_version=3, base_generation=-1, file_name=NULL,
+                     change_floor=?1, batch_active=0 WHERE singleton=1",
                 [latest_generation],
             )
             .map_err(io::Error::other)?;
@@ -309,8 +345,8 @@ pub(super) fn ensure_change_schema(conn: &Connection) -> io::Result<()> {
     } else {
         conn.execute(
             "INSERT INTO compact_name_search_state(
-                 singleton, schema_version, format_version, base_generation, file_name, change_floor
-             ) VALUES (1, 2, 1, -1, NULL, 0)",
+                 singleton, schema_version, format_version, base_generation, file_name, change_floor, batch_active
+             ) VALUES (1, 3, 1, -1, NULL, 0, 0)",
             [],
         )
         .map_err(io::Error::other)?;
@@ -397,6 +433,15 @@ pub(super) fn load_overlay_rows(
         .collect::<Result<Vec<_>, _>>()
         .map_err(io::Error::other)?;
     Ok(rows)
+}
+
+pub(super) fn batch_schema_ready(conn: &Connection) -> io::Result<bool> {
+    let state = table_columns(conn, "compact_name_search_state")?;
+    let changes = table_columns(conn, "compact_name_search_changes")?;
+    Ok(state.contains("batch_active")
+        && changes.contains("batch_ids")
+        && changes.contains("event_count")
+        && change_tracking_ready(conn)?)
 }
 
 pub(super) fn hydrate_page(

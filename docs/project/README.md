@@ -28,6 +28,7 @@ only when the task touches their domain or an ambiguity requires them.
 | Tauri command or capability permissions | `docs/security/TAURI_COMMAND_PERMISSION_MATRIX.md` and affected permission authorities |
 | macOS mutation | the macOS mutation threat model |
 | new initiative, cross-wave scope or product direction | [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md) plus [`ROADMAP.md`](ROADMAP.md) |
+| feature delivery inventory, historical commitments or implementation gaps | [`FEATURE_BACKLOG_2026-10-30.md`](FEATURE_BACKLOG_2026-10-30.md) (audited snapshot; GitHub tracker owns live status, does not authorize new work) |
 | large responsibility expansion | [`CODE_MAINTAINABILITY.md`](CODE_MAINTAINABILITY.md) |
 | release or publication | release contracts and [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) |
 | governance/process change | [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) (start with the [delivery-first operating rule](DEVELOPMENT_WORKFLOW.md#delivery-first-operating-rule)) and [ADR-0015](DECISIONS/0015-delivery-first-engineering.md) |

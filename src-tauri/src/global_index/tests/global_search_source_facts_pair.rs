@@ -451,7 +451,7 @@ fn source_facts_schema44_migrates_populated42_43_and_reopens_without_recount() {
                 .unwrap()
                 .query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
                 .unwrap(),
-            44
+            i64::from(crate::db::SUPPORTED_SCHEMA_VERSION)
         );
         for (case, before) in QUERY_MATRIX.iter().zip(&before) {
             same(

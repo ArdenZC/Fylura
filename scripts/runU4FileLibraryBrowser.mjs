@@ -5,10 +5,18 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { createServer } from "vite";
+import { assertCheckoutEvidence } from "./ciEvidence.mjs";
+const actualCheckoutSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const actualCheckoutTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
+const sourceHead = process.env.U4_SOURCE_HEAD ?? actualCheckoutSha;
+const expectedCheckoutSha = process.env.U4_EXPECTED_CHECKOUT_SHA;
+if (expectedCheckoutSha) assertCheckoutEvidence(expectedCheckoutSha, actualCheckoutSha);
 const output = path.resolve(process.env.U4_OUTPUT_DIR ?? ".tmp-tests/u4-browser");
 await mkdir(output, { recursive: true });
-const server = await createServer({ server: { host: "127.0.0.1", port: 5175, strictPort: true } });
+const server = await createServer({ server: { host: "127.0.0.1", port: 0, strictPort: false } });
 await server.listen();
+const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
+if (!baseUrl) throw new Error("U4 browser gate: Vite did not expose a local URL.");
 const browser = await chromium.launch({ headless: true });
 const checks = [], errors = [];
 let page;
@@ -17,7 +25,7 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await page.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "en"); });
-  await page.goto("http://127.0.0.1:5175/?browser-mock=1");
+  await page.goto(`${baseUrl}/?browser-mock=1`);
   await page.getByRole("button", { name: "Files", exact: true }).click();
   assert.equal(await page.title(), "Zen Canvas");
   const pane = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').first();
@@ -154,7 +162,7 @@ try {
   // Chinese layout is an independent browser-mock page, not a native-platform claim.
   const chinese = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await chinese.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "zh"); });
-  await chinese.goto("http://127.0.0.1:5175/?browser-mock=1");
+  await chinese.goto(`${baseUrl}/?browser-mock=1`);
   await chinese.getByRole("button", { name: "文件", exact: true }).click();
   const zhPane = chinese.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').first();
   const allFiles = zhPane.getByRole("button", { name: "查看所有已索引文件", exact: true });
@@ -171,7 +179,7 @@ try {
   assert.equal(await right.locator('[data-u4-personal]').count(), 0);
   checks.push("Browse Reveal uses the live ephemeral ref and shows an honest unavailable state in browser mock; OS GUI remains native acceptance");
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, "checks.json"), JSON.stringify({ head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), tree: execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim(), evidence: "Real Chromium / deterministic browser mock; no native GUI or actual filesystem Restore claim", url: page.url(), checks, errors }, null, 2));
+  await writeFile(path.join(output, "checks.json"), JSON.stringify({ sourceHead, head: actualCheckoutSha, tree: actualCheckoutTree, evidence: "Real Chromium / deterministic browser mock; no native GUI or actual filesystem Restore claim", url: page.url(), checks, errors }, null, 2));
   console.log(JSON.stringify({ output, checks, errors }, null, 2));
 } catch (error) { if (page) { await writeFile(path.join(output, "failure.txt"), await page.locator("body").innerText()); await page.screenshot({ path: path.join(output, "failure.png") }); } console.error(error); throw error; }
 finally { await browser.close(); await server.close(); }

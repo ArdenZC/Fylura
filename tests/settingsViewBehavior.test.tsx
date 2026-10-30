@@ -39,6 +39,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
+    globalIndexCoverage: vi.fn(async () => ({ snapshot: { policy: { version: 1, revision: 1, mode: "smart_lean", rules: [] }, sources: [] }, preview: null })),
     getAISettings: mocks.getAISettings,
     getRuntimeCapabilities: mocks.getRuntimeCapabilities,
     listAIProviderPresets: mocks.listAIProviderPresets,
@@ -459,6 +460,69 @@ describe("settings view behavior", () => {
     expect(container.textContent).toContain("Initial collection complete");
   });
 
+  it.each([
+    ["database_busy", "Database busy"],
+    ["service_busy", "Index service busy"],
+    ["permission_required", "Permission required"],
+    ["error", "Error"]
+  ] as const)("shows the typed Global Index %s source state", async (status, label) => {
+    await act(async () => root.render(null));
+    mocks.getGlobalIndexStatus.mockResolvedValue({
+      platform: "windows",
+      enabled: true,
+      status,
+      processedEntries: 0,
+      collectionComplete: false,
+      totalEntries: 0,
+      indexedVolumes: 1,
+      readyVolumes: 0,
+      pendingVolumes: 0,
+      lastSyncAt: null,
+      lastError: null
+    });
+    mocks.listGlobalIndexSources.mockResolvedValue([{
+      volume: {
+        id: "busy-test-volume",
+        platform: "windows",
+        stableVolumeId: "busy-test-volume",
+        displayName: "Test NTFS volume",
+        mountPath: "T:\\",
+        filesystemType: "NTFS",
+        driveKind: "fixed",
+        enabled: true,
+        scopeAuthorizationState: "authorized",
+        provider: "windows_mft_usn",
+        indexStatus: status,
+        lastError: null,
+        journalId: null,
+        journalCursor: null,
+        lastFullIndexAt: 1,
+        lastIncrementalSyncAt: null,
+        entryCount: 0,
+        createdAt: 1,
+        updatedAt: 1
+      },
+      canPause: false,
+      canRebuild: true,
+      technicalDetail: null
+    }]);
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    expect(container.textContent).toContain(label);
+  });
+
+  it("localizes a typed SQLite busy load failure instead of presenting it as an empty index", async () => {
+    await act(async () => root.render(null));
+    mocks.getGlobalIndexStatus.mockRejectedValue(new Error("global_index_database_busy"));
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    expect(container.textContent).toContain("index database is busy");
+    expect(container.textContent).not.toContain("global_index_database_busy");
+    expect(container.textContent).not.toContain("No index sources are available yet");
+  });
+
   it("disables AI-dependent controls while off and restores preserved configuration when re-enabled", async () => {
     const modeGroup = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI mode"]')!;
     const modeRadios = [...modeGroup.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
@@ -549,7 +613,7 @@ describe("settings view behavior", () => {
     await flushEffects();
     expect(mocks.publishAIProcessingMode).toHaveBeenCalledWith({ enabled: false, provider: "openai_compatible" });
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
-    expect(container.querySelector("fieldset")?.getAttribute("data-ai-dirty")).toBe("false");
+    expect(container.querySelector("fieldset[data-ai-dirty]")?.getAttribute("data-ai-dirty")).toBe("false");
   });
 
   it("publishes runtime only after save success and clears the dirty draft", async () => {
@@ -564,7 +628,7 @@ describe("settings view behavior", () => {
     await flushEffects();
 
     expect(mocks.publishAIProcessingMode).toHaveBeenCalledWith({ enabled: false, provider: "openai_compatible" });
-    expect(container.querySelector("fieldset")?.getAttribute("data-ai-dirty")).toBe("false");
+    expect(container.querySelector("fieldset[data-ai-dirty]")?.getAttribute("data-ai-dirty")).toBe("false");
     expect(container.querySelector("[data-ai-unsaved-draft]")).toBeNull();
     expect(save.disabled).toBe(true);
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);

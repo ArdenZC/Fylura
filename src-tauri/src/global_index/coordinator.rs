@@ -21,6 +21,8 @@ use thiserror::Error;
 pub enum GlobalIndexError {
     #[error("database error: {0}")]
     Database(#[from] DbError),
+    #[error("SQLite database busy: {0}")]
+    DatabaseBusy(String),
     #[error("provider error: {0}")]
     Provider(String),
     #[error("service request busy: {0}")]
@@ -54,9 +56,16 @@ pub trait GlobalIndexSink: Send {
     fn source_operation_admitted(&self, _volume_id: &str) -> bool {
         false
     }
+    /// Called only under the provider's resource lifecycle lock. A sink which
+    /// cannot prove current database ownership must not authorize a watcher.
+    fn native_watcher_admitted(&self, _source: &GlobalVolume) -> Result<bool, GlobalIndexError> {
+        Ok(false)
+    }
     fn mark_source_operation_unknown(&mut self, _volume_id: &str) -> Result<(), GlobalIndexError> {
         Ok(())
     }
+    /// Coordinator-only terminal transition. Providers use set_source_state
+    /// for degraded health and return their result without consuming ownership.
     fn finish_source_operation(
         &mut self,
         volume_id: &str,
@@ -152,6 +161,27 @@ pub trait GlobalIndexProvider: Send + Sync {
     }
 
     fn source_enabled_changed(&self, _source_id: &str, _enabled: bool) {}
+
+    /// Publish a global coverage revision under the provider's registration
+    /// locks. Implementations discard old leases before releasing those locks.
+    fn update_coverage_lifecycle(
+        &self,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        update().map(|_| ())
+    }
+
+    /// Serialize a short authority change with native resource registration.
+    /// The callback returns whether existing resources must be discarded.
+    /// Never perform scans, IPC, scheduler waits or callbacks into this provider
+    /// inside the authority change.
+    fn update_source_lifecycle(
+        &self,
+        _source_id: &str,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        update().map(|_| ())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -159,6 +189,29 @@ struct CoordinatorState {
     running: bool,
     paused: bool,
     last_error: Option<String>,
+    transient_busy_status: Option<TransientBusyStatus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransientBusyStatus {
+    Database,
+    Service,
+}
+
+impl TransientBusyStatus {
+    fn index_status(self) -> &'static str {
+        match self {
+            Self::Database => INDEX_STATUS_DATABASE_BUSY,
+            Self::Service => INDEX_STATUS_SERVICE_BUSY,
+        }
+    }
+
+    fn error_code(self) -> &'static str {
+        match self {
+            Self::Database => "global_index_database_busy",
+            Self::Service => "global_index_service_busy",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -206,6 +259,7 @@ impl GlobalIndexCoordinator {
             state.running = true;
             state.paused = false;
             state.last_error = None;
+            state.transient_busy_status = None;
         }
         self.cancel.store(false, Ordering::Release);
         self.wake.notify(GlobalIndexWakeReason::Startup);
@@ -217,7 +271,8 @@ impl GlobalIndexCoordinator {
         let worker = thread::Builder::new()
             .name("zen-canvas-global-index".to_string())
             .spawn(move || {
-                let result = run_index(provider, db, cancel.clone(), wake);
+                let result =
+                    run_index_with_state(provider, db, cancel.clone(), wake, state.clone());
                 if let Ok(mut state) = state.lock() {
                     state.running = false;
                     state.paused = cancel.load(Ordering::Acquire);
@@ -249,6 +304,7 @@ impl GlobalIndexCoordinator {
             GlobalIndexError::Provider("coordinator state lock poisoned".to_string())
         })?;
         state.paused = true;
+        state.transient_busy_status = None;
         Ok(())
     }
 
@@ -262,12 +318,15 @@ impl GlobalIndexCoordinator {
         if let Some(id) = source_id {
             if !self.db.request_global_index_rebuild(&id)? {
                 return Err(GlobalIndexError::Provider(
-                    "rebuild source is missing or disabled".into(),
+                    "rebuild source is missing, disabled, or awaiting authorization".into(),
                 ));
             }
         } else {
             for volume in self.db.list_global_volumes()? {
-                if volume.enabled {
+                if volume.enabled
+                    && (volume.platform != "windows"
+                        || volume.scope_authorization_state == SCOPE_AUTHORIZATION_AUTHORIZED)
+                {
                     self.db.request_global_index_rebuild(&volume.id)?;
                 }
             }
@@ -275,19 +334,109 @@ impl GlobalIndexCoordinator {
         self.start()
     }
 
+    pub fn set_coverage_policy(
+        &self,
+        expected: u64,
+        mode: super::coverage::CoverageMode,
+        rules: Vec<super::coverage::CoverageRule>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut rules = Some(rules);
+        let mut committed = false;
+        let lifecycle_result = self.provider.update_coverage_lifecycle(&mut || {
+            self.db
+                .save_global_index_coverage(expected, mode, rules.take().unwrap_or_default())?;
+            committed = true;
+            Ok(true)
+        });
+        if !committed {
+            return lifecycle_result;
+        }
+        self.wake.notify(GlobalIndexWakeReason::RecoveryRequired);
+        let mut recovery_errors = Vec::new();
+        if let Err(error) = lifecycle_result {
+            recovery_errors.push(error.to_string());
+        }
+        if let Err(error) = self.start() {
+            recovery_errors.push(format!("recovery worker start failed: {error}"));
+        }
+        if recovery_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(GlobalIndexError::Provider(format!(
+                "global_index_change_committed_recovery_pending: {}",
+                recovery_errors.join("; ")
+            )))
+        }
+    }
+
     pub fn set_source_enabled(
         &self,
         source_id: &str,
         enabled: bool,
     ) -> Result<(), GlobalIndexError> {
-        self.db.set_global_volume_enabled(source_id, enabled)?;
+        let mut committed = false;
+        let lifecycle_result = self.provider.update_source_lifecycle(source_id, &mut || {
+            self.db.set_global_volume_enabled(source_id, enabled)?;
+            committed = true;
+            Ok(true)
+        });
+        if !committed {
+            return lifecycle_result;
+        }
         self.provider.source_enabled_changed(source_id, enabled);
+        self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
+        match lifecycle_result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let recovery_error = self.start().err();
+                let mut details = vec![error.to_string()];
+                if let Some(error) = recovery_error {
+                    details.push(format!("recovery worker start failed: {error}"));
+                }
+                Err(GlobalIndexError::Provider(format!(
+                    "global_index_change_committed_recovery_pending: {}",
+                    details.join("; ")
+                )))
+            }
+        }
+    }
+
+    pub fn authorize_source(
+        &self,
+        source_id: &str,
+        confirmed: bool,
+    ) -> Result<(), GlobalIndexError> {
+        if !confirmed {
+            return Err(
+                DbError::Validation("global_index_scope_confirmation_required".into()).into(),
+            );
+        }
+        let discovered = self
+            .provider
+            .discover_sources()?
+            .into_iter()
+            .find(|source| source.volume.id == source_id)
+            .ok_or_else(|| GlobalIndexError::Provider("global_index_source_unavailable".into()))?;
+        self.provider.update_source_lifecycle(source_id, &mut || {
+            self.db
+                .authorize_global_volume(source_id, true, &discovered.volume)?;
+            Ok(true)
+        })?;
+        self.provider.source_enabled_changed(source_id, true);
         self.wake.notify(GlobalIndexWakeReason::ExplicitCommand);
         Ok(())
     }
 
     pub fn status(&self) -> Result<GlobalIndexStatus, GlobalIndexError> {
-        Ok(self.db.global_index_status()?)
+        let mut status = self.db.global_index_status()?;
+        if let Ok(state) = self.state.lock() {
+            if let Some(busy) = state.transient_busy_status {
+                status.status = busy.index_status().to_string();
+                status.last_error = Some(busy.error_code().to_string());
+                status.collection_complete = false;
+            }
+        }
+        Ok(status)
     }
 
     pub fn shutdown(&self) -> Result<(), GlobalIndexError> {
@@ -320,6 +469,22 @@ struct DatabaseIndexSink {
     owners: HashMap<String, SourceOperationOwner>,
 }
 
+#[cfg(all(test, target_os = "windows"))]
+pub(crate) fn database_sink_for_test(db: Database) -> impl GlobalIndexSink {
+    database_sink_for_qualification(db)
+}
+
+#[cfg(any(
+    all(test, windows),
+    all(feature = "native-qa", any(windows, target_os = "macos"))
+))]
+pub(crate) fn database_sink_for_qualification(db: Database) -> impl GlobalIndexSink {
+    DatabaseIndexSink {
+        db,
+        owners: HashMap::new(),
+    }
+}
+
 impl DatabaseIndexSink {
     fn owner(&self, volume_id: &str) -> Result<&SourceOperationOwner, GlobalIndexError> {
         self.owners.get(volume_id).ok_or_else(|| {
@@ -336,6 +501,14 @@ impl DatabaseIndexSink {
                     || message == "global_index_operation_foreign_volume_write" =>
             {
                 GlobalIndexError::ServiceOutcomeUnknown(message)
+            }
+            DbError::Validation(message)
+                if message == "global_index_entry_outside_authorized_source" =>
+            {
+                GlobalIndexError::ServiceProtocol(message)
+            }
+            DbError::Validation(message) if message == "global_index_source_identity_changed" => {
+                GlobalIndexError::PermissionRequired(message)
             }
             other => GlobalIndexError::Database(other),
         }
@@ -362,6 +535,12 @@ impl Drop for DatabaseIndexSink {
 }
 
 impl GlobalIndexSink for DatabaseIndexSink {
+    fn native_watcher_admitted(&self, source: &GlobalVolume) -> Result<bool, GlobalIndexError> {
+        let Some(owner) = self.owners.get(&source.id) else {
+            return Ok(false);
+        };
+        Ok(self.db.native_watcher_operation_is_current(source, owner)?)
+    }
     fn admit_source_operation(
         &mut self,
         source: &GlobalVolume,
@@ -533,11 +712,28 @@ impl GlobalIndexSink for DatabaseIndexSink {
     }
 }
 
-fn run_index(
+#[cfg(test)]
+pub(crate) fn run_index(
     provider: Arc<dyn GlobalIndexProvider>,
     db: Database,
     cancel: Arc<AtomicBool>,
     wake: Arc<GlobalIndexWakeSlot>,
+) -> Result<(), GlobalIndexError> {
+    run_index_with_state(
+        provider,
+        db,
+        cancel,
+        wake,
+        Arc::new(Mutex::new(CoordinatorState::default())),
+    )
+}
+
+fn run_index_with_state(
+    provider: Arc<dyn GlobalIndexProvider>,
+    db: Database,
+    cancel: Arc<AtomicBool>,
+    wake: Arc<GlobalIndexWakeSlot>,
+    state: Arc<Mutex<CoordinatorState>>,
 ) -> Result<(), GlobalIndexError> {
     let mut previous_topology = None;
     let mut run_cycle = true;
@@ -550,18 +746,26 @@ fn run_index(
             let _ = wake.wait(&cancel, Some(Duration::ZERO));
             super::qa_trace::record("coordinator_cycle");
             let mut cycle_topology = previous_topology.clone();
+            let mut cycle_busy_status = None;
             match run_index_cycle_with_topology(
                 provider.as_ref(),
                 &db,
                 &cancel,
                 &wake,
                 &mut cycle_topology,
+                &mut cycle_busy_status,
             ) {
                 Ok(topology) => {
                     previous_topology = Some(topology);
+                    if let Ok(mut state) = state.lock() {
+                        state.transient_busy_status = cycle_busy_status;
+                    }
                 }
                 Err(error) if sqlite_contention_kind(&error).is_some() => {
                     let kind = sqlite_contention_kind(&error).expect("matched SQLite contention");
+                    if let Ok(mut state) = state.lock() {
+                        state.transient_busy_status = Some(TransientBusyStatus::Database);
+                    }
                     eprintln!(
                         "Global Index cycle deferred after SQLite {kind:?}; no immediate retry scheduled: {error}"
                     );
@@ -584,21 +788,36 @@ fn run_index(
                 run_cycle = true;
             }
             GlobalIndexWaitResult::Cancelled | GlobalIndexWaitResult::Shutdown => break,
-            GlobalIndexWaitResult::TimedOut => match provider.audit_source_topology() {
-                Ok(Some(discovered)) => {
-                    let current_topology = topology_signature(&discovered);
-                    run_cycle = previous_topology.as_ref() != Some(&current_topology);
-                    if run_cycle {
-                        wake.notify(GlobalIndexWakeReason::SourceTopology);
-                        previous_topology = Some(current_topology);
+            GlobalIndexWaitResult::TimedOut => {
+                // A source whose change watcher never started is degraded, not
+                // ready: its results would silently freeze. Keep a bounded poll
+                // fallback alive on this low-frequency tick (the ingest path is
+                // an incremental USN delta, not a full MFT rescan) until the
+                // watcher recovers and the source returns to `ready`.
+                let degraded = db
+                    .has_watcher_unavailable_sources()
+                    .unwrap_or_else(|error| {
+                        eprintln!("Global Index watcher degradation probe failed: {error}");
+                        false
+                    });
+                match provider.audit_source_topology() {
+                    Ok(Some(discovered)) => {
+                        let current_topology = topology_signature(&discovered);
+                        let topology_changed =
+                            previous_topology.as_ref() != Some(&current_topology);
+                        run_cycle = topology_changed || degraded;
+                        if run_cycle {
+                            wake.notify(GlobalIndexWakeReason::SourceTopology);
+                            previous_topology = Some(current_topology);
+                        }
+                    }
+                    Ok(None) => run_cycle = degraded,
+                    Err(error) => {
+                        eprintln!("Global Index topology audit failed: {error}");
+                        run_cycle = degraded;
                     }
                 }
-                Ok(None) => run_cycle = false,
-                Err(error) => {
-                    eprintln!("Global Index topology audit failed: {error}");
-                    run_cycle = false;
-                }
-            },
+            }
         }
     }
     Ok(())
@@ -628,7 +847,15 @@ fn run_index_cycle(
     wake: &GlobalIndexWakeSlot,
 ) -> Result<SourceTopologySignature, GlobalIndexError> {
     let mut discovered_topology = None;
-    run_index_cycle_with_topology(provider, db, cancel, wake, &mut discovered_topology)
+    let mut busy_status = None;
+    run_index_cycle_with_topology(
+        provider,
+        db,
+        cancel,
+        wake,
+        &mut discovered_topology,
+        &mut busy_status,
+    )
 }
 
 fn run_index_cycle_with_topology(
@@ -637,6 +864,7 @@ fn run_index_cycle_with_topology(
     cancel: &Arc<AtomicBool>,
     wake: &GlobalIndexWakeSlot,
     discovered_topology: &mut Option<SourceTopologySignature>,
+    busy_status: &mut Option<TransientBusyStatus>,
 ) -> Result<SourceTopologySignature, GlobalIndexError> {
     let discovered = provider.discover_sources()?;
     let topology = topology_signature(&discovered);
@@ -646,8 +874,18 @@ fn run_index_cycle_with_topology(
         let legacy_recursive_fallback_needs_rebuild = existing.as_ref().is_some_and(|current| {
             current.provider == PROVIDER_WINDOWS_RECURSIVE_FALLBACK
                 && source.volume.provider == PROVIDER_WINDOWS_MFT_USN
+                && (current.platform != "windows"
+                    || current.scope_authorization_state == SCOPE_AUTHORIZATION_AUTHORIZED)
         });
-        db.upsert_global_volume(&source.volume)?;
+        provider.update_source_lifecycle(&source.volume.id, &mut || {
+            // Compare the durable revision, not the unapproved discovery
+            // snapshot: ordinary rediscovery must keep healthy watchers alive.
+            let before = db.global_index_operation_state(&source.volume.id)?;
+            db.upsert_global_volume(&source.volume)?;
+            let after = db.global_index_operation_state(&source.volume.id)?;
+            Ok(before.as_ref().map(|state| state.revision)
+                != after.as_ref().map(|state| state.revision))
+        })?;
         if legacy_recursive_fallback_needs_rebuild {
             let error = existing
                 .as_ref()
@@ -694,7 +932,24 @@ fn run_index_cycle_with_topology(
         if !volume.enabled {
             continue;
         }
+        if volume.platform == "windows"
+            && volume.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED
+        {
+            continue;
+        }
         let Some(discovered_source) = discovered_by_id.get(&volume.id) else {
+            if volume.platform == "windows" {
+                let replaced = discovered_by_id.values().any(|source| {
+                    source
+                        .volume
+                        .mount_path
+                        .eq_ignore_ascii_case(&volume.mount_path)
+                });
+                provider.update_source_lifecycle(&volume.id, &mut || {
+                    db.invalidate_missing_global_index_source(&volume.id, replaced)?;
+                    Ok(true)
+                })?;
+            }
             if volume.index_status != INDEX_STATUS_UNAVAILABLE
                 || volume.last_error.as_deref() != Some("global_index_source_unavailable")
             {
@@ -713,6 +968,7 @@ fn run_index_cycle_with_topology(
             && volume.last_error.as_deref() == Some("global_index_source_unavailable");
         let mut source = discovered_source.clone();
         source.volume.enabled = volume.enabled;
+        source.volume.scope_authorization_state = volume.scope_authorization_state.clone();
         source.volume.index_status = volume.index_status.clone();
         source.volume.last_error = volume.last_error.clone();
         source.volume.journal_id = volume.journal_id.clone();
@@ -755,21 +1011,34 @@ fn run_index_cycle_with_topology(
             }
         };
         if !sink.source_operation_admitted(&volume.id) {
-            match result {
+            match &result {
                 Err(GlobalIndexError::Paused) if cancel.load(Ordering::Acquire) => break,
-                // A busy/rejected/unknown request has no source owner. Its
-                // durable health, checkpoint and timestamps remain untouched.
-                _ => continue,
+                // Busy requests are explicitly rejected before source
+                // admission. Keep durable source health and checkpoints
+                // untouched; expose their typed status through the coordinator.
+                Err(GlobalIndexError::ServiceBusy(_)) => {
+                    *busy_status = Some(TransientBusyStatus::Service);
+                }
+                Err(error) if sqlite_contention_kind(error).is_some() => {
+                    *busy_status = Some(TransientBusyStatus::Database);
+                }
+                // Unknown outcomes and local owner conflicts do not establish
+                // a new source state.
+                _ => {}
             }
+            continue;
         }
         match result {
             Ok(()) => {
                 let now = unix_now();
                 let current = db.get_global_volume(&volume.id)?;
                 let current_status = current.as_ref().map(|source| source.index_status.as_str());
-                let operation_reported_degraded = current_status
-                    .filter(|status| is_degraded_index_status(status))
-                    .filter(|status| Some(*status) != Some(volume.index_status.as_str()));
+                // Admission resets health to indexing/syncing. Any current
+                // degraded state was reported by this operation, even if the
+                // previous cycle reported the same degradation. Watcher health
+                // is not persistent: a successful later cycle can become Ready.
+                let operation_reported_degraded =
+                    current_status.filter(|status| is_degraded_index_status(status));
                 let prior_degraded = (!source_reappeared
                     && !(is_rebuild && volume.index_status == INDEX_STATUS_REBUILD_REQUIRED)
                     && is_persistent_degraded_index_status(&volume.index_status))
@@ -781,7 +1050,8 @@ fn run_index_cycle_with_topology(
                         .and_then(|current| current.last_error.as_deref())
                         .or(volume.last_error.as_deref())
                 });
-                sink.finish_source_operation(
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     if cancel.load(Ordering::Acquire) {
                         INDEX_STATUS_PAUSED
@@ -801,7 +1071,8 @@ fn run_index_cycle_with_topology(
                 )?;
             }
             Err(GlobalIndexError::Paused) => {
-                sink.finish_source_operation(
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     INDEX_STATUS_PAUSED,
                     None,
@@ -812,7 +1083,8 @@ fn run_index_cycle_with_topology(
                 break;
             }
             Err(GlobalIndexError::RebuildRequired(message)) => {
-                sink.finish_source_operation(
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     INDEX_STATUS_REBUILD_REQUIRED,
                     Some(&message),
@@ -824,7 +1096,19 @@ fn run_index_cycle_with_topology(
                     wake.notify(GlobalIndexWakeReason::RecoveryRequired);
                 }
             }
-            Err(GlobalIndexError::ServiceBusy(_) | GlobalIndexError::SourceBusy(_)) => {
+            Err(GlobalIndexError::ServiceBusy(message)) => {
+                *busy_status = Some(TransientBusyStatus::Service);
+                finish_coordinator_source_operation(
+                    &mut sink,
+                    &volume.id,
+                    INDEX_STATUS_SERVICE_BUSY,
+                    Some(&message),
+                    None,
+                    None,
+                    false,
+                )?;
+            }
+            Err(GlobalIndexError::SourceBusy(_)) => {
                 sink.mark_source_operation_unknown(&volume.id)?;
             }
             Err(
@@ -833,6 +1117,9 @@ fn run_index_cycle_with_topology(
                 sink.mark_source_operation_unknown(&volume.id)?;
             }
             Err(error) => {
+                if sqlite_contention_kind(&error).is_some() {
+                    *busy_status = Some(TransientBusyStatus::Database);
+                }
                 let current = db.get_global_volume(&volume.id)?;
                 let current_status = current
                     .as_ref()
@@ -840,10 +1127,15 @@ fn run_index_cycle_with_topology(
                 let was_rebuild_required = volume.index_status == INDEX_STATUS_REBUILD_REQUIRED;
                 let preserved_status =
                     current_status.filter(|status| is_degraded_index_status(status));
-                let status = preserved_status
-                    .map(str::to_string)
-                    .unwrap_or_else(|| source_error_status(&error).to_string());
-                sink.finish_source_operation(
+                let status = if sqlite_contention_kind(&error).is_some() {
+                    source_error_status(&error).to_string()
+                } else {
+                    preserved_status
+                        .map(str::to_string)
+                        .unwrap_or_else(|| source_error_status(&error).to_string())
+                };
+                finish_coordinator_source_operation(
+                    &mut sink,
                     &volume.id,
                     &status,
                     Some(&error.to_string()),
@@ -860,7 +1152,33 @@ fn run_index_cycle_with_topology(
     Ok(topology)
 }
 
-#[cfg(all(test, target_os = "windows"))]
+// A concurrent disable/capability change can fence an admitted operation after
+// the provider has returned. Keep the newer durable state and continue other
+// sources; the sink has already dropped the stale local owner. Database failures
+// still propagate through the existing contention/error policy.
+fn finish_coordinator_source_operation(
+    sink: &mut DatabaseIndexSink,
+    volume_id: &str,
+    status: &str,
+    error: Option<&str>,
+    full_index_at: Option<i64>,
+    incremental_sync_at: Option<i64>,
+    complete_rebuild_intent: bool,
+) -> Result<(), GlobalIndexError> {
+    match sink.finish_source_operation(
+        volume_id,
+        status,
+        error,
+        full_index_at,
+        incremental_sync_at,
+        complete_rebuild_intent,
+    ) {
+        Err(GlobalIndexError::ServiceOutcomeUnknown(_)) => Ok(()),
+        result => result,
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn run_index_cycle_for_test(
     provider: &dyn GlobalIndexProvider,
     db: &Database,
@@ -910,6 +1228,13 @@ fn source_error_status(error: &GlobalIndexError) -> &'static str {
         GlobalIndexError::RebuildRequired(_) => INDEX_STATUS_REBUILD_REQUIRED,
         GlobalIndexError::PermissionRequired(_) => INDEX_STATUS_PERMISSION_REQUIRED,
         GlobalIndexError::WindowsIo(5 | 1314) => INDEX_STATUS_PERMISSION_REQUIRED,
+        GlobalIndexError::ServiceBusy(_) => INDEX_STATUS_SERVICE_BUSY,
+        GlobalIndexError::Provider(message)
+            if message.starts_with("macos_watcher_cleanup_pending") =>
+        {
+            INDEX_STATUS_WATCHER_UNAVAILABLE
+        }
+        error if sqlite_contention_kind(error).is_some() => INDEX_STATUS_DATABASE_BUSY,
         _ => INDEX_STATUS_ERROR,
     }
 }
@@ -924,6 +1249,9 @@ pub(crate) enum SqliteContentionKind {
 /// Classify only real SQLite result codes. Provider diagnostics, Service
 /// request contention, and transport/protocol errors remain separate classes.
 pub(crate) fn sqlite_contention_kind(error: &GlobalIndexError) -> Option<SqliteContentionKind> {
+    if matches!(error, GlobalIndexError::DatabaseBusy(_)) {
+        return Some(SqliteContentionKind::Busy);
+    }
     let GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _))) =
         error
     else {
@@ -999,6 +1327,7 @@ fn is_degraded_index_status(status: &str) -> bool {
     matches!(
         status,
         INDEX_STATUS_PERMISSION_REQUIRED
+            | INDEX_STATUS_WATCHER_UNAVAILABLE
             | INDEX_STATUS_REBUILD_REQUIRED
             | INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
             | INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
@@ -1035,7 +1364,9 @@ fn platform_provider(
     #[cfg(all(not(target_os = "windows"), target_os = "macos"))]
     {
         let _ = database_path;
-        Box::new(crate::global_index::macos::MacosSpotlightProvider::with_wake(wake))
+        Box::new(crate::global_index::macos::MacosVolumeProvider::with_wake(
+            wake,
+        ))
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
@@ -1082,6 +1413,7 @@ impl GlobalIndexProvider for RecursiveFallbackProvider {
                 filesystem_type: "unknown".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_RECURSIVE_FALLBACK.to_string(),
                 index_status: INDEX_STATUS_DISCOVERED.to_string(),
                 last_error: None,
@@ -1193,6 +1525,81 @@ mod tests {
 
     static TEST_DATABASE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+    #[test]
+    fn database_and_service_busy_keep_distinct_index_statuses() {
+        let database_busy =
+            GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                None,
+            )));
+        let service_busy = GlobalIndexError::ServiceBusy("database is locked".into());
+
+        assert_eq!(
+            source_error_status(&database_busy),
+            INDEX_STATUS_DATABASE_BUSY
+        );
+        assert_eq!(
+            source_error_status(&service_busy),
+            INDEX_STATUS_SERVICE_BUSY
+        );
+        assert_eq!(
+            sqlite_contention_kind(&service_busy),
+            None,
+            "service contention must not be inferred from message text"
+        );
+    }
+
+    #[test]
+    fn transient_busy_status_is_visible_without_mutating_durable_source_health() {
+        let path = TestDatabasePath::new();
+        let db = Database::open(&path.0).expect("open isolated status database");
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.index_status = INDEX_STATUS_READY.to_string();
+        db.upsert_global_volume(&volume).expect("seed source state");
+        let coordinator = GlobalIndexCoordinator::with_provider(
+            db.clone(),
+            Arc::new(RecursiveFallbackProvider::new()),
+            Arc::new(GlobalIndexWakeSlot::default()),
+        );
+
+        coordinator
+            .state
+            .lock()
+            .expect("coordinator state lock")
+            .transient_busy_status = Some(TransientBusyStatus::Database);
+        let database_busy = coordinator
+            .status()
+            .expect("transient database busy status");
+        assert_eq!(database_busy.status, INDEX_STATUS_DATABASE_BUSY);
+        assert_eq!(
+            database_busy.last_error.as_deref(),
+            Some("global_index_database_busy")
+        );
+        assert!(!database_busy.collection_complete);
+        assert_eq!(
+            db.get_global_volume(&volume.id)
+                .unwrap()
+                .unwrap()
+                .index_status,
+            INDEX_STATUS_READY,
+            "transient lock classification must not rewrite source health"
+        );
+
+        coordinator
+            .state
+            .lock()
+            .expect("coordinator state lock")
+            .transient_busy_status = Some(TransientBusyStatus::Service);
+        let service_busy = coordinator.status().expect("transient service busy status");
+        assert_eq!(service_busy.status, INDEX_STATUS_SERVICE_BUSY);
+        assert_eq!(
+            service_busy.last_error.as_deref(),
+            Some("global_index_service_busy")
+        );
+
+        drop(db);
+    }
+
     struct TestDatabasePath(PathBuf);
 
     impl TestDatabasePath {
@@ -1214,6 +1621,287 @@ mod tests {
                 let _ = fs::remove_file(PathBuf::from(path));
             }
         }
+    }
+
+    struct AuthorizationProbeProvider {
+        source: Mutex<GlobalSourceDescriptor>,
+        scan_calls: AtomicUsize,
+    }
+
+    impl GlobalIndexProvider for AuthorizationProbeProvider {
+        fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+            Ok(vec![self.source.lock().unwrap().clone()])
+        }
+
+        fn start_initial_index(
+            &self,
+            _source: &GlobalSourceDescriptor,
+            _sink: &mut dyn GlobalIndexSink,
+            _cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            self.scan_calls.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }
+
+        fn resume_incremental_sync(
+            &self,
+            source: &GlobalSourceDescriptor,
+            sink: &mut dyn GlobalIndexSink,
+            cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            self.start_initial_index(source, sink, cancel)
+        }
+
+        fn pause(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn status(&self) -> Result<String, GlobalIndexError> {
+            Ok(PROVIDER_WINDOWS_MFT_USN.into())
+        }
+
+        fn shutdown(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn schema44_legacy_recursive_fallback_can_be_reconfirmed_without_losing_data() {
+        let path = TestDatabasePath::new();
+        let db = Database::open(&path.0).expect("create isolated historical fixture");
+        let mut legacy = crate::global_index::tests::test_volume();
+        legacy.stable_volume_id = "volume-guid-schema44".into();
+        // Match the production Windows identity mapping: a legacy fallback
+        // row and a fresh native discovery for the same volume keep the same
+        // stable id, even though their provider differs.
+        legacy.id = format!(
+            "gv_{}",
+            blake3::hash(legacy.stable_volume_id.as_bytes()).to_hex()
+        );
+        legacy.display_name = "Legacy test volume".into();
+        legacy.mount_path = r"Z:\".into();
+        legacy.enabled = true;
+        legacy.scope_authorization_state = SCOPE_AUTHORIZATION_AUTHORIZED.into();
+        legacy.provider = PROVIDER_WINDOWS_RECURSIVE_FALLBACK.into();
+        legacy.index_status = INDEX_STATUS_READY.into();
+        legacy.last_error = Some("historical fallback diagnostic".into());
+        legacy.journal_id = Some("44".into());
+        legacy.journal_cursor = Some("9001".into());
+        legacy.last_full_index_at = Some(111);
+        legacy.last_incremental_sync_at = Some(222);
+        legacy.entry_count = 1;
+        db.upsert_global_volume(&legacy)
+            .expect("seed legacy fallback source");
+        db.upsert_global_entries_batch(&[GlobalEntryInput {
+            volume_id: legacy.id.clone(),
+            platform_file_id: "frn-schema44-1".into(),
+            parent_platform_file_id: "frn-schema44-root".into(),
+            name: "kept.txt".into(),
+            path: r"Z:\kept.txt".into(),
+            extension: "txt".into(),
+            is_directory: false,
+            size: 42,
+            created_at_fs: Some(3),
+            modified_at_fs: Some(5),
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_WINDOWS_RECURSIVE_FALLBACK.into(),
+            last_seen_at: 7,
+        }])
+        .expect("seed historical index row");
+        let history = db.conn().expect("open isolated history connection");
+        let entry_id = history
+            .query_row(
+                "SELECT id FROM global_entries WHERE volume_id=?1 AND name='kept.txt'",
+                [&legacy.id],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("read seeded entry id");
+        history
+            .execute(
+                "INSERT INTO managed_scopes (id,path,global_entry_id,allow_cloud_ai,created_at,updated_at) VALUES ('scope-schema44','Z:\\Managed',?1,1,1,2)",
+                [&entry_id],
+            )
+            .expect("seed managed scope history");
+        history
+            .execute(
+                "INSERT INTO ai_analysis_state (global_entry_id,status,input_fingerprint,content_summary,classification_json,updated_at) VALUES (?1,'completed','fingerprint-44','preserved summary','{\"topic\":\"preserved\"}',3)",
+                [&entry_id],
+            )
+            .expect("seed AI state history");
+        history
+            .execute(
+                "INSERT INTO ai_jobs (id,global_entry_id,managed_scope_id,input_fingerprint,provider,status,created_at) VALUES ('job-schema44',?1,'scope-schema44','fingerprint-44','local','completed',3)",
+                [&entry_id],
+            )
+            .expect("seed AI job history");
+        drop(history);
+        let expected_entry_count = db
+            .get_global_volume(&legacy.id)
+            .expect("read seeded source count")
+            .expect("seeded source remains")
+            .entry_count;
+        drop(db);
+
+        // Recreate the actual schema-44 shape: the scope consent column did not
+        // exist, while the old default-enabled fallback source and its user data did.
+        let historical = rusqlite::Connection::open(&path.0).expect("open schema44 fixture");
+        historical
+            .execute_batch(
+                "ALTER TABLE global_volumes DROP COLUMN scope_authorization_state; PRAGMA user_version=44;",
+            )
+            .expect("restore schema44 volume shape");
+        drop(historical);
+        let db = Database::open(&path.0).expect("migrate real schema44 history");
+        let migrated = db
+            .get_global_volume(&legacy.id)
+            .expect("read migrated source")
+            .expect("legacy source is retained");
+        assert_eq!(
+            migrated.scope_authorization_state,
+            SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+        );
+        assert_eq!(migrated.provider, PROVIDER_WINDOWS_RECURSIVE_FALLBACK);
+        assert!(migrated.enabled);
+
+        let mut discovered = legacy.clone();
+        discovered.provider = PROVIDER_WINDOWS_MFT_USN.into();
+        discovered.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_AUTHORIZED.into();
+        discovered.enabled = false;
+        let probe = Arc::new(AuthorizationProbeProvider {
+            source: Mutex::new(GlobalSourceDescriptor { volume: discovered }),
+            scan_calls: AtomicUsize::new(0),
+        });
+        let coordinator = GlobalIndexCoordinator::with_provider(
+            db.clone(),
+            probe.clone(),
+            Arc::new(GlobalIndexWakeSlot::default()),
+        );
+
+        coordinator
+            .authorize_source(&legacy.id, false)
+            .expect_err("missing explicit confirmation must not authorize");
+        let mut mismatched = probe.source.lock().unwrap();
+        mismatched.volume.stable_volume_id = "different-volume-guid".into();
+        drop(mismatched);
+        coordinator
+            .authorize_source(&legacy.id, true)
+            .expect_err("a different stable identity cannot receive old consent");
+        assert_eq!(probe.scan_calls.load(Ordering::Acquire), 0);
+        assert_eq!(
+            db.get_global_volume(&legacy.id)
+                .unwrap()
+                .unwrap()
+                .scope_authorization_state,
+            SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+        );
+
+        probe.source.lock().unwrap().volume.stable_volume_id = legacy.stable_volume_id.clone();
+        probe.source.lock().unwrap().volume.filesystem_type = "ReFS".into();
+        probe.source.lock().unwrap().volume.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
+        coordinator
+            .authorize_source(&legacy.id, true)
+            .expect_err("a source without current NTFS MFT capability cannot be confirmed");
+        assert_eq!(probe.scan_calls.load(Ordering::Acquire), 0);
+        assert_eq!(
+            db.get_global_volume(&legacy.id)
+                .unwrap()
+                .unwrap()
+                .scope_authorization_state,
+            SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED
+        );
+        probe.source.lock().unwrap().volume.filesystem_type = "ntfs".into();
+        probe.source.lock().unwrap().volume.provider = PROVIDER_WINDOWS_MFT_USN.into();
+        coordinator
+            .authorize_source(&legacy.id, true)
+            .expect("explicit reconfirmation of same NTFS volume succeeds");
+        let authorized = db
+            .get_global_volume(&legacy.id)
+            .unwrap()
+            .expect("authorized source remains");
+        assert_eq!(
+            authorized.scope_authorization_state,
+            SCOPE_AUTHORIZATION_AUTHORIZED
+        );
+        assert!(authorized.enabled);
+        assert_eq!(authorized.provider, PROVIDER_WINDOWS_MFT_USN);
+        assert_eq!(authorized.index_status, INDEX_STATUS_REBUILD_REQUIRED);
+        assert_eq!(authorized.stable_volume_id, legacy.stable_volume_id);
+        assert_eq!(authorized.journal_id.as_deref(), Some("44"));
+        assert_eq!(authorized.journal_cursor.as_deref(), Some("9001"));
+        assert_eq!(authorized.last_full_index_at, Some(111));
+        assert_eq!(authorized.last_incremental_sync_at, Some(222));
+        assert_eq!(authorized.entry_count, expected_entry_count);
+        assert_eq!(
+            authorized.last_error.as_deref(),
+            Some("historical fallback diagnostic")
+        );
+        assert_eq!(probe.scan_calls.load(Ordering::Acquire), 0);
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM global_entries WHERE volume_id=?1 AND name='kept.txt' AND path='Z:\\kept.txt' AND source_provider='windows_recursive_fallback'",
+                    [&legacy.id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row("SELECT content_summary FROM ai_analysis_state", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+            "preserved summary"
+        );
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT path, allow_cloud_ai FROM managed_scopes WHERE id='scope-schema44'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )
+                .unwrap(),
+            ("Z:\\Managed".to_string(), 1)
+        );
+        assert_eq!(
+            db.conn()
+                .unwrap()
+                .query_row(
+                    "SELECT status, input_fingerprint, managed_scope_id FROM ai_jobs WHERE id='job-schema44'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+                )
+                .unwrap(),
+            (
+                "completed".to_string(),
+                "fingerprint-44".to_string(),
+                "scope-schema44".to_string()
+            )
+        );
+
+        run_index_cycle_for_test(
+            probe.as_ref(),
+            &db,
+            &Arc::new(AtomicBool::new(false)),
+            &GlobalIndexWakeSlot::default(),
+        )
+        .expect("authorized legacy source completes its simulated MFT rebuild");
+        assert_eq!(probe.scan_calls.load(Ordering::Acquire), 1);
+        assert_eq!(
+            db.get_global_volume(&legacy.id)
+                .unwrap()
+                .unwrap()
+                .index_status,
+            INDEX_STATUS_READY
+        );
+
+        drop(db);
     }
 
     #[test]
@@ -1689,6 +2377,7 @@ mod tests {
                 filesystem_type: "test".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: "control_test".to_string(),
                 index_status: INDEX_STATUS_READY.to_string(),
                 last_error: None,
@@ -2213,6 +2902,7 @@ mod tests {
                 filesystem_type: "ntfs".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
                 index_status: INDEX_STATUS_DISCOVERED.to_string(),
                 last_error: None,
@@ -2250,4 +2940,7 @@ mod tests {
         drop(path);
     }
     include!("coordinator_recovery_tests.rs");
+    include!("coordinator_completion_fence_tests.rs");
+    #[cfg(target_os = "windows")]
+    include!("coordinator_watcher_lifecycle_tests.rs");
 }

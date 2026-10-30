@@ -223,6 +223,47 @@ jobs:
           npm run test:performance:architecture
       - name: Build frontend
         run: npm run build:frontend
+      - name: U3 File Library product browser gate
+        env:
+          U3_SOURCE_HEAD: ${{ github.sha }}
+          U3_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+        run: npm run test:browser:u3
+      - name: Upload U3 browser failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: u3-browser-failure
+          path: .tmp-tests/u3-browser
+          if-no-files-found: ignore
+          retention-days: 2
+      - name: U4 File Library product browser gate
+        env:
+          U4_SOURCE_HEAD: ${{ github.sha }}
+          U4_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+        run: npm run test:browser:u4
+      - name: Upload U4 browser failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: u4-browser-failure
+          path: .tmp-tests/u4-browser
+          if-no-files-found: ignore
+          retention-days: 2
+      - name: W3-10 Preview integration browser gate
+        env:
+          W310_SOURCE_HEAD: ${{ github.sha }}
+          W310_EXPECTED_CHECKOUT_SHA: ${{ github.sha }}
+        run: npm run test:browser:w3-10:real
+      - name: Upload W3-10 browser failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: w3-10-browser-failure
+          path: |
+            .tmp-tests/w3-10-browser-gate-*
+            .tmp-tests/w3-09-browser-gate
+          if-no-files-found: ignore
+          retention-days: 2
       - name: W2-01 real browser regression gate
         env:
           W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -284,10 +325,10 @@ jobs:
           cache-on-failure: true
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-      - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Native filesystem hardening smoke
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
 
@@ -313,10 +354,10 @@ jobs:
           cache-on-failure: true
       - name: Native workspace format
         run: cargo fmt --manifest-path src-tauri/native/Cargo.toml --all -- --check
-      - name: Native workspace tests
-        run: cargo test --manifest-path src-tauri/native/Cargo.toml
       - name: Native workspace clippy
         run: cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings
+      - name: Native workspace tests
+        run: cargo test --manifest-path src-tauri/native/Cargo.toml
       - name: Compile test-only Explorer registration runner
         run: cargo check --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --bin zen-canvas-windows-preview-handler-real-host --features test-registration
       - name: Build Windows Preview Handler DLL
@@ -394,6 +435,8 @@ jobs:
           cache-on-failure: true
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
       - name: Rust tests
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" -- \
@@ -403,8 +446,6 @@ jobs:
             --skip macos_target_creation_race_never_loses_source_payload \
             --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
             --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided
-      - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --all-targets -- -D warnings
       - name: macOS race validation (serial, once)
         env:
           ZEN_CANVAS_MACOS_RACE_ITERATIONS: "100000"
@@ -485,6 +526,15 @@ jobs:
         with:
           path: .tmp-performance-fixtures/cache
           key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}
+      # Same-run artifact fallback: a restored cache in Prepare is not always readable by the consumer.
+      # Keep fixture manifest/hash/row-count validation in runPerformanceSuite.mjs.
+      - name: Upload exact Library and Content fixtures for downstream shard
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-fixture-library-content
+          path: .tmp-performance-fixtures/cache/${{ steps.fixture-identity.outputs.fixture_identity }}
+          if-no-files-found: error
+          retention-days: 2
       - name: Upload Search prepared binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -612,10 +662,18 @@ jobs:
         with:
           path: .tmp-performance-fixtures/cache
           key: ${{ needs.performance-prepare.outputs.fixture_cache_key }}
-      - name: Require exact Library and Content fixture cache
+      - name: Download exact fixture handoff when shared cache is inaccessible
+        if: ${{ steps.fixture-cache.outputs.cache-hit != 'true' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: perf-fixture-library-content
+          path: .tmp-performance-fixtures/cache/${{ needs.performance-prepare.outputs.fixture_identity }}
+      - name: Require exact Library and Content fixture manifest
         shell: pwsh
         run: |
-          if ("${{ steps.fixture-cache.outputs.cache-hit }}" -ne "true") { throw "Exact prepared fixture cache was not restored." }
+          $manifest = ".tmp-performance-fixtures/cache/${{ needs.performance-prepare.outputs.fixture_identity }}/manifest.json"
+          if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "Exact prepared Library and Content fixture manifest is missing after cache/artifact handoff." }
+          # The benchmark runner validates fixture identity, schema/format, sizes, SHA-256 and row counts before any benchmark.
       - name: Run Library and Content Full suite from prepared binary
         shell: pwsh
         run: |

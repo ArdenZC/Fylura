@@ -1,3 +1,4 @@
+import type { IndexCoverageRequest, IndexCoverageResponse } from "../types/indexCoverage";
 import { invokeCommand } from "./core";
 import type {
   AddManagedScopeRequest,
@@ -11,6 +12,9 @@ import type {
 } from "../types/domain";
 
 export const globalSearchApi = {
+  globalIndexCoverage(request: IndexCoverageRequest): Promise<IndexCoverageResponse> {
+    return invokeCommand<IndexCoverageResponse>("global_index_coverage", { request });
+  },
   searchGlobalEntries(request: GlobalSearchRequest): Promise<GlobalSearchResponse> {
     return invokeCommand<GlobalSearchResponse>("search_global_entries", { request });
   },
@@ -34,6 +38,9 @@ export const globalSearchApi = {
   },
   setGlobalIndexSourceEnabled(sourceId: string, enabled: boolean): Promise<void> {
     return invokeCommand<void>("set_global_index_source_enabled", { sourceId, enabled });
+  },
+  authorizeGlobalIndexSource(sourceId: string, confirmed: boolean): Promise<void> {
+    return invokeCommand<void>("authorize_global_index_source", { sourceId, confirmed });
   },
   openGlobalSearchResult(entryId: string): Promise<void> {
     return invokeCommand<void>("open_global_search_result", { entryId });

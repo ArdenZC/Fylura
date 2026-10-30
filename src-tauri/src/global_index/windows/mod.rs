@@ -5,13 +5,15 @@ pub mod recovery_qa;
 pub mod service;
 mod service_errors;
 pub mod service_host;
+#[cfg(feature = "native-qa")]
+pub mod smart_lean_qa;
 pub mod usn;
 pub mod volumes;
 
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use crate::global_index::models::{
-    GlobalSourceDescriptor, INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_UNAVAILABLE,
-    PROVIDER_WINDOWS_MFT_USN,
+    GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_UNAVAILABLE,
+    PROVIDER_WINDOWS_MFT_USN, SCOPE_AUTHORIZATION_AUTHORIZED,
 };
 use crate::global_index::wake::{GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use crate::global_index::{SourceOperationKind, SourceOperationRoute};
@@ -51,6 +53,7 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
         sink: &mut dyn GlobalIndexSink,
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
+        ensure_source_authorized(&source.volume)?;
         if source.volume.provider != PROVIDER_WINDOWS_MFT_USN {
             let message = format!(
                 "windows_global_index_unsupported_filesystem:{}",
@@ -74,6 +77,7 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
         sink: &mut dyn GlobalIndexSink,
         cancel: &AtomicBool,
     ) -> Result<(), GlobalIndexError> {
+        ensure_source_authorized(&source.volume)?;
         if source.volume.provider != PROVIDER_WINDOWS_MFT_USN {
             let message = format!(
                 "windows_global_index_unsupported_filesystem:{}",
@@ -98,6 +102,17 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         Ok(())
     }
+}
+
+fn ensure_source_authorized(volume: &GlobalVolume) -> Result<(), GlobalIndexError> {
+    if volume.platform == "windows"
+        && volume.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED
+    {
+        return Err(GlobalIndexError::Provider(
+            "global_index_source_authorization_required".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn finish_incremental_result(
@@ -165,6 +180,9 @@ pub struct WindowsGlobalIndexProvider {
     wake: std::sync::Arc<GlobalIndexWakeSlot>,
     database_path: PathBuf,
     change_watchers: Mutex<HashMap<String, fallback::ChangeSignalWatcher>>,
+    // Resource cancellation generation only; durable operation authority stays
+    // in SQLite. Covers provider Pause invoked inside an IPC admission callback.
+    watcher_epoch: std::sync::atomic::AtomicU64,
     #[cfg(test)]
     force_direct: bool,
     #[cfg(test)]
@@ -206,6 +224,7 @@ impl WindowsGlobalIndexProvider {
             wake,
             database_path,
             change_watchers: Mutex::new(HashMap::new()),
+            watcher_epoch: std::sync::atomic::AtomicU64::new(0),
             #[cfg(test)]
             force_direct: false,
             #[cfg(test)]
@@ -230,6 +249,7 @@ impl WindowsGlobalIndexProvider {
             wake,
             database_path,
             change_watchers: Mutex::new(HashMap::new()),
+            watcher_epoch: std::sync::atomic::AtomicU64::new(0),
             force_direct: true,
             smoke_ignored_wake_root: Some(ignored_wake_root),
             fake_change_watchers: false,
@@ -248,16 +268,24 @@ impl WindowsGlobalIndexProvider {
         provider
     }
 
+    #[cfg(test)]
     fn ensure_native_change_watcher(
         &self,
         source: &GlobalSourceDescriptor,
     ) -> Result<(), GlobalIndexError> {
+        let mut watchers = self.change_watchers.lock().unwrap();
+        self.install_native_change_watcher(source, &mut watchers, "test-registration")
+    }
+
+    fn install_native_change_watcher(
+        &self,
+        source: &GlobalSourceDescriptor,
+        watchers: &mut HashMap<String, fallback::ChangeSignalWatcher>,
+        registration_id: &str,
+    ) -> Result<(), GlobalIndexError> {
         if source.volume.provider != PROVIDER_WINDOWS_MFT_USN {
             return Ok(());
         }
-        let mut watchers = self.change_watchers.lock().map_err(|_| {
-            GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".to_string())
-        })?;
         if watchers
             .get(&source.volume.id)
             .is_some_and(fallback::ChangeSignalWatcher::has_failed)
@@ -267,7 +295,8 @@ impl WindowsGlobalIndexProvider {
             // continue through the existing service/direct USN authority.
             watchers.remove(&source.volume.id);
         }
-        if watchers.contains_key(&source.volume.id) {
+        if let Some(watcher) = watchers.get_mut(&source.volume.id) {
+            watcher.registration_id = registration_id.into();
             return Ok(());
         }
         let ignored_database_path = self
@@ -298,6 +327,8 @@ impl WindowsGlobalIndexProvider {
             self.wake.clone(),
             ignored_database_path,
         )?;
+        let mut watcher = watcher;
+        watcher.registration_id = registration_id.into();
         watchers.insert(source.volume.id.clone(), watcher);
         Ok(())
     }
@@ -310,8 +341,44 @@ impl WindowsGlobalIndexProvider {
 
     fn clear_native_change_watchers(&self) {
         if let Ok(mut watchers) = self.change_watchers.lock() {
+            self.watcher_epoch.fetch_add(1, Ordering::AcqRel);
             watchers.clear();
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_lifecycle_fixture(
+        source: &GlobalSourceDescriptor,
+        sink: &mut dyn GlobalIndexSink,
+        kind: SourceOperationKind,
+        watcher_failed: bool,
+        work: impl FnOnce(&mut dyn GlobalIndexSink) -> Result<(), GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut provider = Self::with_fake_change_watchers();
+        // A non-existent fixture path forces watcher startup failure without
+        // enumerating or reading any real volume. Recovery uses a fake watcher.
+        if watcher_failed {
+            provider.fake_change_watchers = false;
+        }
+        let command = match kind {
+            SourceOperationKind::Initial => IndexServiceCommand::StartInitialIndex {
+                source_id: source.volume.id.clone(),
+            },
+            SourceOperationKind::Incremental => IndexServiceCommand::ResumeIncrementalSync {
+                source_id: source.volume.id.clone(),
+            },
+            SourceOperationKind::Rebuild => IndexServiceCommand::Rebuild {
+                source_id: source.volume.id.clone(),
+            },
+        };
+        let request = Self::source_request(command, source);
+        provider.run_source_request(
+            &request,
+            source,
+            sink,
+            &AtomicBool::new(false),
+            |_, sink| work(sink),
+        )
     }
 
     fn run_source_request(
@@ -319,13 +386,132 @@ impl WindowsGlobalIndexProvider {
         request: &IndexServiceRequest,
         source: &GlobalSourceDescriptor,
         sink: &mut dyn GlobalIndexSink,
+        cancel: &AtomicBool,
         direct: impl FnOnce(
             &DirectWindowsGlobalIndexProvider,
             &mut dyn GlobalIndexSink,
         ) -> Result<(), GlobalIndexError>,
     ) -> Result<(), GlobalIndexError> {
-        self.ensure_native_change_watcher(source)?;
-        self.run_with_fallback(request, sink, direct)
+        ensure_source_authorized(&source.volume)?;
+        // No native resource is created for rejected admission or failed work.
+        // Service and Direct share this post-success ownership boundary.
+        let (watcher_epoch, previous_registration) = {
+            let watchers = self.change_watchers.lock().map_err(|_| {
+                GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".into())
+            })?;
+            (
+                self.watcher_epoch.load(Ordering::Acquire),
+                watchers
+                    .get(&source.volume.id)
+                    .map(|watcher| watcher.registration_id.clone()),
+            )
+        };
+        let result = self.run_with_fallback(request, sink, direct);
+        let mut watchers = self.change_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".into())
+        })?;
+        if result.is_err()
+            || cancel.load(Ordering::Acquire)
+            || watcher_epoch != self.watcher_epoch.load(Ordering::Acquire)
+        {
+            let same_registration = previous_registration.as_ref().is_some_and(|registration| {
+                watchers
+                    .get(&source.volume.id)
+                    .is_some_and(|watcher| &watcher.registration_id == registration)
+            });
+            let operation_result_is_uncertain = matches!(
+                &result,
+                Err(GlobalIndexError::ServiceProtocol(_)
+                    | GlobalIndexError::ServiceOutcomeUnknown(_)
+                    | GlobalIndexError::SourceBusy(_)
+                    | GlobalIndexError::Paused)
+            );
+            let may_preserve_watcher = result.is_err()
+                && !operation_result_is_uncertain
+                && !cancel.load(Ordering::Acquire)
+                && watcher_epoch == self.watcher_epoch.load(Ordering::Acquire)
+                && sink.source_operation_admitted(&source.volume.id)
+                && same_registration;
+
+            if may_preserve_watcher {
+                // A failed index request does not imply a failed change hint.
+                // Validate the still-current owner while holding the lifecycle
+                // lock, and keep a healthy lease so a later filesystem event
+                // can wake the coordinator. SQLite contention is inconclusive,
+                // not evidence that this healthy watcher lost authorization;
+                // lifecycle mutations use this same lock and remain fenced.
+                let admission = sink.native_watcher_admitted(&source.volume);
+                let watcher_failed = watchers
+                    .get(&source.volume.id)
+                    .is_some_and(fallback::ChangeSignalWatcher::has_failed);
+                let owner_still_current = matches!(&admission, Ok(true))
+                    || admission.as_ref().err().is_some_and(|error| {
+                        super::coordinator::sqlite_contention_kind(error).is_some()
+                    });
+                if owner_still_current && !watcher_failed {
+                    return result;
+                }
+
+                if watcher_failed && matches!(&admission, Ok(true)) {
+                    let operation_error = result
+                        .as_ref()
+                        .expect_err("watcher degradation is only handled for an error")
+                        .to_string();
+                    watchers.remove(&source.volume.id);
+                    drop(watchers);
+                    // Keep the coordinator's existing bounded degraded-source
+                    // poll active. The operation error remains in last_error;
+                    // this is a separate, real watcher health failure.
+                    sink.set_source_state(
+                        &source.volume.id,
+                        crate::global_index::models::INDEX_STATUS_WATCHER_UNAVAILABLE,
+                        Some(&operation_error),
+                    )?;
+                    return result;
+                }
+            }
+
+            // Failed admission created no resource and must not stop another
+            // owner's healthy watcher. Nor may an old request clean a lease
+            // since transferred to a successful successor operation.
+            if (result.is_ok() || sink.source_operation_admitted(&source.volume.id))
+                && same_registration
+            {
+                watchers.remove(&source.volume.id);
+            }
+            return result;
+        }
+        // Lock order: resource lifecycle -> short database read. All desktop
+        // authority changes take the same lock before mutating the database.
+        // No MFT, USN, IPC or database write lock is held during registration.
+        let admitted = sink.native_watcher_admitted(&source.volume);
+        if !matches!(admitted, Ok(true)) {
+            if watchers
+                .get(&source.volume.id)
+                .map(|watcher| &watcher.registration_id)
+                == previous_registration.as_ref()
+            {
+                watchers.remove(&source.volume.id);
+            }
+            admitted?;
+            return Err(GlobalIndexError::SourceBusy(format!(
+                "source {} watcher owner superseded",
+                source.volume.id
+            )));
+        }
+        let watcher_result =
+            self.install_native_change_watcher(source, &mut watchers, &request.request_id);
+        drop(watchers);
+        if let Err(error) = watcher_result {
+            // A failed hint must not discard successful MFT/USN work. Only the
+            // Coordinator finalizes ownership/timestamps and rebuild intent.
+            sink.set_source_state(
+                &source.volume.id,
+                crate::global_index::models::INDEX_STATUS_WATCHER_UNAVAILABLE,
+                Some(&error.to_string()),
+            )?;
+        }
+        result
     }
 
     fn run_direct_admitted(
@@ -340,6 +526,7 @@ impl WindowsGlobalIndexProvider {
         let source = request.source.as_ref().ok_or_else(|| {
             GlobalIndexError::ServiceProtocol("Direct operation source absent".into())
         })?;
+        ensure_source_authorized(source)?;
         let kind = match &request.command {
             IndexServiceCommand::StartInitialIndex { .. } => SourceOperationKind::Initial,
             IndexServiceCommand::ResumeIncrementalSync { .. } => SourceOperationKind::Incremental,
@@ -592,58 +779,10 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
     }
 
     fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
-        #[cfg(test)]
-        if self.force_direct {
-            return self.direct.discover_sources();
-        }
-        let request = IndexServiceRequest::new(IndexServiceCommand::DiscoverSources, None);
-        let mut sources = None;
-        match service::call_index_service_admitted(&request, |event| {
-            let IndexServiceEvent::Sources {
-                sources: discovered,
-            } = event
-            else {
-                return Err(service::IndexServiceCallError::Protocol(
-                    "unexpected discovery event".into(),
-                ));
-            };
-            if sources.is_some() {
-                return Err(service::IndexServiceCallError::Protocol(
-                    "duplicate discovery result".into(),
-                ));
-            }
-            let mut ids = std::collections::HashSet::new();
-            for source in &discovered {
-                service::validate_source_snapshot(source)
-                    .map_err(service::IndexServiceCallError::Protocol)?;
-                if !ids.insert(source.id.clone()) {
-                    return Err(service::IndexServiceCallError::Protocol(
-                        "duplicate discovery source identity".into(),
-                    ));
-                }
-            }
-            sources = Some(discovered);
-            Ok(None)
-        }) {
-            Ok(response) if response.ok => {
-                self.service_connected();
-                Ok(sources
-                    .ok_or_else(|| {
-                        GlobalIndexError::ServiceProtocol(
-                            "discovery success without Sources".into(),
-                        )
-                    })?
-                    .into_iter()
-                    .map(|volume| GlobalSourceDescriptor { volume })
-                    .collect())
-            }
-            Ok(response) => Err(Self::service_response_error(&response)),
-            Err(service::IndexServiceCallError::NotSent(_)) => {
-                self.service_failed();
-                self.direct.discover_sources()
-            }
-            Err(error) => Err(error.into_global()),
-        }
+        // Topology discovery reads volume identities only. Keep it in the
+        // desktop so startup never contacts the index service before source
+        // authorization has been checked by the coordinator.
+        self.direct.discover_sources()
     }
 
     fn start_initial_index(
@@ -658,7 +797,7 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
             },
             source,
         );
-        self.run_source_request(&request, source, sink, |direct, sink| {
+        self.run_source_request(&request, source, sink, cancel, |direct, sink| {
             direct.start_initial_index(source, sink, cancel)
         })
     }
@@ -675,7 +814,7 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
             },
             source,
         );
-        self.run_source_request(&request, source, sink, |direct, sink| {
+        self.run_source_request(&request, source, sink, cancel, |direct, sink| {
             direct.resume_incremental_sync(source, sink, cancel)
         })
     }
@@ -692,7 +831,7 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
             },
             source,
         );
-        self.run_source_request(&request, source, sink, |direct, sink| {
+        self.run_source_request(&request, source, sink, cancel, |direct, sink| {
             direct.rebuild(source, sink, cancel)
         })
     }
@@ -750,6 +889,62 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
         volumes::discover_windows_volumes().map(Some)
     }
 
+    fn update_coverage_lifecycle(
+        &self,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut watchers = self.change_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".into())
+        })?;
+        let result = {
+            let mut gates = watchers
+                .values()
+                .map(|w| w.publication_gate())
+                .collect::<Vec<_>>();
+            let result = update();
+            if !matches!(result, Ok(false)) {
+                for gate in &mut gates {
+                    **gate = false;
+                }
+            }
+            result
+        };
+        if !matches!(result, Ok(false)) {
+            watchers.clear();
+        }
+        result.map(|_| ())
+    }
+
+    fn update_source_lifecycle(
+        &self,
+        source_id: &str,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        let mut watchers = self.change_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows Global Index watcher lock poisoned".into())
+        })?;
+        let result = {
+            // Freeze publication before changing durable authorization. Queued
+            // callbacks either finish before the mutation or observe revocation;
+            // none can publish in the commit-to-handle-destruction interval.
+            let mut publication = watchers
+                .get(source_id)
+                .map(|watcher| watcher.publication_gate());
+            let result = update();
+            if !matches!(result, Ok(false)) {
+                if let Some(active) = publication.as_mut() {
+                    **active = false;
+                }
+            }
+            result
+        };
+        // Even an error after a committed mutation must fail closed for hints.
+        if !matches!(result, Ok(false)) {
+            watchers.remove(source_id);
+        }
+        result.map(|_| ())
+    }
+
     fn source_enabled_changed(&self, source_id: &str, enabled: bool) {
         self.clear_native_change_watcher(source_id);
         if enabled {
@@ -760,10 +955,81 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn disable_completed_before_stale_request_cannot_leave_native_watcher() {
+        use crate::db::Database;
+        use crate::global_index::coordinator::database_sink_for_test;
+        use std::sync::{Arc, Barrier};
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(".tmp-tests")
+            .join(format!("round8-revocation-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let db = Database::open(root.join("fixture.sqlite3")).unwrap();
+        let mut source = windows_source();
+        let watched = root.join("watched");
+        std::fs::create_dir(&watched).unwrap();
+        source.volume.mount_path = watched.to_string_lossy().into_owned();
+        db.upsert_global_volume(&source.volume).unwrap();
+        let mut provider = WindowsGlobalIndexProvider::with_wake(
+            Arc::new(GlobalIndexWakeSlot::default()),
+            db.path().to_path_buf(),
+        );
+        provider.force_direct = true;
+        let provider = Arc::new(provider);
+        let selected = Arc::new(Barrier::new(2));
+        let resume = Arc::new(Barrier::new(2));
+        std::thread::scope(|scope| {
+            let task = scope.spawn(|| {
+                let stale = db.get_global_volume(&source.volume.id).unwrap().unwrap();
+                selected.wait();
+                resume.wait();
+                let stale = GlobalSourceDescriptor { volume: stale };
+                let request = WindowsGlobalIndexProvider::source_request(
+                    IndexServiceCommand::StartInitialIndex {
+                        source_id: stale.volume.id.clone(),
+                    },
+                    &stale,
+                );
+                let mut sink = database_sink_for_test(db.clone());
+                assert!(provider
+                    .run_source_request(
+                        &request,
+                        &stale,
+                        &mut sink,
+                        &AtomicBool::new(false),
+                        |_, _| { panic!("disabled source reached native indexing") }
+                    )
+                    .is_err());
+            });
+            selected.wait();
+            db.set_global_volume_enabled(&source.volume.id, false)
+                .unwrap();
+            provider.source_enabled_changed(&source.volume.id, false);
+            assert!(
+                !db.get_global_volume(&source.volume.id)
+                    .unwrap()
+                    .unwrap()
+                    .enabled
+            );
+            resume.wait();
+            task.join().unwrap();
+        });
+        assert!(
+            provider.change_watchers.lock().unwrap().is_empty(),
+            "stale request leaked a real recursive watcher after disable returned"
+        );
+        drop(provider);
+        drop(db);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    include!("watcher_resource_tests.rs");
+
     use super::*;
     use crate::global_index::models::{
         GlobalEntry, GlobalEntryInput, GlobalVolume, INDEX_STATUS_PERMISSION_REQUIRED,
         INDEX_STATUS_READY, INDEX_STATUS_REBUILD_REQUIRED, INDEX_STATUS_SYNCING,
+        SCOPE_AUTHORIZATION_NOT_AUTHORIZED,
     };
     use std::collections::VecDeque;
     use std::sync::mpsc::{self, Sender};
@@ -808,6 +1074,7 @@ mod tests {
                 filesystem_type: "ntfs".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
                 index_status: "ready".to_string(),
                 last_error: None,
@@ -1203,7 +1470,10 @@ mod tests {
         source.volume.id = id.into();
         source.volume.stable_volume_id = format!("stable-{id}");
         source.volume.display_name = id.into();
-        source.volume.mount_path = format!("{id}:\\");
+        source.volume.mount_path = std::env::temp_dir()
+            .join(format!("zen-coordinator-fixture-{id}"))
+            .to_string_lossy()
+            .into_owned();
         // Keep scripted checkpoints valid for the real v3 admission validator,
         // which accepts canonical decimal USN values only.
         source.volume.journal_id = Some("42".into());
@@ -1217,7 +1487,11 @@ mod tests {
             platform_file_id: format!("file-{volume_id}"),
             parent_platform_file_id: "root".into(),
             name: "preserved.txt".into(),
-            path: format!("{volume_id}:\\preserved.txt"),
+            path: std::env::temp_dir()
+                .join(format!("zen-coordinator-fixture-{volume_id}"))
+                .join("preserved.txt")
+                .to_string_lossy()
+                .into_owned(),
             extension: "txt".into(),
             is_directory: false,
             size: 42,
@@ -1598,7 +1872,7 @@ mod tests {
         assert_eq!(counters.requests.load(Ordering::Acquire), 2);
         assert_eq!(
             failed_after.index_status,
-            crate::global_index::models::INDEX_STATUS_ERROR
+            crate::global_index::models::INDEX_STATUS_DATABASE_BUSY
         );
         assert!(failed_after.last_error.is_some());
         assert_eq!(failed_after.journal_id, failed_before.journal_id);
@@ -1651,6 +1925,9 @@ mod tests {
     }
 
     impl GlobalIndexSink for SourceStateSink {
+        fn native_watcher_admitted(&self, _: &GlobalVolume) -> Result<bool, GlobalIndexError> {
+            Ok(true)
+        }
         fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError> {
             Ok(entries.len())
         }
@@ -1955,6 +2232,48 @@ mod tests {
     }
 
     #[test]
+    fn unauthorized_source_cannot_start_watcher_service_or_direct_fallback() {
+        let provider = WindowsGlobalIndexProvider::with_fake_change_watchers();
+        let mut source = windows_source();
+        source.volume.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_AUTHORIZED.to_string();
+        let request = WindowsGlobalIndexProvider::source_request(
+            IndexServiceCommand::StartInitialIndex {
+                source_id: source.volume.id.clone(),
+            },
+            &source,
+        );
+        let mut sink = SourceStateSink::default();
+        let direct_calls = std::sync::atomic::AtomicUsize::new(0);
+        let error = provider
+            .run_source_request(
+                &request,
+                &source,
+                &mut sink,
+                &AtomicBool::new(false),
+                |_direct, _sink| {
+                    direct_calls.fetch_add(1, Ordering::AcqRel);
+                    Ok(())
+                },
+            )
+            .expect_err("unapproved full-volume work must fail closed");
+
+        assert!(
+            matches!(error, GlobalIndexError::Provider(message) if message == "global_index_source_authorization_required")
+        );
+        assert_eq!(provider.test_watcher_start_count.load(Ordering::Acquire), 0);
+        assert!(provider.change_watchers.lock().unwrap().is_empty());
+        assert_eq!(direct_calls.load(Ordering::Acquire), 0);
+
+        let direct = DirectWindowsGlobalIndexProvider::new();
+        let direct_error = direct
+            .start_initial_index(&source, &mut sink, &AtomicBool::new(false))
+            .expect_err("direct provider also enforces source authorization");
+        assert!(
+            matches!(direct_error, GlobalIndexError::Provider(message) if message == "global_index_source_authorization_required")
+        );
+    }
+
+    #[test]
     fn failed_change_watcher_is_replaced_and_source_request_continues() {
         let provider = WindowsGlobalIndexProvider::with_fake_change_watchers();
         let source = windows_source();
@@ -1985,10 +2304,16 @@ mod tests {
         let mut sink = SourceStateSink::default();
         let mut reached_direct_provider = false;
         provider
-            .run_source_request(&request, &source, &mut sink, |_direct, _sink| {
-                reached_direct_provider = true;
-                Ok(())
-            })
+            .run_source_request(
+                &request,
+                &source,
+                &mut sink,
+                &AtomicBool::new(false),
+                |_direct, _sink| {
+                    reached_direct_provider = true;
+                    Ok(())
+                },
+            )
             .expect("request continues after watcher replacement");
 
         assert!(reached_direct_provider, "USN provider path was not reached");
@@ -2039,6 +2364,7 @@ mod tests {
                 filesystem_type: "ntfs".to_string(),
                 drive_kind: "fixed".to_string(),
                 enabled: true,
+                scope_authorization_state: "authorized".to_string(),
                 provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
                 index_status: "ready".to_string(),
                 last_error: None,

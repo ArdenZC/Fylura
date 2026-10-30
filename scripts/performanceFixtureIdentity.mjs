@@ -6,7 +6,7 @@ import { resolvePerformanceProfile } from "./performanceProfile.mjs";
 import { getFixtureWorkingFiles } from "./performanceManifest.mjs";
 
 const root = process.cwd();
-export const PERFORMANCE_FIXTURE_SCHEMA_VERSION = 44;
+export const PERFORMANCE_FIXTURE_SCHEMA_VERSION = 46;
 export const PERFORMANCE_FIXTURE_FORMAT_VERSION = 1;
 
 function parseFlag(argv, name) {
@@ -55,6 +55,7 @@ export function createPerformanceFixtureIdentity({
     "src-tauri/tests/support/performance_fixture.rs",
     "src-tauri/tests/file_library_performance.rs",
     "src-tauri/src/db/schema.rs",
+    "src-tauri/src/db/schema_index_coverage.rs",
     "src-tauri/src/db/schema_global_generations.rs",
     "src-tauri/src/db/schema_global_generations.sql",
     "src-tauri/src/db/queries/files.rs",

@@ -44,6 +44,7 @@ on:
         default: baseline
         options:
           - baseline
+          - baseline_release
           - fts_diagnostic
           - source_health_diagnostic
           - source_health_topology_diagnostic
@@ -113,6 +114,17 @@ jobs:
         if: ${{ env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'baseline' }}
         run: >-
           cargo test --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::global_search_synthetic_benchmark_baseline
+          -- --ignored --exact --nocapture --test-threads=1
+      # Explicit opt-in, separate from the historical unoptimized baseline.
+      # The benchmark's context records debug_assertions=false for this build;
+      # retain the same test, fixture, correctness oracles and 100ms gate.
+      - name: Run Release-profile synthetic benchmark and correctness assertions
+        if: ${{ github.event_name == 'workflow_dispatch' && env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'baseline_release' }}
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
           --features desktop-runtime
           --lib
           global_index::tests::global_search_benchmark::global_search_synthetic_benchmark_baseline

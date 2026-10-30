@@ -34,10 +34,16 @@ fn legacy_snapshot(conn: &Connection) -> Vec<Vec<String>> {
         let mut stmt = conn
             .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
             .unwrap();
-        let columns = stmt.column_count();
+        // Schema 45 adds authorization provenance to the volume row. Compare
+        // every pre-existing column here and assert the new migration value
+        // separately below.
+        let columns = (0..stmt.column_count())
+            .filter(|&i| stmt.column_name(i).unwrap_or("") != "scope_authorization_state")
+            .collect::<Vec<_>>();
         stmt.query_map([], |r| {
-            Ok((0..columns)
-                .map(|i| format!("{:?}", r.get_ref(i).unwrap()))
+            Ok(columns
+                .iter()
+                .map(|&i| format!("{:?}", r.get_ref(i).unwrap()))
                 .collect::<Vec<_>>()
                 .join("|"))
         })
@@ -91,9 +97,18 @@ fn schema42_populated41_upgrade_preserves_all_legacy_facts_and_marks_no_complete
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        44
+        i64::from(crate::db::SUPPORTED_SCHEMA_VERSION)
     );
     assert_eq!(legacy_snapshot(&conn), before);
+    assert_eq!(
+        conn.query_row(
+            "SELECT scope_authorization_state FROM global_volumes WHERE id='v'",
+            [],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        "legacy_confirmation_required"
+    );
     let head: (String, Option<String>, Option<String>) = conn.query_row(
         "SELECT legacy_state,published_generation_id,candidate_generation_id FROM global_index_generation_heads WHERE volume_id='v'",
         [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
@@ -123,7 +138,18 @@ fn schema42_populated41_upgrade_preserves_all_legacy_facts_and_marks_no_complete
     drop(conn);
     drop(db);
     let db = Database::open(&path.0).unwrap();
-    assert_eq!(legacy_snapshot(&db.conn().unwrap()), before);
+    let reopened = db.conn().unwrap();
+    assert_eq!(legacy_snapshot(&reopened), before);
+    assert_eq!(
+        reopened
+            .query_row(
+                "SELECT scope_authorization_state FROM global_volumes WHERE id='v'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "legacy_confirmation_required"
+    );
 }
 
 #[test]
@@ -180,7 +206,7 @@ fn schema42_fresh_reopen_signature_drift_and_future_version_fail_closed() {
         "do not repair away signature drift"
     );
     let conn = Connection::open(&path.0).unwrap();
-    conn.execute_batch("PRAGMA user_version=45").unwrap();
+    conn.execute_batch("PRAGMA user_version=47").unwrap();
     drop(conn);
     let error = Database::open(&path.0).err().unwrap();
     assert!(error.to_string().contains("newer than this app supports"));
@@ -188,6 +214,6 @@ fn schema42_fresh_reopen_signature_drift_and_future_version_fail_closed() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        45
+        47
     );
 }

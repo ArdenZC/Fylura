@@ -18,6 +18,9 @@ mod index_cost_benchmark;
 #[path = "global_search_query_cost_diagnostic.rs"]
 mod query_cost_diagnostic;
 
+#[path = "issue474_candidates.rs"]
+mod issue474_candidates;
+
 #[path = "global_search_covering_indexes.rs"]
 mod covering_indexes;
 
@@ -623,10 +626,26 @@ fn round_ms(value: f64) -> f64 {
 }
 
 fn benchmark_context(entries: u64) -> JsonValue {
+    let command = |program: &str, args: &[&str]| {
+        std::process::Command::new(program)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
     json!({
         "dataset_type": "synthetic_sqlite_global_index",
         "entries": entries,
         "source_sha": env::var("ZEN_CANVAS_BENCHMARK_SOURCE_SHA").ok(),
+        "actual_head": command("git", &["rev-parse", "HEAD"]),
+        "actual_tree": command("git", &["rev-parse", "HEAD^{tree}"]),
+        "working_tree": command("git", &["status", "--short"]),
+        "rustc": command("rustc", &["-vV"]),
+        "debug_assertions": cfg!(debug_assertions),
+        "desktop_runtime_feature": cfg!(feature = "desktop-runtime"),
+        "rustflags": env::var("RUSTFLAGS").ok(),
+        "sqlite_version": rusqlite::version(),
         "runner_os": env::consts::OS,
         "runner_arch": env::consts::ARCH,
         "github_run_id": env::var("GITHUB_RUN_ID").ok(),
@@ -687,33 +706,6 @@ fn database_metrics(conn: &Connection, path: &Path) -> JsonValue {
     })
 }
 
-fn candidate_plan_sql(from: &str, predicate: &str, order: &str, rank: &str, limit: &str) -> String {
-    // Kept in sync with search.rs::candidate_sql. The FROM clauses, predicates,
-    // tier order and limits below mirror production query text, including its
-    // INDEXED BY clauses; no benchmark-only index hint is added.
-    format!(
-        r#"
-        SELECT ge.id, ge.volume_id, ge.platform_file_id, ge.name, ge.path,
-               ge.extension, ge.is_directory, ge.size, ge.created_at_fs,
-               ge.modified_at_fs, ge.file_attributes, ge.is_hidden, ge.is_system,
-               ge.source_provider,
-               EXISTS (
-                   SELECT 1
-                   FROM managed_entries me
-                   JOIN managed_scopes ms ON ms.id = me.managed_scope_id
-                   WHERE me.global_entry_id = ge.id
-                     AND me.enabled = 1
-                     AND ms.enabled = 1
-               ) AS managed,
-               {rank} AS rank
-        FROM {from}
-        WHERE {predicate}
-        ORDER BY {order}
-        LIMIT {limit}
-        "#
-    )
-}
-
 fn plan_record(
     conn: &Connection,
     context: &JsonValue,
@@ -744,53 +736,24 @@ fn plan_record(
         "query": query,
         "details": details,
         "possible_full_table_scan": possible_full_scan,
-        "plan_sql_source": "mirrors_current_search.rs_candidate_sql"
+        "plan_sql_source": "search.rs::diagnostic_search_tier_sql",
+        "actual_sql": sql,
+        "sql_blake3": blake3::hash(sql.as_bytes()).to_hex().to_string(),
+        "sqlite_version": rusqlite::version(),
+        "debug_assertions": cfg!(debug_assertions)
     })
 }
 
 fn capture_query_plans(conn: &Connection, context: &JsonValue) -> Vec<JsonValue> {
-    let exact_sql = candidate_plan_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
-        "ge.modified_at_fs DESC, ge.id ASC",
-        "0.0",
-        "?2",
-    );
-    let prefix_sql = candidate_plan_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
-        "ge.modified_at_fs DESC, ge.id ASC",
-        "0.0",
-        "?3",
-    );
-    let extension_sql = candidate_plan_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
-        "ge.modified_at_fs DESC, ge.id ASC",
-        "0.0",
-        "?2",
-    );
-    let extension_prefix_sql = candidate_plan_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
-        "ge.modified_at_fs DESC, ge.id ASC",
-        "1.0",
-        "?3",
-    );
-    let fts_sql = candidate_plan_sql(
-        "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
-        "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
-        "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
-        "?2",
-    );
-    let punctuation_sql = candidate_plan_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
-        "ge.modified_at_fs DESC, ge.id ASC",
-        "0.0",
-        "?2",
-    );
+    use crate::global_index::search::diagnostic_search_tier_sql;
+    let exact_sql = diagnostic_search_tier_sql("exact_name");
+    let prefix_sql = diagnostic_search_tier_sql("name_prefix");
+    let extension_sql = diagnostic_search_tier_sql("exact_extension");
+    let extension_prefix_sql = diagnostic_search_tier_sql("extension_prefix");
+    let (extension_probe_sql, extension_single_sql) =
+        crate::global_index::search::diagnostic_extension_prefix_strategy_sqls();
+    let fts_sql = diagnostic_search_tier_sql("fts");
+    let punctuation_sql = diagnostic_search_tier_sql("punctuation_prefix");
 
     vec![
         plan_record(
@@ -837,6 +800,32 @@ fn capture_query_plans(conn: &Connection, context: &JsonValue) -> Vec<JsonValue>
                 SqlValue::Text("jp".to_string()),
                 SqlValue::Text("jp*".to_string()),
                 SqlValue::Integer(SEARCH_RESULT_LIMIT as i64),
+            ],
+        ),
+        // Extension Prefix dispatch can execute discovery, a single-key exact
+        // query, or the original fallback. Preserve plans for all three paths.
+        plan_record(
+            conn,
+            context,
+            "extension_prefix_discovery",
+            "jp",
+            extension_probe_sql.to_string(),
+            vec![
+                SqlValue::Text("jp".to_string()),
+                SqlValue::Text("jp*".to_string()),
+            ],
+        ),
+        plan_record(
+            conn,
+            context,
+            "extension_prefix_single_key",
+            "jp",
+            extension_single_sql,
+            vec![
+                SqlValue::Text("jp".to_string()),
+                SqlValue::Text("jp*".to_string()),
+                SqlValue::Integer(SEARCH_RESULT_LIMIT as i64),
+                SqlValue::Text("jpg".to_string()),
             ],
         ),
         plan_record(

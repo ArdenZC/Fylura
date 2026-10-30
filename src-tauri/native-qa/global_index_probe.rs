@@ -16,7 +16,7 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
     }
     let target_mount_path = target_mount_path.trim_end_matches(['\\', '/']);
     let database = Database::open(profile_root.join("zen-canvas.sqlite3"))?;
-    let mut target_source_id = None;
+    let mut target_source = None;
 
     for mut source in discover_windows_volumes()? {
         let is_target = source
@@ -38,7 +38,7 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
                 )
                 .into());
             }
-            target_source_id = Some(source.volume.id.clone());
+            target_source = Some(source.volume.clone());
         }
         // Seed the isolated QA profile through the existing durable source
         // setting. The candidate coordinator will rediscover every volume,
@@ -47,11 +47,16 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
         database.upsert_global_volume(&source.volume)?;
     }
 
-    let target_source_id = target_source_id.ok_or_else(|| {
+    let target_source = target_source.ok_or_else(|| {
         format!(
             "qualification target was not discovered as a drive-letter volume: {target_mount_path}"
         )
     })?;
+    let target_source_id = target_source.id.clone();
+    // This probe runs only after the Windows qualification script creates and
+    // validates its task-owned disposable NTFS VHD. Grant consent to that
+    // exact source; all other discovered volumes remain disabled/unapproved.
+    database.authorize_global_volume(&target_source_id, true, &target_source)?;
     let enabled_sources = database
         .list_global_volumes()?
         .into_iter()
@@ -98,6 +103,29 @@ fn main() -> Result<(), Box<dyn Error>> {
         #[cfg(not(windows))]
         {
             return Err("profile preparation is supported only on Windows".into());
+        }
+    }
+    if arguments
+        .first()
+        .is_some_and(|a| a == "--qualify-smart-lean-direct")
+    {
+        if arguments.len() != 5 {
+            return Err("usage: --qualify-smart-lean-direct <profile> <source-id> <included-file> <excluded-file>".into());
+        }
+        #[cfg(windows)]
+        {
+            let result = zen_canvas_tauri::global_index::windows::smart_lean_qa::run(
+                std::path::Path::new(&arguments[1]),
+                &arguments[2],
+                std::path::Path::new(&arguments[3]),
+                std::path::Path::new(&arguments[4]),
+            )?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        #[cfg(not(windows))]
+        {
+            return Err("Direct qualification requires Windows".into());
         }
     }
     if !arguments.is_empty() {
@@ -150,7 +178,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         serde_json::to_writer(
             &mut stdout,
-            &json!({"volumes": volumes, "results": results}),
+            &json!({"volumes": volumes, "results": results, "coverage": database.global_index_coverage()?}),
         )?;
         stdout.write_all(b"\n")?;
         stdout.flush()?;

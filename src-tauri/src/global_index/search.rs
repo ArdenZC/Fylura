@@ -1,4 +1,12 @@
 #[cfg(test)]
+#[path = "tests/extension_single_key_tests.rs"]
+mod extension_single_key_tests;
+
+#[cfg(test)]
+#[path = "tests/extension_recency_probe.rs"]
+pub(crate) mod extension_recency_probe;
+
+#[cfg(test)]
 #[path = "tests/fts_rank_frontier.rs"]
 pub(crate) mod rank_frontier;
 
@@ -148,6 +156,8 @@ pub(crate) fn search_global_entries_on_connection(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    #[cfg(test)]
+    extension_recency_probe::page(limit, offset);
     let query = query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
@@ -317,7 +327,7 @@ fn key_only_candidate_sql(
 fn key_only_name_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -329,7 +339,7 @@ fn key_only_name_prefix_sql() -> String {
 fn key_only_punctuation_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -341,7 +351,7 @@ fn key_only_punctuation_prefix_sql() -> String {
 fn key_only_extension_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -352,7 +362,7 @@ fn key_only_extension_prefix_sql() -> String {
 fn key_only_fts_sql() -> String {
     key_only_candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0",
         "candidate_rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "candidates.candidate_rank ASC, candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -376,7 +386,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
     match tier {
         "exact_name" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
@@ -384,22 +394,18 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
         "name_prefix" => key_only_name_prefix_sql(),
         "exact_extension" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
         ),
-        "extension_prefix" => candidate_sql(
-            "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
-            "ge.modified_at_fs DESC, ge.id ASC",
-            "1.0",
-            "?3",
-        ),
+        // This is the exact production fallback SQL. A single-key prefix
+        // instead uses the discovery + exact-key SQL reported separately.
+        "extension_prefix" => extension_prefix_legacy_sql(),
         "fts" => diagnostic_search_fts_sql(),
         "punctuation_prefix" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
@@ -412,7 +418,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
 pub(crate) fn diagnostic_legacy_name_prefix_sql() -> String {
     candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?3",
@@ -434,7 +440,7 @@ fn search_exact_name(
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",
@@ -473,7 +479,7 @@ fn search_exact_extension(
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",
@@ -482,11 +488,66 @@ fn search_exact_extension(
     collect_candidates(&mut statement, params![query, limit])
 }
 
+// Use the existing active extension covering index to discover whether this
+// prefix maps to zero, exactly one, or multiple distinct extension values.
+// Two values are enough to establish that the legacy range-and-sort path is
+// necessary; no extension-name cache or new schema is introduced.
+const EXTENSION_PREFIX_SINGLE_KEY_PROBE_SQL: &str = "
+    SELECT DISTINCT ge.extension
+    FROM global_entries ge INDEXED BY idx_global_entries_active_extension_order
+    WHERE ge.is_stale = 0
+      AND ge.extension GLOB ?2
+      AND ge.extension <> lower(?1)
+    LIMIT 2
+";
+
+fn extension_prefix_legacy_sql() -> String {
+    candidate_sql(
+        "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "ge.modified_at_fs DESC, ge.id ASC",
+        "1.0",
+        "?3",
+    )
+}
+
+fn extension_prefix_single_key_sql() -> String {
+    candidate_sql(
+        "global_entries ge INDEXED BY idx_global_entries_active_extension_order CROSS JOIN global_volumes gv",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension = ?4 COLLATE BINARY AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "ge.modified_at_fs DESC, ge.id ASC",
+        "1.0",
+        "?3",
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_extension_prefix_strategy_sqls() -> (&'static str, String) {
+    (
+        EXTENSION_PREFIX_SINGLE_KEY_PROBE_SQL,
+        extension_prefix_single_key_sql(),
+    )
+}
+
+fn search_extension_prefix_legacy(
+    conn: &Connection,
+    query: &str,
+    glob: &str,
+    limit: u32,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    let mut statement = conn.prepare(&extension_prefix_legacy_sql())?;
+    collect_candidates(&mut statement, params![query, glob, limit])
+}
+
 fn search_extension_prefix(
     conn: &Connection,
     query: &str,
     limit: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    #[cfg(test)]
+    if extension_recency_probe::mode() != 0 {
+        return extension_recency_probe::dispatch(conn, query, limit);
+    }
     #[cfg(test)]
     if key_only_cte_search_candidate_enabled() {
         let sql = key_only_extension_prefix_sql();
@@ -497,18 +558,40 @@ fn search_extension_prefix(
         );
     }
 
-    let sql = candidate_sql(
-        "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
-        "ge.modified_at_fs DESC, ge.id ASC",
-        "1.0",
-        "?3",
-    );
-    let mut statement = conn.prepare(&sql)?;
-    collect_candidates(
-        &mut statement,
-        params![query, format!("{}*", escape_glob(query)), limit],
-    )
+    // The discovery and accelerated query must observe the SAME read snapshot.
+    // The Repository Snapshot entrypoint already owns its transaction; pooled
+    // standalone Search takes a read transaction just for this tier.
+    let transaction = if conn.is_autocommit() {
+        Some(conn.unchecked_transaction()?)
+    } else {
+        None
+    };
+    let read = transaction.as_deref().unwrap_or(conn);
+    let glob = format!("{}*", escape_glob(query));
+    let extensions = {
+        let mut statement = read.prepare(EXTENSION_PREFIX_SINGLE_KEY_PROBE_SQL)?;
+        let rows = statement.query_map(params![query, &glob], |row| {
+            row.get::<_, rusqlite::types::Value>(0)
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+    };
+
+    match extensions {
+        Ok(values) if values.is_empty() => Ok(Vec::new()),
+        Ok(values) if values.len() == 1 => {
+            if let rusqlite::types::Value::Text(extension) = &values[0] {
+                // Exactly one extension means the composite index's
+                // (modified_at_fs DESC, id ASC) suffix is already the final
+                // tier order. Keep every original predicate before LIMIT.
+                let mut statement = read.prepare(&extension_prefix_single_key_sql())?;
+                return collect_candidates(&mut statement, params![query, &glob, limit, extension]);
+            }
+            search_extension_prefix_legacy(read, query, &glob, limit)
+        }
+        // Multiple extension keys need a global time sort. Malformed SQLite
+        // extension values also retain the original production query/error.
+        _ => search_extension_prefix_legacy(read, query, &glob, limit),
+    }
 }
 
 fn search_fts(
@@ -562,7 +645,7 @@ pub(crate) fn diagnostic_search_fts_sql() -> String {
 pub(crate) fn diagnostic_legacy_fts_sql() -> String {
     candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND ge.is_stale = 0",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0",
         "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "?2",
@@ -606,7 +689,7 @@ fn search_punctuation_prefix(
 
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",

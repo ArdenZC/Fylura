@@ -17,8 +17,9 @@ use windows_sys::Win32::Storage::FileSystem::{
     OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Ioctl::{
-    FSCTL_ENUM_USN_DATA, FSCTL_QUERY_USN_JOURNAL, MFT_ENUM_DATA_V0, USN_JOURNAL_DATA_V0,
-    USN_RECORD_COMMON_HEADER, USN_RECORD_V2, USN_RECORD_V3,
+    CREATE_USN_JOURNAL_DATA, FSCTL_CREATE_USN_JOURNAL, FSCTL_ENUM_USN_DATA,
+    FSCTL_QUERY_USN_JOURNAL, MFT_ENUM_DATA_V0, USN_JOURNAL_DATA_V0, USN_RECORD_COMMON_HEADER,
+    USN_RECORD_V2, USN_RECORD_V3,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
@@ -27,6 +28,15 @@ const ENUM_BUFFER_SIZE: usize = 1024 * 1024;
 const STAGING_READ_BATCH: i64 = 2048;
 const NTFS_ROOT_FILE_RECORD_NUMBER: u64 = 5;
 const NTFS_FILE_RECORD_NUMBER_MASK: u64 = 0x0000_ffff_ffff_ffff;
+/// `ERROR_JOURNAL_NOT_ACTIVE`: the volume has no active USN change journal.
+/// This is distinct from a deleted/invalid journal history (1178/1181): the
+/// journal was never created, so a rebuild alone cannot recover it.
+const ERROR_JOURNAL_NOT_ACTIVE: u32 = 1179;
+/// Bounded default when Zen Canvas has to create the change journal on a
+/// volume the user already authorized for indexing. Matches the Windows
+/// default order of magnitude and keeps the footprint predictable.
+const USN_JOURNAL_MAXIMUM_BYTES: u64 = 32 * 1024 * 1024;
+const USN_JOURNAL_ALLOCATION_DELTA: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub(crate) struct MftRecord {
@@ -650,15 +660,71 @@ pub(crate) fn open_volume(mount_path: &str) -> Result<HANDLE, GlobalIndexError> 
         )
     };
     if handle == INVALID_HANDLE_VALUE {
-        return Err(GlobalIndexError::Provider(format!(
-            "cannot open volume {mount_path} (Win32 error {})",
-            unsafe { GetLastError() }
-        )));
+        // GetLastError must be captured before any other Win32 call. Keep the
+        // numeric code typed so permission failures survive IPC and status UI.
+        let error = unsafe { GetLastError() };
+        return Err(open_volume_error(error));
     }
     Ok(handle)
 }
 
+fn open_volume_error(code: u32) -> GlobalIndexError {
+    GlobalIndexError::WindowsIo(code)
+}
+
 pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, GlobalIndexError> {
+    match query_journal_once(handle) {
+        Ok(journal) => Ok(journal),
+        // A freshly formatted or virtual NTFS volume may have no active change
+        // journal. Creating it is the documented Windows prerequisite for any
+        // USN-based indexing, and only runs for a volume the user already
+        // authorized. Note `FSCTL_CREATE_USN_JOURNAL` also *modifies* an
+        // existing journal, so it is issued only after a definitive 1179.
+        Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE)) => {
+            recover_absent_journal(|| create_journal(handle), || query_journal_once(handle))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Recovers a volume whose change journal is not active (`ERROR_JOURNAL_NOT_ACTIVE`).
+///
+/// Split out so the race and failure paths are testable without a real volume:
+/// - create succeeds → re-query and return the journal;
+/// - create fails but a journal appeared meanwhile (another process won the
+///   race) → the re-query still succeeds;
+/// - create fails and the journal is still absent → preserve the typed create
+///   error (notably privilege denial 5/1314). The original absence remains in
+///   diagnostic context; a successful competing creator always wins.
+fn recover_absent_journal<Create, Query>(
+    create: Create,
+    mut query: Query,
+) -> Result<USN_JOURNAL_DATA_V0, GlobalIndexError>
+where
+    Create: FnOnce() -> Result<(), GlobalIndexError>,
+    Query: FnMut() -> Result<USN_JOURNAL_DATA_V0, GlobalIndexError>,
+{
+    if let Err(error) = create() {
+        eprintln!("global_index usn_journal_create_failed: {error}");
+        // Do not trust the failure alone: a concurrent creator may have
+        // installed the journal between the failed query and the create.
+        return match query() {
+            Ok(journal) => Ok(journal),
+            Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE)) => {
+                eprintln!(
+                    "global_index usn_journal_still_absent after Win32 1179 recovery: {error}"
+                );
+                Err(error)
+            }
+            // A different I/O failure (device removed, volume gone) is surfaced
+            // as itself rather than being masked as "journal not active".
+            Err(other) => Err(other),
+        };
+    }
+    query()
+}
+
+fn query_journal_once(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, GlobalIndexError> {
     let mut output = USN_JOURNAL_DATA_V0::default();
     let output_bytes = unsafe {
         std::slice::from_raw_parts_mut(
@@ -668,6 +734,20 @@ pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, Globa
     };
     device_io_control(handle, FSCTL_QUERY_USN_JOURNAL, &[], output_bytes)?;
     Ok(output)
+}
+
+fn create_journal(handle: HANDLE) -> Result<(), GlobalIndexError> {
+    let data = CREATE_USN_JOURNAL_DATA {
+        MaximumSize: USN_JOURNAL_MAXIMUM_BYTES,
+        AllocationDelta: USN_JOURNAL_ALLOCATION_DELTA,
+    };
+    let input_bytes = unsafe {
+        std::slice::from_raw_parts(
+            (&data as *const CREATE_USN_JOURNAL_DATA).cast::<u8>(),
+            std::mem::size_of::<CREATE_USN_JOURNAL_DATA>(),
+        )
+    };
+    device_io_control(handle, FSCTL_CREATE_USN_JOURNAL, input_bytes, &mut []).map(|_| ())
 }
 
 pub(crate) fn is_win32_error(error: &GlobalIndexError, code: u32) -> bool {
@@ -721,6 +801,113 @@ fn hex_id(value: &[u8; 16]) -> String {
 mod tests {
     use super::*;
     use windows_sys::Win32::Storage::FileSystem::FILE_ID_128;
+
+    #[test]
+    fn journal_recovery_requeries_after_successful_create() {
+        let journal = recover_absent_journal(
+            || Ok(()),
+            || {
+                Ok(USN_JOURNAL_DATA_V0 {
+                    UsnJournalID: 7,
+                    ..Default::default()
+                })
+            },
+        )
+        .expect("a created journal must be re-queried");
+
+        assert_eq!(journal.UsnJournalID, 7);
+    }
+
+    #[test]
+    fn failed_create_and_absent_requery_preserve_actionable_create_error() {
+        for code in [5, 1314, 19] {
+            let mut queries = 0;
+            let error = match recover_absent_journal(
+                || Err(GlobalIndexError::WindowsIo(code)),
+                || {
+                    queries += 1;
+                    Err(GlobalIndexError::WindowsIo(ERROR_JOURNAL_NOT_ACTIVE))
+                },
+            ) {
+                Ok(_) => panic!("still absent"),
+                Err(error) => error,
+            };
+            assert!(
+                matches!(error, GlobalIndexError::WindowsIo(actual) if actual == code),
+                "{error:?}"
+            );
+            assert_eq!(queries, 1);
+            // Feed the recovery outcome through the production IPC taxonomy.
+            let (wire_code, status) = super::super::service_errors::classify(&error);
+            let response = super::super::service::IndexServiceResponse {
+                protocol_version: super::super::service::IPC_PROTOCOL_VERSION,
+                request_id: "journal-recovery-fixture".into(),
+                ok: false,
+                error_code: Some(wire_code),
+                message: Some(
+                    "1179 remained after create; diagnostic text is not a classifier".into(),
+                ),
+                status: Some(status.into()),
+            };
+            let bytes = serde_json::to_vec(&response).unwrap();
+            let decoded =
+                super::super::service_errors::decode(&serde_json::from_slice(&bytes).unwrap());
+            assert!(matches!(decoded, GlobalIndexError::WindowsIo(actual) if actual == code));
+            assert_eq!(
+                status,
+                if matches!(code, 5 | 1314) {
+                    "permission_required"
+                } else {
+                    "error"
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn journal_created_by_another_process_wins_the_race() {
+        // Another process installed the journal between our failed query and
+        // the denied create (5/1314); the re-query must accept it.
+        let journal = recover_absent_journal(
+            || Err(GlobalIndexError::WindowsIo(1314)),
+            || {
+                Ok(USN_JOURNAL_DATA_V0 {
+                    UsnJournalID: 11,
+                    ..Default::default()
+                })
+            },
+        )
+        .expect("a concurrently created journal is usable");
+
+        assert_eq!(journal.UsnJournalID, 11);
+    }
+
+    #[test]
+    fn requery_failure_other_than_1179_is_not_masked() {
+        // A volume that disappeared after the create attempt must surface its
+        // own I/O code instead of being reported as "journal not active".
+        let error = match recover_absent_journal(
+            || Err(GlobalIndexError::WindowsIo(5)),
+            || Err(GlobalIndexError::WindowsIo(21)),
+        ) {
+            Ok(_) => panic!("a vanished volume must fail"),
+            Err(error) => error,
+        };
+
+        assert!(
+            matches!(error, GlobalIndexError::WindowsIo(21)),
+            "unexpected classification: {error:?}"
+        );
+    }
+
+    #[test]
+    fn open_volume_preserves_actual_win32_permission_codes() {
+        for code in [5, 1314, 32] {
+            assert!(
+                matches!(open_volume_error(code), GlobalIndexError::WindowsIo(actual) if actual == code)
+            );
+        }
+    }
 
     fn fixture_record(major: u16, name: &str) -> Vec<u8> {
         let name_bytes = name.encode_utf16().collect::<Vec<_>>();

@@ -107,6 +107,7 @@ impl ProbeProvider {
             Ok(()) => "ready",
             Err(GlobalIndexError::Paused) => "paused",
             Err(GlobalIndexError::RebuildRequired(_)) => "rebuild_required",
+            Err(GlobalIndexError::DatabaseBusy(_)) => "database_busy",
             _ => "failure",
         };
         *self.outcome.lock().unwrap() = outcome;
@@ -116,6 +117,7 @@ impl ProbeProvider {
             Err(GlobalIndexError::RebuildRequired(_)) => Some("rebuild_required"),
             Err(GlobalIndexError::PermissionRequired(_)) => Some("permission_required"),
             Err(GlobalIndexError::ServiceBusy(_)) => Some("index_service_busy"),
+            Err(GlobalIndexError::DatabaseBusy(_)) => Some("index_database_busy"),
             Err(GlobalIndexError::SourceBusy(_)) => Some("source_operation_busy"),
             Err(GlobalIndexError::ServiceProtocol(_)) => Some("invalid_service_protocol"),
             Err(GlobalIndexError::ServiceOutcomeUnknown(_)) => Some("service_outcome_unknown"),
@@ -179,12 +181,10 @@ fn write_report(
 }
 impl GlobalIndexProvider for ProbeProvider {
     fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+        // The desktop now discovers volume topology without contacting the
+        // installed service. The service route is asserted after the first
+        // authorized index request in `record`.
         let sources = self.inner.discover_sources()?;
-        if !self.inner.service_available.load(Ordering::Acquire) {
-            return Err(GlobalIndexError::Provider(
-                "installed pipe unavailable".into(),
-            ));
-        }
         Ok(sources
             .into_iter()
             .filter(|source| source.volume.id == self.source_id)
@@ -231,12 +231,23 @@ impl GlobalIndexProvider for ProbeProvider {
     fn has_external_source_operation_admission(&self) -> bool {
         self.inner.has_external_source_operation_admission()
     }
+
+    fn update_source_lifecycle(
+        &self,
+        source_id: &str,
+        update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+    ) -> Result<(), GlobalIndexError> {
+        self.inner.update_source_lifecycle(source_id, update)
+    }
 }
 struct PauseSink<'a> {
     sink: &'a mut dyn GlobalIndexSink,
     provider: &'a ProbeProvider,
 }
 impl GlobalIndexSink for PauseSink<'_> {
+    fn native_watcher_admitted(&self, source: &GlobalVolume) -> Result<bool, GlobalIndexError> {
+        self.sink.native_watcher_admitted(source)
+    }
     fn admit_source_operation(
         &mut self,
         source: &GlobalVolume,
@@ -407,6 +418,56 @@ impl GlobalIndexSink for PauseSink<'_> {
     fn mark_volume_entries_stale(&mut self, volume_id: &str) -> Result<(), GlobalIndexError> {
         self.sink.mark_volume_entries_stale(volume_id)
     }
+}
+
+#[cfg(test)]
+#[test]
+fn qualification_pause_sink_preserves_current_watcher_admission() {
+    use crate::global_index::coordinator::database_sink_for_test;
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(".tmp-tests")
+        .join(format!("round8-qa-adapter-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    {
+        let db = Database::open(root.join("fixture.sqlite3")).unwrap();
+        let mut source = crate::global_index::tests::test_volume();
+        source.mount_path = root.to_string_lossy().into_owned();
+        db.upsert_global_volume(&source).unwrap();
+        let provider = ProbeProvider {
+            inner: WindowsGlobalIndexProvider::with_wake(
+                std::sync::Arc::new(crate::global_index::wake::GlobalIndexWakeSlot::default()),
+                db.path().to_path_buf(),
+            ),
+            database: db.clone(),
+            source_id: source.id.clone(),
+            pause_once: AtomicBool::new(false),
+            outcome: Mutex::new("none"),
+            rebuilds: AtomicUsize::new(0),
+            events: Mutex::new(Vec::new()),
+        };
+        let mut inner = database_sink_for_test(db.clone());
+        let mut sink = PauseSink {
+            sink: &mut inner,
+            provider: &provider,
+        };
+        assert!(!sink.native_watcher_admitted(&source).unwrap());
+        sink.admit_source_operation(
+            &source,
+            &uuid::Uuid::new_v4().to_string(),
+            crate::global_index::SourceOperationKind::Initial,
+            crate::global_index::SourceOperationRoute::Service,
+        )
+        .unwrap();
+        assert!(sink.native_watcher_admitted(&source).unwrap());
+        provider
+            .update_source_lifecycle(&source.id, &mut || {
+                db.set_global_volume_enabled(&source.id, false)?;
+                Ok(true)
+            })
+            .unwrap();
+        assert!(!sink.native_watcher_admitted(&source).unwrap());
+    }
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {

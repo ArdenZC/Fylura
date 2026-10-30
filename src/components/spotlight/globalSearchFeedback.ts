@@ -20,7 +20,25 @@ export function globalSearchFeedback(response: GlobalSearchResponse, t: Translat
   if (statuses.includes("rebuild_required")) {
     return { title: t("globalIndexStatusRebuildRequired"), description: t("globalSearchRebuildDesc") };
   }
-  if (response.resultState === "failed" || statuses.some((status) => ["unavailable", "permission_required", "error"].includes(status))) {
+  if (response.indexStatus.status === "database_busy" || statuses.includes("database_busy")) {
+    return { title: t("globalIndexStatusDatabaseBusy"), description: t("globalSearchDatabaseBusyDesc") };
+  }
+  if (response.indexStatus.status === "service_busy" || statuses.includes("service_busy")) {
+    return { title: t("globalIndexStatusServiceBusy"), description: t("globalSearchServiceBusyDesc") };
+  }
+  if (response.indexStatus.status === "permission_required" || statuses.includes("permission_required")) {
+    return { title: t("globalIndexStatusPermissionRequired"), description: t("globalSearchPermissionRequiredDesc") };
+  }
+  // The baseline index completed but incremental change watching failed, so
+  // results are real yet frozen. Surface that honestly instead of falling
+  // through to a generic "partial" message.
+  if (response.indexStatus.status === "watcher_unavailable" || statuses.includes("watcher_unavailable")) {
+    return { title: t("globalIndexStatusWatcherUnavailable"), description: t("globalSearchWatcherUnavailableDesc") };
+  }
+  if (response.indexStatus.status === "error" || statuses.includes("error")) {
+    return { title: t("globalIndexStatusError"), description: t("globalSearchUnavailableDesc") };
+  }
+  if (response.resultState === "failed" || statuses.includes("unavailable")) {
     return { title: t("globalIndexStatusUnavailable"), description: t("globalSearchUnavailableDesc") };
   }
   if (statuses.includes("discovered")) {

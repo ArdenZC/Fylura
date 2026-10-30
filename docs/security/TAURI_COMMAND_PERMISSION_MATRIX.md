@@ -33,6 +33,7 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `resume_global_index` | `main_state_mutation` | main | Resume global indexing | default | yes | command permission contract |
 | `rebuild_global_index_source` | `main_state_mutation` | main | Rebuild one global index source | default | yes | command permission contract |
 | `set_global_index_source_enabled` | `main_state_mutation` | main | Enable or disable one global index source | default | yes | command permission contract |
+| `authorize_global_index_source` | `main_state_mutation` | main | Record explicit full-volume consent before enabling a supported Windows NTFS source | default | yes | command permission contract |
 | `open_global_search_result` | `read_only` | main/search | Open a global search result | default/search-window | no | global search navigation tests |
 | `reveal_global_search_result` | `read_only` | main/search | Reveal a global search result | default/search-window | no | global search navigation tests |
 | `list_managed_scopes` | `read_only` | main | Read AI-managed scopes | default | no | managed scope isolation tests |
@@ -252,3 +253,5 @@ Main checks the original visible Search revision and expiry before publication;
 rejected or timed-out admission disposes the candidate session. No scan, index,
 managed identity or mutation authority is granted. Standalone query edits pause
 while this bounded handoff is pending; Escape still cancels the Search session.
+
+| `global_index_coverage` | `main_state_mutation` | main | Read/preview/CAS-edit Index Scope; preserves explicit source authorization and user metadata | default | yes | Index Scope tests |

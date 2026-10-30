@@ -27,6 +27,7 @@ const PLATEAU_MAX_LATER_LISTENER_NET_INCREASE = 32;
 const PLATEAU_SETTLE_MS = 250;
 const TASK_TEMP_DIR = path.resolve(".tmp-tests/w2-11-browser-runtime");
 const ARTIFACT_DIR = path.resolve(".tmp-tests/w2-11-browser-gate");
+const MAX_NETWORK_DIAGNOSTIC_ITEMS = 64;
 
 process.env.TEMP = TASK_TEMP_DIR;
 process.env.TMP = TASK_TEMP_DIR;
@@ -49,6 +50,53 @@ const browser = await chromium.launch({
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function sanitizeRequestUrl(value) {
+  if (!value) return "<no-url>";
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    if (url.protocol === "data:" || url.protocol === "blob:") return `${url.protocol}<inline-resource>`;
+    if (url.protocol === "file:") {
+      const fileName = url.pathname.split("/").filter(Boolean).at(-1) ?? "<resource>";
+      return `file:///<local-path>/${fileName.slice(-128)}`;
+    }
+    const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (localHost) {
+      let pathname = url.pathname;
+      try { pathname = decodeURIComponent(pathname); } catch {}
+      const localFilePath = pathname.match(/(?:^|\/)(?:@fs\/)?(?:[A-Z]:\/|Users\/|home\/|root\/)(.*)$/iu);
+      if (localFilePath) {
+        const fileName = localFilePath[1].split(/[\\/]/u).filter(Boolean).at(-1) ?? "<resource>";
+        return `${url.origin}/<local-path>/${fileName.slice(-128)}`;
+      }
+    }
+    if (!localHost) {
+      const resourceName = url.pathname.split("/").filter(Boolean).at(-1) ?? "<resource>";
+      return `${url.protocol}//${url.host}/<external-resource>/${resourceName.slice(-128)}`;
+    }
+    return `${url.origin}${url.pathname}`.slice(0, 512);
+  } catch {
+    return "<unparseable-url>";
+  }
+}
+
+function sanitizeDiagnostic(value) {
+  return String(value)
+    .replace(/https?:\/\/[^\s"'<>]+/gu, (url) => sanitizeRequestUrl(url))
+    .replace(/((?:authorization|token|password|cookie|secret)\s*[:=]\s*)\S+/giu, "$1<redacted>")
+    .replace(/(?:[A-Z]:\\|\/Users\/|\/home\/|\/root\/)[^\s"'<>]*/giu, "<local-path>")
+    .slice(0, 512);
+}
+
+function pushBoundedDiagnostic(diagnostics, key, value) {
+  const list = diagnostics[key];
+  if (list.length < MAX_NETWORK_DIAGNOSTIC_ITEMS) list.push(value);
+  else diagnostics[`${key}Dropped`] += 1;
 }
 
 async function installInstrumentation(context) {
@@ -190,13 +238,35 @@ async function installInstrumentation(context) {
     if (typeof URL.createObjectURL === "function" && typeof URL.revokeObjectURL === "function") {
       const originalCreate = URL.createObjectURL.bind(URL);
       const originalRevoke = URL.revokeObjectURL.bind(URL);
+      // Keep raw Blob URLs only inside this browser context. Evidence contains
+      // bounded numeric IDs/timestamps, never the Blob URL or file content.
+      const createdUrls = new Map();
+      const maxRetainedUrls = 2048;
+      let nextUrlId = 0;
+      window.__zcW211TraceBlobUrls = (urls) => urls.slice(-16).map((url) => {
+        const row = createdUrls.get(url);
+        return row ? { matched: true, ...row } : { matched: false };
+      });
       URL.createObjectURL = (value) => {
+        const url = originalCreate(value);
         lifecycle.objectUrlsCreated += 1;
-        return originalCreate(value);
+        createdUrls.set(url, {
+          id: ++nextUrlId,
+          createdMs: Math.round(performance.now()),
+          revokedMs: null,
+          byteSize: value instanceof Blob ? value.size : null,
+          mimeType: value instanceof Blob ? value.type : null
+        });
+        if (createdUrls.size > maxRetainedUrls) {
+          createdUrls.delete(createdUrls.keys().next().value);
+        }
+        return url;
       };
-      URL.revokeObjectURL = (value) => {
+      URL.revokeObjectURL = (url) => {
         lifecycle.objectUrlsRevoked += 1;
-        return originalRevoke(value);
+        const row = createdUrls.get(url);
+        if (row && row.revokedMs === null) row.revokedMs = Math.round(performance.now());
+        return originalRevoke(url);
       };
     }
   });
@@ -556,25 +626,82 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
   const page = await context.newPage();
   page.setDefaultTimeout(60_000);
   page.setDefaultNavigationTimeout(60_000);
-  const consoleErrors = [];
-  const consoleErrorLocations = [];
-  const pageErrors = [];
-  const missingFileRequests = [];
+  const networkDiagnostics = {
+    pageUrl: "<not-navigated>",
+    requestFailures: [],
+    requestFailuresDropped: 0,
+    errFileNotFoundCount: 0,
+    errFileNotFoundRequests: [],
+    errFileNotFoundRequestsDropped: 0,
+    consoleErrors: [],
+    consoleErrorsDropped: 0,
+    pageErrors: [],
+    pageErrorsDropped: 0,
+    responseStatuses: [],
+    responseStatusesDropped: 0,
+    responseStatusCounts: {}
+  };
+  const consoleErrors = networkDiagnostics.consoleErrors;
+  const pageErrors = networkDiagnostics.pageErrors;
+  const failedBlobUrls = new Set();
+  const captureBlobLifecycle = async () => {
+    if (failedBlobUrls.size === 0) return;
+    const ids = [...failedBlobUrls].slice(-16);
+    networkDiagnostics.blobLifecycle = await page.evaluate(
+      (urls) => window.__zcW211TraceBlobUrls?.(urls) ?? urls.map(() => ({ matched: false })),
+      ids
+    );
+    // IDs and timestamps are safe to emit. Never emit the raw blob: URL.
+    console.log(`[w2-11-real] BLOB_LIFECYCLE ${JSON.stringify(networkDiagnostics.blobLifecycle)}`);
+  };
   page.on("console", (message) => {
-    if (message.type() === "error") {
-      consoleErrors.push(message.text());
-      consoleErrorLocations.push({ text: message.text(), location: message.location() });
+    if (message.type() !== "error") return;
+    const location = message.location();
+    if (location.url?.startsWith("blob:")) failedBlobUrls.add(location.url);
+    pushBoundedDiagnostic(networkDiagnostics, "consoleErrors", {
+      text: sanitizeDiagnostic(message.text()),
+      location: {
+        url: sanitizeRequestUrl(location.url),
+        lineNumber: location.lineNumber,
+        columnNumber: location.columnNumber
+      }
+    });
+  });
+  page.on("pageerror", (error) => {
+    pushBoundedDiagnostic(networkDiagnostics, "pageErrors", sanitizeDiagnostic(error?.stack ?? error));
+  });
+  page.on("requestfailed", (request) => {
+    const failure = request.failure()?.errorText ?? "<unknown-failure>";
+    if (request.url().startsWith("blob:")) failedBlobUrls.add(request.url());
+    pushBoundedDiagnostic(networkDiagnostics, "requestFailures", {
+      url: sanitizeRequestUrl(request.url()),
+      method: sanitizeDiagnostic(request.method()),
+      resourceType: sanitizeDiagnostic(request.resourceType()),
+      failure: sanitizeDiagnostic(failure)
+    });
+    if (failure.includes("ERR_FILE_NOT_FOUND")) {
+      networkDiagnostics.errFileNotFoundCount += 1;
+      if (networkDiagnostics.errFileNotFoundRequests.length < 25) {
+        networkDiagnostics.errFileNotFoundRequests.push({
+          url: sanitizeRequestUrl(request.url()),
+          resourceType: sanitizeDiagnostic(request.resourceType()),
+          errorText: sanitizeDiagnostic(failure)
+        });
+      } else {
+        networkDiagnostics.errFileNotFoundRequestsDropped += 1;
+      }
     }
   });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  let missingFileRequestCount = 0;
-  page.on("requestfailed", (request) => {
-    const failure = request.failure();
-    if (failure?.errorText?.includes("ERR_FILE_NOT_FOUND")) {
-      missingFileRequestCount += 1;
-      if (missingFileRequests.length < 25) {
-        missingFileRequests.push({ url: request.url(), resourceType: request.resourceType(), errorText: failure.errorText });
-      }
+  page.on("response", (response) => {
+    const status = response.status();
+    const statusKey = String(status);
+    networkDiagnostics.responseStatusCounts[statusKey] = (networkDiagnostics.responseStatusCounts[statusKey] ?? 0) + 1;
+    if (status < 200 || status >= 300) {
+      pushBoundedDiagnostic(networkDiagnostics, "responseStatuses", {
+        url: sanitizeRequestUrl(response.url()),
+        resourceType: sanitizeDiagnostic(response.request().resourceType()),
+        status
+      });
     }
   });
   const metrics = {
@@ -594,11 +721,13 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     virtualization: {},
     browse: {},
     history: {},
-    resources: {}
+    resources: {},
+    networkDiagnostics
   };
 
   try {
     await page.goto(`${baseUrl}?${FIXTURE_QUERY}`, { waitUntil: "commit" });
+    networkDiagnostics.pageUrl = sanitizeRequestUrl(page.url());
     const libraryStart = Date.now();
     const { search, list } = await openLibrary(page);
     await list.locator('[role="option"]').first().waitFor({ state: "visible" });
@@ -817,15 +946,19 @@ async function runIntegratedScene(viewport, deviceScaleFactor) {
     assert((metrics.resources.stats.thumbnailVariants ?? []).length > 0,
       "Integrated stress scene did not record thumbnail variants");
     await assertNoHorizontalOverflow(page, `${viewport.width}x${viewport.height}@${deviceScaleFactor}`);
+    await captureBlobLifecycle();
     assert(consoleErrors.length === 0 && pageErrors.length === 0,
       `Browser console/page errors: ${JSON.stringify({ consoleErrors, pageErrors })}`);
+    console.log(`[w2-11-real] NETWORK ${viewport.width}x${viewport.height}@${deviceScaleFactor} ${JSON.stringify(networkDiagnostics)}`);
     return metrics;
   } catch (error) {
-    metrics.failure = String(error);
-    metrics.consoleErrorLocations = consoleErrorLocations;
-    metrics.pageErrors = pageErrors;
-    metrics.missingFileRequestCount = missingFileRequestCount;
-    metrics.missingFileRequests = missingFileRequests;
+    networkDiagnostics.pageUrl = sanitizeRequestUrl(page.url());
+    await captureBlobLifecycle().catch(() => undefined);
+    metrics.failure = sanitizeDiagnostic(error?.stack ?? error);
+    metrics.consoleErrorLocations = networkDiagnostics.consoleErrors;
+    metrics.pageErrors = networkDiagnostics.pageErrors;
+    metrics.missingFileRequestCount = networkDiagnostics.errFileNotFoundCount;
+    metrics.missingFileRequests = networkDiagnostics.errFileNotFoundRequests;
     metrics.resources = await readResourceSnapshot(page).catch(() => ({}));
     metrics.fixtureStats = await readStats(page).catch(() => ({}));
     const artifactStem = `w2-11-${viewport.width}x${viewport.height}-dpr-${String(deviceScaleFactor).replace(".", "_")}`;

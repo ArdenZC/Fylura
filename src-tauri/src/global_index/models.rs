@@ -9,6 +9,11 @@ pub const PROVIDER_MACOS_SPOTLIGHT: &str = "macos_spotlight";
 pub const PROVIDER_MACOS_FSEVENTS_RECONCILE: &str = "macos_fsevents_reconcile";
 pub const PROVIDER_RECURSIVE_FALLBACK: &str = "recursive_fallback";
 
+pub const SCOPE_AUTHORIZATION_NOT_REQUIRED: &str = "not_required";
+pub const SCOPE_AUTHORIZATION_NOT_AUTHORIZED: &str = "not_authorized";
+pub const SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED: &str = "legacy_confirmation_required";
+pub const SCOPE_AUTHORIZATION_AUTHORIZED: &str = "authorized";
+
 // These bits reuse the existing durable `file_attributes` column so package,
 // backing and byte-availability metadata can be projected without a schema
 // migration. They are descriptive flags, never mutation authorization.
@@ -26,10 +31,17 @@ pub const INDEX_STATUS_READY: &str = "ready";
 pub const INDEX_STATUS_PAUSED: &str = "paused";
 pub const INDEX_STATUS_REBUILD_REQUIRED: &str = "rebuild_required";
 pub const INDEX_STATUS_PERMISSION_REQUIRED: &str = "permission_required";
+pub const INDEX_STATUS_DATABASE_BUSY: &str = "database_busy";
+pub const INDEX_STATUS_SERVICE_BUSY: &str = "service_busy";
 pub const INDEX_STATUS_SPOTLIGHT_UNAVAILABLE: &str = "spotlight_unavailable";
 pub const INDEX_STATUS_SPOTLIGHT_NOT_INDEXED: &str = "spotlight_not_indexed";
 pub const INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED: &str = "spotlight_external_not_indexed";
 pub const INDEX_STATUS_FSEVENTS_UNAVAILABLE: &str = "fsevents_unavailable";
+/// The authoritative MFT/USN baseline completed, but the change watcher that
+/// drives incremental pickup could not start. The index content is real, yet
+/// it will not keep itself up to date, so it must never be reported as
+/// `ready`.
+pub const INDEX_STATUS_WATCHER_UNAVAILABLE: &str = "watcher_unavailable";
 pub const INDEX_STATUS_UNAVAILABLE: &str = "unavailable";
 pub const INDEX_STATUS_ERROR: &str = "error";
 
@@ -52,6 +64,8 @@ pub struct GlobalVolume {
     pub filesystem_type: String,
     pub drive_kind: String,
     pub enabled: bool,
+    #[serde(default = "default_scope_authorization_state")]
+    pub scope_authorization_state: String,
     pub provider: String,
     pub index_status: String,
     pub last_error: Option<String>,
@@ -62,6 +76,10 @@ pub struct GlobalVolume {
     pub entry_count: i64,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+fn default_scope_authorization_state() -> String {
+    SCOPE_AUTHORIZATION_NOT_AUTHORIZED.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -362,7 +380,8 @@ impl GlobalVolume {
                 .filesystem_type
                 .unwrap_or_else(|| "unknown".to_string()),
             drive_kind: "fixed".to_string(),
-            enabled: true,
+            enabled: false,
+            scope_authorization_state: SCOPE_AUTHORIZATION_NOT_REQUIRED.to_string(),
             provider: PROVIDER_MACOS_SPOTLIGHT.to_string(),
             index_status: INDEX_STATUS_DISCOVERED.to_string(),
             last_error: None,

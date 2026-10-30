@@ -23,7 +23,7 @@ fn schema36_to37_preserves_populated_manual_history_and_reopens() {
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            44
+            i64::from(crate::db::SUPPORTED_SCHEMA_VERSION)
         );
         super::super::tests::assert_dormant_schema42(&db.conn().unwrap());
         assert_eq!(

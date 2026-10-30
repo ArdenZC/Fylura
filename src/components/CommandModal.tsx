@@ -419,11 +419,18 @@ export function CommandModal({
             setRevisionRefetchNonce((value) => value + 1);
           }
         })
-        .catch(() => {
+        .catch((error) => {
           if (cancelled) return;
           setGlobalResultState({ query: committedTrimmedSearch, results: [] });
           setQueryState("failed");
-          setCommandError(t("commandSearchFailed"));
+          const message = readableError(error);
+          setCommandError(message === "global_index_database_busy"
+            ? t("globalIndexErrorDatabaseBusy")
+            : message === "global_index_service_busy"
+              ? t("globalIndexErrorServiceBusy")
+              : message === "global_index_permission_required"
+                ? t("globalIndexErrorPermissionRequired")
+                : t("commandSearchFailed"));
         });
     }, 50);
 

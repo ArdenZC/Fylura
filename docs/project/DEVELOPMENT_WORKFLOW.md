@@ -2,6 +2,47 @@
 
 This workflow is the default engineering operating model for new work after G1. A narrower security/task contract may add stricter gates; it may not weaken these rules silently.
 
+## Opt-in pre-push feedback and CI failure triage
+
+For Codex Cloud and local worktrees, these optional tools provide earlier feedback
+but do not replace required CI, security, cross-platform or native acceptance.
+
+- npm run dev:preflight -- --plan: list changed paths and commands without executing.
+  The diff includes committed branch changes from the merge-base against
+  origin/master (fallback master), local changes and non-ignored untracked files.
+  Specify --base=REF for another locally available base.
+- npm run dev:preflight: run relevant frontend typecheck/tests/build or Rust
+  formatting/Clippy. Rust runtime tests require --rust-test=FILTER (affected
+  behavior) or --full (suite); quick mode alone does not certify Rust behavior.
+- npm run dev:ci-failure -- RUN_ID: summarize failed jobs and failed steps
+  from authenticated GitHub CLI (gh). Read the original logs for root cause.
+  Aggregate Quality failures follow their potential originating jobs.
+
+These are **optional** feedback aids, not new approval gates. Do not retry
+unchanged failed CI without a concrete remediation. Keep environmental
+failures separate from code defects; never treat skipped checks as PASS.
+
+### Default Codex usage (not an additional CI gate)
+
+Before pushing a bounded change, run `npm run dev:preflight -- --plan`
+against the current branch. Run the relevant mapped check(s) where the
+toolchain is available and record a concrete environment block when not.
+Do not turn this into duplicate full suites, new mandatory commit hooks, or
+an excuse to mark an unrun check PASS. Existing required CI remains decisive.
+
+For concurrent implementation, inspect overlapping open PRs and the existing
+`ARCHITECTURE_MAP.md` authority before editing. Assign nonoverlapping
+source ownership per work lane, sequence the occasional shared-file edit,
+and route other modules' changes to their active owner. No parallel
+branch may replace or reset another worker's unmerged work.
+
+For lightweight CI feedback use `npm run dev:ci-metrics -- --limit=10`;
+the report reads recent master workflow/job metadata, summarizes observed
+completion and slow jobs without persisting a second metrics ledger. Optional
+`--cache-log=FILE` parses a separately obtained Performance / Prepare job
+log. **Cache hit ratios cannot be inferred from GitHub job metadata**;
+if no log was supplied the cache result is unknown, not a miss.
+
 ## Delivery-first operating rule
 
 **Primary objective: ship observable user value without losing data or violating

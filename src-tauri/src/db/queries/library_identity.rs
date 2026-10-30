@@ -410,6 +410,52 @@ pub(crate) fn verify_legacy_source_identity_tx(
     Ok(identity_matches.then_some(source_uid))
 }
 
+pub(crate) fn verified_legacy_source_rows_for_physical_tx(
+    tx: &Transaction<'_>,
+    physical_identity: Option<&PhysicalFileIdentity>,
+) -> Result<Vec<(String, String)>, DbError> {
+    let Some(physical) = physical_identity.and_then(physical_claim) else {
+        return Ok(Vec::new());
+    };
+    let mut statement = tx.prepare(
+        r#"
+        SELECT DISTINCT attribution.legacy_file_id
+        FROM library_legacy_attributions AS attribution
+        JOIN library_source_incarnations AS incarnation
+          ON incarnation.source_uid = attribution.source_uid
+        JOIN files AS file ON file.id = attribution.legacy_file_id
+        WHERE attribution.claim_state IN ('verified','user_confirmed')
+          AND incarnation.verification_state = 'verified'
+          AND incarnation.physical_platform = ?1
+          AND incarnation.physical_volume_id = ?2
+          AND incarnation.physical_object_id = ?3
+          AND incarnation.verification_digest = ?4
+        ORDER BY attribution.legacy_file_id
+        "#,
+    )?;
+    let candidates = statement
+        .query_map(
+            params![
+                physical.platform.as_str(),
+                physical.volume_id.as_str(),
+                physical.object_id.as_str(),
+                physical.digest.as_str(),
+            ],
+            |row| row.get::<_, String>(0),
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+
+    let mut verified = Vec::new();
+    for file_id in candidates {
+        if let Some(source_uid) = verify_legacy_source_identity_tx(tx, &file_id, physical_identity)?
+        {
+            verified.push((file_id, source_uid));
+        }
+    }
+    Ok(verified)
+}
+
 pub(crate) fn mark_root_path_absent_tx(
     tx: &Transaction<'_>,
     root_id: &str,

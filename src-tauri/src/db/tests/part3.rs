@@ -1225,6 +1225,555 @@
     }
 
     #[test]
+    fn ordinary_restore_keeps_current_id_when_restore_path_id_is_parked() {
+        let db = Database::open(test_db_path()).expect("open restore primary-key fixture");
+        let root = test_dir();
+        let source = root.join("restore-primary-key-before.txt");
+        let target = root.join("restore-primary-key-after.txt");
+        fs::write(&source, "restore primary key collision").expect("write restore source");
+        let source_path = normalized_test_path(&source);
+        let target_path = normalized_test_path(&target);
+        let identity = crate::file_ops::file_identity_fingerprint(&source)
+            .expect("capture restore primary-key identity");
+        let mut log = operation_log(
+            "log-restore-primary-key-collision",
+            "batch-restore-primary-key-collision",
+            "success",
+        );
+        log.source_path = source_path.clone();
+        log.target_path = target_path.clone();
+        log.path_before = source_path.clone();
+        log.path_after = target_path.clone();
+        log.name_before = "restore-primary-key-before.txt".to_string();
+        log.name_after = "restore-primary-key-after.txt".to_string();
+        log.new_name = log.name_after.clone();
+        log.source_size = Some(identity.size);
+        log.source_modified_ns = identity.modified_ns.map(|value| value.to_string());
+        log.source_platform_file_id = identity.platform_file_id.clone();
+        log.source_platform_volume_id = identity.platform_volume_id.clone();
+        log.source_quick_hash = identity.quick_hash.clone();
+        log.source_full_hash = identity.full_hash.clone();
+        log.restore_status = "restored".to_string();
+        log.restore_phase = "completed".to_string();
+        log.restored_at = Some("1900000000123".to_string());
+        db.save_operation_logs(&log.batch_id, std::slice::from_ref(&log))
+            .expect("save restore primary-key journal");
+
+        let metadata = fs::metadata(&source).expect("read restore fixture metadata");
+        let size = metadata.len() as i64;
+        let mtime = metadata
+            .modified()
+            .expect("read restore fixture mtime")
+            .duration_since(UNIX_EPOCH)
+            .expect("restore fixture mtime epoch")
+            .as_secs() as i64;
+        let insert_row = |id: &str, path: &str, name: &str| {
+            db.insert_file(InsertFileRequest {
+                id: id.to_string(),
+                path: path.to_string(),
+                name: name.to_string(),
+                extension: "txt".to_string(),
+                size,
+                mtime,
+                ctime: 0,
+                is_dir: false,
+                state_code: 0,
+            })
+            .expect("insert restore primary-key fixture row");
+        };
+        insert_row("restore-current-row", &target_path, &log.name_after);
+        insert_row(
+            &source_path,
+            "zen-canvas://legacy-unassigned/restore-primary-key-occupant",
+            &log.name_before,
+        );
+        let tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "Restore primary-key tag".to_string(),
+                color_token: "green".to_string(),
+            })
+            .expect("create restore primary-key tag");
+        db.mutate_file_user_tags(MutateFileUserTagsRequest {
+            selection: LibrarySelectionV1::Explicit {
+                file_ids: vec!["restore-current-row".to_string()],
+            },
+            tag_ids: vec![tag.id.clone()],
+            operation: UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("tag current restore row");
+        Connection::open(db.path())
+            .expect("open parked primary-key fixture")
+            .execute(
+                "UPDATE files SET is_stale = 1 WHERE id = ?1",
+                params![source_path],
+            )
+            .expect("park the occupied path-derived primary key");
+
+        db.finalize_successful_operation_restore(&log)
+            .expect("restore must retain its current row id when the path id is occupied");
+
+        let conn = Connection::open(db.path()).expect("inspect restore primary-key result");
+        let current_row: (String, i64) = conn
+            .query_row(
+                "SELECT id, is_stale FROM files WHERE path = ?1",
+                params![source_path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read restored active row");
+        assert_eq!(current_row, ("restore-current-row".to_string(), 0));
+        let parked_row: (String, i64) = conn
+            .query_row(
+                "SELECT path, is_stale FROM files WHERE id = ?1",
+                params![source_path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read unchanged parked path-id row");
+        assert_eq!(
+            parked_row.0,
+            "zen-canvas://legacy-unassigned/restore-primary-key-occupant"
+        );
+        assert_eq!(parked_row.1, 1);
+        let tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params!["restore-current-row", tag.id],
+                |row| row.get(0),
+            )
+            .expect("read retained restore tag");
+        assert_eq!(tag_count, 1);
+        let active_source_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE path = ?1 AND is_stale = 0",
+                params![source_path],
+                |row| row.get(0),
+            )
+            .expect("count active rows for restored path");
+        assert_eq!(active_source_rows, 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ordinary_restore_uses_verified_legacy_attribution_when_neutral_row_coexists() {
+        let db = Database::open(test_db_path()).expect("open SourceUID restore fixture");
+        let root = test_dir();
+        let source = root.join("restore-sourceuid-before.txt");
+        let target = root.join("restore-sourceuid-after.txt");
+        fs::write(&source, "verified SourceUID restore").expect("write SourceUID source");
+        let source_path = normalized_test_path(&source);
+        let target_path = normalized_test_path(&target);
+        let source_identity = crate::fs_safety::capture_source_object_identity(&source)
+            .expect("capture SourceUID source identity");
+        let volume_id = source_identity
+            .platform_volume_id
+            .as_deref()
+            .expect("Windows fixture provides a volume id");
+        let platform_file_id = source_identity
+            .platform_file_id
+            .as_deref()
+            .expect("Windows fixture provides a file id");
+        let created_ns = source_identity
+            .created_ns
+            .expect("Windows fixture provides a creation timestamp");
+        let source_uid = "restore-sourceuid-verified-fixture";
+        let neutral_id = format!("zen-canvas-source:{source_uid}");
+        let source_size = source_identity.size as i64;
+        let source_mtime = source_identity
+            .modified_ns
+            .unwrap_or_default()
+            .div_euclid(1_000_000_000);
+        let source_ctime = created_ns.div_euclid(1_000_000_000);
+        let mut settings = crate::settings::get_app_settings(&db).expect("read fixture settings");
+        settings.default_scan_folders = vec![crate::settings::ScanRootSetting {
+            id: "restore-sourceuid-root".to_string(),
+            path: normalized_test_path(&root),
+            label: "Restore SourceUID fixture".to_string(),
+            enabled: true,
+            created_at: "2026-10-30T00:00:00.000Z".to_string(),
+        }];
+        crate::settings::save_app_settings(&db, &settings).expect("save fixture root");
+        db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+            .expect("register fixture root");
+        let root_id = db
+            .list_watcher_root_configs()
+            .expect("list fixture roots")
+            .into_iter()
+            .find(|config| config.path == normalized_test_path(&root))
+            .expect("find registered fixture root")
+            .id;
+
+        fs::rename(&source, &target).expect("move SourceUID file to operation target");
+        let moved_identity = crate::fs_safety::capture_source_object_identity(&target)
+            .expect("capture moved SourceUID identity");
+        assert_eq!(moved_identity, source_identity);
+        let archive_path = "zen-canvas://legacy-unassigned/restore-sourceuid-legacy";
+        db.insert_file(InsertFileRequest {
+            id: source_path.clone(),
+            path: archive_path.to_string(),
+            name: "restore-sourceuid-before.txt".to_string(),
+            extension: "txt".to_string(),
+            size: source_size,
+            mtime: source_mtime,
+            ctime: source_ctime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert parked verified legacy row");
+        db.insert_file(InsertFileRequest {
+            id: neutral_id.clone(),
+            path: target_path.clone(),
+            name: "restore-sourceuid-after.txt".to_string(),
+            extension: "txt".to_string(),
+            size: source_size,
+            mtime: source_mtime,
+            ctime: source_ctime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert neutral SourceUID row");
+        let physical_digest = blake3::hash(
+            format!(
+                "{}\0{}\0{}\0{}",
+                source_identity.platform_kind.as_str(),
+                volume_id,
+                platform_file_id,
+                created_ns
+            )
+            .as_bytes(),
+        )
+        .to_hex()
+        .to_string();
+        let legacy_evidence_digest = blake3::hash(
+            format!("{source_uid}\0{archive_path}\0{physical_digest}").as_bytes(),
+        )
+        .to_hex()
+        .to_string();
+        let neutral_evidence_digest = blake3::hash(
+            format!("{source_uid}\0{target_path}\0{physical_digest}").as_bytes(),
+        )
+        .to_hex()
+        .to_string();
+        let now = current_unix_seconds();
+        let conn = Connection::open(db.path()).expect("open SourceUID fixture database");
+        conn.execute(
+            r#"
+                INSERT INTO library_source_incarnations (
+                    source_uid, verification_state, physical_platform, physical_volume_id,
+                    physical_object_id, verification_digest, source_revision, created_at, updated_at
+                ) VALUES (?1, 'verified', ?2, ?3, ?4, ?5, 1, ?6, ?6)
+                "#,
+            params![
+                source_uid,
+                source_identity.platform_kind.as_str(),
+                volume_id,
+                platform_file_id,
+                physical_digest,
+                now
+            ],
+        )
+        .expect("insert verified SourceUID incarnation");
+        conn.execute(
+            r#"
+                INSERT INTO library_source_root_claims (
+                    root_id, source_uid, observed_path, root_epoch, owner_kind,
+                    owner_revision, observation_revision, claim_state, observed_at
+                ) VALUES (?1, ?2, ?3, 1, 'restore', 1, 1, 'present', ?4)
+                "#,
+            params![root_id, source_uid, target_path, now],
+        )
+        .expect("insert current SourceUID root claim");
+        conn.execute(
+            r#"
+                INSERT INTO library_legacy_attributions (
+                    claim_id, legacy_file_id, legacy_path_snapshot, source_uid,
+                    claim_state, evidence_digest, decision_revision, created_at, updated_at
+                ) VALUES ('restore-sourceuid-legacy-claim', ?1, ?2, ?3, 'verified', ?4, 1, ?5, ?5)
+                "#,
+            params![
+                source_path,
+                archive_path,
+                source_uid,
+                legacy_evidence_digest,
+                now
+            ],
+        )
+        .expect("insert physically verified legacy attribution");
+            conn.execute(
+                r#"
+                INSERT INTO library_legacy_attributions (
+                    claim_id, legacy_file_id, legacy_path_snapshot, source_uid,
+                    claim_state, evidence_digest, decision_revision, created_at, updated_at
+                ) VALUES ('restore-sourceuid-neutral-claim', ?1, ?2, ?3, 'verified', ?4, 1, ?5, ?5)
+                "#,
+            params![
+                neutral_id,
+                target_path,
+                source_uid,
+                neutral_evidence_digest,
+                now
+            ],
+            )
+            .expect("insert verified attribution for the coexisting neutral row");
+        conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES (?1, ?2)",
+            params![
+                format!("file_personal_metadata:v1:{source_uid}"),
+                r#"{"favorite":true,"note":"restore fixture"}"#
+            ],
+        )
+        .expect("insert SourceUID favorite fixture");
+        drop(conn);
+        let tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "Verified legacy restore tag".to_string(),
+                color_token: "green".to_string(),
+            })
+            .expect("create verified legacy tag");
+        db.mutate_file_user_tags(MutateFileUserTagsRequest {
+            selection: LibrarySelectionV1::Explicit {
+                file_ids: vec![source_path.clone()],
+            },
+            tag_ids: vec![tag.id.clone()],
+            operation: UserTagMutationOperation::Add,
+            expected_count: Some(1),
+        })
+        .expect("tag verified legacy row");
+            Connection::open(db.path())
+                .expect("open parked legacy-row fixture")
+                .execute(
+                    "UPDATE files SET is_stale = 1 WHERE id = ?1",
+                    params![source_path],
+                )
+                .expect("park legacy row after attaching its user tag");
+
+        let operation_identity =
+            crate::file_ops::file_identity_fingerprint(&target).expect("capture journal identity");
+        let mut log = operation_log(
+            "log-restore-sourceuid-coexistence",
+            "batch-restore-sourceuid-coexistence",
+            "success",
+        );
+        log.source_path = source_path.clone();
+        log.target_path = target_path.clone();
+        log.path_before = source_path.clone();
+        log.path_after = target_path.clone();
+        log.name_before = "restore-sourceuid-before.txt".to_string();
+        log.name_after = "restore-sourceuid-after.txt".to_string();
+        log.new_name = log.name_after.clone();
+        log.source_size = Some(operation_identity.size);
+        log.source_modified_ns = operation_identity
+            .modified_ns
+            .map(|value| value.to_string());
+        log.source_platform_file_id = operation_identity.platform_file_id.clone();
+        log.source_platform_volume_id = operation_identity.platform_volume_id.clone();
+        log.source_quick_hash = operation_identity.quick_hash.clone();
+        log.source_full_hash = operation_identity.full_hash.clone();
+        db.save_operation_logs(&log.batch_id, std::slice::from_ref(&log))
+            .expect("save SourceUID restore journal");
+        fs::rename(&target, &source).expect("restore SourceUID file to original path");
+        log.restore_status = "restored".to_string();
+        log.restore_phase = "completed".to_string();
+        log.restored_at = Some("1900000000123".to_string());
+
+        db.finalize_successful_operation_restore(&log)
+            .expect("verified legacy owner must win over the neutral path row");
+
+        let conn = Connection::open(db.path()).expect("inspect SourceUID restore result");
+        let restored_row: (String, i64) = conn
+            .query_row(
+                "SELECT id, is_stale FROM files WHERE path = ?1",
+                params![source_path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read restored legacy row");
+        assert_eq!(restored_row, (source_path.clone(), 0));
+        let neutral_row: (String, i64) = conn
+            .query_row(
+                "SELECT path, is_stale FROM files WHERE id = ?1",
+                params![neutral_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read parked neutral row");
+        assert!(neutral_row.0.starts_with("zen-canvas://legacy-unassigned/"));
+        assert_eq!(neutral_row.1, 1);
+        let active_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE path = ?1 AND is_stale = 0",
+                params![source_path],
+                |row| row.get(0),
+            )
+            .expect("count active restored rows");
+        assert_eq!(active_rows, 1);
+        let tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_user_tags WHERE file_id = ?1 AND tag_id = ?2",
+                params![source_path, tag.id],
+                |row| row.get(0),
+            )
+            .expect("count retained verified legacy tag");
+        assert_eq!(tag_count, 1);
+        let favorite_json: String = conn
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = ?1",
+                params![format!("file_personal_metadata:v1:{source_uid}")],
+                |row| row.get(0),
+            )
+            .expect("read unchanged SourceUID personal metadata");
+        assert_eq!(
+            favorite_json,
+            r#"{"favorite":true,"note":"restore fixture"}"#
+        );
+        let (restored_uid, claim_state): (String, String) = conn
+                .query_row(
+                    "SELECT source_uid, claim_state FROM library_source_root_claims WHERE root_id = ?1 AND observed_path = ?2 ORDER BY root_epoch DESC, rowid DESC LIMIT 1",
+                    params![root_id, source_path],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .expect("read restored SourceUID root claim");
+        assert_eq!(restored_uid, source_uid);
+        assert_eq!(claim_state, "present");
+        let restored_log = db
+            .get_operation_logs(Some(10))
+            .expect("read finalized restore journal")
+            .into_iter()
+            .find(|candidate| candidate.id == log.id)
+            .expect("find finalized SourceUID restore journal");
+        assert_eq!(restored_log.status, "success");
+        assert_eq!(restored_log.restore_status, "restored");
+        assert_eq!(restored_log.restore_phase, "completed");
+        assert!(!restored_log.can_restore);
+    }
+
+    static RESTORE_TEST_BUSY_HANDLER: std::sync::OnceLock<
+        std::sync::Mutex<Option<std::sync::Arc<dyn Fn(i32) -> bool + Send + Sync>>>,
+    > = std::sync::OnceLock::new();
+
+    fn restore_test_busy_dispatch(attempt: i32) -> bool {
+        let handler = RESTORE_TEST_BUSY_HANDLER
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .expect("restore busy handler lock")
+            .clone();
+        handler.is_some_and(|handler| handler(attempt))
+    }
+
+    #[test]
+    fn ordinary_restore_retries_a_deterministic_sqlite_writer_contention() {
+        let db = Database::open(test_db_path()).expect("open restore busy fixture");
+        let root = test_dir();
+        let source = root.join("restore-busy-before.txt");
+        let target = root.join("restore-busy-after.txt");
+        fs::write(&source, "restore SQLite busy retry").expect("write restore busy source");
+        let source_path = normalized_test_path(&source);
+        let target_path = normalized_test_path(&target);
+        let identity =
+            crate::file_ops::file_identity_fingerprint(&source).expect("capture restore busy identity");
+        let mut log = operation_log(
+            "log-restore-sqlite-busy",
+            "batch-restore-sqlite-busy",
+            "success",
+        );
+        log.source_path = source_path.clone();
+        log.target_path = target_path.clone();
+        log.path_before = source_path;
+        log.path_after = target_path;
+        log.name_before = "restore-busy-before.txt".to_string();
+        log.name_after = "restore-busy-after.txt".to_string();
+        log.new_name = log.name_after.clone();
+        log.source_size = Some(identity.size);
+        log.source_modified_ns = identity.modified_ns.map(|value| value.to_string());
+        log.source_platform_file_id = identity.platform_file_id.clone();
+        log.source_platform_volume_id = identity.platform_volume_id.clone();
+        log.source_quick_hash = identity.quick_hash.clone();
+        log.source_full_hash = identity.full_hash.clone();
+        log.restore_status = "restored".to_string();
+        log.restore_phase = "completed".to_string();
+        log.restored_at = Some("1900000000123".to_string());
+        db.save_operation_logs(&log.batch_id, std::slice::from_ref(&log))
+            .expect("save restore busy journal");
+
+        let (busy_seen_tx, busy_seen_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_busy_tx, release_busy_rx) = std::sync::mpsc::sync_channel(1);
+        let release_busy_rx = std::sync::Arc::new(std::sync::Mutex::new(release_busy_rx));
+        let busy_attempts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let handler_release = std::sync::Arc::clone(&release_busy_rx);
+        let handler_attempts = std::sync::Arc::clone(&busy_attempts);
+        let handler: std::sync::Arc<dyn Fn(i32) -> bool + Send + Sync> =
+            std::sync::Arc::new(move |_| {
+                handler_attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let _ = busy_seen_tx.send(());
+                let _ = handler_release.lock().expect("busy release mutex").recv();
+                false
+            });
+        *RESTORE_TEST_BUSY_HANDLER
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .expect("set restore busy handler") = Some(handler);
+        db.set_test_busy_handler_for_all_connections(restore_test_busy_dispatch)
+            .expect("install deterministic busy handler on the pool");
+
+        let (writer_ready_tx, writer_ready_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_writer_tx, release_writer_rx) = std::sync::mpsc::sync_channel(1);
+        let (writer_released_tx, writer_released_rx) = std::sync::mpsc::sync_channel(1);
+        let writer_db_path = db.path().to_path_buf();
+        let writer = std::thread::spawn(move || {
+            let writer_conn = Connection::open(writer_db_path).expect("open lock holder");
+            writer_conn
+                .execute_batch("BEGIN IMMEDIATE")
+                .expect("acquire deterministic SQLite writer lock");
+            writer_ready_tx.send(()).expect("signal writer lock ready");
+            release_writer_rx.recv().expect("release writer lock");
+            writer_conn
+                .execute_batch("ROLLBACK")
+                .expect("release deterministic SQLite writer lock");
+            writer_released_tx
+                .send(())
+                .expect("signal writer lock released");
+        });
+        writer_ready_rx.recv().expect("wait for writer lock");
+
+        let restore_db = db.clone();
+        let restore =
+            std::thread::spawn(move || restore_db.finalize_successful_operation_restore(&log));
+        busy_seen_rx
+            .recv()
+            .expect("observe SQLITE_BUSY in the handler");
+        release_writer_tx
+            .send(())
+            .expect("release writer lock holder");
+        writer_released_rx
+            .recv()
+            .expect("wait for writer lock release");
+        release_busy_tx
+            .send(())
+            .expect("allow first transaction attempt to return SQLITE_BUSY");
+        writer.join().expect("join SQLite lock holder");
+        restore
+            .join()
+            .expect("join restore finalization")
+            .expect("retry the database transaction without replaying the file move");
+        *RESTORE_TEST_BUSY_HANDLER
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .expect("clear restore busy handler") = None;
+        assert_eq!(busy_attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let conn = Connection::open(db.path()).expect("inspect busy retry result");
+        let restore_status: String = conn
+            .query_row(
+                "SELECT restore_status FROM operation_logs WHERE id = ?1",
+                params!["log-restore-sqlite-busy"],
+                |row| row.get(0),
+            )
+            .expect("read finalized busy-test journal");
+        assert_eq!(restore_status, "restored");
+        let indexed_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("count busy-test index rows");
+        assert_eq!(indexed_count, 1);
+    }
+
+    #[test]
     fn ordinary_restore_finalization_resolves_source_target_rows_without_broad_delete() {
         for case in ["source-only", "target-only", "same-row", "distinct-rows"] {
             let db = Database::open(test_db_path()).expect("open restore matrix database");

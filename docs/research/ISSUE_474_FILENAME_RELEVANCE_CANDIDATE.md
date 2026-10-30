@@ -1,6 +1,8 @@
 # Issue #474 — filename relevance candidate
 
-Status: **default-off candidate; P0 corrections implemented; correctness and native Release qualification are pending for the corrected source.** Keep PR #510 open/Draft. Do not merge, release, or enable the route by default. No derived ranking index is authorized.
+Status: **PRODUCTION_NO_GO for the default-off candidate. Corrected-source correctness and 100k/200k Release qualification passed on Windows and macOS, but the single 1M Release run exceeded the 100ms Search/Snapshot p95 target on both platforms.** Keep PR #510 open/Draft. Do not merge, release, or enable the route by default. No derived ranking index is authorized.
+
+The qualified source for these results is commit `989872a7e430a00d62c4e7477d85a45d10c867bc`, tree `4d16b50f31ea2bbfc7f781490407691ee84cc4a1`. The single authorized 1M sample (run `40984195668`) is complete. Its correctness oracle passed, while the performance gate failed; no further candidate tuning or 1M rerun is authorized in this task.
 
 The earlier Windows Debug measurements below are historical observations from source `08d8b07f5058cc51e8b282b8aed85079fb045a50`. They do not qualify the corrected SQL or the current PR head.
 
@@ -41,7 +43,7 @@ The focused tests compare complete result objects and exact order to the Rust or
 
 A separate fixture performs 63→64→65 insertion and deletion transitions, repeats each query, checks multiple pages and tied modification times, verifies stale and volume-enabled updates, and holds a Search read transaction across a concurrent source-status update. The scale harness also checks 80-row first pages, offset 4016, the 4096 boundary, zero and sparse hits, full output fields, schema stability, SQL query plans, SQLite statement counters, and repository snapshot status/revision consistency.
 
-These tests are implemented but their result is not claimed until current-HEAD CI completes. The CI Rust quality jobs run `cargo fmt --check`, Clippy with warnings denied, and the Rust test suite. The focused release workflow runs the contract and 63/64/65 tests on the exact source SHA before measuring.
+The focused tests, including the repeated-occurrence oracle, 63/64/65 insertion/deletion transitions, multiple pages, and snapshot consistency, passed on the exact source SHA in Windows and macOS Release runs. Full Rust suites, `cargo fmt --check`, Clippy with warnings denied, and Release compilation also passed on both platforms in PR CI run `40980907808`.
 
 ## Old/new scenario comparison
 
@@ -68,11 +70,35 @@ The previous golden JSONL positions came from a 74-hit fixture and the flawed fi
 
 ## Native Release qualification gate
 
-The corrected implementation needs fresh Windows x86_64 and Apple Silicon macOS Release evidence. The new `filename_relevance_release_preflight` workflow mode runs 100k and 200k fixtures on each native runner, using five warmups and 30 paired samples per route on the same device and database. Only after correctness, latency, disk, SQLite-memory, process-memory, and CPU evidence is reviewed should `filename_relevance_release_million` be dispatched with `entries=1000000`; it runs one 1M paired fixture on each platform.
+Stage B (`filename_relevance_release_preflight`, run `40982188653`) passed on native Windows x86_64 and Apple Silicon macOS for 100k and 200k entries. Each route used five warmups and 30 alternating baseline/candidate samples on the same fixture. Candidate output windows matched the independent oracle, and every Search and Repository Snapshot p95 stayed below the unchanged **100ms** target. The single authorized Stage C run (`filename_relevance_release_million`, run `40984195668`, `entries=1000000`) completed on the exact same source once per platform; its results below failed the high-hit performance gate.
 
-Each JSONL record captures exact source SHA/tree, runner image/name/CPU, Rust and SQLite versions, p50/p95/p99 for raw SQL, pooled Search and Repository Snapshot, output ID hashes, sort/full-scan/VM-step counters, SQLite allocator high-water, process CPU, and native memory observations. The query plan records FTS access, materialized key sorting, and temporary B-tree steps. Windows reports working-set/private-memory boundary samples. macOS reports CPU and `getrusage` cumulative peak RSS; the system API does not expose per-query private footprint in this harness. The fixture includes cold setup and population timings, while the formal 30 samples are warm-cache steady-state after five warmups; no cold-open latency claim is made.
+| Platform / fixture | Query window | Search p95, BM25 → candidate | Snapshot p95, BM25 → candidate |
+| --- | --- | ---: | ---: |
+| macOS arm64, 100k / 5k hits | `report` 80@0 | 21.465 → 14.192 ms | 17.328 → 15.051 ms |
+| macOS arm64, 100k / 5k hits | `report` 80@4016 | 27.288 → 26.270 ms | 32.552 → 27.450 ms |
+| macOS arm64, 200k / 10k hits | `report` 80@0 | 32.533 → 27.622 ms | 29.207 → 25.642 ms |
+| macOS arm64, 200k / 10k hits | `report` 80@4016 | 42.581 → 35.186 ms | 45.628 → 35.993 ms |
+| Windows x86_64, 100k / 5k hits | `report` 80@0 | 17.039 → 14.099 ms | 16.281 → 13.770 ms |
+| Windows x86_64, 100k / 5k hits | `report` 80@4016 | 29.121 → 26.080 ms | 29.775 → 33.464 ms |
+| Windows x86_64, 200k / 10k hits | `report` 80@0 | 32.788 → 27.125 ms | 34.187 → 29.997 ms |
+| Windows x86_64, 200k / 10k hits | `report` 80@4016 | 52.431 → 45.016 ms | 50.106 → 48.926 ms |
 
-The production p95 target remains **100 ms** for complete Search and Repository Snapshot. The corrected source has no Release results yet, so Release performance, resource use, and production readiness are currently **unverified**. The old Debug data below is not a forecast and is not a pass.
+The slowest Stage B candidate p95 was Windows 200k `report` offset 4016 Snapshot at 48.926ms. Across the high-hit windows, candidate Search p50/p95/p99 ranged 11.671–42.933 / 14.099–45.016 / 14.096–45.359ms; Snapshot ranged 10.602–42.925 / 13.770–48.926 / 14.096–50.473ms; raw SQL ranged 11.198–42.161 / 14.092–46.581 / 14.561–51.566ms. All 63-hit `sparseword`, one-hit `needle`, and zero-hit `zzznomatchtoken` Search/Snapshot p95 values were below 3ms on both platforms. In high-hit raw SQL windows, the candidate's SQLite allocator high-water was about 0.15–0.25MB lower; query plans still show FTS virtual-table access, materialized key sorting, and a temporary B-tree, with no schema or persistent-index change.
+
+Each JSONL record captures exact source SHA/tree, runner image/name/CPU, Rust and SQLite versions, p50/p95/p99 for raw SQL, pooled Search and Repository Snapshot, output ID hashes, sort/full-scan/VM-step counters, SQLite allocator high-water, process CPU, and native memory observations. Windows reports working-set/private-memory boundary samples. macOS reports CPU and `getrusage` cumulative peak RSS; the system API does not expose per-query private footprint in this harness. Fixture setup/population timings are recorded separately; the formal 30 samples are warm-cache steady-state after five warmups, so no cold-open latency claim is made. Raw Release JSONL and contract artifacts are stored in `evidence/issue-474-filename-relevance/`.
+
+Stage C (`filename_relevance_release_million`, run `40984195668`) completed the one 1M paired fixture on each native platform. It used five warmups and 30 alternating baseline/candidate samples, Rust 1.97.1, and SQLite 3.51.3. The Windows Server 2025 runner used image `win25-vs2026 20261021.278.1` on Intel Xeon Platinum 8573C; macOS used Apple M1 Virtual image `macos14 20260831.0302.1`. All 50k-hit result windows matched the independent oracle, but both `report` windows on each platform exceeded the unchanged **100ms** p95 target for Search and Repository Snapshot. The 1M status is therefore **PRODUCTION_NO_GO** for this candidate.
+
+| Platform / 1M fixture | Raw SQL p95, BM25 → candidate (`80@0` / `80@4016`) | Search p95, BM25 → candidate (`80@0` / `80@4016`) | Snapshot p95, BM25 → candidate (`80@0` / `80@4016`) |
+| --- | ---: | ---: | ---: |
+| Windows x86_64, 50k `report` hits | 132.337 → 121.688 / 155.433 → 143.311 ms | 135.091 → 127.673 / 151.391 → 143.315 ms | 137.083 → 124.740 / 152.758 → 141.661 ms |
+| macOS arm64, 50k `report` hits | 218.065 → 168.050 / 176.142 → 144.606 ms | 192.286 → 155.454 / 151.012 → 124.093 ms | 193.748 → 138.869 / 175.965 → 151.132 ms |
+
+Across all four 1M high-hit candidate windows, Search p50/p95/p99 ranged 104.598–138.769 / 124.093–155.454 / 131.252–156.438ms; Snapshot ranged 116.968–138.989 / 124.740–151.132 / 129.541–194.805ms; raw SQL ranged 117.277–137.588 / 121.688–168.050 / 125.330–220.474ms. The worst candidate p95 was macOS `report` offset 4016 Snapshot at 151.132ms. The candidate p95 was lower than BM25 in every high-hit paired comparison and reduced SQLite allocator high-water by about 0.18–0.21MB, but every high-hit candidate Search/Snapshot p95 was still above target. Sparse, one-hit, and zero-hit Search/Snapshot p95 stayed below 2.3ms.
+
+The 1M fixture used 50,000 `report` hits, about 1.394GB of main database and 1.680GB main-plus-WAL, with `temp_store=MEMORY`. Windows sampled working set/private bytes at call boundaries; candidate high-hit Search/Snapshot samples peaked around 453–462MiB working set and 25–29MiB private memory. Apple Silicon reports cumulative process peak RSS from `getrusage` (about 1.74GB at query sampling); this is not per-query RSS or private footprint. Process CPU was sampled across all 30 calls and was lower for the candidate than BM25 in high-hit Search and Snapshot samples on both platforms. Query plans still use FTS virtual-table access, materialized candidates, and a temporary B-tree. Schema signature was unchanged, persistent index and trigger counts remained zero, and there was no persistent candidate write amplification.
+
+The corrected-source 1M artifacts and focused contract records are committed in `evidence/issue-474-filename-relevance/`; `SHA256SUMS-release.txt` records checksums for all staged Release JSONL evidence. The old Debug data below is historical and cannot qualify the corrected source.
 
 ## Historical Debug evidence — superseded
 
@@ -89,4 +115,4 @@ These same-run Windows x86_64 Debug results came from the prior SQL/Oracle and t
 
 The prior 1M Debug candidate exceeded 100 ms p95 on first-page and offset-4016 Search and Snapshot. Its source was `08d8b07f5058cc51e8b282b8aed85079fb045a50`; it is not current-source qualification. The old 1M fixture database measured about 1,381,838,848 bytes main file and 286,298,832 bytes WAL. The old candidate added no persistent objects. Its raw evidence and hashes remain in `evidence/issue-474-filename-relevance/` as history, not as proof for the corrected query.
 
-If the corrected Release candidate still exceeds 100 ms at 1M after this one substantive SQL correction, stop tuning. Report the bottleneck and ask the Owner to decide whether a bounded derived ranking index is worth a separate authorization. Do not add that index, change memory budgets, merge the PR, or enable production search here.
+The one substantive SQL correction still exceeds 100ms at 1M, so the authorized stop condition is met. Keep the current BM25 route as production default and ask the Owner to decide whether this relevance order warrants a separately budgeted derived ranking index. Do not add that index, change memory budgets, merge the PR, or enable production search here.

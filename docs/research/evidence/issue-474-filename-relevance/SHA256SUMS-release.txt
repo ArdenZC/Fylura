@@ -1,0 +1,10 @@
+81080ae21d9a0b77a20a9cdeb0e35dcfd1edc1fe0165a71b97d805899d456a09  docs/research/evidence/issue-474-filename-relevance/100k-macos-arm64-release.jsonl
+0bf510a6574d339108dab7e1e41d9a9bbb7101b9deac04890bcc8103e4dc24d5  docs/research/evidence/issue-474-filename-relevance/100k-windows-x86_64-release.jsonl
+c6f1da7a16ee84a39235adc9d00713449cf86b70d18067217118f7384180fb63  docs/research/evidence/issue-474-filename-relevance/200k-macos-arm64-release.jsonl
+855eeabbe2c130781c1943e56556b9ddb4c7d6654ca9ed329bb43b34807adf59  docs/research/evidence/issue-474-filename-relevance/200k-windows-x86_64-release.jsonl
+1038467e3efbfd1388084a99e264e38ed5bb8b6e209a741178e6bd20d7238894  docs/research/evidence/issue-474-filename-relevance/1m-macos-arm64-release.jsonl
+9f243a9e0d2a51161bebcad11f3599bee675afcf114b5c9b3aaf00e6c8c21b5a  docs/research/evidence/issue-474-filename-relevance/1m-windows-x86_64-release.jsonl
+05887f845ae7d07a3e35d95ab5442eabed03132679dba8695bf643463cf52f68  docs/research/evidence/issue-474-filename-relevance/release-preflight-contract-macos-arm64.jsonl
+05887f845ae7d07a3e35d95ab5442eabed03132679dba8695bf643463cf52f68  docs/research/evidence/issue-474-filename-relevance/release-preflight-contract-windows-x86_64.jsonl
+05887f845ae7d07a3e35d95ab5442eabed03132679dba8695bf643463cf52f68  docs/research/evidence/issue-474-filename-relevance/1m-contract-macos-arm64.jsonl
+05887f845ae7d07a3e35d95ab5442eabed03132679dba8695bf643463cf52f68  docs/research/evidence/issue-474-filename-relevance/1m-contract-windows-x86_64.jsonl

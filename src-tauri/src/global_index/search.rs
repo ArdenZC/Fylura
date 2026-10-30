@@ -423,7 +423,11 @@ fn search_path_only_candidates(
         ORDER BY ge.modified_at_fs DESC, ge.id COLLATE BINARY ASC
         LIMIT ?3
     "#;
-    let fts_query = format!("path : \"{query}\"");
+    // The existing trigram table's general phrase query is the established
+    // path/name/extension candidate contract. Exclude filename and extension
+    // matches below to retain only the path-only tier; this also keeps field
+    // filter syntax out of the user-controlled query parser.
+    let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
     let mut statement = conn.prepare(sql)?;
     let rows = statement.query_map(
         params![

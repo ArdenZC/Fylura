@@ -1268,7 +1268,7 @@ mod tests {
 
     #[test]
     fn bounded_occurrence_checks_later_occurrences_and_uses_ascii_word_contract() {
-        assert!(has_ascii_bounded_occurrence("report_report", "report"));
+        assert!(has_ascii_bounded_occurrence("reportable report", "report"));
         assert!(has_ascii_bounded_occurrence(
             "x-reportable report",
             "report"

@@ -137,7 +137,7 @@ fn oracle_tier(row: &OracleRow, query: &str) -> Option<u8> {
         Some(4)
     } else if row.name_normalized.contains(query) || row.extension_normalized.contains(query) {
         Some(5)
-    } else if row.path_normalized.contains(query) {
+    } else if row.path_normalized.to_ascii_lowercase().contains(query) {
         Some(6)
     } else {
         None

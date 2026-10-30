@@ -1,5 +1,18 @@
 # U5 File Library integration result
 
+## 2026-10-30 B0 integration addendum — latest evidence (supersedes older native-gate summary below)
+
+- Integrated from `master@5a52de0280f52f3e485e4cde7b2ad941a47d7d32` via merge commit `9bb2c3737bb2856ac0927d5e8c7bb7299aa652d9`; initial integrated U5 candidate `3e48612c1e13e15b0c59c3f4871e6736dff920a1`.
+- A subsequent **Clippy-only repair** removed an unnecessary `let profile_root` binding in `src-tauri/src/main.rs` (commit `3ef66d53c23256cb73154e7e5fbcf7bf578dcbf3`). Mac CI [40994822867](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40994822867), on the **preceding** head `3e48612c...`, failed the `cargo clippy --features "desktop-runtime native-qa" --all-targets -- -D warnings` job on `clippy::let_and_return` at `main.rs:174`. This is a deterministic code-quality failure, **not a reproduced macOS runtime failure**. The amended head needs a **new** exact-HEAD CI result before any merge recommendation changes.
+- `native-qa` requires absolute `ZC_NATIVE_QA_PROFILE_ROOT` and scopes Quick Look, File Library thumbnails and native preview staging under that root. Normal builds continue using `app_data_dir`. The feature does not itself authorize an index source.
+- **Windows native GUI — Codex/Owner-run *reported* evidence in PR #486 description, not independent new artifact reproduced by this GitHub documentation update:** the isolated `H:\\U5\\fixtures` profile loaded an interactive Tauri window; Browse/path navigation, tabs, dual-pane independent browse, sort/filter/compare, Inspector note/tag/favorite, Quick Preview, Basket, Copy/Move/Cut-Paste, conflict Skip/Keep Both, History/Restore, restart metadata and source-authorization checks were reported as PASS. PR description records fixture hashes, file identity and environment precautions. Those reports do **not** retroactively change the historical blocked-at-startup evidence below.
+- **Current native coverage gaps:** Windows running batch progress/cancel/partial failure and actual internal drag/drop remain `UNVERIFIED`; macOS GUI remains `UNVERIFIED`. Two Windows automated drag/drop attempts did not reach a preview, without proof of a production drag/drop defect. No fresh macOS GUI E2E or actual Global Index full-scan qualification is claimed.
+- **Historical safety exception (unchanged):** initial U5 QA profile indexed 5 mounted volumes/561,664 entries in an earlier worktree. The later fixture-only profile disabled volume authorization and had `global_entries=0`. The old profile/scratch was not deleted, audited as safe to delete, or implicitly covered by the later QA evidence.
+
+**Current decision: `MERGE_HOLD`** pending amended-head CI and a truthful disposition of the remaining targeted native gaps. This addendum is the latest test-status authority; the following initial U5 record is preserved as time-stamped historical evidence.
+
+---
+
 Base: `472b850da3dfb38c8d50c786b9a4074ba240584b`, tree
 `78a677d852f1d7de3ea1f9e9b679c7f492a6a306`. The connected GitHub API
 confirmed this was still `master` when the U5 work was prepared.

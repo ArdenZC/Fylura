@@ -2,7 +2,7 @@
 
 Date: 2026-10-30
 PR: [#514](https://github.com/ArdenZC/Zen-Canvas/pull/514)
-Current decision: **MERGE_GO**
+Current decision: **MERGE_HOLD**
 
 ## Integration and fixes
 
@@ -38,3 +38,23 @@ The test used the isolated profile `F:\_qa\zen-canvas-b1-fl19\profile` and dedic
 - Corrected code candidate exact-head GitHub Actions: **PASS** at `d7c3b702ad4019a6f60d1f58538618afc2ee699c`; the final report-only commit's checks are recorded on PR #514.
 
 No merge or release was performed. FL-20 has not started; it follows only after FL-19 reaches `MERGE_GO`.
+
+## Final native follow-up — 2026-10-30
+
+Live GitHub state was refreshed before this follow-up. `master` is still `8f197a7753a9f3f546ef214b617f36511f1be5ef`; Draft PR #514 is still `f5b9fafc317c1c038190f2d7b0c97ac689e22fb2`, with no merge conflicts. Its exact-HEAD Actions run [41009844128](https://github.com/ArdenZC/Zen-Canvas/actions/runs/41009844128) completed successfully. Frontend/format and the Windows/macOS aggregate Quality jobs succeeded; the run plan skipped lane-specific Rust/package and native-preview jobs. It is hosted CI evidence, not native GUI acceptance.
+
+The follow-up used the separate QA profile `D:\_qa\zen-canvas-b1-fl19\profile` and only the task fixture `H:\U5\fixtures\B1-FL19-run-20261030-r2\cancel-test-200` on `ZCU5TEST`. The real Windows Tauri/WebView2 window was running against the Vite development server, not a packaged release build. AI remained off and no scan-source authorization was changed. No user volume or historical QA profile was used.
+
+- Read-only fixture inventory found all 200 expected files (`cancel-000.txt` through `cancel-199.txt`), each 43 bytes. No extra claim entry was present in the directory.
+- History Restore for the remaining 49 rename records reported **44 restored, 0 failed, 0 skipped, 0 canceled, 0 unexecuted**. Five records were separately marked **manual review** with the message “目标已提交，但无法确认持久化状态，需要人工复核。” The five files were physically present at their original names and their baseline SHA-256 values matched: `011` `A610FEAFC9D05E54CB1C905274C560FB4F548DFDFE53330DC03699D99D8B36D4`; `021` `26C972DCD0C5083CABFAC6164EFEA873F81960F11442752F9A18A696033A9286`; `025` `FC089EC200D051F93A3186AD61EBF019D8B1A85FE3AFC51C5935B32DA988C89E`; `026` `999340FCA3DD783483E7E727219F63436D63B948D56BB177CC09F4115BA86E5C`; `035` `6B21841D26A2BA0F03AADBE6E96D08A29A994DFE230951ABB5610DDF8374D7CD`.
+- This is a History/Restore outcome mismatch, not evidence of file-content loss. The UI's fail-closed manual-review state was preserved; no retry, journal deletion, or direct database edit was attempted. The available evidence does not isolate whether final journal persistence or post-commit identity verification produced the five states.
+- The final 150-item in-progress cancellation attempt was **not executed**: exact explicit row selection could not be established reliably through the available desktop automation, so no batch operation was started. Cancellation and cancellation/retry History consistency remain **UNVERIFIED**. This is not a product PASS or FAIL finding.
+
+## Final disposition
+
+- Windows 11 native GUI: prior rename, conflict/Keep Both, preview, execution and successful Restore flows remain PASS for their recorded fixture cases. The 49-item Restore follow-up exposed five manual-review records despite matching physical file names and sampled hashes. Batch cancellation is UNVERIFIED.
+- macOS native GUI: **UNVERIFIED**; Apple Silicon GUI was unavailable.
+- Exact-HEAD hosted CI: **PASS** for `f5b9fafc317c1c038190f2d7b0c97ac689e22fb2` at run `41009844128`.
+- Merge recommendation: **MERGE_HOLD** until the restore outcome discrepancy is explained and cancellation is captured on a real operation. No source-code fix was made in this follow-up because the observed persistence/identity cause was not isolated; do not treat the five manual-review items as restored in History.
+
+PR #514 remains Draft. No merge, release, issue closure, or FL-20 PR was performed.

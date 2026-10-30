@@ -161,18 +161,15 @@ fn main() {
             app.manage(db.clone());
             app.manage(zen_canvas_tauri::content::ContentRunManager::default());
             #[cfg(feature = "native-qa")]
-            let workspace_data_root = {
-                let profile_root = std::env::var_os("ZC_NATIVE_QA_PROFILE_ROOT")
-                    .map(PathBuf::from)
-                    .filter(|path| path.is_absolute())
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "ZC_NATIVE_QA_PROFILE_ROOT must be an absolute path for native-qa",
-                        )
-                    })?;
-                profile_root
-            };
+            let workspace_data_root = std::env::var_os("ZC_NATIVE_QA_PROFILE_ROOT")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "ZC_NATIVE_QA_PROFILE_ROOT must be an absolute path for native-qa",
+                    )
+                })?;
             #[cfg(not(feature = "native-qa"))]
             let workspace_data_root = app
                 .path()

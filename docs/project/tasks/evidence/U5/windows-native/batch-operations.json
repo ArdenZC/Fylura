@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-30",
+  "environment": {
+    "platform": "Windows 11 Pro build 26300",
+    "app": "F:\\_qa\\zen-canvas-u5-b0\\cargo-target\\debug\\zen-canvas.exe",
+    "app_identifier": "com.startlan.zencanvas.u5b0",
+    "isolated_profile": "F:\\_qa\\zen-canvas-u5-b0\\profile",
+    "vite_http_200": true,
+    "tauri_window_interactive": true,
+    "authorized_browse_root": "H:\\U5\\fixtures",
+    "global_volume_authorization": "none",
+    "global_entries_before_launch": 0,
+    "old_561664_entry_profile_touched": false
+  },
+  "batch_cancel": {
+    "operation": "copy",
+    "source": "H:\\U5\\fixtures\\Left\\B0BatchCancelMany",
+    "destination": "H:\\U5\\fixtures\\Right\\B0BatchCancelMany",
+    "requested": 256,
+    "visible_progress_samples": ["20/256", "37/256"],
+    "user_cancelled_remaining": true,
+    "completed": 37,
+    "cancelled_or_skipped": 219,
+    "history": "partial success; 219 skipped; 0 restorable (copy retains source)",
+    "filesystem_after": {
+      "source_files": 256,
+      "destination_files": 37,
+      "source_sha256_matches_manifest": 256,
+      "destination_sha256_matches_manifest": 37,
+      "unexpected_destination_files": 0
+    }
+  },
+  "batch_partial_failure_and_retry": {
+    "source": "H:\\U5\\fixtures\\Left\\B0BatchPartialFailRun4",
+    "destination": "H:\\U5\\fixtures\\Right\\B0BatchPartialFailRun4",
+    "items": [
+      {
+        "name": "A-large.bin",
+        "bytes": 50331648,
+        "sha256": "AB6F3AECA444555058B02028F6F2EEBDF9EE9C264B92A9ADB6C23A35E61C1CEE",
+        "first_attempt": "success"
+      },
+      {
+        "name": "B-lock.bin",
+        "bytes": 28,
+        "sha256": "EB93CA7838273B26031DFCCFE73437E934BD402E1AF579E2BAF326BBAA2D8713",
+        "first_attempt": "operation_preview_stale while a controlled FileShare.None source lock was held; no destination created",
+        "retry": "single-file native Copy Preview after releasing the lock; success 1/1"
+      },
+      {
+        "name": "C-tail.bin",
+        "bytes": 28,
+        "sha256": "39EDBF0A819A381948B8DE7D116EE6B4B73ADEBCF140C34E5ACB01FADBBDA856",
+        "first_attempt": "success"
+      }
+    ],
+    "first_attempt_result": "2/3; History reports partial success and one failure",
+    "after_retry": {
+      "source_files": 3,
+      "destination_files": 3,
+      "source_sha256_matches_manifest": 3,
+      "destination_sha256_matches_manifest": 3,
+      "unexpected_destination_files": 0,
+      "copy_restore_eligibility": "0 restorable by design; sources retained"
+    }
+  },
+  "internal_dual_pane_drag": {
+    "source": "H:\\U5\\fixtures\\Right\\B0BatchPartialFailRun4\\B-lock.bin",
+    "destination_folder": "H:\\U5\\fixtures\\Right\\B0BatchPartialFailRun3",
+    "native_cua_drag_attempts_with_distinct_panes": 1,
+    "observed": "No Operation Preview and no app error; selection remained; no file or History change",
+    "control_path": "The visible Copy to other pane action opened the shared Transfer Preview for the same source and destination; generated a 1/1 plan and was cancelled before execution",
+    "code_path_inspected": "dragstart captures session-local TransferTicket and opaque dataTransfer token; target drop validates token, pane identities and signatures, sets pendingTransfer; FileManagementToolbar opens the existing transfer preview",
+    "classification": "UNVERIFIED: CUA did not expose whether WebView2 received dragstart/dragover/drop. No production defect was isolated; do not count the drag gesture as native PASS."
+  },
+  "platform_boundaries": {
+    "windows_file_library_gui": "PASS for the listed U1-U4 and batch workflows; internal dual-pane drag remains UNVERIFIED",
+    "macos_native_gui": "UNVERIFIED; no available Apple Silicon GUI session",
+    "cross_platform_build_and_quality": "PASS on the exact pre-evidence source head; see Actions run 40995784773",
+    "release_qualification": "NOT AUTHORIZED by this code-merge result; no installer was installed or published"
+  }
+}

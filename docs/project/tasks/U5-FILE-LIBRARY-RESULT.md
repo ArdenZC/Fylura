@@ -1,6 +1,36 @@
 # U5 File Library integration result
 
-## 2026-10-30 B0 integration addendum — latest evidence (supersedes older native-gate summary below)
+## 2026-10-30 final acceptance addendum — latest evidence (supersedes earlier status below)
+
+### Integration and exact-head CI
+
+- PR #486 remains Draft and unmerged. Its source integration is based on `master@5a52de0280f52f3e485e4cde7b2ad941a47d7d32`, using merge commit `9bb2c3737bb2856ac0927d5e8c7bb7299aa652d9`. At reviewed source head `86c77a9de14f1e75f7b7543985d442e06ffd4817`, the code diff from master was 27 files, +600/-41. The merge retained the U5 Inspector, comparison, duplicate-action and Browse-lifecycle work while incorporating current master changes; it did not replace U1–U4 or #489, #509, #501 or #504.
+- The earlier macOS `clippy::let_and_return` failure was fixed in `src-tauri/src/main.rs`. Exact source-head Actions run [40995784773](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40995784773) completed successfully: 27 jobs, 16 success, 11 conditional skips, zero failures. Windows and macOS Rust quality (including Clippy/tests), Windows and macOS release compile, frontend/product browser gates, dependency audit, performance profile and Library & Content lane passed. The arm64 native macOS performance lane was skipped; this is not native GUI evidence.
+- A documentation-only acceptance follow-up adds the batch evidence at [batch-operations.json](evidence/U5/windows-native/batch-operations.json). It makes no production-code change. The live PR head and check state remain the authority for the exact final documentation commit.
+
+### Windows native GUI: batch progress, cancellation and partial failure
+
+- The genuine Tauri window was interactive on Windows 11 Pro build 26300. The isolated app identity/profile was `com.startlan.zencanvas.u5b0` / `F:\_qa\zen-canvas-u5-b0\profile`; the dedicated test volume was `ZCU5TEST (H:)`. Before launch, the sole managed browse root was `H:\U5\fixtures`, global-volume authorization was absent and `global_entries=0`. AI was off. The historic 561,664-entry QA profile and other worktree scratch were left untouched.
+- The 256-item native Copy showed progress `20/256` then `37/256`. Cancel Remaining ended with 37 completed and 219 canceled/skipped. History showed partial success and 219 skipped, not all-success. Read-only post-check found 256/256 source files and 37/37 destination files with SHA-256 matching the fixture manifest; there were no extra destination files. Copy retained all sources and correctly reported zero restorable items.
+- A second controlled native Copy contained a 48 MiB file and two small files. A helper held `B-lock.bin` open with `FileShare.None` only after the first large copy completed. The real Operation Preview showed 3/3; execution correctly ended `2/3` with `operation_preview_stale` for the locked file. A and C were copied; B was absent at the destination. History recorded one failure and partial success. After releasing the test lock, a fresh one-item Copy Preview and retry completed 1/1. Read-only verification found all three original files unchanged and all three destination files matching their exact SHA-256 values. No overwrite, source deletion, or false all-success was observed. Since these were copies, Restore eligibility correctly remained zero; prior native Move/Restore acceptance remains as recorded below.
+
+### Internal dual-pane drag/drop and startup classification
+
+- The actual UI drag was attempted from a selected, `draggable=true` file row in `H:\U5\fixtures\Right\B0BatchPartialFailRun4` to the empty peer pane at `H:\U5\fixtures\Right\B0BatchPartialFailRun3`. The native CUA pointer drag produced no Operation Preview and no app error; the source selection remained and no file/History mutation occurred. Do not count this as a drag/drop PASS.
+- Source inspection confirms the production chain: `dragstart` captures a session-local TransferTicket and opaque dataTransfer token; `drop` validates that token plus source/target pane identity and signatures, then sets `pendingTransfer`; the existing toolbar effect opens the authoritative Transfer Preview. With the same source and target folders, the visible “Copy to other pane” control opened that shared Preview, generated a `1/1` plan, and was canceled before execution. This proves the preview handoff path, not that the native WebView delivered `dragstart`/`dragover`/`drop`. Root cause is therefore classified as **native CUA/WebView drag-event delivery not observable in this environment; production defect not isolated; drag remains UNVERIFIED**. No synthetic event was used and no drag PASS is claimed.
+- The earlier blank WebView startup obstruction was not reproduced: the current Vite endpoint returned HTTP 200 and the same Tauri window accepted native interaction. This run does not prove why the historical failure happened. No Windows service or global-disk scan was started, so indexing activity was not the cause of this run’s responsiveness.
+
+### Platform decision
+
+- Windows File Library native acceptance: PASS for previously documented U1–U4 workflows and the batch flows above. Internal pane drag is UNVERIFIED because native drag events were not observed; toolbar-to-peer Preview and all other tested file operations remain available.
+- macOS Apple Silicon native GUI: UNVERIFIED; no interactive macOS host was available. macOS compile, Clippy and Rust tests passed in hosted CI, which is a separate claim.
+- Formal cross-platform release qualification: NOT AUTHORIZED. A code merge would not authorize installer publication; no release was installed or published.
+
+**Owner review recommendation: `MERGE_GO` for code integration.** Exact-head CI is green, the requested batch failure/cancel paths preserve identities and accurate partial status, and no high-risk data regression was found. Keep PR #486 Draft for Owner review. Treat internal drag and macOS native GUI as explicit, non-release-qualified UNVERIFIED boundaries.
+
+---
+
+## 2026-10-30 B0 integration addendum — preceding evidence (superseded by final addendum above)
 
 - Integrated from `master@5a52de0280f52f3e485e4cde7b2ad941a47d7d32` via merge commit `9bb2c3737bb2856ac0927d5e8c7bb7299aa652d9`; initial integrated U5 candidate `3e48612c1e13e15b0c59c3f4871e6736dff920a1`.
 - A subsequent **Clippy-only repair** removed an unnecessary `let profile_root` binding in `src-tauri/src/main.rs` (commit `3ef66d53c23256cb73154e7e5fbcf7bf578dcbf3`). Mac CI [40994822867](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40994822867), on the **preceding** head `3e48612c...`, failed the `cargo clippy --features "desktop-runtime native-qa" --all-targets -- -D warnings` job on `clippy::let_and_return` at `main.rs:174`. This is a deterministic code-quality failure, **not a reproduced macOS runtime failure**. The amended head needs a **new** exact-HEAD CI result before any merge recommendation changes.

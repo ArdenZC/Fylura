@@ -2,7 +2,7 @@
 
 Date: 2026-10-30
 PR: [#514](https://github.com/ArdenZC/Zen-Canvas/pull/514)
-Current decision: **PENDING exact-head CI**
+Current decision: **MERGE_GO**
 
 ## Integration and fixes
 
@@ -11,7 +11,7 @@ Current decision: **PENDING exact-head CI**
 - Fixed the mixed-preview handoff: every included row must have a pending, executable `rename` preview for the same file ID and exact current name. Blocked rows disable Continue until explicitly skipped; a skipped row is not passed to the final Operation Preview.
 - Fixed a render loop found in the native Tauri session. A command-bar memo depended on the freshly reconstructed source-owner object, repeatedly re-registering the command-bar surface. The action now receives a stable selection projection and preview callback.
 
-The previous exact-head run on `59bcec7050bd6ee14b7e7ba8e910dd614dd3a0e3` failed because the file-length contract observed 510 lines. Windows/macOS aggregate Quality failures were downstream of the frontend gate. The rerun for the corrected candidate is pending; no new-head CI claim is made here.
+The previous exact-head run on `59bcec7050bd6ee14b7e7ba8e910dd614dd3a0e3` failed because the file-length contract observed 510 lines. Windows/macOS aggregate Quality failures were downstream of that frontend gate. The corrected code candidate `d7c3b702ad4019a6f60d1f58538618afc2ee699c` passed [Actions run 41009173921](https://github.com/ArdenZC/Zen-Canvas/actions/runs/41009173921): frontend/format quality, performance profile, U3/U4, W2-01, W2-10, W2-11, and Windows/macOS aggregate Quality all succeeded. The validation plan skipped lane-specific package/native-preview jobs; no macOS GUI claim is made. This report-only closeout is the only follow-up change after that code candidate; its exact-head checks are recorded in the PR.
 
 ## Automated verification
 
@@ -35,6 +35,6 @@ The test used the isolated profile `F:\_qa\zen-canvas-b1-fl19\profile` and dedic
 
 - Windows 11 Tauri/WebView2: **PASS** for numbered rename and regex execution, Text and Regex secure previews, conflict/Keep Both, mixed blocked/executable explicit skip, Operation Preview, History and Restore. The native Text-mode pass stopped before execution.
 - macOS GUI: **UNVERIFIED**. No native Apple Silicon run is claimed.
-- Corrected-candidate GitHub Actions: **PENDING**. The decision must use the exact PR HEAD after push.
+- Corrected code candidate exact-head GitHub Actions: **PASS** at `d7c3b702ad4019a6f60d1f58538618afc2ee699c`; the final report-only commit's checks are recorded on PR #514.
 
 No merge or release was performed. FL-20 has not started; it follows only after FL-19 reaches `MERGE_GO`.

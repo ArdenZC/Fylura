@@ -70,6 +70,9 @@ impl ManagedAiWakeSlot {
 pub struct Database {
     path: PathBuf,
     pool: Pool<SqliteConnectionManager>,
+    #[cfg(feature = "compact-name-search-candidate")]
+    pub(crate) compact_name_search:
+        Arc<crate::global_index::compact_name_search::CompactNameSearchManager>,
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
     pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
@@ -99,10 +102,25 @@ impl Database {
             let conn = pool.get()?;
             super::schema::migrate_with_cancellation(&conn, cancel)?;
         }
+        #[cfg(not(feature = "compact-name-search-candidate"))]
+        disable_orphaned_compact_name_search_feed(&pool);
+
+        #[cfg(feature = "compact-name-search-candidate")]
+        let compact_name_search = Arc::new(
+            crate::global_index::compact_name_search::CompactNameSearchManager::new(
+                path.clone(),
+                pool.clone(),
+                crate::global_index::compact_name_search::CompactNameSearchManager::opted_in(),
+            ),
+        );
+        #[cfg(feature = "compact-name-search-candidate")]
+        compact_name_search.activate();
 
         Ok(Self {
             path,
             pool,
+            #[cfg(feature = "compact-name-search-candidate")]
+            compact_name_search,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),
@@ -216,6 +234,67 @@ impl Database {
             cache.pop_front();
         }
     }
+}
+
+#[cfg(not(feature = "compact-name-search-candidate"))]
+fn disable_orphaned_compact_name_search_feed(pool: &Pool<SqliteConnectionManager>) {
+    let Ok(conn) = pool.get() else {
+        return;
+    };
+    let state_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(
+            SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='compact_name_search_state'
+        )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !state_exists {
+        return;
+    }
+    let Ok(tx) = conn.unchecked_transaction() else {
+        return;
+    };
+    let has_change_floor = tx
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM pragma_table_info('compact_name_search_state')
+                WHERE name='change_floor'
+             )",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(false);
+    let invalidate = if has_change_floor {
+        "UPDATE compact_name_search_state
+         SET base_generation=-1, file_name=NULL, change_floor=0 WHERE singleton=1"
+    } else {
+        "UPDATE compact_name_search_state
+         SET base_generation=-1, file_name=NULL WHERE singleton=1"
+    };
+    let _ = tx.execute(invalidate, []);
+    let _ = tx.execute_batch(
+        "DROP TRIGGER IF EXISTS compact_name_search_entries_ai;
+         DROP TRIGGER IF EXISTS compact_name_search_entries_au;
+         DROP TRIGGER IF EXISTS compact_name_search_entries_ad;
+         DROP TRIGGER IF EXISTS compact_name_search_changes_cap;",
+    );
+    let changes_exists: bool = tx
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM sqlite_master
+                WHERE type='table' AND name='compact_name_search_changes'
+            )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if changes_exists {
+        let _ = tx.execute("DELETE FROM compact_name_search_changes", []);
+    }
+    let _ = tx.commit();
 }
 
 fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {

@@ -24,13 +24,16 @@ mod issue474_candidates;
 #[path = "global_search_covering_indexes.rs"]
 mod covering_indexes;
 
+#[cfg(feature = "compact-name-search-candidate")]
+#[path = "compact_name_search_qualification.rs"]
+mod compact_name_search_qualification;
 #[path = "schema_upgrade_cost.rs"]
 mod schema_upgrade_cost;
 #[path = "global_search_source_facts_pair.rs"]
 mod source_facts_pair;
 
 const DEFAULT_ENTRIES: u64 = 100_000;
-const ALLOWED_ENTRIES: [u64; 5] = [100_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
+const ALLOWED_ENTRIES: [u64; 6] = [100_000, 200_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
 const INSERT_BATCH_SIZE: u64 = 512;
 const SEARCH_RESULT_LIMIT: u32 = 80;
 // This is the current search candidate-window contract in search.rs. Keep the
@@ -955,6 +958,10 @@ fn remove_database_files(path: &Path) {
     let _ = fs::remove_file(path);
     let _ = fs::remove_file(sidecar_path(path, "-wal"));
     let _ = fs::remove_file(sidecar_path(path, "-shm"));
+    let _ = fs::remove_dir_all(PathBuf::from(format!(
+        "{}.compact-name-search",
+        path.display()
+    )));
 }
 
 fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {

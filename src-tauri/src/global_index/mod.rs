@@ -1,4 +1,6 @@
 pub mod commands;
+#[cfg(feature = "compact-name-search-candidate")]
+pub(crate) mod compact_name_search;
 pub mod coordinator;
 #[path = "index_scope/mod.rs"]
 pub mod coverage;

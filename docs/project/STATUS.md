@@ -1,8 +1,8 @@
 # Zen Canvas Project Status
 
-Last verified: 2026-10-29 (active snapshot; dated records below retained)
+Last verified: 2026-10-30 (active snapshot; dated records below retained)
 
-## Active execution snapshot — 2026-10-29
+## Active execution snapshot — 2026-10-30
 
 This short section supersedes dated status claims below. For changing facts, check
 the linked PR/Issue and the current remote `master`; do not treat historical
@@ -12,6 +12,16 @@ HEADs, Draft labels or Hosted CI results as native release qualification.
   [Master CI 40818041649](https://github.com/ArdenZC/Zen-Canvas/actions/runs/40818041649)
   completed **SUCCESS**, including the post-#504 real-Chromium W2-11 gate.
   This is CI evidence, **not** whole-product native GUI or Release acceptance.
+- **#513 compact filename search — Draft review; RESOURCE_NO_GO.** The candidate
+  is based on `master@5a52de0280f52f3e485e4cde7b2ad941a47d7d32`, is integrated
+  into Global Search and Repository Snapshot, and remains default-off. Six
+  compact-index tests, 56 Global Index/Search regressions, strict Clippy in
+  default and candidate configurations, and governance checks pass. Windows x64
+  synthetic 100k Release correctness passed; high-hit Search p95 was 27.936ms
+  and Snapshot p95 33.397ms. The measured change-feed write p95 overhead was
+  33.929% for 512 rows and 32.840% for 5,000 rows against a 10% budget, so
+  higher-scale qualification stopped. The Apple Silicon 100k result is pending
+  the exact-source Draft workflow. [Issue #513](https://github.com/ArdenZC/Zen-Canvas/issues/513).
 - **Recent completed delivery:** #489 (Windows Global Index explicit volume authorization),
   #496 (opt-in preflight + CI failure digest), #498 (Rust lint early checks),
   #499 (RustSec patch), #501 (U3/U4 browser and exact fixture handoff),

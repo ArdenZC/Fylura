@@ -14,6 +14,8 @@ use super::models::GlobalSearchResult;
 use crate::db::{Database, DbError};
 use rusqlite::{params, Connection, Params};
 use std::collections::HashSet;
+#[cfg(feature = "compact-name-search-candidate")]
+use std::sync::Arc;
 
 const MAX_SEARCH_LIMIT: u32 = 200;
 const MAX_SEARCH_OFFSET: u32 = 1_000_000;
@@ -142,7 +144,21 @@ pub fn search_global_entries(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
-    let conn = db.conn()?;
+    #[allow(unused_mut)]
+    let mut conn = db.conn()?;
+    #[cfg(feature = "compact-name-search-candidate")]
+    if db.compact_name_search().is_enabled() {
+        let transaction = conn.transaction()?;
+        let results = search_global_entries_on_connection_with_compact(
+            &transaction,
+            query,
+            limit,
+            offset,
+            db.compact_name_search(),
+        )?;
+        transaction.commit()?;
+        return Ok(results);
+    }
     search_global_entries_on_connection(&conn, query, limit, offset)
 }
 
@@ -156,12 +172,70 @@ pub(crate) fn search_global_entries_on_connection(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    search_global_entries_impl(conn, query, limit, offset, None)
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+pub(crate) fn search_global_entries_on_connection_with_compact(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+    offset: u32,
+    compact: &Arc<super::compact_name_search::CompactNameSearchManager>,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    search_global_entries_impl(conn, query, limit, offset, Some(compact))
+}
+
+trait CompactSearchCandidate {
+    fn search_page(
+        &self,
+        conn: &Connection,
+        query: &str,
+        target: usize,
+        page_skip: usize,
+        page_len: usize,
+        already_seen: &HashSet<String>,
+    ) -> Result<Option<Vec<GlobalSearchResult>>, DbError>;
+}
+
+#[cfg(feature = "compact-name-search-candidate")]
+impl CompactSearchCandidate for Arc<super::compact_name_search::CompactNameSearchManager> {
+    fn search_page(
+        &self,
+        conn: &Connection,
+        query: &str,
+        target: usize,
+        page_skip: usize,
+        page_len: usize,
+        already_seen: &HashSet<String>,
+    ) -> Result<Option<Vec<GlobalSearchResult>>, DbError> {
+        super::compact_name_search::CompactNameSearchManager::search_page(
+            self,
+            conn,
+            query,
+            target,
+            page_skip,
+            page_len,
+            already_seen,
+        )
+    }
+}
+
+fn search_global_entries_impl(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+    offset: u32,
+    compact: Option<&dyn CompactSearchCandidate>,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
     #[cfg(test)]
     extension_recency_probe::page(limit, offset);
     let query = query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
     }
+    let normalized_query = query.to_lowercase();
+    let query = normalized_query.as_str();
 
     let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
     let offset = offset.min(MAX_SEARCH_OFFSET);
@@ -208,7 +282,25 @@ pub(crate) fn search_global_entries_on_connection(
         );
     }
 
-    if results.len() < target as usize && query.chars().count() >= 3 {
+    if results.len() < target as usize {
+        if let Some(compact) = compact {
+            let leading = results.len() as u32;
+            let fuzzy_target = target.saturating_sub(leading) as usize;
+            let fuzzy_skip = offset.saturating_sub(leading) as usize;
+            let fuzzy_len = target.saturating_sub(offset.max(leading)) as usize;
+            if let Some(fuzzy_page) =
+                compact.search_page(conn, query, fuzzy_target, fuzzy_skip, fuzzy_len, &seen)?
+            {
+                let mut page = results
+                    .iter()
+                    .skip(offset as usize)
+                    .take(limit as usize)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                page.extend(fuzzy_page);
+                return Ok(page);
+            }
+        }
         if query
             .chars()
             .all(|character| character.is_alphanumeric() || character.is_whitespace())
@@ -715,7 +807,9 @@ fn escape_glob(value: &str) -> String {
         })
 }
 
-fn map_global_search_result(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalSearchResult> {
+pub(super) fn map_global_search_result(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<GlobalSearchResult> {
     Ok(GlobalSearchResult {
         id: row.get(0)?,
         volume_id: row.get(1)?,

@@ -41,9 +41,11 @@ desktop-runtime = [
     "tauri/image-png",
 ]
 performance-test-tauri = ["tauri/test"]
+compact-name-search-candidate = ["dep:memmap2"]
 
 [dependencies]
 blake3 = "1"
+memmap2 = { version = "0.9.9", optional = true }
 csv = "1.4"
 dirs = "5"
 flate2 = "1"

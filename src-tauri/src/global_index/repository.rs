@@ -1350,6 +1350,19 @@ impl Database {
     ) -> Result<GlobalSearchSnapshot, DbError> {
         let mut conn = self.conn()?;
         let transaction = conn.transaction()?;
+        #[cfg(feature = "compact-name-search-candidate")]
+        let results = if self.compact_name_search().is_enabled() {
+            super::search::search_global_entries_on_connection_with_compact(
+                &transaction,
+                query,
+                limit,
+                offset,
+                self.compact_name_search(),
+            )?
+        } else {
+            super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?
+        };
+        #[cfg(not(feature = "compact-name-search-candidate"))]
         let results =
             super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
         let (source_health, source_revision, enabled_rows) =

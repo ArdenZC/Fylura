@@ -1,0 +1,216 @@
+name: Compact Name Search native qualification
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/src/db/connection.rs"
+      - "src-tauri/src/global_index/compact_name_search/**"
+      - "src-tauri/src/global_index/search.rs"
+      - "src-tauri/src/global_index/repository.rs"
+      - "src-tauri/src/global_index/tests/compact_name_search.rs"
+      - "src-tauri/src/global_index/tests/compact_name_search_qualification.rs"
+      - "src-tauri/src/global_index/tests/global_search_benchmark.rs"
+      - ".github/workflows/compact-name-search-qualification.yml"
+  workflow_dispatch:
+    inputs:
+      max_scale:
+        description: Highest scale to attempt; 200k and 1M are gated by every lower stage on both platforms
+        required: true
+        type: choice
+        default: "100000"
+        options:
+          - "100000"
+          - "200000"
+          - "1000000"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compact-name-search-qualification-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  stage2:
+    name: Release preflight (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/compact-name-search-${{ matrix.platform }}-preflight.jsonl
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify Windows x64 and isolate fixture storage
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = git rev-parse HEAD
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($head -ne $env:ZEN_CANVAS_BENCHMARK_SOURCE_SHA) { throw 'Checked-out source does not match the requested SHA.' }
+          $taskTemp = Join-Path $env:RUNNER_TEMP 'compact-name-search'
+          New-Item -ItemType Directory -Force -Path $taskTemp | Out-Null
+          $drive = Get-PSDrive -Name $taskTemp.Substring(0,1)
+          if ($drive.Free -lt 5GB) { throw 'Need at least 5 GiB free for the isolated synthetic fixture.' }
+          "TEMP=$taskTemp" >> $env:GITHUB_ENV
+          "TMP=$taskTemp" >> $env:GITHUB_ENV
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw "Expected Windows x64; got $env:PROCESSOR_ARCHITECTURE." }
+          "head=$head`ntree=$tree`nplatform=windows-x64`nfree_bytes=$($drive.Free)" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Verify Apple Silicon and isolate fixture storage
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          tree=$(git rev-parse 'HEAD^{tree}')
+          test "$head" = "$ZEN_CANVAS_BENCHMARK_SOURCE_SHA"
+          arch=$(uname -m)
+          case "$arch" in arm64|aarch64) ;; *) echo "Expected Apple Silicon; got $arch" >&2; exit 1 ;; esac
+          task_temp="$RUNNER_TEMP/compact-name-search"
+          mkdir -p "$task_temp"
+          free_kib=$(df -Pk "$task_temp" | awk 'END { print $4 }')
+          test "$free_kib" -ge 5242880 || { echo 'Need at least 5 GiB free for the isolated synthetic fixture.' >&2; exit 1; }
+          printf 'TEMP=%s\nTMP=%s\nTMPDIR=%s\n' "$task_temp" "$task_temp" "$task_temp" >> "$GITHUB_ENV"
+          printf 'head=%s\ntree=%s\nplatform=macos-arm64\nfree_bytes=%s\n' "$head" "$tree" "$((free_kib * 1024))" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-${{ matrix.platform }}-compact-name-search-release-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Run native Release 100k preflight
+        id: run-100k
+        env:
+          ZC_COMPACT_NAME_SEARCH_QUALIFICATION_ENTRIES: "100000"
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime,compact-name-search-candidate
+          --lib global_index::tests::global_search_benchmark::compact_name_search_qualification::global_search_compact_name_search_qualification
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Run native Release 200k preflight
+        if: ${{ (github.event_name == 'pull_request' || inputs.max_scale == '200000' || inputs.max_scale == '1000000') && steps.run-100k.outcome == 'success' }}
+        id: run-200k
+        env:
+          ZC_COMPACT_NAME_SEARCH_QUALIFICATION_ENTRIES: "200000"
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime,compact-name-search-candidate
+          --lib global_index::tests::global_search_benchmark::compact_name_search_qualification::global_search_compact_name_search_qualification
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Upload Windows and macOS preflight JSONL
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: compact-name-search-${{ matrix.platform }}-preflight-${{ github.run_id }}
+          path: ci-evidence/compact-name-search-${{ matrix.platform }}-preflight.jsonl
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage3:
+    name: Release 1M qualification (${{ matrix.platform }})
+    needs: stage2
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.max_scale == '1000000' && needs.stage2.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    env:
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/compact-name-search-${{ matrix.platform }}-1m.jsonl
+      ZC_COMPACT_NAME_SEARCH_QUALIFICATION_ENTRIES: "1000000"
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify Windows x64 and isolate 1M fixture storage
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = git rev-parse HEAD
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($head -ne $env:ZEN_CANVAS_BENCHMARK_SOURCE_SHA) { throw 'Checked-out source does not match the requested SHA.' }
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw "Expected Windows x64; got $env:PROCESSOR_ARCHITECTURE." }
+          $taskTemp = Join-Path $env:RUNNER_TEMP 'compact-name-search-1m'
+          New-Item -ItemType Directory -Force -Path $taskTemp | Out-Null
+          $drive = Get-PSDrive -Name $taskTemp.Substring(0,1)
+          if ($drive.Free -lt 10GB) { throw 'Need at least 10 GiB free for the 1M synthetic fixture.' }
+          "TEMP=$taskTemp" >> $env:GITHUB_ENV
+          "TMP=$taskTemp" >> $env:GITHUB_ENV
+          "head=$head`ntree=$tree`nplatform=windows-x64`nfree_bytes=$($drive.Free)" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Verify Apple Silicon and isolate 1M fixture storage
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          tree=$(git rev-parse 'HEAD^{tree}')
+          test "$head" = "$ZEN_CANVAS_BENCHMARK_SOURCE_SHA"
+          arch=$(uname -m)
+          case "$arch" in arm64|aarch64) ;; *) echo "Expected Apple Silicon; got $arch" >&2; exit 1 ;; esac
+          task_temp="$RUNNER_TEMP/compact-name-search-1m"
+          mkdir -p "$task_temp"
+          free_kib=$(df -Pk "$task_temp" | awk 'END { print $4 }')
+          test "$free_kib" -ge 10485760 || { echo 'Need at least 10 GiB free for the 1M synthetic fixture.' >&2; exit 1; }
+          printf 'TEMP=%s\nTMP=%s\nTMPDIR=%s\n' "$task_temp" "$task_temp" "$task_temp" >> "$GITHUB_ENV"
+          printf 'head=%s\ntree=%s\nplatform=macos-arm64\nfree_bytes=%s\n' "$head" "$tree" "$((free_kib * 1024))" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-${{ matrix.platform }}-compact-name-search-release-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Run native Release 1M qualification
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features desktop-runtime,compact-name-search-candidate
+          --lib global_index::tests::global_search_benchmark::compact_name_search_qualification::global_search_compact_name_search_qualification
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Upload Windows and macOS 1M JSONL
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: compact-name-search-${{ matrix.platform }}-1m-${{ github.run_id }}
+          path: ci-evidence/compact-name-search-${{ matrix.platform }}-1m.jsonl
+          if-no-files-found: warn
+          retention-days: 90

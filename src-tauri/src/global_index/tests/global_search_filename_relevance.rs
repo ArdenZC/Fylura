@@ -695,8 +695,14 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     .is_empty());
 
     let repeated_phrase_oracle = filename_relevance_oracle(&conn, "report archive");
-    assert_eq!(repeated_phrase_oracle.len(), 1);
-    assert_eq!(repeated_phrase_oracle[0].rank, 0.0);
+    let repeated_phrase_row = repeated_phrase_oracle
+        .iter()
+        .find(|result| result.name == "prereport archivex report archive.pdf")
+        .expect("the FTS phrase query retains the repeated filename sample");
+    assert_eq!(
+        repeated_phrase_row.rank, 0.0,
+        "a later complete filename phrase beats the earlier embedded occurrence"
+    );
     assert_eq!(
         diagnostic_search_filename_relevance(&conn, "report archive", 80)
             .unwrap()

@@ -868,11 +868,31 @@ fn filename_relevance_contract_oracle_and_fallbacks() {
     db.upsert_global_entries_batch(std::slice::from_ref(&renamed))
         .unwrap();
     let after_rename = filename_relevance_oracle(&conn, "report");
+    let after_rename_fts = diagnostic_search_filename_relevance(&conn, "report", 4_096)
+        .unwrap()
+        .expect("supported report query uses filename relevance");
+    assert_eq!(after_rename_fts, after_rename);
+    let old_after_rename = with_filename_relevance_candidate(false, || {
+        search_global_entries_on_connection(&conn, "report", 4_096, 0)
+    })
+    .unwrap();
     let candidate_after_rename = with_filename_relevance_candidate(true, || {
         search_global_entries_on_connection(&conn, "report", 4_096, 0)
     })
     .unwrap();
-    assert_eq!(candidate_after_rename, after_rename);
+    let fast_after_rename = old_after_rename
+        .iter()
+        .filter(|result| result.rank >= 0.0)
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut expected_public_after_rename = fast_after_rename.clone();
+    expected_public_after_rename.extend(
+        after_rename
+            .iter()
+            .filter(|result| !fast_after_rename.iter().any(|fast| fast.id == result.id))
+            .cloned(),
+    );
+    assert_eq!(candidate_after_rename, expected_public_after_rename);
     let renamed_id = candidate_after_rename
         .iter()
         .find(|result| result.name == "Newest Report candidate.pdf")

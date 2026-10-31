@@ -7,9 +7,15 @@ fn database() -> Connection {
     conn.execute_batch(
         r#"
         CREATE TABLE global_volumes (
-            id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, coverage_pending INTEGER NOT NULL DEFAULT 0
+            id TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL,
+            coverage_pending INTEGER NOT NULL DEFAULT 0,
+            platform TEXT NOT NULL,
+            scope_authorization_state TEXT NOT NULL
         );
-        INSERT INTO global_volumes(id,enabled) VALUES ('on', 1), ('off', 0);
+        INSERT INTO global_volumes(id,enabled,platform,scope_authorization_state) VALUES
+            ('on', 1, 'windows', 'authorized'),
+            ('off', 0, 'windows', 'not_authorized');
         CREATE TABLE global_entries (
             id TEXT PRIMARY KEY, volume_id TEXT, platform_file_id TEXT,
             name TEXT, path TEXT, extension TEXT, is_directory INTEGER,
@@ -109,7 +115,9 @@ fn single_key_zero_sparse_multi_volume_ties_and_window_match_legacy() {
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap();
-    assert!(plan.iter().any(|part| part.contains("COVERING INDEX")));
+    assert!(plan
+        .iter()
+        .any(|part| { part.contains("idx_global_entries_active_extension_order") }));
 
     let mut stmt = conn
         .prepare(&format!("EXPLAIN QUERY PLAN {exact}"))

@@ -561,6 +561,8 @@ pub(crate) fn copy_commit_source_stable(
             )?;
             let metadata = handle.metadata().map_err(AtomicMoveError::Io)?;
             copy_fd_metadata(&metadata, &destination)?;
+            copy_metadata_with_native_api(handle, &destination)?;
+            verify_clone_metadata(handle, &destination)?;
             destination.sync_all().map_err(AtomicMoveError::Io)?;
             let staging_physical = capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
             Ok(CopyProof::Structural { staging_physical })
@@ -809,6 +811,8 @@ fn copy_object(
             )?;
             let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
             copy_fd_metadata(&metadata, &destination)?;
+            copy_metadata_with_native_api(&source, &destination)?;
+            verify_clone_metadata(&source, &destination)?;
             destination.sync_all().map_err(AtomicMoveError::Io)?;
             let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
             Ok(CopyProof::Structural { staging_physical })
@@ -1317,6 +1321,7 @@ fn copy_tree_from_fd(
                 let metadata = source_directory.metadata().map_err(AtomicMoveError::Io)?;
                 copy_fd_metadata(&metadata, &destination_directory)?;
                 copy_metadata_with_native_api(&source_directory, &destination_directory)?;
+                verify_clone_metadata(&source_directory, &destination_directory)?;
                 destination_directory
                     .sync_all()
                     .map_err(AtomicMoveError::Io)?;
@@ -1914,6 +1919,10 @@ fn publish_directory_exclusive(
         .metadata()
         .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
     copy_fd_metadata(&metadata, &destination)
+        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+    copy_metadata_with_native_api(&source, &destination)
+        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+    verify_clone_metadata(&source, &destination)
         .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
     destination
         .sync_all()

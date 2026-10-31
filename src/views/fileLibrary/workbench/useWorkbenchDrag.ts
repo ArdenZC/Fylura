@@ -19,14 +19,17 @@ import type { FileWorkbenchModel, WorkbenchPane } from "./workbenchModel";
 import {
   WorkbenchPointerSessionRegistry,
   workbenchPointerDropDisposition,
+  workbenchPointerCaptureRequest,
   workbenchPointerSessionIsCurrent,
   type WorkbenchPointerSession,
+  type WorkbenchPointerCaptureRequest,
 } from "./workbenchPointerSession";
 
 interface PointerSession extends WorkbenchPointerSession {
   sourceElement: HTMLElement;
   observer?: MutationObserver;
   tickets?: Promise<TransferTicket[]>;
+  captureRequest: WorkbenchPointerCaptureRequest;
   ticketsReleased?: boolean;
   handedOff?: boolean;
 }
@@ -188,7 +191,7 @@ export function useWorkbenchDrag({
     ) return;
     const target = event.target;
     if (!(target instanceof Element) || target.closest("button,input,select,textarea,a,[role=button],[role=menuitem]")) return;
-    const row = target.closest<HTMLElement>('[aria-selected="true"][data-file-entry-kind]');
+    const row = target.closest<HTMLElement>("[data-file-entry-kind]");
     if (!row) return;
     const snapshot = model.getSnapshot();
     const tab = snapshot.tabs.find((item) => item.id === tabId);
@@ -206,13 +209,19 @@ export function useWorkbenchDrag({
       sourcePane.controller.getState().mode !== "browse" ||
       peerPane.controller.getState().mode !== "browse" ||
       !sourceSurface ||
-      sourceSurface.count === 0 ||
       !peerSurface ||
       sourceSurface.visible === false ||
       peerSurface.visible === false ||
       ![...(workbenchRef.current?.querySelectorAll<HTMLElement>("[data-pane-id]") ?? [])]
         .some((element) => element.dataset.paneId === peerPaneId && !element.hidden && element.getClientRects().length > 0)
     ) return;
+    const captureRequest = workbenchPointerCaptureRequest({
+      selected: row.getAttribute("aria-selected") === "true",
+      managedFileId: row.dataset.libraryRow ?? row.dataset.libraryGridRow,
+      browseSessionId: row.dataset.browseSessionId,
+      browseEntryId: row.dataset.browseEntryId ?? row.dataset.browseGridEntryId,
+    }, sourceSurface);
+    if (!captureRequest) return;
     const session: PointerSession = {
       token: crypto.randomUUID(),
       pointerId: event.pointerId,
@@ -229,6 +238,7 @@ export function useWorkbenchDrag({
       ended: false,
       cancelled: false,
       sourceElement: row,
+      captureRequest,
     };
     if (!registry.current.begin(session)) return;
     try {
@@ -261,14 +271,11 @@ export function useWorkbenchDrag({
         useAppStore.getState().showError(t("wbSelectionChanged"));
         return;
       }
-      const surface = useFileManagementStore.getState().surfaces[session.sourcePaneId]?.read();
-      if (!surface) {
+      if (!useFileManagementStore.getState().surfaces[session.sourcePaneId]?.read()) {
         cancelSession(session.token);
         return;
       }
-      const tickets = fileManagementApi.captureTransfer(
-        surface.selection ? { selection: surface.selection } : { refs: surface.refs },
-      );
+      const tickets = fileManagementApi.captureTransfer(session.captureRequest);
       session.tickets = tickets;
       void tickets.catch((cause) => {
         if (registry.current.current?.token !== session.token) return;
@@ -331,6 +338,7 @@ export function useWorkbenchDrag({
           paneId: targetPane.id,
           sourcePaneId: session.sourcePaneId,
           sourceSignature: session.sourceSignature,
+          destinationSignature: session.peerSignature,
           tickets,
           action,
           destination: session.peerPath,

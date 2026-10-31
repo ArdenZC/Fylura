@@ -285,8 +285,19 @@ impl FileWorkspaceRuntime {
         let mut reserved = HashSet::new();
         for (id, source) in sources {
             let skipped = request.skip.contains(&id);
-            let result = (|| {
-                let source = source.ok_or("transfer_reference_expired")?;
+            let source = match source {
+                Some(source) => source,
+                None => {
+                    rows.push(TransferRow {
+                        ticket_id: id,
+                        preview: None,
+                        error: Some("transfer_reference_expired".into()),
+                        skipped: false,
+                    });
+                    continue;
+                }
+            };
+            let validation = (|| {
                 if source
                     .tree_guard
                     .as_ref()
@@ -304,6 +315,30 @@ impl FileWorkspaceRuntime {
                 {
                     return Err("transfer_directory_into_itself".into());
                 }
+                Ok(())
+            })();
+            if let Err(error) = validation {
+                rows.push(TransferRow {
+                    ticket_id: id,
+                    preview: None,
+                    error: Some(error),
+                    skipped: false,
+                });
+                continue;
+            }
+            // Skip is an explicit per-item conflict decision. It has no file
+            // system side effect, so validate ticket identity/tree first, then
+            // avoid target-name checks that would turn Skip back into a conflict.
+            if skipped {
+                rows.push(TransferRow {
+                    ticket_id: id,
+                    preview: None,
+                    error: None,
+                    skipped: true,
+                });
+                continue;
+            }
+            let result = (|| {
                 let mut name = source.ticket.name.clone();
                 let target_for_name = |name: &str| -> Result<PathBuf, String> {
                     let parent = source
@@ -353,10 +388,8 @@ impl FileWorkspaceRuntime {
                     request.action,
                 )?;
                 let preview = preview_dto(&operation);
-                if !skipped {
-                    reserved.insert(transfer_target_key(&target));
-                    operations.push(operation);
-                }
+                reserved.insert(transfer_target_key(&target));
+                operations.push(operation);
                 Ok(preview)
             })();
             rows.push(match result {

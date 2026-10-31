@@ -1,4 +1,39 @@
+import type { EntryRef } from "../../../types/fileWorkspace";
+import type { LibrarySelectionV1 } from "../../../types/domain";
+
 export const WORKBENCH_POINTER_DRAG_THRESHOLD = 6;
+
+export interface WorkbenchPointerSourceRow {
+  selected: boolean;
+  managedFileId?: string;
+  browseSessionId?: string;
+  browseEntryId?: string;
+}
+
+export type WorkbenchPointerCaptureRequest =
+  | { selection: LibrarySelectionV1 }
+  | { refs: EntryRef[] };
+
+/** Preserve a multi-selection when dragging a selected row; otherwise drag the row itself. */
+export function workbenchPointerCaptureRequest(
+  row: WorkbenchPointerSourceRow,
+  surface: { selection?: LibrarySelectionV1; refs?: EntryRef[] },
+): WorkbenchPointerCaptureRequest | null {
+  if (row.selected) {
+    if (surface.selection) return { selection: surface.selection };
+    if (surface.refs?.length) return { refs: [...surface.refs] };
+  }
+
+  if (row.managedFileId) {
+    return { refs: [{ kind: "managed", fileId: row.managedFileId }] };
+  }
+  if (row.browseSessionId && row.browseEntryId) {
+    return {
+      refs: [{ kind: "ephemeral", browseSessionId: row.browseSessionId, entryId: row.browseEntryId }],
+    };
+  }
+  return null;
+}
 
 export interface WorkbenchPointerSession {
   token: string;

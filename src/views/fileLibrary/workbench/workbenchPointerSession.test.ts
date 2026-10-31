@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   WorkbenchPointerSessionRegistry,
+  workbenchPointerCaptureRequest,
   workbenchPointerDropDisposition,
   workbenchPointerSessionIsCurrent,
   type WorkbenchPointerSession,
@@ -43,6 +44,24 @@ function currentState(): WorkbenchPointerSessionState {
 }
 
 describe("controlled workbench pointer sessions", () => {
+  it("captures the dragged row when it was not already selected", () => {
+    expect(workbenchPointerCaptureRequest({
+      selected: false,
+      browseSessionId: "browse-1",
+      browseEntryId: "entry-1",
+    }, { refs: [] })).toEqual({ refs: [{ kind: "ephemeral", browseSessionId: "browse-1", entryId: "entry-1" }] });
+  });
+
+  it("preserves the full selection when a selected row is dragged", () => {
+    const selection = { kind: "explicit" as const, fileIds: ["file-1", "file-2"] };
+    expect(workbenchPointerCaptureRequest({ selected: true, managedFileId: "file-1" }, { selection }))
+      .toEqual({ selection });
+  });
+
+  it("rejects rows without a trustworthy managed or browse identity", () => {
+    expect(workbenchPointerCaptureRequest({ selected: false }, { refs: [] })).toBeNull();
+  });
+
   it("opens only after the movement threshold and finishes the matching pointer", () => {
     const registry = new WorkbenchPointerSessionRegistry();
     const opened = registry.begin(session());

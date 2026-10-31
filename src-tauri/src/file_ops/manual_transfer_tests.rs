@@ -176,6 +176,18 @@ fn u1_conflict_keep_both_skip_and_cancel_do_not_overwrite() {
         vec![id.clone()],
     );
     assert!(skipped.rows[0].skipped);
+    assert!(skipped.rows[0].error.is_none());
+    assert!(skipped.rows[0].preview.is_none());
+    assert!(runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: skipped.id,
+            confirmed: true,
+        })
+        .is_err());
+    assert_eq!(
+        fs::read(target.join("original.txt")).unwrap(),
+        b"existing destination"
+    );
     let both = preview(
         &runtime,
         vec![id.clone()],
@@ -210,6 +222,38 @@ fn u1_conflict_keep_both_skip_and_cancel_do_not_overwrite() {
     assert!(f.source.exists());
     runtime.dispose();
 }
+
+#[test]
+fn fl20_skip_still_revalidates_ticket_identity() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let id = capture(&runtime, &f)[0].id.clone();
+    let target = f.root.join("target");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("original.txt"), b"existing destination").unwrap();
+    fs::write(&f.source, b"source changed after capture").unwrap();
+
+    let preview = preview(
+        &runtime,
+        vec![id.clone()],
+        &target,
+        TransferAction::Copy,
+        vec![],
+        vec![id],
+    );
+
+    assert!(!preview.rows[0].skipped);
+    assert_eq!(
+        preview.rows[0].error.as_deref(),
+        Some("transfer_source_changed")
+    );
+    assert_eq!(
+        fs::read(target.join("original.txt")).unwrap(),
+        b"existing destination"
+    );
+    runtime.dispose();
+}
+
 #[test]
 fn u1_cut_move_restore_preserves_identity_and_changed_source_or_destination_rejects() {
     let f = Fixture::new();
@@ -916,6 +960,8 @@ fn fl20_external_directory_conflict_requires_skip_or_keep_both_without_overwrite
         vec![ticket.id.clone()],
     );
     assert!(skipped.rows[0].skipped);
+    assert!(skipped.rows[0].error.is_none());
+    assert!(skipped.rows[0].preview.is_none());
     assert_eq!(
         fs::read(destination.join("folder-conflict/existing.txt")).unwrap(),
         b"keep existing"

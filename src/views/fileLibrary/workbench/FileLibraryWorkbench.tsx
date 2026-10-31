@@ -68,6 +68,8 @@ export function FileLibraryWorkbench({
       useFileManagementStore.getState().activatePane(active.activePaneId);
   }, [active.activePaneId]);
   const locked = useFileManagementStore((s) => s.transferOpen);
+  const transferActive = useFileManagementStore((s) => s.transferActive);
+  const transferLocked = locked || transferActive;
   const management = useFileManagementStore();
   const focus = useCallback(
     (tabId: string, paneId: string) => {
@@ -209,7 +211,7 @@ export function FileLibraryWorkbench({
     ? active.panes.find((pane) => pane.id !== active.activePaneId)
     : undefined;
   const canTransfer =
-    !!peer?.path && !!focusedSurface && focusedSurface.count !== 0 && !locked;
+    !!peer?.path && !!focusedSurface && focusedSurface.count !== 0 && !transferLocked;
   const {
     feedback: internalDrop,
     onPointerDown,
@@ -224,7 +226,7 @@ export function FileLibraryWorkbench({
     wide,
     dual: active.dual,
     active: workspaceActive,
-    locked,
+    locked: transferLocked,
     focus,
     t,
   });
@@ -233,7 +235,7 @@ export function FileLibraryWorkbench({
     model,
     wide,
     active: workspaceActive,
-    locked,
+    locked: transferLocked,
     focus,
     t,
   });

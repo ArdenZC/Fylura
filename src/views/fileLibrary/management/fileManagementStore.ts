@@ -22,6 +22,7 @@ export interface ManagementSurface {
 }
 export interface PendingPaneTransfer {
   paneId: string; sourcePaneId?: string; sourceSignature?: string;
+  destinationSignature?: string;
   tickets: TransferTicket[]; action: TransferAction; destination: string;
   destinationEntry?: BrowseEntryRef; external?: boolean;
 }
@@ -38,13 +39,18 @@ interface ManagementState {
   statuses: Record<string, string>;
   basketOpen: boolean;
   transferOpen: boolean;
+  transferActive: boolean;
+  transferRunning: boolean;
+  activeTransferId: string | null;
   transferTicketIds: string[];
+  externalDropAction: TransferAction;
   pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "copy_other" | "move_other" | null;
   requestAction: (action: ManagementState["pendingAction"]) => void;
 }
 /** Shared tickets, clipboard and outcomes; every source projection has an explicit pane owner. */
 export const useFileManagementStore = create<ManagementState>((set, get) => ({
   owner: null, surface: null, surfaces: {}, activePaneId: null, pendingTransfer: null, transferOpen: false,
+  transferActive: false, transferRunning: false, activeTransferId: null, externalDropAction: "copy",
   basket: [], clipboard: null, results: [], statuses: {}, basketOpen: false, transferTicketIds: [], pendingAction: null,
   activatePane: (activePaneId) => {
     const entry = get().surfaces[activePaneId];

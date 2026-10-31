@@ -11,7 +11,7 @@ const statuses: Difference[] = ["left", "right", "different", "same", "directory
 export function FolderComparison({ paneIds, activate, compact = false }: { paneIds: string[]; activate: (id: string) => void; compact?: boolean }) {
   const { t } = useI18nContext();
   const surfaces = useFileManagementStore((s) => s.surfaces);
-  const locked = useFileManagementStore((s) => s.transferOpen);
+  const locked = useFileManagementStore((s) => s.transferOpen || s.transferActive);
   const sources = paneIds.map((id) => surfaces[id]?.read().browseSource);
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);

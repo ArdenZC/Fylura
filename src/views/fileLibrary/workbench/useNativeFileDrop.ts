@@ -174,7 +174,9 @@ export function useNativeFileDrop({
             try {
               const point = physicalDropPointToClient(payload.position, window.devicePixelRatio);
               const initialStore = useFileManagementStore.getState();
-              const canAccept = !locked && !initialStore.transferOpen && !initialStore.pendingTransfer;
+              const dropAction = payload.type === "drop" ? initialStore.externalDropAction : "copy";
+              if (payload.type === "drop") useFileManagementStore.setState({ externalDropAction: "copy" });
+              const canAccept = !locked && !initialStore.transferActive && !initialStore.transferOpen && !initialStore.pendingTransfer;
               const target = resolveExternalDropTarget(
                 point.x,
                 point.y,
@@ -185,6 +187,10 @@ export function useNativeFileDrop({
               );
               if (payload.type !== "drop") {
                 setFeedback(target ? { ...target, count } : null);
+                return;
+              }
+              if (initialStore.transferActive || initialStore.pendingTransfer) {
+                useAppStore.getState().showError(t("fmTransferBusy"));
                 return;
               }
               if (dropInFlight) return;
@@ -198,6 +204,11 @@ export function useNativeFileDrop({
                 useAppStore.getState().showError(t("wbExternalDropUnsupported"));
                 return;
               }
+              const destinationSignature = initialStore.surfaces[target.paneId]?.read().signature;
+              if (!destinationSignature) {
+                useAppStore.getState().showError(t("wbSelectionChanged"));
+                return;
+              }
               const tickets = await fileManagementApi.captureTransfer({ externalPaths: paths });
               capturedTickets = tickets;
               const currentStore = useFileManagementStore.getState();
@@ -207,9 +218,9 @@ export function useNativeFileDrop({
                 workbenchRef.current,
                 model.getSnapshot(),
                 wide,
-                active && !locked && !currentStore.transferOpen && !currentStore.pendingTransfer,
+                active && !locked && !currentStore.transferActive && !currentStore.transferOpen && !currentStore.pendingTransfer,
               );
-              if (!nativeDropRequestGate.isCurrent(requestToken) || cancelled || currentStore.transferOpen || currentStore.pendingTransfer || !sameExternalDropTarget(target, currentTarget)) {
+              if (!nativeDropRequestGate.isCurrent(requestToken) || cancelled || currentStore.transferActive || currentStore.transferOpen || currentStore.pendingTransfer || currentStore.surfaces[target.paneId]?.read().signature !== destinationSignature || !sameExternalDropTarget(target, currentTarget)) {
                 await releaseTransferTickets(tickets);
                 capturedTickets = [];
                 if (!cancelled && nativeDropRequestGate.isCurrent(requestToken)) {
@@ -225,8 +236,9 @@ export function useNativeFileDrop({
               useFileManagementStore.setState({
                 pendingTransfer: {
                   paneId: target.paneId,
+                  destinationSignature,
                   tickets,
-                  action: "copy",
+                  action: dropAction,
                   destination: target.destination,
                   destinationEntry: target.destinationEntry,
                   external: true,

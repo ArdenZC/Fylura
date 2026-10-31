@@ -53,7 +53,11 @@ interface TreeSession {
 
 function normalizePath(path: string, platform: NodeJS.Platform | "browser") {
   const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "") || "/";
-  return platform === "win32" ? normalized.toLocaleLowerCase() : normalized;
+  if (platform !== "win32") return normalized;
+  const withoutExtendedPrefix = normalized
+    .replace(/^\/\/\?\/unc\//i, "//")
+    .replace(/^\/\/\?\//, "");
+  return withoutExtendedPrefix.toLocaleLowerCase();
 }
 
 function childNodeKey(sessionId: string, pathRef: BrowsePathRef) {

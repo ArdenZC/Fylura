@@ -53,6 +53,12 @@ production modules before parallel edits.
 
 ## Current execution truth
 
+- **Fylura File Library integration and preview acceptance — active in Draft #519.**
+  This task integrates merged #517 and #520, completes the bounded rapid-preview
+  and thumbnail remediation, and records native acceptance. Keep the PR open and
+  Draft pending the Owner's review and merge decision. See
+  [PR #519](https://github.com/ArdenZC/Fylura/pull/519).
+
 - **Smart Lean default Index Scope — implementation/validation in Draft #509.**
   [#508](https://github.com/ArdenZC/Zen-Canvas/issues/508) authorizes one production feature from master `0626e2f`, separate from merged #489 and independent Search performance work. Default Smart Lean, explicit source opt-in, source-owned admission, retained metadata, bounded reconciliation and Settings controls are implemented; Schema46 is proposed in the Draft. Native CI/paired fixture measurements and final-source results are tracked in the Draft; final Owner review remains pending. [Feature and acceptance](tasks/SMART-LEAN-508.md). No merge/release authorization.
 

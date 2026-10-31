@@ -241,6 +241,34 @@ describe("File Library directory tree", () => {
     expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
   });
 
+  it("locates an extended-length Windows browse path against ordinary entry display paths", async () => {
+    const qaLocation = { ...location, displayName: "QA" } as LocationDescriptor;
+    vi.mocked(fileWorkspaceApi.browseStartEnumeration).mockResolvedValue(page([
+      directory("destination", "F:\\QA\\destination", "extended-drive-destination"),
+    ]));
+
+    await render("\\\\?\\F:\\QA\\destination", qaLocation);
+    const active = [...container.querySelectorAll<HTMLButtonElement>('button[aria-current="location"]')]
+      .find((button) => button.title === "F:\\QA\\destination");
+
+    expect(active).toBeTruthy();
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
+  });
+
+  it("locates an extended-length Windows UNC browse path against ordinary UNC entry paths", async () => {
+    const qaLocation = { ...location, displayName: "QA" } as LocationDescriptor;
+    vi.mocked(fileWorkspaceApi.browseStartEnumeration).mockResolvedValue(page([
+      directory("destination", "\\\\server\\share\\QA\\destination", "extended-unc-destination"),
+    ]));
+
+    await render("\\\\?\\UNC\\server\\share\\QA\\destination", qaLocation);
+    const active = [...container.querySelectorAll<HTMLButtonElement>('button[aria-current="location"]')]
+      .find((button) => button.title === "\\\\server\\share\\QA\\destination");
+
+    expect(active).toBeTruthy();
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
+  });
+
   it("keeps the current Browse location unclassified while its pane route hint is unresolved", async () => {
     await render(null);
 

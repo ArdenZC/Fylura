@@ -1,0 +1,6 @@
+B3F-C10 FULL INDEPENDENT ROW/FLOAT/ORDER PARITY
+B3F-C01-one FULL INDEPENDENT ROW/FLOAT/ORDER PARITY
+B3F-C01 FULL INDEPENDENT ROW/FLOAT/ORDER PARITY
+B3F-C11 FULL INDEPENDENT ROW/FLOAT/ORDER PARITY
+B3F-C12 FULL INDEPENDENT ROW/FLOAT/ORDER PARITY
+{"status": "#381_B3F_FEASIBLE_CANDIDATE_READY_FOR_OWNER_REVIEW", "F0": "EXPECTED_REJECTION_OBSERVED: retained-corpus rank and post-LIMIT underfill", "F1": "FEASIBLE_TEST_ONLY: exact native/small and full independent 0/10k/100k parity; sealed shadow generations; main publication below unchanged 5000ms budget", "F2": "EXACT_RANK_MATH_AND_ORDER_PROVEN; CURRENT_NEW_READER_GENERATION_BLOCKED on in-place physical text change until refresh; immutable all-observation/source integration unresolved", "oracle_checks": 760, "sizes": [0, 10000, 100000], "native_small_only": true, "scale_native_oracle_rebuild": false, "percentiles_claimed": false, "exit_code": 0}

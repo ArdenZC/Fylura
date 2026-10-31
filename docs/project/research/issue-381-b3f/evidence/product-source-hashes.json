@@ -1,0 +1,9 @@
+{
+  "src-tauri/Cargo.lock": "cb342e07966b095d5127a99c900451c5d17f71b75ed66a1c8265e9e10355b6d2",
+  "src-tauri/Cargo.toml": "a924fed5f38be0c748934313112d5972a15ceba8473c325af0282b3c2ac9881a",
+  "rust-toolchain.toml": "559f488c181e0e9e77cf17c29de663977f036ec7ff2e2060585714bf53c52d62",
+  "src-tauri/src/db/schema.rs": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7",
+  "src-tauri/src/db/queries/library/mod.rs": "b58405d04532510c72bc50c2f85bd7df783179359d75ae383191df029c412e11",
+  "src-tauri/src/db/queries/files.rs": "57ac70219a460b6e1dc4a24e5bd7762f215a8db0c8ea11fc945609a6e3d5dc9b",
+  "src-tauri/src/db/queries/mod.rs": "df21ae6e30c34ea306530824d85e38e849c3c684c23f6362755ec9440ecf056f"
+}

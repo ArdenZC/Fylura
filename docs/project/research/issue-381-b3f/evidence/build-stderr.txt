@@ -1,0 +1,2 @@
+   Compiling issue381-b3f-probe v0.1.0 (/workspace/Zen-Canvas-b3f/tests/issue381_b3_fts)
+    Finished `release` profile [optimized] target(s) in 6.41s

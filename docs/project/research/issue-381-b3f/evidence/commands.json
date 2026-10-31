@@ -1,0 +1,239 @@
+[
+  {
+    "argv": [
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "--manifest-path",
+      "/workspace/Zen-Canvas-b3f/tests/issue381_b3_fts/Cargo.toml"
+    ],
+    "environment_overrides": {
+      "PATH": "/workspace/.cache/cargo/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override:/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin:/opt/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/fallback",
+      "RUSTUP_HOME": "/workspace/.cache/rustup",
+      "CARGO_HOME": "/workspace/.cache/cargo",
+      "CARGO_TARGET_DIR": "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/target",
+      "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 6.439823922999494,
+    "stdout_file": "build-stdout.txt",
+    "stderr_file": "build-stderr.txt"
+  },
+  {
+    "argv": [
+      "cargo",
+      "fmt",
+      "--manifest-path",
+      "/workspace/Zen-Canvas-b3f/tests/issue381_b3_fts/Cargo.toml",
+      "--",
+      "--check"
+    ],
+    "environment_overrides": {
+      "PATH": "/workspace/.cache/cargo/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override:/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin:/opt/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/fallback",
+      "RUSTUP_HOME": "/workspace/.cache/rustup",
+      "CARGO_HOME": "/workspace/.cache/cargo",
+      "CARGO_TARGET_DIR": "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/target",
+      "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.0877198669986683,
+    "stdout_file": "format-stdout.txt",
+    "stderr_file": "format-stderr.txt"
+  },
+  {
+    "argv": [
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/target/release/issue381-b3f-probe",
+      "probe",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C10.json",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C10-database",
+      "B3F-C10"
+    ],
+    "environment_overrides": {},
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.0639957029998186,
+    "raw_stdout_archive": "B3F-C10-native.jsonl.gz",
+    "stderr_file": "B3F-C10-stderr.txt",
+    "fixture_sha256": "72db0165b5a5cae93d491b2c6c9e51f8816913650536fc07e81a0f696e4ba32a"
+  },
+  {
+    "argv": [
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/target/release/issue381-b3f-probe",
+      "probe",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C01-one.json",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C01-one-database",
+      "B3F-C01-one"
+    ],
+    "environment_overrides": {},
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.06395777199941222,
+    "raw_stdout_archive": "B3F-C01-one-native.jsonl.gz",
+    "stderr_file": "B3F-C01-one-stderr.txt",
+    "fixture_sha256": "fa4bbf64eae23489ce2c9e755e0e53f2669b79252118f3431d0c6a7547cb3c4d"
+  },
+  {
+    "argv": [
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/target/release/issue381-b3f-probe",
+      "probe",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C01.json",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C01-database",
+      "B3F-C01"
+    ],
+    "environment_overrides": {},
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.8167723530004878,
+    "raw_stdout_archive": "B3F-C01-native.jsonl.gz",
+    "stderr_file": "B3F-C01-stderr.txt",
+    "fixture_sha256": "1c42afbe4ceea1d8e9dcc423b8cb2a4acfd5ae4c09334978d4154a714898cd63"
+  },
+  {
+    "argv": [
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/target/release/issue381-b3f-probe",
+      "probe",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C11.json",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C11-database",
+      "B3F-C11"
+    ],
+    "environment_overrides": {},
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 2.4715415589998884,
+    "raw_stdout_archive": "B3F-C11-native.jsonl.gz",
+    "stderr_file": "B3F-C11-stderr.txt",
+    "fixture_sha256": "e52b957a112c50f237c448dc1b7f0679ca4cbc7f2bd4d112f06d848828cf4308"
+  },
+  {
+    "argv": [
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/target/release/issue381-b3f-probe",
+      "probe",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C12.json",
+      "/workspace/Zen-Canvas-b3f/.tmp-tests/issue381_b3f/run-qualification-source-head-6369/B3F-C12-database",
+      "B3F-C12"
+    ],
+    "environment_overrides": {},
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 30.207368424999004,
+    "raw_stdout_archive": "B3F-C12-native.jsonl.gz",
+    "stderr_file": "B3F-C12-stderr.txt",
+    "fixture_sha256": "6816ce1c4cfbfb93cbe7ed37b2dcf9400b875744cd97ce547036a8b06434bdd2"
+  },
+  {
+    "argv": [
+      "rustc",
+      "--version",
+      "--verbose"
+    ],
+    "environment_overrides": {
+      "PATH": "/workspace/.cache/cargo/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override:/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin:/opt/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/fallback",
+      "RUSTUP_HOME": "/workspace/.cache/rustup",
+      "CARGO_HOME": "/workspace/.cache/cargo"
+    },
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.040330812998945476,
+    "stdout_file": "rustc-version-stdout.txt",
+    "stderr_file": "rustc-version-stderr.txt"
+  },
+  {
+    "argv": [
+      "cargo",
+      "--version"
+    ],
+    "environment_overrides": {
+      "PATH": "/workspace/.cache/cargo/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override:/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin:/opt/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/fallback",
+      "RUSTUP_HOME": "/workspace/.cache/rustup",
+      "CARGO_HOME": "/workspace/.cache/cargo"
+    },
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.027863498000442632,
+    "stdout_file": "cargo-version-stdout.txt",
+    "stderr_file": "cargo-version-stderr.txt"
+  },
+  {
+    "argv": [
+      "cc",
+      "--version"
+    ],
+    "environment_overrides": {
+      "PATH": "/workspace/.cache/cargo/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override:/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin:/opt/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/agent/.local/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/fallback",
+      "RUSTUP_HOME": "/workspace/.cache/rustup",
+      "CARGO_HOME": "/workspace/.cache/cargo"
+    },
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.0014595379998354474,
+    "stdout_file": "cc-version-stdout.txt.gz",
+    "stderr_file": "cc-version-stderr.txt",
+    "stdout_encoding": "lossless gzip of unmodified raw stdout",
+    "stdout_raw_sha256": "78fc11ae2c3ff7c235eb18ed90989d18f6cc864fb27027f839368cd0888deebc"
+  },
+  {
+    "argv": [
+      "python",
+      "docs/project/research/issue-381-b3f/evidence/audit.py"
+    ],
+    "environment_overrides": {},
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 1.6159444250006345,
+    "stdout_file": "audit-stdout.txt",
+    "stderr_file": "audit-stderr.txt"
+  },
+  {
+    "argv": [
+      "npm",
+      "run",
+      "test:docs"
+    ],
+    "environment_overrides": {
+      "DOCS_DIFF_BASE": "3275ac7c72df8ae4139a30f16c7f649971324e97"
+    },
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.19538036399899283,
+    "stdout_file": "docs-stdout.txt",
+    "stderr_file": "docs-stderr.txt"
+  },
+  {
+    "argv": [
+      "git",
+      "diff",
+      "--check",
+      "origin/master"
+    ],
+    "environment_overrides": {},
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.005277676000332576,
+    "stdout_file": "diff-stdout.txt",
+    "stderr_file": "diff-stderr.txt"
+  },
+  {
+    "argv": [
+      "git",
+      "diff",
+      "--exit-code",
+      "origin/master",
+      "--",
+      "src",
+      "src-tauri",
+      ".github",
+      "package.json",
+      "package-lock.json",
+      "rust-toolchain.toml"
+    ],
+    "environment_overrides": {},
+    "cwd": "/workspace/Zen-Canvas-b3f",
+    "exit_code": 0,
+    "elapsed_seconds": 0.0027269179990980774,
+    "stdout_file": "production-source-stdout.txt",
+    "stderr_file": "production-source-stderr.txt"
+  }
+]

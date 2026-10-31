@@ -579,12 +579,26 @@ impl FileWorkspaceRuntime {
             .map_err(|_| "transfer_state_unavailable")?
             .previews
             .remove(&request.preview_id)
-            .ok_or("operation_preview_stale")?;
+            .ok_or_else(|| {
+                #[cfg(test)]
+                eprintln!(
+                    "transfer stale at take: preview missing id={}",
+                    request.preview_id
+                );
+                "operation_preview_stale"
+            })?;
         for guard in &plan.trees {
             validate_tree_guard(guard)?;
         }
         for operation in &plan.operations {
-            revalidate(operation)?;
+            if let Err(error) = revalidate(operation) {
+                #[cfg(test)]
+                eprintln!(
+                    "transfer stale at take: revalidation error={error} op={} source={} target={}",
+                    operation.id, operation.source_path, operation.target_path
+                );
+                return Err(error);
+            }
         }
         Ok(ExecuteMovesRequest {
             operations: plan.operations,
@@ -837,7 +851,14 @@ pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<Director
         "move_to_trash" => TransferAction::Trash,
         _ => return Err("operation_preview_stale".into()),
     };
-    let destination_root = decode_transfer_root(&operation.id)?;
+    let destination_root = decode_transfer_root(&operation.id).map_err(|error| {
+        #[cfg(test)]
+        eprintln!(
+            "transfer stale at take: destination root decode failed op={}",
+            operation.id
+        );
+        error
+    })?;
     let source = Path::new(&operation.source_path);
     if action == TransferAction::Trash
         && operation.target_path != safe_trash_operation_target(source, &operation.id)
@@ -857,6 +878,11 @@ pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<Director
         action,
     )?;
     if id != operation.id {
+        #[cfg(test)]
+        eprintln!(
+            "transfer stale at take: id changed old={} new={}",
+            operation.id, id
+        );
         return Err("operation_preview_stale".into());
     }
     Ok(identity)

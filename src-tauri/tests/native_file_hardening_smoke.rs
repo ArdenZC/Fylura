@@ -891,9 +891,15 @@ fn native_file_hardening_smoke() {
         let nested_hash = sha256_file(&directory_source.join("nested").join("内容.bin"));
         let move_preview = native_qa_transfer_move_preview(&directory_source, &target_volume)
             .expect("build transfer preview for the isolated directory move");
+        let canonical_directory_target = target_volume
+            .canonicalize()
+            .expect("canonicalize target volume")
+            .join("cross-volume-directory");
         assert_eq!(
             move_preview.target_path,
-            directory_target.to_string_lossy().replace('\\', "/")
+            canonical_directory_target
+                .to_string_lossy()
+                .replace('\\', "/")
         );
         let move_result = execute_moves_with_persistence(
             &db,

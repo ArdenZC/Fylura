@@ -78,14 +78,18 @@ pub fn native_qa_transfer_move_preview(
     source: &Path,
     destination_directory: &Path,
 ) -> Result<OperationPreviewRequest, String> {
+    let source = source.canonicalize().map_err(|error| error.to_string())?;
+    let destination_directory = destination_directory
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     let name = source
         .file_name()
         .ok_or_else(|| "transfer_source_invalid".to_string())?;
     let target = destination_directory.join(name);
     manual_transfer::make_operation(
         RECOVERY_ACTION_FILE_ID,
-        source,
-        destination_directory,
+        &source,
+        &destination_directory,
         &target,
         manual_transfer::TransferAction::Move,
     )

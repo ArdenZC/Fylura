@@ -10,6 +10,10 @@ pub(crate) mod extension_recency_probe;
 #[path = "tests/fts_rank_frontier.rs"]
 pub(crate) mod rank_frontier;
 
+#[cfg(test)]
+#[path = "tests/search_source_authorization.rs"]
+mod source_authorization_tests;
+
 use super::filename_search::{
     ChangeSet, FilenameSearchIndex, FilenameTrigramCandidate, RankedFileCandidate,
 };
@@ -425,9 +429,16 @@ pub(crate) fn search_global_entries_with_filename_index_on_connection(
 }
 
 const FILENAME_TRIGRAM_ROWID_SQL: &str = r#"
-    SELECT rowid
+    SELECT ge.rowid
     FROM global_entries_fts
+    CROSS JOIN global_entries ge
+    CROSS JOIN global_volumes gv
     WHERE global_entries_fts MATCH ?1
+      AND ge.rowid = global_entries_fts.rowid
+      AND gv.id = ge.volume_id
+      AND gv.enabled = 1 AND gv.coverage_pending = 0
+      AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
+      AND ge.is_stale = 0
 "#;
 
 #[cfg(test)]
@@ -440,6 +451,7 @@ const LEGACY_FILENAME_TRIGRAM_JOIN_SQL: &str = r#"
       AND ge.rowid = global_entries_fts.rowid
       AND gv.id = ge.volume_id
       AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0
+      AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
       AND (instr(ge.name_normalized, ?2) > 0 OR instr(lower(ge.extension), ?2) > 0)
 "#;
 
@@ -539,6 +551,7 @@ fn search_path_only_candidates(
           AND ge.rowid = global_entries_fts.rowid
           AND gv.id = ge.volume_id
           AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0
+          AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
           AND instr(ge.name_normalized, ?2) = 0
           AND instr(lower(ge.extension), ?2) = 0
         ORDER BY ge.modified_at_fs DESC, ge.id COLLATE BINARY ASC
@@ -600,7 +613,9 @@ fn hydrate_ranked_filename_page(
         FROM candidate_keys
         JOIN global_entries ge ON ge.rowid=candidate_keys.entry_rowid
         JOIN global_volumes gv ON gv.id=ge.volume_id
-        WHERE gv.enabled=1 AND gv.coverage_pending=0 AND ge.is_stale=0
+        WHERE gv.enabled=1 AND gv.coverage_pending=0
+          AND (gv.platform != 'windows' OR gv.scope_authorization_state='authorized')
+          AND ge.is_stale=0
         ORDER BY candidate_keys.ordinal ASC
         "#,
         placeholders.join(",")
@@ -714,7 +729,7 @@ fn key_only_candidate_sql(
 fn key_only_name_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -726,7 +741,7 @@ fn key_only_name_prefix_sql() -> String {
 fn key_only_punctuation_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -738,7 +753,7 @@ fn key_only_punctuation_prefix_sql() -> String {
 fn key_only_extension_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -749,7 +764,7 @@ fn key_only_extension_prefix_sql() -> String {
 fn key_only_fts_sql() -> String {
     key_only_candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0",
         "candidate_rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "candidates.candidate_rank ASC, candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -773,7 +788,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
     match tier {
         "exact_name" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
@@ -781,7 +796,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
         "name_prefix" => key_only_name_prefix_sql(),
         "exact_extension" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = lower(?1)",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
@@ -792,7 +807,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
         "fts" => diagnostic_search_fts_sql(),
         "punctuation_prefix" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
@@ -805,7 +820,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
 pub(crate) fn diagnostic_legacy_name_prefix_sql() -> String {
     candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?3",
@@ -827,7 +842,7 @@ fn search_exact_name(
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",
@@ -866,7 +881,7 @@ fn search_exact_extension(
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",
@@ -882,7 +897,10 @@ fn search_exact_extension(
 const EXTENSION_PREFIX_SINGLE_KEY_PROBE_SQL: &str = "
     SELECT DISTINCT ge.extension
     FROM global_entries ge INDEXED BY idx_global_entries_active_extension_order
-    WHERE ge.is_stale = 0
+    JOIN global_volumes gv ON gv.id = ge.volume_id
+    WHERE gv.enabled = 1 AND gv.coverage_pending = 0
+      AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
+      AND ge.is_stale = 0
       AND ge.extension GLOB ?2
       AND ge.extension <> lower(?1)
     LIMIT 2
@@ -891,7 +909,7 @@ const EXTENSION_PREFIX_SINGLE_KEY_PROBE_SQL: &str = "
 fn extension_prefix_legacy_sql() -> String {
     candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
         "?3",
@@ -901,7 +919,7 @@ fn extension_prefix_legacy_sql() -> String {
 fn extension_prefix_single_key_sql() -> String {
     candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.extension = ?4 COLLATE BINARY AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = ?4 COLLATE BINARY AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
         "?3",
@@ -1032,7 +1050,7 @@ pub(crate) fn diagnostic_search_fts_sql() -> String {
 pub(crate) fn diagnostic_legacy_fts_sql() -> String {
     candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0",
         "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "?2",
@@ -1076,7 +1094,7 @@ fn search_punctuation_prefix(
 
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",

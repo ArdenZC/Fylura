@@ -62,7 +62,9 @@ const FILENAME_INDEX_BUILD_SQL: &str =
     "SELECT ge.rowid, ge.id, ge.name_normalized, lower(ge.extension), ge.modified_at_fs
     FROM global_entries ge INDEXED BY idx_global_entries_active_name_order
     JOIN global_volumes gv ON gv.id=ge.volume_id
-    WHERE gv.enabled=1 AND gv.coverage_pending=0 AND ge.is_stale=0
+    WHERE gv.enabled=1 AND gv.coverage_pending=0
+      AND (gv.platform != 'windows' OR gv.scope_authorization_state='authorized')
+      AND ge.is_stale=0
     ORDER BY ge.name_normalized COLLATE BINARY";
 
 #[cfg(test)]
@@ -1093,6 +1095,7 @@ impl FilenameSearchIndex {
             let mut statement = connection.prepare(
                 "SELECT id FROM global_volumes
                  WHERE enabled=1 AND coverage_pending=0
+                   AND (platform != 'windows' OR scope_authorization_state='authorized')
                  ORDER BY id COLLATE BINARY",
             )?;
             let active_volume_ids = statement
@@ -1406,6 +1409,7 @@ impl FilenameSearchIndex {
         let mut statement = connection.prepare(
             "SELECT id FROM global_volumes
              WHERE enabled=1 AND coverage_pending=0
+               AND (platform != 'windows' OR scope_authorization_state='authorized')
              ORDER BY id COLLATE BINARY",
         )?;
         let active_volume_ids = statement
@@ -1430,7 +1434,9 @@ impl FilenameSearchIndex {
              FROM json_each(?1) changed
              JOIN global_entries ge ON ge.rowid=CAST(changed.value AS INTEGER)
              JOIN global_volumes gv ON gv.id=ge.volume_id
-             WHERE gv.enabled=1 AND gv.coverage_pending=0 AND ge.is_stale=0",
+             WHERE gv.enabled=1 AND gv.coverage_pending=0
+               AND (gv.platform != 'windows' OR gv.scope_authorization_state='authorized')
+               AND ge.is_stale=0",
         )?;
         let rows = statement
             .query_map([encoded], |row| {

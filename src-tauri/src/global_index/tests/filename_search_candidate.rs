@@ -86,7 +86,9 @@ fn oracle_rows(connection: &Connection) -> Vec<OracleRow> {
                    ge.name_normalized, ge.path_normalized
             FROM global_entries ge
             JOIN global_volumes gv ON gv.id=ge.volume_id
-            WHERE gv.enabled=1 AND gv.coverage_pending=0 AND ge.is_stale=0
+            WHERE gv.enabled=1 AND gv.coverage_pending=0
+              AND (gv.platform != 'windows' OR gv.scope_authorization_state='authorized')
+              AND ge.is_stale=0
             "#,
         )
         .expect("prepare independent full-row oracle");

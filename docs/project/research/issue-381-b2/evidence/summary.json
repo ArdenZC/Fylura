@@ -1,0 +1,8 @@
+{
+  "status": "B2_TEST_ONLY_ORACLE_READY_FOR_OWNER_REVIEW",
+  "positive_passed": 16,
+  "expected_rejections_observed": 6,
+  "case_count": 22,
+  "elapsed_seconds": 3.2066268920898438,
+  "exit_code": 0
+}

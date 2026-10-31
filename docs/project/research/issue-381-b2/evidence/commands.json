@@ -1,0 +1,101 @@
+[
+  {
+    "name": "harness",
+    "argv": [
+      "python",
+      "tests/issue381_b2/run.py",
+      "--output",
+      "/workspace/scratch/b2-trace-final"
+    ],
+    "environment_overrides": {
+      "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    "exit_code": 0,
+    "elapsed_seconds": 3.27083158493042,
+    "stdout_file": "harness-stdout.txt",
+    "stderr_file": "harness-stderr.txt",
+    "cwd": "/workspace/Zen-Canvas-b2"
+  },
+  {
+    "name": "documentation",
+    "argv": [
+      "npm",
+      "run",
+      "test:docs"
+    ],
+    "environment_overrides": {
+      "DOCS_DIFF_BASE": "3275ac7c72df8ae4139a30f16c7f649971324e97"
+    },
+    "exit_code": 0,
+    "elapsed_seconds": 0.17825698852539062,
+    "stdout_file": "documentation-stdout.txt",
+    "stderr_file": "documentation-stderr.txt",
+    "cwd": "/workspace/Zen-Canvas-b2"
+  },
+  {
+    "name": "diff-check",
+    "argv": [
+      "git",
+      "diff",
+      "--check",
+      "origin/master"
+    ],
+    "environment_overrides": {},
+    "exit_code": 0,
+    "elapsed_seconds": 0.012006282806396484,
+    "stdout_file": "diff-check-stdout.txt",
+    "stderr_file": "diff-check-stderr.txt",
+    "cwd": "/workspace/Zen-Canvas-b2"
+  },
+  {
+    "name": "source-diff",
+    "argv": [
+      "git",
+      "diff",
+      "--exit-code",
+      "origin/master",
+      "--",
+      "src",
+      "src-tauri",
+      ".github",
+      "package.json",
+      "package-lock.json",
+      "Cargo.toml",
+      "Cargo.lock"
+    ],
+    "environment_overrides": {},
+    "exit_code": 0,
+    "elapsed_seconds": 0.003353595733642578,
+    "stdout_file": "source-diff-stdout.txt",
+    "stderr_file": "source-diff-stderr.txt",
+    "cwd": "/workspace/Zen-Canvas-b2"
+  },
+  {
+    "name": "base-diff",
+    "argv": [
+      "git",
+      "diff",
+      "--name-status",
+      "origin/master"
+    ],
+    "environment_overrides": {},
+    "exit_code": 0,
+    "elapsed_seconds": 0.004051923751831055,
+    "stdout_file": "base-diff-stdout.txt",
+    "stderr_file": "base-diff-stderr.txt",
+    "cwd": "/workspace/Zen-Canvas-b2"
+  },
+  {
+    "name": "raw-evidence-audit",
+    "argv": [
+      "python",
+      "docs/project/research/issue-381-b2/evidence/audit.py"
+    ],
+    "environment_overrides": {},
+    "exit_code": 0,
+    "elapsed_seconds": 0.07715392112731934,
+    "stdout_file": "audit-stdout.txt",
+    "stderr_file": "audit-stderr.txt",
+    "cwd": "/workspace/Zen-Canvas-b2"
+  }
+]

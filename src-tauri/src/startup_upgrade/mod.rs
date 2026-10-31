@@ -1,11 +1,10 @@
 //! A native modal loop remains live while SQLite opens on a worker. No webview,
 //! IPC permission, indexer or watcher is started before the database is ready.
-use std::{
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
-    },
+use std::path::PathBuf;
+#[cfg(any(windows, target_os = "macos"))]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc,
 };
 use zen_canvas_tauri::db::Database;
 #[cfg(target_os = "macos")]
@@ -20,16 +19,21 @@ pub fn run_native_qa() -> Result<(), String> {
     qa::run()
 }
 
+#[cfg(any(windows, target_os = "macos"))]
 const TITLE: &str = "Zen Canvas — Database upgrade";
+#[cfg(any(windows, target_os = "macos"))]
 const MESSAGE: &str = "Preparing your local search database";
+#[cfg(any(windows, target_os = "macos"))]
 const DETAILS: &str = "Checking available storage, updating search indexes and preparing exact source statistics. This may take several minutes. Your files are not changed.\n\nYou can cancel and retry when you next open Zen Canvas. Please keep the app open until cancellation finishes.";
 
+#[cfg(any(windows, target_os = "macos"))]
 struct Worker {
     path: PathBuf,
     cancel: Arc<AtomicBool>,
     receiver: Option<mpsc::Receiver<Result<Database, String>>>,
     result: Option<Result<Database, String>>,
 }
+#[cfg(any(windows, target_os = "macos"))]
 impl Worker {
     fn new(path: PathBuf) -> Self {
         Self {
@@ -88,6 +92,7 @@ impl Worker {
     }
 }
 
+#[cfg(any(windows, target_os = "macos"))]
 impl Drop for Worker {
     fn drop(&mut self) {
         // Even an unexpected native dialog failure must not leave an invisible
@@ -156,6 +161,7 @@ pub fn open(path: PathBuf, background: bool) -> Result<Database, String> {
     }
 }
 
+#[cfg(any(windows, target_os = "macos"))]
 fn recovery_message(error: &str, path: &std::path::Path) -> String {
     format!("The database could not be opened.\n\n{error}\n\nDatabase location: {}\n\nFree space on the database and system temporary volumes if storage is full, then choose Retry. Close other Zen Canvas processes if the database is busy.\n\nIf the problem persists, exit all Zen Canvas processes, then preserve the database together with any existing -wal and -shm files before contacting support. Do not delete indexes or change the schema version. A completed commit is retained; an interrupted transaction is recovered by SQLite at the next open.", path.display())
 }

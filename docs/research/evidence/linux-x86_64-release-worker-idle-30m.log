@@ -1,0 +1,16 @@
+Zen Canvas Global Search — Linux Release worker idle qualification
+Result: PASS
+Source identity: local HEAD c20459063b4956bd3ee696cbd9920640b26fba1c. Linux runtime/search-view code is identical to that commit; the intervening platform correction is macOS-only and the workflow change is a path filter.
+Fixture: 100,000 synthetic entries; opt-in worker enabled; idle interval 1,800 seconds.
+Test: global_index::search_view::benchmark::global_search_view_worker_idle_stability_benchmark (--ignored --exact; --release; one test thread).
+Environment: ZEN_CANVAS_SEARCH_VIEW_IDLE_ENTRIES=100000; ZEN_CANVAS_SEARCH_VIEW_IDLE_SECONDS=1800.
+The raw Cargo output follows.
+   Compiling zen-canvas-tauri v0.1.40 (/workspace/Zen-Canvas-pr497/src-tauri)
+    Finished `release` profile [optimized] target(s) in 2m 26s
+     Running unittests src/lib.rs (src-tauri/target/release/deps/zen_canvas_tauri-d69b733972e18937)
+
+running 1 test
+test global_index::search_view::benchmark::global_search_view_worker_idle_stability_benchmark ... search_view_idle_stability={"accounted_memory_before_and_after_bytes":[12984384,12984384],"accounted_peak_memory_after_bytes":13080371,"average_sampled_process_cpu_percent":1.083717703819275,"cpu_samples":35668,"feed_generation_before_and_after":[100001,100001],"full_builds_before_and_after":[1,1],"generation_lag_before_and_after":[0,0],"idle_seconds":1800,"incremental_batches_before_and_after":[0,0],"peak_process_cpu_percent":23.600000381469727,"process_io_counters_reported_nonzero":false,"retry_count_before_and_after":[0,0],"retry_exhausted_before_and_after":[0,0],"rows":100000,"rss_after_bytes":46092288,"rss_before_bytes":169320448,"rss_delta_bytes":-123228160,"sampled_peak_rss_bytes":169406464,"startup_catchup_ms":141.47046999999998,"view_generation_before_and_after":[100001,100001],"worker_enabled_before_and_after":true}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1239 filtered out; finished in 1809.32s

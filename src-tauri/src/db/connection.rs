@@ -70,6 +70,8 @@ impl ManagedAiWakeSlot {
 pub struct Database {
     path: PathBuf,
     pool: Pool<SqliteConnectionManager>,
+    search_change_feed_requested: bool,
+    pub(crate) global_search_view: crate::global_index::search_view::SearchViewManager,
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
     pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
@@ -84,13 +86,30 @@ impl Database {
         path: impl AsRef<Path>,
         cancel: super::upgrade::UpgradeCancellation,
     ) -> Result<Self, DbError> {
+        let shadow_requested = crate::global_index::search_view::SearchViewManager::requested();
+        Self::open_with_shadow_setting(path, cancel, shadow_requested, shadow_requested, false)
+    }
+
+    fn open_with_shadow_setting(
+        path: impl AsRef<Path>,
+        cancel: super::upgrade::UpgradeCancellation,
+        feed_requested: bool,
+        worker_requested: bool,
+        disable_wal_autocheckpoint: bool,
+    ) -> Result<Self, DbError> {
         super::upgrade::check_cancelled(&cancel)?;
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let manager = SqliteConnectionManager::file(&path).with_init(configure_connection);
+        let manager = SqliteConnectionManager::file(&path).with_init(move |conn| {
+            configure_connection(conn)?;
+            if disable_wal_autocheckpoint {
+                conn.pragma_update(None, "wal_autocheckpoint", 0)?;
+            }
+            Ok(())
+        });
         let pool = Pool::builder()
             .max_size(8)
             .min_idle(Some(1))
@@ -100,13 +119,81 @@ impl Database {
             super::schema::migrate_with_cancellation(&conn, cancel)?;
         }
 
+        // The derived feed is installed only for an explicit Stage A run. In
+        // ordinary opens, remove stale feed triggers so subsequent index
+        // writes have the same trigger surface as the no-feed baseline.
+        let search_change_schema_ready = {
+            let conn = pool.get()?;
+            if feed_requested {
+                match super::schema_global_search_changes::install(&conn) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        eprintln!("global_search_change_feed_unavailable reason={error}");
+                        false
+                    }
+                }
+            } else {
+                if let Err(error) =
+                    super::schema_global_search_changes::disable_write_triggers(&conn)
+                {
+                    eprintln!("global_search_change_feed_disable_failed reason={error}");
+                }
+                false
+            }
+        };
+        let global_search_view = crate::global_index::search_view::SearchViewManager::start(
+            pool.clone(),
+            search_change_schema_ready,
+            worker_requested,
+        );
+
         Ok(Self {
             path,
             pool,
+            search_change_feed_requested: feed_requested,
+            global_search_view,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_with_search_change_feed_for_test(
+        path: impl AsRef<Path>,
+        enabled: bool,
+    ) -> Result<Self, DbError> {
+        Self::open_with_search_feed_settings_for_test(path, enabled, false)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_with_search_feed_settings_for_test(
+        path: impl AsRef<Path>,
+        feed_enabled: bool,
+        worker_enabled: bool,
+    ) -> Result<Self, DbError> {
+        Self::open_with_shadow_setting(
+            path,
+            Arc::new(AtomicBool::new(false)),
+            feed_enabled,
+            worker_enabled,
+            false,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_with_search_feed_settings_for_write_benchmark(
+        path: impl AsRef<Path>,
+        feed_enabled: bool,
+        worker_enabled: bool,
+    ) -> Result<Self, DbError> {
+        Self::open_with_shadow_setting(
+            path,
+            Arc::new(AtomicBool::new(false)),
+            feed_enabled,
+            worker_enabled,
+            true,
+        )
     }
 
     pub(crate) fn set_managed_ai_waker(&self, sender: SyncSender<()>) {
@@ -133,7 +220,12 @@ impl Database {
 
     pub fn init(&self) -> Result<(), DbError> {
         let conn = self.conn()?;
-        migrate(&conn)
+        migrate(&conn)?;
+        if self.search_change_feed_requested {
+            super::schema_global_search_changes::install(&conn)
+        } else {
+            super::schema_global_search_changes::disable_write_triggers(&conn)
+        }
     }
 
     pub(crate) fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>, DbError> {
@@ -370,6 +462,52 @@ mod pool_tests {
             .query_row("SELECT 1", [], |row| row.get::<_, i64>(0))
             .expect("run ordinary query");
         assert_eq!(query_result, 1);
+    }
+
+    #[test]
+    fn change_feed_write_triggers_are_installed_only_for_explicit_shadow_runs() {
+        let test_dir = TestDatabaseDirectory::new();
+        let path = test_dir.database_path();
+        let open = |enabled| {
+            Database::open_with_shadow_setting(
+                &path,
+                Arc::new(AtomicBool::new(false)),
+                enabled,
+                false,
+                false,
+            )
+            .expect("open isolated database with requested shadow setting")
+        };
+
+        let enabled = open(true);
+        {
+            let conn = enabled.conn().expect("read enabled database");
+            assert!(conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='trigger' AND name='global_search_changes_entry_ai')",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap());
+        }
+        drop(enabled);
+
+        let disabled = open(false);
+        let conn = disabled.conn().expect("read disabled database");
+        assert!(!conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='trigger' AND name LIKE 'global_search_changes_%')",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap());
+        assert!(conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='global_search_change_state')",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap());
     }
 
     #[test]

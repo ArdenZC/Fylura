@@ -427,6 +427,7 @@ fn main() {
             zen_canvas_tauri::db::upsert_files_by_paths,
             zen_canvas_tauri::db::search_files,
             zen_canvas_tauri::global_index::commands::search_global_entries,
+            zen_canvas_tauri::global_index::commands::get_global_search_view_diagnostics,
             zen_canvas_tauri::global_index::commands::get_global_index_status,
             zen_canvas_tauri::global_index::coverage::command::global_index_coverage,
             zen_canvas_tauri::global_index::commands::list_global_index_sources,

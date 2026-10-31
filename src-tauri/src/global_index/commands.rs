@@ -65,6 +65,23 @@ pub fn search_global_entries(
     })
 }
 
+/// Return aggregate diagnostics for the opt-in shadow worker. This endpoint
+/// contains no query text or file paths and does not change search behavior.
+#[tauri::command]
+pub fn get_global_search_view_diagnostics(
+    db: State<'_, Database>,
+) -> Result<Option<serde_json::Value>, String> {
+    let conn = db.conn().map_err(|error| error.to_string())?;
+    let diagnostics = db
+        .global_search_view
+        .diagnostics(&conn)
+        .map_err(|error| error.to_string())?;
+    diagnostics
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| error.to_string())
+}
+
 fn validate_global_search_request(
     request: &GlobalSearchRequest,
 ) -> Result<(String, String, u32), String> {

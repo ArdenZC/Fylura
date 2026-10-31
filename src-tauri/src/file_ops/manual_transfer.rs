@@ -984,11 +984,10 @@ pub(crate) fn directory_tree_journal_fingerprint(value: Option<&str>) -> Option<
 #[cfg(test)]
 mod transfer_root_tests {
     use super::{decode_transfer_root, encode_path_for_transfer_id};
-    use std::path::Path;
 
     #[test]
     fn transfer_root_decoder_accepts_file_and_directory_v5_ids() {
-        let root = Path::new("/tmp/fylura-transfer-root");
+        let root = std::env::temp_dir().join("fylura-transfer-root");
         let encoded = encode_path_for_transfer_id(root.to_str().expect("UTF-8 test path"));
         let digest = "a".repeat(64);
         let fingerprint = "b".repeat(64);
@@ -1000,7 +999,7 @@ mod transfer_root_tests {
             format!("op-transfer-v5-{digest}---{encoded}"),
             format!("op-transfer-v5-{digest}-{fingerprint}-{encoded}"),
         ] {
-            assert_eq!(decode_transfer_root(&id).unwrap(), root.to_path_buf());
+            assert_eq!(decode_transfer_root(&id).unwrap(), root);
         }
     }
 }

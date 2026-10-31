@@ -1,0 +1,1580 @@
+{
+  "cases": [
+    {
+      "approach": "A",
+      "case": "D3-T01",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T02",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T03",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T04",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending",
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T05",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T06",
+      "oracle_checks": [
+        "durable intent: pending",
+        "durable intent: cancelled",
+        "durable intent: cancelled",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T07",
+      "oracle_checks": [
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T08",
+      "oracle_checks": [
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T09",
+      "oracle_checks": [
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T10",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-before_offer-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-before_offer-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-before_offer-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-before_offer-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_offer-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_offer-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_offer-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_offer-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_grant-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_grant-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_grant-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_grant-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_first_effect-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_first_effect-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_first_effect-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-after_first_effect-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T12",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T13",
+      "oracle_checks": [
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T14",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "publication matches independent inventory/correction ledger",
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T03-prior-PERMISSION_REQUIRED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T03-prior-REBUILD_REQUIRED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T03-prior-ERROR",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T03-prior-PAUSED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T03-prior-UNAVAILABLE",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T14-fault-Paused",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T14-fault-PermissionRequired",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T14-fault-RebuildRequired",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T14-fault-Provider",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T14-fault-WindowsIo",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T11-live-owner-wake",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T04-different-source-fault",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s2",
+        "multi-source degraded aggregate contains only actual s2 fault"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T06-old-intent-cancel",
+      "oracle_checks": [
+        "durable intent: pending",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T06-before-intent-commit",
+      "oracle_checks": [
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T09-legal-event-routes",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T10-checkpoint-only",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T14-staged-source-fault",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "D3-T05-same-source-competition",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "A",
+      "case": "N01",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "skip_busy_leaves_speculative_health"
+    },
+    {
+      "approach": "A",
+      "case": "N02",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "blind_restore_overwrites_new_owner"
+    },
+    {
+      "approach": "A",
+      "case": "N03",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "pre_admission_destructive_stale"
+    },
+    {
+      "approach": "A",
+      "case": "N04",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "old_event_same_status_ABA"
+    },
+    {
+      "approach": "A",
+      "case": "N05",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "unknown_no_replay"
+    },
+    {
+      "approach": "A",
+      "case": "N06",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "scheduler_lease_is_not_service_admission"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T01",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T02",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T03",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T04",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending",
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T05",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T06",
+      "oracle_checks": [
+        "durable intent: pending",
+        "durable intent: cancelled",
+        "durable intent: cancelled",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T07",
+      "oracle_checks": [
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T08",
+      "oracle_checks": [
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T09",
+      "oracle_checks": [
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T10",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-before_offer-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-before_offer-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-before_offer-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-before_offer-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_offer-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_offer-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_offer-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_offer-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_grant-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_grant-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_grant-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_grant-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_first_effect-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_first_effect-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_first_effect-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-after_first_effect-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T12",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T13",
+      "oracle_checks": [
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T14",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "publication matches independent inventory/correction ledger",
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T03-prior-PERMISSION_REQUIRED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T03-prior-REBUILD_REQUIRED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T03-prior-ERROR",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T03-prior-PAUSED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T03-prior-UNAVAILABLE",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T14-fault-Paused",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T14-fault-PermissionRequired",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T14-fault-RebuildRequired",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T14-fault-Provider",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T14-fault-WindowsIo",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-live-owner-wake",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T04-different-source-fault",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s2",
+        "multi-source degraded aggregate contains only actual s2 fault"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T06-old-intent-cancel",
+      "oracle_checks": [
+        "durable intent: pending",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T06-before-intent-commit",
+      "oracle_checks": [
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T09-legal-event-routes",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T10-checkpoint-only",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T14-staged-source-fault",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T05-same-source-competition",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T09-expiry-release",
+      "oracle_checks": [
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-offer-lost-service-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "D3-T11-grant-lost-service-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "B",
+      "case": "N01",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "skip_busy_leaves_speculative_health"
+    },
+    {
+      "approach": "B",
+      "case": "N02",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "blind_restore_overwrites_new_owner"
+    },
+    {
+      "approach": "B",
+      "case": "N03",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "pre_admission_destructive_stale"
+    },
+    {
+      "approach": "B",
+      "case": "N04",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "old_event_same_status_ABA"
+    },
+    {
+      "approach": "B",
+      "case": "N05",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "unknown_no_replay"
+    },
+    {
+      "approach": "B",
+      "case": "N06",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "scheduler_lease_is_not_service_admission"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T01",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T02",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T03",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T04",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending",
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T05",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T06",
+      "oracle_checks": [
+        "durable intent: pending",
+        "durable intent: cancelled",
+        "durable intent: cancelled",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T07",
+      "oracle_checks": [
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T08",
+      "oracle_checks": [
+        "monotonic ABA fence",
+        "no committed mutation: s1",
+        "monotonic ABA fence",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T09",
+      "oracle_checks": [
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T10",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-before_offer-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-before_offer-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-before_offer-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-before_offer-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_offer-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_offer-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_offer-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_offer-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_grant-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_grant-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_grant-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_grant-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_first_effect-pause",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_first_effect-cancel",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: cancelled"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_first_effect-shutdown",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-after_first_effect-restart",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T12",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T13",
+      "oracle_checks": [
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T14",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "truthful reconciliation; original published snapshot retained",
+        "publication matches independent inventory/correction ledger",
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T03-prior-PERMISSION_REQUIRED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T03-prior-REBUILD_REQUIRED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T03-prior-ERROR",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T03-prior-PAUSED",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T03-prior-UNAVAILABLE",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T14-fault-Paused",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T14-fault-PermissionRequired",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T14-fault-RebuildRequired",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T14-fault-Provider",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T14-fault-WindowsIo",
+      "oracle_checks": [
+        "no committed mutation: s2"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T11-live-owner-wake",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T04-different-source-fault",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s2",
+        "multi-source degraded aggregate contains only actual s2 fault"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T06-old-intent-cancel",
+      "oracle_checks": [
+        "durable intent: pending",
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T06-before-intent-commit",
+      "oracle_checks": [
+        "no committed mutation: s1"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T09-legal-event-routes",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T10-checkpoint-only",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T14-staged-source-fault",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "durable intent: pending"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "D3-T05-same-source-competition",
+      "oracle_checks": [
+        "no committed mutation: s1",
+        "publication matches independent inventory/correction ledger"
+      ],
+      "status": "PASS"
+    },
+    {
+      "approach": "C",
+      "case": "N01",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "skip_busy_leaves_speculative_health"
+    },
+    {
+      "approach": "C",
+      "case": "N02",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "blind_restore_overwrites_new_owner"
+    },
+    {
+      "approach": "C",
+      "case": "N03",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "pre_admission_destructive_stale"
+    },
+    {
+      "approach": "C",
+      "case": "N04",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "old_event_same_status_ABA"
+    },
+    {
+      "approach": "C",
+      "case": "N05",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "unknown_no_replay"
+    },
+    {
+      "approach": "C",
+      "case": "N06",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "status": "PASS",
+      "violated_invariant": "scheduler_lease_is_not_service_admission"
+    },
+    {
+      "approach": "C",
+      "case": "C-unified-authority-coverage",
+      "expected_rejection_observed": true,
+      "oracle_checks": [],
+      "oracle_failure": "committed source/published data overwritten: s1",
+      "platform_authority": "BLOCKED",
+      "scope": "persistent cooperative arbiter is not mandatory authority for independent existing SQL connections",
+      "status": "BLOCKED_EXPECTED_REJECTION",
+      "violated_invariant": "C_unregistered_database_writer_bypasses_arbiter"
+    }
+  ],
+  "exit_code": 0,
+  "failures": [],
+  "matrix": {
+    "A": {
+      "T01_T14": true,
+      "failures": 0,
+      "full_scope": "PASS_research_scope",
+      "negative_controls_rejected": 6,
+      "passing_cases": 53
+    },
+    "B": {
+      "T01_T14": true,
+      "failures": 0,
+      "full_scope": "PASS_research_scope",
+      "negative_controls_rejected": 6,
+      "passing_cases": 56
+    },
+    "C": {
+      "T01_T14": true,
+      "failures": 0,
+      "full_scope": "BLOCKED_unregistered_SQL_writer",
+      "negative_controls_rejected": 6,
+      "passing_cases": 54
+    }
+  },
+  "production": "NO_GO_pending_Owner_schema_writer_coverage_and_native_acceptance",
+  "raw_sha256": "039f8b3a5feea43af48fe6a5a7e314d4a3fcb0da21555a809a5b690d5808c1ac",
+  "recommended": "A",
+  "terminal": "ISSUE_380_D3_COMPARATIVE_TEST_ONLY_READY_FOR_OWNER_REVIEW",
+  "test_source_sha256": {
+    "tests/issue380_d3/fixture.sql": "20544ad387f97cf38f295db454a742c07667893b91b82a9c3590eeb870959468",
+    "tests/issue380_d3/model.py": "e6d58bf44076294ce05bac35677438501bb43d85c9786f02807d5af6ab62fe43",
+    "tests/issue380_d3/oracle.py": "e7e17ae29ee298997b37aa229db8a182ac2db8f0b0a8b562eb4de4e3c030627b",
+    "tests/issue380_d3/process.py": "6bb74d6c3624269c598a18a249dcde3e8633af4b286e89d3ea7cf13a08aa439e",
+    "tests/issue380_d3/producer.py": "93961dae0ec3328cf1327e14fd14c93c5b6422d8a55e4ef60c8a18ac5317f40b",
+    "tests/issue380_d3/run.py": "1a57a177f9d172ec0ce5777e43e271a35dfea186f1cd400259b7a35593dce3f1",
+    "tests/issue380_d3/scenarios.py": "78dc1baeeed76bbfa61dfe1449f489afd0ae1181e1ef4c8e11e538e893422357",
+    "tests/issue380_d3/verify_evidence.py": "5e6ab68fc46313dcdefa249ff2a707b793a3831500f8a0f421b041485ca48ed5",
+    "tests/issue380_d3/wire.py": "e8feba0b0bcd0a576f73b65bf947dadb3aa2a101a9a1dd9fd5066da05894261a"
+  }
+}

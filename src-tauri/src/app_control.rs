@@ -1106,16 +1106,18 @@ fn ensure_main_window_locked<R: Runtime>(
     // This is QA-only; never change installed-user browser storage in production builds.
     #[cfg(all(target_os = "windows", feature = "native-qa"))]
     let builder = builder.data_directory(
-        crate::native_qa_profile_root()?.join("webview2").join(MAIN_WINDOW_LABEL),
+        crate::native_qa_profile_root()?
+            .join("webview2")
+            .join(MAIN_WINDOW_LABEL),
     );
     let window = match builder.build() {
-            Ok(window) => window,
-            Err(error) => {
-                let _ = workspace.abort_generation(generation);
-                readiness.invalidate_generation(generation);
-                return Err(error.to_string());
-            }
-        };
+        Ok(window) => window,
+        Err(error) => {
+            let _ = workspace.abort_generation(generation);
+            readiness.invalidate_generation(generation);
+            return Err(error.to_string());
+        }
+    };
 
     app.state::<ExitIntentState>().record_window_created();
     let app_handle = app.clone();

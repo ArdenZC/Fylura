@@ -33,7 +33,9 @@ pub mod window_auth;
 
 use db::Database;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, Runtime};
+#[cfg(not(feature = "native-qa"))]
+use tauri::Manager;
+use tauri::{AppHandle, Runtime};
 
 pub use ai::classification::{
     cancel_ai_classification, classify_files_with_ai, classify_selected_files_with_ai,
@@ -155,7 +157,7 @@ pub fn database_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> 
     #[cfg(feature = "native-qa")]
     {
         let _ = app;
-        return Ok(native_qa_profile_root()?.join("zen-canvas.sqlite3"));
+        Ok(native_qa_profile_root()?.join("zen-canvas.sqlite3"))
     }
 
     #[cfg(not(feature = "native-qa"))]
@@ -182,7 +184,10 @@ mod native_qa_profile_guard_tests {
     #[test]
     fn admits_an_absolute_disposable_qa_root() {
         let root = std::env::temp_dir().join("zen-canvas-qa-root-validation-only");
-        assert_eq!(validate_native_qa_profile_root(Some(root.clone())).unwrap(), root);
+        assert_eq!(
+            validate_native_qa_profile_root(Some(root.clone())).unwrap(),
+            root
+        );
     }
 }
 

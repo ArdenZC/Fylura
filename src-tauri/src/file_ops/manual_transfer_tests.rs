@@ -716,13 +716,9 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
             external_paths: vec![normalize_path(&source)],
         })
         .unwrap();
-    assert_eq!(tickets.len(), 2);
-    assert!(tickets
-        .iter()
-        .any(|ticket| ticket.relative_path == "drop-source/root.txt"));
-    assert!(tickets
-        .iter()
-        .any(|ticket| ticket.relative_path == "drop-source/nested/deeper/child.txt"));
+    assert_eq!(tickets.len(), 1);
+    assert!(tickets[0].is_directory);
+    assert_eq!(tickets[0].relative_path, "drop-source");
 
     let destination = f.root.join("destination");
     fs::create_dir(&destination).unwrap();
@@ -742,11 +738,10 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
             .map(|row| row.error.as_deref())
             .collect::<Vec<_>>()
     );
-    assert!(plan.rows.iter().any(|row| row
+    assert!(plan.rows[0]
         .preview
         .as_ref()
-        .is_some_and(|preview| Path::new(&preview.target_path)
-            .ends_with("drop-source/nested/deeper/child.txt"))));
+        .is_some_and(|preview| Path::new(&preview.target_path).ends_with("drop-source")));
 
     let stale = source.join("late.txt");
     fs::write(&stale, b"arrived after preview").unwrap();
@@ -783,7 +778,7 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
         })
         .unwrap();
     let result = execute_moves_with_persistence(&f.db, request).unwrap();
-    assert_eq!(result.logs.len(), 2);
+    assert_eq!(result.logs.len(), 1);
     assert!(
         result
             .logs
@@ -801,6 +796,314 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
         b"nested bytes"
     );
     assert!(source.join("root.txt").exists());
+    runtime.dispose();
+}
+
+#[cfg(windows)]
+#[test]
+fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with_journal() {
+    use crate::fs_safety::atomic_move::test_faults::{self, AtomicFaultPoint};
+
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("cancelled-folder");
+    fs::create_dir(&source).unwrap();
+    fs::write(
+        source.join("a.txt"),
+        b"first file copied before deterministic cancellation",
+    )
+    .unwrap();
+    fs::write(source.join("b.txt"), b"second file must remain uncopied").unwrap();
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let destination = f.root.join("cancelled-folder-target");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+
+    test_faults::set_fault(Some(AtomicFaultPoint::CancelDirectoryCopyAfterEntry));
+    let result = execute_moves_with_persistence(&f.db, request).unwrap();
+    test_faults::set_fault(None);
+
+    assert_eq!(result.logs.len(), 1);
+    assert_eq!(result.logs[0].status, "skipped");
+    assert_eq!(result.logs[0].operation_phase, "copying");
+    assert!(source.join("a.txt").is_file());
+    assert!(source.join("b.txt").is_file());
+    assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
+    assert!(fs::read_dir(f.root.as_path()).unwrap().all(|entry| !entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".zen-canvas-claim-")));
+    let history = f.db.get_operation_logs(Some(10)).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].status, "skipped");
+    assert_eq!(history[0].operation_phase, "copying");
+    assert_eq!(
+        crate::path_identity::normalize_for_compare(Path::new(&history[0].source_path)),
+        crate::path_identity::normalize_for_compare(&source)
+    );
+    assert_eq!(
+        crate::path_identity::normalize_for_compare(Path::new(&history[0].target_path)),
+        crate::path_identity::normalize_for_compare(&destination.join("cancelled-folder"))
+    );
+    runtime.dispose();
+}
+
+#[test]
+fn fl20_external_directory_conflict_requires_skip_or_keep_both_without_overwrite() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("folder-conflict");
+    fs::create_dir_all(source.join("nested/empty")).unwrap();
+    fs::write(source.join("nested/item.txt"), b"incoming tree").unwrap();
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let destination = f.root.join("folder-conflict-target");
+    fs::create_dir(&destination).unwrap();
+    fs::create_dir(destination.join("folder-conflict")).unwrap();
+    fs::write(
+        destination.join("folder-conflict/existing.txt"),
+        b"keep existing",
+    )
+    .unwrap();
+
+    let conflict = preview(
+        &runtime,
+        vec![ticket.id.clone()],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    assert_eq!(
+        conflict.rows[0].error.as_deref(),
+        Some("transfer_target_exists")
+    );
+    let skipped = preview(
+        &runtime,
+        vec![ticket.id.clone()],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![ticket.id.clone()],
+    );
+    assert!(skipped.rows[0].skipped);
+    assert_eq!(
+        fs::read(destination.join("folder-conflict/existing.txt")).unwrap(),
+        b"keep existing"
+    );
+
+    let keep_both = preview(
+        &runtime,
+        vec![ticket.id.clone()],
+        &destination,
+        TransferAction::Copy,
+        vec![ticket.id],
+        vec![],
+    );
+    assert!(
+        keep_both.rows[0].error.is_none(),
+        "{:?}",
+        keep_both.rows[0].error
+    );
+    assert!(keep_both.rows[0]
+        .preview
+        .as_ref()
+        .is_some_and(|operation| operation.new_name == "folder-conflict (2)"));
+    let result = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: keep_both.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        result.logs[0].status, "success",
+        "{:?}",
+        result.logs[0].error_message
+    );
+    assert_eq!(
+        fs::read(destination.join("folder-conflict/existing.txt")).unwrap(),
+        b"keep existing"
+    );
+    assert_eq!(
+        fs::read(destination.join("folder-conflict (2)/nested/item.txt")).unwrap(),
+        b"incoming tree"
+    );
+    assert!(destination
+        .join("folder-conflict (2)/nested/empty")
+        .is_dir());
+    assert!(source.join("nested/item.txt").is_file());
+    runtime.dispose();
+}
+
+#[test]
+fn fl20_external_directory_copy_preserves_empty_directories_and_empty_roots() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("empty-source");
+    fs::create_dir_all(source.join("nested/deeper")).unwrap();
+    fs::write(
+        source.join("nested/content.txt"),
+        b"content beside empty branch",
+    )
+    .unwrap();
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    assert_eq!(tickets.len(), 1);
+    let destination = f.root.join("empty-destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![tickets[0].id.clone()],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let result = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        result.logs[0].status, "success",
+        "{:?}",
+        result.logs[0].error_message
+    );
+    assert!(destination.join("empty-source/nested/deeper").is_dir());
+    assert_eq!(
+        fs::read(destination.join("empty-source/nested/content.txt")).unwrap(),
+        b"content beside empty branch"
+    );
+    assert!(source.join("nested/deeper").is_dir());
+
+    let empty = f.root.join("completely-empty");
+    fs::create_dir(&empty).unwrap();
+    let empty_ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&empty)],
+        })
+        .unwrap()
+        .remove(0);
+    let empty_plan = preview(
+        &runtime,
+        vec![empty_ticket.id],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    assert!(
+        empty_plan.rows[0].error.is_none(),
+        "{:?}",
+        empty_plan.rows[0].error
+    );
+    let empty_result = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: empty_plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        empty_result.logs[0].status, "success",
+        "{:?}",
+        empty_result.logs[0].error_message
+    );
+    assert!(destination.join("completely-empty").is_dir());
+    assert_eq!(
+        fs::read_dir(destination.join("completely-empty"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert!(empty.is_dir());
+    runtime.dispose();
+}
+
+#[cfg(windows)]
+#[test]
+fn fl20_windows_external_directory_move_is_explicitly_rejected_without_mutation() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("move-source");
+    fs::create_dir_all(source.join("nested")).unwrap();
+    fs::write(source.join("nested/content.txt"), b"source remains").unwrap();
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let destination = f.root.join("move-target");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    assert_eq!(
+        plan.rows[0].error.as_deref(),
+        Some("transfer_windows_directory_move_unsupported")
+    );
+    assert!(source.join("nested/content.txt").is_file());
+    assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
     runtime.dispose();
 }
 
@@ -934,6 +1237,66 @@ fn fl20_releasing_external_candidates_invalidates_unconfirmed_previews() {
     assert_eq!(error, "operation_preview_stale");
     assert_eq!(fs::read(&source).unwrap(), b"must remain unchanged");
     assert!(!destination.join("external-cancel.txt").exists());
+    runtime.dispose();
+}
+
+#[test]
+fn fl20_releasing_a_repeated_external_capture_preserves_the_basket_ticket() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("shared-source.txt");
+    fs::write(&source, b"basket owner survives external cancellation").unwrap();
+    let capture = || {
+        runtime
+            .capture_transfer(CaptureRequest {
+                refs: vec![],
+                selection: None,
+                release_ids: vec![],
+                external_paths: vec![normalize_path(&source)],
+            })
+            .unwrap()
+            .remove(0)
+    };
+
+    let basket_ticket = capture();
+    let cancelled_external_ticket = capture();
+    assert_ne!(basket_ticket.id, cancelled_external_ticket.id);
+    runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![cancelled_external_ticket.id],
+            external_paths: vec![],
+        })
+        .unwrap();
+
+    let destination = f.root.join("basket-destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![basket_ticket.id],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    let result = execute_moves_with_persistence(&f.db, request).unwrap();
+    assert_eq!(result.logs[0].status, "success");
+    assert_eq!(
+        fs::read(&source).unwrap(),
+        b"basket owner survives external cancellation"
+    );
+    assert_eq!(
+        fs::read(destination.join("shared-source.txt")).unwrap(),
+        b"basket owner survives external cancellation"
+    );
     runtime.dispose();
 }
 

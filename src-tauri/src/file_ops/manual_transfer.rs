@@ -214,40 +214,27 @@ impl FileWorkspaceRuntime {
                 .previews
                 .retain(|_, plan| plan.ticket_ids.iter().all(|id| !release_ids.contains(id)));
         }
+        // Ticket IDs are ownership handles. A second capture of the same
+        // physical source must receive a different ID so releasing a short-
+        // lived drag cannot invalidate a basket, clipboard, or dialog ticket.
         let mut unique = HashSet::new();
-        let additions = captured
-            .iter()
-            .filter(|source| {
-                !state.sources.values().any(|old| {
-                    old.ticket.path == source.ticket.path
-                        && old.identity == source.identity
-                        && old.relative_path == source.relative_path
-                        && old.tree_guard == source.tree_guard
-                }) && unique.insert((
-                    source.ticket.path.clone(),
-                    format!("{:?}", source.identity),
-                    source.ticket.relative_path.clone(),
-                    source
-                        .tree_guard
-                        .as_ref()
-                        .map(|guard| guard.fingerprint.clone()),
-                ))
-            })
-            .count();
+        captured.retain(|source| {
+            unique.insert((
+                source.ticket.path.clone(),
+                format!("{:?}", source.identity),
+                source.ticket.relative_path.clone(),
+                source
+                    .tree_guard
+                    .as_ref()
+                    .map(|guard| guard.fingerprint.clone()),
+            ))
+        });
+        let additions = captured.len();
         if state.sources.len() + additions > LIMIT {
             return Err("transfer_selection_limit_1000".into());
         }
         let mut tickets = Vec::new();
         for source in captured {
-            if let Some(old) = state.sources.values().find(|old| {
-                old.ticket.path == source.ticket.path
-                    && old.identity == source.identity
-                    && old.relative_path == source.relative_path
-                    && old.tree_guard == source.tree_guard
-            }) {
-                tickets.push(old.ticket.clone());
-                continue;
-            }
             if state.sources.len() >= LIMIT {
                 return Err("transfer_selection_limit_1000".into());
             }
@@ -486,6 +473,35 @@ fn action_name(action: TransferAction) -> &'static str {
         TransferAction::Move => "move",
     }
 }
+
+fn validate_transfer_source_path(path: &Path) -> Result<PathBuf, String> {
+    if !path.is_absolute() {
+        return Err(FileOpError::RelativePath.to_string());
+    }
+    if path.to_string_lossy().contains('\0')
+        || path
+            .components()
+            .any(|component| component == std::path::Component::ParentDir)
+    {
+        return Err(FileOpError::UnsafePathTraversal.to_string());
+    }
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            FileOpError::SourceMissing.to_string()
+        } else {
+            FileOpError::Io(error).to_string()
+        }
+    })?;
+    if metadata.is_dir() {
+        let directory =
+            VerifiedDirectory::open_existing(path).map_err(|error| error.to_string())?;
+        ensure_general_file_operation_allowed(directory.path())?;
+        Ok(directory.path().to_path_buf())
+    } else {
+        validate_source_path(path)
+    }
+}
+
 fn snapshot(
     file_id: &str,
     source: &Path,
@@ -499,10 +515,16 @@ fn snapshot(
             .and_then(|name| name.to_str())
             .ok_or("transfer_target_invalid")?,
     )?;
-    if cfg!(windows) && source.is_dir() {
-        return Err("transfer_windows_directory_not_supported".into());
+    let source = validate_transfer_source_path(source)?;
+    let source_is_directory = source.is_dir();
+    if cfg!(windows) && source_is_directory && action == TransferAction::Move {
+        return Err("transfer_windows_directory_move_unsupported".into());
     }
-    let source = validate_source_path(source)?;
+    let tree_fingerprint = if source_is_directory {
+        Some(directory_tree_snapshot(&source)?)
+    } else {
+        None
+    };
     let destination = VerifiedDirectory::open_existing(destination_root)
         .map_err(|e| format!("transfer_destination_identity:{e}"))?;
     VerifiedDirectory::open_existing(source.parent().ok_or("transfer_source_invalid")?)
@@ -512,6 +534,9 @@ fn snapshot(
     let canonical_root = destination_root
         .canonicalize()
         .map_err(|error| format!("transfer_destination_identity:{error}"))?;
+    if source_is_directory && canonical_root.starts_with(&source) {
+        return Err("transfer_directory_into_itself".into());
+    }
     if !target.starts_with(destination_root) {
         return Err("transfer_target_outside_destination".into());
     }
@@ -524,7 +549,7 @@ fn snapshot(
     }
     let digest = blake3::hash(
         format!(
-            "transfer:v3:{file_id}:{}:{}:{action:?}:{identity:?}:{}:{:?}",
+            "transfer:v4:{file_id}:{}:{}:{action:?}:{identity:?}:{tree_fingerprint:?}:{}:{:?}",
             normalize_path(&source),
             normalize_path(target),
             normalize_path(&canonical_root),
@@ -535,7 +560,7 @@ fn snapshot(
     let destination_path = normalize_path(&canonical_root);
     Ok((
         format!(
-            "op-transfer-v3-{}-{}",
+            "op-transfer-v4-{}-{}",
             digest.to_hex(),
             encode_path_for_transfer_id(&destination_path)
         ),
@@ -601,7 +626,7 @@ fn encode_path_for_transfer_id(path: &str) -> String {
 
 fn decode_transfer_root(id: &str) -> Result<PathBuf, String> {
     let payload = id
-        .strip_prefix("op-transfer-v3-")
+        .strip_prefix("op-transfer-v4-")
         .ok_or("operation_preview_stale")?;
     let (digest, encoded_path) = payload.split_once('-').ok_or("operation_preview_stale")?;
     if digest.len() != 64 || encoded_path.is_empty() || encoded_path.len() % 2 != 0 {
@@ -641,7 +666,7 @@ pub(crate) fn execute(
             crate::fs_safety::AtomicMoveError::Cancelled,
         ));
     }
-    let source = validate_source_path(Path::new(&operation.source_path))?;
+    let source = validate_transfer_source_path(Path::new(&operation.source_path))?;
     let target_path = Path::new(&operation.target_path);
     let target_parent_path = target_path
         .parent()
@@ -724,12 +749,6 @@ fn verify_existing_target_route(
     Ok((verified.path().to_path_buf(), verified.identity().clone()))
 }
 
-struct TreeFile {
-    source_path: PathBuf,
-    relative_path: PathBuf,
-    identity: FileIdentityFingerprint,
-}
-
 fn capture_external_sources(paths: Vec<String>) -> Result<Vec<Source>, String> {
     let mut captured = Vec::new();
     let mut seen = HashSet::new();
@@ -761,41 +780,35 @@ fn capture_external_sources(paths: Vec<String>) -> Result<Vec<Source>, String> {
             if !seen.insert(dedupe_key) {
                 continue;
             }
-            captured.push(make_captured_source(path, relative_path, identity, None)?);
+            captured.push(make_captured_source(
+                path,
+                relative_path,
+                identity,
+                None,
+                false,
+            )?);
             operation_count += 1;
         } else if path.is_dir() {
             let root_name = utf8_file_name(&path)?;
-            let (files, fingerprint, contains_empty_directory) = directory_tree_snapshot(&path)?;
-            if contains_empty_directory {
-                return Err("transfer_empty_directory_unsupported".into());
-            }
-            if files.is_empty() {
-                return Err("transfer_empty_directory_unsupported".into());
-            }
+            let fingerprint = directory_tree_snapshot(&path)?;
             let guard = TreeGuard {
                 root: path.clone(),
                 fingerprint,
             };
-            for file in files {
-                let relative_path = PathBuf::from(&root_name).join(file.relative_path);
-                let dedupe_key = (
-                    normalize_path(&file.source_path),
-                    utf8_relative_path(&relative_path)?,
-                );
-                if !seen.insert(dedupe_key) {
-                    continue;
-                }
-                captured.push(make_captured_source(
-                    file.source_path,
-                    relative_path,
-                    file.identity,
-                    Some(guard.clone()),
-                )?);
-                operation_count += 1;
-                if operation_count > LIMIT {
-                    return Err("transfer_selection_limit_1000".into());
-                }
+            let relative_path = PathBuf::from(&root_name);
+            let dedupe_key = (normalize_path(&path), utf8_relative_path(&relative_path)?);
+            if !seen.insert(dedupe_key) {
+                continue;
             }
+            let identity = file_namespace_fingerprint(&path)?;
+            captured.push(make_captured_source(
+                path,
+                relative_path,
+                identity,
+                Some(guard),
+                true,
+            )?);
+            operation_count += 1;
         } else {
             return Err("transfer_source_invalid".into());
         }
@@ -811,6 +824,7 @@ fn make_captured_source(
     relative_path: PathBuf,
     identity: FileIdentityFingerprint,
     tree_guard: Option<TreeGuard>,
+    is_directory: bool,
 ) -> Result<Source, String> {
     if identity.platform_file_id.is_none() || identity.platform_volume_id.is_none() {
         return Err("transfer_identity_unavailable".into());
@@ -822,7 +836,7 @@ fn make_captured_source(
         id: new_job_id("transfer-source"),
         name,
         path: normalize_path(&path),
-        is_directory: false,
+        is_directory,
         relative_path: relative_path_display,
     };
     Ok(Source {
@@ -834,7 +848,7 @@ fn make_captured_source(
     })
 }
 
-fn directory_tree_snapshot(root: &Path) -> Result<(Vec<TreeFile>, String, bool), String> {
+fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
     let root_identity = crate::fs_safety::capture_source_object_identity(root)
         .map_err(|error| error.to_string())?;
     if !root.is_dir() {
@@ -842,17 +856,15 @@ fn directory_tree_snapshot(root: &Path) -> Result<(Vec<TreeFile>, String, bool),
     }
     let root_namespace = file_namespace_fingerprint(root)?;
     let mut records = vec![format!(".:directory:{root_identity:?}:{root_namespace:?}")];
-    let mut files = Vec::new();
     let mut entry_count = 0usize;
-    let mut contains_empty_directory = false;
+    let mut file_count = 0usize;
     collect_directory_tree(
         root,
         root,
         0,
         &mut entry_count,
         &mut records,
-        &mut files,
-        &mut contains_empty_directory,
+        &mut file_count,
     )?;
     records.sort();
     let mut hasher = blake3::Hasher::new();
@@ -860,12 +872,7 @@ fn directory_tree_snapshot(root: &Path) -> Result<(Vec<TreeFile>, String, bool),
         hasher.update(record.as_bytes());
         hasher.update(&[0]);
     }
-    let has_no_files = files.is_empty();
-    Ok((
-        files,
-        hasher.finalize().to_hex().to_string(),
-        contains_empty_directory || has_no_files,
-    ))
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn collect_directory_tree(
@@ -874,8 +881,7 @@ fn collect_directory_tree(
     depth: usize,
     entry_count: &mut usize,
     records: &mut Vec<String>,
-    files: &mut Vec<TreeFile>,
-    contains_empty_directory: &mut bool,
+    file_count: &mut usize,
 ) -> Result<(), String> {
     if depth >= EXTERNAL_TREE_DEPTH_LIMIT {
         return Err("transfer_directory_depth_limit".into());
@@ -901,33 +907,17 @@ fn collect_directory_tree(
             .to_path_buf();
         let relative_display = utf8_relative_path(&relative_path)?;
         if path.is_dir() {
-            let before = files.len();
             records.push(format!(
                 "{relative_display}:directory:{physical_identity:?}:{identity:?}"
             ));
-            collect_directory_tree(
-                root,
-                &path,
-                depth + 1,
-                entry_count,
-                records,
-                files,
-                contains_empty_directory,
-            )?;
-            if files.len() == before {
-                *contains_empty_directory = true;
-            }
+            collect_directory_tree(root, &path, depth + 1, entry_count, records, file_count)?;
         } else if path.is_file() {
             validate_source_path(&path)?;
             records.push(format!(
                 "{relative_display}:file:{physical_identity:?}:{identity:?}"
             ));
-            files.push(TreeFile {
-                source_path: path.canonicalize().map_err(|error| error.to_string())?,
-                relative_path,
-                identity,
-            });
-            if files.len() > LIMIT {
+            *file_count += 1;
+            if *file_count > LIMIT {
                 return Err("transfer_selection_limit_1000".into());
             }
         } else {
@@ -938,7 +928,7 @@ fn collect_directory_tree(
 }
 
 fn validate_tree_guard(guard: &TreeGuard) -> Result<(), String> {
-    let (_, fingerprint, _) = directory_tree_snapshot(&guard.root)?;
+    let fingerprint = directory_tree_snapshot(&guard.root)?;
     if fingerprint == guard.fingerprint {
         Ok(())
     } else {

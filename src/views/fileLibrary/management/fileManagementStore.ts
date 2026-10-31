@@ -38,13 +38,14 @@ interface ManagementState {
   statuses: Record<string, string>;
   basketOpen: boolean;
   transferOpen: boolean;
+  transferTicketIds: string[];
   pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "copy_other" | "move_other" | null;
   requestAction: (action: ManagementState["pendingAction"]) => void;
 }
 /** Shared tickets, clipboard and outcomes; every source projection has an explicit pane owner. */
 export const useFileManagementStore = create<ManagementState>((set, get) => ({
   owner: null, surface: null, surfaces: {}, activePaneId: null, pendingTransfer: null, transferOpen: false,
-  basket: [], clipboard: null, results: [], statuses: {}, basketOpen: false, pendingAction: null,
+  basket: [], clipboard: null, results: [], statuses: {}, basketOpen: false, transferTicketIds: [], pendingAction: null,
   activatePane: (activePaneId) => {
     const entry = get().surfaces[activePaneId];
     set({ activePaneId, owner: entry?.owner ?? null, surface: entry?.read ?? null, basketOpen: false });

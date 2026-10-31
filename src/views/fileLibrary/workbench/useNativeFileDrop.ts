@@ -2,6 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useState, type RefObject } from "react";
 import { fileManagementApi } from "../../../api/fileManagementApi";
+import { releaseTransferTickets } from "../management/transferTicketOwnership";
 import { useAppStore } from "../../../store/useAppStore";
 import type { BrowseEntryRef } from "../../../types/fileWorkspace";
 import type { Translator } from "../../../types/ui";
@@ -18,6 +19,39 @@ interface ExternalDropTarget {
 
 export interface ExternalDropFeedback extends ExternalDropTarget {
   count: number;
+}
+
+export class NativeDropRequestGate {
+  private current: { token: number; cancelled: boolean } | null = null;
+  private nextToken = 0;
+
+  begin() {
+    if (this.current) return null;
+    const request = { token: ++this.nextToken, cancelled: false };
+    this.current = request;
+    return request.token;
+  }
+
+  cancel(token: number) {
+    if (this.current?.token === token) this.current.cancelled = true;
+  }
+
+  isCurrent(token: number) {
+    return this.current?.token === token && !this.current.cancelled;
+  }
+
+  finish(token: number) {
+    if (this.current?.token === token) this.current = null;
+  }
+}
+
+const nativeDropRequestGate = new NativeDropRequestGate();
+
+export function sameExternalDropTarget(a: ExternalDropTarget | null, b: ExternalDropTarget | null) {
+  return Boolean(a && b && a.tabId === b.tabId && a.paneId === b.paneId && a.destination === b.destination &&
+    a.destinationEntry?.kind === b.destinationEntry?.kind &&
+    a.destinationEntry?.browseSessionId === b.destinationEntry?.browseSessionId &&
+    a.destinationEntry?.entryId === b.destinationEntry?.entryId);
 }
 
 export function physicalDropPointToClient(
@@ -116,6 +150,7 @@ export function useNativeFileDrop({
     let unlisten: (() => void) | undefined;
     let candidateCount = 0;
     let dropInFlight = false;
+    let activeRequestToken: number | null = null;
 
     void (async () => {
       try {
@@ -134,9 +169,12 @@ export function useNativeFileDrop({
           const paths = nativeDropPaths(payload);
           const count = paths?.length ?? candidateCount;
           void (async () => {
+            let requestToken: number | null = null;
+            let capturedTickets: Awaited<ReturnType<typeof fileManagementApi.captureTransfer>> = [];
             try {
               const point = physicalDropPointToClient(payload.position, window.devicePixelRatio);
-              const canAccept = !locked && !useFileManagementStore.getState().transferOpen;
+              const initialStore = useFileManagementStore.getState();
+              const canAccept = !locked && !initialStore.transferOpen && !initialStore.pendingTransfer;
               const target = resolveExternalDropTarget(
                 point.x,
                 point.y,
@@ -150,6 +188,9 @@ export function useNativeFileDrop({
                 return;
               }
               if (dropInFlight) return;
+              requestToken = nativeDropRequestGate.begin();
+              if (requestToken === null) return;
+              activeRequestToken = requestToken;
               dropInFlight = true;
               candidateCount = 0;
               setFeedback(null);
@@ -158,8 +199,22 @@ export function useNativeFileDrop({
                 return;
               }
               const tickets = await fileManagementApi.captureTransfer({ externalPaths: paths });
-              if (cancelled) {
-                await fileManagementApi.captureTransfer({ releaseIds: tickets.map((ticket) => ticket.id) });
+              capturedTickets = tickets;
+              const currentStore = useFileManagementStore.getState();
+              const currentTarget = resolveExternalDropTarget(
+                point.x,
+                point.y,
+                workbenchRef.current,
+                model.getSnapshot(),
+                wide,
+                active && !locked && !currentStore.transferOpen && !currentStore.pendingTransfer,
+              );
+              if (!nativeDropRequestGate.isCurrent(requestToken) || cancelled || currentStore.transferOpen || currentStore.pendingTransfer || !sameExternalDropTarget(target, currentTarget)) {
+                await releaseTransferTickets(tickets);
+                capturedTickets = [];
+                if (!cancelled && nativeDropRequestGate.isCurrent(requestToken)) {
+                  useAppStore.getState().showError(t("wbSelectionChanged"));
+                }
                 return;
               }
               if (!tickets.length) {
@@ -177,13 +232,22 @@ export function useNativeFileDrop({
                   external: true,
                 },
               });
+              capturedTickets = [];
             } catch (cause) {
+              if (capturedTickets.length) {
+                await releaseTransferTickets(capturedTickets).catch(() => undefined);
+                capturedTickets = [];
+              }
               if (!cancelled) {
                 setFeedback(null);
                 useAppStore.getState().showError(`${t("wbExternalDropUnsupported")} ${String(cause)}`);
               }
             } finally {
               dropInFlight = false;
+              if (requestToken !== null) {
+                nativeDropRequestGate.finish(requestToken);
+                if (activeRequestToken === requestToken) activeRequestToken = null;
+              }
             }
           })();
         });
@@ -196,6 +260,7 @@ export function useNativeFileDrop({
 
     return () => {
       cancelled = true;
+      if (activeRequestToken !== null) nativeDropRequestGate.cancel(activeRequestToken);
       unlisten?.();
     };
   }, [active, focus, locked, model, t, wide, workbenchRef]);

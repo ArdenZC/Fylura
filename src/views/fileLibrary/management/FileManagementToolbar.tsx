@@ -15,6 +15,7 @@ import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { isFileLibraryShortcutExcludedTarget } from "../fileLibraryInteraction";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
 import { useFileManagementStore } from "./fileManagementStore";
+import { releaseTransferTickets } from "./transferTicketOwnership";
 import { getTransferConfirmationDiagnostics } from "./transferConfirmation";
 import "./fileManagement.css";
 
@@ -90,6 +91,11 @@ export function FileManagementToolbar() {
     return () => {
       mounted.current = false; preparing.current++;
       const active = transferRef.current;
+      const activeIds = new Set(active?.tickets.map((ticket) => ticket.id) ?? []);
+      const store = useFileManagementStore.getState();
+      if (store.transferTicketIds.some((id) => activeIds.has(id))) {
+        useFileManagementStore.setState({ transferOpen: false, transferTicketIds: [] });
+      }
       if (!executionSent.current && active && (active.origin === "selection" || active.origin === "external")) {
         void releaseUnused(active.tickets.map((ticket) => ticket.id)).catch(() => {});
       }
@@ -97,7 +103,7 @@ export function FileManagementToolbar() {
   }, []);
   const describeError = useCallback((value: unknown) => {
     const detail = readableError(value);
-    const key = detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
+    const key = detail.includes("transfer_windows_directory_move_unsupported") ? "fmDirectoryMoveUnsupported" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
     return `${t(key)} ${detail}`;
   }, [t]);
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -124,10 +130,7 @@ export function FileManagementToolbar() {
     return captured;
   }
   async function releaseUnused(ids: string[]) {
-    const live = useFileManagementStore.getState();
-    const retained = new Set([...live.basket, ...(live.clipboard?.tickets ?? [])].map((ticket) => ticket.id));
-    const releaseIds = ids.filter((id) => !retained.has(id));
-    if (releaseIds.length) await api.captureTransfer({ releaseIds });
+    await releaseTransferTickets(ids);
   }
   function invalidatePlan() {
     preparing.current++;
@@ -155,11 +158,11 @@ export function FileManagementToolbar() {
     closePanel(false);
     setCancelling(false);
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    useFileManagementStore.setState({ results: [], transferOpen: true }); setPreviewPage(0); setResultPage(0);
+    useFileManagementStore.setState({ results: [], transferOpen: true, transferTicketIds: tickets.map((ticket) => ticket.id) }); setPreviewPage(0); setResultPage(0);
     setTransfer({ tickets, action, origin }); setDestination(currentPath); setPlan(null); setPlanEpoch(null); setSkip([]); setKeepBoth([]); setError("");
   }
   function closeTransfer() {
-    preparing.current++; setTransfer(null); setPlan(null); setPlanEpoch(null); useFileManagementStore.setState({ transferOpen: false });
+    preparing.current++; setTransfer(null); setPlan(null); setPlanEpoch(null); useFileManagementStore.setState({ transferOpen: false, transferTicketIds: [] });
     if (transfer && (transfer.origin === "selection" || transfer.origin === "external")) void releaseUnused(transfer.tickets.map((ticket) => ticket.id)).catch((value) => { if (mounted.current) setError(describeError(value)); });
   }
   function moveSelection() { void run(async () => { begin(await capturedSelection(), "move", "selection"); }); }
@@ -235,7 +238,7 @@ export function FileManagementToolbar() {
         dispose = await tauriApi.onOperationProgress((update) => { if (mounted.current && update.kind === "execute") setProgress(update); });
         if (pane) await pane.beforeMutation(); else await previewController.closeForFileOperation();
         if (cancelRequested.current) {
-          setTransfer(null); useFileManagementStore.setState({ transferOpen: false });
+          setTransfer(null); useFileManagementStore.setState({ transferOpen: false, transferTicketIds: [] });
           if (acceptedTransfer.origin === "external" || acceptedTransfer.origin === "selection") await releaseUnused(acceptedTransfer.tickets.map((ticket) => ticket.id));
           return;
         }
@@ -249,7 +252,7 @@ export function FileManagementToolbar() {
         const current = useFileManagementStore.getState();
         useFileManagementStore.setState({ results: result.logs, statuses, basketOpen: false,
           ...(acceptedTransfer.action === "move" ? { basket: current.basket.filter((ticket) => !succeeded.has(ticket.id)), clipboard: current.clipboard ? { ...current.clipboard, tickets: current.clipboard.tickets.filter((ticket) => !succeeded.has(ticket.id)) } : null } : {}) });
-        setTransfer(null); setPlan(null); setPlanEpoch(null); setNotice(t("fmFinished")); useFileManagementStore.setState({ transferOpen: false });
+        setTransfer(null); setPlan(null); setPlanEpoch(null); setNotice(t("fmFinished")); useFileManagementStore.setState({ transferOpen: false, transferTicketIds: [] });
         if (result.logs.some((log) => log.status !== "success")) setPanel("results");
         previewController.close("escape");
         const affectedSurface = acceptedTransfer.sourcePaneId ? useFileManagementStore.getState().surfaces[acceptedTransfer.sourcePaneId]?.read() : currentSurface();

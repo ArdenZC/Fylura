@@ -12,6 +12,7 @@ import {
   type TransferTicket,
 } from "../../../api/fileManagementApi";
 import { useFileManagementStore } from "../management/fileManagementStore";
+import { releaseTransferTickets } from "../management/transferTicketOwnership";
 import { useAppStore } from "../../../store/useAppStore";
 import type { Translator } from "../../../types/ui";
 import type { FileWorkbenchModel, WorkbenchPane } from "./workbenchModel";
@@ -115,12 +116,7 @@ export function useWorkbenchDrag({
   const clickReset = useRef<number | undefined>(undefined);
 
   const release = useCallback(async (tickets: TransferTicket[]) => {
-    const state = useFileManagementStore.getState();
-    const retained = new Set(
-      [...state.basket, ...(state.clipboard?.tickets ?? [])].map((ticket) => ticket.id),
-    );
-    const releaseIds = tickets.filter((ticket) => !retained.has(ticket.id)).map((ticket) => ticket.id);
-    if (releaseIds.length) await fileManagementApi.captureTransfer({ releaseIds });
+    await releaseTransferTickets(tickets);
   }, []);
 
   const releaseSessionTickets = useCallback((session: PointerSession) => {

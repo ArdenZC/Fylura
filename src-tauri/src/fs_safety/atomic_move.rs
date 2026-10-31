@@ -1477,6 +1477,7 @@ pub mod test_faults {
         TargetDurability,
         TargetIdentity,
         SourceCleanup,
+        CancelDirectoryCopyAfterEntry,
     }
 
     thread_local! {

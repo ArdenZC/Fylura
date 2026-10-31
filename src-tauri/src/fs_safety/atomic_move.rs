@@ -495,7 +495,8 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         AtomicMoveOperation::Rename | AtomicMoveOperation::Trash | AtomicMoveOperation::Restore
     ) && std::fs::symlink_metadata(source)
         .map(|metadata| metadata.is_dir())
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && expected_identity.is_some_and(|expected| expected.full_hash.is_none());
     let expected = match expected_identity {
         Some(expected)
             if expected.full_hash.is_some()

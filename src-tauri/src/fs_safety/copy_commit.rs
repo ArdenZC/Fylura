@@ -765,22 +765,18 @@ fn copy_windows_security_descriptor(
 ) -> Result<(), AtomicMoveError> {
     use windows_sys::Win32::{
         Foundation::GetLastError,
-        Security::{
-            SetFileSecurityW, PROTECTED_DACL_SECURITY_INFORMATION,
-            UNPROTECTED_DACL_SECURITY_INFORMATION,
-        },
+        Security::{SetFileSecurityW, PROTECTED_DACL_SECURITY_INFORMATION},
     };
     let descriptor = read_windows_security_descriptor(source)?;
-    let dacl_inheritance = if descriptor.protected_dacl {
-        PROTECTED_DACL_SECURITY_INFORMATION
-    } else {
-        UNPROTECTED_DACL_SECURITY_INFORMATION
-    };
     let target_wide = source_claim::windows_wide_path(target);
     if unsafe {
         SetFileSecurityW(
             target_wide.as_ptr(),
-            descriptor.information | dacl_inheritance,
+            // Keep the source's current effective ACE list when the staged
+            // entry is created under a different parent. Leaving inheritance
+            // enabled here would silently merge the destination parent's
+            // DACL into the moved tree and could broaden access.
+            descriptor.information | PROTECTED_DACL_SECURITY_INFORMATION,
             descriptor.bytes.as_ptr().cast_mut().cast(),
         )
     } == 0
@@ -797,7 +793,6 @@ fn copy_windows_security_descriptor(
 struct WindowsSecurityDescriptor {
     bytes: Vec<u8>,
     information: u32,
-    protected_dacl: bool,
 }
 
 #[cfg(windows)]
@@ -808,8 +803,8 @@ fn read_windows_security_descriptor(
     use windows_sys::Win32::{
         Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER},
         Security::{
-            GetFileSecurityW, GetSecurityDescriptorControl, DACL_SECURITY_INFORMATION,
-            GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, SE_DACL_PROTECTED,
+            GetFileSecurityW, DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION,
+            OWNER_SECURITY_INFORMATION,
         },
     };
 
@@ -849,26 +844,7 @@ fn read_windows_security_descriptor(
         )));
     }
     bytes.truncate(descriptor_size as usize);
-    let mut control = 0u16;
-    let mut revision = 0u32;
-    if unsafe {
-        GetSecurityDescriptorControl(
-            bytes.as_ptr().cast_mut().cast(),
-            &mut control,
-            &mut revision,
-        )
-    } == 0
-    {
-        let error = unsafe { GetLastError() };
-        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
-            error as i32,
-        )));
-    }
-    Ok(WindowsSecurityDescriptor {
-        bytes,
-        information,
-        protected_dacl: control & SE_DACL_PROTECTED != 0,
-    })
+    Ok(WindowsSecurityDescriptor { bytes, information })
 }
 
 #[cfg(windows)]
@@ -1077,7 +1053,35 @@ fn windows_security_descriptor_bytes(path: &std::path::Path) -> Result<Vec<u8>, 
     unsafe {
         LocalFree(sddl_pointer.cast());
     }
-    Ok(sddl.into_bytes())
+    Ok(normalize_windows_security_descriptor_sddl(&sddl).into_bytes())
+}
+
+#[cfg(any(windows, test))]
+fn normalize_windows_security_descriptor_sddl(sddl: &str) -> String {
+    let Some(dacl_start) = sddl.find("D:").map(|index| index + 2) else {
+        return sddl.to_string();
+    };
+    let Some(dacl_end) = sddl[dacl_start..].find('(').map(|index| dacl_start + index) else {
+        return sddl.to_string();
+    };
+    let controls = &sddl[dacl_start..dacl_end];
+    let mut index = 0;
+    while index < controls.len() {
+        let remaining = &controls[index..];
+        if remaining.starts_with("AI") || remaining.starts_with("AR") {
+            index += 2;
+        } else if remaining.starts_with('P') {
+            index += 1;
+        } else {
+            break;
+        }
+    }
+    format!(
+        "{}D:{}{}",
+        &sddl[..dacl_start - 2],
+        &controls[index..],
+        &sddl[dacl_end..]
+    )
 }
 
 #[cfg(windows)]
@@ -1143,7 +1147,7 @@ fn windows_security_descriptor_bytes_from_handle(file: &File) -> Result<Vec<u8>,
         LocalFree(sddl_pointer.cast());
         LocalFree(descriptor);
     }
-    Ok(sddl.into_bytes())
+    Ok(normalize_windows_security_descriptor_sddl(&sddl).into_bytes())
 }
 
 /// Retires a cross-volume directory claim only after comparing each source
@@ -1818,6 +1822,27 @@ fn map_create_error(error: io::Error) -> AtomicMoveError {
 
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(Ordering::Acquire))
+}
+
+#[cfg(test)]
+mod security_descriptor_sddl_tests {
+    use super::normalize_windows_security_descriptor_sddl;
+
+    #[test]
+    fn comparison_ignores_only_dacl_inheritance_controls() {
+        assert_eq!(
+            normalize_windows_security_descriptor_sddl("O:SYG:SYD:PAI(A;CI;FA;;;SY)(A;ID;GR;;;BU)"),
+            "O:SYG:SYD:(A;CI;FA;;;SY)(A;ID;GR;;;BU)"
+        );
+        assert_eq!(
+            normalize_windows_security_descriptor_sddl("O:SYG:SYD:AIP(A;;GR;;;BU)"),
+            "O:SYG:SYD:(A;;GR;;;BU)"
+        );
+        assert_eq!(
+            normalize_windows_security_descriptor_sddl("O:SYG:SYD:NO_ACCESS_CONTROL"),
+            "O:SYG:SYD:NO_ACCESS_CONTROL"
+        );
+    }
 }
 
 #[cfg(all(test, windows))]

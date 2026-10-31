@@ -98,6 +98,14 @@ qualification. Windows audit SACLs are not copied by this path, so SACL-bearing
 trees remain outside its qualified semantics until the backend can preserve or
 explicitly reject them.
 
+During cross-volume staging, each target entry is protected from destination
+parent DACL inheritance while retaining the source's current owner, group, and
+DACL ACEs. This keeps a different destination-parent ACL from being merged
+silently into the moved tree. DACL control flags that only describe inheritance
+are excluded from the content comparison; the ACE list and principals remain
+verified at staging, publication, and source retirement. Future changes to the
+source parent's inherited ACL will not propagate to the staged target.
+
 Linux is not a supported product platform. It is outside product support,
 build, release, and mutation-safety scope.
 The fact that shared Rust code can be parsed on Linux is not a support or

@@ -800,7 +800,9 @@ fn read_test_xattr(path: &Path, name: &str) -> Vec<u8> {
         unsafe { libc::getxattr(path.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0, 0, 0) };
     assert!(
         size >= 0,
-        "getxattr size failed: {}",
+        "getxattr size failed for {} on {}: {}",
+        name.to_string_lossy(),
+        path.to_string_lossy(),
         std::io::Error::last_os_error()
     );
     let mut value = vec![0; size as usize];
@@ -817,7 +819,9 @@ fn read_test_xattr(path: &Path, name: &str) -> Vec<u8> {
     assert_eq!(
         read,
         size,
-        "getxattr failed: {}",
+        "getxattr failed for {} on {}: {}",
+        name.to_string_lossy(),
+        path.to_string_lossy(),
         std::io::Error::last_os_error()
     );
     value
@@ -889,6 +893,11 @@ fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_for
         &source_file,
         "com.fylura.fl23.user",
         b"extended attribute fixture",
+    );
+    assert_eq!(
+        read_test_xattr(&source_file, "com.apple.ResourceFork"),
+        b"resource fork fixture",
+        "the APFS source fixture must contain its ResourceFork before transfer"
     );
     add_test_acl(&source_file);
     let source_acl = read_test_acl(&source_file);

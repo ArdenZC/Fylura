@@ -1161,6 +1161,7 @@ fn copy_file_contents_and_metadata(
             &source.metadata().map_err(AtomicMoveError::Io)?,
             destination,
         )?;
+        verify_clone_metadata(source, destination)?;
         return Ok(());
     }
 
@@ -1192,6 +1193,7 @@ fn copy_file_contents_and_metadata(
             .map_err(AtomicMoveError::Io)?;
     }
     copy_metadata_with_native_api(source, &destination)?;
+    verify_clone_metadata(source, &destination)?;
     Ok(())
 }
 

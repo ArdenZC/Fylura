@@ -787,7 +787,7 @@ fn snapshot(
         .as_bytes(),
     );
     let destination_path = normalize_path(&canonical_root);
-    let tree_fingerprint = tree_fingerprint.as_deref().unwrap_or("-");
+    let tree_fingerprint = tree_fingerprint.as_deref().unwrap_or("none");
     Ok((
         format!(
             "op-transfer-v5-{}-{}-{}",
@@ -911,10 +911,18 @@ fn decode_transfer_root(id: &str) -> Result<PathBuf, String> {
     };
     let (digest, payload) = payload.split_once('-').ok_or("operation_preview_stale")?;
     let encoded_path = if version == 5 {
-        payload
-            .split_once('-')
-            .map(|(_, encoded_path)| encoded_path)
-            .ok_or("operation_preview_stale")?
+        // Older v5 IDs represented a missing directory fingerprint as "-",
+        // which creates an ambiguous triple separator before the hex path.
+        // Keep those transient previews readable while using an unambiguous
+        // non-hex sentinel for newly generated file previews.
+        if let Some(encoded_path) = payload.strip_prefix("--") {
+            encoded_path
+        } else {
+            payload
+                .split_once('-')
+                .map(|(_, encoded_path)| encoded_path)
+                .ok_or("operation_preview_stale")?
+        }
     } else {
         payload
     };
@@ -971,6 +979,30 @@ pub(crate) fn directory_tree_journal_fingerprint(value: Option<&str>) -> Option<
     let fingerprint = value?.strip_prefix(DIRECTORY_TREE_JOURNAL_PREFIX)?;
     (fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .then_some(fingerprint)
+}
+
+#[cfg(test)]
+mod transfer_root_tests {
+    use super::{decode_transfer_root, encode_path_for_transfer_id};
+    use std::path::Path;
+
+    #[test]
+    fn transfer_root_decoder_accepts_file_and_directory_v5_ids() {
+        let root = Path::new("/tmp/fylura-transfer-root");
+        let encoded = encode_path_for_transfer_id(root.to_str().expect("UTF-8 test path"));
+        let digest = "a".repeat(64);
+        let fingerprint = "b".repeat(64);
+
+        for id in [
+            format!("op-transfer-v5-{digest}-none-{encoded}"),
+            // File previews created by the earlier v5 writer used "-" as
+            // the missing-fingerprint sentinel, yielding three separators.
+            format!("op-transfer-v5-{digest}---{encoded}"),
+            format!("op-transfer-v5-{digest}-{fingerprint}-{encoded}"),
+        ] {
+            assert_eq!(decode_transfer_root(&id).unwrap(), root.to_path_buf());
+        }
+    }
 }
 pub(crate) fn execute(
     operation: &OperationPreviewRequest,

@@ -281,11 +281,11 @@ pub(crate) fn restore_operation_log_with_observer(
     if log.path_before.trim().is_empty() || log.path_after.trim().is_empty() {
         return mark_restore_failed(log, "Restore metadata is incomplete.");
     }
-    if let Err(failure) = operation_restore_identity_result(log, Path::new(&log.path_after)) {
-        return mark_restore_manual_review(log, failure.message());
-    }
     if let Err(error) = verify_directory_restore_tree(log, Path::new(&log.path_after)) {
         return mark_restore_manual_review(log, error);
+    }
+    if let Err(failure) = operation_restore_identity_result(log, Path::new(&log.path_after)) {
+        return mark_restore_manual_review(log, failure.message());
     }
     if log.operation_type == "replace" {
         return restore_replacement_operation_log_with_observer(log, cancel_flag, phase_observer);

@@ -1687,10 +1687,14 @@ fn fl23_windows_same_volume_directory_restore_refuses_a_changed_tree() {
     )
     .unwrap();
     assert_eq!(restored.logs[0].restore_status, "manual_review");
-    assert!(restored.logs[0]
-        .restore_error
-        .as_deref()
-        .is_some_and(|error| error.contains("restore_directory_tree_changed")));
+    assert!(
+        restored.logs[0]
+            .restore_error
+            .as_deref()
+            .is_some_and(|error| error.contains("restore_directory_tree_changed")),
+        "{:?}",
+        restored.logs[0].restore_error
+    );
     assert!(!source.exists());
     assert_eq!(
         fs::read(moved.join("content.txt")).unwrap(),

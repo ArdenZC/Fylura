@@ -1252,7 +1252,7 @@ fn ensure_windows_no_named_streams(path: &std::path::Path) -> Result<(), AtomicM
         },
     };
     let metadata = fs::symlink_metadata(path).map_err(AtomicMoveError::Io)?;
-    if metadata_is_reparse_point(&metadata) || !metadata.is_file() {
+    if metadata_is_reparse_point(&metadata) || !(metadata.is_file() || metadata.is_dir()) {
         return Err(AtomicMoveError::ReparsePoint);
     }
     let wide = source_claim::windows_wide_path(path);
@@ -1583,6 +1583,17 @@ mod tests {
         ));
         fs::create_dir_all(&root).expect("fixture");
         root
+    }
+
+    #[test]
+    fn named_stream_guard_accepts_a_normal_directory() {
+        let root = fixture("directory-stream-check");
+        let result = ensure_windows_no_named_streams(&root);
+        assert!(
+            result.is_ok(),
+            "normal directories must be stream checked: {result:?}"
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

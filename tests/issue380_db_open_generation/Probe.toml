@@ -1,0 +1,13 @@
+[package]
+name="k1-frozen-db-probe"
+version="0.0.0"
+edition="2021"
+[features]
+native-qa=[]
+[dependencies]
+r2d2="=0.8.10"
+r2d2_sqlite={version="=0.34.0",features=["bundled"]}
+rusqlite={version="=0.39.0",features=["bundled"]}
+serde_json="=1.0.154"
+thiserror="=2.0.20"
+blake3="=1.8.7"

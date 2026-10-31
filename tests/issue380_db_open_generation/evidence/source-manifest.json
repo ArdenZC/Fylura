@@ -1,0 +1,172 @@
+[
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/db/schema.rs",
+    "sha256": "c5ba26c0b0337c5e4c656c6440a54ff34c73a173e9d314c4afbec1d89be639b7"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/db/schema_automation.rs",
+    "sha256": "9b9aa8b284ad3054adf70dff77afda09a4147abd1ac20653449f7a430b8cb7f3"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/db/schema_automation_triggers.rs",
+    "sha256": "ef75b080127eece3dba5b97f134c18e3d26502dc0a0ea88ebd8237d0cc395140"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/db/connection.rs",
+    "sha256": "42acdfa1fce0257398873b523d91906df40c7c67b7c101c6a7c7f3054d0fe411"
+  },
+  {
+    "symbol": "pub fn open(",
+    "slice_sha256": "497929b753b7bd310016a90ac2f4606d0adeaeb4b848bd54c20540ba8aab4864",
+    "first_line": 79
+  },
+  {
+    "symbol": "pub fn path(",
+    "slice_sha256": "b149b9d76e9e18ae10acb6480e91ca18969d3b012edbc0c99209aaaf05d419c2",
+    "first_line": 122
+  },
+  {
+    "symbol": "pub(crate) fn conn(",
+    "slice_sha256": "b76a4a3deeefb91551b8de8ea472839d455868a78e177f1bc46374b7d7d9ede4",
+    "first_line": 131
+  },
+  {
+    "symbol": "fn configure_connection(",
+    "slice_sha256": "6f13a7ae3a87978f9710c6585bf0f868faf642050284869c86c0f76f7234e9b0",
+    "first_line": 213
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/db/types.rs",
+    "sha256": "4ae77b02eb1e6991bd1776e4ecd9b257ba45df659078a758be6ebc5ab8e9f603"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/db/queries/mod.rs",
+    "sha256": "df21ae6e30c34ea306530824d85e38e849c3c684c23f6362755ec9440ecf056f"
+  },
+  {
+    "symbol": "pub(crate) fn trim_trailing_path_separators(",
+    "slice_sha256": "87e4ead112624958379af96405c8537cc5746bc70e3fdfe7f6bd8ea2c592cf2b",
+    "first_line": 41
+  },
+  {
+    "symbol": "pub(crate) fn normalize_path_text(",
+    "slice_sha256": "ce8a97065ebcdaf7d9f7f9d069a760da08b8f95c14d4a9a3c64b6d68152a2dcd",
+    "first_line": 230
+  },
+  {
+    "symbol": "pub(crate) fn current_unix_seconds(",
+    "slice_sha256": "02bf7803da90a72d39601819962a1906d102144057650990117beb33a97ba888",
+    "first_line": 286
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/windows/mod.rs",
+    "sha256": "b06126a43b1cfc5dce00b9bfa2a8b4565a95c169062a361ab2d05ee7cd7e3710"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/mod.rs",
+    "sha256": "2d4f2ebd27c80164c5fc019ad54557dd5a01baa3c6deff66ecc32e428c40a62a"
+  },
+  {
+    "symbol": "fn run_with_fallback(",
+    "slice_sha256": "16e6f8d371e4c9d78cf1c12a425165e37660eaf146258e6c315b1bd4b808e0a7",
+    "first_line": 425
+  },
+  {
+    "symbol": "fn run_with_fallback_using<F>",
+    "slice_sha256": "42cd81051387f503405642e8184a467f61fceb42bec0645a7fcea27f8f02253f",
+    "first_line": 767
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/settings.rs",
+    "sha256": "446f4c5083ffce32f3705168c0491cb4e41ff77c5ed07ef50a1fbc0200c23775"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/lib.rs",
+    "sha256": "cdcf753eb704eb77b38bbc44551375273dfb431e50501cbe05b4c22cfd2ba3d0"
+  },
+  {
+    "symbol": "pub fn database_path<",
+    "slice_sha256": "3a0867336c081fbc5dcbf44ae27af3ad210f748594a673d91d11c43aba430e95",
+    "first_line": 135
+  },
+  {
+    "symbol": "pub fn open_database<",
+    "slice_sha256": "824a8b4aba9112a491440ca667b420f6dda7c70024254d10efb9be5b692a6e32",
+    "first_line": 148
+  },
+  {
+    "ref": "9e66433fd833e2f52a428976303af10d8a252de9",
+    "path": "tests/issue380_mixed_version/run.py",
+    "sha256": "cdb4c8963c4a3fb21c6a0299f9d99d63867b135d6b9d747bbfd3529a8fc4ab32"
+  },
+  {
+    "ref": "9e144da261b97a421b6a40f61280e149887f6204",
+    "path": "research/generation_publication/schema37.py",
+    "sha256": "fc87ce1adcb600536ddde0c883c6e15ccf33999e8d8de507beee02d5d86db77a"
+  },
+  {
+    "ref": "9e144da261b97a421b6a40f61280e149887f6204",
+    "path": "research/generation_publication/verify_recovery.py",
+    "sha256": "b88cc26700624223ae10a8bd405d0d1009e36c7d93f5ac25836938edfdbb19bf"
+  },
+  {
+    "ref": "a48f8849b1ba1baadcf84e217d505e2298cf35a1",
+    "path": "docs/project/research/issue-381-d4-s8r/README.md",
+    "sha256": "5823ad463564ba76fca4bb7666f09ff92e74d3d64ba9d6f125ff52837a0d64ba"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/main.rs",
+    "sha256": "04638479512606761f436b374fed371c3c7b70e83777be8aed696ca3f05848b6"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/windows/service_host.rs",
+    "sha256": "78a808017e4bd9e083992121b8fe0187aed63548fba290aacfed56580bd89d8b"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/windows/recovery_qa.rs",
+    "sha256": "5ff84acefb5a6979e92d17cf92a83b8d1757f0de18df572e99a6f763da5faec6"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/windows/installer-lifecycle-final.nsh",
+    "sha256": "e3b79bdb70fa99cff9d0a0c5f940e7d515a7f479541dbab52ea66abe38d5be5b"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/windows/installer-lifecycle-synchronous.nsh",
+    "sha256": "7b6e435cde334adc21531d2838ce10e9804ffe312e1cf2741f57eb8ac724f7ab"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/coordinator.rs",
+    "sha256": "f900d313542e4acc5a2694fed75b8089b16bc14891ea1f5c4428a9e89d3805cd"
+  },
+  {
+    "ref": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+    "path": "src-tauri/src/global_index/windows/mod.rs",
+    "sha256": "b06126a43b1cfc5dce00b9bfa2a8b4565a95c169062a361ab2d05ee7cd7e3710"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/mod.rs",
+    "sha256": "2d4f2ebd27c80164c5fc019ad54557dd5a01baa3c6deff66ecc32e428c40a62a"
+  },
+  {
+    "ref": "d260131f9d6ec354f2361e6c7460c79e62e38391",
+    "path": "src-tauri/src/global_index/windows/service.rs",
+    "sha256": "69a73728e6b130f3c6ee80e058eed18da8d3e49c497eefad10f2b0079b4ef16b"
+  }
+]

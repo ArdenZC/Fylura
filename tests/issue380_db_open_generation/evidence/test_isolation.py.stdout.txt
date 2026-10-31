@@ -1,0 +1,25 @@
+test_k1_01_frozen_open_and_migration_precede_any_post_open_gate (__main__.K1.test_k1_01_frozen_open_and_migration_precede_any_post_open_gate) ... ok
+test_k1_01_same_version_open_can_still_recreate_persistent_schema (__main__.K1.test_k1_01_same_version_open_can_still_recreate_persistent_schema) ... ok
+test_k1_02_future_version_refusal_does_not_revoke_existing_connection (__main__.K1.test_k1_02_future_version_refusal_does_not_revoke_existing_connection) ... ok
+test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits (__main__.K1.test_k1_02_held_read_snapshot_survives_migration_then_observes_new_commits) ... ok
+test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect (__main__.K1.test_k1_02_retained_old_desktop_writes_before_after_open_and_reconnect) ... ok
+test_k1_03_worker_replay_after_mock_service_stop_still_writes (__main__.K1.test_k1_03_worker_replay_after_mock_service_stop_still_writes) ... ok
+test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor (__main__.K1.test_k1_04_new_only_advisory_lock_does_not_stop_old_sqlite_actor) ... ok
+test_k1_04_one_time_close_allows_real_late_child_to_open_db (__main__.K1.test_k1_04_one_time_close_allows_real_late_child_to_open_db) ... ok
+test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation (__main__.K1.test_k1_05_generation_symlink_pointing_to_old_file_is_not_isolation) ... ok
+test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it (__main__.K1.test_k1_05_main_file_copy_omits_committed_wal_backup_preserves_it) ... ok
+test_k1_05_normalized_alias_and_symlink_are_same_database (__main__.K1.test_k1_05_normalized_alias_and_symlink_are_same_database) ... ok
+test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed (__main__.K1.test_k1_06_child_crash_sqlite_rolls_back_uncommitted_and_keeps_committed) ... ok
+test_k1_06_online_snapshot_loses_writes_committed_after_snapshot (__main__.K1.test_k1_06_online_snapshot_loses_writes_committed_after_snapshot) ... ok
+test_k1_06_partial_real_migration_failure_does_not_publish_new_copy (__main__.K1.test_k1_06_partial_real_migration_failure_does_not_publish_new_copy) ... ok
+test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers (__main__.K1.test_k1_06_pointer_crash_before_after_replace_selects_atomic_file_not_coherent_writers) ... ok
+test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file (__main__.K1.test_k1_06_post_switch_old_and_new_connections_fork_and_old_renames_file) ... ok
+test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open (__main__.K1.test_k1_07_frozen_busy_unknown_notsent_routes_and_actual_direct_db_open) ... ok
+test_k1_07_real_busy_is_not_admission_or_generation_fencing (__main__.K1.test_k1_07_real_busy_is_not_admission_or_generation_fencing) ... ok
+test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths (__main__.K1.test_k1_08_normal_qa_profile_reinstall_and_restore_choose_unfenced_paths) ... ok
+test_k1_09_backup_preserves_ids_rowids_fk_tags_corrections_history_and_fts (__main__.K1.test_k1_09_backup_preserves_ids_rowids_fk_tags_corrections_history_and_fts) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 9.512s
+
+OK

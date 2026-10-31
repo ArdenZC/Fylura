@@ -1,0 +1,28 @@
+   Compiling k1-frozen-db-probe v0.0.0 (/workspace/issue-380-k1-db-open-generation/.tmp-tests/issue380-k1/probe)
+warning: trait `Runtime` is more private than the item `database_path`
+  --> src/main.rs:42:1
+   |
+42 | pub fn database_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `database_path` is reachable at visibility `pub`
+   |
+note: but trait `Runtime` is only usable at visibility `pub(crate)`
+  --> src/main.rs:7:1
+   |
+ 7 | trait Runtime {}
+   | ^^^^^^^^^^^^^
+   = note: `#[warn(private_bounds)]` on by default
+
+warning: trait `Runtime` is more private than the item `open_database`
+  --> src/main.rs:54:1
+   |
+54 | pub fn open_database<R: Runtime>(app: &AppHandle<R>) -> Result<Database, String> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `open_database` is reachable at visibility `pub`
+   |
+note: but trait `Runtime` is only usable at visibility `pub(crate)`
+  --> src/main.rs:7:1
+   |
+ 7 | trait Runtime {}
+   | ^^^^^^^^^^^^^
+
+warning: `k1-frozen-db-probe` (bin "k1-frozen-db-probe") generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.35s

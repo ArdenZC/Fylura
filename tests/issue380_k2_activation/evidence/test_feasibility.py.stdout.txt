@@ -1,0 +1,13 @@
+test_t0_01_noncooperative_commits_across_entire_activation_window (__main__.T0.test_t0_01_noncooperative_commits_across_entire_activation_window) ... ok
+test_t0_02_service_desktop_connection_worker_conditions_are_distinct (__main__.T0.test_t0_02_service_desktop_connection_worker_conditions_are_distinct) ... ok
+test_t0_03_main_wal_shm_alias_hardlink_and_replaced_handle_identity (__main__.T0.test_t0_03_main_wal_shm_alias_hardlink_and_replaced_handle_identity) ... ok
+test_t0_04_late_login_second_instance_old_copy_and_same_owner_mode (__main__.T0.test_t0_04_late_login_second_instance_old_copy_and_same_owner_mode) ... ok
+test_t0_05_last_commit_snapshot_migration_switch_crash_and_restore (__main__.T0.test_t0_05_last_commit_snapshot_migration_switch_crash_and_restore) ... ok
+test_t0_06_database_write_block_does_not_revoke_file_operations_or_fd (__main__.T0.test_t0_06_database_write_block_does_not_revoke_file_operations_or_fd) ... ok
+test_t0_07_preopen_records_direct_qa_recovery_and_busy_boundaries (__main__.T0.test_t0_07_preopen_records_direct_qa_recovery_and_busy_boundaries) ... ok
+test_t0_08_bounded_dependency_evidence_not_new_inventory (__main__.T0.test_t0_08_bounded_dependency_evidence_not_new_inventory) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 2.152s
+
+OK

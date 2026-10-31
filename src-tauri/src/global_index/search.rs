@@ -10,6 +10,9 @@ pub(crate) mod extension_recency_probe;
 #[path = "tests/fts_rank_frontier.rs"]
 pub(crate) mod rank_frontier;
 
+use super::filename_search::{
+    ChangeSet, FilenameSearchIndex, FilenameTrigramCandidate, RankedFileCandidate,
+};
 use super::models::GlobalSearchResult;
 use crate::db::{Database, DbError};
 use rusqlite::{params, Connection, Params};
@@ -28,6 +31,29 @@ std::thread_local! {
     static KEY_ONLY_FTS_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LEGACY_NAME_PREFIX_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LEGACY_FTS_SEARCH_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LEGACY_FILENAME_JOIN_OVERRIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn with_legacy_filename_join_candidates_for_test<T>(operation: impl FnOnce() -> T) -> T {
+    struct ResetCandidate(bool);
+
+    impl Drop for ResetCandidate {
+        fn drop(&mut self) {
+            LEGACY_FILENAME_JOIN_OVERRIDE.with(|override_slot| override_slot.set(self.0));
+        }
+    }
+
+    LEGACY_FILENAME_JOIN_OVERRIDE.with(|override_slot| {
+        let previous = override_slot.replace(true);
+        let _reset = ResetCandidate(previous);
+        operation()
+    })
+}
+
+#[cfg(test)]
+fn legacy_filename_join_candidates_for_test() -> bool {
+    LEGACY_FILENAME_JOIN_OVERRIDE.with(std::cell::Cell::get)
 }
 
 /// Enables the remaining test-only key projection candidates while exercising
@@ -142,6 +168,23 @@ pub fn search_global_entries(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    if db.filename_search.is_enabled() && filename_relevance_query_supported(query.trim()) {
+        if let Ok(Some(results)) =
+            db.filename_search
+                .try_with_snapshot(|transaction, index, changes| {
+                    search_global_entries_with_filename_index_on_connection(
+                        transaction,
+                        query,
+                        limit,
+                        offset,
+                        index,
+                        changes,
+                    )
+                })
+        {
+            return Ok(results);
+        }
+    }
     let conn = db.conn()?;
     search_global_entries_on_connection(&conn, query, limit, offset)
 }
@@ -170,9 +213,45 @@ pub(crate) fn search_global_entries_on_connection(
     }
 
     let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
+    let (mut results, mut seen) = search_fast_tiers(conn, query, target)?;
+
+    if results.len() < target as usize && query.chars().count() >= 3 {
+        if query
+            .chars()
+            .all(|character| character.is_alphanumeric() || character.is_whitespace())
+        {
+            let tier_limit = layer_limit(target, seen.len());
+            append_unique(
+                &mut results,
+                &mut seen,
+                search_fts(conn, query, tier_limit)?,
+                target,
+            );
+        } else if !query.is_empty() {
+            let tier_limit = layer_limit(target, seen.len());
+            append_unique(
+                &mut results,
+                &mut seen,
+                search_punctuation_prefix(conn, query, tier_limit)?,
+                target,
+            );
+        }
+    }
+
+    Ok(results
+        .into_iter()
+        .skip(offset as usize)
+        .take(limit as usize)
+        .collect())
+}
+
+fn search_fast_tiers(
+    conn: &Connection,
+    query: &str,
+    target: u32,
+) -> Result<(Vec<GlobalSearchResult>, HashSet<String>), DbError> {
     let mut results = Vec::with_capacity(target as usize);
     let mut seen = HashSet::new();
-
     let tier_limit = layer_limit(target, seen.len());
     append_unique(
         &mut results,
@@ -207,35 +286,343 @@ pub(crate) fn search_global_entries_on_connection(
             target,
         );
     }
+    Ok((results, seen))
+}
 
-    if results.len() < target as usize && query.chars().count() >= 3 {
-        if query
-            .chars()
-            .all(|character| character.is_alphanumeric() || character.is_whitespace())
-        {
-            let tier_limit = layer_limit(target, seen.len());
-            append_unique(
-                &mut results,
-                &mut seen,
-                search_fts(conn, query, tier_limit)?,
-                target,
-            );
-        } else if !query.is_empty() {
-            let tier_limit = layer_limit(target, seen.len());
-            append_unique(
-                &mut results,
-                &mut seen,
-                search_punctuation_prefix(conn, query, tier_limit)?,
-                target,
-            );
-        }
+pub(crate) fn filename_relevance_query_supported(query: &str) -> bool {
+    query.len() >= 3
+        && !query.starts_with(' ')
+        && !query.ends_with(' ')
+        && !query.contains("  ")
+        && query
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b' ')
+}
+
+/// Filename-first route over one pinned SQLite snapshot and its bounded
+/// mutation overlay. `None` means this query shape must use SQLite fallback.
+pub(crate) fn search_global_entries_with_filename_index_on_connection(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+    offset: u32,
+    index: &FilenameSearchIndex,
+    changes: &ChangeSet,
+) -> Result<Option<Vec<GlobalSearchResult>>, DbError> {
+    let query = query.trim();
+    if query.is_empty() || !filename_relevance_query_supported(query) {
+        return Ok(None);
+    }
+    let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
+    let offset = offset.min(MAX_SEARCH_OFFSET);
+    if offset >= MAX_TIER_CANDIDATES {
+        return Ok(Some(Vec::new()));
+    }
+    let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
+    let normalized_query = query.to_ascii_lowercase();
+    #[cfg(test)]
+    let fast_tiers_started = std::time::Instant::now();
+    let (fast_results, seen) = search_fast_tiers(conn, &normalized_query, target)?;
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage("fast_tiers", fast_tiers_started);
+    let fast_len = fast_results.len();
+    if fast_len >= target as usize {
+        return Ok(Some(
+            fast_results
+                .into_iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .collect(),
+        ));
     }
 
-    Ok(results
-        .into_iter()
-        .skip(offset as usize)
-        .take(limit as usize)
-        .collect())
+    #[cfg(test)]
+    let overlay_materialization_started = std::time::Instant::now();
+    let changed_rowids = changes
+        .changed_rowids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage(
+        "changed_rowid_set",
+        overlay_materialization_started,
+    );
+    #[cfg(test)]
+    let overlay_read_started = std::time::Instant::now();
+    let overlay_rows = index.overlay_rows(conn, &changes.changed_rowids)?;
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage("overlay_sql", overlay_read_started);
+    #[cfg(test)]
+    let trigram_collection_started = std::time::Instant::now();
+    let trigram_candidates = search_filename_trigram_candidates(conn, &normalized_query)?;
+    #[cfg(test)]
+    let candidate_stage_name = if legacy_filename_join_candidates_for_test() {
+        "fts_join_and_source_filter_enumeration"
+    } else {
+        "fts_rowid_enumeration"
+    };
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage(
+        candidate_stage_name,
+        trigram_collection_started,
+    );
+    let remaining = (target as usize).saturating_sub(fast_len);
+    #[cfg(test)]
+    let rank_started = std::time::Instant::now();
+    let mut fuzzy = index.rank_filename_candidates(
+        &normalized_query,
+        &trigram_candidates,
+        &seen,
+        &changed_rowids,
+        &overlay_rows,
+        remaining,
+    );
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage(
+        "compact_eligibility_match_and_topk",
+        rank_started,
+    );
+    #[cfg(test)]
+    let path_only_started = std::time::Instant::now();
+    if fuzzy.len() < remaining {
+        fuzzy.extend(search_path_only_candidates(
+            conn,
+            &normalized_query,
+            remaining - fuzzy.len(),
+        )?);
+    }
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage("path_only_query", path_only_started);
+
+    let page_start = offset as usize;
+    let page_end = page_start
+        .saturating_add(limit as usize)
+        .min(target as usize);
+    let fast_end = page_end.min(fast_len);
+    let mut page = if page_start < fast_end {
+        fast_results
+            .into_iter()
+            .skip(page_start)
+            .take(fast_end - page_start)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let fuzzy_start = page_start.saturating_sub(fast_len);
+    let fuzzy_end = page_end.saturating_sub(fast_len).min(fuzzy.len());
+    #[cfg(test)]
+    let hydration_started = std::time::Instant::now();
+    if fuzzy_start < fuzzy_end {
+        page.extend(hydrate_ranked_filename_page(
+            conn,
+            &fuzzy[fuzzy_start..fuzzy_end],
+        )?);
+    }
+    #[cfg(test)]
+    super::filename_search::record_candidate_search_stage("page_hydration_cte", hydration_started);
+    Ok(Some(page))
+}
+
+const FILENAME_TRIGRAM_ROWID_SQL: &str = r#"
+    SELECT rowid
+    FROM global_entries_fts
+    WHERE global_entries_fts MATCH ?1
+"#;
+
+#[cfg(test)]
+const LEGACY_FILENAME_TRIGRAM_JOIN_SQL: &str = r#"
+    SELECT ge.rowid, (instr(lower(ge.extension), ?2) > 0)
+    FROM global_entries_fts
+    CROSS JOIN global_entries ge
+    CROSS JOIN global_volumes gv
+    WHERE global_entries_fts MATCH ?1
+      AND ge.rowid = global_entries_fts.rowid
+      AND gv.id = ge.volume_id
+      AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0
+      AND (instr(ge.name_normalized, ?2) > 0 OR instr(lower(ge.extension), ?2) > 0)
+"#;
+
+fn search_filename_trigram_candidates(
+    conn: &Connection,
+    query: &str,
+) -> Result<Vec<FilenameTrigramCandidate>, DbError> {
+    let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+    #[cfg(test)]
+    if legacy_filename_join_candidates_for_test() {
+        let mut statement = conn.prepare(LEGACY_FILENAME_TRIGRAM_JOIN_SQL)?;
+        let rows = statement.query_map(params![fts_query, query], |row| {
+            Ok(FilenameTrigramCandidate {
+                rowid: row.get(0)?,
+                extension_match: Some(row.get(1)?),
+            })
+        })?;
+        return rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(DbError::from);
+    }
+
+    let mut statement = conn.prepare(FILENAME_TRIGRAM_ROWID_SQL)?;
+    let rows = statement.query_map([fts_query], |row| {
+        Ok(FilenameTrigramCandidate {
+            rowid: row.get(0)?,
+            extension_match: None,
+        })
+    })?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(DbError::from)
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_filename_trigram_candidates_sql() -> &'static str {
+    FILENAME_TRIGRAM_ROWID_SQL
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_legacy_filename_trigram_join_sql() -> &'static str {
+    LEGACY_FILENAME_TRIGRAM_JOIN_SQL
+}
+
+#[cfg(test)]
+pub(crate) fn diagnostic_filename_rank_stage_profile_on_connection(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+    offset: u32,
+    index: &FilenameSearchIndex,
+    changes: &ChangeSet,
+) -> Result<Option<super::filename_search::FilenameRankStageProfile>, DbError> {
+    let query = query.trim();
+    if query.is_empty() || !filename_relevance_query_supported(query) {
+        return Ok(None);
+    }
+    let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
+    let offset = offset.min(MAX_SEARCH_OFFSET);
+    if offset >= MAX_TIER_CANDIDATES {
+        return Ok(None);
+    }
+    let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
+    let normalized_query = query.to_ascii_lowercase();
+    let (fast_results, seen) = search_fast_tiers(conn, &normalized_query, target)?;
+    let capacity = (target as usize).saturating_sub(fast_results.len());
+    let changed_rowids = changes
+        .changed_rowids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    let overlay_rows = index.overlay_rows(conn, &changes.changed_rowids)?;
+    let trigram_candidates = search_filename_trigram_candidates(conn, &normalized_query)?;
+    Ok(Some(index.diagnostic_rank_stage_profile(
+        &normalized_query,
+        &trigram_candidates,
+        &seen,
+        &changed_rowids,
+        &overlay_rows,
+        capacity,
+    )))
+}
+
+fn search_path_only_candidates(
+    conn: &Connection,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<RankedFileCandidate<'static>>, DbError> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let sql = r#"
+        SELECT ge.rowid, ge.id, ge.modified_at_fs
+        FROM global_entries_fts
+        CROSS JOIN global_entries ge
+        CROSS JOIN global_volumes gv
+        WHERE global_entries_fts MATCH ?1
+          AND ge.rowid = global_entries_fts.rowid
+          AND gv.id = ge.volume_id
+          AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0
+          AND instr(ge.name_normalized, ?2) = 0
+          AND instr(lower(ge.extension), ?2) = 0
+        ORDER BY ge.modified_at_fs DESC, ge.id COLLATE BINARY ASC
+        LIMIT ?3
+    "#;
+    let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+    let mut statement = conn.prepare(sql)?;
+    let rows = statement.query_map(
+        params![
+            fts_query,
+            query,
+            limit.min(MAX_TIER_CANDIDATES as usize) as u32
+        ],
+        |row| {
+            Ok(RankedFileCandidate {
+                rowid: row.get(0)?,
+                class: 2,
+                modified_at: row.get(2)?,
+                stable_id: std::borrow::Cow::Owned(row.get::<_, String>(1)?.into_bytes()),
+            })
+        },
+    )?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(DbError::from)
+}
+
+fn hydrate_ranked_filename_page(
+    conn: &Connection,
+    candidates: &[RankedFileCandidate<'_>],
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut values = Vec::with_capacity(candidates.len() * 3);
+    let mut placeholders = Vec::with_capacity(candidates.len());
+    for (ordinal, candidate) in candidates.iter().enumerate() {
+        let first = ordinal * 3 + 1;
+        placeholders.push(format!("(?{first},?{},?{})", first + 1, first + 2));
+        values.push(rusqlite::types::Value::Integer(candidate.rowid));
+        values.push(rusqlite::types::Value::Integer(ordinal as i64));
+        values.push(rusqlite::types::Value::Real(candidate.class as f64 + 2.0));
+    }
+    let sql = format!(
+        r#"
+        WITH candidate_keys(entry_rowid, ordinal, result_rank) AS (
+            VALUES {}
+        )
+        SELECT ge.id, ge.volume_id, ge.platform_file_id, ge.name, ge.path,
+               ge.extension, ge.is_directory, ge.size, ge.created_at_fs,
+               ge.modified_at_fs, ge.file_attributes, ge.is_hidden, ge.is_system,
+               ge.source_provider,
+               EXISTS (
+                   SELECT 1 FROM managed_entries me
+                   JOIN managed_scopes ms ON ms.id=me.managed_scope_id
+                   WHERE me.global_entry_id=ge.id AND me.enabled=1 AND ms.enabled=1
+               ) AS managed,
+               candidate_keys.result_rank AS rank,
+               candidate_keys.entry_rowid AS candidate_rowid
+        FROM candidate_keys
+        JOIN global_entries ge ON ge.rowid=candidate_keys.entry_rowid
+        JOIN global_volumes gv ON gv.id=ge.volume_id
+        WHERE gv.enabled=1 AND gv.coverage_pending=0 AND ge.is_stale=0
+        ORDER BY candidate_keys.ordinal ASC
+        "#,
+        placeholders.join(",")
+    );
+    let mut statement = conn.prepare(&sql)?;
+    let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+        Ok((map_global_search_result(row)?, row.get::<_, i64>(16)?))
+    })?;
+    let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    if rows.len() != candidates.len()
+        || rows
+            .iter()
+            .zip(candidates)
+            .any(|((result, rowid), candidate)| {
+                *rowid != candidate.rowid || result.id.as_bytes() != candidate.stable_id.as_ref()
+            })
+    {
+        return Err(DbError::Validation(
+            "filename candidate hydration did not match its SQLite snapshot".into(),
+        ));
+    }
+    Ok(rows.into_iter().map(|(result, _)| result).collect())
 }
 
 fn layer_limit(target: u32, seen: usize) -> u32 {

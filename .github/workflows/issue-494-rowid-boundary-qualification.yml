@@ -1,0 +1,123 @@
+name: Issue 494 rowid boundary native qualification
+
+on:
+  pull_request:
+    paths:
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/src/db/connection.rs"
+      - "src-tauri/src/global_index/**"
+      - ".github/workflows/issue-494-rowid-boundary-qualification.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-494-rowid-boundary-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  qualify-native:
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    name: ${{ matrix.label }} 100k + 200k Release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x86_64
+            os: windows-2025
+          - label: Apple Silicon macOS
+            os: macos-26
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - name: Checkout exact PR head without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify native architecture and record exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            test "$(rustc -vV | sed -n 's/^host: //p')" = "x86_64-pc-windows-msvc"
+          else
+            test "$(uname -m)" = "arm64"
+            test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          fi
+          mkdir -p ci-evidence
+          {
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "candidate_tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "runner_os=${{ runner.os }}"
+            echo "runner_arch=$(uname -m)"
+            rustc -vV
+          } | tee "ci-evidence/issue494-rowid-${{ runner.os }}-source.txt"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-issue-494-rowid-boundary-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Run 100k full-route native Release qualification
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "100000"
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/issue494-rowid-${{ runner.os }}-100000.jsonl
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features "desktop-runtime global-search-filename-relevance-candidate"
+          --lib
+          global_index::tests::global_search_benchmark::filename_first_candidate_benchmark::issue494_filename_first_native_preflight
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Run 200k full-route native Release qualification
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "200000"
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/issue494-rowid-${{ runner.os }}-200000.jsonl
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features "desktop-runtime global-search-filename-relevance-candidate"
+          --lib
+          global_index::tests::global_search_benchmark::filename_first_candidate_benchmark::issue494_filename_first_native_preflight
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Record evidence SHA-256
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            "ci-evidence/issue494-rowid-${{ runner.os }}-source.txt" \
+            "ci-evidence/issue494-rowid-${{ runner.os }}-100000.jsonl" \
+            "ci-evidence/issue494-rowid-${{ runner.os }}-200000.jsonl"; do
+            if [[ -f "$path" ]]; then
+              shasum -a 256 "$path" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "$path NOT PRODUCED" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+      - name: Upload native qualification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue494-rowid-${{ runner.os }}-${{ github.run_id }}
+          path: ci-evidence/issue494-rowid-${{ runner.os }}-*
+          if-no-files-found: warn
+          retention-days: 90

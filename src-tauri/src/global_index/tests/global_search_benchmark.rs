@@ -1274,3 +1274,5 @@ fn global_search_unicode_case_and_canonical_form_evidence() {
     }));
     drop(db);
 }
+#[path = "filename_first_candidate_benchmark.rs"]
+mod filename_first_candidate_benchmark;

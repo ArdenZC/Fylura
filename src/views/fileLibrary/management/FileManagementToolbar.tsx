@@ -10,7 +10,7 @@ import { useChromeContext, useI18nContext, useNavigationContext } from "../../..
 import { useOperationQueueStore } from "../../../store/useOperationQueueStore";
 import { groupOperationLogs, type OperationHistoryBatch } from "../../history/historyModel";
 import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/tw";
-import { readableError } from "../../../utils/viewHelpers";
+import { localizedStableError, readableError } from "../../../utils/viewHelpers";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { isFileLibraryShortcutExcludedTarget } from "../fileLibraryInteraction";
@@ -333,7 +333,7 @@ export function FileManagementToolbar() {
       acceptedPlan.rows.filter((row) => row.skipped).forEach((row) => { statuses[row.ticketId] = t("fmSkipped"); });
       rows.forEach((row, index) => {
         const log = result.logs[index];
-        statuses[row.ticketId] = log?.status === "success" ? t("fmSucceeded") : log?.status === "skipped" ? t("fmSkipped") : log?.error_message || t("fmFailed");
+        statuses[row.ticketId] = log?.status === "success" ? t("fmSucceeded") : log?.status === "skipped" ? t("fmSkipped") : log?.error_message ? localizedStableError(log.error_message, t) : t("fmFailed");
         if (log?.status === "success") succeeded.add(row.ticketId);
       });
       const current = useFileManagementStore.getState();
@@ -768,7 +768,7 @@ export function FileManagementToolbar() {
                 <p className="fm-path" title={log.path_before}>{t("fmSource")}: {log.path_before}</p>
                 <p className="fm-path" title={log.path_after}>{t("fmDestination")}: {log.path_after}</p>
                 <p className="fm-muted">{taskPhaseLabel(log.operation_phase)}</p>
-                {log.error_message && <p role="alert" className="fm-item-error">{log.error_message}</p>}
+                {log.error_message && <p role="alert" className="fm-item-error">{localizedStableError(log.error_message, t)}</p>}
                 {canRetryOperation(log) && <button className={buttonSecondary} disabled={busy || state.transferActive} onClick={() => void retryFailedOperation(log)}>{t("fmRetrySafe")}</button>}
               </li>)}</ul>
             </details>
@@ -786,7 +786,7 @@ export function FileManagementToolbar() {
       {panel === "results" && <>
         {state.activeTransferTask && state.transferRunning && <div className="fm-progress fm-task-details" role="status"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : t("fmExecuting")}</strong>{liveTaskProgress && liveTaskProgress.total > 0 && !liveTaskProgress.phase ? <progress max={liveTaskProgress.total} value={liveTaskProgress.processed}/> : <progress />}<span>{liveTaskProgress ? `${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}` : state.activeTransferTask.sourceSummary}</span><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>}
         <p className="fm-muted">{resultsSummary}</p>
-        <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{log.status === "success" ? t("fmSucceeded") : log.status === "skipped" ? t("fmSkipped") : t("fmFailed")}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{log.error_message}</p>}</li>)}</ul>
+        <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{log.status === "success" ? t("fmSucceeded") : log.status === "skipped" ? t("fmSkipped") : t("fmFailed")}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{localizedStableError(log.error_message, t)}</p>}</li>)}</ul>
         {pageControls(state.results.length, resultPage, setResultPage)}
         <div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} onClick={() => void go(state.results[0]!.path_after.replace(/[/\\][^/\\]+$/, ""))}>{t("fmOpenDestination")}</button><button className={buttonGhost} onClick={() => { useFileManagementStore.setState({ results: [] }); closePanel(); }}>{t("fmDismiss")}</button></div>
         <p className="fm-muted">{t("fmRestoreHelp")}</p>

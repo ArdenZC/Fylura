@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 
 const LIMIT: usize = 1000;
 const EXTERNAL_PATH_LIMIT: usize = 256;
-const EXTERNAL_TREE_ENTRY_LIMIT: usize = 5000;
-const EXTERNAL_TREE_DEPTH_LIMIT: usize = 64;
+const EXTERNAL_TREE_ENTRY_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_ENTRY_LIMIT;
+const EXTERNAL_TREE_DEPTH_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT;
 #[derive(Default)]
 pub(crate) struct TransferState {
     sources: HashMap<String, Source>,
@@ -594,14 +594,14 @@ impl FileWorkspaceRuntime {
             validate_tree_guard(guard)?;
         }
         for operation in &plan.operations {
-            if let Err(error) = revalidate(operation) {
+            revalidate(operation).map_err(|error| {
                 #[cfg(test)]
                 eprintln!(
                     "transfer stale at take: revalidation error={error} op={} source={} target={}",
                     operation.id, operation.source_path, operation.target_path
                 );
-                return Err(error);
-            }
+                error
+            })?;
         }
         Ok(ExecuteMovesRequest {
             operations: plan.operations,
@@ -1272,14 +1272,13 @@ pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
     let root_namespace = file_namespace_fingerprint(root)?;
     let mut records = vec![format!(".:directory:{root_identity:?}:{root_namespace:?}")];
     let mut entry_count = 0usize;
-    let mut file_count = 0usize;
     collect_directory_tree(
         root,
         root,
         0,
         &mut entry_count,
         &mut records,
-        &mut file_count,
+        root_namespace.platform_volume_id.as_deref(),
     )?;
     records.sort();
     let mut hasher = blake3::Hasher::new();
@@ -1296,15 +1295,18 @@ fn collect_directory_tree(
     depth: usize,
     entry_count: &mut usize,
     records: &mut Vec<String>,
-    file_count: &mut usize,
+    root_volume: Option<&str>,
 ) -> Result<(), String> {
     if depth >= EXTERNAL_TREE_DEPTH_LIMIT {
         return Err("transfer_directory_depth_limit".into());
     }
-    let mut entries = std::fs::read_dir(directory)
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(directory).map_err(|error| error.to_string())? {
+        if entry_count.saturating_add(entries.len()) >= EXTERNAL_TREE_ENTRY_LIMIT {
+            return Err("transfer_directory_entry_limit".into());
+        }
+        entries.push(entry.map_err(|error| error.to_string())?);
+    }
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
         *entry_count += 1;
@@ -1315,6 +1317,9 @@ fn collect_directory_tree(
         let physical_identity = crate::fs_safety::capture_source_object_identity(&path)
             .map_err(|error| error.to_string())?;
         let identity = file_namespace_fingerprint(&path)?;
+        if root_volume.is_some() && identity.platform_volume_id.as_deref() != root_volume {
+            return Err("transfer_nested_volume_unsupported".into());
+        }
         ensure_general_file_operation_allowed(&path)?;
         let relative_path = path
             .strip_prefix(root)
@@ -1325,16 +1330,12 @@ fn collect_directory_tree(
             records.push(format!(
                 "{relative_display}:directory:{physical_identity:?}:{identity:?}"
             ));
-            collect_directory_tree(root, &path, depth + 1, entry_count, records, file_count)?;
+            collect_directory_tree(root, &path, depth + 1, entry_count, records, root_volume)?;
         } else if path.is_file() {
             validate_source_path(&path)?;
             records.push(format!(
                 "{relative_display}:file:{physical_identity:?}:{identity:?}"
             ));
-            *file_count += 1;
-            if *file_count > LIMIT {
-                return Err("transfer_selection_limit_1000".into());
-            }
         } else {
             return Err("transfer_source_invalid".into());
         }

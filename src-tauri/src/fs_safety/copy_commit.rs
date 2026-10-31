@@ -399,6 +399,16 @@ fn copy_directory_claim(
         if let Some(observer) = observer.as_deref_mut() {
             observer("copying")?;
         }
+        let source_root_metadata =
+            fs::symlink_metadata(claim.current_path()).map_err(AtomicMoveError::Io)?;
+        if source_root_metadata.file_type().is_symlink()
+            || metadata_is_reparse_point(&source_root_metadata)
+            || !source_root_metadata.is_dir()
+        {
+            return Err(AtomicMoveError::ReparsePoint);
+        }
+        ensure_supported_windows_file_attributes(&source_root_metadata)?;
+        ensure_windows_no_named_streams(claim.current_path())?;
         let source_before = directory_content_digest(claim.current_path(), cancel)?;
         let mut entry_count = 0usize;
         copy_directory_contents(
@@ -602,13 +612,16 @@ fn copy_directory_contents(
     const MAX_DEPTH: usize = 64;
     const MAX_ENTRIES: usize = 5000;
     if depth >= MAX_DEPTH {
-        return Err(AtomicMoveError::UnsafePath);
+        return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
     }
     let source_directory = VerifiedDirectory::open_existing(source).map_err(map_directory_error)?;
-    let mut entries = fs::read_dir(source)
-        .map_err(AtomicMoveError::Io)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(AtomicMoveError::Io)?;
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(source).map_err(AtomicMoveError::Io)? {
+        if entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
+            return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
+        }
+        entries.push(entry.map_err(AtomicMoveError::Io)?);
+    }
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
         if is_cancelled(cancel) {
@@ -616,7 +629,7 @@ fn copy_directory_contents(
         }
         *entry_count += 1;
         if *entry_count > MAX_ENTRIES {
-            return Err(AtomicMoveError::UnsafePath);
+            return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
         }
         let name = entry.file_name();
         let source_child = entry.path();
@@ -625,6 +638,8 @@ fn copy_directory_contents(
         if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
             return Err(AtomicMoveError::ReparsePoint);
         }
+        ensure_supported_windows_file_attributes(&metadata)?;
+        ensure_windows_no_named_streams(&source_child)?;
         if metadata.is_dir() {
             fs::create_dir(&target_child).map_err(map_create_error)?;
             copy_directory_contents(&source_child, &target_child, depth + 1, entry_count, cancel)?;
@@ -822,7 +837,7 @@ fn directory_content_digest(
             return Err(AtomicMoveError::Cancelled);
         }
         if depth >= MAX_DEPTH {
-            return Err(AtomicMoveError::UnsafePath);
+            return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
         }
         let verified = VerifiedDirectory::open_existing(current).map_err(map_directory_error)?;
         let relative = current
@@ -836,25 +851,29 @@ fn directory_content_digest(
         hasher.update(b"directory\0");
         hasher.update(&(name.len() as u64).to_le_bytes());
         hasher.update(&name);
-        let mut entries = fs::read_dir(current)
-            .map_err(AtomicMoveError::Io)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(AtomicMoveError::Io)?;
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(current).map_err(AtomicMoveError::Io)? {
+            if entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
+                return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
+            }
+            entries.push(entry.map_err(AtomicMoveError::Io)?);
+        }
         entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
             *entry_count += 1;
             if *entry_count > MAX_ENTRIES {
-                return Err(AtomicMoveError::UnsafePath);
+                return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
             }
             let path = entry.path();
             let metadata = fs::symlink_metadata(&path).map_err(AtomicMoveError::Io)?;
             if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
                 return Err(AtomicMoveError::ReparsePoint);
             }
+            ensure_supported_windows_file_attributes(&metadata)?;
+            ensure_windows_no_named_streams(&path)?;
             if metadata.is_dir() {
                 visit(root, &path, depth + 1, entry_count, hasher, cancel)?;
             } else if metadata.is_file() {
-                ensure_windows_no_named_streams(&path)?;
                 let mut options = OpenOptions::new();
                 options.read(true).custom_flags(
                     windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
@@ -864,7 +883,6 @@ fn directory_content_digest(
                 if !handle_metadata.is_file() || metadata_is_reparse_point(&handle_metadata) {
                     return Err(AtomicMoveError::ReparsePoint);
                 }
-                ensure_supported_windows_file_attributes(&handle_metadata)?;
                 let identity = identity::capture_identity_from_handle(&file, &path, cancel)
                     .map_err(map_identity_error)?;
                 let name = path
@@ -1517,6 +1535,15 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
 }
 
 fn map_content_read_rejected(reason: &'static str) -> AtomicMoveError {
+    match reason {
+        "directory_entry_limit_exceeded" | "directory_depth_limit_exceeded" => {
+            return AtomicMoveError::DirectoryTreeLimitExceeded;
+        }
+        "nested_volume_entry_unsupported" => {
+            return AtomicMoveError::DirectoryNestedVolumeUnsupported;
+        }
+        _ => {}
+    }
     #[cfg(target_os = "macos")]
     {
         AtomicMoveError::MacMutationNotSupported(reason)

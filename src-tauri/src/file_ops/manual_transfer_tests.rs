@@ -650,6 +650,335 @@ fn u1_macos_directory_copy_move_and_restore_reuse_the_existing_tree_transaction(
     runtime.dispose();
 }
 
+#[cfg(target_os = "macos")]
+struct IsolatedApfsVolume {
+    _root: tempfile::TempDir,
+    mountpoint: PathBuf,
+    attached: bool,
+}
+
+#[cfg(target_os = "macos")]
+impl IsolatedApfsVolume {
+    fn create() -> Option<Self> {
+        use std::process::Command;
+
+        let root = tempfile::tempdir().expect("task-owned APFS image directory");
+        let mountpoint = root.path().join("mount");
+        fs::create_dir(&mountpoint).expect("APFS mountpoint");
+        let image = root.path().join("fixture.sparseimage");
+        let name = format!("FyluraFL23-{}", uuid::Uuid::new_v4());
+        let created = Command::new("hdiutil")
+            .args([
+                "create", "-size", "128m", "-fs", "APFS", "-type", "SPARSE", "-volname",
+            ])
+            .arg(&name)
+            .arg(&image)
+            .output();
+        let Ok(created) = created else {
+            eprintln!("UNVERIFIED: hdiutil is unavailable for an isolated FL-23 APFS volume");
+            return None;
+        };
+        if !created.status.success() {
+            panic!(
+                "APFS-capable macOS host could not create isolated APFS image: {}",
+                String::from_utf8_lossy(&created.stderr).trim()
+            );
+        }
+        let attached = Command::new("hdiutil")
+            .args(["attach", "-quiet", "-nobrowse", "-mountpoint"])
+            .arg(&mountpoint)
+            .arg(&image)
+            .output();
+        let Ok(attached) = attached else {
+            eprintln!("UNVERIFIED: hdiutil could not attach the isolated FL-23 APFS image");
+            return None;
+        };
+        if !attached.status.success() {
+            panic!(
+                "APFS-capable macOS host could not attach isolated APFS image: {}",
+                String::from_utf8_lossy(&attached.stderr).trim()
+            );
+        }
+        Some(Self {
+            _root: root,
+            mountpoint,
+            attached: true,
+        })
+    }
+
+    fn detach(&mut self) -> Result<(), String> {
+        use std::process::Command;
+
+        if !self.attached {
+            return Ok(());
+        }
+        let mut last_error = String::new();
+        for force in [false, true] {
+            let mut command = Command::new("hdiutil");
+            command.args(["detach", "-quiet"]);
+            if force {
+                command.arg("-force");
+            }
+            let result = command.arg(&self.mountpoint).output();
+            match result {
+                Ok(output) if output.status.success() => {
+                    self.attached = false;
+                    return Ok(());
+                }
+                Ok(output) => {
+                    last_error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                }
+                Err(error) => last_error = error.to_string(),
+            }
+        }
+        Err(format!(
+            "could not detach task-owned APFS fixture: {last_error}"
+        ))
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for IsolatedApfsVolume {
+    fn drop(&mut self) {
+        if let Err(error) = self.detach() {
+            eprintln!("{error}");
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_test_xattr(path: &Path, name: &str, value: &[u8]) {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let path = CString::new(path.as_os_str().as_bytes()).expect("fixture path has no NUL");
+    let name = CString::new(name).expect("xattr name has no NUL");
+    let result = unsafe {
+        libc::setxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_ptr().cast(),
+            value.len(),
+            0,
+            0,
+        )
+    };
+    assert_eq!(
+        result,
+        0,
+        "setxattr failed: {}",
+        std::io::Error::last_os_error()
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn read_test_xattr(path: &Path, name: &str) -> Vec<u8> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let path = CString::new(path.as_os_str().as_bytes()).expect("fixture path has no NUL");
+    let name = CString::new(name).expect("xattr name has no NUL");
+    let size =
+        unsafe { libc::getxattr(path.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0, 0, 0) };
+    assert!(
+        size >= 0,
+        "getxattr size failed: {}",
+        std::io::Error::last_os_error()
+    );
+    let mut value = vec![0; size as usize];
+    let read = unsafe {
+        libc::getxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_mut_ptr().cast(),
+            value.len(),
+            0,
+            0,
+        )
+    };
+    assert_eq!(
+        read,
+        size,
+        "getxattr failed: {}",
+        std::io::Error::last_os_error()
+    );
+    value
+}
+
+#[cfg(target_os = "macos")]
+fn add_test_acl(path: &Path) {
+    let output = std::process::Command::new("chmod")
+        .args(["+a", "everyone deny write"])
+        .arg(path)
+        .output()
+        .expect("macOS chmod supports ACL fixtures");
+    assert!(
+        output.status.success(),
+        "could not create ACL fixture: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn read_test_acl(path: &Path) -> Vec<String> {
+    let output = std::process::Command::new("ls")
+        .args(["-le"])
+        .arg(path)
+        .output()
+        .expect("macOS ls can inspect ACL fixtures");
+    assert!(
+        output.status.success(),
+        "could not inspect ACL fixture: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.split_once(": ")
+                .is_some_and(|(_, entry)| entry.contains(" allow ") || entry.contains(" deny "))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_forks() {
+    let Some(mut volume) = IsolatedApfsVolume::create() else {
+        return;
+    };
+    use std::os::unix::fs::MetadataExt;
+
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("跨卷目录.app");
+    fs::create_dir_all(source.join("Contents").join("MacOS").join("空目录")).unwrap();
+    fs::write(
+        source.join("Contents").join("Info.plist"),
+        b"package fixture",
+    )
+    .unwrap();
+    let source_file = source.join("Contents").join("MacOS").join("内容.bin");
+    fs::write(&source_file, b"APFS cross-volume directory payload").unwrap();
+    set_test_xattr(&source, "com.fylura.fl23.directory", b"directory metadata");
+    set_test_xattr(
+        &source_file,
+        "com.apple.ResourceFork",
+        b"resource fork fixture",
+    );
+    set_test_xattr(
+        &source_file,
+        "com.fylura.fl23.user",
+        b"extended attribute fixture",
+    );
+    add_test_acl(&source_file);
+    let source_acl = read_test_acl(&source_file);
+    assert!(!source_acl.is_empty(), "ACL fixture was not created");
+    assert_ne!(
+        fs::metadata(&source).unwrap().dev(),
+        fs::metadata(&volume.mountpoint).unwrap().dev(),
+        "the APFS fixture must be a distinct filesystem volume"
+    );
+
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let destination = volume.mountpoint.join("destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let moved = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        moved.logs[0].status, "success",
+        "{:?}",
+        moved.logs[0].error_message
+    );
+    assert!(moved.logs[0].can_restore);
+    let target = destination.join("跨卷目录.app");
+    assert!(!source.exists());
+    assert!(target.join("Contents/MacOS/空目录").is_dir());
+    assert_eq!(
+        blake3::hash(&fs::read(target.join("Contents/MacOS/内容.bin")).unwrap()),
+        blake3::hash(b"APFS cross-volume directory payload")
+    );
+    assert_eq!(
+        read_test_xattr(&target, "com.fylura.fl23.directory"),
+        b"directory metadata"
+    );
+    assert_eq!(
+        read_test_xattr(
+            &target.join("Contents/MacOS/内容.bin"),
+            "com.apple.ResourceFork"
+        ),
+        b"resource fork fixture"
+    );
+    assert_eq!(
+        read_test_xattr(
+            &target.join("Contents/MacOS/内容.bin"),
+            "com.fylura.fl23.user"
+        ),
+        b"extended attribute fixture"
+    );
+    assert_eq!(
+        read_test_acl(&target.join("Contents/MacOS/内容.bin")),
+        source_acl
+    );
+
+    let restored =
+        restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: moved.logs }).unwrap();
+    assert_eq!(
+        restored.logs[0].restore_status, "restored",
+        "{:?}",
+        restored.logs[0].restore_error
+    );
+    assert_eq!(
+        read_test_xattr(&source, "com.fylura.fl23.directory"),
+        b"directory metadata"
+    );
+    assert_eq!(
+        read_test_xattr(
+            &source.join("Contents/MacOS/内容.bin"),
+            "com.apple.ResourceFork"
+        ),
+        b"resource fork fixture"
+    );
+    assert_eq!(
+        read_test_xattr(
+            &source.join("Contents/MacOS/内容.bin"),
+            "com.fylura.fl23.user"
+        ),
+        b"extended attribute fixture"
+    );
+    assert_eq!(
+        read_test_acl(&source.join("Contents/MacOS/内容.bin")),
+        source_acl
+    );
+    assert!(!target.exists());
+    runtime.dispose();
+    volume.detach().expect("detach task-owned APFS fixture");
+}
+
 #[test]
 fn u1_skipped_same_name_does_not_reserve_a_batch_destination() {
     let f = Fixture::new();

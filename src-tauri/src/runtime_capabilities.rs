@@ -95,9 +95,10 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         duplicate_available: cfg!(any(windows, target_os = "macos")),
         rename_available: cfg!(any(windows, target_os = "macos")),
         same_volume_move_available: cfg!(any(windows, target_os = "macos")),
-        // macOS cross-volume retirement is runtime/volume-specific; expose
-        // the layered capability below instead of a platform-wide true bit.
-        cross_volume_move_available: cfg!(windows),
+        // The backend implements a journaled copy/verify/publish/retire path on
+        // both platforms. Per-volume and provider eligibility is still checked
+        // at operation time, and is represented by the layered capabilities.
+        cross_volume_move_available: cfg!(any(windows, target_os = "macos")),
         replace_available: cfg!(any(windows, target_os = "macos")),
         safe_trash_available: cfg!(any(windows, target_os = "macos")),
         restore_available: cfg!(any(windows, target_os = "macos")),
@@ -124,7 +125,7 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         macos_file_provider_mutation_available:
             crate::platform::macos::file_provider::GENERIC_FILE_PROVIDER_MUTATION_AVAILABLE,
         macos_package_mutation_available: cfg!(target_os = "macos"),
-        macos_cross_volume_mutation_available: false,
+        macos_cross_volume_mutation_available: cfg!(target_os = "macos"),
         macos_lifecycle_available: cfg!(target_os = "macos"),
         macos_finder_available: cfg!(target_os = "macos"),
         macos_quick_look_thumbnail_available:
@@ -202,7 +203,10 @@ mod tests {
             release.copy_available,
             windows || release.platform == "macos"
         );
-        assert_eq!(release.cross_volume_move_available, windows);
+        assert_eq!(
+            release.cross_volume_move_available,
+            windows || release.platform == "macos"
+        );
         assert_eq!(
             release.replace_available,
             windows || release.platform == "macos"
@@ -231,7 +235,10 @@ mod tests {
             release.macos_package_mutation_available,
             release.platform == "macos"
         );
-        assert!(!release.macos_cross_volume_mutation_available);
+        assert_eq!(
+            release.macos_cross_volume_mutation_available,
+            release.platform == "macos"
+        );
         assert_eq!(
             release.file_mutation_unavailable_code,
             if windows || release.platform == "macos" {

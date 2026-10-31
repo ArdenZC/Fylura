@@ -87,6 +87,10 @@ pub enum AtomicMoveError {
     TargetCommittedSourceCleanupPending,
     #[error("unsafe_path")]
     UnsafePath,
+    #[error("directory_tree_limit_exceeded")]
+    DirectoryTreeLimitExceeded,
+    #[error("directory_nested_volume_unsupported")]
+    DirectoryNestedVolumeUnsupported,
     #[error("reparse_point")]
     ReparsePoint,
     #[error("symlink")]
@@ -1636,6 +1640,15 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
 }
 
 fn map_content_read_rejected(reason: &'static str) -> AtomicMoveError {
+    match reason {
+        "directory_entry_limit_exceeded" | "directory_depth_limit_exceeded" => {
+            return AtomicMoveError::DirectoryTreeLimitExceeded;
+        }
+        "nested_volume_entry_unsupported" => {
+            return AtomicMoveError::DirectoryNestedVolumeUnsupported;
+        }
+        _ => {}
+    }
     #[cfg(target_os = "macos")]
     {
         AtomicMoveError::MacMutationNotSupported(reason)

@@ -546,12 +546,20 @@ pub(crate) fn copy_commit_source_stable(
             cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
             let destination = create_staging_directory(target_parent.raw_fd(), &staging_name)?;
             let mut hardlinks = HashMap::new();
+            let mut entry_count = 0usize;
+            let source_root_device = {
+                use std::os::unix::fs::MetadataExt;
+                handle.metadata().map_err(AtomicMoveError::Io)?.dev()
+            };
             copy_tree_from_fd(
                 handle.as_raw_fd(),
                 destination.as_raw_fd(),
                 destination.as_raw_fd(),
                 Path::new(""),
                 &mut hardlinks,
+                source_root_device,
+                0,
+                &mut entry_count,
                 cancel,
             )?;
             let metadata = handle.metadata().map_err(AtomicMoveError::Io)?;
@@ -794,12 +802,20 @@ fn copy_object(
             cleanup_staging_at(target_parent_fd, staging_name, None);
             let destination = create_staging_directory(target_parent_fd, staging_name)?;
             let mut hardlinks = HashMap::new();
+            let mut entry_count = 0usize;
+            let source_root_device = {
+                use std::os::unix::fs::MetadataExt;
+                source.metadata().map_err(AtomicMoveError::Io)?.dev()
+            };
             copy_tree_from_fd(
                 source.as_raw_fd(),
                 destination.as_raw_fd(),
                 destination.as_raw_fd(),
                 Path::new(""),
                 &mut hardlinks,
+                source_root_device,
+                0,
+                &mut entry_count,
                 cancel,
             )?;
             let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
@@ -1262,15 +1278,27 @@ fn copy_tree_from_fd(
     destination_root_fd: RawFd,
     relative_prefix: &Path,
     hardlinks: &mut HashMap<(u64, u64), PathBuf>,
+    source_root_device: u64,
+    depth: usize,
+    entry_count: &mut usize,
     cancel: Option<&AtomicBool>,
 ) -> Result<(), AtomicMoveError> {
-    for name in directory_entry_names(source_fd)? {
+    if depth >= crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT {
+        return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
+    }
+    let remaining =
+        crate::fs_safety::identity::DIRECTORY_IDENTITY_ENTRY_LIMIT.saturating_sub(*entry_count);
+    for name in directory_entry_names_bounded(source_fd, remaining)? {
         if is_cancelled(cancel) {
             return Err(AtomicMoveError::Cancelled);
         }
+        *entry_count += 1;
         let source_identity =
             crate::platform::macos::identity::MacPhysicalIdentity::from_at(source_fd, &name)
                 .map_err(AtomicMoveError::Io)?;
+        if source_identity.dev != source_root_device {
+            return Err(AtomicMoveError::DirectoryNestedVolumeUnsupported);
+        }
         let relative_path = relative_prefix.join(&name);
         match source_identity.file_type {
             value if value == libc::S_IFLNK as u32 => {
@@ -1286,6 +1314,9 @@ fn copy_tree_from_fd(
                     destination_root_fd,
                     &relative_path,
                     hardlinks,
+                    source_root_device,
+                    depth + 1,
+                    entry_count,
                     cancel,
                 )?;
                 let metadata = source_directory.metadata().map_err(AtomicMoveError::Io)?;
@@ -1422,6 +1453,42 @@ fn directory_entry_names(parent_fd: RawFd) -> Result<Vec<OsString>, AtomicMoveEr
     }
     unsafe { libc::closedir(directory) };
     Ok(names)
+}
+
+fn directory_entry_names_bounded(
+    parent_fd: RawFd,
+    entry_limit: usize,
+) -> Result<Vec<OsString>, AtomicMoveError> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let scan_fd = unsafe { libc::dup(parent_fd) };
+    if scan_fd < 0 {
+        return Err(AtomicMoveError::Io(io::Error::last_os_error()));
+    }
+    let directory = unsafe { libc::fdopendir(scan_fd) };
+    if directory.is_null() {
+        unsafe { libc::close(scan_fd) };
+        return Err(AtomicMoveError::Io(io::Error::last_os_error()));
+    }
+    let mut names = Vec::new();
+    let mut result = Ok(());
+    loop {
+        let entry = unsafe { libc::readdir(directory) };
+        if entry.is_null() {
+            break;
+        }
+        let raw_name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+        if raw_name == b"." || raw_name == b".." {
+            continue;
+        }
+        if names.len() >= entry_limit {
+            result = Err(AtomicMoveError::DirectoryTreeLimitExceeded);
+            break;
+        }
+        names.push(OsString::from_vec(raw_name.to_vec()));
+    }
+    unsafe { libc::closedir(directory) };
+    result.map(|()| names)
 }
 
 #[cfg(test)]
@@ -1871,12 +1938,20 @@ fn publish_directory_exclusive(
     }
     let destination = create_staging_directory(parent_fd, target_name)?;
     let mut hardlinks = HashMap::new();
+    let mut entry_count = 0usize;
+    let source_root_device = {
+        use std::os::unix::fs::MetadataExt;
+        source.metadata().map_err(AtomicMoveError::Io)?.dev()
+    };
     if copy_tree_from_fd(
         source.as_raw_fd(),
         destination.as_raw_fd(),
         destination.as_raw_fd(),
         Path::new(""),
         &mut hardlinks,
+        source_root_device,
+        0,
+        &mut entry_count,
         cancel,
     )
     .is_err()

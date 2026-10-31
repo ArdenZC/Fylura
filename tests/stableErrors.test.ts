@@ -26,6 +26,8 @@ describe("stable error codes", () => {
     expect(localizedStableError("claim_identity_mismatch", zh)).toContain("身份不一致");
     expect(localizedStableError("manual_review_required", en)).toContain("manual review");
     expect(localizedStableError("system_trash_source_binding_unsupported", zh)).toContain("系统回收站");
+    expect(localizedStableError("directory_tree_limit_exceeded", en)).toContain("entry or nesting limit");
+    expect(localizedStableError("transfer_nested_volume_unsupported", zh)).toContain("挂载卷");
   });
 
   it("preserves unknown technical details for diagnostics", () => {

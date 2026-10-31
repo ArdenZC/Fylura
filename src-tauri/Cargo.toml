@@ -32,6 +32,7 @@ required-features = ["native-qa"]
 default = []
 ai-debug = []
 native-qa = []
+global-search-filename-relevance-candidate = []
 desktop-runtime = [
     "tauri/wry",
     "tauri/compression",

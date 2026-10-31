@@ -18,6 +18,8 @@ mod index_cost_benchmark;
 #[path = "global_search_query_cost_diagnostic.rs"]
 mod query_cost_diagnostic;
 
+#[path = "global_search_filename_relevance.rs"]
+mod filename_relevance_candidate;
 #[path = "issue474_candidates.rs"]
 mod issue474_candidates;
 
@@ -634,6 +636,18 @@ fn benchmark_context(entries: u64) -> JsonValue {
             .filter(|out| out.status.success())
             .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
     };
+    let cpu_model = match env::consts::OS {
+        "windows" => command(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-Command",
+                "(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)",
+            ],
+        ),
+        "macos" => command("sysctl", &["-n", "machdep.cpu.brand_string"]),
+        _ => None,
+    };
     json!({
         "dataset_type": "synthetic_sqlite_global_index",
         "entries": entries,
@@ -648,6 +662,11 @@ fn benchmark_context(entries: u64) -> JsonValue {
         "sqlite_version": rusqlite::version(),
         "runner_os": env::consts::OS,
         "runner_arch": env::consts::ARCH,
+        "runner_name": env::var("RUNNER_NAME").ok(),
+        "runner_image": env::var("ImageOS").ok(),
+        "runner_image_version": env::var("ImageVersion").ok(),
+        "runner_identity": env::var("ZEN_CANVAS_BENCHMARK_RUNNER").ok(),
+        "cpu_model": cpu_model,
         "github_run_id": env::var("GITHUB_RUN_ID").ok(),
         "timestamp_unix_seconds": SystemTime::now()
             .duration_since(UNIX_EPOCH)

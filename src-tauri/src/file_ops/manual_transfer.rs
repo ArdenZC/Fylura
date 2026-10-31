@@ -981,28 +981,6 @@ pub(crate) fn directory_tree_journal_fingerprint(value: Option<&str>) -> Option<
         .then_some(fingerprint)
 }
 
-#[cfg(test)]
-mod transfer_root_tests {
-    use super::{decode_transfer_root, encode_path_for_transfer_id};
-
-    #[test]
-    fn transfer_root_decoder_accepts_file_and_directory_v5_ids() {
-        let root = std::env::temp_dir().join("fylura-transfer-root");
-        let encoded = encode_path_for_transfer_id(root.to_str().expect("UTF-8 test path"));
-        let digest = "a".repeat(64);
-        let fingerprint = "b".repeat(64);
-
-        for id in [
-            format!("op-transfer-v5-{digest}-none-{encoded}"),
-            // File previews created by the earlier v5 writer used "-" as
-            // the missing-fingerprint sentinel, yielding three separators.
-            format!("op-transfer-v5-{digest}---{encoded}"),
-            format!("op-transfer-v5-{digest}-{fingerprint}-{encoded}"),
-        ] {
-            assert_eq!(decode_transfer_root(&id).unwrap(), root);
-        }
-    }
-}
 pub(crate) fn execute(
     operation: &OperationPreviewRequest,
     context: OperationExecutionContext<'_>,
@@ -1482,4 +1460,27 @@ pub(crate) async fn execute_registered<R: Runtime>(
     })
     .await
     .map_err(|e| format!("transfer_execution_failed:{e}"))?
+}
+
+#[cfg(test)]
+mod transfer_root_tests {
+    use super::{decode_transfer_root, encode_path_for_transfer_id};
+
+    #[test]
+    fn transfer_root_decoder_accepts_file_and_directory_v5_ids() {
+        let root = std::env::temp_dir().join("fylura-transfer-root");
+        let encoded = encode_path_for_transfer_id(root.to_str().expect("UTF-8 test path"));
+        let digest = "a".repeat(64);
+        let fingerprint = "b".repeat(64);
+
+        for id in [
+            format!("op-transfer-v5-{digest}-none-{encoded}"),
+            // File previews created by the earlier v5 writer used "-" as
+            // the missing-fingerprint sentinel, yielding three separators.
+            format!("op-transfer-v5-{digest}---{encoded}"),
+            format!("op-transfer-v5-{digest}-{fingerprint}-{encoded}"),
+        ] {
+            assert_eq!(decode_transfer_root(&id).unwrap(), root);
+        }
+    }
 }

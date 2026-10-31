@@ -10,6 +10,7 @@ export interface TransferOrchestrationRequest {
   action: TransferAction;
   destinationDirectory: string;
   destinationEntry?: BrowseEntryRef;
+  newName?: string;
   skip: string[];
   keepBoth: string[];
 }
@@ -27,6 +28,7 @@ export interface TransferOrchestrationPorts<TResult> {
     action: TransferAction;
     destinationDirectory: string;
     destinationEntry?: BrowseEntryRef;
+    newName?: string;
     skip: string[];
     keepBoth: string[];
   }) => Promise<TransferPreview>;
@@ -50,19 +52,21 @@ export async function orchestrateTransfer<TResult>(
   request: TransferOrchestrationRequest,
   ports: TransferOrchestrationPorts<TResult>,
 ): Promise<TransferOrchestrationOutcome<TResult>> {
-  if (!request.tickets.length || !ports.isCurrent()) return { kind: "stale" };
+  const createDirectory = request.action === "create_directory";
+  if ((!request.tickets.length && !createDirectory) || !ports.isCurrent()) return { kind: "stale" };
 
   const preview = await ports.preview({
     ticketIds: request.tickets.map((ticket) => ticket.id),
     action: request.action,
     destinationDirectory: request.destinationDirectory,
     destinationEntry: request.destinationEntry,
+    ...(request.newName === undefined ? {} : { newName: request.newName }),
     skip: request.skip,
     keepBoth: request.keepBoth,
   });
   if (!ports.isCurrent()) return { kind: "stale" };
 
-  const expected = new Set(request.tickets.map((ticket) => ticket.id));
+  const expected = new Set(createDirectory ? ["create-directory"] : request.tickets.map((ticket) => ticket.id));
   const skip = new Set(request.skip);
   const keepBoth = new Set(request.keepBoth);
   const seen = new Set<string>();

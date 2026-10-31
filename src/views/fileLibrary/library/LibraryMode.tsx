@@ -3,7 +3,7 @@ import { usePaneQuerySelector, usePane } from "../workbench/PaneContext";
 import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { tauriApi } from "../../../api/tauriApi";
-import { useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
+import { useChromeContext, useI18nContext, useNavigationContext, useRuntimeCapabilitiesContext } from "../../../contexts/AppContexts";
 import { cloneFileQuerySpec, explicitSingleSelectionId } from "../../../store/useFileLibraryV2Store";
 import type { FileLibrarySummary, FileLibraryDetail } from "../../../types/domain";
 import { libraryScopeLabel, readableError } from "../../../utils/viewHelpers";
@@ -15,7 +15,7 @@ import { LibraryMetadataManagerDialog } from "../../vault/components/LibraryMeta
 import { ManualRenameDialog } from "./ManualRenameDialog";
 import { BatchRenameAction } from "./BatchRenameAction";
 import { useBatchRenameAction } from "./useBatchRenameAction";
-import { LibraryContextMenu } from "./LibraryContextMenu";
+import { LibraryContextMenu, libraryTransferMenuItems } from "./LibraryContextMenu";
 import { useLibrarySourceOwner } from "./librarySourceOwner";
 import { useLibraryContextMenu } from "./useLibraryContextMenu";
 import { useLibraryContentCompatibility } from "./useLibraryContentCompatibility";
@@ -52,11 +52,13 @@ export function LibraryMode() {
   const pane = usePane();
   const { controller, state: experienceState } = useFileLibraryExperience();
   const { t, language } = useI18nContext();
+  const { platform } = useChromeContext();
   const { onError, setView } = useNavigationContext();
   const { capabilities } = useRuntimeCapabilitiesContext();
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
+  const clipboardIncludesDirectory = useFileManagementStore((store) => store.clipboard?.tickets.some((ticket) => ticket.isDirectory) ?? false);
   useLibraryManagementSurface(source);
 
   const currentTarget = experienceState.workspace.session.currentTarget;
@@ -462,11 +464,10 @@ export function LibraryMode() {
             closeContextMenu("dialog-handoff");
             openLibraryPreview(fileId, trigger);
           }}
-          onMove={() => { closeContextMenu("dialog-handoff"); useFileManagementStore.getState().requestAction("move"); }}
-          transferItems={(["copy", "cut", "paste", "basket"] as const).map((action) => ({ label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : "fmPaste"), action: () => { closeContextMenu(action === "paste" ? "dialog-handoff" : "action"); useFileManagementStore.getState().requestAction(action); } }))}
+          onMove={platform === "win32" && contextMenu.file.isDirectory ? undefined : () => { closeContextMenu("dialog-handoff"); useFileManagementStore.getState().requestAction("move"); }}
+          transferItems={libraryTransferMenuItems({t,windows:platform==="win32",isDirectory:contextMenu.file.isDirectory,clipboardIncludesDirectory,closeContextMenu,requestAction:(action)=>useFileManagementStore.getState().requestAction(action)})}
           onRename={capabilities?.renameAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => {
-            closeContextMenu("dialog-handoff");
-            source.setExplicitSelection([contextMenu.file.id], contextMenu.file.id);
+            closeContextMenu("dialog-handoff"); source.setExplicitSelection([contextMenu.file.id], contextMenu.file.id);
             setRenameFile(contextMenu.file);
           } : undefined}
           onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)}

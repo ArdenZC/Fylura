@@ -15,21 +15,35 @@ import {
   FileLibraryExperienceProvider,
   useFileLibraryExperience,
 } from "../FileLibraryExperienceProvider";
-import { useI18nContext } from "../../../contexts/AppContexts";
+import { useChromeContext, useI18nContext } from "../../../contexts/AppContexts";
 import { defaultFileLibraryProjection } from "../../../store/useFileLibraryV2Store";
 import { useFileLibraryStore } from "../../../store/useFileLibraryStore";
 import { useAppStore } from "../../../store/useAppStore";
 import { useFileManagementStore } from "../management/fileManagementStore";
 import type { LibraryScope } from "../../../types/domain";
+import type { WorkspacePlatform } from "../../../types/fileWorkspace";
 import type { PreviewExperienceController } from "../preview/previewExperienceController";
 import { PaneContext, type PaneContextValue } from "./PaneContext";
+import {
+  navigationTargetFromLibraryRestoreLocator,
+} from "../../../fileWorkspace/workspaceSession";
 import {
   FileWorkbenchModel,
   type WorkbenchPane,
   type WorkbenchTab,
 } from "./workbenchModel";
+import {
+  clearExpandedTreePaths,
+  readExpandedTreePaths,
+  readPersistedWorkbench,
+  serializeWorkbenchSnapshot,
+  writeExpandedTreePaths,
+  writePersistedWorkbench,
+  type PersistedWorkbenchPane,
+} from "./workbenchPersistence";
 import type { Translator } from "../../../types/ui";
 import { useWorkbenchDrag } from "./useWorkbenchDrag";
+import { readableError } from "../../../utils/viewHelpers";
 import { useNativeFileDrop } from "./useNativeFileDrop";
 import "./workbench.css";
 function tabLabel(tab: WorkbenchTab, t: Translator) {
@@ -52,7 +66,10 @@ export function FileLibraryWorkbench({
   active?: boolean;
 }) {
   const { controller: rootController } = useFileLibraryExperience();
+  const { platform } = useChromeContext();
   const { t } = useI18nContext();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [model] = useState(() => new FileWorkbenchModel(rootController));
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot);
   const root = useRef<HTMLDivElement | null>(null);
@@ -61,8 +78,195 @@ export function FileLibraryWorkbench({
   const [mutationEpochs, setMutationEpochs] = useState<Record<string, number>>(
     {},
   );
+  const [restoreErrors, setRestoreErrors] = useState<Record<string, string>>({});
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const restoreStarted = useRef(false);
   const pendingDispose = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = state.tabs.find((tab) => tab.id === state.activeTabId)!;
+
+  useEffect(() => {
+    if (restoreStarted.current) return;
+    let cancelled = false;
+    const saved = readPersistedWorkbench();
+    if (!saved) {
+      restoreStarted.current = true;
+      setWorkspaceReady(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const restoreWorkspace = async () => {
+      const runtimeTabs: WorkbenchTab[] = [];
+      const treeTransfers: Array<{
+        sourcePaneId: string;
+        runtimePaneId: string;
+        paths: string[];
+      }> = [];
+      for (let tabIndex = 0; tabIndex < saved.tabs.length; tabIndex += 1) {
+        const savedTab = saved.tabs[tabIndex];
+        let runtimeTab =
+          tabIndex === 0 ? model.getSnapshot().tabs[0] : model.newTab();
+        if (!runtimeTab) break;
+        if (savedTab.panes.length === 2) {
+          model.toggleDual(runtimeTab.id);
+          if (!savedTab.dual) model.toggleDual(runtimeTab.id);
+        }
+        runtimeTab = model
+          .getSnapshot()
+          .tabs.find((tab) => tab.id === runtimeTab!.id)!;
+        const restoredActivePane = runtimeTab.panes[savedTab.activePaneIndex];
+        if (restoredActivePane) model.activate(runtimeTab.id, restoredActivePane.id);
+        runtimeTabs.push(runtimeTab);
+        savedTab.panes.forEach((savedPane, paneIndex) => {
+          const runtimePane = runtimeTab.panes[paneIndex];
+          if (!runtimePane) return;
+          if (savedPane.path) model.updatePath(runtimePane.id, savedPane.path);
+          treeTransfers.push({
+            sourcePaneId: savedPane.id,
+            runtimePaneId: runtimePane.id,
+            paths: readExpandedTreePaths(savedPane.id),
+          });
+        });
+      }
+      const runtimePaneIds = new Set(
+        runtimeTabs.flatMap((tab) => tab.panes.map((pane) => pane.id)),
+      );
+      treeTransfers.forEach((transfer) =>
+        writeExpandedTreePaths(transfer.runtimePaneId, transfer.paths),
+      );
+      treeTransfers.forEach((transfer) => {
+        if (!runtimePaneIds.has(transfer.sourcePaneId))
+          clearExpandedTreePaths(transfer.sourcePaneId);
+      });
+
+      const restorePane = async (
+        runtimePane: WorkbenchPane,
+        savedPane: PersistedWorkbenchPane,
+        keepActive: boolean,
+      ) => {
+        if (cancelled) return;
+        let ownedEpoch = runtimePane.controller.workspace.session.requestEpoch;
+        try {
+          // Hidden tab/pane providers suspend their controller on mount. Resume
+          // before re-admitting the saved navigation locator; inactive routes
+          // are suspended again after their navigation intent is restored.
+          await runtimePane.controller.resume();
+          if (cancelled) return;
+          if (savedPane.restore?.locator.kind === "browse") {
+            const pendingAdmission = runtimePane.controller.restoreBrowse(
+              savedPane.restore.locator,
+            );
+            // restoreBrowse advances the request epoch synchronously before
+            // awaiting path revalidation.  Record that request so its own
+            // failure remains visible, while a newer user navigation still
+            // suppresses this stale result.
+            ownedEpoch = runtimePane.controller.workspace.session.requestEpoch;
+            const admitted = await pendingAdmission;
+            if (!admitted) throw new Error(tRef.current("wbNavigationFailed"));
+          } else if (savedPane.restore?.locator.kind === "library") {
+            const target = navigationTargetFromLibraryRestoreLocator(
+              savedPane.restore.locator,
+            );
+            const navigated = target && runtimePane.controller.navigate(target);
+            ownedEpoch = runtimePane.controller.workspace.session.requestEpoch;
+            if (!navigated)
+              throw new Error(tRef.current("wbNavigationFailed"));
+          }
+        } catch (cause) {
+          if (
+            cancelled ||
+            runtimePane.controller.workspace.session.requestEpoch !== ownedEpoch
+          )
+            return;
+          setRestoreErrors((current) => ({
+            ...current,
+            [runtimePane.id]: `${tRef.current("wbNavigationFailed")}: ${readableError(cause)}`,
+          }));
+        } finally {
+          if (!keepActive) await runtimePane.controller.suspend();
+        }
+      };
+
+      // Re-admit the root controller first, then restore other panes one at a
+      // time. Every Browse route gets fresh backend authority on this launch.
+      const rootSaved = saved.tabs[0]?.panes[0];
+      const rootRuntime = runtimeTabs[0]?.panes[0];
+      if (rootSaved && rootRuntime) {
+        const keepActive = workspaceActive
+          && saved.activeTabIndex === 0
+          && (!saved.tabs[0]?.dual || wide || saved.tabs[0]?.activePaneIndex === 0);
+        await restorePane(rootRuntime, rootSaved, keepActive);
+      }
+      for (let tabIndex = 0; tabIndex < runtimeTabs.length; tabIndex += 1) {
+        for (let paneIndex = 0; paneIndex < runtimeTabs[tabIndex].panes.length; paneIndex += 1) {
+          if (tabIndex === 0 && paneIndex === 0) continue;
+          const runtimePane = runtimeTabs[tabIndex].panes[paneIndex];
+          const savedPane = saved.tabs[tabIndex]?.panes[paneIndex];
+          const savedTab = saved.tabs[tabIndex];
+          const keepActive = workspaceActive
+            && tabIndex === saved.activeTabIndex
+            && (!savedTab?.dual || wide || paneIndex === savedTab?.activePaneIndex);
+          if (runtimePane && savedPane) await restorePane(runtimePane, savedPane, keepActive);
+        }
+      }
+      const selectedTab = runtimeTabs[saved.activeTabIndex] ?? runtimeTabs[0];
+      const selectedPane =
+        selectedTab?.panes[saved.tabs[saved.activeTabIndex]?.activePaneIndex ?? 0];
+      if (selectedTab && selectedPane) model.activate(selectedTab.id, selectedPane.id);
+      if (!cancelled) setWorkspaceReady(true);
+    };
+    let started = false;
+    const startTimer = setTimeout(() => {
+      started = true;
+      restoreStarted.current = true;
+      void restoreWorkspace();
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(startTimer);
+      if (!started) restoreStarted.current = false;
+    };
+  }, [model]);
+
+  useEffect(() => {
+    if (!workspaceReady) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const persistNow = () => {
+      const runtime: WorkspacePlatform | null =
+        platform === "win32"
+          ? "windows"
+          : platform === "darwin"
+            ? "macos"
+            : null;
+      const snapshot = serializeWorkbenchSnapshot(model.getSnapshot(), runtime);
+      if (snapshot) writePersistedWorkbench(snapshot);
+    };
+    const persist = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(persistNow, 180);
+    };
+    const flush = () => {
+      if (timer) clearTimeout(timer);
+      persistNow();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    const unsubscribe = state.tabs.map((tab) =>
+      tab.panes.map((pane) => pane.controller.subscribe(persist)),
+    ).flat(2);
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    persist();
+    return () => {
+      if (timer) clearTimeout(timer);
+      flush();
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      unsubscribe.forEach((stop) => stop());
+    };
+  }, [model, platform, state.activeTabId, state.tabs, workspaceReady]);
   useLayoutEffect(() => {
     if (useFileManagementStore.getState().activePaneId !== active.activePaneId)
       useFileManagementStore.getState().activatePane(active.activePaneId);
@@ -92,6 +296,17 @@ export function FileLibraryWorkbench({
     if (!tab) useAppStore.getState().showError(t("wbTabLimit"));
     else focus(tab.id, tab.activePaneId);
   }, [focus, model, t]);
+  const closeTab = useCallback(
+    (tabId: string) => {
+      if (useFileManagementStore.getState().transferOpen) return;
+      model
+        .getSnapshot()
+        .tabs.find((tab) => tab.id === tabId)
+        ?.panes.forEach((pane) => clearExpandedTreePaths(pane.id));
+      void model.close(tabId);
+    },
+    [model],
+  );
   useEffect(() => {
     const el = root.current;
     if (!el) return;
@@ -299,7 +514,7 @@ export function FileLibraryWorkbench({
                 className="wb-tab-close"
                 disabled={locked}
                 aria-label={`${t("wbCloseTab")} ${index + 1}`}
-                onClick={() => void model.close(tab.id)}
+                onClick={() => closeTab(tab.id)}
               >
                 <X size={12} />
               </button>
@@ -394,12 +609,23 @@ export function FileLibraryWorkbench({
                     : undefined
                 }
                 mutationEpoch={mutationEpochs[pane.id] ?? 0}
+                restoreError={restoreErrors[pane.id] ?? ""}
                 activate={() => focus(tab.id, pane.id)}
                 activatePeer={() => {
                   const other = tab.panes.find((other) => other.id !== pane.id);
                   if (other) focus(tab.id, other.id);
                 }}
-                updateLocation={(path) => model.updatePath(pane.id, path)}
+                updateLocation={(path, targetKey) => {
+                  model.updatePath(pane.id, path, targetKey ?? null);
+                  if (path) {
+                    setRestoreErrors((current) => {
+                      if (!current[pane.id]) return current;
+                      const next = { ...current };
+                      delete next[pane.id];
+                      return next;
+                    });
+                  }
+                }}
                 registerPreview={(preview) => {
                   if (preview) previews.current.set(pane.id, preview);
                   else previews.current.delete(pane.id);
@@ -426,6 +652,7 @@ function PaneHost({
   pane,
   Pane,
   mutationEpoch,
+  restoreError,
   ...props
 }: Omit<
   PaneContextValue,
@@ -441,7 +668,8 @@ function PaneHost({
   pane: WorkbenchPane;
   Pane: ComponentType;
   mutationEpoch: number;
-  updateLocation: (path: string) => void;
+  restoreError: string;
+  updateLocation: (path: string, targetKey?: string | null) => void;
   registerPreview: (preview: PreviewExperienceController | null) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -467,7 +695,7 @@ function PaneHost({
   const previewUpdater = useRef(props.registerPreview);
   previewUpdater.current = props.registerPreview;
   const updateLocation = useCallback(
-    (path: string) => pathUpdater.current(path),
+    (path: string, targetKey?: string | null) => pathUpdater.current(path, targetKey),
     [],
   );
   const registerPreview = useCallback(
@@ -491,6 +719,7 @@ function PaneHost({
     scope,
     setScope,
     routingHint: pane.path,
+    pathTargetKey: pane.pathTargetKey,
     updateLocation,
     registerPreview,
   };
@@ -514,6 +743,11 @@ function PaneHost({
       onLostPointerCapture={props.onLostPointerCapture}
       onClickCapture={props.onClickCapture}
     >
+      {restoreError && (
+        <div className="wb-pane-hint" role="alert">
+          {restoreError}
+        </div>
+      )}
       <PaneContext.Provider value={value}>
         <FileLibraryExperienceProvider
           active={props.visible}

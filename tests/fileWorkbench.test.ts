@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { FileWorkbenchModel } from "../src/views/fileLibrary/workbench/workbenchModel";
+import { currentWorkbenchBrowsePath, FileWorkbenchModel, workbenchTargetKey } from "../src/views/fileLibrary/workbench/workbenchModel";
 import { FileLibraryExperienceController } from "../src/views/fileLibrary/fileLibraryExperience";
 import {
   FileWorkspaceController,
@@ -16,6 +16,12 @@ import type {
   FileQueryResponseV2,
 } from "../src/types/domain";
 import { pathCrumbs } from "../src/views/fileLibrary/workbench/PathBar";
+import {
+  parsePersistedWorkbench,
+  readPersistedWorkbench,
+  serializeWorkbenchSnapshot,
+  writePersistedWorkbench,
+} from "../src/views/fileLibrary/workbench/workbenchPersistence";
 
 const defer = <T>() => {
   let resolve!: (value: T) => void;
@@ -26,6 +32,23 @@ const defer = <T>() => {
 };
 
 describe("U2 independent workspace instances", () => {
+  it("does not expose a stale pane route as the current Browse path", () => {
+    const currentTarget = {
+      kind: "browse" as const,
+      location: { kind: "managed" as const, scanRootId: "current-root" },
+      pathRef: { id: "current-path" },
+    };
+    const previousTarget = {
+      kind: "browse" as const,
+      location: { kind: "managed" as const, scanRootId: "previous-root" },
+      pathRef: { id: "previous-path" },
+    };
+
+    expect(currentWorkbenchBrowsePath("C:/Previous/Folder", workbenchTargetKey(previousTarget), currentTarget)).toBeNull();
+    expect(currentWorkbenchBrowsePath("", workbenchTargetKey(currentTarget), currentTarget)).toBeNull();
+    expect(currentWorkbenchBrowsePath("C:/Current/Folder", workbenchTargetKey(currentTarget), currentTarget)).toBe("C:/Current/Folder");
+  });
+
   it("retains each tab and pane's controller, history presentation and selection, then disposes only the closed tab", async () => {
     const root = new FileLibraryExperienceController();
     const model = new FileWorkbenchModel(root);
@@ -78,6 +101,73 @@ describe("U2 independent workspace instances", () => {
       model.getSnapshot().tabs[0].panes[0].controller.getState().workspace
         .session.disposed,
     ).toBe(false);
+    await model.dispose();
+    await root.dispose();
+  });
+
+  it("persists tab order, each pane path, dual state and active focus without write authority", async () => {
+    const root = new FileLibraryExperienceController();
+    const model = new FileWorkbenchModel(root);
+    const first = model.getSnapshot().tabs[0]!;
+    model.toggleDual(first.id);
+    const firstLeft = first.panes[0]!;
+    const firstRight = first.panes[1]!;
+    const second = model.newTab()!;
+    model.toggleDual(second.id);
+    const secondRight = second.panes[1]!;
+    const setBrowse = (pane: typeof firstLeft, path: string) => {
+      model.updatePath(pane.id, path);
+      pane.controller.workspace.session.navigate(
+        { kind: "browse", location: { kind: "managed", scanRootId: `root-${path}` }, pathRef: { id: `session-ref-${path}` } },
+        { restoreLocator: { kind: "browse", platform: "windows", routingHint: path, displayHint: path } },
+      );
+    };
+    setBrowse(firstLeft, "C:/First/Left");
+    setBrowse(firstRight, "C:/First/Right");
+    setBrowse(second.panes[0]!, "C:/Second/Left");
+    setBrowse(secondRight, "C:/Second/Right");
+    model.activate(second.id, secondRight.id);
+
+    const serialized = serializeWorkbenchSnapshot(model.getSnapshot(), "windows");
+    expect(serialized).not.toBeNull();
+    expect(serialized!.tabs.map((tab) => tab.panes.map((pane) => pane.path))).toEqual([
+      ["C:/First/Left", "C:/First/Right"],
+      ["C:/Second/Left", "C:/Second/Right"],
+    ]);
+    expect(serialized!.tabs.map((tab) => tab.dual)).toEqual([true, true]);
+    expect(serialized!.tabs[1]!.activePaneIndex).toBe(1);
+    expect(serialized!.activeTabIndex).toBe(1);
+    expect(JSON.stringify(serialized)).not.toMatch(/ticket|previewId|transferAuthority|permissionToken/i);
+
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    } as unknown as Storage;
+    expect(writePersistedWorkbench(serialized, storage)).toBe(true);
+    expect(readPersistedWorkbench(storage)).toEqual(serialized);
+    expect(parsePersistedWorkbench({ ...serialized!, staleTransferTicket: "forbidden" })).toBeNull();
+    await model.dispose();
+    await root.dispose();
+  });
+
+  it("does not persist a stale Places path while the new Browse target is unresolved", async () => {
+    const root = new FileLibraryExperienceController();
+    const model = new FileWorkbenchModel(root);
+    const pane = model.getSnapshot().tabs[0]!.panes[0]!;
+    const target = { kind: "browse" as const, location: { kind: "managed" as const, scanRootId: "root-new" }, pathRef: { id: "new-path-ref" } };
+    pane.controller.workspace.session.navigate(target);
+    model.updatePath(pane.id, "C:/Old/Folder", "previous-target-key");
+
+    const unresolved = serializeWorkbenchSnapshot(model.getSnapshot(), "windows");
+    expect(unresolved!.tabs[0]!.panes[0]!.restore).toBeNull();
+    expect(unresolved!.tabs[0]!.panes[0]!.path).toBe("");
+
+    model.updatePath(pane.id, "C:/New/Folder", workbenchTargetKey(target));
+    const resolved = serializeWorkbenchSnapshot(model.getSnapshot(), "windows");
+    expect(resolved!.tabs[0]!.panes[0]!.restore?.locator).toMatchObject({ kind: "browse", routingHint: "C:/New/Folder" });
+    expect(resolved!.tabs[0]!.panes[0]!.path).toBe("C:/New/Folder");
     await model.dispose();
     await root.dispose();
   });

@@ -14,6 +14,37 @@ export interface LibraryContextMenuState {
 export interface FileLibraryContextMenuItem {
   label: string;
   action: (trigger: HTMLElement | null) => void;
+  disabled?: boolean;
+  title?: string;
+}
+
+export function libraryTransferMenuItems({
+  t,
+  windows,
+  isDirectory,
+  clipboardIncludesDirectory,
+  closeContextMenu,
+  requestAction,
+}: {
+  t: Translator;
+  windows: boolean;
+  isDirectory: boolean;
+  clipboardIncludesDirectory: boolean;
+  closeContextMenu: (reason?: "action" | "dialog-handoff") => void;
+  requestAction: (action: "copy" | "cut" | "paste" | "basket") => void;
+}): FileLibraryContextMenuItem[] {
+  return (["copy", "cut", "paste", "basket"] as const).map((action) => {
+    const disabled = windows && (action === "paste" ? clipboardIncludesDirectory : isDirectory);
+    return {
+      label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : "fmPaste"),
+      disabled,
+      title: disabled ? t("fmWindowsDirectories") : undefined,
+      action: () => {
+        closeContextMenu(action === "paste" ? "dialog-handoff" : "action");
+        requestAction(action);
+      },
+    };
+  });
 }
 
 export function FileLibraryContextMenu({
@@ -34,11 +65,11 @@ export function FileLibraryContextMenu({
   const itemRefs = useRef<HTMLButtonElement[]>([]);
 
   useEffect(() => {
-    itemRefs.current[0]?.focus();
+    itemRefs.current.find((item) => item && !item.disabled)?.focus();
   }, []);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const focusable = itemRefs.current.filter(Boolean);
+    const focusable = itemRefs.current.filter((item): item is HTMLButtonElement => Boolean(item && !item.disabled));
     const activeIndex = focusable.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === "Escape") {
       event.preventDefault();
@@ -67,7 +98,10 @@ export function FileLibraryContextMenu({
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      if (activeIndex >= 0) items[activeIndex]?.action(focusable[activeIndex] ?? null);
+      if (activeIndex >= 0) {
+        const itemIndex = itemRefs.current.indexOf(focusable[activeIndex]);
+        items[itemIndex]?.action(focusable[activeIndex] ?? null);
+      }
     }
   }
 
@@ -92,12 +126,15 @@ export function FileLibraryContextMenu({
           }}
           type="button"
           role="menuitem"
+          disabled={item.disabled}
+          title={item.title}
           className={cn(
             "flex min-h-9 items-center rounded-[var(--zc-radius-control)] px-3 text-left text-sm text-[var(--zc-text-secondary)]",
             "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
+            "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--zc-text-secondary)]",
             focusVisibleState
           )}
-          onClick={(event) => item.action(event.currentTarget)}
+          onClick={(event) => { if (!item.disabled) item.action(event.currentTarget); }}
         >
           {item.label}
         </button>

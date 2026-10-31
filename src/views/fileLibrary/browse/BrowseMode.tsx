@@ -251,11 +251,40 @@ export function BrowseMode() {
     return false;
   }
 
+  const contextIncludesDirectory = contextMenu !== null && (
+    source.selectedIds.has(contextMenu.entry.entryRef.entryId)
+      ? source.entries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId))
+      : [contextMenu.entry]
+  ).some((entry) => entry.entryKind === "directory");
+  const clipboardIncludesDirectory = useFileManagementStore.getState().clipboard?.tickets.some((ticket) => ticket.isDirectory) ?? false;
   const browseContextItems = contextMenu === null ? [] : [
     ...(["copy", "cut", "paste", "move", "basket"] as const).map((action) => ({
       label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : action === "paste" ? "fmPaste" : "fmMove"),
+      disabled: platform === "win32" && (
+        ["copy", "cut", "move", "basket"].includes(action) && contextIncludesDirectory
+        || action === "paste" && clipboardIncludesDirectory
+      ),
+      title: platform === "win32" && (
+        ["copy", "cut", "move", "basket"].includes(action) && contextIncludesDirectory
+        || action === "paste" && clipboardIncludesDirectory
+      ) ? t("fmWindowsDirectories") : undefined,
       action: () => { closeContextMenu(action === "paste" || action === "move" ? "dialog-handoff" : "action"); useFileManagementStore.getState().requestAction(action); }
     })),
+    {
+      label: t("fmRename"),
+      action: () => {
+        source.selectEntry(contextMenu.entry.entryRef.entryId, "replace");
+        closeContextMenu("dialog-handoff");
+        requestAnimationFrame(() => useFileManagementStore.getState().requestAction("rename"));
+      }
+    },
+    {
+      label: t("fmSafeDelete"),
+      action: () => {
+        closeContextMenu("dialog-handoff");
+        requestAnimationFrame(() => useFileManagementStore.getState().requestAction("trash"));
+      }
+    },
     ...(contextMenu.entry.entryKind === "directory"
       ? [{
           label: t("browseOpenFolder"),

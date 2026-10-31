@@ -1,6 +1,6 @@
 import { usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Star, X, FolderOpen, MoreHorizontal, Package, File, Check, AlertTriangle, ChevronRight } from "lucide-react";
+import { Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Star, X, FolderOpen, MoreHorizontal, Package, File, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fileManagementApi as api, type TransferAction, type TransferPreview, type TransferTicket, type SavedPlace } from "../../../api/fileManagementApi";
 import { tauriApi } from "../../../api/tauriApi";
@@ -34,6 +34,7 @@ interface TransferIntent {
   id: string;
   tickets: TransferTicket[];
   action: TransferAction;
+  newName?: string;
   origin: TransferOrigin;
   destinationDirectory: string;
   destinationEntry?: BrowseEntryRef;
@@ -41,6 +42,15 @@ interface TransferIntent {
   destinationSignature?: string;
   sourcePaneId?: string;
   sourceSignature?: string;
+}
+interface NameIntent {
+  action: "rename" | "create_directory";
+  tickets: TransferTicket[];
+  destinationDirectory: string;
+  sourcePaneId?: string;
+  sourceSignature?: string;
+  destinationPaneId?: string;
+  destinationSignature?: string;
 }
 function PageControls({ count, page, change, previous, next }: { count: number; page: number; change: (page: number) => void; previous: string; next: string }) {
   if (count <= PAGE_SIZE) return null;
@@ -107,6 +117,9 @@ export function FileManagementToolbar() {
   }, [panelOpen, panel, state.basketOpen]);
   const [transfer, setTransfer] = useState<TransferIntent | null>(null);
   const transferRef = useRef(transfer); transferRef.current = transfer;
+  const [nameIntent, setNameIntent] = useState<NameIntent | null>(null);
+  const [newName, setNewName] = useState("");
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const [plan, setPlan] = useState<TransferPreview | null>(null);
   const [conflictTicketIds, setConflictTicketIds] = useState<string[]>([]);
   const [skip, setSkip] = useState<string[]>([]); const [keepBoth, setKeepBoth] = useState<string[]>([]);
@@ -166,6 +179,7 @@ export function FileManagementToolbar() {
   function collect(action: "copy" | "cut" | "basket") {
     void run(async () => {
       if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
+      if (action === "cut" && platform === "win32" && currentSurface()?.hasDirectorySelection) { setError(t("fmDirectoryMoveUnsupported")); return; }
       const tickets = await capturedSelection(); if (!tickets.length) return;
       if (useFileManagementStore.getState().transferActive) {
         await releaseUnused(tickets.map((ticket) => ticket.id)); setError(t("fmTransferBusy")); return;
@@ -224,6 +238,7 @@ export function FileManagementToolbar() {
         action: intent.action,
         destinationDirectory: intent.destinationDirectory,
         destinationEntry: intent.destinationEntry,
+        newName: intent.newName,
         skip: nextSkip,
         keepBoth: nextKeepBoth,
       }, {
@@ -286,7 +301,7 @@ export function FileManagementToolbar() {
       });
       const current = useFileManagementStore.getState();
       useFileManagementStore.setState({ results: result.logs, statuses, basketOpen: false,
-        ...(intent.action === "move" ? {
+        ...(intent.action === "move" || intent.action === "trash" ? {
           basket: current.basket.filter((ticket) => !succeeded.has(ticket.id)),
           clipboard: current.clipboard ? { ...current.clipboard, tickets: current.clipboard.tickets.filter((ticket) => !succeeded.has(ticket.id)) } : null,
         } : {}) });
@@ -294,7 +309,7 @@ export function FileManagementToolbar() {
       setNotice(cancelRequested.current ? t("fmCancelled") : t("fmFinished"));
       previewController.close("escape");
       const affectedSurface = intent.sourcePaneId ? useFileManagementStore.getState().surfaces[intent.sourcePaneId]?.read() : currentSurface();
-      if (!intent.sourceSignature || affectedSurface?.signature === intent.sourceSignature) affectedSurface?.clear();
+      if (intent.tickets.length > 0 && (!intent.sourceSignature || affectedSurface?.signature === intent.sourceSignature)) affectedSurface?.clear();
       clearTransferState(intent);
       try {
         const directories = [acceptedPlan.destinationDirectory, ...intent.tickets.map((ticket) => parentPath(ticket.path))].filter(Boolean);
@@ -302,7 +317,7 @@ export function FileManagementToolbar() {
         await useOperationQueueStore.getState().refreshOperationLogs();
       } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
       if (intent.origin === "selection" || intent.origin === "external") releaseTransient(intent);
-      else if (intent.action === "move") {
+      else if (intent.action === "move" || intent.action === "trash") {
         try { await releaseUnused([...succeeded]); } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
       }
     } catch (value) {
@@ -337,10 +352,16 @@ export function FileManagementToolbar() {
     tickets: TransferTicket[],
     action: TransferAction,
     origin: TransferOrigin,
-    options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationSignature" | "sourcePaneId" | "sourceSignature">> = {},
+    options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationSignature" | "sourcePaneId" | "sourceSignature" | "newName">> = {},
   ) {
     const store = useFileManagementStore.getState();
-    if (!tickets.length) return;
+    if (!tickets.length && action !== "create_directory") return;
+    if ((action === "rename" && (tickets.length !== 1 || !options.newName?.trim()))
+      || (action === "create_directory" && !options.newName?.trim())) {
+      setError(describeError(action === "rename" ? "transfer_rename_selection_invalid" : "transfer_create_directory_request_invalid"));
+      if (origin === "selection" || origin === "external") void releaseUnused(tickets.map((ticket) => ticket.id));
+      return;
+    }
     if (store.transferActive || store.transferOpen) {
       setError(t("fmTransferBusy"));
       if (origin === "selection" || origin === "external") void releaseUnused(tickets.map((ticket) => ticket.id));
@@ -357,6 +378,7 @@ export function FileManagementToolbar() {
     }
     const intent: TransferIntent = {
       id: crypto.randomUUID(), tickets, action, origin, destinationDirectory, destinationEntry,
+      newName: options.newName?.trim(),
       destinationPaneId,
       destinationSignature: options.destinationSignature ?? destinationSurface?.signature,
       sourcePaneId: options.sourcePaneId,
@@ -384,6 +406,7 @@ export function FileManagementToolbar() {
   }
   async function moveSelection() {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
+    if (platform === "win32" && currentSurface()?.hasDirectorySelection) { setError(t("fmDirectoryMoveUnsupported")); return; }
     await run(async () => {
       const source = currentSurface();
       const sourceSignature = source?.signature;
@@ -397,19 +420,100 @@ export function FileManagementToolbar() {
       begin(tickets, "move", "selection", { destinationDirectory, sourcePaneId: pane?.id, sourceSignature });
     });
   }
+  function trashSelection() {
+    if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
+    void run(async () => {
+      const sourceSignature = currentSurface()?.signature;
+      const tickets = await capturedSelection();
+      if (!tickets.length || !sourceSignature || currentSurface()?.signature !== sourceSignature) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        if (tickets.length) throw Error("transfer_selection_changed");
+        return;
+      }
+      begin(tickets, "trash", "selection", {
+        destinationDirectory: parentPath(tickets[0]!.path),
+        sourcePaneId: pane?.id,
+        sourceSignature,
+      });
+    });
+  }
+  function renameSelection() {
+    if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
+    void run(async () => {
+      const sourceSignature = currentSurface()?.signature;
+      const tickets = await capturedSelection();
+      if (tickets.length !== 1 || !sourceSignature || currentSurface()?.signature !== sourceSignature) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        throw Error("transfer_rename_selection_invalid");
+      }
+      closePanel(false);
+      restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setNewName(tickets[0]!.name);
+      setNameIntent({
+        action: "rename",
+        tickets,
+        destinationDirectory: parentPath(tickets[0]!.path),
+        sourcePaneId: pane?.id,
+        sourceSignature,
+      });
+    });
+  }
+  function createDirectory() {
+    const current = currentSurface();
+    if (!current?.browse || !current.routingHint) return;
+    if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
+    closePanel(false);
+    restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setNewName(t("fmNewFolderDefault"));
+    setNameIntent({
+      action: "create_directory",
+      tickets: [],
+      destinationDirectory: current.routingHint,
+      destinationPaneId: pane?.id,
+      destinationSignature: current.signature,
+    });
+  }
+  function cancelNameEntry() {
+    const pending = nameIntent;
+    setNameIntent(null);
+    if (pending?.action === "rename") void releaseUnused(pending.tickets.map((ticket) => ticket.id));
+    restoreRef.current?.focus();
+  }
+  function submitNameEntry() {
+    const pending = nameIntent;
+    const trimmedName = newName.trim();
+    if (!pending || !trimmedName) return;
+    setNameIntent(null);
+    begin(pending.tickets, pending.action, "selection", {
+      destinationDirectory: pending.destinationDirectory,
+      sourcePaneId: pending.sourcePaneId,
+      sourceSignature: pending.sourceSignature,
+      destinationPaneId: pending.destinationPaneId,
+      destinationSignature: pending.destinationSignature,
+      newName: trimmedName,
+    });
+  }
   function paste() {
     const clipboard = useFileManagementStore.getState().clipboard;
     if (clipboard) begin(clipboard.tickets, clipboard.action, "clipboard");
   }
-  const actionsRef = useRef({ collect, paste, moveSelection }); actionsRef.current = { collect, paste, moveSelection };
+  const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection });
+  actionsRef.current = { collect, paste, moveSelection, renameSelection, createDirectory, trashSelection };
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
-      if (!focused || pane && useFileManagementStore.getState().activePaneId !== pane.id || event.defaultPrevented || event.isComposing || event.altKey || !(event.ctrlKey || event.metaKey) || isFileLibraryShortcutExcludedTarget(event.target) || busyRef.current || useFileManagementStore.getState().transferActive) return;
-      const key = event.key.toLowerCase(); if (!["c", "x", "v"].includes(key)) return;
+      if (!focused || pane && useFileManagementStore.getState().activePaneId !== pane.id || event.defaultPrevented || event.isComposing || event.altKey || isFileLibraryShortcutExcludedTarget(event.target) || busyRef.current || useFileManagementStore.getState().transferActive) return;
+      const key = event.key.toLowerCase();
+      if (!event.ctrlKey && !event.metaKey && key === "f2") { event.preventDefault(); actionsRef.current.renameSelection(); return; }
+      if ((!event.ctrlKey && !event.metaKey && key === "delete") || (event.metaKey && !event.ctrlKey && key === "backspace")) { event.preventDefault(); actionsRef.current.trashSelection(); return; }
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "n") { event.preventDefault(); actionsRef.current.createDirectory(); return; }
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || !["c", "x", "v"].includes(key)) return;
       const destination = currentSurface();
       if (key !== "v" && (!destination || destination.count === 0)) return;
       if (key === "v" && !destination) return;
       if (key === "v" && !useFileManagementStore.getState().clipboard?.tickets.length) return;
+      const liveClipboard = useFileManagementStore.getState().clipboard;
+      if (key === "v" && platform === "win32" && liveClipboard?.action === "move" && liveClipboard.tickets.some((ticket) => ticket.isDirectory)) return;
+      if (key === "x" && platform === "win32" && currentSurface()?.hasDirectorySelection) return;
       event.preventDefault(); if (key === "v") actionsRef.current.paste(); else actionsRef.current.collect(key === "x" ? "cut" : "copy");
     };
     window.addEventListener("keydown", handle); return () => window.removeEventListener("keydown", handle);
@@ -417,7 +521,7 @@ export function FileManagementToolbar() {
   useEffect(() => {
     const action = state.pendingAction; if (!action || !focused) return;
     useFileManagementStore.setState({ pendingAction: null });
-    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "copy_other" || action === "move_other") transferToPeer(action === "move_other" ? "move" : "copy"); else collect(action);
+    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash") trashSelection(); else if (action === "create_directory") createDirectory(); else if (action === "copy_other" || action === "move_other") transferToPeer(action === "move_other" ? "move" : "copy"); else collect(action);
   }, [state.pendingAction, focused]);
   function transferToPeer(action: TransferAction) {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
@@ -428,6 +532,7 @@ export function FileManagementToolbar() {
     const peerId = pane.peerId; const destination = destinationSurface.routingHint; const destinationSignature = destinationSurface.signature;
     void run(async () => {
       const tickets = await capturedSelection();
+      if (action === "move" && platform === "win32" && source.hasDirectorySelection) { await releaseUnused(tickets.map((ticket) => ticket.id)); setError(t("fmDirectoryMoveUnsupported")); return; }
       if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen || useFileManagementStore.getState().activePaneId !== pane.id || currentSurface()?.visible === false || useFileManagementStore.getState().surfaces[peerId]?.read().signature !== destinationSignature) { await releaseUnused(tickets.map((ticket) => ticket.id)); throw Error(t("wbSelectionChanged")); }
       pane.activatePeer();
       useFileManagementStore.setState({ pendingTransfer: { paneId: peerId, sourcePaneId: pane.id, sourceSignature: source.signature, destinationSignature, tickets, action, destination } });
@@ -459,8 +564,13 @@ export function FileManagementToolbar() {
   const pageControls = (count: number, page: number, change: (page: number) => void) => <PageControls count={count} page={page} change={change} previous={t("fmPrevious")} next={t("fmNext")}/>;
   const selected = surface?.count === null ? t("fmAllResults") : String(surface?.count ?? 0);
   const disabled = busy || state.transferActive || !surface || surface.count === 0;
-  const pasteDisabled = busy || state.transferActive || !surface || !state.clipboard?.tickets.length;
+  const windowsDirectorySelection = platform === "win32" && Boolean(surface?.hasDirectorySelection);
+  const windowsDirectoryClipboardMove = platform === "win32" && state.clipboard?.action === "move"
+    && Boolean(state.clipboard.tickets.some((ticket) => ticket.isDirectory));
+  const windowsDirectoryBasket = platform === "win32" && state.basket.some((ticket) => ticket.isDirectory);
+  const pasteDisabled = busy || state.transferActive || !surface || !state.clipboard?.tickets.length || windowsDirectoryClipboardMove;
   const conflictRows = plan?.rows.filter((row) => conflictTicketIds.includes(row.ticketId)) ?? [];
+  const nameConflict = transfer?.action === "rename" || transfer?.action === "create_directory";
   const conflictsResolved = conflictTicketIds.length > 0 && conflictTicketIds.every((id) => skip.includes(id) || keepBoth.includes(id));
   const panelTitle = t(state.basketOpen ? "fmBasket" : panel === "places" ? "fmPlaces" : panel === "results" ? "fmResultsSummary" : "fmMore");
   const resultsSummary = `${t("fmResults")} · ${state.results.filter((log) => log.status === "success").length}/${state.results.length}`;
@@ -477,6 +587,16 @@ export function FileManagementToolbar() {
       setSkip((current) => current.filter((id) => !conflictTicketIds.includes(id)));
     }
   }
+  function retryNameConflict() {
+    if (!transfer || !["rename", "create_directory"].includes(transfer.action)) return;
+    const name = newName.trim();
+    if (!name) return;
+    const retry = { ...transfer, newName: name };
+    setTransfer(retry);
+    setPlan(null);
+    setConflictTicketIds([]);
+    void startTransfer(retry, [], []);
+  }
   const placeGroup = (favorite: boolean) => <section className="fm-place-group">
     <h3>{t(favorite ? "fmFavorites" : "fmRecent")}</h3>
     <ul className="fm-places">{places.filter((place) => place.favorite === favorite).map((place) => <li key={place.id}>
@@ -490,10 +610,13 @@ export function FileManagementToolbar() {
   return <section className="fm-workflow" aria-label={t("fmActions")} data-file-management>
     <div className="fm-toolbar fm-primary-toolbar">
       <span className="fm-selection" data-has-selection={!disabled} aria-live="polite">{t("fmSelection")} <strong>{selected}</strong></span>
+      <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} title={t("fmShortcutNewFolder")} onClick={createDirectory}><FolderPlus size={14}/>{t("fmNewFolder")}</button>
       <button className={buttonGhost} disabled={disabled} onClick={() => collect("copy")}><Copy size={14}/>{t("fmCopy")}</button>
-      <button className={buttonGhost} disabled={disabled} onClick={() => collect("cut")}><Scissors size={14}/>{t("fmCut")}</button>
+      <button className={buttonGhost} disabled={disabled || windowsDirectorySelection} title={windowsDirectorySelection ? t("fmDirectoryMoveUnsupported") : undefined} onClick={() => collect("cut")}><Scissors size={14}/>{t("fmCut")}</button>
       <button className={buttonGhost} disabled={pasteDisabled} onClick={paste}><ClipboardPaste size={14}/>{t("fmPaste")}{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
-      <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
+      <button className={buttonGhost} disabled={disabled || windowsDirectorySelection} title={windowsDirectorySelection ? t("fmDirectoryMoveUnsupported") : undefined} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
+      <button className={buttonGhost} disabled={disabled || surface?.count !== 1} title={t("fmShortcutRename")} onClick={renameSelection}><Pencil size={14}/>{t("fmRename")}</button>
+      <button className={buttonGhost} disabled={disabled} title={t("fmShortcutTrash")} onClick={trashSelection}><Trash2 size={14}/>{t("fmSafeDelete")}</button>
       <label className="fm-drop-mode"><span>{t("fmExternalDropAction")}</span><select aria-label={t("fmExternalDropAction")} value={state.externalDropAction} disabled={state.transferActive} onChange={(event) => useFileManagementStore.setState({ externalDropAction: event.target.value as TransferAction })}><option value="copy">{t("fmCopy")}</option><option value="move">{t("fmMove")}</option></select></label>
       <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls={panelId} onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basket.length > 0 && <span className="fm-count">{state.basket.length}</span>}</button>
       {!!state.results.length && <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "results"} onClick={(event) => panel === "results" ? closePanel() : openPanel("results", event.currentTarget)}>{state.results.some((log) => log.status !== "success") ? <AlertTriangle size={14}/> : <Check size={14}/>}<span>{resultsSummary}</span></button>}
@@ -522,7 +645,7 @@ export function FileManagementToolbar() {
         {placeGroup(true)}{placeGroup(false)}
       </>}
       {state.basketOpen && <>
-        <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy || state.transferActive || !state.basket.length} onClick={() => begin(state.basket, "copy", "basket")}>{t("fmCopyBasket")}</button><button className={buttonSecondary} disabled={busy || state.transferActive || !state.basket.length} onClick={() => begin(state.basket, "move", "basket")}>{t("fmMoveBasket")}</button><button className={buttonGhost} disabled={busy || state.transferActive || !state.basket.length} onClick={() => void run(async () => { const ids = state.basket.map((ticket) => ticket.id); useFileManagementStore.setState({ basket: [] }); await releaseUnused(ids); })}>{t("fmClearBasket")}</button></div>
+        <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy || state.transferActive || !state.basket.length} onClick={() => begin(state.basket, "copy", "basket")}>{t("fmCopyBasket")}</button><button className={buttonSecondary} disabled={busy || state.transferActive || !state.basket.length || windowsDirectoryBasket} title={windowsDirectoryBasket ? t("fmDirectoryMoveUnsupported") : undefined} onClick={() => begin(state.basket, "move", "basket")}>{t("fmMoveBasket")}</button><button className={buttonGhost} disabled={busy || state.transferActive || !state.basket.length} onClick={() => void run(async () => { const ids = state.basket.map((ticket) => ticket.id); useFileManagementStore.setState({ basket: [] }); await releaseUnused(ids); })}>{t("fmClearBasket")}</button></div>
         <p className="fm-muted">{t("fmSessionOnly")}</p>
         {!state.basket.length && <p className="fm-empty">{t("fmEmptyBasket")}</p>}
         <ul className="fm-basket">{state.basket.slice(effectiveBasketPage * PAGE_SIZE, (effectiveBasketPage + 1) * PAGE_SIZE).map((ticket) => <li key={ticket.id}><File size={16}/><div className="min-w-0"><strong>{ticket.name}</strong><p className="fm-path" title={ticket.path}>{ticket.path}</p>{state.statuses[ticket.id] && <p className="fm-item-status">{state.statuses[ticket.id]}</p>}</div><button className={buttonGhost} disabled={busy || state.transferActive} aria-label={`${t("fmRemove")} ${ticket.name}`} onClick={() => void run(async () => { useFileManagementStore.setState((current) => ({ basket: current.basket.filter((item) => item.id !== ticket.id) })); await releaseUnused([ticket.id]); })}><X size={14}/></button></li>)}</ul>
@@ -538,21 +661,28 @@ export function FileManagementToolbar() {
       </>}
       </div>
     </div>}
-    {transfer && state.transferOpen && plan && <ModalPortal restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={closeTransfer}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog fm-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"} aria-busy={state.transferRunning}>
+    {nameIntent && <ModalPortal initialFocusRef={nameInputRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={cancelNameEntry}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>
+      <header className="fm-dialog-header"><h2 id={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>{t(nameIntent.action === "rename" ? "fmRename" : "fmNewFolder")}</h2></header>
+      <form onSubmit={(event) => { event.preventDefault(); submitNameEntry(); }}>
+        <div className="fm-dialog-body"><label className="fm-destination">{t(nameIntent.action === "rename" ? "fmNewName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label></div>
+        <footer className="fm-dialog-footer"><button type="button" className={buttonSecondary} onClick={cancelNameEntry}>{t("fmCancel")}</button><button type="submit" className={buttonPrimary} disabled={!newName.trim()}>{t(nameIntent.action === "rename" ? "fmRename" : "fmNewFolder")}</button></footer>
+      </form>
+    </section></div></ModalPortal>}
+    {transfer && state.transferOpen && plan && <ModalPortal initialFocusRef={nameConflict ? nameInputRef : undefined} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={closeTransfer}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog fm-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"} aria-busy={state.transferRunning}>
       <header className="fm-dialog-header">
         <div className="fm-dialog-title"><AlertTriangle size={21}/><div>
-          <h2 id={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"}>{t("fmConflictsTitle")}</h2>
+          <h2 id={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"}>{t(nameConflict ? "fmConflict" : "fmConflictsTitle")}</h2>
           <p className="fm-muted">{conflictTicketIds.length} · {t("fmConflictsPaused")}</p>
         </div></div>
-        <p className="fm-muted">{t("fmNoOverwrite")}</p>
-        <div className="fm-toolbar fm-conflict-all">
+        {!nameConflict && <p className="fm-muted">{t("fmNoOverwrite")}</p>}
+        {!nameConflict && <div className="fm-toolbar fm-conflict-all">
           <span>{t("fmApplyToAll")}</span>
           <button className={buttonSecondary} disabled={state.transferRunning} onClick={() => applyConflictResolution("skip")}>{t("fmSkip")}</button>
           <button className={buttonSecondary} disabled={state.transferRunning} onClick={() => applyConflictResolution("both")}>{t("fmKeepBothShort")}</button>
-        </div>
+        </div>}
       </header>
       <div className="fm-dialog-body">
-        <ul className="fm-preview fm-conflicts">{conflictRows.map((row) => {
+        {nameConflict ? <label className="fm-destination">{t(transfer.action === "rename" ? "fmNewName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label> : <ul className="fm-preview fm-conflicts">{conflictRows.map((row) => {
           const ticket = transfer.tickets.find((item) => item.id === row.ticketId);
           if (!ticket) return null;
           const value = skip.includes(ticket.id) ? "skip" : keepBoth.includes(ticket.id) ? "both" : "";
@@ -564,13 +694,13 @@ export function FileManagementToolbar() {
               <option value="both">{t("fmKeepBothShort")}</option>
             </select>
           </li>;
-        })}</ul>
+        })}</ul>}
       </div>
       <footer className="fm-dialog-footer">
-        <p className="fm-muted">{t("fmConflictsRepreview")}</p>
+        <p className="fm-muted">{t(nameConflict ? "fmConflictsRepreview" : "fmConflictsRepreview")}</p>
         <div className="fm-toolbar fm-confirm-bar">
           <button className={buttonSecondary} disabled={state.transferRunning} onClick={closeTransfer}>{t("fmCancel")}</button>
-          <button className={buttonPrimary} disabled={!conflictsResolved || state.transferRunning} onClick={() => void startTransfer(transfer, skip, keepBoth)}>{t("fmApplyChoices")}</button>
+          <button className={buttonPrimary} disabled={(nameConflict ? !newName.trim() : !conflictsResolved) || state.transferRunning} onClick={() => nameConflict ? retryNameConflict() : void startTransfer(transfer, skip, keepBoth)}>{nameConflict ? t(transfer.action === "rename" ? "fmRename" : "fmNewFolder") : t("fmApplyChoices")}</button>
         </div>
       </footer>
     </section></div></ModalPortal>}

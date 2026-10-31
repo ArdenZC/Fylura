@@ -61,6 +61,9 @@ pub struct CaptureRequest {
 pub enum TransferAction {
     Copy,
     Move,
+    Rename,
+    Trash,
+    CreateDirectory,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -70,6 +73,8 @@ pub struct TransferPreviewRequest {
     pub destination_directory: String,
     #[serde(default)]
     pub destination_entry: Option<crate::file_workspace::BrowseEntryRef>,
+    #[serde(default)]
+    pub new_name: Option<String>,
     #[serde(default)]
     pub keep_both: Vec<String>,
     #[serde(default)]
@@ -249,6 +254,86 @@ impl FileWorkspaceRuntime {
         request: TransferPreviewRequest,
     ) -> Result<TransferPreview, String> {
         self.ensure_live()?;
+        if request.action == TransferAction::CreateDirectory {
+            if !request.ticket_ids.is_empty()
+                || request.new_name.is_none()
+                || request.destination_entry.is_some()
+                || !request.keep_both.is_empty()
+                || !request.skip.is_empty()
+            {
+                return Err("transfer_create_directory_request_invalid".into());
+            }
+            let directory = self.resolve_transfer_destination(&request)?;
+            let name = request
+                .new_name
+                .as_deref()
+                .ok_or("transfer_create_directory_request_invalid")?;
+            let operation = create_directory_operation(&directory, name)?;
+            let target = Path::new(&operation.target_path);
+            if path_entry_exists(target)? {
+                return Ok(TransferPreview {
+                    id: new_job_id("transfer-preview"),
+                    destination_directory: normalize_path(&directory),
+                    rows: vec![TransferRow {
+                        ticket_id: "create-directory".into(),
+                        preview: None,
+                        error: Some("transfer_target_exists".into()),
+                        skipped: false,
+                    }],
+                });
+            }
+            let id = new_job_id("transfer-preview");
+            let mut state = self
+                .inner
+                .transfers
+                .lock()
+                .map_err(|_| "transfer_state_unavailable")?;
+            if state.previews.len() >= 4 {
+                state.previews.clear();
+            }
+            state.previews.insert(
+                id.clone(),
+                TransferPlan {
+                    ticket_ids: Vec::new(),
+                    operations: vec![operation.clone()],
+                    trees: Vec::new(),
+                },
+            );
+            return Ok(TransferPreview {
+                id,
+                destination_directory: normalize_path(&directory),
+                rows: vec![TransferRow {
+                    ticket_id: "create-directory".into(),
+                    preview: Some(preview_dto(&operation)),
+                    error: None,
+                    skipped: false,
+                }],
+            });
+        }
+        if request.action == TransferAction::Rename
+            && (request.ticket_ids.len() != 1
+                || request.new_name.is_none()
+                || request.destination_entry.is_some()
+                || !request.keep_both.is_empty()
+                || !request.skip.is_empty())
+        {
+            return Err("transfer_rename_selection_invalid".into());
+        }
+        if request.action == TransferAction::Trash
+            && (request.new_name.is_some()
+                || request.destination_entry.is_some()
+                || !request.keep_both.is_empty()
+                || !request.skip.is_empty())
+        {
+            return Err("transfer_trash_request_invalid".into());
+        }
+        if !matches!(
+            request.action,
+            TransferAction::Rename | TransferAction::Trash
+        ) && request.new_name.is_some()
+        {
+            return Err("transfer_new_name_unexpected".into());
+        }
         if request.ticket_ids.is_empty() || request.ticket_ids.len() > LIMIT {
             return Err("transfer_selection_limit_1000".into());
         }
@@ -339,8 +424,26 @@ impl FileWorkspaceRuntime {
                 continue;
             }
             let result = (|| {
-                let mut name = source.ticket.name.clone();
+                let mut name = if request.action == TransferAction::Rename {
+                    request
+                        .new_name
+                        .clone()
+                        .ok_or("transfer_rename_selection_invalid")?
+                } else {
+                    source.ticket.name.clone()
+                };
+                if request.action == TransferAction::Rename && name == source.ticket.name {
+                    return Err("transfer_rename_name_unchanged".into());
+                }
+                let source_path = Path::new(&source.ticket.path);
                 let target_for_name = |name: &str| -> Result<PathBuf, String> {
+                    if request.action == TransferAction::Rename {
+                        validate_safe_file_name(name)?;
+                        return Ok(source_path
+                            .parent()
+                            .ok_or("transfer_source_invalid")?
+                            .join(name));
+                    }
                     let parent = source
                         .relative_path
                         .parent()
@@ -360,7 +463,10 @@ impl FileWorkspaceRuntime {
                         Err(error) => Err(error.to_string()),
                     }
                 };
-                if request.keep_both.contains(&id) && conflict(&name, &reserved)? {
+                if request.keep_both.contains(&id)
+                    && matches!(request.action, TransferAction::Copy | TransferAction::Move)
+                    && conflict(&name, &reserved)?
+                {
                     let original = Path::new(&source.ticket.name);
                     let stem = original.file_stem().unwrap_or_default().to_string_lossy();
                     let extension = original.extension();
@@ -376,19 +482,44 @@ impl FileWorkspaceRuntime {
                         }
                     }
                 }
-                if conflict(&name, &reserved)? {
+                if request.action != TransferAction::Trash && conflict(&name, &reserved)? {
                     return Err("transfer_target_exists".into());
                 }
-                let target = target_for_name(&name)?;
+                let operation_directory = if matches!(
+                    request.action,
+                    TransferAction::Rename | TransferAction::Trash
+                ) {
+                    source_path.parent().ok_or("transfer_source_invalid")?
+                } else {
+                    &directory
+                };
+                if request.action == TransferAction::Rename {
+                    let source_parent = operation_directory
+                        .canonicalize()
+                        .map_err(|error| error.to_string())?;
+                    let requested_parent = directory
+                        .canonicalize()
+                        .map_err(|error| error.to_string())?;
+                    if source_parent != requested_parent {
+                        return Err("transfer_rename_same_directory_required".into());
+                    }
+                }
+                let target = if request.action == TransferAction::Trash {
+                    source_path.to_path_buf()
+                } else {
+                    target_for_name(&name)?
+                };
                 let operation = make_operation(
                     &source.file_id,
-                    Path::new(&source.ticket.path),
-                    &directory,
+                    source_path,
+                    operation_directory,
                     &target,
                     request.action,
                 )?;
                 let preview = preview_dto(&operation);
-                reserved.insert(transfer_target_key(&target));
+                if matches!(request.action, TransferAction::Copy | TransferAction::Move) {
+                    reserved.insert(transfer_target_key(&target));
+                }
                 operations.push(operation);
                 Ok(preview)
             })();
@@ -504,6 +635,17 @@ fn action_name(action: TransferAction) -> &'static str {
     match action {
         TransferAction::Copy => "copy",
         TransferAction::Move => "move",
+        TransferAction::Rename => "rename",
+        TransferAction::Trash => "move_to_trash",
+        TransferAction::CreateDirectory => "create_directory",
+    }
+}
+
+fn path_entry_exists(path: &Path) -> Result<bool, String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.to_string()),
     }
 }
 
@@ -548,43 +690,79 @@ fn snapshot(
             .and_then(|name| name.to_str())
             .ok_or("transfer_target_invalid")?,
     )?;
-    let source = validate_transfer_source_path(source)?;
+    let source = if matches!(action, TransferAction::Rename | TransferAction::Trash) {
+        validate_namespace_entry_path(source)?
+    } else {
+        validate_transfer_source_path(source)?
+    };
     let source_is_directory = source.is_dir();
     if cfg!(windows) && source_is_directory && action == TransferAction::Move {
         return Err("transfer_windows_directory_move_unsupported".into());
     }
-    let tree_fingerprint = if source_is_directory {
-        Some(directory_tree_snapshot(&source)?)
-    } else {
-        None
-    };
+    ensure_not_safe_trash_operation(&source)?;
+    let tree_fingerprint =
+        if source_is_directory && matches!(action, TransferAction::Copy | TransferAction::Move) {
+            Some(directory_tree_snapshot(&source)?)
+        } else {
+            None
+        };
     let destination = VerifiedDirectory::open_existing(destination_root)
         .map_err(|e| format!("transfer_destination_identity:{e}"))?;
     VerifiedDirectory::open_existing(source.parent().ok_or("transfer_source_invalid")?)
         .map_err(|e| format!("transfer_source_parent_identity:{e}"))?;
     ensure_general_file_operation_allowed(destination_root)?;
+    ensure_not_safe_trash_operation(destination_root)?;
     let identity = file_namespace_fingerprint(&source)?;
     let canonical_root = destination_root
         .canonicalize()
         .map_err(|error| format!("transfer_destination_identity:{error}"))?;
-    if source_is_directory && canonical_root.starts_with(&source) {
+    if matches!(action, TransferAction::Copy | TransferAction::Move)
+        && source_is_directory
+        && canonical_root.starts_with(&source)
+    {
         return Err("transfer_directory_into_itself".into());
     }
-    if !target.starts_with(destination_root) {
-        return Err("transfer_target_outside_destination".into());
-    }
-    let target_parent = target.parent().ok_or("transfer_target_invalid")?;
-    let (_nearest_parent, nearest_identity) =
-        verify_existing_target_route(destination_root, &canonical_root, target_parent)
-            .map_err(|error| format!("transfer_target_parent_identity:{error}"))?;
+    let nearest_identity = if matches!(action, TransferAction::Rename | TransferAction::Trash) {
+        let canonical_source_parent = source
+            .parent()
+            .ok_or("transfer_source_invalid")?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        if canonical_source_parent != canonical_root {
+            return Err("transfer_rename_same_directory_required".into());
+        }
+        if action == TransferAction::Rename && !target.starts_with(destination_root) {
+            return Err("transfer_target_outside_destination".into());
+        }
+        destination.identity().clone()
+    } else {
+        if !target.starts_with(destination_root) {
+            return Err("transfer_target_outside_destination".into());
+        }
+        let target_parent = target.parent().ok_or("transfer_target_invalid")?;
+        let (_nearest_parent, nearest_identity) =
+            verify_existing_target_route(destination_root, &canonical_root, target_parent)
+                .map_err(|error| format!("transfer_target_parent_identity:{error}"))?;
+        nearest_identity
+    };
     if action == TransferAction::Move && source.parent() == Some(canonical_root.as_path()) {
         return Err("transfer_move_same_directory".into());
     }
+    let target_identity = if action == TransferAction::Trash {
+        "safe-trash-target"
+    } else {
+        "filesystem-target"
+    };
+    let target_path_identity = if action == TransferAction::Trash {
+        target_identity.to_string()
+    } else {
+        normalize_path(target)
+    };
     let digest = blake3::hash(
         format!(
             "transfer:v4:{file_id}:{}:{}:{action:?}:{identity:?}:{tree_fingerprint:?}:{}:{:?}",
             normalize_path(&source),
-            normalize_path(target),
+            target_path_identity,
             normalize_path(&canonical_root),
             destination.identity(),
         )
@@ -608,12 +786,17 @@ fn make_operation(
     action: TransferAction,
 ) -> Result<OperationPreviewRequest, String> {
     let (id, _) = snapshot(file_id, source, directory, target, action)?;
+    let target_path = if action == TransferAction::Trash {
+        safe_trash_operation_target(source, &id)
+    } else {
+        normalize_path(target)
+    };
     Ok(OperationPreviewRequest {
         id,
         file_id: file_id.into(),
         operation_type: action_name(action).into(),
         source_path: normalize_path(source),
-        target_path: normalize_path(target),
+        target_path,
         old_name: source
             .file_name()
             .ok_or("transfer_source_invalid")?
@@ -628,17 +811,47 @@ fn make_operation(
     })
 }
 pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<DirectoryIdentity, String> {
+    if operation.operation_type == "create_directory" {
+        let current =
+            create_directory_operation(Path::new(&operation.source_path), &operation.new_name)?;
+        if current.id != operation.id
+            || current.target_path != operation.target_path
+            || path_entry_exists(Path::new(&current.target_path))?
+            || operation.file_id != super::RECOVERY_ACTION_FILE_ID
+        {
+            return Err("operation_preview_stale".into());
+        }
+        return Ok(
+            VerifiedDirectory::open_existing(Path::new(&operation.source_path))
+                .map_err(|error| error.to_string())?
+                .identity()
+                .clone(),
+        );
+    }
     let action = match operation.operation_type.as_str() {
         "copy" => TransferAction::Copy,
         "move" => TransferAction::Move,
+        "rename" => TransferAction::Rename,
+        "move_to_trash" => TransferAction::Trash,
         _ => return Err("operation_preview_stale".into()),
     };
     let destination_root = decode_transfer_root(&operation.id)?;
+    let source = Path::new(&operation.source_path);
+    if action == TransferAction::Trash
+        && operation.target_path != safe_trash_operation_target(source, &operation.id)
+    {
+        return Err("operation_preview_stale".into());
+    }
+    let snapshot_target = if action == TransferAction::Trash {
+        source.to_path_buf()
+    } else {
+        PathBuf::from(&operation.target_path)
+    };
     let (id, identity) = snapshot(
         &operation.file_id,
-        Path::new(&operation.source_path),
+        source,
         &destination_root,
-        Path::new(&operation.target_path),
+        &snapshot_target,
         action,
     )?;
     if id != operation.id {
@@ -690,6 +903,24 @@ pub(crate) fn execute(
     operation: &OperationPreviewRequest,
     context: OperationExecutionContext<'_>,
 ) -> Result<FileOperationResult, FileMutationError> {
+    // Directory copy requires a content-bound claim. Capture it before
+    // revalidating the preview, then let preview revalidation bind the source
+    // back to the accepted tree. The subsequent source claim detects any
+    // content change after that revalidation without publishing a replacement.
+    let directory_copy_identity = if operation.operation_type == "copy"
+        && std::fs::symlink_metadata(&operation.source_path)
+            .is_ok_and(|metadata| metadata.file_type().is_dir())
+    {
+        Some(
+            crate::fs_safety::capture_identity(
+                Path::new(&operation.source_path),
+                context.cancel_flag,
+            )
+            .map_err(|error| FileMutationError::Validation(error.to_string()))?,
+        )
+    } else {
+        None
+    };
     revalidate(operation)?;
     if context
         .cancel_flag
@@ -699,6 +930,37 @@ pub(crate) fn execute(
             crate::fs_safety::AtomicMoveError::Cancelled,
         ));
     }
+    if operation.operation_type == "create_directory" {
+        return create_directory_with_safety(
+            operation.source_path.clone(),
+            operation.new_name.clone(),
+            context.expected_identity,
+            context.phase_observer,
+            context.actual_path_observer,
+        );
+    }
+    if operation.operation_type == "rename" {
+        return rename_file_with_identity(
+            operation.source_path.clone(),
+            operation.new_name.clone(),
+            context.expected_identity,
+            context.cancel_flag,
+            context.planned_claim_path,
+            context.phase_observer,
+            context.actual_path_observer,
+        );
+    }
+    if operation.operation_type == "move_to_trash" {
+        return move_to_trash_with_safety(
+            operation.source_path.clone(),
+            context.app_data_dir,
+            context.expected_identity,
+            context.planned_claim_path,
+            &operation.id,
+            context.phase_observer,
+            context.actual_path_observer,
+        );
+    }
     let source = validate_transfer_source_path(Path::new(&operation.source_path))?;
     let target_path = Path::new(&operation.target_path);
     let target_parent_path = target_path
@@ -706,22 +968,25 @@ pub(crate) fn execute(
         .ok_or_else(|| FileMutationError::Validation("transfer_target_invalid".into()))?;
     crate::fs_safety::create_directory_chain_no_links(target_parent_path)
         .map_err(|error| FileMutationError::Validation(error.to_string()))?;
-    let parent_identity = VerifiedDirectory::open_existing(target_parent_path)
+    let current_parent_identity = VerifiedDirectory::open_existing(target_parent_path)
         .map_err(|error| FileMutationError::Validation(error.to_string()))?
         .identity()
         .clone();
     let target = validate_target_path(target_path)?;
     if operation.operation_type == "copy" {
+        let expected_identity = directory_copy_identity
+            .as_ref()
+            .or(context.expected_identity);
         crate::fs_safety::atomic_move::atomic_copy_with_verified_destination(
             &source,
             &target,
             "copy",
-            context.expected_identity,
+            expected_identity,
             context.planned_claim_path,
             context.cancel_flag,
             context.phase_observer,
             context.actual_path_observer,
-            Some(&parent_identity),
+            Some(&current_parent_identity),
         )
         .map_err(FileMutationError::Atomic)?;
     } else {
@@ -734,7 +999,7 @@ pub(crate) fn execute(
             context.phase_observer,
             crate::fs_safety::atomic_move::AtomicMoveOperation::Move,
             context.actual_path_observer,
-            Some(&parent_identity),
+            Some(&current_parent_identity),
         )
         .map_err(FileMutationError::Atomic)?;
     }
@@ -780,6 +1045,51 @@ fn verify_existing_target_route(
     }
     let verified = VerifiedDirectory::open_existing(&current).map_err(|error| error.to_string())?;
     Ok((verified.path().to_path_buf(), verified.identity().clone()))
+}
+
+fn create_directory_operation(
+    directory: &Path,
+    name: &str,
+) -> Result<OperationPreviewRequest, String> {
+    validate_safe_file_name(name)?;
+    let parent = VerifiedDirectory::open_existing(directory).map_err(|error| error.to_string())?;
+    ensure_general_file_operation_allowed(parent.path())?;
+    ensure_not_safe_trash_operation(parent.path())?;
+    let target = parent.path().join(name);
+    ensure_not_safe_trash_operation(&target)?;
+    let digest = blake3::hash(
+        format!(
+            "create-directory:v1:{}:{:?}:{name}",
+            normalize_path(parent.path()),
+            parent.identity()
+        )
+        .as_bytes(),
+    );
+    Ok(OperationPreviewRequest {
+        id: format!("op-transfer-{}", digest.to_hex()),
+        file_id: super::RECOVERY_ACTION_FILE_ID.into(),
+        operation_type: "create_directory".into(),
+        source_path: normalize_path(parent.path()),
+        target_path: normalize_path(&target),
+        old_name: name.into(),
+        new_name: name.into(),
+        is_executable: Some(true),
+    })
+}
+
+fn safe_trash_operation_target(source: &Path, operation_id: &str) -> String {
+    let operation_key = blake3::hash(format!("{}\0{}", source.display(), operation_id).as_bytes())
+        .to_hex()
+        .to_string();
+    normalize_path(
+        &source
+            .parent()
+            .unwrap_or_else(|| Path::new("/"))
+            .join(".zen-canvas-trash")
+            .join("operations")
+            .join(&operation_key[..24])
+            .join(source.file_name().unwrap_or_default()),
+    )
 }
 
 fn capture_external_sources(paths: Vec<String>) -> Result<Vec<Source>, String> {

@@ -268,7 +268,12 @@ pub(crate) fn restore_operation_log_with_observer(
         return restore_replacement_operation_log_with_observer(log, cancel_flag, phase_observer);
     }
 
-    let source = match validate_source_path(&PathBuf::from(&log.path_after)) {
+    let source_result = if matches!(log.operation_type.as_str(), "rename" | "move_to_trash") {
+        validate_namespace_entry_path(&PathBuf::from(&log.path_after))
+    } else {
+        validate_source_path(&PathBuf::from(&log.path_after))
+    };
+    let source = match source_result {
         Ok(path) => path,
         Err(error) => return mark_restore_failed(log, error),
     };

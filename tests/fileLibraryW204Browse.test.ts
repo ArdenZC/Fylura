@@ -444,6 +444,25 @@ describe("W2-04 Browse source owner contracts", () => {
     expect(isActivatableLocation(admitted)).toBe(true);
   });
 
+  it("clears an earlier location-list error after a later pane load succeeds", async () => {
+    const fixture = sourceOwnerApi();
+    const locationList = vi.fn<FileWorkspaceApi["locationList"]>();
+    fixture.api.locationList = locationList;
+    locationList.mockRejectedValueOnce(new Error("temporary location list failure"));
+    locationList.mockResolvedValueOnce([location("available", true)]);
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => { await mounted.experience.switchMode("browse"); });
+    await settleSourceOwner();
+    expect(mounted.source().locationError).toBe(true);
+
+    await act(async () => {
+      await mounted.experience.workspace.loadLocations();
+    });
+    await settleSourceOwner();
+    expect(mounted.source().locationError).toBe(false);
+    expect(mounted.source().locations).toHaveLength(1);
+  });
+
   it("renders the first-entry Choose Folder action and forwards the click", async () => {
     const chooseFolder = vi.fn(async () => true);
     const source = {

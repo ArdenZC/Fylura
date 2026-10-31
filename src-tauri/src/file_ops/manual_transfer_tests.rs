@@ -42,6 +42,7 @@ fn preview(
             action,
             destination_directory: normalize_path(target),
             destination_entry: None,
+            new_name: None,
             keep_both: both,
             skip,
         })
@@ -845,6 +846,61 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
 
 #[cfg(windows)]
 #[test]
+fn fl20_external_directory_copy_supports_extended_windows_paths() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("extended-source");
+    fs::create_dir_all(source.join("nested")).unwrap();
+    fs::write(source.join("nested/inside.txt"), b"extended path copy").unwrap();
+    let destination = f.root.join("extended-destination");
+    fs::create_dir(&destination).unwrap();
+
+    let source = PathBuf::from(format!(r"\\?\{}", source.display()));
+    let destination = PathBuf::from(format!(r"\\?\{}", destination.display()));
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    let plan = preview(
+        &runtime,
+        tickets.iter().map(|ticket| ticket.id.clone()).collect(),
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    assert!(
+        plan.rows.iter().all(|row| row.error.is_none()),
+        "errors: {:?}",
+        plan.rows
+            .iter()
+            .map(|row| row.error.as_deref())
+            .collect::<Vec<_>>()
+    );
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+
+    let result = execute_moves_with_persistence(&f.db, request).unwrap();
+    assert_eq!(result.logs.len(), 1);
+    assert_eq!(result.logs[0].status, "success", "{:?}", result.logs[0]);
+    assert_eq!(
+        fs::read(destination.join("extended-source/nested/inside.txt")).unwrap(),
+        b"extended path copy"
+    );
+    assert!(source.join("nested/inside.txt").is_file());
+    runtime.dispose();
+}
+
+#[cfg(windows)]
+#[test]
 fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with_journal() {
     use crate::fs_safety::atomic_move::test_faults::{self, AtomicFaultPoint};
 
@@ -1395,6 +1451,7 @@ fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
             action: TransferAction::Copy,
             destination_directory: String::new(),
             destination_entry: Some(row.entry_ref.clone()),
+            new_name: None,
             keep_both: vec![],
             skip: vec![],
         })
@@ -1418,9 +1475,406 @@ fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
         action: TransferAction::Copy,
         destination_directory: String::new(),
         destination_entry: Some(row.entry_ref.clone()),
+        new_name: None,
         keep_both: vec![],
         skip: vec![],
     });
     assert!(stale.is_err());
     runtime.dispose();
+}
+
+fn preview_named(
+    runtime: &FileWorkspaceRuntime,
+    ids: Vec<String>,
+    target: &Path,
+    action: TransferAction,
+    new_name: Option<&str>,
+) -> TransferPreview {
+    runtime
+        .preview_transfer(TransferPreviewRequest {
+            ticket_ids: ids,
+            action,
+            destination_directory: normalize_path(target),
+            destination_entry: None,
+            new_name: new_name.map(str::to_string),
+            keep_both: vec![],
+            skip: vec![],
+        })
+        .unwrap()
+}
+
+fn capture_named(runtime: &FileWorkspaceRuntime, directory: &Path, name: &str) -> TransferTicket {
+    let browse = runtime
+        .open_browse(BrowseOpenRequest {
+            platform: if cfg!(windows) {
+                WorkspacePlatform::Windows
+            } else {
+                WorkspacePlatform::Macos
+            },
+            routing_hint: normalize_path(directory),
+            display_hint: None,
+            global_entry_id: None,
+        })
+        .unwrap();
+    let page = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: browse.session_id.clone(),
+            request_id: format!("capture-{name}"),
+            path_ref: browse.root_path_ref,
+            page_size: 64,
+            query: Default::default(),
+        })
+        .unwrap();
+    let reference = match page
+        .entries
+        .into_iter()
+        .find(|entry| entry.name == name)
+        .unwrap_or_else(|| panic!("fixture entry {name:?} was not enumerated"))
+        .entry_ref
+    {
+        crate::file_workspace::BrowseEntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        } => EntryRef::Ephemeral {
+            browse_session_id,
+            entry_id,
+        },
+    };
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![reference],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![],
+        })
+        .unwrap()
+        .remove(0);
+    runtime
+        .dispose_browse(BrowseSessionRequest {
+            session_id: browse.session_id,
+        })
+        .unwrap();
+    ticket
+}
+
+fn fixture_file_hash(path: &Path) -> blake3::Hash {
+    blake3::hash(&fs::read(path).unwrap())
+}
+
+#[test]
+fn fl24_create_folder_uses_preview_confirm_and_non_restorable_journal() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let folder = f.root.join("created-folder");
+    let request = |name: &str| TransferPreviewRequest {
+        ticket_ids: vec![],
+        action: TransferAction::CreateDirectory,
+        destination_directory: normalize_path(&f.root),
+        destination_entry: None,
+        new_name: Some(name.into()),
+        keep_both: vec![],
+        skip: vec![],
+    };
+    let plan = runtime.preview_transfer(request("created-folder")).unwrap();
+    assert_eq!(plan.rows.len(), 1);
+    assert_eq!(
+        plan.rows[0]
+            .preview
+            .as_ref()
+            .map(|preview| preview.operation_type.as_str()),
+        Some("create_directory")
+    );
+    assert!(!folder.exists(), "Preview must not create the folder");
+
+    let execution = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    let result = execute_moves_with_persistence(&f.db, execution).unwrap();
+    assert_eq!(result.logs.len(), 1);
+    assert_eq!(result.logs[0].operation_type, "create_directory");
+    assert_eq!(result.logs[0].status, "success");
+    assert!(!result.logs[0].can_restore);
+    assert!(folder.is_dir());
+    let journal = f.db.get_operation_logs(Some(10)).unwrap();
+    assert_eq!(journal.len(), 1);
+    assert_eq!(journal[0].operation_type, "create_directory");
+    assert_eq!(journal[0].operation_phase, "completed");
+    assert!(!journal[0].can_restore);
+
+    // An already present destination is rejected before a preview is issued.
+    let conflict = runtime.preview_transfer(request("created-folder")).unwrap();
+    assert_eq!(
+        conflict.rows[0].error.as_deref(),
+        Some("transfer_target_exists")
+    );
+
+    // A destination created after the preview cannot be replaced on confirm.
+    let late_folder = f.root.join("late-conflict");
+    let late_plan = runtime.preview_transfer(request("late-conflict")).unwrap();
+    fs::create_dir(&late_folder).unwrap();
+    assert!(runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: late_plan.id,
+            confirmed: true,
+        })
+        .is_err());
+    assert!(late_folder.is_dir());
+    assert_eq!(fs::read_dir(&late_folder).unwrap().count(), 0);
+    assert_eq!(f.db.get_operation_logs(Some(10)).unwrap().len(), 1);
+    runtime.dispose();
+}
+
+#[test]
+fn fl24_folder_rename_conflict_and_restore_preserve_fixture_bytes() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("source-folder");
+    let payload = source.join("nested").join("payload.bin");
+    fs::create_dir_all(payload.parent().unwrap()).unwrap();
+    fs::write(&payload, b"directory fixture bytes").unwrap();
+    let original_hash = fixture_file_hash(&payload);
+    let rename_ticket = capture_named(&runtime, &f.root, "source-folder");
+
+    let conflicting_target = f.root.join("renamed-folder");
+    fs::create_dir(&conflicting_target).unwrap();
+    let conflict = preview_named(
+        &runtime,
+        vec![rename_ticket.id.clone()],
+        &f.root,
+        TransferAction::Rename,
+        Some("renamed-folder"),
+    );
+    assert_eq!(
+        conflict.rows[0].error.as_deref(),
+        Some("transfer_target_exists")
+    );
+    fs::remove_dir(&conflicting_target).unwrap();
+
+    let rename_plan = preview_named(
+        &runtime,
+        vec![rename_ticket.id.clone()],
+        &f.root,
+        TransferAction::Rename,
+        Some("renamed-folder"),
+    );
+    assert!(
+        rename_plan.rows[0].error.is_none(),
+        "unexpected rename preview error: {:?}",
+        rename_plan.rows[0].error
+    );
+    assert_eq!(
+        rename_plan.rows[0].preview.as_ref().unwrap().operation_type,
+        "rename"
+    );
+    let renamed = f.root.join("renamed-folder");
+    let renamed_result = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: rename_plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        renamed_result.logs[0].status, "success",
+        "rename failed: {:?}",
+        renamed_result.logs[0].error_message
+    );
+    assert!(renamed_result.logs[0].can_restore);
+    let renamed_payload = renamed.join("nested").join("payload.bin");
+    assert_eq!(fixture_file_hash(&renamed_payload), original_hash);
+    let restored_rename = restore_moves_with_persistence(
+        &f.db,
+        RestoreMovesRequest {
+            logs: renamed_result.logs,
+        },
+    )
+    .unwrap();
+    assert_eq!(restored_rename.logs[0].restore_status, "restored");
+    assert_eq!(fixture_file_hash(&payload), original_hash);
+    runtime.dispose();
+}
+
+#[test]
+fn fl24_stale_folder_identity_cannot_be_renamed_after_external_path_change() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let folder = f.root.join("stale-folder");
+    fs::create_dir(&folder).unwrap();
+    fs::write(folder.join("content.txt"), b"unchanged fixture").unwrap();
+    let ticket = capture_named(&runtime, &f.root, "stale-folder");
+    fs::rename(&folder, f.root.join("moved-folder")).unwrap();
+
+    let stale = preview_named(
+        &runtime,
+        vec![ticket.id],
+        &f.root,
+        TransferAction::Rename,
+        Some("replacement-folder"),
+    );
+    assert!(matches!(
+        stale.rows[0].error.as_deref(),
+        Some("transfer_source_changed" | "source_missing")
+    ));
+    assert!(!f.root.join("replacement-folder").exists());
+    runtime.dispose();
+}
+
+#[test]
+fn fl24_folder_safe_trash_restores_from_journal_and_preserves_hash() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let folder = f.root.join("trash-folder");
+    let payload = folder.join("nested").join("content.bin");
+    fs::create_dir_all(payload.parent().unwrap()).unwrap();
+    fs::write(&payload, b"trash restore fixture").unwrap();
+    let expected_hash = fixture_file_hash(&payload);
+    let ticket = capture_named(&runtime, &f.root, "trash-folder");
+    let plan = preview_named(
+        &runtime,
+        vec![ticket.id],
+        &f.root,
+        TransferAction::Trash,
+        None,
+    );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let result = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        result.logs[0].status, "success",
+        "Safe Trash failed: {:?}",
+        result.logs[0].error_message
+    );
+    assert!(!folder.exists());
+    let trashed = Path::new(&result.logs[0].path_after)
+        .join("nested")
+        .join("content.bin");
+    assert_eq!(fixture_file_hash(&trashed), expected_hash);
+    assert!(result.logs[0].can_restore);
+    let restored =
+        restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: result.logs }).unwrap();
+    assert_eq!(restored.logs[0].restore_status, "restored");
+    assert_eq!(fixture_file_hash(&payload), expected_hash);
+    assert_eq!(fs::read(&payload).unwrap(), b"trash restore fixture");
+    runtime.dispose();
+}
+
+#[test]
+fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let trash_root = f.root.join(".zen-canvas-trash");
+    fs::create_dir_all(&trash_root).unwrap();
+    let trashed_path = trash_root.join("protected-item.txt");
+    fs::write(&trashed_path, b"journal-owned bytes").unwrap();
+    let trashed_ticket = capture_named(&runtime, &trash_root, "protected-item.txt");
+
+    for action in [
+        TransferAction::Copy,
+        TransferAction::Move,
+        TransferAction::Trash,
+    ] {
+        let plan = preview(
+            &runtime,
+            vec![trashed_ticket.id.clone()],
+            &f.root,
+            action,
+            vec![],
+            vec![],
+        );
+        assert!(
+            plan.rows[0]
+                .error
+                .as_deref()
+                .is_some_and(|error| error.to_ascii_lowercase().contains("protected")),
+            "{action:?} must reject a Safe Trash source during Preview: {:?}",
+            plan.rows[0].error
+        );
+    }
+    let rename = preview_named(
+        &runtime,
+        vec![trashed_ticket.id],
+        &trash_root,
+        TransferAction::Rename,
+        Some("renamed-item.txt"),
+    );
+    assert!(
+        rename.rows[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.to_ascii_lowercase().contains("protected")),
+        "Safe Trash rename preview should fail with a protected-path reason: {:?}",
+        rename.rows[0].error
+    );
+    let trash_folder_ticket = capture_named(&runtime, &f.root, ".zen-canvas-trash");
+    let rename_trash_root = preview_named(
+        &runtime,
+        vec![trash_folder_ticket.id],
+        &f.root,
+        TransferAction::Rename,
+        Some("renamed-trash"),
+    );
+    assert!(
+        rename_trash_root.rows[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.to_ascii_lowercase().contains("protected")),
+        "Safe Trash root rename preview should fail with a protected-path reason: {:?}",
+        rename_trash_root.rows[0].error
+    );
+    assert!(trash_root.is_dir());
+    assert_eq!(fs::read(&trashed_path).unwrap(), b"journal-owned bytes");
+
+    let regular_ticket = capture(&runtime, &f).remove(0);
+    let destination_preview = runtime
+        .preview_transfer(TransferPreviewRequest {
+            ticket_ids: vec![regular_ticket.id],
+            action: TransferAction::Copy,
+            destination_directory: normalize_path(&trash_root),
+            destination_entry: None,
+            new_name: None,
+            keep_both: vec![],
+            skip: vec![],
+        })
+        .unwrap();
+    assert!(destination_preview.rows[0]
+        .error
+        .as_deref()
+        .is_some_and(|error| error.to_ascii_lowercase().contains("protected")));
+
+    let create_error = runtime
+        .preview_transfer(TransferPreviewRequest {
+            ticket_ids: vec![],
+            action: TransferAction::CreateDirectory,
+            destination_directory: normalize_path(&trash_root),
+            destination_entry: None,
+            new_name: Some("child".into()),
+            keep_both: vec![],
+            skip: vec![],
+        })
+        .err()
+        .unwrap();
+    assert!(create_error.to_ascii_lowercase().contains("protected"));
+    assert_eq!(fs::read(&trashed_path).unwrap(), b"journal-owned bytes");
+    runtime.dispose();
+}
+
+#[cfg(windows)]
+#[test]
+fn fl24_windows_extended_prefix_is_allowed_without_allowing_wildcards() {
+    assert!(validate_cleanup_path_syntax(Path::new(r"\\?\D:\fixtures\ordinary-folder")).is_ok());
+    assert!(validate_cleanup_path_syntax(Path::new(r"\\?\D:\fixtures\wild?card-folder")).is_err());
 }

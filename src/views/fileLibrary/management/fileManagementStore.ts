@@ -10,6 +10,7 @@ export interface ManagementSurface {
   browseSource?: BrowseSourceOwner;
   signature: string;
   count: number | null;
+  hasDirectorySelection?: boolean;
   selection?: LibrarySelectionV1;
   refs?: EntryRef[];
   browse?: { sessionId: string; pathRef: BrowsePathRef };
@@ -44,7 +45,7 @@ interface ManagementState {
   activeTransferId: string | null;
   transferTicketIds: string[];
   externalDropAction: TransferAction;
-  pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "copy_other" | "move_other" | null;
+  pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "rename" | "trash" | "create_directory" | "copy_other" | "move_other" | null;
   requestAction: (action: ManagementState["pendingAction"]) => void;
 }
 /** Shared tickets, clipboard and outcomes; every source projection has an explicit pane owner. */

@@ -109,6 +109,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "fylura-native-host"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "fylura-preview-representation"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "pulldown-cmark",
+ "thiserror",
+]
+
+[[package]]
+name = "fylura-windows-preview-handler"
+version = "0.1.0"
+dependencies = [
+ "fylura-native-host",
+ "fylura-preview-representation",
+ "fylura-windows-preview-registration",
+ "uuid",
+ "windows",
+ "windows-core",
+ "windows-sys",
+]
+
+[[package]]
+name = "fylura-windows-preview-handler-harness"
+version = "0.1.0"
+dependencies = [
+ "fylura-windows-preview-registration",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
+name = "fylura-windows-preview-registration"
+version = "0.1.0"
+
+[[package]]
 name = "getopts"
 version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -881,49 +924,6 @@ dependencies = [
  "syn 2.0.119",
  "synstructure",
 ]
-
-[[package]]
-name = "fylura-native-host"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "uuid",
-]
-
-[[package]]
-name = "fylura-preview-representation"
-version = "0.1.0"
-dependencies = [
- "ammonia",
- "pulldown-cmark",
- "thiserror",
-]
-
-[[package]]
-name = "fylura-windows-preview-handler"
-version = "0.1.0"
-dependencies = [
- "uuid",
- "windows",
- "windows-core",
- "windows-sys",
- "fylura-native-host",
- "fylura-preview-representation",
- "fylura-windows-preview-registration",
-]
-
-[[package]]
-name = "fylura-windows-preview-handler-harness"
-version = "0.1.0"
-dependencies = [
- "windows",
- "windows-core",
- "fylura-windows-preview-registration",
-]
-
-[[package]]
-name = "fylura-windows-preview-registration"
-version = "0.1.0"
 
 [[package]]
 name = "zerofrom"

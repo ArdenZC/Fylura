@@ -1,4 +1,5 @@
 import { FileLibraryExperienceController } from "../fileLibraryExperience";
+import type { NavigationTarget } from "../../../types/fileWorkspace";
 import {
   createFileLibraryProjection,
   defaultFileLibraryProjection,
@@ -9,7 +10,31 @@ export interface WorkbenchPane {
   controller: FileLibraryExperienceController;
   projection: typeof defaultFileLibraryProjection;
   path: string;
+  pathTargetKey: string | null;
 }
+
+export function workbenchTargetKey(target: NavigationTarget | null) {
+  if (!target) return null;
+  if (target.kind === "library") return `library:${target.source}:${target.key}`;
+  const locationKey = target.location.kind === "managed"
+    ? `managed:${target.location.scanRootId}`
+    : `ephemeral:${target.location.browseSessionId}:${target.location.locationId}`;
+  return `browse:${locationKey}:${target.pathRef.id}`;
+}
+
+export function currentWorkbenchBrowsePath(
+  path: string,
+  pathTargetKey: string | null | undefined,
+  target: NavigationTarget | null,
+) {
+  if (
+    target?.kind !== "browse"
+    || path.trim().length === 0
+    || pathTargetKey !== workbenchTargetKey(target)
+  ) return null;
+  return path;
+}
+
 export interface WorkbenchTab {
   id: string;
   panes: WorkbenchPane[];
@@ -37,6 +62,7 @@ export class FileWorkbenchModel {
       controller: root,
       projection: defaultFileLibraryProjection,
       path: "",
+      pathTargetKey: null,
     };
     const tab = {
       id: `tab-${++serial}`,
@@ -68,6 +94,7 @@ export class FileWorkbenchModel {
       controller,
       projection: createFileLibraryProjection(),
       path: "",
+      pathTargetKey: null,
     };
   }
   newTab() {
@@ -97,12 +124,13 @@ export class FileWorkbenchModel {
     if (!tab.dual) tab.activePaneId = tab.panes[0].id;
     this.publish();
   }
-  updatePath(paneId: string, path: string) {
+  updatePath(paneId: string, path: string, pathTargetKey: string | null = null) {
     const pane = this.snapshot.tabs
       .flatMap((tab) => tab.panes)
       .find((item) => item.id === paneId);
-    if (!pane || pane.path === path) return;
+    if (!pane || (pane.path === path && pane.pathTargetKey === pathTargetKey)) return;
     pane.path = path;
+    pane.pathTargetKey = pathTargetKey;
     this.publish();
   }
   async close(tabId: string) {
@@ -144,6 +172,7 @@ export class FileWorkbenchModel {
         controller: this.root,
         projection: defaultFileLibraryProjection,
         path: "",
+        pathTargetKey: null,
       };
       tab = {
         id: `tab-${++serial}`,

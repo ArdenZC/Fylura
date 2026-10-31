@@ -24,6 +24,9 @@ const FILENAME_CANDIDATE_WARMUPS: usize = 5;
 const FILENAME_CANDIDATE_SAMPLES: usize = 30;
 const FILENAME_CANDIDATE_WRITE_BATCHES: [usize; 2] = [512, 5_000];
 
+#[path = "issue494_writer_qualification.rs"]
+mod writer_qualification;
+
 #[derive(Clone, Copy)]
 struct WriteTiming {
     total_ms: f64,

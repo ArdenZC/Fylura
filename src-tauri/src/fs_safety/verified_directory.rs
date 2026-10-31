@@ -218,11 +218,7 @@ fn create_macos_child_directory(
     parent: &VerifiedDirectory,
     name: &std::ffi::OsStr,
 ) -> Result<VerifiedDirectory, PathGuardError> {
-    use std::{
-        ffi::CString,
-        os::unix::ffi::OsStrExt,
-        os::unix::io::{AsRawFd, FromRawFd},
-    };
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, os::unix::io::FromRawFd};
     let name = CString::new(name.as_bytes()).map_err(|_| PathGuardError::UnsafePath)?;
     if unsafe { libc::mkdirat(parent.raw_fd(), name.as_ptr(), 0o755) } != 0 {
         return Err(PathGuardError::Io(io::Error::last_os_error()));

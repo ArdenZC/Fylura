@@ -1115,9 +1115,7 @@ fn open_windows_directory_path_for_retirement(
 ) -> Result<File, AtomicMoveError> {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::{
-        Foundation::{
-            GetLastError, ERROR_HANDLE_EOF, ERROR_INVALID_FUNCTION, INVALID_HANDLE_VALUE,
-        },
+        Foundation::{GetLastError, INVALID_HANDLE_VALUE},
         Storage::FileSystem::{
             CreateFileW, DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
             FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
@@ -1247,7 +1245,9 @@ fn open_windows_child_for_tree(
 #[cfg(windows)]
 fn ensure_windows_no_named_streams(path: &std::path::Path) -> Result<(), AtomicMoveError> {
     use windows_sys::Win32::{
-        Foundation::{GetLastError, INVALID_HANDLE_VALUE},
+        Foundation::{
+            GetLastError, ERROR_HANDLE_EOF, ERROR_INVALID_FUNCTION, INVALID_HANDLE_VALUE,
+        },
         Storage::FileSystem::{
             FindClose, FindFirstStreamW, FindNextStreamW, FindStreamInfoStandard,
             WIN32_FIND_STREAM_DATA,

@@ -893,6 +893,22 @@ jobs:
           cache-on-failure: true
       - name: Build NSIS package
         run: npm run build
+      - name: Run disposable fresh / repeat / rollback / uninstall cycle
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installers.Count)." }
+          ./scripts/verifyWindowsNsisLifecycle.ps1 `
+            -InstallerPath $installers[0].FullName `
+            -EvidencePath "$env:RUNNER_TEMP/fylura-nsis-runtime-$env:GITHUB_RUN_ID.json"
+      - name: Upload Windows NSIS runtime lifecycle evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fylura-nsis-runtime-${{ github.run_id }}
+          path: ${{ runner.temp }}/fylura-nsis-runtime-${{ github.run_id }}.json
+          if-no-files-found: warn
+          retention-days: 7
 
   package-macos:
     name: Package unsigned DMG

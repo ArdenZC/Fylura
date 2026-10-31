@@ -191,13 +191,59 @@ fn ensure_macos_mutation_eligible_before_journal(
         source
             .parent()
             .ok_or_else(|| "macos mutation rejected: mac_source_identity_changed".to_string())?
+            .to_path_buf()
     } else {
-        Path::new(&operation.target_path)
+        let target_parent = Path::new(&operation.target_path)
             .parent()
-            .ok_or_else(|| "macos mutation rejected: mac_target_parent_changed".to_string())?
+            .ok_or_else(|| "macos mutation rejected: mac_target_parent_changed".to_string())?;
+        nearest_existing_macos_target_parent(target_parent)?
     };
-    crate::platform::macos::mutation::ensure_path_eligible(source, target_parent)
+    crate::platform::macos::mutation::ensure_path_eligible(source, &target_parent)
         .map_err(|code| format!("macos mutation rejected: {code}"))
+}
+
+/// PREPARED must be durable before recursive transfers create destination
+/// directories. Validate the existing route prefix here; execution rechecks
+/// the concrete parent after the journal and creates the missing suffix with
+/// the no-links path guard.
+#[cfg(target_os = "macos")]
+fn nearest_existing_macos_target_parent(target_parent: &Path) -> Result<PathBuf, String> {
+    use std::path::Component;
+
+    if !target_parent.is_absolute()
+        || target_parent
+            .components()
+            .any(|component| component == Component::ParentDir)
+    {
+        return Err("macos mutation rejected: mac_filesystem_not_supported".to_string());
+    }
+
+    for candidate in target_parent.ancestors() {
+        let metadata = match std::fs::symlink_metadata(candidate) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err("macos mutation rejected: mac_target_parent_changed".to_string()),
+        };
+        if metadata.file_type().is_symlink() {
+            return Err("macos mutation rejected: mac_symlink_not_allowed".to_string());
+        }
+        if !metadata.is_dir() {
+            return Err("macos mutation rejected: mac_target_parent_changed".to_string());
+        }
+
+        let verified =
+            crate::fs_safety::VerifiedDirectory::open_existing(candidate).map_err(|error| {
+                match error {
+                    crate::fs_safety::PathGuardError::ReparsePoint => {
+                        "macos mutation rejected: mac_symlink_not_allowed".to_string()
+                    }
+                    _ => "macos mutation rejected: mac_target_parent_changed".to_string(),
+                }
+            })?;
+        return Ok(verified.path().to_path_buf());
+    }
+
+    Err("macos mutation rejected: mac_target_parent_changed".to_string())
 }
 
 pub(crate) fn make_canceled_operation_log(

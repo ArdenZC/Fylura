@@ -46,6 +46,7 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
       if (!ticket) return { ticketId, skipped, preview: null, error: "transfer_reference_expired" };
       if ((ticket.path.startsWith("C:/U1/") || ticket.path.startsWith("C:/U3/")) && !files.has(ticket.path)) return { ticketId, skipped, preview: null, error: "transfer_source_changed" };
       if (ticket.isDirectory) return { ticketId, skipped, preview: null, error: "transfer_directory_not_supported" };
+      if (skipped) return { ticketId, skipped: true, preview: null, error: null };
       let name = ticket.name;
       let target = `${request.destinationDirectory}/${name}`;
       if (request.keepBoth?.includes(ticketId) && (files.has(target) || reserved.has(target))) {

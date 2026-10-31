@@ -1095,23 +1095,29 @@ fn ensure_main_window_locked<R: Runtime>(
     };
     let url = main_window_restore_url(generation, last_view);
     lifecycle.record_creation_start(generation);
-    let window =
-        match WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App(url.into()))
-            .title("Zen Canvas")
-            .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
-            .min_inner_size(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT)
-            .transparent(true)
-            .decorations(false)
-            .visible(false)
-            .build()
-        {
-            Ok(window) => window,
-            Err(error) => {
-                let _ = workspace.abort_generation(generation);
-                readiness.invalidate_generation(generation);
-                return Err(error.to_string());
-            }
-        };
+    let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App(url.into()))
+        .title("Zen Canvas")
+        .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
+        .min_inner_size(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT)
+        .transparent(true)
+        .decorations(false)
+        .visible(false);
+    // Windows WebView2 uses a separate user-data directory from the SQLite app-data root.
+    // This is QA-only; never change installed-user browser storage in production builds.
+    #[cfg(all(target_os = "windows", feature = "native-qa"))]
+    let builder = builder.data_directory(
+        crate::native_qa_profile_root()?
+            .join("webview2")
+            .join(MAIN_WINDOW_LABEL),
+    );
+    let window = match builder.build() {
+        Ok(window) => window,
+        Err(error) => {
+            let _ = workspace.abort_generation(generation);
+            readiness.invalidate_generation(generation);
+            return Err(error.to_string());
+        }
+    };
 
     app.state::<ExitIntentState>().record_window_created();
     let app_handle = app.clone();

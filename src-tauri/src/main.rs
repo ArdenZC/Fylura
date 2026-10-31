@@ -70,6 +70,21 @@ fn main() {
         return;
     }
 
+    // Fail before single-instance activation, database opening, migrations, or any scan startup.
+    // Native-QA launches must never silently use the installed user's app profile.
+    #[cfg(feature = "native-qa")]
+    if let Err(error) = zen_canvas_tauri::native_qa_profile_root() {
+        eprintln!("native_qa startup_refused: {error}");
+        std::process::exit(1);
+    }
+
+    // Launchers should pass --native-qa: a production build must reject that QA intent.
+    #[cfg(not(feature = "native-qa"))]
+    if launch_args.iter().any(|argument| argument == "--native-qa") {
+        eprintln!("native_qa startup_refused: binary lacks native-qa feature");
+        std::process::exit(1);
+    }
+
     let background_launch = zen_canvas_tauri::app_control::is_background_launch_args(&launch_args);
 
     let startup_aborted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));

@@ -427,7 +427,7 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
       id={gridCellDomId(entry, pane?.id)}
       className={cn("shared-file-grid-cell", selected && "is-selected", focused && "is-focused", missingLabel && "is-missing")}
       data-file-entry-kind={entry.entryKind}
-      draggable={selected}
+      data-file-entry-name={entry.displayName}
       role="gridcell"
       tabIndex={-1}
       aria-selected={selected}
@@ -438,6 +438,7 @@ const SharedFileGridCell = memo(function SharedFileGridCell({
       data-grid-cell-status={isDirectory ? "directory" : thumbnail.kind}
       data-library-grid-row={entry.source === "library" ? entry.entryRef.fileId : undefined}
       data-browse-grid-entry={entry.source === "browse" ? "true" : undefined}
+      data-browse-session-id={entry.source === "browse" ? entry.entryRef.browseSessionId : undefined}
       data-browse-grid-entry-id={entry.source === "browse" ? entry.entryRef.entryId : undefined}
       data-browse-grid-entry-kind={entry.source === "browse" ? entry.entryKind : undefined}
       onClick={onClick}

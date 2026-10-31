@@ -715,8 +715,7 @@ fn snapshot(
     let identity = file_namespace_fingerprint(&source)?;
     #[cfg(windows)]
     if source_is_directory && action == TransferAction::Move {
-        if identity.platform_volume_id.as_deref()
-            != Some(destination.identity().volume_id.as_str())
+        if identity.platform_volume_id.as_deref() != Some(destination.identity().volume_id.as_str())
         {
             return Err("transfer_windows_cross_volume_directory_move_unsupported".into());
         }

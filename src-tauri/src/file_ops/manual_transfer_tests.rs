@@ -1224,7 +1224,9 @@ fn fl23_windows_same_volume_directory_move_is_journaled_and_restorable() {
     );
     let restored = restore_moves_with_persistence(
         &f.db,
-        RestoreMovesRequest { logs: executed.logs },
+        RestoreMovesRequest {
+            logs: executed.logs,
+        },
     )
     .unwrap();
     assert_eq!(
@@ -1232,7 +1234,10 @@ fn fl23_windows_same_volume_directory_move_is_journaled_and_restorable() {
         "{:?}",
         restored.logs[0].restore_error
     );
-    assert_eq!(fs::read(source.join("nested/content.txt")).unwrap(), b"source remains");
+    assert_eq!(
+        fs::read(source.join("nested/content.txt")).unwrap(),
+        b"source remains"
+    );
     assert!(!destination.join("move-source").exists());
     runtime.dispose();
 }

@@ -1076,12 +1076,72 @@ fn normalize_windows_security_descriptor_sddl(sddl: &str) -> String {
             break;
         }
     }
-    format!(
+    let without_dacl_control = format!(
         "{}D:{}{}",
         &sddl[..dacl_start - 2],
         &controls[index..],
         &sddl[dacl_end..]
-    )
+    );
+
+    // PROTECTED_DACL_SECURITY_INFORMATION materializes inherited ACEs on the
+    // target. Strip only the ACE `ID` marker before comparing descriptors;
+    // the ACE type, remaining inheritance flags, rights, SIDs, and conditions
+    // remain part of the digest.
+    let mut normalized = String::with_capacity(without_dacl_control.len());
+    let mut cursor = 0;
+    while let Some(relative_start) = without_dacl_control[cursor..].find('(') {
+        let start = cursor + relative_start;
+        normalized.push_str(&without_dacl_control[cursor..start]);
+        let bytes = without_dacl_control.as_bytes();
+        let mut depth = 0usize;
+        let mut end = None;
+        for (offset, byte) in bytes.iter().enumerate().skip(start) {
+            match byte {
+                b'(' => depth += 1,
+                b')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        end = Some(offset + 1);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(end) = end else {
+            normalized.push_str(&without_dacl_control[start..]);
+            return normalized;
+        };
+        let ace = &without_dacl_control[start..end];
+        let ace_bytes = ace.as_bytes();
+        let mut ace_depth = 0usize;
+        let mut separators = [None, None];
+        let mut separator_count = 0usize;
+        for (offset, byte) in ace_bytes.iter().enumerate().skip(1).take(ace.len() - 2) {
+            match byte {
+                b'(' => ace_depth += 1,
+                b')' => ace_depth = ace_depth.saturating_sub(1),
+                b';' if ace_depth == 0 && separator_count < separators.len() => {
+                    separators[separator_count] = Some(offset);
+                    separator_count += 1;
+                }
+                _ => {}
+            }
+        }
+        if let [Some(first_separator), Some(second_separator)] = separators {
+            let flags_start = first_separator + 1;
+            let flags = &ace[flags_start..second_separator];
+            let normalized_flags = flags.replace("ID", "");
+            normalized.push_str(&ace[..flags_start]);
+            normalized.push_str(&normalized_flags);
+            normalized.push_str(&ace[second_separator..]);
+        } else {
+            normalized.push_str(ace);
+        }
+        cursor = end;
+    }
+    normalized.push_str(&without_dacl_control[cursor..]);
+    normalized
 }
 
 #[cfg(windows)]
@@ -1832,7 +1892,7 @@ mod security_descriptor_sddl_tests {
     fn comparison_ignores_only_dacl_inheritance_controls() {
         assert_eq!(
             normalize_windows_security_descriptor_sddl("O:SYG:SYD:PAI(A;CI;FA;;;SY)(A;ID;GR;;;BU)"),
-            "O:SYG:SYD:(A;CI;FA;;;SY)(A;ID;GR;;;BU)"
+            "O:SYG:SYD:(A;CI;FA;;;SY)(A;;GR;;;BU)"
         );
         assert_eq!(
             normalize_windows_security_descriptor_sddl("O:SYG:SYD:AIP(A;;GR;;;BU)"),
@@ -1841,6 +1901,12 @@ mod security_descriptor_sddl_tests {
         assert_eq!(
             normalize_windows_security_descriptor_sddl("O:SYG:SYD:NO_ACCESS_CONTROL"),
             "O:SYG:SYD:NO_ACCESS_CONTROL"
+        );
+        assert_eq!(
+            normalize_windows_security_descriptor_sddl(
+                "O:SYG:SYD:(A;IDCI;GR;;;BU;(Member_of(S-1-5-32-545)))"
+            ),
+            "O:SYG:SYD:(A;CI;GR;;;BU;(Member_of(S-1-5-32-545)))"
         );
     }
 }

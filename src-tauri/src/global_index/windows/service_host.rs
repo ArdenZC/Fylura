@@ -36,8 +36,8 @@ use windows_sys::Win32::System::Services::{
     SERVICE_STOP, SERVICE_STOPPED, SERVICE_STOP_PENDING, SERVICE_WIN32_OWN_PROCESS,
 };
 
-pub const INDEX_SERVICE_NAME: &str = "ZenCanvasGlobalIndex";
-pub const INDEX_SERVICE_DISPLAY_NAME: &str = "Zen Canvas Global Index";
+pub const INDEX_SERVICE_NAME: &str = "FyluraGlobalIndex";
+pub const INDEX_SERVICE_DISPLAY_NAME: &str = "Fylura Global Index";
 const SERVICE_DELETE_ACCESS: u32 = 0x0001_0000;
 
 static SERVICE_CONTEXT: OnceLock<Arc<ServiceRuntime>> = OnceLock::new();
@@ -565,7 +565,7 @@ pub fn run_index_service_process() -> i32 {
     }
     let error = unsafe { GetLastError() };
     if error != ERROR_FAILED_SERVICE_CONTROLLER_CONNECT {
-        eprintln!("Zen Canvas index service dispatcher failed: {error}");
+        eprintln!("Fylura index service dispatcher failed: {error}");
         return error as i32;
     }
     runtime.set_state("running", None);
@@ -574,7 +574,7 @@ pub fn run_index_service_process() -> i32 {
         service_handler(runtime.clone()),
     );
     if let Err(error) = result {
-        eprintln!("Zen Canvas index service console host failed: {error}");
+        eprintln!("Fylura index service console host failed: {error}");
         return 1;
     }
     0
@@ -948,10 +948,10 @@ mod tests {
 
     #[test]
     fn service_contract_uses_stable_name_and_console_switch() {
-        assert_eq!(INDEX_SERVICE_NAME, "ZenCanvasGlobalIndex");
+        assert_eq!(INDEX_SERVICE_NAME, "FyluraGlobalIndex");
         assert!(format!(
             r#""{}" --index-service"#,
-            r"C:\Program Files\Zen Canvas\Zen Canvas.exe"
+            r"C:\Program Files\Fylura\Fylura.exe"
         )
         .contains("--index-service"));
     }

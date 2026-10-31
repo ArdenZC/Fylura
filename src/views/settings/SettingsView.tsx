@@ -876,7 +876,7 @@ export function SettingsView() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `zen-canvas-ai-traces-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      anchor.download = `fylura-ai-traces-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (error) {

@@ -16,7 +16,7 @@ export function FolderComparison({ paneIds, activate, compact = false }: { paneI
   const { t } = useI18nContext();
   const { platform } = useChromeContext();
   const surfaces = useFileManagementStore((s) => s.surfaces);
-  const locked = useFileManagementStore((s) => s.transferOpen);
+  const locked = useFileManagementStore((s) => s.transferOpen || s.transferActive);
   const sources = paneIds.map((id) => surfaces[id]?.read().browseSource);
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
@@ -92,9 +92,9 @@ export function FolderComparison({ paneIds, activate, compact = false }: { paneI
             const entry = side ? r.right : r.left; return entry ? [entry.entryRef.entryId] : [];
           }))}>{t("u3SelectFiltered")}</button>
           <button disabled={locked} onClick={() => select(side, [])}>{t("libraryClearSelection")}</button>
-          <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000 || platform === "win32" && hasDirectorySelection(source)} title={platform === "win32" && hasDirectorySelection(source) ? t("fmWindowsDirectories") : undefined} onClick={() => action(side, "basket")}>{t("fmAddBasket")}</button>
-          <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000 || platform === "win32" && hasDirectorySelection(source)} title={platform === "win32" && hasDirectorySelection(source) ? t("fmWindowsDirectories") : undefined} onClick={() => action(side, "copy_other")}>{t("wbCopyOther")}</button>
-          <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000 || platform === "win32" && hasDirectorySelection(source)} title={platform === "win32" && hasDirectorySelection(source) ? t("fmWindowsDirectories") : undefined} onClick={() => action(side, "move_other")}>{t("wbMoveOther")}</button>
+          <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000} onClick={() => action(side, "basket")}>{t("fmAddBasket")}</button>
+          <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000} onClick={() => action(side, "copy_other")}>{t("wbCopyOther")}</button>
+          <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000 || platform === "win32" && hasDirectorySelection(source)} title={platform === "win32" && hasDirectorySelection(source) ? t("fmDirectoryMoveUnsupported") : undefined} onClick={() => action(side, "move_other")}>{t("wbMoveOther")}</button>
         </div>)}</div>
         <details className="u3-compare-help"><summary>{t("u3BatchLimits")}</summary>{t("u3BatchHelp")}</details>
         </details>

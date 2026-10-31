@@ -20,7 +20,7 @@ const packageResourcePath = path.join(
   "src-tauri",
   "native",
   "packaged",
-  "zen_canvas_windows_preview_handler.dll",
+  "fylura_windows_preview_handler.dll",
 );
 
 function run(command, args) {

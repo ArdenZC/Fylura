@@ -120,19 +120,19 @@ describe("CI final performance remediation contract", () => {
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
       const prepare = section(workflow, "performance-prepare");
       expect(prepare).toContain("Swatinem/rust-cache");
-      expect(prepare).toContain("shared-key: zen-canvas-Windows-performance-v3");
+      expect(prepare).toContain("shared-key: fylura-Windows-performance-v3");
       expect(prepare).toContain("add-job-id-key: false");
       expect(prepare).toContain("cache-workspace-crates: true");
       expect(prepare).toContain("cache-targets: true");
       expect(prepare).toContain("cache-on-failure: true");
-      expect((workflow.match(/shared-key: zen-canvas-Windows-performance-v3/g) ?? []).length).toBe(1);
+      expect((workflow.match(/shared-key: fylura-Windows-performance-v3/g) ?? []).length).toBe(1);
       expect(workflow).not.toContain("zen-canvas-Windows-performance-v2");
       expect(prepare).toContain("actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
       expect(prepare).toContain("actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
       expect(prepare).toContain(".performance-cache/binaries");
       expect(prepare).toContain("performanceBuildIdentity.mjs");
       expect(prepare).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7");
-      expect(prepare).not.toContain("zen-canvas-perf-binaries-${{ github.sha }}");
+      expect(prepare).not.toContain("fylura-perf-binaries-${{ github.sha }}");
       expect(prepare).not.toContain("github.run_id");
     }
   });
@@ -219,7 +219,7 @@ describe("CI final performance remediation contract", () => {
   it("uses semantic performance cache keys and blocks fork cache publication", () => {
     const prepare = section(interactiveWorkflow, "performance-prepare", "performance-search");
     const libraryConsumer = section(interactiveWorkflow, "performance-library-content", "performance-intelligence");
-    const semanticBinaryKey = "zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}";
+    const semanticBinaryKey = "fylura-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}";
     const semanticFixtureKey = "key: ${{ steps.fixture-identity.outputs.fixture_cache_key }}";
 
     expect(prepare).toContain(semanticBinaryKey);
@@ -265,7 +265,7 @@ describe("CI final performance remediation contract", () => {
       expect(native).toContain("Compute native prepared binary identity");
       expect(native).toContain("actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
       expect(native).toContain("actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
-      expect(native).toContain("zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}");
+      expect(native).toContain("fylura-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}");
       expect(native).toContain("--cache-root=.performance-cache/binaries");
       expect(native).toContain("--output=.performance-artifacts/binaries");
       expect(native).toContain('--build-identity="${{ steps.native-binary-build-identity.outputs.build_identity }}"');
@@ -446,14 +446,14 @@ describe("CI final performance remediation contract", () => {
       expect(native).toContain("cargo clippy --manifest-path src-tauri/native/Cargo.toml --all-targets -- -D warnings");
       expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability");
       expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml");
-      expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --bin zen-canvas-windows-preview-dll-servicing-smoke");
-      expect(native).toContain("zen-canvas-windows-preview-handler-harness.exe");
-      expect(native).toContain("zen-canvas-windows-preview-dll-servicing-smoke.exe");
-      expect(native).toContain("zen_canvas_windows_preview_handler.dll");
+      expect(native).toContain("cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --bin fylura-windows-preview-dll-servicing-smoke");
+      expect(native).toContain("fylura-windows-preview-handler-harness.exe");
+      expect(native).toContain("fylura-windows-preview-dll-servicing-smoke.exe");
+      expect(native).toContain("fylura_windows_preview_handler.dll");
       expect(native).toContain("w4-03-v2-harness");
       expect(native).toContain("w4-04-preview-dll-servicing-smoke");
       expect(native).toContain("node scripts/verifyWindowsNsisPreviewResource.mjs");
-      expect(native).toContain("--source src-tauri/native/target/release/zen_canvas_windows_preview_handler.dll");
+      expect(native).toContain("--source src-tauri/native/target/release/fylura_windows_preview_handler.dll");
     }
     expect(interactiveWorkflow).toContain("windows-native-preview-handler.result");
     expect(fullWorkflow).toContain("WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}");
@@ -473,7 +473,7 @@ describe("CI final performance remediation contract", () => {
     expect(qualification).toContain("timeout-minutes: 60");
     expect(qualification).toContain("npm ci");
     expect(qualification).toContain("npm run build:frontend");
-    expect(qualification).toContain("--features \"desktop-runtime native-qa\" --bin zen-canvas");
+    expect(qualification).toContain("--features \"desktop-runtime native-qa\" --bin fylura");
     expect(qualification).toContain("--bin zb05-global-index-qa");
     expect(qualification).toContain("scripts/qualifyWindowsGlobalIndexService.ps1");
     expect(qualification).toContain("if: ${{ always() }}");
@@ -638,7 +638,7 @@ describe("CI final performance remediation contract", () => {
       expect(frontend).toContain("PLAYWRIGHT_BROWSERS_PATH");
       expect(frontend).toContain("id: playwright-browser-cache");
       expect(frontend).toContain("actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3");
-      expect(frontend).toContain("zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}");
+      expect(frontend).toContain("fylura-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}");
       expect(frontend).toContain("npx playwright install-deps chromium");
       expect(frontend).toContain("if: steps.playwright-browser-cache.outputs.cache-hit != 'true'");
       expect(frontend).toContain(

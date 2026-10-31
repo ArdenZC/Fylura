@@ -4,10 +4,10 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::{params, Connection, ToSql};
-use zen_canvas_tauri::{
+use fylura_tauri::{
     db::Database, FileLibraryFilter, InsertFileRequest, LibraryFilter, LibraryScope,
 };
+use rusqlite::{params, Connection, ToSql};
 
 const DEFAULT_ROWS: usize = 100_000;
 const DEFAULT_P95_MS: f64 = 1_000.0;

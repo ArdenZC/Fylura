@@ -309,7 +309,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .tmp-tests/playwright-browsers
-          key: zen-canvas-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          key: fylura-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Install Chromium system dependencies
         shell: bash
         run: |
@@ -522,7 +522,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-v2-${{ matrix.validation_lane }}
+          shared-key: fylura-Windows-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -556,10 +556,10 @@ jobs:
       - name: Build real Windows resident lifecycle candidate
         env:
           TAURI_CONFIG: '{"build":{"devUrl":null}}'
-        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin zen-canvas
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin fylura
       - name: Real Windows Main background and resident delivery regression
         shell: pwsh
-        run: ./scripts/runWindowsResidentLifecycleQa.ps1 -Executable ./src-tauri/target/debug/zen-canvas.exe -EvidenceRoot "${{ runner.temp }}/pm02b-resident-lifecycle"
+        run: ./scripts/runWindowsResidentLifecycleQa.ps1 -Executable ./src-tauri/target/debug/fylura.exe -EvidenceRoot "${{ runner.temp }}/pm02b-resident-lifecycle"
 
       - name: Write sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
@@ -602,7 +602,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri/native -> target
-          shared-key: zen-canvas-Windows-native-preview-handler-v1-${{ matrix.validation_lane }}
+          shared-key: fylura-Windows-native-preview-handler-v1-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -613,20 +613,20 @@ jobs:
       - name: Native workspace tests
         run: cargo test --manifest-path src-tauri/native/Cargo.toml
       - name: Compile test-only Explorer registration runner
-        run: cargo check --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --bin zen-canvas-windows-preview-handler-real-host --features test-registration
+        run: cargo check --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --bin fylura-windows-preview-handler-real-host --features test-registration
       - name: Build Windows Preview Handler DLL
         run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability
       - name: Build Windows Preview Handler harness
         run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml
       - name: Build mapped Preview DLL servicing smoke
-        run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --bin zen-canvas-windows-preview-dll-servicing-smoke
+        run: cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml --bin fylura-windows-preview-dll-servicing-smoke
       - name: Run controlled Windows Preview Handler harness
         shell: pwsh
         run: |
           $nativeTarget = Join-Path $PWD "src-tauri/native/target/release"
           $fixtureRoot = Join-Path $PWD ".tmp-tests/w4-03-v2-harness"
-          & (Join-Path $nativeTarget "zen-canvas-windows-preview-handler-harness.exe") `
-            (Join-Path $nativeTarget "zen_canvas_windows_preview_handler.dll") `
+          & (Join-Path $nativeTarget "fylura-windows-preview-handler-harness.exe") `
+            (Join-Path $nativeTarget "fylura_windows_preview_handler.dll") `
             $fixtureRoot
           if ($LASTEXITCODE -ne 0) { throw "controlled Windows Preview Handler harness failed with exit code $LASTEXITCODE" }
       - name: Run mapped Preview DLL servicing smoke
@@ -634,8 +634,8 @@ jobs:
         run: |
           $nativeTarget = Join-Path $PWD "src-tauri/native/target/release"
           $fixtureRoot = Join-Path $PWD ".tmp-tests/w4-04-preview-dll-servicing-smoke"
-          & (Join-Path $nativeTarget "zen-canvas-windows-preview-dll-servicing-smoke.exe") `
-            (Join-Path $nativeTarget "zen_canvas_windows_preview_handler.dll") `
+          & (Join-Path $nativeTarget "fylura-windows-preview-dll-servicing-smoke.exe") `
+            (Join-Path $nativeTarget "fylura_windows_preview_handler.dll") `
             $fixtureRoot
           if ($LASTEXITCODE -ne 0) { throw "mapped Preview DLL servicing smoke failed with exit code $LASTEXITCODE" }
       - name: Install NSIS for Preview resource smoke
@@ -645,7 +645,7 @@ jobs:
         shell: pwsh
         run: |
           node scripts/verifyWindowsNsisPreviewResource.mjs `
-            --source src-tauri/native/target/release/zen_canvas_windows_preview_handler.dll
+            --source src-tauri/native/target/release/fylura_windows_preview_handler.dll
           if ($LASTEXITCODE -ne 0) { throw "fresh Preview resource NSIS smoke failed with exit code $LASTEXITCODE" }
       - name: Clean controlled harness fixtures
         if: ${{ always() }}
@@ -705,14 +705,14 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-global-index-service-v1
+          shared-key: fylura-Windows-global-index-service-v1
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
       - name: Build exact desktop candidate and QA probe
         shell: pwsh
         run: |
-          cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin zen-canvas
+          cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin fylura
           if ($LASTEXITCODE -ne 0) { throw "candidate build failed with exit code $LASTEXITCODE" }
           cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin zb05-global-index-qa
           if ($LASTEXITCODE -ne 0) { throw "qualification probe build failed with exit code $LASTEXITCODE" }
@@ -721,7 +721,7 @@ jobs:
         env:
           EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
-          $candidate = Join-Path $PWD "src-tauri/target/release/zen-canvas.exe"
+          $candidate = Join-Path $PWD "src-tauri/target/release/fylura.exe"
           $probe = Join-Path $PWD "src-tauri/target/release/zb05-global-index-qa.exe"
           $evidenceRoot = Join-Path $env:RUNNER_TEMP "zb05-global-index-service-evidence-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           $evidence = Join-Path $evidenceRoot "zb05-global-index-service-evidence.json"
@@ -751,8 +751,8 @@ jobs:
         if: ${{ always() }}
         shell: pwsh
         run: |
-          $candidate = [IO.Path]::GetFullPath((Join-Path $PWD "src-tauri/target/release/zen-canvas.exe"))
-          $serviceName = "ZenCanvasGlobalIndex"
+          $candidate = [IO.Path]::GetFullPath((Join-Path $PWD "src-tauri/target/release/fylura.exe"))
+          $serviceName = "FyluraGlobalIndex"
           $taskRoot = [IO.Path]::GetFullPath((Join-Path $env:RUNNER_TEMP "zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"))
           $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
           if (-not $taskRoot.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) { throw "refusing cleanup outside RUNNER_TEMP: $taskRoot" }
@@ -849,7 +849,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-v2-${{ matrix.validation_lane }}
+          shared-key: fylura-macOS-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -943,14 +943,14 @@ jobs:
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .performance-cache/binaries
-          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
+          key: fylura-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
       - name: Rust cache
         if: ${{ steps.binary-cache.outputs.cache-hit != 'true' }}
         id: rust-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-performance-v3-${{ matrix.validation_lane }}
+          shared-key: fylura-Windows-performance-v3-${{ matrix.validation_lane }}
           add-job-id-key: false
           cache-workspace-crates: true
           cache-targets: true
@@ -983,7 +983,7 @@ jobs:
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .performance-cache/binaries
-          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
+          key: fylura-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.binary-build-identity.outputs.build_identity }}
       - name: Save prepared fixture cache
         if: ${{ needs.change-scope.outputs.perf_library_content == 'true' && steps.fixture-cache.outputs.cache-hit != 'true' && env.CACHE_WRITE_ALLOWED == 'true' }}
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -1598,7 +1598,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-native-performance-${{ matrix.validation_lane }}
+          shared-key: fylura-macOS-native-performance-${{ matrix.validation_lane }}
           cache-on-failure: true
       - name: Compute native prepared binary identity
         id: native-binary-build-identity
@@ -1609,7 +1609,7 @@ jobs:
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .performance-cache/binaries
-          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}
+          key: fylura-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}
       - name: Report native prepared binary cache state
         shell: bash
         run: echo "[perf-native-macos] prepared-binary-cache=${{ steps.native-binary-cache.outputs.cache-hit == 'true' && 'hit' || 'miss' }}"
@@ -1637,7 +1637,7 @@ jobs:
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .performance-cache/binaries
-          key: zen-canvas-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}
+          key: fylura-perf-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-binary-build-identity.outputs.build_identity }}
       - name: Run File Workspace Foundation through the shared performance framework
         shell: bash
         run: |
@@ -1705,7 +1705,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-build-v2-${{ matrix.validation_lane }}
+          shared-key: fylura-Windows-build-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -1761,7 +1761,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-build-v2-${{ matrix.validation_lane }}
+          shared-key: fylura-macOS-build-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -1816,7 +1816,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-package-v2-${{ matrix.validation_lane }}
+          shared-key: fylura-Windows-package-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -1879,7 +1879,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-macOS-package-v2-${{ matrix.validation_lane }}
+          shared-key: fylura-macOS-package-v2-${{ matrix.validation_lane }}
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -2005,7 +2005,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .cargo-audit
-          key: zen-canvas-cargo-audit-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-toolchain.outputs.rustc_identity }}-${{ env.CARGO_AUDIT_VERSION }}
+          key: fylura-cargo-audit-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-toolchain.outputs.rustc_identity }}-${{ env.CARGO_AUDIT_VERSION }}
       - name: Install pinned cargo-audit
         if: ${{ steps.cargo-audit-cache.outputs.cache-hit != 'true' }}
         shell: bash

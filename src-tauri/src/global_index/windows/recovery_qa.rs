@@ -481,7 +481,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if !root.is_absolute() || !report.is_absolute() {
         return Err("QA paths must be absolute".into());
     }
-    let db = Database::open(root.join("zen-canvas.sqlite3"))?;
+    let db = Database::open(root.join("fylura.sqlite3"))?;
     let source = db
         .get_global_volume(&args[1])?
         .ok_or("isolated source absent")?;
@@ -500,7 +500,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let provider = ProbeProvider {
         inner: WindowsGlobalIndexProvider::with_wake(
             std::sync::Arc::new(crate::global_index::wake::GlobalIndexWakeSlot::default()),
-            root.join("zen-canvas.sqlite3"),
+            root.join("fylura.sqlite3"),
         ),
         database: db.clone(),
         source_id: source.id.clone(),

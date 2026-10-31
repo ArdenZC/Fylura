@@ -93,10 +93,10 @@ jobs:
           try {
             if ("${{ runner.os }}" -eq "macOS") {
               # Cargo package name differs from its existing desktop binary.
-              '{"mainBinaryName":"zen-canvas"}' | Set-Content -LiteralPath $taskConfig
+              '{"mainBinaryName":"fylura"}' | Set-Content -LiteralPath $taskConfig
               npx tauri build --features "desktop-runtime,native-qa" --bundles app --config $taskConfig -- --locked 2>&1 | Tee-Object .performance-artifacts/qualification/candidate-build.log
             } else {
-              cargo build --locked --release --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin zen-canvas --bin zb05-global-index-qa 2>&1 | Tee-Object .performance-artifacts/qualification/candidate-build.log
+              cargo build --locked --release --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin fylura --bin zb05-global-index-qa 2>&1 | Tee-Object .performance-artifacts/qualification/candidate-build.log
             }
             $buildExit = $LASTEXITCODE
             @{ sourceHead = $env:EXPECTED_SOURCE_SHA; sourceTree = (git rev-parse 'HEAD^{tree}'); runner = "${{ runner.os }}"; architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); exitCode = $buildExit } | ConvertTo-Json | Set-Content .performance-artifacts/qualification/candidate-build.json
@@ -110,17 +110,17 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe src-tauri/target/release/zen-canvas.exe -ProbeExe src-tauri/target/release/zb05-global-index-qa.exe -EvidencePath .performance-artifacts/qualification/windows-resident.json -ResidentQualification
+          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe src-tauri/target/release/fylura.exe -ProbeExe src-tauri/target/release/zb05-global-index-qa.exe -EvidencePath .performance-artifacts/qualification/windows-resident.json -ResidentQualification
           if ($LASTEXITCODE -ne 0) { throw "resident qualification blocked: $LASTEXITCODE" }
       - name: Bounded optional macOS startup backtrace
         if: runner.os == 'macOS' && steps.candidate.outcome == 'success'
         continue-on-error: true
-        run: python3 scripts/diagnoseMacosStartup.py 'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' .performance-artifacts/qualification/macos-startup-backtrace.json
+        run: python3 scripts/diagnoseMacosStartup.py 'src-tauri/target/release/bundle/macos/Fylura.app/Contents/MacOS/fylura' .performance-artifacts/qualification/macos-startup-backtrace.json
       - name: macOS exact background process
         id: macos-resident
         if: runner.os == 'macOS' && steps.candidate.outcome == 'success'
         continue-on-error: true
-        run: python3 scripts/qualifyMacosResident.py 'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' .performance-artifacts/qualification/macos-resident.json
+        run: python3 scripts/qualifyMacosResident.py 'src-tauri/target/release/bundle/macos/Fylura.app/Contents/MacOS/fylura' .performance-artifacts/qualification/macos-resident.json
       - name: Existing interactive workloads and three independent scan observations
         id: interactive
         continue-on-error: true

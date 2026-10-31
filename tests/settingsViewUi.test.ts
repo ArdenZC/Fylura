@@ -38,7 +38,7 @@ describe("settings view UI", () => {
     expect(t("settingsSearch")).toBe("搜索");
     expect(t("settingsOrganizeRoot")).toBe("整理目标根目录");
     expect(t("organizeRootCurrentFolder")).toBe("当前文件夹下分类");
-    expect(t("organizeRootZenCanvasFolder")).toBe("集中放入 ZenCanvas 文件夹");
+    expect(t("organizeRootZenCanvasFolder")).toBe("集中放入专用整理文件夹");
     expect(t("organizeRootCustomRoot")).toBe("自定义整理目录");
     expect(t("settingsSafetyRestore")).toBe("安全与恢复");
     expect(t("settingsWindowBehavior")).toBe("窗口行为");

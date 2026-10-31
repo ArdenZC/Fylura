@@ -51,7 +51,7 @@ pub(super) fn retried() {
 fn verify_background_deferral(source: &std::path::Path, installed: i64) -> Result<(), String> {
     let profile = source.with_extension("background-profile");
     std::fs::create_dir(&profile).map_err(|e| e.to_string())?;
-    let path = profile.join("zen-canvas.sqlite3");
+    let path = profile.join("fylura.sqlite3");
     std::fs::copy(source, &path).map_err(|e| e.to_string())?;
     let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
     historical_schema(&conn, installed)?;
@@ -164,7 +164,7 @@ pub(super) fn run() -> Result<(), String> {
                         .filter(|e| e.as_str() == "worker_start")
                         .count()
             });
-        if version != i64::from(zen_canvas_tauri::db::SUPPORTED_SCHEMA_VERSION)
+        if version != i64::from(fylura_tauri::db::SUPPORTED_SCHEMA_VERSION)
             || ATTEMPTS.load(Ordering::Acquire) != 2
             || TICKS.load(Ordering::Acquire) < 4
             || !CANCELLED.load(Ordering::Acquire)

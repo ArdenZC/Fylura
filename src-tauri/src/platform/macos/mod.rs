@@ -1,7 +1,7 @@
 //! macOS Foundation-backed file, package, cloud, and volume metadata.
 
 #[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
-compile_error!("Zen Canvas macOS builds require Apple Silicon (aarch64)");
+compile_error!("Fylura macOS builds require Apple Silicon (aarch64)");
 
 pub mod activity;
 pub mod cloud_item;

@@ -1,13 +1,6 @@
 #![cfg(all(feature = "native-qa", windows))]
 
-use serde::Serialize;
-use sha2::{Digest, Sha256};
-use std::{
-    env, fs,
-    panic::{catch_unwind, AssertUnwindSafe},
-    path::{Path, PathBuf},
-};
-use zen_canvas_tauri::{
+use fylura_tauri::{
     db::Database,
     file_ops::{
         execute_moves_with_persistence, reconcile_pending_operation_journal,
@@ -26,6 +19,13 @@ use zen_canvas_tauri::{
         reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db, CleanupTrashItem,
         StorageCandidate,
     },
+};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::{
+    env, fs,
+    panic::{catch_unwind, AssertUnwindSafe},
+    path::{Path, PathBuf},
 };
 
 fn panic_after_restore_claim(point: ClaimTestPoint, _source: &Path, _claim: &Path) {

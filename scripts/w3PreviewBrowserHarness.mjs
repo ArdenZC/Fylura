@@ -35,7 +35,7 @@ export async function waitForApp(page, label) {
     title: document.title,
     frameworkOverlay: Boolean(document.querySelector("vite-error-overlay, .vite-error-overlay"))
   }));
-  assert(identity.title.includes("Zen"), `${label}: unexpected page title ${identity.title}`);
+  assert(identity.title.includes("Fylura"), `${label}: unexpected page title ${identity.title}`);
   assert(!identity.frameworkOverlay, `${label}: framework error overlay mounted`);
 }
 
@@ -50,10 +50,16 @@ export async function assertNoHorizontalOverflow(page, label) {
 }
 
 export async function openLibrary(page) {
-  if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) {
+  if (await page.locator(".file-library-workspace").count() === 0) {
     await page.getByRole("button", { name: "Files", exact: true }).click();
+    await page.locator(".file-library-workspace").waitFor({ state: "visible" });
   }
-  await page.waitForSelector('.file-library-workspace[data-mode="library"]');
+  const libraryTab = page.locator('[role="tab"][data-file-library-mode="library"]');
+  await libraryTab.waitFor({ state: "visible" });
+  if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) {
+    await libraryTab.click();
+    await page.waitForSelector('.file-library-workspace[data-mode="library"]', { state: "visible" });
+  }
   const allIndexed = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexed.count() > 0 && await allIndexed.first().isVisible()) await allIndexed.first().click();
   const list = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="library"]');

@@ -1767,7 +1767,9 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                 name: candidate.name.clone(),
                 size: candidate.size,
                 status: "skipped".to_string(),
-                message: "Only safe candidates from the latest scan can be moved to Zen Canvas Safe Trash.".to_string(),
+                message:
+                    "Only safe candidates from the latest scan can be moved to Fylura Safe Trash."
+                        .to_string(),
                 item_id: None,
                 trash_path: None,
             });
@@ -1836,7 +1838,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             moved_at: moved_at.clone(),
             restored_at: None,
             status: "pending".to_string(),
-            message: Some("Pending move to Zen Canvas Safe Trash.".to_string()),
+            message: Some("Pending move to Fylura Safe Trash.".to_string()),
             source_modified_ns: fingerprint.modified_ns.map(|value| value.to_string()),
             source_platform_volume_id: if cfg!(target_os = "macos") {
                 fingerprint.platform_volume_id.clone()
@@ -1964,7 +1966,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                             (
                                 "moved",
                                 "success",
-                                "Moved to Zen Canvas Safe Trash and verified file identity."
+                                "Moved to Fylura Safe Trash and verified file identity."
                                     .to_string(),
                             )
                         }
@@ -2441,7 +2443,7 @@ fn restore_cleanup_trash_items_for_db_with_progress(
                     item.restored_at = Some(current_timestamp_ms().to_string());
                     item.operation_phase = "completed".to_string();
                     item.identity_status = "verified".to_string();
-                    item.message = Some("Restored from Zen Canvas Safe Trash.".to_string());
+                    item.message = Some("Restored from Fylura Safe Trash.".to_string());
                     match db.finalize_successful_cleanup_restore(&item) {
                         Ok(()) => {
                             item.source_claim_path = None;
@@ -2454,7 +2456,7 @@ fn restore_cleanup_trash_items_for_db_with_progress(
                                 original_path: normalize_path(&original),
                                 trash_path: normalize_path(&trash_path),
                                 status: "restored".to_string(),
-                                message: "Restored from Zen Canvas Safe Trash.".to_string(),
+                                message: "Restored from Fylura Safe Trash.".to_string(),
                             });
                         }
                         Err(error) => {
@@ -3061,6 +3063,7 @@ pub fn is_cleanup_execution_forbidden(path: &Path, app_data_dir: Option<&Path>) 
     app_data_dir
         .map(|dir| is_same_or_child(&lower, &normalize_for_compare(dir)))
         .unwrap_or(false)
+        || crate::identity_migration::is_legacy_app_data_path(path)
         || is_forbidden_storage_path(path, &[])
         || is_program_files_path_text(&lower)
         || is_appdata_core_path_text(&lower)
@@ -3127,7 +3130,7 @@ fn cleanup_candidate_can_enter_operation_preview(
 fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDto {
     #[cfg(target_os = "macos")]
     let (target_path, is_executable, blocking_reason) =
-        ("Zen Canvas Safe Trash".to_string(), Some(true), None);
+        ("Fylura Safe Trash".to_string(), Some(true), None);
     #[cfg(not(target_os = "macos"))]
     let (target_path, is_executable, blocking_reason) = (
         "Recycle Bin".to_string(),
@@ -3898,7 +3901,7 @@ fn classify_system_temp_candidate(
             CleanupTier::Caution,
             "Temporary content is owned by another user.".to_string(),
             CleanupActionKind::None,
-            Some("Zen Canvas will not offer cleanup for another user's files.".to_string()),
+            Some("Fylura will not offer cleanup for another user's files.".to_string()),
         )
     } else if facts.ownership == TempOwnership::Unknown {
         (
@@ -4238,7 +4241,7 @@ fn cleanup_preview_item(candidate: &StorageCandidate) -> CleanupPreviewItem {
         requires_confirmation: true,
         is_executable: false,
         blocking_reason: Some(
-            "Preview only: Zen Canvas has not enabled direct recycle-bin execution for storage cleanup."
+            "Preview only: Fylura has not enabled direct recycle-bin execution for storage cleanup."
                 .to_string(),
         ),
     }
@@ -4530,7 +4533,7 @@ impl Database {
                 .unwrap_or_else(|| current_timestamp_ms().to_string()),
         );
         finalized.status = "restored".to_string();
-        finalized.message = Some("Restored from Zen Canvas Safe Trash.".to_string());
+        finalized.message = Some("Restored from Fylura Safe Trash.".to_string());
         finalized.identity_status = "verified".to_string();
         finalized.source_claim_path = None;
         finalized.operation_phase = "completed".to_string();
@@ -4680,7 +4683,7 @@ fn safe_trash_item_path(
 ) -> PathBuf {
     let root = preferred_safe_trash_root(source)
         .or_else(|| app_data_dir.map(|dir| dir.join("safe-trash")))
-        .unwrap_or_else(|| env::temp_dir().join("Zen Canvas").join("safe-trash"));
+        .unwrap_or_else(|| env::temp_dir().join("Fylura").join("safe-trash"));
     root.join("items").join(batch_id).join(item_id).join(name)
 }
 
@@ -5234,9 +5237,11 @@ fn is_forbidden_storage_path(path: &Path, excluded_paths: &[PathBuf]) -> bool {
         || is_zen_canvas_safe_trash_path_text(&lower)
         || lower.contains("/programdata")
         || lower.contains("/startlan/zen canvas")
+        || lower.contains("/startlan/fylura")
         || lower.ends_with("/zen-canvas.sqlite3")
         || lower.ends_with("/zen-canvas.sqlite")
         || lower.ends_with("/zen-canvas.db")
+        || lower.ends_with("/fylura.sqlite3")
 }
 
 fn is_current_user_temp_path(path: &Path) -> bool {

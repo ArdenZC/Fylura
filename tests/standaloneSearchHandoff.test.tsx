@@ -176,7 +176,7 @@ describe("standalone Search to mounted Main commit handoff", () => {
   it("keeps fixed Settings navigation independent of file selection churn", async () => {
     const sections: string[] = [];
     const listener = (event: Event) => { sections.push((event as CustomEvent).detail); };
-    window.addEventListener("zen-canvas:settings-section", listener);
+    window.addEventListener("fylura:settings-section", listener);
     afterReady = () => { useFileLibrarySelectionStore.getState().setExplicit(["other"], "other"); };
     let activation!: Promise<void>;
     await act(async () => { activation = choose("settings", null, "appearance"); await Promise.resolve(); });
@@ -186,7 +186,7 @@ describe("standalone Search to mounted Main commit handoff", () => {
     expect(searchVisible).toBe(true);
     releaseCommit.resolve(); await activation;
     expect(searchVisible).toBe(false);
-    window.removeEventListener("zen-canvas:settings-section", listener);
+    window.removeEventListener("fylura:settings-section", listener);
   });
 
   it.each(["selected", "focused", "selection", "view"])("rejects stale file-result %s continuity and leaves Search visible", async (field) => {

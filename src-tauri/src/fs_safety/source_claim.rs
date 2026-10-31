@@ -1082,7 +1082,7 @@ pub(crate) fn windows_wide_path(path: &Path) -> Vec<u16> {
 }
 
 #[cfg(windows)]
-fn open_source_handle(
+pub(crate) fn open_source_handle(
     path: &Path,
     kind: ClaimedEntryKind,
 ) -> Result<Option<File>, SourceClaimError> {
@@ -1140,7 +1140,7 @@ fn open_source_handle(
 }
 
 #[cfg(target_os = "macos")]
-fn open_source_handle(
+pub(crate) fn open_source_handle(
     path: &Path,
     kind: ClaimedEntryKind,
 ) -> Result<Option<File>, SourceClaimError> {
@@ -1165,7 +1165,7 @@ fn open_source_handle(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn open_source_handle(
+pub(crate) fn open_source_handle(
     _path: &Path,
     _kind: ClaimedEntryKind,
 ) -> Result<Option<File>, SourceClaimError> {

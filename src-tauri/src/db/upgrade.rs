@@ -261,7 +261,7 @@ fn free_space(path: &Path) -> Result<(u64, u64), DbError> {
 pub(crate) fn check_cancelled(cancel: &AtomicBool) -> Result<(), DbError> {
     if cancel.load(Ordering::Acquire) {
         Err(DbError::Validation(
-            "Upgrade cancelled. No schema changes were committed. Start Zen Canvas again to retry."
+            "Upgrade cancelled. No schema changes were committed. Start Fylura again to retry."
                 .into(),
         ))
     } else {

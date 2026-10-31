@@ -34,7 +34,7 @@ try {
   const screenshot = (name) => page.screenshot({ path: path.join(output, name), fullPage: false });
   await page.goto(`${baseUrl}/?browser-mock=1`);
   await page.getByRole("button", { name: "Files", exact: true }).click();
-  assert.equal(await page.title(), "Zen Canvas");
+  assert.equal(await page.title(), "Fylura");
   const left = page.locator("[data-pane-id]").first();
   await left.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
   await left.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Left");
@@ -82,19 +82,14 @@ try {
   await screenshot("03-filtered-selection.png");
   await actions.first().getByRole("button", { name: "Copy to other pane", exact: true }).click();
   let dialog = page.getByRole("dialog");
-  const prepare = async () => {
-    await dialog.getByRole("button", { name: "Build / refresh preview", exact: true }).click();
-    await dialog.locator(".fm-transfer-summary").filter({ hasText: "Ready to transfer" }).waitFor();
-  };
-  await prepare();
-  assert.equal(await dialog.getByRole("button", { name: "Confirm operation", exact: true }).isEnabled(), false);
-  await screenshot("04-conflict-preview.png");
+  await dialog.getByText(/The batch is paused\. No file changes have been made\./u).waitFor();
+  assert.match(await dialog.innerText(), /Existing files will never be overwritten/u);
+  assert.equal(await dialog.getByRole("button", { name: "Apply choices and continue", exact: true }).isEnabled(), false);
+  await screenshot("04-conflict-dialog.png");
   await dialog.locator('select[aria-label^="Document"]').nth(0).selectOption("both");
   await dialog.locator('select[aria-label^="Document"]').nth(1).selectOption("skip");
-  assert.equal(await dialog.getByRole("button", { name: "Confirm operation", exact: true }).isEnabled(), false);
-  await prepare();
-  await screenshot("05-cross-pane-preview.png");
-  await dialog.getByRole("button", { name: "Confirm operation", exact: true }).click();
+  assert.equal(await dialog.getByRole("button", { name: "Apply choices and continue", exact: true }).isEnabled(), true);
+  await dialog.getByRole("button", { name: "Apply choices and continue", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
   await compare.getByRole("table").waitFor();
   await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).click();
@@ -103,29 +98,27 @@ try {
   assert.equal(await results.getByRole("button", { name: "History / Restore", exact: true }).count(), 1);
   await screenshot("06-operation-results.png");
   await results.getByRole("button", { name: "Dismiss", exact: true }).first().click();
-  checks.push("Filtered selection → Basket → cross-pane ticket/preview → conflict blocks execute → Keep both + Skip → fresh confirmation → result");
-  // Exercise Move from a one-sided row, including cancellation before confirmation.
+  checks.push("Filtered selection → Basket → conflict-only dialog blocks execution → Keep both + Skip → fresh preview auto-executes → result");
+  // A deliberate one-sided Move has no conflict and should execute without confirmation.
   await compare.getByRole("button", { name: "Visible only on left 2", exact: true }).click();
   await compare.getByRole("checkbox", { name: "Left pane: Document-001.txt", exact: true }).check();
   await actions.first().getByRole("button", { name: "Move to other pane", exact: true }).click();
-  dialog = page.getByRole("dialog");
-  await prepare();
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  await compare.getByRole("checkbox", { name: "Left pane: Document-001.txt", exact: true }).waitFor();
-  await actions.first().getByRole("button", { name: "Move to other pane", exact: true }).click();
-  await prepare();
-  await dialog.getByRole("button", { name: "Confirm operation", exact: true }).click();
-  await dialog.waitFor({ state: "hidden" });
+  await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0);
   await compare.getByRole("button", { name: "Visible only on left 1", exact: true }).waitFor();
-  checks.push("Move preview cancel leaves source; subsequent confirmed Move refreshes comparison");
-  // Windows directory transfers stay unavailable until staging and restore exist.
+  checks.push("Explicit no-conflict Move auto-executes without a confirmation dialog and refreshes comparison");
+  await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).click();
+  await right.locator(".fm-panel").getByRole("button", { name: "Dismiss", exact: true }).last().click();
+  // Directory eligibility remains a backend-preview decision.
   await compare.getByRole("button", { name: "Subfolder · not compared 1", exact: true }).click();
   await actions.first().getByRole("button", { name: "Select filtered side", exact: true }).click();
-  const windowsDirectoryCopy = actions.first().getByRole("button", { name: "Copy to other pane", exact: true });
-  assert.equal(await windowsDirectoryCopy.isDisabled(), true);
-  assert.match(await windowsDirectoryCopy.getAttribute("title"), /Windows folder transfer is unavailable/i);
-  await actions.first().getByRole("button", { name: "Clear selection", exact: true }).click();
-  checks.push("Windows directory transfer is explicitly disabled with an explanation");
+  await actions.first().getByRole("button", { name: "Copy to other pane", exact: true }).click();
+  const errorNotice = page.locator(".fm-notice[role=alert]");
+  await errorNotice.waitFor();
+  assert.match(await errorNotice.innerText(), /folder|directory/i);
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await errorNotice.getByRole("button", { name: "Dismiss", exact: true }).click();
+  checks.push("Unsupported directory operation reports a nonmodal error and cannot execute");
   await compare.getByRole("button", { name: /Visible only on right/ }).click();
   await page.evaluate(() => document.documentElement.classList.add("dark"));
   await screenshot("07-filter-dark.png");

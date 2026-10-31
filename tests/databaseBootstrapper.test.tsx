@@ -46,7 +46,7 @@ describe("database bootstrap recovery", () => {
 
     expect(apiMocks.initDatabase).toHaveBeenCalledOnce();
     expect(document.getElementById("ready")?.textContent).toBe("ready");
-    expect(document.body.textContent).not.toContain("正在准备 Zen Canvas");
+    expect(document.body.textContent).not.toContain("正在准备 Fylura");
   });
 
   it("shows and announces an intentional loading state only after the startup delay", async () => {
@@ -55,13 +55,13 @@ describe("database bootstrap recovery", () => {
     act(() => root.render(createElement(DatabaseBootstrapper, null, createElement("div", null, "ready"))));
 
     act(() => vi.advanceTimersByTime(DATABASE_BOOTSTRAP_LOADING_DELAY_MS - 1));
-    expect(document.body.textContent).not.toContain("正在准备 Zen Canvas");
+    expect(document.body.textContent).not.toContain("正在准备 Fylura");
 
     act(() => vi.advanceTimersByTime(1));
     const status = document.querySelector<HTMLElement>('[role="status"]');
     expect(status?.getAttribute("aria-live")).toBe("polite");
     expect(status?.getAttribute("aria-atomic")).toBe("true");
-    expect(status?.textContent).toContain("正在准备 Zen Canvas");
+    expect(status?.textContent).toContain("正在准备 Fylura");
     expect(status?.textContent).toContain("正在打开本地数据与文件空间");
 
     await act(async () => {
@@ -82,9 +82,9 @@ describe("database bootstrap recovery", () => {
     });
 
     expect(document.body.textContent).toContain("无法访问数据库");
-    expect(document.body.textContent).toContain("Zen Canvas 暂时无法打开本地数据");
+    expect(document.body.textContent).toContain("Fylura 暂时无法打开本地数据");
     expect(document.querySelector("[data-database-technical-details]")?.textContent).toContain("sqlite_locked_internal_detail");
-    const primaryDescription = [...document.querySelectorAll("p")].find((node) => node.textContent?.includes("Zen Canvas 暂时无法打开本地数据"));
+    const primaryDescription = [...document.querySelectorAll("p")].find((node) => node.textContent?.includes("Fylura 暂时无法打开本地数据"));
     expect(primaryDescription?.textContent).not.toContain("sqlite_locked_internal_detail");
 
     const retry = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "重试");

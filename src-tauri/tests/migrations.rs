@@ -1,19 +1,19 @@
+use fylura_tauri::db::{
+    CreateUserTagRequest, Database, FileLibraryScopeV2, FileQueryFiltersV2, FileQueryRequestV2,
+    FileQuerySpecV2, InsertFileRequest, LibrarySelectionV1, MutateFileUserTagsRequest,
+    UserTagMutationOperation,
+};
+use fylura_tauri::file_ops::OperationLogDto;
+use fylura_tauri::global_index::{
+    GlobalEntryInput, GlobalVolume, PROVIDER_WINDOWS_MFT_USN,
+    SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED,
+};
 use rusqlite::{params, types::ValueRef, Connection};
 use std::{
     fs,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
     time::{Instant, SystemTime, UNIX_EPOCH},
-};
-use zen_canvas_tauri::db::{
-    CreateUserTagRequest, Database, FileLibraryScopeV2, FileQueryFiltersV2, FileQueryRequestV2,
-    FileQuerySpecV2, InsertFileRequest, LibrarySelectionV1, MutateFileUserTagsRequest,
-    UserTagMutationOperation,
-};
-use zen_canvas_tauri::file_ops::OperationLogDto;
-use zen_canvas_tauri::global_index::{
-    GlobalEntryInput, GlobalVolume, PROVIDER_WINDOWS_MFT_USN,
-    SCOPE_AUTHORIZATION_LEGACY_CONFIRMATION_REQUIRED,
 };
 
 static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);

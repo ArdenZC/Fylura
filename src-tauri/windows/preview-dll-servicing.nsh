@@ -10,9 +10,9 @@
 
 !include "LogicLib.nsh"
 
-!define ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD "native/zen_canvas_windows_preview_handler.dll"
-!define ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH "native\zen_canvas_windows_preview_handler.dll"
-!define ZC_PREVIEW_DLL_RETIREMENT_DIRECTORY ".zen-canvas-retired"
+!define ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD "native/fylura_windows_preview_handler.dll"
+!define ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH "native\fylura_windows_preview_handler.dll"
+!define ZC_PREVIEW_DLL_RETIREMENT_DIRECTORY ".fylura-retired"
 !define ZC_PREVIEW_DLL_ERROR_FILE_NOT_FOUND 2
 !define ZC_PREVIEW_DLL_ERROR_SHARING_VIOLATION 32
 !define ZC_PREVIEW_DLL_ERROR_LOCK_VIOLATION 33
@@ -388,14 +388,14 @@ FunctionEnd
   Call ZCPreparePreviewDllMutation
   ${If} $ZC_PREVIEW_MUTATION_READY != 1
     Call ZCRecoverPreviewDllMutation
-    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Preview Handler DLL could not be prepared for in-use servicing (Win32 error $ZC_PREVIEW_MUTATION_ERROR)."
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Fylura Preview Handler DLL could not be prepared for in-use servicing (Win32 error $ZC_PREVIEW_MUTATION_ERROR)."
     Goto zc_install_partial_failure
   ${EndIf}
   ClearErrors
   File /a "/oname=${ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH}" "${SOURCE}"
   ${If} ${Errors}
     Call ZCRecoverPreviewDllMutation
-    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Preview Handler DLL could not be replaced; exact retirement recovery was attempted (Win32 error $ZC_PREVIEW_MUTATION_ERROR)."
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Fylura Preview Handler DLL could not be replaced; exact retirement recovery was attempted (Win32 error $ZC_PREVIEW_MUTATION_ERROR)."
     Goto zc_install_partial_failure
   ${EndIf}
 !macroend

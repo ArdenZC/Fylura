@@ -5,7 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
-const previewDllName = "zen_canvas_windows_preview_handler.dll";
+const previewDllName = "fylura_windows_preview_handler.dll";
 const previewResourcePathForward = `native/${previewDllName}`;
 const previewResourcePathBackslash = `native\\${previewDllName}`;
 const flattenedPreviewResourcePath = `native${previewDllName}`;
@@ -242,7 +242,7 @@ export function runWindowsPreviewResourceSmoke({ sourcePath } = {}) {
     const mappedRoot = path.join(tempRoot, "mapped-root");
     const freshCanonical = inspectOutputRoot(freshRoot, sourceBytes, "fresh resource path");
     const mappedCanonical = inspectOutputRoot(mappedRoot, sourceBytes, "mapped resource path");
-    const retirementDirectory = path.join(tempRoot, ".zen-canvas-retired");
+    const retirementDirectory = path.join(tempRoot, ".fylura-retired");
     if (fs.existsSync(retirementDirectory)) {
       throw new Error(
         `mapped resource path left the retirement directory after finalization: ${retirementDirectory}`,

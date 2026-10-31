@@ -1,9 +1,9 @@
+use fylura_tauri::db::Database;
 use rusqlite::Connection;
 use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use zen_canvas_tauri::db::Database;
 
 #[test]
 fn schema_migration_adds_classification_status_and_preserves_existing_state() {

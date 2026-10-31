@@ -81,7 +81,7 @@ describe("comparison source-owned workflow",()=>{
     await act(async()=>{publish();await new Promise(resolve=>setTimeout(resolve,10));});
     expect(sources[0].loadNextPage).toHaveBeenCalledTimes(1);
   });
-  it("disables directory transfer actions on Windows", async()=>{
+  it("keeps directory Copy available on Windows and disables only directory Move", async()=>{
     runtime.platform = "win32";
     const directory = { ...entry("left", "folder"), entryKind: "directory" as const };
     Object.assign(sources[0], {
@@ -92,7 +92,11 @@ describe("comparison source-owned workflow",()=>{
     publish();
     await act(async()=>root.render(<FolderComparison paneIds={["0","1"]} activate={(id)=>useFileManagementStore.getState().activatePane(id)}/>));
     await click("Compare folders");
-    expect([...host.querySelectorAll<HTMLButtonElement>(".u3-batch-actions > div:first-child button")]
-      .find((button) => button.textContent === "Copy to other pane")?.disabled).toBe(true);
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>(".u3-batch-actions > div:first-child button")];
+    expect(buttons.find((button) => button.textContent === "Add to basket")?.disabled).toBe(false);
+    expect(buttons.find((button) => button.textContent === "Copy to other pane")?.disabled).toBe(false);
+    expect(buttons.find((button) => button.textContent === "Move to other pane")?.disabled).toBe(true);
+    await act(async()=>buttons.find((button) => button.textContent === "Copy to other pane")!.click());
+    expect(useFileManagementStore.getState().pendingAction).toBe("copy_other");
   });
 });

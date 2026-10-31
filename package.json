@@ -1,10 +1,10 @@
 {
-  "name": "zen-canvas",
+  "name": "fylura",
   "version": "0.1.40",
   "private": true,
   "description": "A local-first personal digital asset steward.",
   "author": "Startlan",
-  "homepage": "https://github.com/ArdenZC/Zen-Canvas",
+  "homepage": "https://github.com/ArdenZC/Fylura",
   "copyright": "Copyright © 2026 Startlan",
   "type": "module",
   "scripts": {

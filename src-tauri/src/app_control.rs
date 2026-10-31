@@ -1095,23 +1095,29 @@ fn ensure_main_window_locked<R: Runtime>(
     };
     let url = main_window_restore_url(generation, last_view);
     lifecycle.record_creation_start(generation);
-    let window =
-        match WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App(url.into()))
-            .title("Zen Canvas")
-            .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
-            .min_inner_size(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT)
-            .transparent(true)
-            .decorations(false)
-            .visible(false)
-            .build()
-        {
-            Ok(window) => window,
-            Err(error) => {
-                let _ = workspace.abort_generation(generation);
-                readiness.invalidate_generation(generation);
-                return Err(error.to_string());
-            }
-        };
+    let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App(url.into()))
+        .title("Fylura")
+        .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
+        .min_inner_size(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT)
+        .transparent(true)
+        .decorations(false)
+        .visible(false);
+    // Windows WebView2 uses a separate user-data directory from the SQLite app-data root.
+    // This is QA-only; never change installed-user browser storage in production builds.
+    #[cfg(all(target_os = "windows", feature = "native-qa"))]
+    let builder = builder.data_directory(
+        crate::native_qa_profile_root()?
+            .join("webview2")
+            .join(MAIN_WINDOW_LABEL),
+    );
+    let window = match builder.build() {
+        Ok(window) => window,
+        Err(error) => {
+            let _ = workspace.abort_generation(generation);
+            readiness.invalidate_generation(generation);
+            return Err(error.to_string());
+        }
+    };
 
     app.state::<ExitIntentState>().record_window_created();
     let app_handle = app.clone();
@@ -1519,7 +1525,7 @@ fn create_search_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindow<
         SEARCH_WINDOW_LABEL,
         WebviewUrl::App(search_window_url().into()),
     )
-    .title("Zen Canvas Search")
+    .title("Fylura Search")
     .inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_COLLAPSED_HEIGHT)
     .min_inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_COLLAPSED_HEIGHT)
     .max_inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_EXPANDED_HEIGHT)
@@ -1968,7 +1974,7 @@ pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
 
     TrayIconBuilder::new()
         .icon(icon)
-        .tooltip("Zen Canvas")
+        .tooltip("Fylura")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -2099,7 +2105,7 @@ mod tests {
 
     #[test]
     fn manual_second_instance_activates_main_but_background_and_unknown_args_do_not() {
-        let executable = "zen-canvas.exe".to_string();
+        let executable = "fylura.exe".to_string();
         assert_eq!(
             second_instance_action(std::slice::from_ref(&executable)),
             SecondInstanceAction::ActivateMain
@@ -2123,7 +2129,7 @@ mod tests {
         let path_argument = r"C:\Users\Private\Documents\report.txt";
         let working_directory = r"C:\Users\Private\Documents";
         let classification =
-            classify_second_instance(&["zen-canvas.exe".to_string(), path_argument.to_string()]);
+            classify_second_instance(&["fylura.exe".to_string(), path_argument.to_string()]);
         let diagnostic = format!("{:?}", classification.diagnostic);
 
         assert_eq!(
@@ -2138,14 +2144,14 @@ mod tests {
 
     #[test]
     fn second_instance_diagnostic_preserves_supported_classifications() {
-        let manual = classify_second_instance(&["zen-canvas.exe".to_string()]);
+        let manual = classify_second_instance(&["fylura.exe".to_string()]);
         assert_eq!(manual.action, SecondInstanceAction::ActivateMain);
         assert_eq!(manual.diagnostic.arg_count, 0);
         assert!(!manual.diagnostic.background_flag_present);
         assert!(!manual.diagnostic.unsupported_arguments);
 
         let background =
-            classify_second_instance(&["zen-canvas.exe".to_string(), "--background".to_string()]);
+            classify_second_instance(&["fylura.exe".to_string(), "--background".to_string()]);
         assert_eq!(background.action, SecondInstanceAction::IgnoreBackground);
         assert_eq!(background.diagnostic.arg_count, 1);
         assert!(background.diagnostic.background_flag_present);
@@ -2155,7 +2161,7 @@ mod tests {
     #[test]
     fn unsupported_second_instance_arguments_remain_fail_closed() {
         let classification = classify_second_instance(&[
-            "zen-canvas.exe".to_string(),
+            "fylura.exe".to_string(),
             "--background".to_string(),
             "--open".to_string(),
             r"C:\Users\Private\report.txt".to_string(),
@@ -2171,12 +2177,12 @@ mod tests {
     #[test]
     fn background_launch_requires_the_exact_supported_argument_shape() {
         assert!(is_background_launch_args(&[
-            "zen-canvas.exe".to_string(),
+            "fylura.exe".to_string(),
             "--background".to_string()
         ]));
-        assert!(!is_background_launch_args(&["zen-canvas.exe".to_string()]));
+        assert!(!is_background_launch_args(&["fylura.exe".to_string()]));
         assert!(!is_background_launch_args(&[
-            "zen-canvas.exe".to_string(),
+            "fylura.exe".to_string(),
             "--background".to_string(),
             "--open".to_string()
         ]));

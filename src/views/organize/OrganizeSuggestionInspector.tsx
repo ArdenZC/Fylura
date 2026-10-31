@@ -144,6 +144,7 @@ function operationLabel(type: NonNullable<OrganizeSuggestion["preview"]>["operat
   if (type === "duplicate") return t("operationDuplicate");
   if (type === "replace") return t("operationReplace");
   if (type === "permanent_delete") return t("operationPermanentDelete");
+  if (type === "create_directory") return t("operationCreateDirectory");
   return t("operationMove");
 }
 

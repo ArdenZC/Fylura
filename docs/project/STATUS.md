@@ -1,4 +1,4 @@
-# Zen Canvas Project Status
+# Fylura Project Status
 
 Last verified: 2026-10-29 (active snapshot; dated records below retained)
 

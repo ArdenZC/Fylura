@@ -297,7 +297,7 @@ impl WorkspaceFixture {
     fn try_create_preview(root: &Path, rapid_switch_entries: usize) -> io::Result<()> {
         fs::write(
             root.join("preview-text.txt"),
-            b"Zen Canvas Preview Phase A text fixture\n",
+            b"Fylura Preview Phase A text fixture\n",
         )?;
         fs::write(
             root.join("preview-source.rs"),
@@ -309,23 +309,20 @@ impl WorkspaceFixture {
         )?;
         fs::write(
             root.join("preview-structured.json"),
-            br#"{"name":"Zen Canvas","phase":"A","bounded":true}"#,
+            br#"{"name":"Fylura","phase":"A","bounded":true}"#,
         )?;
         fs::write(
             root.join("preview-config.yaml"),
-            b"name: Zen Canvas\nphase: A\nbounded: true\n",
+            b"name: Fylura\nphase: A\nbounded: true\n",
         )?;
         fs::write(
             root.join("preview-markup.xml"),
-            b"<preview><name>Zen Canvas</name><phase>A</phase></preview>",
+            b"<preview><name>Fylura</name><phase>A</phase></preview>",
         )?;
-        fs::write(
-            root.join("preview-records.csv"),
-            b"name,phase\nZen Canvas,A\n",
-        )?;
+        fs::write(root.join("preview-records.csv"), b"name,phase\nFylura,A\n")?;
         fs::write(
             root.join("preview-records.tsv"),
-            b"name\tphase\nZen Canvas\tA\n",
+            b"name\tphase\nFylura\tA\n",
         )?;
         write_fixture_image(&root.join("preview-image.png"), ImageFormat::Png)?;
         write_fixture_image(&root.join("preview-image.jpg"), ImageFormat::Jpeg)?;

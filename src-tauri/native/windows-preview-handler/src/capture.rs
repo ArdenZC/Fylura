@@ -1,10 +1,10 @@
 use std::ffi::c_void;
 
+use fylura_windows_preview_registration::SUPPORTED_EXTENSIONS;
 use windows::{
     core::HRESULT,
     Win32::System::Com::{CoTaskMemFree, IStream, STATFLAG_DEFAULT, STATSTG, STREAM_SEEK_SET},
 };
-use zen_canvas_windows_preview_registration::SUPPORTED_EXTENSIONS;
 
 pub(crate) const MAX_CAPTURE_BYTES: usize = 512 * 1024;
 const READ_CHUNK_BYTES: usize = 64 * 1024;

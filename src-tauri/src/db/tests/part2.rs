@@ -1334,7 +1334,7 @@
             .any(|rule| rule == "legacy_builtin:system_career"));
         assert_ne!(
             file.classification_reason,
-            "Indexed by Zen Canvas Tauri backend."
+            "Indexed by Fylura Tauri backend."
         );
     }
 

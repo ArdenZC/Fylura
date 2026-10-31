@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Zen Canvas",
+  "productName": "Fylura",
   "version": "0.1.40",
-  "identifier": "com.startlan.zencanvas",
+  "identifier": "com.startlan.fylura",
   "build": {
     "beforeDevCommand": "vite --host 127.0.0.1",
     "devUrl": "http://127.0.0.1:5173",

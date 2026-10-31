@@ -9,9 +9,8 @@ import { FileManagementToolbar } from "../src/views/fileLibrary/management/FileM
 import { useFileManagementStore } from "../src/views/fileLibrary/management/fileManagementStore";
 import { fileManagementApi as api, type TransferTicket, type TransferPreview } from "../src/api/fileManagementApi";
 import { tauriApi } from "../src/api/tauriApi";
-import type { OperationLog } from "../src/types/domain";
-const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), open: vi.fn(), refreshHistory: vi.fn(async () => []) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.open }));
+import type { OperationLog, OperationPreview } from "../src/types/domain";
+const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), refreshHistory: vi.fn(async () => []) }));
 vi.mock("../src/contexts/AppContexts", async () => {
   const { makeTranslator } = await import("../src/i18n"); const t = makeTranslator("en");
   return { useI18nContext: () => ({ t, language: "en" }), useChromeContext: () => ({ platform: "win32" }), useNavigationContext: () => ({ setView: vi.fn() }) };
@@ -22,23 +21,38 @@ vi.mock("../src/store/useOperationQueueStore", () => ({ useOperationQueueStore: 
 const t = makeTranslator("en");
 const tickets: TransferTicket[] = [{id:"one",name:"one.txt",path:"C:/Source/one.txt",isDirectory:false},{id:"two",name:"two.txt",path:"C:/Other/two.txt",isDirectory:false}];
 function plan(): TransferPreview { return { id: "authority-preview", destinationDirectory: "C:/Target", rows: tickets.map((ticket) => ({ticketId: ticket.id, error: null, skipped: false, preview: { id: `op-${ticket.id}`, fileId: ticket.id, operation_type:"copy",source_path:ticket.path,target_path:`C:/Target/${ticket.name}`,old_name:ticket.name,new_name:ticket.name,status:"pending",risk_level:"Normal",confidence:1,requires_confirmation:true,suggested_action:"Copy",reason:"manual",operationFingerprint:"bound-proof"} })) }; }
-function singlePlan(ticketId: string, action: "rename" | "move_to_trash" | "create_directory", sourcePath: string, targetPath: string, oldName: string, newName: string): TransferPreview {
-  const base = plan().rows[0]!.preview!;
-  return { id: "authority-preview", destinationDirectory: "C:/Target", rows: [{ ticketId, error: null, skipped: false, preview: { ...base, id: `op-${ticketId}`, fileId: ticketId, operation_type: action as any, source_path: sourcePath, target_path: targetPath, old_name: oldName, new_name: newName } }] };
+function actionPlan(ticket: TransferTicket, action: string, destination: string, name: string): TransferPreview {
+  const createDirectory = action === "create_directory";
+  const trash = action === "trash";
+  const target = createDirectory ? `${destination}/${name}` : trash
+    ? `${ticket.path.slice(0, ticket.path.lastIndexOf("/"))}/.zen-canvas-trash/operations/fixture/${ticket.name}`
+    : `${destination}/${name}`;
+  return { id: `authority-${action}`, destinationDirectory: destination, rows: [{
+    ticketId: createDirectory ? "create-directory" : ticket.id,
+    error: null,
+    skipped: false,
+    preview: {
+      id: `op-${action}`, fileId: ticket.id, operation_type: (trash ? "move_to_trash" : action) as OperationPreview["operation_type"],
+      source_path: createDirectory ? destination : ticket.path, target_path: target,
+      old_name: createDirectory ? name : ticket.name, new_name: name, status: "pending", risk_level: "Normal",
+      confidence: 1, requires_confirmation: true, suggested_action: action === "rename" ? "Rename" : trash ? "Move" : "Copy", reason: "manual",
+      operationFingerprint: `bound-${action}`
+    }
+  }] };
 }
 function result(statuses: string[]): OperationLog[] { return tickets.map((ticket,index) => ({ id:`log-${ticket.id}`,batch_id:"batch",operation_type:"move",source_path:ticket.path,target_path:`C:/Target/${ticket.name}`,old_name:ticket.name,new_name:ticket.name,status:statuses[index],error_message:statuses[index]==="failed"?"source_locked":null,created_at:"2026-10-26",can_undo:false,path_before:ticket.path,path_after:`C:/Target/${ticket.name}`,name_before:ticket.name,name_after:ticket.name,can_restore:false,restored_at:null,restore_status:"not_restored",restore_error:null } as OperationLog)); }
 let root: Root; let host: HTMLDivElement;
 const refresh = vi.fn(async () => undefined); const clear = vi.fn();
-const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text)!;
-async function click(text: string) { await act(async () => { button(text).click(); }); }
-async function render() { await act(async () => { root.render(<FileManagementToolbar/>); }); }
-async function flush() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); }); }
-async function changeInputValue(input: HTMLInputElement, value: string) {
+const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text || b.textContent?.trim().startsWith(text))!;
+async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); }); }
+async function click(text: string) { await act(async () => { button(text).click(); }); await settle(); }
+async function fill(input: HTMLInputElement, value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+async function render() { await act(async () => { root.render(<FileManagementToolbar/>); }); await settle(); }
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   document.body.innerHTML = '<main id="app-shell-content"></main>'; host = document.createElement("div"); document.body.querySelector("main")!.appendChild(host); root = createRoot(host);
@@ -48,82 +62,96 @@ beforeEach(() => {
   vi.spyOn(api,"executeTransfer").mockResolvedValue({batch_id:"batch",logs:result(["success","success"])});
   vi.spyOn(tauriApi,"onOperationProgress").mockResolvedValue(() => undefined);
   vi.spyOn(tauriApi,"cancelOperations").mockResolvedValue();
-  useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},refresh,clear}),basket:[],clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null,surfaces:{},activePaneId:null,pendingTransfer:null,transferOpen:false});
-  refresh.mockClear();clear.mockClear();mocks.close.mockClear();
+  useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},refresh,clear}),basket:[],clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null,surfaces:{},activePaneId:null,pendingTransfer:null,transferOpen:false,transferActive:false,transferRunning:false,activeTransferId:null,transferTicketIds:[],externalDropAction:"copy"});
+  refresh.mockClear();clear.mockClear();mocks.close.mockClear();mocks.refreshHistory.mockClear();
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
 describe("File Library manual management workflow", () => {
-  it.each(["Control", "Meta"])("uses backend IDs for %s shortcuts, leaves text editing alone, and requires confirmation after paste preview", async (modifier) => {
+  it.each(["Control", "Meta"])("uses backend IDs for %s shortcuts and automatically executes a fresh preview", async (modifier) => {
     await render();
     const input=document.createElement("input");document.body.appendChild(input);input.focus();
     await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown",{key:"c",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
     expect(api.captureTransfer).not.toHaveBeenCalled();
     await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown",{key:"c",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
     expect(api.captureTransfer).toHaveBeenCalledWith({selection:{kind:"explicit",fileIds:["managed-one","managed-two"]}});
+    await settle();
     await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown",{key:"v",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
-    await flush();
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    expect(api.previewTransfer).not.toHaveBeenCalled();
-    await click(t("fmPrepare"));
+    await settle();
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
     expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
-    expect(api.executeTransfer).not.toHaveBeenCalled();
-    await click(t("fmConfirm"));
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(refresh).toHaveBeenCalledOnce();expect(clear).toHaveBeenCalledOnce();expect(mocks.close).toHaveBeenCalled();
   });
-  it("waits for preview handle release before invoking a confirmed mutation", async () => {
+  it("waits for preview handle release before invoking a mutation", async () => {
     useFileManagementStore.setState({clipboard:{action:"copy",tickets}});
     let release!: () => void;
     mocks.close.mockImplementationOnce(() => new Promise<void>((resolve) => { release=resolve; }));
-    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare")); await click(t("fmConfirm")); await flush();
+    await render(); await click(`${t("fmPaste")} (2)`);
+    await settle();
     expect(api.executeTransfer).not.toHaveBeenCalled();
     await act(async () => { release(); });
+    await settle();
     expect(api.executeTransfer).toHaveBeenCalledOnce();
   });
-  it("picks an explicit destination, previews it, and waits for toolbar Move confirmation", async () => {
-    mocks.open.mockResolvedValueOnce("C:/Elsewhere");
+  it("allows Ctrl+V and toolbar Paste into an empty destination", async () => {
+    useFileManagementStore.setState({
+      clipboard: { action: "copy", tickets },
+      surface: () => ({ signature: "empty-target", count: 0, browse: { sessionId: "empty", pathRef: { id: "empty-root" } }, routingHint: "C:/Empty", refresh, clear }),
+    });
     await render();
-    await click(t("fmMove"));
-    await flush();
-    expect(mocks.open).toHaveBeenCalledWith({ directory: true, multiple: false, title: t("fmDestination") });
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    expect(api.previewTransfer).not.toHaveBeenCalled();
-    await click(t("fmPrepare"));
-    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["one", "two"], action: "move", destinationDirectory: "C:/Elsewhere", skip: [], keepBoth: [] });
-    expect(api.executeTransfer).not.toHaveBeenCalled();
-    await click(t("fmConfirm"));
-    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-preview", confirmed: true });
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(button(t("fmPaste")).disabled).toBe(false);
+    await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown", { key: "v", ctrlKey: true, bubbles: true, cancelable: true })); });
+    await settle();
+    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({ destinationDirectory: "C:/Empty" }));
+    expect(api.executeTransfer).toHaveBeenCalledOnce();
+  });
+  it("refreshes History and the file surface when an accepted execution returns an uncertain error", async () => {
+    useFileManagementStore.setState({ clipboard: { action: "copy", tickets } });
+    vi.mocked(api.executeTransfer).mockRejectedValueOnce(new Error("journal outcome unavailable"));
+    await render(); await click(`${t("fmPaste")} (2)`);
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    expect(document.body.textContent).toContain(t("fmExecutionUncertain"));
+    expect(mocks.refreshHistory).toHaveBeenCalledOnce();
     expect(refresh).toHaveBeenCalledOnce();
   });
   it("cancels preview preparation without canceling unrelated file operations", async () => {
     useFileManagementStore.setState({clipboard:{action:"copy",tickets}});
     let resolve!: (value: TransferPreview) => void;
     vi.mocked(api.previewTransfer).mockImplementationOnce(() => new Promise((r) => { resolve=r; }));
-    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare")); await click(t("fmCancel"));
+    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmCancelRunning"));
     expect(tauriApi.cancelOperations).not.toHaveBeenCalled();
     await act(async () => { resolve(plan()); });
-    expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(api.executeTransfer).not.toHaveBeenCalled();
+    await settle();
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull(); expect(api.executeTransfer).not.toHaveBeenCalled();
   });
 
   it.each(["failed", "skipped"])("keeps %s cut/basket references after partial success and requests normal cancellation", async (remainingStatus) => {
     useFileManagementStore.setState({basket:tickets,clipboard:{action:"move",tickets},basketOpen:true});
     let resolve!: (value: any) => void;vi.mocked(api.executeTransfer).mockImplementation(() => new Promise((r)=>{resolve=r;}));
-    await render();await click(`${t("fmPaste")} (2)`);await click(t("fmPrepare"));await click(t("fmConfirm"));await flush();
+    await render();await click(`${t("fmPaste")} (2)`); await settle();
     await click(t("fmCancelRunning"));expect(tauriApi.cancelOperations).toHaveBeenCalledOnce();
     await act(async()=>{resolve({batch_id:"batch",logs:result(["success",remainingStatus])});});
+    await settle();
     expect(useFileManagementStore.getState().basket.map((ticket)=>ticket.id)).toEqual(["two"]);
     expect(useFileManagementStore.getState().clipboard?.tickets.map((ticket)=>ticket.id)).toEqual(["two"]);
     expect(useFileManagementStore.getState().statuses.two).toContain(remainingStatus === "failed" ? "source_locked" : t("fmSkipped"));
   });
-  it("blocks stale/conflicting references, invalidates consent when options change, and cancels without execute", async()=>{
+  it("reports stale sources nonmodally and keeps the persistent basket tickets", async()=>{
     useFileManagementStore.setState({basket:tickets,basketOpen:true});
     const conflict=plan();conflict.rows[0]={ticketId:"one",preview:null,error:"transfer_source_changed",skipped:false};
     vi.mocked(api.previewTransfer).mockResolvedValue(conflict);
-    await render();await click(t("fmCopyBasket"));await click(t("fmPrepare"));await flush();
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();expect(document.body.textContent).toContain(t("fmStale"));
+    await render();await click(t("fmCopyBasket"));
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();expect(document.body.textContent).toContain(t("fmStale"));
     expect(useFileManagementStore.getState().statuses.one).toContain(t("fmStale"));
     expect(api.executeTransfer).not.toHaveBeenCalled();expect(useFileManagementStore.getState().basket).toHaveLength(2);
+  });
+  it("reports permission errors without opening a decision modal", async()=>{
+    useFileManagementStore.setState({ clipboard: { action: "copy", tickets } });
+    vi.mocked(api.previewTransfer).mockRejectedValueOnce(new Error("permission_denied: target is not writable"));
+    await render(); await click(`${t("fmPaste")} (2)`);
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    expect(document.body.textContent).toContain("permission_denied");
+    expect(api.executeTransfer).not.toHaveBeenCalled();
   });
   it("keeps auxiliary controls on demand and restores focus without clearing selection", async () => {
     await render();
@@ -144,27 +172,100 @@ describe("File Library manual management workflow", () => {
     expect(clear).not.toHaveBeenCalled();
   });
 
-  it("makes conflict resolutions exclusive and requires fresh backend consent after every change", async () => {
+  it("pauses only for a real name conflict and re-previews the whole batch after Skip", async () => {
     useFileManagementStore.setState({ clipboard: {action:"copy", tickets} });
-    const conflict = plan();
-    conflict.rows[0] = { ticketId: "one", preview: null, error: "transfer_target_exists", skipped: false };
-    vi.mocked(api.previewTransfer).mockResolvedValueOnce(conflict);
-    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare")); await flush();
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    const resolution = document.querySelector<HTMLSelectElement>(".fm-preview select")!;
+    const first = plan(); first.rows[0] = { ticketId:"one", preview:null, error:"transfer_target_exists", skipped:false };
+    const second = plan(); second.rows[0] = { ticketId:"one", preview:null, error:null, skipped:true };
+    vi.mocked(api.previewTransfer).mockReset().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    await render(); await click(`${t("fmPaste")} (2)`);
+    expect(document.querySelector('[aria-modal="true"]')).toBeTruthy();expect(api.executeTransfer).not.toHaveBeenCalled();
+    const resolution = document.querySelector<HTMLSelectElement>('.fm-conflicts select')!;
     await act(async () => { resolution.value = "skip"; resolution.dispatchEvent(new Event("change", {bubbles:true})); });
-    expect(button(t("fmConfirm")).disabled).toBe(true);
-    await click(t("fmPrepare"));
-    expect(api.previewTransfer).toHaveBeenLastCalledWith(expect.objectContaining({skip:["one"],keepBoth:[]}));
-    await act(async () => { resolution.value = "both"; resolution.dispatchEvent(new Event("change", {bubbles:true})); });
-    expect(button(t("fmConfirm")).disabled).toBe(true);
-    await click(t("fmPrepare"));
-    expect(api.previewTransfer).toHaveBeenLastCalledWith(expect.objectContaining({skip:[],keepBoth:["one"]}));
-    await click(t("fmCancel"));
-    expect(api.executeTransfer).not.toHaveBeenCalled();
+    await click(t("fmApplyChoices"));
+    expect(api.previewTransfer).toHaveBeenNthCalledWith(2,expect.objectContaining({ticketIds:["one","two"],skip:["one"],keepBoth:[]}));
+    expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
   });
 
-  it("binds cross-pane Copy to the source selection and target directory, releasing all previews before confirmed execution", async () => {
+  it("re-previews the whole batch and executes the newly generated Keep Both plan", async () => {
+    useFileManagementStore.setState({ clipboard: { action:"copy", tickets } });
+    const first = plan(); first.rows[0] = { ticketId:"one", preview:null, error:"transfer_target_exists", skipped:false };
+    const fresh = plan(); fresh.id = "fresh-keep-both";
+    fresh.rows[0]!.preview = { ...fresh.rows[0]!.preview!, new_name:"one (2).txt", target_path:"C:/Target/one (2).txt" };
+    vi.mocked(api.previewTransfer).mockReset().mockResolvedValueOnce(first).mockResolvedValueOnce(fresh);
+    await render(); await click(`${t("fmPaste")} (2)`);
+    const resolution = document.querySelector<HTMLSelectElement>(".fm-conflicts select")!;
+    await act(async () => { resolution.value = "both"; resolution.dispatchEvent(new Event("change", {bubbles:true})); });
+    await click(t("fmApplyChoices"));
+    expect(api.previewTransfer).toHaveBeenNthCalledWith(2,expect.objectContaining({ticketIds:["one","two"],skip:[],keepBoth:["one"]}));
+    expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"fresh-keep-both",confirmed:true});
+  });
+
+  it("creates a folder through automatic Preview and execution without a second confirmation", async () => {
+    useFileManagementStore.setState({ surface: () => ({ signature: "browse", count: 0, browse: { sessionId: "browse", pathRef: { id: "root" } }, routingHint: "C:/Browse", refresh, clear }) });
+    vi.mocked(api.previewTransfer).mockResolvedValueOnce(actionPlan(tickets[0]!, "create_directory", "C:/Browse", "New Folder"));
+    await render();
+    await click(t("fmNewFolder"));
+    const dialog = document.querySelector<HTMLElement>("[aria-modal=true]")!;
+    await fill(dialog.querySelector("input")!, "New Folder");
+    await act(async () => { dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click(); });
+    await settle();
+
+    expect(api.captureTransfer).not.toHaveBeenCalled();
+    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({
+      ticketIds: [], action: "create_directory", destinationDirectory: "C:/Browse", newName: "New Folder", skip: [], keepBoth: []
+    }));
+    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-create_directory", confirmed: true });
+    expect(document.querySelector("[aria-modal=true]")).toBeNull();
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("renames the selected item through the orchestrator and re-previews only after a name conflict", async () => {
+    useFileManagementStore.setState({ surface: () => ({ signature: "one-selected", count: 1, selection: { kind: "explicit", fileIds: ["managed-one"] }, browse: { sessionId: "session", pathRef: { id: "root" } }, routingHint: "C:/Source", refresh, clear }) });
+    vi.mocked(api.captureTransfer).mockResolvedValueOnce([tickets[0]!]);
+    const conflict = actionPlan(tickets[0]!, "rename", "C:/Source", "renamed.txt");
+    conflict.rows[0] = { ticketId: "one", preview: null, error: "transfer_target_exists", skipped: false };
+    vi.mocked(api.previewTransfer).mockReset().mockResolvedValueOnce(conflict).mockResolvedValueOnce(actionPlan(tickets[0]!, "rename", "C:/Source", "renamed-again.txt"));
+
+    await render();
+    await click(t("fmRename"));
+    const entryDialog = document.querySelector<HTMLElement>("[aria-modal=true]")!;
+    await fill(entryDialog.querySelector("input")!, "renamed.txt");
+    await act(async () => { entryDialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click(); });
+    await settle();
+
+    const conflictDialog = document.querySelector<HTMLElement>(".fm-conflict-dialog[aria-modal=true]")!;
+    expect(conflictDialog.querySelector(".fm-conflicts select")).toBeNull();
+    await fill(conflictDialog.querySelector("input")!, "renamed-again.txt");
+    await act(async () => { conflictDialog.querySelector<HTMLButtonElement>(".fm-confirm-bar button:last-child")!.click(); });
+    await settle();
+
+    expect(api.captureTransfer).toHaveBeenCalledWith({ selection: { kind: "explicit", fileIds: ["managed-one"] } });
+    expect(api.previewTransfer).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      ticketIds: ["one"], action: "rename", destinationDirectory: "C:/Source", newName: "renamed.txt"
+    }));
+    expect(api.previewTransfer).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      ticketIds: ["one"], action: "rename", destinationDirectory: "C:/Source", newName: "renamed-again.txt"
+    }));
+    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-rename", confirmed: true });
+    expect(document.querySelector("[aria-modal=true]")).toBeNull();
+  });
+
+  it("routes Safe Delete through the same automatic journal transfer path", async () => {
+    useFileManagementStore.setState({ surface: () => ({ signature: "one-selected", count: 1, selection: { kind: "explicit", fileIds: ["managed-one"] }, browse: { sessionId: "session", pathRef: { id: "root" } }, routingHint: "C:/Source", refresh, clear }) });
+    vi.mocked(api.captureTransfer).mockResolvedValueOnce([tickets[0]!]);
+    vi.mocked(api.previewTransfer).mockResolvedValueOnce(actionPlan(tickets[0]!, "trash", "C:/Source", tickets[0]!.name));
+    await render();
+    await click(t("fmSafeDelete"));
+
+    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({
+      ticketIds: ["one"], action: "trash", destinationDirectory: "C:/Source", skip: [], keepBoth: []
+    }));
+    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-trash", confirmed: true });
+    expect(document.querySelector("[aria-modal=true]")).toBeNull();
+  });
+
+  it("binds cross-pane Copy to the source selection and auto-executes for the captured target", async () => {
     const beforeMutation = vi.fn(async () => undefined);
     const afterMutation = vi.fn(async () => undefined);
     const clearTarget = vi.fn();
@@ -179,15 +280,11 @@ describe("File Library manual management workflow", () => {
     await act(async () => root.render(<TwoPanes/>));
     await act(async () => useFileManagementStore.getState().requestAction("copy_other"));
     expect(api.captureTransfer).toHaveBeenCalledWith({selection:source.selection});
-    await flush();
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    expect(api.previewTransfer).not.toHaveBeenCalled();
-    await click(t("fmPrepare"));
+    await settle();
     expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
-    expect(api.executeTransfer).not.toHaveBeenCalled();
-    await click(t("fmConfirm"));
-    expect(beforeMutation).toHaveBeenCalledOnce();
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    expect(beforeMutation).toHaveBeenCalledOnce();
     expect(afterMutation).toHaveBeenCalledWith(["C:/Target","C:/Source","C:/Other"]);
     expect(clear).toHaveBeenCalledOnce();expect(clearTarget).not.toHaveBeenCalled();
     expect(useFileManagementStore.getState().transferOpen).toBe(false);
@@ -197,74 +294,5 @@ describe("File Library manual management workflow", () => {
     vi.mocked(api.fileLibraryPlaces).mockResolvedValue([{id:"offline",name:"Offline disk",routingHint:"Z:/Gone",favorite:true,current:false,visitedAt:1,unavailable:true}]);
     await render();await click(t("fmMore"));await click(t("fmPlaces"));expect(document.body.textContent).toContain(t("fmUnavailable"));
     const offline=[...document.querySelectorAll<HTMLButtonElement>("button")].find((b)=>b.textContent?.includes("Offline disk"))!;expect(offline.disabled).toBe(true);expect(mocks.navigate).not.toHaveBeenCalled();
-  });
-
-  it("creates a folder through Preview and waits for explicit confirmation", async () => {
-    const folderPlan = singlePlan("create-directory", "create_directory", "C:/Target", "C:/Target/New folder", "New folder", "New folder");
-    vi.mocked(api.previewTransfer).mockResolvedValue(folderPlan);
-    await render();
-    await click(t("fmNewFolder"));
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    const name = document.querySelector<HTMLInputElement>(".fm-dialog input")!;
-    await changeInputValue(name, "QA folder");
-    await click(t("fmPrepare"));
-    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: [], action: "create_directory", destinationDirectory: "C:/Target", newName: "QA folder", skip: [], keepBoth: [] });
-    expect(api.executeTransfer).not.toHaveBeenCalled();
-    await click(t("fmConfirm"));
-    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-preview", confirmed: true });
-    expect(refresh).toHaveBeenCalledOnce();
-  });
-
-  it("uses F2 for one-item rename and Delete for safe trash, with a prepared preview before execution", async () => {
-    const one = tickets[0]!;
-    const surface = () => ({ signature: "selected", count: 1, selection: { kind: "explicit" as const, fileIds: ["managed-one"] }, browse: { sessionId: "session", pathRef: { id: "root" } }, refresh, clear });
-    useFileManagementStore.setState({ surface });
-    vi.mocked(api.captureTransfer).mockResolvedValueOnce([one]);
-    vi.mocked(api.previewTransfer).mockResolvedValueOnce(singlePlan(one.id, "rename", one.path, "C:/Source/renamed.txt", one.name, "renamed.txt"));
-    await render();
-    await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true, cancelable: true })); });
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    const name = document.querySelector<HTMLInputElement>(".fm-dialog input")!;
-    await changeInputValue(name, "renamed.txt");
-    await click(t("fmPrepare"));
-    expect(api.previewTransfer).toHaveBeenLastCalledWith({ ticketIds: ["one"], action: "rename", destinationDirectory: "C:/Source", newName: "renamed.txt", skip: [], keepBoth: [] });
-    expect(api.executeTransfer).not.toHaveBeenCalled();
-    await click(t("fmConfirm"));
-    expect(api.executeTransfer).toHaveBeenCalledOnce();
-
-    const trashPlan = plan();
-    trashPlan.rows = trashPlan.rows.map((row) => ({ ...row, preview: row.preview ? { ...row.preview, operation_type: "move_to_trash" } : null }));
-    vi.mocked(api.previewTransfer).mockResolvedValueOnce(trashPlan);
-    await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true })); });
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    await click(t("fmPrepare"));
-    expect(api.previewTransfer).toHaveBeenLastCalledWith({ ticketIds: ["one", "two"], action: "trash", destinationDirectory: "C:/Target", skip: [], keepBoth: [] });
-    await click(t("fmConfirm"));
-    expect(api.executeTransfer).toHaveBeenCalledTimes(2);
-  });
-
-  it("shows permission errors in the preview and keeps confirmation disabled", async () => {
-    useFileManagementStore.setState({ clipboard: { action: "copy", tickets } });
-    const denied = plan();
-    denied.rows = [{ ticketId: "one", preview: null, error: "permission denied: access_denied", skipped: false }];
-    vi.mocked(api.previewTransfer).mockResolvedValue(denied);
-    await render();
-    await click(`${t("fmPaste")} (2)`);
-    await click(t("fmPrepare"));
-    expect(document.body.textContent).toContain("permission denied: access_denied");
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    expect(button(t("fmConfirm")).disabled).toBe(true);
-    expect(api.executeTransfer).not.toHaveBeenCalled();
-  });
-
-  it("disables Windows directory copy, cut, move and basket actions while keeping rename and safe delete available", async () => {
-    const directorySurface = () => ({ signature: "folder", count: 1, hasDirectorySelection: true, browse: { sessionId: "session", pathRef: { id: "root" } }, refresh, clear });
-    useFileManagementStore.setState({ surface: directorySurface });
-    await render();
-    for (const label of [t("fmCopy"), t("fmCut"), t("fmMove")]) expect(button(label).disabled).toBe(true);
-    expect(button(t("fmRename")).disabled).toBe(false);
-    expect(button(t("fmSafeDelete")).disabled).toBe(false);
-    await click(t("fmMore"));
-    expect(button(t("fmAddBasket")).disabled).toBe(true);
   });
 });

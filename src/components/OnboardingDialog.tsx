@@ -237,7 +237,7 @@ export function OnboardingDialog() {
             <div className="flex items-center gap-3">
               <BrandMark size="app" decorative />
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--zc-primary-text)]">Zen Canvas</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--zc-primary-text)]">Fylura</p>
                 <h2 id={titleId} className="mt-1 text-xl font-semibold text-[var(--zc-text-primary)]">{copy.onboardingTitle}</h2>
               </div>
             </div>

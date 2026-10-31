@@ -16,7 +16,7 @@ use super::{
         PreviewReadAccessError, PreviewRepresentation, PreviewSourceSnapshot, ProviderProbe,
     },
 };
-use zen_canvas_preview_representation::{
+use fylura_preview_representation::{
     RepresentationCompleteness, RepresentationError, RepresentationHint,
 };
 
@@ -489,7 +489,7 @@ fn map_context_error(error: super::preview::PreviewContextError) -> PreviewProvi
 fn decode_text(
     read: BoundedContentRead,
 ) -> Result<(String, PreviewCompleteness), PreviewProviderError> {
-    let decoded = zen_canvas_preview_representation::decode_text(&read.bytes, read.complete)
+    let decoded = fylura_preview_representation::decode_text(&read.bytes, read.complete)
         .map_err(map_representation_error)?;
     let completeness = match decoded.completeness {
         RepresentationCompleteness::Complete => PreviewCompleteness::Complete,
@@ -499,12 +499,11 @@ fn decode_text(
 }
 
 fn render_safe_markdown(text: &str) -> Result<String, PreviewProviderError> {
-    let (representation, _) =
-        zen_canvas_preview_representation::render_markdown(text.as_bytes(), true)
-            .map_err(map_representation_error)?;
+    let (representation, _) = fylura_preview_representation::render_markdown(text.as_bytes(), true)
+        .map_err(map_representation_error)?;
     match representation {
-        zen_canvas_preview_representation::SafeRepresentation::SafeHtml { html } => Ok(html),
-        zen_canvas_preview_representation::SafeRepresentation::Text { .. } => {
+        fylura_preview_representation::SafeRepresentation::SafeHtml { html } => Ok(html),
+        fylura_preview_representation::SafeRepresentation::Text { .. } => {
             Err(PreviewProviderError::Failed)
         }
     }
@@ -518,7 +517,7 @@ fn representation_hint(metadata: &PreviewMetadata) -> RepresentationHint {
 }
 
 fn is_markdown_hint(metadata: &PreviewMetadata) -> bool {
-    zen_canvas_preview_representation::is_markdown_hint(&representation_hint(metadata))
+    fylura_preview_representation::is_markdown_hint(&representation_hint(metadata))
 }
 
 fn source_can_render_pdf(snapshot: &PreviewSourceSnapshot) -> bool {
@@ -541,11 +540,11 @@ fn is_pdf_hint(metadata: &PreviewMetadata) -> bool {
 }
 
 fn is_plain_text_hint(metadata: &PreviewMetadata) -> bool {
-    zen_canvas_preview_representation::is_plain_text_hint(&representation_hint(metadata))
+    fylura_preview_representation::is_plain_text_hint(&representation_hint(metadata))
 }
 
 fn code_language(metadata: &PreviewMetadata) -> Option<&'static str> {
-    zen_canvas_preview_representation::source_code_language(&representation_hint(metadata))
+    fylura_preview_representation::source_code_language(&representation_hint(metadata))
 }
 
 fn map_representation_error(error: RepresentationError) -> PreviewProviderError {

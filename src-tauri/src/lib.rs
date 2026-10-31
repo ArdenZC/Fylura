@@ -10,6 +10,10 @@ pub mod file_ops;
 pub mod file_workspace;
 pub mod fs_safety;
 pub mod global_index;
+// Native QA deliberately routes database access to disposable roots, so the
+// production app-data migration entrypoints are not reachable in that build.
+#[cfg_attr(feature = "native-qa", allow(dead_code))]
+pub mod identity_migration;
 pub mod ids;
 #[cfg(all(
     target_os = "windows",
@@ -33,7 +37,9 @@ pub mod window_auth;
 
 use db::Database;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, Runtime};
+#[cfg(not(feature = "native-qa"))]
+use tauri::Manager;
+use tauri::{AppHandle, Runtime};
 
 pub use ai::classification::{
     cancel_ai_classification, classify_files_with_ai, classify_selected_files_with_ai,
@@ -133,17 +139,63 @@ pub use watcher::{
     setup_file_watcher, FileWatchEvent, FileWatcherManager, WatcherErrorEvent, WatcherReadyEvent,
 };
 
+#[cfg(feature = "native-qa")]
+fn validate_native_qa_profile_root(profile_root: Option<PathBuf>) -> Result<PathBuf, String> {
+    profile_root
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| {
+            "ZC_NATIVE_QA_PROFILE_ROOT must be an absolute path for native-qa; refusing regular user profile"
+                .to_string()
+        })
+}
+
+/// QA callers must never fall back to the real user's app-data directory.
+#[cfg(feature = "native-qa")]
+pub fn native_qa_profile_root() -> Result<PathBuf, String> {
+    validate_native_qa_profile_root(
+        std::env::var_os("ZC_NATIVE_QA_PROFILE_ROOT").map(PathBuf::from),
+    )
+}
+
 pub fn database_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     #[cfg(feature = "native-qa")]
-    if let Some(profile_root) = std::env::var_os("ZC_NATIVE_QA_PROFILE_ROOT") {
-        return Ok(PathBuf::from(profile_root).join("zen-canvas.sqlite3"));
+    {
+        let _ = app;
+        Ok(native_qa_profile_root()?.join("fylura.sqlite3"))
     }
 
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    Ok(dir.join("zen-canvas.sqlite3"))
+    #[cfg(not(feature = "native-qa"))]
+    {
+        let dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?;
+        let data_root = dirs::data_dir()
+            .ok_or_else(|| "Fylura application data root is unavailable".to_string())?;
+        identity_migration::migrate_legacy_database(&data_root, &dir)?;
+        Ok(dir.join("fylura.sqlite3"))
+    }
+}
+
+#[cfg(all(test, feature = "native-qa"))]
+mod native_qa_profile_guard_tests {
+    use super::validate_native_qa_profile_root;
+    use std::path::PathBuf;
+
+    #[test]
+    fn rejects_missing_or_relative_qa_root_without_fallback() {
+        assert!(validate_native_qa_profile_root(None).is_err());
+        assert!(validate_native_qa_profile_root(Some(PathBuf::from("relative-qa-root"))).is_err());
+    }
+
+    #[test]
+    fn admits_an_absolute_disposable_qa_root() {
+        let root = std::env::temp_dir().join("fylura-qa-root-validation-only");
+        assert_eq!(
+            validate_native_qa_profile_root(Some(root.clone())).unwrap(),
+            root
+        );
+    }
 }
 
 pub fn open_database<R: Runtime>(app: &AppHandle<R>) -> Result<Database, String> {

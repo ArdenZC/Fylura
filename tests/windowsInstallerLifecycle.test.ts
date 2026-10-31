@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  buildZenCanvasNsisTemplate,
+  buildFyluraNsisTemplate,
   TAURI_NSIS_UPSTREAM_BLOB_SHA,
 } from "../scripts/prepareWindowsNsisLifecycleTemplate.mjs";
 import { assertGeneratedPreviewResourcePath } from "../scripts/verifyWindowsNsisPreviewResource.mjs";
@@ -78,6 +78,11 @@ const releaseWorkflowPath = path.join(
   ".github",
   "workflows",
   "release-build.yml",
+);
+const nsisLifecycleRuntimeScriptPath = path.join(
+  repositoryRoot,
+  "scripts",
+  "verifyWindowsNsisLifecycle.ps1",
 );
 
 function sectionBody(source: string, sectionName: string) {
@@ -319,9 +324,9 @@ type RepairProductFixture = {
 };
 
 const repairExpectedValues = {
-  MainBinaryName: { type: "REG_SZ", value: "zen-canvas.exe" },
+  MainBinaryName: { type: "REG_SZ", value: "fylura.exe" },
   DisplayName: { type: "REG_SZ", value: "Zen Canvas" },
-  DisplayIcon: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas\\zen-canvas.exe"' },
+  DisplayIcon: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas\\fylura.exe"' },
   DisplayVersion: { type: "REG_SZ", value: "0.1.40" },
   Publisher: { type: "REG_SZ", value: "startlan" },
   InstallLocation: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas"' },
@@ -333,7 +338,7 @@ const repairExpectedValues = {
 
 const repairMandatoryValueNames = Object.keys(repairExpectedValues);
 const repairOptionalUrlNames = ["URLInfoAbout", "URLUpdateInfo", "HelpLink"] as const;
-const repairExpectedHomepage = "https://github.com/ArdenZC/Zen-Canvas";
+const repairExpectedHomepage = "https://github.com/ArdenZC/Fylura";
 
 function realA1RepairFixture(): RepairProductFixture {
   return {
@@ -441,14 +446,27 @@ function freshDetectionSeesProduct(
 }
 
 describe("W4-04 package NSIS lifecycle", () => {
+  it("does not assume unrelated Add/Remove Programs keys contain Fylura metadata", () => {
+    const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
+    const start = source.indexOf("function Get-FyluraUninstallEntries");
+    const end = source.indexOf("\n}", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const lookup = source.slice(start, end);
+
+    expect(lookup).toContain("$properties.PSObject.Properties['DisplayName']");
+    expect(lookup).toContain("$properties.PSObject.Properties['InstallLocation']");
+    expect(lookup).not.toContain("$properties.DisplayName");
+  });
+
   it("pins the exact Tauri 2.11.2 upstream template and package-only custom template", () => {
     expect(TAURI_NSIS_UPSTREAM_BLOB_SHA).toBe("a48a46149f6d6bdc76a0bf13f53e4acdfedb310b");
     const upstream = fs.readFileSync(upstreamPath, "utf8");
-    const generated = buildZenCanvasNsisTemplate(upstream);
+    const generated = buildFyluraNsisTemplate(upstream);
     expect(generated).not.toBe(upstream);
     const canonicalUpstream = upstream.replace(/\r\n/g, "\n");
-    expect(buildZenCanvasNsisTemplate(canonicalUpstream.replace(/\n/g, "\r\n"))).toBe(
-      buildZenCanvasNsisTemplate(canonicalUpstream),
+    expect(buildFyluraNsisTemplate(canonicalUpstream.replace(/\n/g, "\r\n"))).toBe(
+      buildFyluraNsisTemplate(canonicalUpstream),
     );
 
     const packageConfig = JSON.parse(
@@ -458,12 +476,46 @@ describe("W4-04 package NSIS lifecycle", () => {
       "windows/installer-lifecycle-wrapper.nsh",
     );
     expect(packageConfig.bundle.windows.nsis.template).toBe(
-      "windows/.generated/zen-canvas-installer.nsi",
+      "windows/.generated/fylura-installer.nsi",
     );
   });
 
+  it("keeps the Windows COM identity stable and refuses to adopt the old preview registration", () => {
+    const registration = fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "windows", "preview-handler-registration.nsh"),
+      "utf8",
+    );
+    const hooks = fs.readFileSync(installerHooksPath, "utf8");
+
+    expect(registration).toContain('ZC_PREVIEW_PRODUCTION_CLSID "{3D1A446C-162E-4313-A026-8ADC792C4862}"');
+    expect(registration).toContain('ZC_PREVIEW_PREVHOST_APP_ID "{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}"');
+    expect(registration).toContain('ZC_PREVIEW_FRIENDLY_NAME "Fylura Preview Handler"');
+    expect(registration).toContain('ZC_PREVIEW_LEGACY_FRIENDLY_NAME "Zen Canvas Preview Handler"');
+    expect(hooks).toContain('"${ZC_PREVIEW_LEGACY_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}');
+    expect(hooks).toContain("Uninstall the older Zen Canvas development build, then install Fylura again.");
+    expect(hooks).toContain("Its database and user files are preserved by uninstall.");
+  });
+
+  it("blocks install while the old auto-start index service is still registered", () => {
+    const hooks = fs.readFileSync(installerHooksPath, "utf8");
+    const lifecycle = fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "windows", "installer-lifecycle-synchronous.nsh"),
+      "utf8",
+    );
+    const guard = functionBody(hooks, "ValidateLegacyZenCanvasIndexServiceAbsent");
+
+    expect(hooks).toContain('ZC_LEGACY_INDEX_SERVICE_KEY "SYSTEM\\CurrentControlSet\\Services\\ZenCanvasGlobalIndex"');
+    expect(guard).toContain("${ZC_REG_KEY_PRESENT}");
+    expect(guard).toContain("${ZC_REG_KEY_ABSENT}");
+    expect(guard).toContain("then install Fylura again.");
+    expect(guard).toContain("Installation was not changed.");
+    expect(guard).not.toContain('"sc.exe" stop');
+    expect(guard).not.toContain('"sc.exe" delete');
+    expect(lifecycle).toContain("Call ValidateLegacyZenCanvasIndexServiceAbsent");
+  });
+
   it("uses only the final synchronous lifecycle entries in generated install/uninstall sections", () => {
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const install = sectionBody(generated, "Install");
     const uninstall = sectionBody(generated, "Uninstall");
 
@@ -485,7 +537,7 @@ describe("W4-04 package NSIS lifecycle", () => {
   });
 
   it("orders install service stop, app gate, Preview quiesce, then generated mutation", () => {
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const install = sectionBody(generated, "Install");
     expect(install.indexOf("Call ZCPrepareInstallLifecycleFinal")).toBeLessThan(
       install.indexOf("SetOverwrite try"),
@@ -521,7 +573,7 @@ describe("W4-04 package NSIS lifecycle", () => {
   });
 
   it("orders uninstall service stop, app gate, Preview quiesce, then first critical delete", () => {
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const uninstall = sectionBody(generated, "Uninstall");
     expect(uninstall.indexOf("Call un.ZCPrepareUninstallLifecycleFinal")).toBeLessThan(
       uninstall.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"'),
@@ -571,7 +623,7 @@ describe("W4-04 package NSIS lifecycle", () => {
   });
 
   it("routes generated file and metadata failures to the same synchronous partial owner", () => {
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const install = sectionBody(generated, "Install");
     const uninstall = sectionBody(generated, "Uninstall");
 
@@ -686,7 +738,7 @@ describe("W4-04 package NSIS lifecycle", () => {
   });
 
   it("T39: makes the main executable replacement the stage-2 boundary", () => {
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const install = sectionBody(generated, "Install");
     const irreversible = install.indexOf("Call ZCMarkInstallIrreversible");
     const mainFile = install.indexOf('File "${MAINBINARYSRCPATH}"');
@@ -751,7 +803,7 @@ describe("W4-04 package NSIS lifecycle", () => {
   });
 
   it("T41: routes every generated resource and binary failure to partial handling", () => {
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const install = sectionBody(generated, "Install");
     expect(install.match(/IfErrors zc_install_partial_failure/g)?.length).toBeGreaterThanOrEqual(6);
     expect(install).not.toContain("IfErrors zc_install_reversible_failure");
@@ -1174,7 +1226,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     const source = installerHooksSource();
     const start = source.indexOf("!macro ZC_VALIDATE_PREVIEW_CORE");
     const body = source.slice(start, source.indexOf("!macroend", start));
-    expect(body.match(/ZC_REG_QUERY_STRING_STATE/g)).toHaveLength(5);
+    expect(body.match(/ZC_REG_QUERY_STRING_STATE/g)).toHaveLength(7);
     expect(body.match(/\$ZC_REG_VALUE_STATE != \$\{ZC_REG_VALUE_ABSENT\}/g)).toHaveLength(5);
     expect(body).toContain("wrong-type");
   });
@@ -1479,7 +1531,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(fixture).toContain("ZCMapServiceRuntimeState");
     expect(fixture).toContain('sc.exe" create');
     expect(fixture).toContain('sc.exe" delete');
-    expect(fixture).not.toContain("ZenCanvasGlobalIndex");
+    expect(fixture).not.toContain("FyluraGlobalIndex");
     expect(fixture.toLowerCase()).not.toContain("taskkill");
     expect(script).toContain("makensis");
     expect(script).toContain("ZC_SMOKE_CLEANUP_ONLY");
@@ -1580,7 +1632,7 @@ describe("W4-04 package NSIS lifecycle", () => {
 
   it("T113: generated package metadata keeps conditional homepage writes separate from repair authority", () => {
     const upstream = fs.readFileSync(upstreamPath, "utf8");
-    const generated = buildZenCanvasNsisTemplate(upstream);
+    const generated = buildFyluraNsisTemplate(upstream);
     const homepageDefine = '!define HOMEPAGE "{{homepage}}"';
     expect(generated).toContain(homepageDefine);
 
@@ -1880,7 +1932,7 @@ describe("W4-04 package NSIS lifecycle", () => {
   it("T135: retirement is same-volume, narrow, unique, and non-overwriting", () => {
     const source = previewDllServicingSource();
     expect(source).toContain('${GetParent} "$INSTDIR" $0');
-    expect(source).toContain(".zen-canvas-retired");
+    expect(source).toContain(".fylura-retired");
     expect(source).toContain("GetTempFileName $0");
     expect(source).toContain("DeleteFileW(w \"$ZC_PREVIEW_RETIRED_PATH\")");
     expect(source).toContain("MoveFileExW");
@@ -1920,7 +1972,7 @@ describe("W4-04 package NSIS lifecycle", () => {
   });
 
   it("T138: generated resource loops delegate to servicing while binaries stay ordinary", () => {
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const install = sectionBody(generated, "Install");
     const uninstall = sectionBody(generated, "Uninstall");
     expect(install).toContain('!insertmacro ZC_INSTALL_RESOURCE "{{this.[1]}}"');
@@ -2024,7 +2076,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(fs.readFileSync(
       path.join(repositoryRoot, "src-tauri", "tauri.windows.package.conf.json"),
       "utf8",
-    )).toContain("native/zen_canvas_windows_preview_handler.dll");
+    )).toContain("native/fylura_windows_preview_handler.dll");
     const hooks = installerHooksSource();
     const validation = macroBody(hooks, "ZC_VALIDATE_PREVIEW_CORE");
     expect(validation).toContain("foreign, wrong-type, or unreadable");
@@ -2057,25 +2109,25 @@ describe("W4-04 package NSIS lifecycle", () => {
   });
 
   it("T148: generated fresh installer proof contains the canonical Preview File instruction", () => {
-    const generatedTemplate = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generatedTemplate = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const generated = generatedTemplate.replace(
       '!insertmacro ZC_INSTALL_RESOURCE "{{this.[1]}}" "{{no-escape @key}}"',
-      '!insertmacro ZC_INSTALL_RESOURCE "native\\zen_canvas_windows_preview_handler.dll" "packaged\\zen_canvas_windows_preview_handler.dll"',
+      '!insertmacro ZC_INSTALL_RESOURCE "native\\fylura_windows_preview_handler.dll" "packaged\\fylura_windows_preview_handler.dll"',
     );
     const proof = assertGeneratedPreviewResourcePath(generated, previewDllServicingSource());
     expect(proof.canonicalFileInstruction).toBe(
-      'File /a "/oname=native\\zen_canvas_windows_preview_handler.dll" "${SOURCE}"',
+      'File /a "/oname=native\\fylura_windows_preview_handler.dll" "${SOURCE}"',
     );
   });
 
   it("T149: generated Preview servicing never emits a forward-slash oname", () => {
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const source = previewDllServicingSource();
     expect(generated).not.toContain(
-      '!insertmacro ZC_INSTALL_RESOURCE "native/zen_canvas_windows_preview_handler.dll"',
+      '!insertmacro ZC_INSTALL_RESOURCE "native/fylura_windows_preview_handler.dll"',
     );
     expect(macroBody(source, "ZC_INSTALL_PREVIEW_RESOURCE")).not.toContain(
-      'File /a "/oname=native/zen_canvas_windows_preview_handler.dll"',
+      'File /a "/oname=native/fylura_windows_preview_handler.dll"',
     );
   });
 
@@ -2092,7 +2144,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("flattenedPreviewResourcePath");
     expect(verifier).toContain('process.env["ProgramFiles(x86)"]');
     expect(verifier).toContain("pathEntries.map");
-    expect(fixture).toContain('!insertmacro ZC_INSTALL_RESOURCE "native/zen_canvas_windows_preview_handler.dll"');
+    expect(fixture).toContain('!insertmacro ZC_INSTALL_RESOURCE "native/fylura_windows_preview_handler.dll"');
     expect(fixture).toContain('CreateDirectory "$ZC_SMOKE_ROOT\\native"');
     expect(fixture).toContain("fresh-root");
   });
@@ -2130,7 +2182,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(uninstall).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_FORWARD");
     expect(uninstall).toContain("ZC_PREVIEW_DLL_RESOURCE_PATH_BACKSLASH");
     expect(preview).toContain('Delete "${ZC_PREVIEW_INSTALLED_DLL}"');
-    expect(preview).not.toContain("native/zen_canvas_windows_preview_handler.dll");
+    expect(preview).not.toContain("native/fylura_windows_preview_handler.dll");
   });
 
   it("T154: ordinary non-Preview resources retain direct File/Delete semantics", () => {
@@ -2157,7 +2209,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     ]) {
       expect(callback).not.toContain(forbidden);
     }
-    const generated = buildZenCanvasNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     for (const sectionName of ["Install", "Uninstall"]) {
       const section = sectionBody(generated, sectionName);
       expect(section).not.toContain("!insertmacro NSIS_HOOK_PREINSTALL");

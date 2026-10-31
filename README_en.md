@@ -1,7 +1,7 @@
-# Zen Canvas
+# Fylura
 
 <div align="center">
-  <img src="docs/banner_en.svg" width="100%" alt="Zen Canvas Banner" />
+  <img src="docs/banner_en.svg" width="100%" alt="Fylura Banner" />
 </div>
 
 <br />
@@ -27,12 +27,18 @@
 ## Introduction
 
 > **A local-first personal file lifecycle assistant.**
-> Zen Canvas is not a file explorer replacement or a simple classifier. It connects scanning, fast indexing, explainable organization, safe preview execution, and restore records into one controlled local workflow.
+> Fylura is not a file explorer replacement or a simple classifier. It connects scanning, fast indexing, explainable organization, safe preview execution, and restore records into one controlled local workflow.
 
 ## Supported Platforms
 
 - Windows.
 - macOS 13+, Apple Silicon (arm64) only. Intel Macs are unsupported; no Universal Binary or Rosetta compatibility guarantee is provided.
+
+## Development Identity Migration
+
+On first launch, Fylura checks for the unreleased development database and copies it into the new data directory with SQLite's Backup API, verifies integrity, and leaves the original untouched. Under each platform's application data root, the database moves from `com.startlan.zencanvas/zen-canvas.sqlite3` to `com.startlan.fylura/fylura.sqlite3`. The backup includes committed WAL state, preserving the file library, index authorization, History, Journal, and Restore records. An existing Fylura database always wins and is never overwritten; if a primary database is missing while WAL, SHM, or Journal sidecars remain, startup stops and leaves them for inspection. Migration does not start a new full-disk index.
+
+Close the older app and its Windows index service before migrating. If the Windows preview handler still occupies the shared COM registration, the installer stops safely; uninstall the older development build first. Each uninstaller only removes its own app, service, and system registrations and leaves user data in place. If the old version enabled launch at login, Fylura migrates that setting only when both the startup value name and old executable path match exactly; ambiguous entries are preserved. After migration, run only Fylura so the old version cannot continue writing to a separate database. Existing Safe Trash paths and other user-file paths remain unchanged.
 
 ## Core Capabilities
 
@@ -42,7 +48,7 @@
 - **File Library**: browse managed files, status filters, and classification reasons. Use Global Search for finding a specific file.
 - **Storage Cleanup**: analyzes durable cleanup findings and moves confirmed candidates through the Safe Trash path, preserving recovery records.
 - **Preview & Execute**: groups plans by main folders and subfolders. Moves, renames, cleanup actions, and eligible permanent deletion all require an authoritative preview and explicit confirmation.
-- **History / Restore**: review operations and cleanup records created by Zen Canvas, then restore eligible outcomes after identity revalidation. Operation logs are persisted in SQLite, recent records load by default, and the saved retention setting controls automatic pruning.
+- **History / Restore**: review operations and cleanup records created by Fylura, then restore eligible outcomes after identity revalidation. Operation logs are persisted in SQLite, recent records load by default, and the saved retention setting controls automatic pruning.
 - **Automation**: Manual / Schedule / Managed files changed triggers only prepare reviewable Organization Plans and remain review-required / never-auto-execute. Rule Repository / Rule Proposal stay available as Advanced Policies compatibility surfaces and are not semantic fallback for new Organize / Cleanup.
 - **Content Understanding**: extract and understand managed content under explicit policy and consent; its results do not authorize filesystem mutation.
 
@@ -60,7 +66,7 @@
 - Watcher remove / delete events mark files stale instead of deleting `files` rows.
 - The `files` table tracks `is_stale` and `last_seen_at`; search, pagination, stats, and rule execution exclude stale files by default.
 - Create / modify / rename / change events are debounced and batch-upserted. Files that reappear can revive stale records.
-- After watcher upserts, Zen Canvas runs `execute_rules_for_paths` only for affected paths instead of re-running rules over the full library.
+- After watcher upserts, Fylura runs `execute_rules_for_paths` only for affected paths instead of re-running rules over the full library.
 - Large watcher upserts trigger search index optimize at the existing threshold. Optimize failures only log warnings and do not fail the upsert.
 - When watcher deep indexing reaches its safety limit for a large directory, the UI warns the user to run a full manual scan so a partial update is not mistaken for complete indexing.
 
@@ -99,7 +105,7 @@ Eligible managed files may also enter a separate permanent-delete review. It is 
 - The app does not scan automatically on launch. Scanning only creates an index and suggestions.
 - User-file mutations use the authoritative preview, explicit confirmation, backend identity/path revalidation, operation or cleanup journaling, and the Safe Trash / Restore boundaries described above.
 - Eligible permanent deletion is a separate explicit review and confirmation flow, not an automatic side effect of scanning, indexing, organizing, or cleanup analysis.
-- Zen Canvas skips selected system and generated directories by default, including `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `build`, `target`, `coverage`, `vendor`, `Windows`, `Program Files`, and `System Volume Information`.
+- Fylura skips selected system and generated directories by default, including `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `build`, `target`, `coverage`, `vendor`, `Windows`, `Program Files`, and `System Volume Information`.
 - Sensitive files show advice and reasons, but are not selected for execution.
 - Conflicts, low-confidence items, and close rule scores enter manual confirmation by default.
 - The Tauri command layer revalidates move, rename, and restore operation type, absolute paths, safe filenames, source-path consistency, protected system targets, and overwrite conflicts.
@@ -168,7 +174,7 @@ npm run verify
 
 ## Packaging
 
-Zen Canvas has moved to Tauri 2. The current packaging entrypoint is the Tauri build, which produces the desktop app and installer for the current platform. Signing hooks are reserved for later.
+Fylura has moved to Tauri 2. The current packaging entrypoint is the Tauri build, which produces the desktop app and installer for the current platform. Signing hooks are reserved for later.
 
 ```bash
 npm run assets:brand

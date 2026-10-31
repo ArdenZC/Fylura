@@ -22,8 +22,9 @@
 !define ZC_INDEX_SERVICE_RUNNING_CONFIRMATIONS 2
 !define ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS 20
 !define ZC_INDEX_SERVICE_CLEANUP_DELAY_MS 250
-!define ZC_INDEX_SERVICE_NAME "ZenCanvasGlobalIndex"
-!define ZC_INDEX_SERVICE_KEY "SYSTEM\CurrentControlSet\Services\ZenCanvasGlobalIndex"
+!define ZC_INDEX_SERVICE_NAME "FyluraGlobalIndex"
+!define ZC_INDEX_SERVICE_KEY "SYSTEM\CurrentControlSet\Services\FyluraGlobalIndex"
+!define ZC_LEGACY_INDEX_SERVICE_KEY "SYSTEM\CurrentControlSet\Services\ZenCanvasGlobalIndex"
 !define ZC_INDEX_SERVICE_PARENT_KEY "SYSTEM\CurrentControlSet\Services"
 
 ; Keep the native DLL under the install root. Tauri maps this resource directly
@@ -144,7 +145,7 @@ Var ZC_UNINSTALL_PREVIEW_RECOVERED
       ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
         Call ${ROLLBACK_FUNCTION}
         Call ${NOTIFY_FUNCTION}
-        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler registry ownership changed before withdrawal. The operation was aborted." /SD IDOK
+        MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler registry ownership changed before withdrawal. The operation was aborted." /SD IDOK
         Abort
       ${EndIf}
       ClearErrors
@@ -154,13 +155,13 @@ Var ZC_UNINSTALL_PREVIEW_RECOVERED
       ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
         Call ${ROLLBACK_FUNCTION}
         Call ${NOTIFY_FUNCTION}
-        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler could not withdraw an owned registry value. The operation was aborted." /SD IDOK
+        MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler could not withdraw an owned registry value. The operation was aborted." /SD IDOK
         Abort
       ${EndIf}
   ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
     Call ${ROLLBACK_FUNCTION}
     Call ${NOTIFY_FUNCTION}
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler registry ownership could not be established. The operation was aborted." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler registry ownership could not be established. The operation was aborted." /SD IDOK
     Abort
   ${EndIf}
 !macroend
@@ -181,12 +182,26 @@ FunctionEnd
   StrCpy $ZC_PREVIEW_INPROC_PATH_PRESENT 0
   StrCpy $ZC_PREVIEW_DLL_PROBE_PATH ""
 
+  ; This unreleased product used the same stable COM CLSID. Never reinterpret
+  ; its old registration as Fylura-owned: require the old installer to remove
+  ; only its own registration before the new package can claim this CLSID.
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_LEGACY_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    MessageBox MB_ICONSTOP|MB_OK "An older Zen Canvas Preview Handler is registered under the shared Windows COM identity. Uninstall the older Zen Canvas development build, then install Fylura again. Its database and user files are preserved by uninstall." /SD IDOK
+    Abort
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_HANDLERS_KEY}" "${ZC_PREVIEW_PRODUCTION_CLSID}" "${ZC_PREVIEW_LEGACY_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
+    MessageBox MB_ICONSTOP|MB_OK "An older Zen Canvas Preview Handler is registered under the shared Windows COM identity. Uninstall the older Zen Canvas development build, then install Fylura again. Its database and user files are preserved by uninstall." /SD IDOK
+    Abort
+  ${EndIf}
+
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_CLSID_KEY}" "" "${ZC_PREVIEW_FRIENDLY_NAME}" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_CLSID_PRESENT 1
   ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
-    MessageBox MB_ICONSTOP|MB_OK "A foreign, wrong-type, or unreadable Preview Handler value already occupies the Zen Canvas production CLSID. Installation was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "A foreign, wrong-type, or unreadable Preview Handler value already occupies the Fylura production CLSID. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 
@@ -195,7 +210,7 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_APPID_PRESENT 1
   ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production CLSID has a foreign, wrong-type, or unreadable AppID. Installation was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura production CLSID has a foreign, wrong-type, or unreadable AppID. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 
@@ -204,7 +219,7 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_THREADING_PRESENT 1
   ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Preview Handler has a foreign, wrong-type, or unreadable threading model. Installation was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura Preview Handler has a foreign, wrong-type, or unreadable threading model. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 
@@ -213,7 +228,7 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_CORE_PRESENT 1
     StrCpy $ZC_PREVIEW_HANDLER_PRESENT 1
   ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
-    MessageBox MB_ICONSTOP|MB_OK "A foreign, wrong-type, or unreadable PreviewHandlers entry conflicts with Zen Canvas. Installation was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "A foreign, wrong-type, or unreadable PreviewHandlers entry conflicts with Fylura. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 
@@ -229,7 +244,7 @@ FunctionEnd
     StrCpy $ZC_PREVIEW_INPROC_PATH_PRESENT 1
     StrCpy $ZC_PREVIEW_DLL_PROBE_PATH "${ZC_PREVIEW_INSTALLED_DLL}"
   ${ElseIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production InprocServer32 path is foreign, wrong-type, empty, or unreadable. The existing registration and file were preserved." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura production InprocServer32 path is foreign, wrong-type, empty, or unreadable. The existing registration and file were preserved." /SD IDOK
     Abort
   ${EndIf}
 
@@ -244,7 +259,7 @@ FunctionEnd
   ${OrIf} $ZC_PREVIEW_THREADING_PRESENT == 0
   ${OrIf} $ZC_PREVIEW_HANDLER_PRESENT == 0
   ${OrIf} $ZC_PREVIEW_INPROC_PATH_PRESENT == 0
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas production core registration is incomplete. Installation was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura production core registration is incomplete. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 !macroend
@@ -480,7 +495,7 @@ FunctionEnd
 Function ValidateZenCanvasPreexistingProduct
   Call DetectZenCanvasPreexistingProduct
   ${If} $ZC_PREEXISTING_PRODUCT == 2
-    MessageBox MB_ICONSTOP|MB_OK "Existing Zen Canvas product metadata is incomplete or inconsistent. Installation was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Existing Fylura product metadata is incomplete or inconsistent. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -523,7 +538,7 @@ FunctionEnd
 Function ValidateZenCanvasIndexServiceOwnership
   Call ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 2
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service exists but its ImagePath is empty, foreign, or not the current canonical Zen Canvas binary. The operation was aborted." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura Global Index service exists but its ImagePath is empty, foreign, or not the current canonical Fylura binary. The operation was aborted." /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -531,7 +546,23 @@ FunctionEnd
 Function un.ValidateZenCanvasIndexServiceOwnership
   Call un.ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 2
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service exists but its ImagePath is empty, foreign, or not the current canonical Zen Canvas binary. Uninstall was aborted." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura Global Index service exists but its ImagePath is empty, foreign, or not the current canonical Fylura binary. Uninstall was aborted." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
+; The old and new services use different database roots and IPC pipes. They
+; must not run side by side: the old auto-start service would keep the legacy
+; database active and could make two indexers appear to own the same sources.
+; Never stop or delete it here; require the old product's own uninstaller.
+Function ValidateLegacyZenCanvasIndexServiceAbsent
+  SetRegView 64
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_LEGACY_INDEX_SERVICE_KEY}"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_PRESENT}
+    MessageBox MB_ICONSTOP|MB_OK "The older Zen Canvas Global Index service is still registered. Uninstall the older Zen Canvas development build, then install Fylura again. The service and user data were not changed." /SD IDOK
+    Abort
+  ${ElseIf} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_ABSENT}
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not determine whether the older Zen Canvas Global Index service is registered. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -568,7 +599,7 @@ Function CaptureZenCanvasPreexistingServiceState
   ${ElseIf} $ZC_INDEX_SERVICE_RUNTIME_STATE == 2
     StrCpy $ZC_PREEXISTING_SERVICE_STATE_CAPTURED 1
   ${Else}
-    MessageBox MB_ICONSTOP|MB_OK "The existing Zen Canvas Global Index service state could not be determined safely. Installation was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The existing Fylura Global Index service state could not be determined safely. Installation was not changed." /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -605,7 +636,7 @@ Function RestoreZenCanvasPreexistingService
         StrCpy $ZC_POSTINSTALL_SERVICE_CLEAN 0
         Return
       ${EndIf}
-      DetailPrint "Restoring the preexisting Zen Canvas Global Index service after the failed repair..."
+      DetailPrint "Restoring the preexisting Fylura Global Index service after the failed repair..."
       nsExec::ExecToStack '"$SYSDIR\sc.exe" start "${ZC_INDEX_SERVICE_NAME}"'
       Pop $0
       Pop $1
@@ -701,7 +732,7 @@ Function CompensateZenCanvasPostInstallService
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
     Goto postinstall_service_cleanup_incomplete
   ${EndIf}
-  DetailPrint "Compensating the Zen Canvas Global Index service after installation failure..."
+  DetailPrint "Compensating the Fylura Global Index service after installation failure..."
 
   ; Observe the state before any stop mutation. STOPPED can proceed directly
   ; to the deletion guard; PENDING uses the existing bounded wait contract;
@@ -1082,7 +1113,7 @@ FunctionEnd
   ${If} $ZC_PREVIEW_TXN_CAPTURE_OK == 0
   ${OrIf} ${Errors}
   ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
-    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler registration failed while writing an owned registry value."
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Fylura Preview Handler registration failed while writing an owned registry value."
     Call FailZenCanvasPostInstall
   ${EndIf}
 !macroend
@@ -1132,13 +1163,13 @@ FunctionEnd
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\${EXT}\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_ABSENT}
     !insertmacro ZC_WRITE_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\${EXT}\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}"
-    DetailPrint "Zen Canvas Preview Handler claimed ${EXT} (absent slot)."
+    DetailPrint "Fylura Preview Handler claimed ${EXT} (absent slot)."
   ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
-    DetailPrint "Zen Canvas Preview Handler kept ${EXT} (already Zen-owned)."
+    DetailPrint "Fylura Preview Handler kept ${EXT} (already Zen-owned)."
   ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_FOREIGN}
-    DetailPrint "Zen Canvas Preview Handler preserved ${EXT} (foreign value or type)."
+    DetailPrint "Fylura Preview Handler preserved ${EXT} (foreign value or type)."
   ${Else}
-    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler could not establish association ownership."
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Fylura Preview Handler could not establish association ownership."
     Call FailZenCanvasPostInstall
   ${EndIf}
 !macroend
@@ -1190,12 +1221,12 @@ stale_association_loop:
     Return
   ${ElseIf} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}
     ${If} $ZC_POSTINSTALL_ACTIVE == 1
-      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association enumeration failed."
+      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Fylura Preview Handler stale association enumeration failed."
       Call FailZenCanvasPostInstall
     ${Else}
       Call RollbackZenCanvasPreviewRegistration
       Call NotifyZenCanvasPreviewAssociationChanged
-      MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association enumeration failed. Installation was not changed." /SD IDOK
+      MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler stale association enumeration failed. Installation was not changed." /SD IDOK
       Abort
     ${EndIf}
   ${EndIf}
@@ -1205,12 +1236,12 @@ stale_association_loop:
     !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}" ${ZC_REG_STRING_SZ_ONLY}
     ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
       ${If} $ZC_POSTINSTALL_ACTIVE == 1
-        StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association ownership query failed."
+        StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Fylura Preview Handler stale association ownership query failed."
         Call FailZenCanvasPostInstall
       ${Else}
         Call RollbackZenCanvasPreviewRegistration
         Call NotifyZenCanvasPreviewAssociationChanged
-        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association ownership query failed. Installation was not changed." /SD IDOK
+        MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler stale association ownership query failed. Installation was not changed." /SD IDOK
         Abort
       ${EndIf}
     ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
@@ -1221,12 +1252,12 @@ stale_association_loop:
         !insertmacro ZC_RECORD_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}"
         ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
           ${If} $ZC_POSTINSTALL_ACTIVE == 1
-            StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association ownership changed before cleanup."
+            StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Fylura Preview Handler stale association ownership changed before cleanup."
             Call FailZenCanvasPostInstall
           ${Else}
             Call RollbackZenCanvasPreviewRegistration
             Call NotifyZenCanvasPreviewAssociationChanged
-            MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association ownership changed before cleanup. Installation was not changed." /SD IDOK
+            MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler stale association ownership changed before cleanup. Installation was not changed." /SD IDOK
             Abort
           ${EndIf}
         ${EndIf}
@@ -1236,16 +1267,16 @@ stale_association_loop:
         ${If} ${Errors}
         ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
           ${If} $ZC_POSTINSTALL_ACTIVE == 1
-            StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Preview Handler stale association cleanup failed."
+            StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Fylura Preview Handler stale association cleanup failed."
             Call FailZenCanvasPostInstall
           ${Else}
-            MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association cleanup failed. Installation was not changed." /SD IDOK
+            MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler stale association cleanup failed. Installation was not changed." /SD IDOK
             Call RollbackZenCanvasPreviewRegistration
             Call NotifyZenCanvasPreviewAssociationChanged
             Abort
           ${EndIf}
         ${EndIf}
-        DetailPrint "Zen Canvas Preview Handler removed stale Zen-owned $1 association."
+        DetailPrint "Fylura Preview Handler removed stale Zen-owned $1 association."
         Goto stale_association_loop
       ${EndIf}
     ${EndIf}
@@ -1268,7 +1299,7 @@ Function WaitForZenCanvasPreviewDllRelease
     Goto preview_dll_release_success
   ${EndIf}
   IfFileExists "$ZC_PREVIEW_DLL_PROBE_PATH" 0 preview_dll_release_success
-  DetailPrint "Waiting for the Zen Canvas Preview Handler host to release the registered DLL..."
+  DetailPrint "Waiting for the Fylura Preview Handler host to release the registered DLL..."
   StrCpy $0 0
 preview_dll_release_loop:
   ; GENERIC_WRITE | DELETE, no sharing, OPEN_EXISTING, normal attributes.
@@ -1294,7 +1325,7 @@ preview_dll_release_timeout:
 
 preview_dll_release_success:
   StrCpy $ZC_PREVIEW_RELEASE_READY 1
-  DetailPrint "Zen Canvas Preview Handler DLL release probe completed without changing the artifact."
+  DetailPrint "Fylura Preview Handler DLL release probe completed without changing the artifact."
 FunctionEnd
 
 Function RollbackZenCanvasPreviewQuiesce
@@ -1332,7 +1363,7 @@ Function InstallZenCanvasPreviewHandler
   Goto preview_dll_ready
 
 preview_dll_missing:
-  StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Zen Canvas Preview Handler DLL is missing from this package."
+  StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Fylura Preview Handler DLL is missing from this package."
   Call FailZenCanvasPostInstall
 
 preview_dll_ready:
@@ -1374,7 +1405,7 @@ Function un.WaitForZenCanvasPreviewDllRelease
     Goto un_preview_dll_release_success
   ${EndIf}
   IfFileExists "$ZC_PREVIEW_DLL_PROBE_PATH" 0 un_preview_dll_release_success
-  DetailPrint "Waiting for the Zen Canvas Preview Handler host to release the registered DLL..."
+  DetailPrint "Waiting for the Fylura Preview Handler host to release the registered DLL..."
   StrCpy $0 0
 un_preview_dll_release_loop:
   ; Keep the exact install probe contract: write/delete-class access, zero
@@ -1400,7 +1431,7 @@ un_preview_dll_release_timeout:
 
 un_preview_dll_release_success:
   StrCpy $ZC_PREVIEW_RELEASE_READY 1
-  DetailPrint "Zen Canvas Preview Handler DLL release probe completed without changing the artifact."
+  DetailPrint "Fylura Preview Handler DLL release probe completed without changing the artifact."
 FunctionEnd
 
 Function un.RollbackZenCanvasPreviewQuiesce
@@ -1532,7 +1563,7 @@ Function un.CaptureZenCanvasOriginalServiceState
     Return
   ${EndIf}
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
-    MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service ownership could not be verified safely. Uninstall was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura Global Index service ownership could not be verified safely. Uninstall was not changed." /SD IDOK
     Abort
   ${EndIf}
   StrCpy $ZC_UNINSTALL_ORIGINAL_SERVICE 1
@@ -1543,7 +1574,7 @@ Function un.CaptureZenCanvasOriginalServiceState
   ${ElseIf} $ZC_INDEX_SERVICE_RUNTIME_STATE == 2
     StrCpy $ZC_UNINSTALL_SERVICE_STATE_CAPTURED 1
   ${Else}
-    MessageBox MB_ICONSTOP|MB_OK "The original Zen Canvas Global Index service state could not be determined safely. Uninstall was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The original Fylura Global Index service state could not be determined safely. Uninstall was not changed." /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -1721,7 +1752,7 @@ Function un.FinalizeZenCanvasPreviewUninstall
   ${If} $ZC_PREVIEW_DLL_PROBE_PATH != ""
     IfFileExists "$ZC_PREVIEW_DLL_PROBE_PATH" 0 un_preview_artifact_removed
     StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 0
-    DetailPrint "The generated uninstall section did not remove the Zen Canvas Preview Handler DLL; registration remains finalized as withdrawn."
+    DetailPrint "The generated uninstall section did not remove the Fylura Preview Handler DLL; registration remains finalized as withdrawn."
   ${EndIf}
 un_preview_artifact_removed:
   Call un.CommitZenCanvasPreviewQuiesce
@@ -1741,7 +1772,7 @@ Function un.RemoveZenCanvasManufacturerProductMarker
     !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
     ${If} ${Errors}
     ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
-      DetailPrint "The Zen Canvas manufacturer install-location marker could not be removed after the delete attempt."
+      DetailPrint "The Fylura manufacturer install-location marker could not be removed after the delete attempt."
       Return
     ${EndIf}
 
@@ -1757,11 +1788,11 @@ Function un.RemoveZenCanvasManufacturerProductMarker
     ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
       StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 1
     ${Else}
-      DetailPrint "The Zen Canvas manufacturer product key remains after its default value was absent."
+      DetailPrint "The Fylura manufacturer product key remains after its default value was absent."
     ${EndIf}
     Return
   ${Else}
-    DetailPrint "The Zen Canvas manufacturer install-location marker was foreign or could not be queried safely; it was preserved."
+    DetailPrint "The Fylura manufacturer install-location marker was foreign or could not be queried safely; it was preserved."
     Return
   ${EndIf}
 
@@ -1772,7 +1803,7 @@ Function un.RemoveZenCanvasManufacturerProductMarker
   ${If} ${Errors}
   ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
   ${OrIf} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_ABSENT}
-    DetailPrint "The Zen Canvas manufacturer install-location marker or product key remains after cleanup."
+    DetailPrint "The Fylura manufacturer install-location marker or product key remains after cleanup."
     Return
   ${EndIf}
   StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 1
@@ -1792,7 +1823,7 @@ un_stale_association_loop:
   ${ElseIf} $ZC_REG_ENUM_STATE == ${ZC_REG_ENUM_UNKNOWN}
     Call un.RollbackZenCanvasPreviewRegistration
     Call un.NotifyZenCanvasPreviewAssociationChanged
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association enumeration failed. The operation was aborted." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler stale association enumeration failed. The operation was aborted." /SD IDOK
     Abort
   ${EndIf}
   StrCpy $1 $ZC_REG_ENUM_NAME
@@ -1802,14 +1833,14 @@ un_stale_association_loop:
       ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_UNKNOWN}
         Call un.RollbackZenCanvasPreviewRegistration
         Call un.NotifyZenCanvasPreviewAssociationChanged
-        MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association ownership query failed. The operation was aborted." /SD IDOK
+        MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler stale association ownership query failed. The operation was aborted." /SD IDOK
         Abort
       ${ElseIf} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
         !insertmacro ZC_RECORD_REG_VALUE "${ZC_PREVIEW_ASSOCIATION_ROOT}\$1\shellex\${ZC_PREVIEW_SHELLEX_CATEGORY}" "" "${ZC_PREVIEW_PRODUCTION_CLSID}"
         ${If} $ZC_PREVIEW_TXN_CAPTURE_OK != 1
           Call un.RollbackZenCanvasPreviewRegistration
           Call un.NotifyZenCanvasPreviewAssociationChanged
-          MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association ownership changed before cleanup. The operation was aborted." /SD IDOK
+          MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler stale association ownership changed before cleanup. The operation was aborted." /SD IDOK
           Abort
         ${EndIf}
         ClearErrors
@@ -1819,7 +1850,7 @@ un_stale_association_loop:
         ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
           Call un.RollbackZenCanvasPreviewRegistration
           Call un.NotifyZenCanvasPreviewAssociationChanged
-          MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Preview Handler stale association cleanup failed. The operation was aborted." /SD IDOK
+          MessageBox MB_ICONSTOP|MB_OK "Fylura Preview Handler stale association cleanup failed. The operation was aborted." /SD IDOK
           Abort
         ${EndIf}
         Goto un_stale_association_loop
@@ -1861,7 +1892,7 @@ Function StopZenCanvasIndexService
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
     Goto stop_wait_timeout
   ${EndIf}
-  DetailPrint "Stopping Zen Canvas Global Index service..."
+  DetailPrint "Stopping Fylura Global Index service..."
   nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
@@ -1878,7 +1909,7 @@ Function StopZenCanvasIndexService
 
 stop_wait_timeout:
   Call RollbackZenCanvasPreviewQuiesce
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Global Index service did not stop in time.$\r$\n$\r$\n$1" /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Fylura Global Index service did not stop in time.$\r$\n$\r$\n$1" /SD IDOK
   Abort
 FunctionEnd
 
@@ -1895,7 +1926,7 @@ Function un.StopZenCanvasIndexService
     ; PREUNINSTALL captured an absent service. Never stop a same-name service
     ; that appeared concurrently, even if its ImagePath looks current.
     StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
-    MessageBox MB_ICONSTOP|MB_OK "A Zen Canvas Global Index service appeared during uninstall but was not part of the captured installation. It was not modified; uninstall was aborted." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "A Fylura Global Index service appeared during uninstall but was not part of the captured installation. It was not modified; uninstall was aborted." /SD IDOK
     Abort
   ${EndIf}
   Call un.ReadZenCanvasIndexServiceRuntimeState
@@ -1917,7 +1948,7 @@ Function un.StopZenCanvasIndexService
   ${EndIf}
   ; Re-check exact ImagePath immediately before stopping the service.
   Call un.ValidateZenCanvasIndexServiceOwnership
-  DetailPrint "Stopping Zen Canvas Global Index service..."
+  DetailPrint "Stopping Fylura Global Index service..."
   nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
@@ -1935,8 +1966,8 @@ Function un.StopZenCanvasIndexService
 un_stop_wait_timeout:
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
   Call un.RecoverZenCanvasPreDeleteAbort
-  MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service did not stop before generated uninstall file deletion.$\r$\n$\r$\n$1" /SD IDOK
-  DetailPrint "Uninstall is incomplete; the Zen Canvas Global Index service was not removed."
+  MessageBox MB_ICONSTOP|MB_OK "The Fylura Global Index service did not stop before generated uninstall file deletion.$\r$\n$\r$\n$1" /SD IDOK
+  DetailPrint "Uninstall is incomplete; the Fylura Global Index service was not removed."
   Abort
 FunctionEnd
 
@@ -1952,15 +1983,15 @@ Function un.DeleteZenCanvasIndexService
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
     Return
   ${EndIf}
-  DetailPrint "Removing Zen Canvas Global Index service registration..."
+  DetailPrint "Removing Fylura Global Index service registration..."
   nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
   ${If} $0 != 0
     ${If} $0 != 1060
       StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
-      MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but the Zen Canvas Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
-      DetailPrint "Uninstall is incomplete; the Zen Canvas Global Index service was not removed."
+      MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but the Fylura Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
+      DetailPrint "Uninstall is incomplete; the Fylura Global Index service was not removed."
       Abort
     ${EndIf}
   ${EndIf}
@@ -1983,12 +2014,12 @@ un_delete_registry_absence_verify:
     Return
   ${EndIf}
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
-  MessageBox MB_ICONSTOP|MB_OK "The service control manager no longer reports Zen Canvas Global Index, but registry-key absence was not verified. Uninstall is incomplete." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "The service control manager no longer reports Fylura Global Index, but registry-key absence was not verified. Uninstall is incomplete." /SD IDOK
   Abort
 
 un_delete_wait_timeout:
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
-  MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but removal of the Zen Canvas Global Index service was not verified. Restart Windows to finish cleanup.$\r$\n$\r$\nUninstall is incomplete." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but removal of the Fylura Global Index service was not verified. Restart Windows to finish cleanup.$\r$\n$\r$\nUninstall is incomplete." /SD IDOK
   Abort
 FunctionEnd
 
@@ -2109,7 +2140,7 @@ Function EnsureZenCanvasIndexServiceRunning
 FunctionEnd
 
 Function InstallZenCanvasIndexService
-  DetailPrint "Installing Zen Canvas Global Index service..."
+  DetailPrint "Installing Fylura Global Index service..."
   ${If} $ZC_MAIN_BINARY_FILENAME == ""
     StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The Tauri main binary name was unavailable; the Global Index service was not created."
     Call FailZenCanvasPostInstall
@@ -2117,16 +2148,16 @@ Function InstallZenCanvasIndexService
   IfFileExists "$INSTDIR\$ZC_MAIN_BINARY_FILENAME" 0 index_service_main_binary_missing
   Call ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 2
-    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The existing Zen Canvas Global Index service is not owned by the current canonical binary."
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The existing Fylura Global Index service is not owned by the current canonical binary."
     Call FailZenCanvasPostInstall
   ${EndIf}
 
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" create "${ZC_INDEX_SERVICE_NAME}" binPath= "\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME\" --index-service" start= auto obj= LocalSystem DisplayName= "Zen Canvas Global Index"'
+    nsExec::ExecToStack '"$SYSDIR\sc.exe" create "${ZC_INDEX_SERVICE_NAME}" binPath= "\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME\" --index-service" start= auto obj= LocalSystem DisplayName= "Fylura Global Index"'
     Pop $0
     Pop $1
     ${If} $0 != 0
-      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Could not install the Zen Canvas Global Index service.$\r$\n$\r$\n$1"
+      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Could not install the Fylura Global Index service.$\r$\n$\r$\n$1"
       Call FailZenCanvasPostInstall
     ${EndIf}
     ; Record the successful CREATE before doing any ownership re-read. A
@@ -2137,11 +2168,11 @@ Function InstallZenCanvasIndexService
       StrCpy $ZC_INDEX_SERVICE_CREATE_OWNERSHIP_VERIFIED 1
       StrCpy $ZC_INDEX_SERVICE_CREATED 1
     ${Else}
-      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The newly created Zen Canvas Global Index service did not retain the current canonical ImagePath."
+      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The newly created Fylura Global Index service did not retain the current canonical ImagePath."
       Call FailZenCanvasPostInstall
     ${EndIf}
 
-    nsExec::ExecToStack '"$SYSDIR\sc.exe" description "${ZC_INDEX_SERVICE_NAME}" "Enumerates local Windows volume metadata for Zen Canvas global search."'
+    nsExec::ExecToStack '"$SYSDIR\sc.exe" description "${ZC_INDEX_SERVICE_NAME}" "Enumerates local Windows volume metadata for Fylura global search."'
     Pop $0
     Pop $1
     ${If} $0 != 0
@@ -2155,12 +2186,12 @@ Function InstallZenCanvasIndexService
       DetailPrint "Warning: service recovery policy could not be configured: $1"
     ${EndIf}
   ${Else}
-    DetailPrint "Using the existing Zen Canvas Global Index service with its exact current ImagePath."
+    DetailPrint "Using the existing Fylura Global Index service with its exact current ImagePath."
   ${EndIf}
 
   Call EnsureZenCanvasIndexServiceRunning
   ${If} $ZC_INDEX_SERVICE_READY != 1
-    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas Global Index service could not be proven exact-owned and stably RUNNING within the bounded readiness window."
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Fylura Global Index service could not be proven exact-owned and stably RUNNING within the bounded readiness window."
     Call FailZenCanvasPostInstall
   ${EndIf}
   Return
@@ -2186,11 +2217,12 @@ FunctionEnd
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
   StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
+  Call ValidateLegacyZenCanvasIndexServiceAbsent
   Call ValidateZenCanvasPreexistingProduct
   Call ValidateZenCanvasIndexServiceOwnership
   ${If} $ZC_PREEXISTING_PRODUCT == 0
     ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 1
-      MessageBox MB_ICONSTOP|MB_OK "A Zen Canvas Global Index service already exists without consistent Tauri product metadata. Installation was not changed." /SD IDOK
+      MessageBox MB_ICONSTOP|MB_OK "A Fylura Global Index service already exists without consistent Tauri product metadata. Installation was not changed." /SD IDOK
       Abort
     ${EndIf}
   ${EndIf}
@@ -2259,7 +2291,7 @@ FunctionEnd
   Call un.CaptureZenCanvasOriginalServiceState
   Call un.CheckZenCanvasPreDeleteProductEvidence
   ${If} $ZC_UNINSTALL_PREDELETE_COHERENT != 1
-    MessageBox MB_ICONSTOP|MB_OK "The installed Zen Canvas product could not be verified as a coherent pre-delete installation. Uninstall was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The installed Fylura product could not be verified as a coherent pre-delete installation. Uninstall was not changed." /SD IDOK
     Abort
   ${EndIf}
   StrCpy $ZC_UNINSTALL_PREDELETE_EVIDENCE_CAPTURED 1

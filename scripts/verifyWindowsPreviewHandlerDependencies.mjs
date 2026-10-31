@@ -6,7 +6,7 @@ const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const expectedFileName = "zen_canvas_windows_preview_handler.dll";
+const expectedFileName = "fylura_windows_preview_handler.dll";
 const defaultDllPath = path.join(
   repositoryRoot,
   "src-tauri",

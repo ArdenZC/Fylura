@@ -23,7 +23,7 @@ const nativeTargetDirectory = path.join(
 const nativeDllPath = path.join(
   nativeTargetDirectory,
   "release",
-  "zen_canvas_windows_preview_handler.dll",
+  "fylura_windows_preview_handler.dll",
 );
 const packageResourceDirectory = path.join(
   repositoryRoot,
@@ -33,7 +33,7 @@ const packageResourceDirectory = path.join(
 );
 const packageResourcePath = path.join(
   packageResourceDirectory,
-  "zen_canvas_windows_preview_handler.dll",
+  "fylura_windows_preview_handler.dll",
 );
 const staticCrtRustflag = "-C target-feature=+crt-static";
 const staticCrtEncodedRustflags = ["-C", "target-feature=+crt-static"].join(

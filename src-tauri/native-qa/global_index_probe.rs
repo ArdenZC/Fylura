@@ -1,11 +1,11 @@
+use fylura_tauri::db::Database;
 use serde_json::{json, Value};
 use std::error::Error;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
-use zen_canvas_tauri::db::Database;
 
 #[cfg(windows)]
-use zen_canvas_tauri::global_index::{
+use fylura_tauri::global_index::{
     models::PROVIDER_WINDOWS_MFT_USN, windows::volumes::discover_windows_volumes,
 };
 
@@ -15,7 +15,7 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
         return Err("profile root must be absolute".into());
     }
     let target_mount_path = target_mount_path.trim_end_matches(['\\', '/']);
-    let database = Database::open(profile_root.join("zen-canvas.sqlite3"))?;
+    let database = Database::open(profile_root.join("fylura.sqlite3"))?;
     let mut target_source = None;
 
     for mut source in discover_windows_volumes()? {
@@ -114,7 +114,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         #[cfg(windows)]
         {
-            let result = zen_canvas_tauri::global_index::windows::smart_lean_qa::run(
+            let result = fylura_tauri::global_index::windows::smart_lean_qa::run(
                 std::path::Path::new(&arguments[1]),
                 &arguments[2],
                 std::path::Path::new(&arguments[3]),
@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !profile_root.is_absolute() {
         return Err("ZC_NATIVE_QA_PROFILE_ROOT must be absolute".into());
     }
-    let database = Database::open(profile_root.join("zen-canvas.sqlite3"))?;
+    let database = Database::open(profile_root.join("fylura.sqlite3"))?;
     let stdin = io::stdin();
     let mut stdout = io::BufWriter::new(io::stdout().lock());
 

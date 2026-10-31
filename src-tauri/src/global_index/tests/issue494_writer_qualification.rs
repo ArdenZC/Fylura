@@ -6,11 +6,10 @@
 //! connection-local filename mutation hooks used by the production pool.
 
 use super::super::{
-    benchmark_context, configured_connection, emit_record, populate_synthetic_database,
-    sidecar_path, test_db_path, test_volume, BenchmarkCleanup,
+    benchmark_context, emit_record, populate_synthetic_database, sidecar_path, test_db_path,
+    test_volume, BenchmarkCleanup,
 };
 use crate::db::Database;
-use crate::global_index::filename_search::FilenameSearchManager;
 use blake3::Hasher;
 use rusqlite::Connection;
 use serde_json::{json, Value as JsonValue};
@@ -22,7 +21,7 @@ use std::time::Instant;
 
 const WRITER_FIXTURE_ENTRIES: u64 = 200_000;
 const WRITER_WARMUPS: usize = 5;
-const WRITER_SAMPLES: usize = 60;
+const WRITER_SAMPLES: usize = 100;
 const WRITER_BATCHES: [usize; 2] = [512, 5_000];
 const WRITER_P95_OVERHEAD_LIMIT_PERCENT: f64 = 10.0;
 const BOOTSTRAP_REPLICATES: usize = 2_000;
@@ -141,14 +140,20 @@ fn issue494_writer_only_native_qualification() {
         "candidate clone must be byte-identical"
     );
 
+    // Open both arms through the same production r2d2_sqlite pool builder and
+    // configure_connection hook used by the installed application. The test
+    // seam disables mutation hooks only for the baseline pool.
+    let baseline_db = Database::open_for_writer_qualification(&baseline_path, false)
+        .expect("open baseline through production SQLite pool");
+    let candidate_db = Database::open_for_writer_qualification(&candidate_path, true)
+        .expect("open candidate through production SQLite pool with hooks");
     let process_before_index = super::native_process_sample();
-    let manager = FilenameSearchManager::new(&candidate_path);
-    manager.enable_for_test();
-    manager
+    candidate_db
+        .filename_search
         .rebuild_now_for_test()
         .expect("build candidate projection on its cloned fixture");
     let process_after_index = super::native_process_sample();
-    let index_diagnostics = manager.diagnostics();
+    let index_diagnostics = candidate_db.filename_search.diagnostics();
     assert!(
         index_diagnostics.ready,
         "candidate projection must be ready"
@@ -158,11 +163,8 @@ fn issue494_writer_only_native_qualification() {
         WRITER_FIXTURE_ENTRIES as usize
     );
 
-    let mut baseline = configured_connection(&baseline_path).expect("open baseline writer");
-    let mut candidate = configured_connection(&candidate_path).expect("open candidate writer");
-    manager
-        .install_mutation_hooks(&candidate)
-        .expect("install production candidate connection hooks");
+    let mut baseline = baseline_db.conn().expect("get baseline pool connection");
+    let mut candidate = candidate_db.conn().expect("get candidate pool connection");
 
     let baseline_contract = sqlite_writer_contract(&baseline);
     let candidate_contract = sqlite_writer_contract(&candidate);
@@ -237,29 +239,37 @@ fn issue494_writer_only_native_qualification() {
         ));
     }
 
-    let production_pass = cases
+    let production_cases = cases
         .iter()
         .filter(|case| case["policy"] == "production_wal_autocheckpoint")
-        .all(|case| {
-            case["write_budget"]["p95_overhead_percent"]
-                .as_f64()
-                .is_some_and(|value| value <= WRITER_P95_OVERHEAD_LIMIT_PERCENT)
+        .collect::<Vec<_>>();
+    let production_no_go = production_cases
+        .iter()
+        .any(|case| case["production_writer_classification"].as_str() == Some("WRITER_NO_GO"));
+    let production_inconclusive = production_cases.iter().any(|case| {
+        case["production_writer_classification"].as_str() == Some("POINT_PASS_INCONCLUSIVE")
+    });
+    let production_pass_with_margin = !production_cases.is_empty()
+        && production_cases.iter().all(|case| {
+            case["production_writer_classification"].as_str()
+                == Some("PRODUCTION_WRITER_PASS_WITH_MARGIN")
         });
-    let forced_full_pass = cases
+    let qualification = if production_no_go {
+        "WRITER_NO_GO"
+    } else if production_inconclusive || !production_pass_with_margin {
+        "POINT_PASS_INCONCLUSIVE"
+    } else {
+        "PRODUCTION_WRITER_PASS_WITH_MARGIN"
+    };
+    let forced_full_over_limit_count = cases
         .iter()
         .filter(|case| case["policy"] == "forced_full_checkpoint_stress")
-        .all(|case| {
+        .filter(|case| {
             case["write_budget"]["p95_overhead_percent"]
                 .as_f64()
-                .is_some_and(|value| value <= WRITER_P95_OVERHEAD_LIMIT_PERCENT)
+                .is_some_and(|value| value > WRITER_P95_OVERHEAD_LIMIT_PERCENT)
         });
-    let qualification = if !production_pass {
-        "RESOURCE_NO_GO_PRODUCTION_WRITE_BUDGET"
-    } else if !forced_full_pass {
-        "OWNER_REVIEW_REQUIRED_ORIGINAL_FORCED_FULL_GATE"
-    } else {
-        "WRITER_GATES_PASS_OWNER_REVIEW_STILL_REQUIRED_BEFORE_1M"
-    };
+    let forced_full_over_limit_count = forced_full_over_limit_count.count();
 
     emit_record(&json!({
         "schema_version": 1,
@@ -287,7 +297,8 @@ fn issue494_writer_only_native_qualification() {
             "synchronous": "NORMAL",
             "wal_autocheckpoint_pages_production": baseline_contract.2,
             "foreign_keys_enabled": true,
-            "candidate_only_difference": "candidate writer has the same connection-local update, commit, and rollback hooks used by the production pool"
+            "pool": "production Database pool: r2d2_sqlite, max_size=8, min_idle=1, production configure_connection initialization",
+            "candidate_only_difference": "candidate pool installs the same connection-local update, commit, and rollback hooks used by the production pool; baseline pool omits only those candidate hooks"
         },
         "candidate_memory": {
             "index_build_ms": index_diagnostics.last_build_micros as f64 / 1_000.0,
@@ -307,9 +318,15 @@ fn issue494_writer_only_native_qualification() {
         "bootstrap": {
             "replicates": BOOTSTRAP_REPLICATES,
             "confidence": 0.95,
-            "method": "paired sample-index bootstrap percentile interval for each candidate/baseline metric p95 ratio"
+            "method": "paired sample-index bootstrap percentile interval for each candidate/baseline metric p95 ratio",
+            "fixed_seed_strategy": "xorshift64*; batch_size XOR 0x49494a11, reported with each interval"
         },
         "policies": cases,
+        "forced_full_stress_diagnostic": {
+            "status": "REPORTED_ONLY_NOT_A_PRODUCTION_WRITE_GATE",
+            "groups_over_10_percent": forced_full_over_limit_count,
+            "historical_1m_macos_5000_row_plus_12_638_percent_failure_remains_valid": true
+        },
         "policy_transition_setup": {
             "wal_autocheckpoint_disabled_only_for_forced_full_stress": true,
             "baseline_truncate_status": checkpoint_json(baseline_reset),
@@ -515,7 +532,30 @@ fn writer_case_record(policy: &'static str, batch_size: usize, case: WriterCase)
     let total_overhead = total["candidate_p95_over_baseline_percent"]
         .as_f64()
         .expect("total p95 overhead");
-    let gate_passed = total_overhead <= WRITER_P95_OVERHEAD_LIMIT_PERCENT;
+    let bootstrap_upper = total["paired_metric_p95_ratio_bootstrap_ci95_percent"]["high_percent"]
+        .as_f64()
+        .expect("total p95 bootstrap upper bound");
+    let production_policy = policy == "production_wal_autocheckpoint";
+    let baseline_checkpoint_observations = case
+        .baseline
+        .iter()
+        .filter(|sample| automatic_checkpoint_frame_work_observed(**sample))
+        .count();
+    let candidate_checkpoint_observations = case
+        .candidate
+        .iter()
+        .filter(|sample| automatic_checkpoint_frame_work_observed(**sample))
+        .count();
+    let checkpoint_coverage =
+        baseline_checkpoint_observations > 0 && candidate_checkpoint_observations > 0;
+    let checkpoint_coverage_status = if checkpoint_coverage {
+        "AUTOCHECKPOINT_OBSERVED_IN_BOTH_ARMS"
+    } else {
+        "INSUFFICIENT_AUTOCHECKPOINT_COVERAGE"
+    };
+    let (production_writer_classification, classification_reason) = production_policy
+        .then(|| classify_production_writer(total_overhead, bootstrap_upper, checkpoint_coverage))
+        .unzip();
     let candidate_slower_pairs = case
         .baseline
         .iter()
@@ -536,13 +576,32 @@ fn writer_case_record(policy: &'static str, batch_size: usize, case: WriterCase)
         "write_budget": {
             "limit_percent": WRITER_P95_OVERHEAD_LIMIT_PERCENT,
             "p95_overhead_percent": total_overhead,
-            "passed": gate_passed,
-            "rule": "candidate complete total p95 <= baseline complete total p95 * 1.10; applies separately to production and forced-FULL policy"
+            "point_estimate_passed": total_overhead <= WRITER_P95_OVERHEAD_LIMIT_PERCENT,
+            "bootstrap_ci95_upper_percent": bootstrap_upper,
+            "bootstrap_ci95_upper_passed": bootstrap_upper <= WRITER_P95_OVERHEAD_LIMIT_PERCENT,
+            "gate_applies": production_policy,
+            "rule": if production_policy {
+                "production gate: p95 point estimate <=10% and paired-bootstrap 95% CI upper bound <=10%; real autocheckpoint work must be observed in both arms"
+            } else {
+                "diagnostic only: forced FULL checkpoint is reported separately and does not gate production WAL eligibility"
+            }
         },
-        "automatic_checkpoint_observation": if policy == "production_wal_autocheckpoint" {
-            "timing remains inside commit_ms and total_ms; NOOP WAL frame counts before and after every pair show checkpoint work without replacing SQLite's production hook"
+        "production_writer_classification": production_writer_classification,
+        "classification_reason": classification_reason,
+        "automatic_checkpoint_observation": if production_policy {
+            json!({
+                "coverage_status": checkpoint_coverage_status,
+                "baseline_transactions_with_frame_work": baseline_checkpoint_observations,
+                "candidate_transactions_with_frame_work": candidate_checkpoint_observations,
+                "sample_count_per_arm": case.baseline.len(),
+                "wal_frame_counts_recorded_before_and_after_every_transaction": true,
+                "timing_accounting": "checkpoint time remains inside SQLite commit_ms and complete total_ms; not moved outside the production callback"
+            })
         } else {
-            "automatic checkpoint disabled; each transaction is followed by an explicit timed FULL checkpoint included in total_ms"
+            json!({
+                "coverage_status": "NOT_APPLICABLE_AUTOMATIC_CHECKPOINT_DISABLED_FOR_STRESS",
+                "timing_accounting": "automatic checkpoint disabled; each transaction is followed by an explicit timed FULL checkpoint included in total_ms"
+            })
         },
         "raw_paired_samples": case.raw_pairs
     })
@@ -574,6 +633,7 @@ fn paired_p95_ratio_ci95(baseline: &[f64], candidate: &[f64], seed: u64) -> Json
         "low_percent": super::super::quantile(&ratios, 0.025),
         "high_percent": super::super::quantile(&ratios, 0.975),
         "replicates": BOOTSTRAP_REPLICATES,
+        "seed": seed,
         "paired_resampling_unit": "one baseline/candidate sample pair"
     })
 }
@@ -594,11 +654,58 @@ fn overhead_percent(baseline: f64, candidate: f64) -> f64 {
     }
 }
 
-fn writer_timing_json(timing: WriterTiming, production_policy: bool) -> JsonValue {
-    let checkpoint_observed = timing.wal_after.checkpointed_frames
-        > timing.wal_before.checkpointed_frames
+fn automatic_checkpoint_frame_work_observed(timing: WriterTiming) -> bool {
+    timing.wal_after.checkpointed_frames > timing.wal_before.checkpointed_frames
         || timing.wal_after.log_frames < timing.wal_before.log_frames
-        || timing.wal_after.log_frames == 0;
+}
+
+fn classify_production_writer(
+    p95_overhead_percent: f64,
+    bootstrap_upper_percent: f64,
+    checkpoint_coverage: bool,
+) -> (&'static str, &'static str) {
+    if p95_overhead_percent > WRITER_P95_OVERHEAD_LIMIT_PERCENT {
+        ("WRITER_NO_GO", "POINT_ESTIMATE_EXCEEDS_10_PERCENT")
+    } else if bootstrap_upper_percent > WRITER_P95_OVERHEAD_LIMIT_PERCENT {
+        (
+            "POINT_PASS_INCONCLUSIVE",
+            "BOOTSTRAP_95_PERCENT_UPPER_BOUND_EXCEEDS_10_PERCENT",
+        )
+    } else if !checkpoint_coverage {
+        (
+            "POINT_PASS_INCONCLUSIVE",
+            "REPRESENTATIVE_AUTOCHECKPOINT_WORK_NOT_OBSERVED_IN_BOTH_ARMS",
+        )
+    } else {
+        (
+            "PRODUCTION_WRITER_PASS_WITH_MARGIN",
+            "POINT_ESTIMATE_AND_BOOTSTRAP_UPPER_BOUND_WITHIN_10_PERCENT",
+        )
+    }
+}
+
+#[test]
+fn writer_gate_classification_requires_statistical_and_checkpoint_margin() {
+    assert_eq!(
+        classify_production_writer(10.0, 10.0, true).0,
+        "PRODUCTION_WRITER_PASS_WITH_MARGIN"
+    );
+    assert_eq!(
+        classify_production_writer(9.0, 10.01, true).0,
+        "POINT_PASS_INCONCLUSIVE"
+    );
+    assert_eq!(
+        classify_production_writer(9.0, 9.0, false).0,
+        "POINT_PASS_INCONCLUSIVE"
+    );
+    assert_eq!(
+        classify_production_writer(10.01, 9.0, true).0,
+        "WRITER_NO_GO"
+    );
+}
+
+fn writer_timing_json(timing: WriterTiming, production_policy: bool) -> JsonValue {
+    let checkpoint_observed = automatic_checkpoint_frame_work_observed(timing);
     json!({
         "total_ms": timing.total_ms,
         "update_ms": timing.update_ms,

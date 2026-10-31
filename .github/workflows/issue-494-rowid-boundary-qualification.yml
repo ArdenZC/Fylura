@@ -82,6 +82,11 @@ jobs:
           foreach ($path in $changed) {
             if ($path -eq $writerTest -or $path -eq $candidateHarness -or
                 $path -eq $millionHelper -or $path -eq $evidenceValidator -or $path -eq $workflow) { continue }
+            # The writer-only case changes connection.rs solely to expose the
+            # production pool builder to its baseline/candidate test arms. Its
+            # dedicated dual-platform writer job exercises that seam; avoid a
+            # separate 100k/200k search performance matrix for the same commit.
+            if ($path -eq 'src-tauri/src/db/connection.rs' -and $changed -contains $writerTest) { continue }
             if (
               $path -eq 'src-tauri/Cargo.toml' -or
               $path -eq 'src-tauri/Cargo.lock' -or

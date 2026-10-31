@@ -86,6 +86,26 @@ impl Database {
         path: impl AsRef<Path>,
         cancel: super::upgrade::UpgradeCancellation,
     ) -> Result<Self, DbError> {
+        Self::open_with_connection_hook_policy(path, cancel, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_for_writer_qualification(
+        path: impl AsRef<Path>,
+        install_candidate_hooks: bool,
+    ) -> Result<Self, DbError> {
+        Self::open_with_connection_hook_policy(
+            path,
+            Arc::new(AtomicBool::new(false)),
+            Some(install_candidate_hooks),
+        )
+    }
+
+    fn open_with_connection_hook_policy(
+        path: impl AsRef<Path>,
+        cancel: super::upgrade::UpgradeCancellation,
+        _test_hook_policy: Option<bool>,
+    ) -> Result<Self, DbError> {
         super::upgrade::check_cancelled(&cancel)?;
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
@@ -93,10 +113,19 @@ impl Database {
         }
 
         let filename_search = Arc::new(FilenameSearchManager::new(&path));
+        #[cfg(test)]
+        if let Some(enabled) = _test_hook_policy {
+            filename_search.set_enabled_for_test(enabled);
+        }
         let hook_manager = Arc::clone(&filename_search);
         let manager = SqliteConnectionManager::file(&path).with_init(move |connection| {
             configure_connection(connection)?;
-            if hook_manager.should_install_mutation_hooks() {
+            #[cfg(test)]
+            let install_hooks =
+                _test_hook_policy.unwrap_or_else(|| hook_manager.should_install_mutation_hooks());
+            #[cfg(not(test))]
+            let install_hooks = hook_manager.should_install_mutation_hooks();
+            if install_hooks {
                 hook_manager.install_mutation_hooks(connection)?;
             }
             Ok(())

@@ -1,0 +1,158 @@
+name: macOS Tahoe Tray M0-M3 diagnostics
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/macos-tahoe-tray-diagnostics.yml'
+      - 'scripts/qualifyMacosTrayMatrix.py'
+      - 'scripts/diagnoseMacosStartup.py'
+      - 'src-tauri/src/main.rs'
+      - 'src-tauri/src/app_control.rs'
+      - 'src-tauri/Cargo.lock'
+      - 'src-tauri/tauri.conf.json'
+      - 'build/icon.png'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-tray-m0-m3-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  CARGO_BUILD_JOBS: 2
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
+
+jobs:
+  hosted-macos-matrix:
+    name: Cold launches / macOS Tahoe arm64
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Create task-owned artifact directory
+        run: mkdir -p .performance-artifacts/macos-tray-m0-m3/build .performance-artifacts/macos-tray-m0-m3/attempts
+
+      - name: Verify Apple Silicon Tahoe runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          macos_version="$(sw_vers -productVersion)"
+          case "$macos_version" in
+            26.*) ;;
+            *) echo "Expected macOS Tahoe 26.x, received $macos_version" >&2; exit 1 ;;
+          esac
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          sw_vers
+          rustc -vV
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked frontend dependencies
+        run: npm ci
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: macos-tahoe-tray-native-qa-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Build one locked native-qa app candidate
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir=".performance-artifacts/macos-tray-m0-m3/build"
+          task_config="$RUNNER_TEMP/macos-tray-m0-m3-tauri.json"
+          if test -e "$task_config"; then
+            echo "refusing pre-existing task config: $task_config" >&2
+            exit 1
+          fi
+          trap 'rm -f "$task_config"' EXIT
+          printf '{"mainBinaryName":"zen-canvas"}\n' > "$task_config"
+          source_head="$(git rev-parse HEAD)"
+          source_tree="$(git rev-parse 'HEAD^{tree}')"
+          lock_before="$(shasum -a 256 src-tauri/Cargo.lock | awk '{print $1}')"
+          build_status=0
+          npx tauri build --features "desktop-runtime,native-qa" --bundles app --config "$task_config" -- --locked > "$artifact_dir/candidate-build.log" 2>&1 || build_status=$?
+          lock_after="$(shasum -a 256 src-tauri/Cargo.lock | awk '{print $1}')"
+          app_bundle="src-tauri/target/release/bundle/macos/Zen Canvas.app"
+          executable="$app_bundle/Contents/MacOS/zen-canvas"
+          candidate_zip="$artifact_dir/Zen-Canvas-native-qa.app.zip"
+          if test "$build_status" -eq 0 && test -f "$executable"; then
+            ditto -c -k --sequesterRsrc --keepParent "$app_bundle" "$candidate_zip"
+          fi
+          export BUILD_STATUS="$build_status"
+          export SOURCE_HEAD="$source_head"
+          export SOURCE_TREE="$source_tree"
+          export LOCK_BEFORE="$lock_before"
+          export LOCK_AFTER="$lock_after"
+          export APP_BUNDLE="$app_bundle"
+          export EXECUTABLE="$executable"
+          export CANDIDATE_ZIP="$candidate_zip"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          result = {
+              "sourceHead": os.environ["SOURCE_HEAD"],
+              "sourceTree": os.environ["SOURCE_TREE"],
+              "expectedSourceSha": os.environ["EXPECTED_SOURCE_SHA"],
+              "buildExitCode": int(os.environ["BUILD_STATUS"]),
+              "cargoLockSha256Before": os.environ["LOCK_BEFORE"],
+              "cargoLockSha256After": os.environ["LOCK_AFTER"],
+              "cargoLockUnchanged": os.environ["LOCK_BEFORE"] == os.environ["LOCK_AFTER"],
+              "bundlePath": os.environ["APP_BUNDLE"],
+          }
+          executable = pathlib.Path(os.environ["EXECUTABLE"])
+          if executable.is_file():
+              result["executableSha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
+          archive = pathlib.Path(os.environ["CANDIDATE_ZIP"])
+          if archive.is_file():
+              result["candidateArchiveSha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
+          pathlib.Path(".performance-artifacts/macos-tray-m0-m3/build/candidate-build.json").write_text(
+              json.dumps(result, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+          test "$source_head" = "$EXPECTED_SOURCE_SHA"
+          test "$lock_before" = "$lock_after"
+          test "$build_status" -eq 0
+          test -f "$executable"
+
+      - name: Run controlled M0-M3 launches and bounded LLDB capture
+        if: steps.candidate.outcome == 'success'
+        shell: bash
+        run: |
+          python3 scripts/qualifyMacosTrayMatrix.py \
+            'src-tauri/target/release/bundle/macos/Zen Canvas.app/Contents/MacOS/zen-canvas' \
+            '.performance-artifacts/macos-tray-m0-m3/attempts'
+
+      - name: Upload candidate and all attempt evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-tahoe-tray-m0-m3-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .performance-artifacts/macos-tray-m0-m3
+          if-no-files-found: warn
+          retention-days: 90

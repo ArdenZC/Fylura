@@ -54,11 +54,17 @@ def main():
     task = pathlib.Path(tempfile.mkdtemp(prefix='resident-startup-lldb-', dir=runner_temp)).resolve()
     for name in ('profile', 'home', 'temp'):
         (task / name).mkdir()
+    for name in ('.config', '.local/share', '.cache'):
+        (task / 'home' / name).mkdir(parents=True)
     env = dict(os.environ,
                ZC_NATIVE_QA_PROFILE_ROOT=str(task / 'profile'),
                ZC_GLOBAL_INDEX_QA_TRACE=str(task / 'global-index-trace.log'),
                HOME=str(task / 'home'),
-               TMPDIR=str(task / 'temp'))
+               CFFIXED_USER_HOME=str(task / 'home'),
+               TMPDIR=str(task / 'temp'),
+               XDG_CONFIG_HOME=str(task / 'home' / '.config'),
+               XDG_DATA_HOME=str(task / 'home' / '.local' / 'share'),
+               XDG_CACHE_HOME=str(task / 'home' / '.cache'))
     evidence = {
         **identity,
         'classification': 'DIAGNOSTIC UNAVAILABLE',

@@ -485,6 +485,10 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     if target_exists && !(cfg!(target_os = "macos") && same_macos_namespace_entry(source, target)) {
         return Err(AtomicMoveError::TargetExists);
     }
+    // Windows reparse points must not enter a mutation path. On macOS the
+    // namespace identity layer represents symlinks without following them,
+    // and atomic rename preserves the link itself (not its target).
+    #[cfg(not(target_os = "macos"))]
     identity::ensure_supported_entry(source).map_err(map_identity_error)?;
     let namespace_directory_operation = matches!(
         operation,

@@ -899,7 +899,10 @@ fn native_file_hardening_smoke() {
                     target_path: directory_target.to_string_lossy().into_owned(),
                     old_name: "cross-volume-directory".to_string(),
                     new_name: "cross-volume-directory".to_string(),
-                    is_executable: Some(false),
+                    // This isolated fixture meets the transfer preconditions;
+                    // keep the preview executable so the smoke reaches the
+                    // Windows cross-volume directory transaction.
+                    is_executable: Some(true),
                 }],
             },
         )

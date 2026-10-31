@@ -545,21 +545,18 @@ pub(crate) fn copy_commit_source_stable(
             // one destination link per source (dev, inode) pair.
             cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
             let destination = create_staging_directory(target_parent.raw_fd(), &staging_name)?;
-            let mut hardlinks = HashMap::new();
-            let mut entry_count = 0usize;
             let source_root_device = {
                 use std::os::unix::fs::MetadataExt;
                 handle.metadata().map_err(AtomicMoveError::Io)?.dev()
             };
+            let mut state = DirectoryCopyState::new(source_root_device);
             copy_tree_from_fd(
                 handle.as_raw_fd(),
                 destination.as_raw_fd(),
                 destination.as_raw_fd(),
                 Path::new(""),
-                &mut hardlinks,
-                source_root_device,
+                &mut state,
                 0,
-                &mut entry_count,
                 cancel,
             )?;
             let metadata = handle.metadata().map_err(AtomicMoveError::Io)?;
@@ -801,21 +798,18 @@ fn copy_object(
                 .ok_or(AtomicMoveError::UnsafePath)?;
             cleanup_staging_at(target_parent_fd, staging_name, None);
             let destination = create_staging_directory(target_parent_fd, staging_name)?;
-            let mut hardlinks = HashMap::new();
-            let mut entry_count = 0usize;
             let source_root_device = {
                 use std::os::unix::fs::MetadataExt;
                 source.metadata().map_err(AtomicMoveError::Io)?.dev()
             };
+            let mut state = DirectoryCopyState::new(source_root_device);
             copy_tree_from_fd(
                 source.as_raw_fd(),
                 destination.as_raw_fd(),
                 destination.as_raw_fd(),
                 Path::new(""),
-                &mut hardlinks,
-                source_root_device,
+                &mut state,
                 0,
-                &mut entry_count,
                 cancel,
             )?;
             let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
@@ -1272,31 +1266,45 @@ fn open_file_at_directory(parent_fd: RawFd, name: &OsStr) -> Result<File, Atomic
     open_directory_at(parent_fd, name.as_c_str())
 }
 
+struct DirectoryCopyState {
+    hardlinks: HashMap<(u64, u64), PathBuf>,
+    source_root_device: u64,
+    entry_count: usize,
+}
+
+impl DirectoryCopyState {
+    fn new(source_root_device: u64) -> Self {
+        Self {
+            hardlinks: HashMap::new(),
+            source_root_device,
+            entry_count: 0,
+        }
+    }
+}
+
 fn copy_tree_from_fd(
     source_fd: RawFd,
     destination_fd: RawFd,
     destination_root_fd: RawFd,
     relative_prefix: &Path,
-    hardlinks: &mut HashMap<(u64, u64), PathBuf>,
-    source_root_device: u64,
+    state: &mut DirectoryCopyState,
     depth: usize,
-    entry_count: &mut usize,
     cancel: Option<&AtomicBool>,
 ) -> Result<(), AtomicMoveError> {
     if depth >= crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT {
         return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
     }
-    let remaining =
-        crate::fs_safety::identity::DIRECTORY_IDENTITY_ENTRY_LIMIT.saturating_sub(*entry_count);
+    let remaining = crate::fs_safety::identity::DIRECTORY_IDENTITY_ENTRY_LIMIT
+        .saturating_sub(state.entry_count);
     for name in directory_entry_names_bounded(source_fd, remaining)? {
         if is_cancelled(cancel) {
             return Err(AtomicMoveError::Cancelled);
         }
-        *entry_count += 1;
+        state.entry_count += 1;
         let source_identity =
             crate::platform::macos::identity::MacPhysicalIdentity::from_at(source_fd, &name)
                 .map_err(AtomicMoveError::Io)?;
-        if source_identity.dev != source_root_device {
+        if source_identity.dev != state.source_root_device {
             return Err(AtomicMoveError::DirectoryNestedVolumeUnsupported);
         }
         let relative_path = relative_prefix.join(&name);
@@ -1313,10 +1321,8 @@ fn copy_tree_from_fd(
                     destination_directory.as_raw_fd(),
                     destination_root_fd,
                     &relative_path,
-                    hardlinks,
-                    source_root_device,
+                    state,
                     depth + 1,
-                    entry_count,
                     cancel,
                 )?;
                 let metadata = source_directory.metadata().map_err(AtomicMoveError::Io)?;
@@ -1329,7 +1335,7 @@ fn copy_tree_from_fd(
             value if value == libc::S_IFREG as u32 => {
                 let key = (source_identity.dev, source_identity.ino);
                 if source_identity.nlink > 1 {
-                    if let Some(first_path) = hardlinks.get(&key) {
+                    if let Some(first_path) = state.hardlinks.get(&key) {
                         linkat(destination_root_fd, first_path, destination_fd, &name)?;
                     } else {
                         let source_file = open_file_at(source_fd, &name)?;
@@ -1338,7 +1344,7 @@ fn copy_tree_from_fd(
                         let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
                         copy_fd_metadata(&metadata, &destination_file)?;
                         destination_file.sync_all().map_err(AtomicMoveError::Io)?;
-                        hardlinks.insert(key, relative_path.clone());
+                        state.hardlinks.insert(key, relative_path.clone());
                     }
                 } else {
                     let source_file = open_file_at(source_fd, &name)?;
@@ -1937,21 +1943,18 @@ fn publish_directory_exclusive(
         return Err(AtomicMoveError::StagingIdentityChanged);
     }
     let destination = create_staging_directory(parent_fd, target_name)?;
-    let mut hardlinks = HashMap::new();
-    let mut entry_count = 0usize;
     let source_root_device = {
         use std::os::unix::fs::MetadataExt;
         source.metadata().map_err(AtomicMoveError::Io)?.dev()
     };
+    let mut state = DirectoryCopyState::new(source_root_device);
     if copy_tree_from_fd(
         source.as_raw_fd(),
         destination.as_raw_fd(),
         destination.as_raw_fd(),
         Path::new(""),
-        &mut hardlinks,
-        source_root_device,
+        &mut state,
         0,
-        &mut entry_count,
         cancel,
     )
     .is_err()

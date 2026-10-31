@@ -594,14 +594,15 @@ impl FileWorkspaceRuntime {
             validate_tree_guard(guard)?;
         }
         for operation in &plan.operations {
-            revalidate(operation).map_err(|error| {
+            let revalidation = revalidate(operation);
+            if let Err(error) = &revalidation {
                 #[cfg(test)]
                 eprintln!(
                     "transfer stale at take: revalidation error={error} op={} source={} target={}",
                     operation.id, operation.source_path, operation.target_path
                 );
-                error
-            })?;
+            }
+            revalidation?;
         }
         Ok(ExecuteMovesRequest {
             operations: plan.operations,

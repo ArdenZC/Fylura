@@ -652,9 +652,19 @@ fn u1_macos_directory_copy_move_and_restore_reuse_the_existing_tree_transaction(
 
 #[cfg(target_os = "macos")]
 struct IsolatedApfsVolume {
-    _root: tempfile::TempDir,
+    _root: TaskApfsDirectory,
     mountpoint: PathBuf,
     attached: bool,
+}
+
+#[cfg(target_os = "macos")]
+struct TaskApfsDirectory(PathBuf);
+
+#[cfg(target_os = "macos")]
+impl Drop for TaskApfsDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -662,10 +672,16 @@ impl IsolatedApfsVolume {
     fn create() -> Option<Self> {
         use std::process::Command;
 
-        let root = tempfile::tempdir().expect("task-owned APFS image directory");
-        let mountpoint = root.path().join("mount");
+        let root_path = std::env::temp_dir().join(format!(
+            "fylura-fl23-apfs-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir(&root_path).expect("task-owned APFS image directory");
+        let root = TaskApfsDirectory(root_path);
+        let mountpoint = root.0.join("mount");
         fs::create_dir(&mountpoint).expect("APFS mountpoint");
-        let image = root.path().join("fixture.sparseimage");
+        let image = root.0.join("fixture.sparseimage");
         let name = format!("FyluraFL23-{}", uuid::Uuid::new_v4());
         let created = Command::new("hdiutil")
             .args([
@@ -694,6 +710,10 @@ impl IsolatedApfsVolume {
             return None;
         };
         if !attached.status.success() {
+            let _ = Command::new("hdiutil")
+                .args(["detach", "-quiet", "-force"])
+                .arg(&mountpoint)
+                .output();
             panic!(
                 "APFS-capable macOS host could not attach isolated APFS image: {}",
                 String::from_utf8_lossy(&attached.stderr).trim()

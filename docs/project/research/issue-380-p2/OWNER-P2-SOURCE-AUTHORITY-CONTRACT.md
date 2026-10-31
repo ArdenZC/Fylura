@@ -1,0 +1,65 @@
+# #380-P2 — Durable Rebuild Intent and Source Operation Ownership
+**Owner source-grounded implementation contract — 2026-10-14**
+**Stage:** `P2_SOURCE_AUTHORITY_DESIGN_READY_FOR_OWNER_REVIEW`; **production code remains NO-GO** until explicit dependency/Schema gate. Zen Canvas is unreleased and under active development; no released-client upgrade matrix.
+
+## Source anchors and scope boundary
+
+- Verified master HEAD `3275ac7c72df8ae4139a30f16c7f649971324e97`, Tree `009576241cd4e8e2ba12cc644a368314f599faa6`, Schema **37**. P1 `#398` HEAD `2594bb67ec0d7d6efbb6812530fc1c28500fd039`, Tree `2a6e7543aeb80ea40b7a05fd78108887e8e4bee9`, manually scoped Owner ACCEPTED, exact-head CI `38434202124` SUCCESS. **#398 remains OPEN/Draft and has NOT reached master.**
+- #381 B4-P0 `#401` is OPEN/Draft and conditionally reserves **Schema 38 for File Library dormant tables**. The earlier blocked #383 also has a **provisional unaccepted** version38 trigger change which Owner superseded. **#380 P2 MUST NOT allocate v38 or silently choose v39.** Re-evaluate version only after merge/authorization of whichever unique schema migration lands first; if master changes, STOP and rebaseline.
+- D3 `#397` accepted Option A: no novel Offer/Grant wire is required if verified IPC v3 `Sources` admission and a single desktop-owned DB Sink fence all accepted effects. Actual producer and Service busyness remain separate from WorkScheduler resource admission. Do not confuse ServiceBusy with SQLite BUSY(5) `#328`.
+- #393 current-code diagnostic proves public `rebuild()` can mutate source health, provider and stale/global/managed/AI rows *before* Service admission. This design must eliminate that effect, not compensate afterward.
+- **Separate authority**: `#380` controls Global Search `global_volumes/global_entries/managed_entries/ai_jobs`; `#381` controls File Library `files`, root epochs and F1 slots. Both may share one SQLite schema number but **not** one source epoch/owner or an implicit data-visibility switch.
+
+## P2 source facts that determine design
+
+1. `src-tauri/src/global_index/coordinator.rs:218-256` public `rebuild(source|all)` currently updates provider, writes `REBUILD_REQUIRED` with no last error, then mass stale, before `start()` or Service admission.
+2. `coordinator.rs:447-562` discovery `upsert_global_volume`, provider/fallback/Unavailable health, missing source full stale, and speculative `INDEXING/SYNCING` happen before `run_provider_operation`; `:574-662` READY/Paused/RebuildRequired/ERROR terminal writes use fresh reads and unconditional updates. A local `status` snapshot is not a mutation fence.
+3. `coordinator.rs:303-383` Sink callbacks `write_batch`, `mark_entry_stale`, `checkpoint`, `set_source_state`, `set_source_provider`, `mark_volume_entries_stale` each call separate Database methods; event/request identity via P1 must be followed by **actual DB owner checks in each write transaction**.
+4. `global_index/repository.rs:130-170` discovery upsert mutates `provider/updated_at`; `:207-241` source health UPDATE has only `WHERE id=?1`; `:244-259` enable/provider writes also unconditional; `:262-339` entry upsert + AI enqueue is per-batch transaction; `:341-367` mass stale updates global entries, managed, AI rows and count across **multiple independent SQL statements**; `:370-392` single-entry stale likewise spans separate statements. There is no all-effects publish CAS.
+5. `src-tauri/src/db/schema.rs:1630-1649` `global_volumes` stores `status/error/cursor/clock/entry_count` but no operation owner/revision. `:1655-1675` `global_entries` has `volume_id` FK and physical identity fields; `:1821-1849` **Global Index counter triggers UPDATE global_volumes implicitly** during entry insert/delete/stale. `ensure_global_index_hardening:1872-1876` currently recomputes volume entry_count on bootstrap, a special maintenance writer needing a truthful source/authority rule; cannot assume all writes pass a Rust method.
+6. `global_index/repository.rs:696-756` existing `source_revision` JSON/hash is a **search result display/read projection**, not monotonic CAS authority. It cannot stop ABA.
+7. `global_index/managed_scope.rs`, `legacy_queue.rs` and `managed_worker_hardened.rs` independently write Managed scopes/AI jobs/results, sometimes from File Library commands, and use `global_entries.is_stale/volume.enabled` to authorize work. Need distinguish **independent user/policy writers** from operation-owned derived invalidation; never blindly wrap user scope changes into the Rebuild operation.
+8. `global_index/commands.rs` queries publish status/collection_complete/source_revision and permit source enable/rebuild. A pending user Rebuild must not be projected as a real `REBUILD_REQUIRED` fault or a fictitious READY.
+
+## Accepted ownership layers and invariants (P2 architectural semantics, not yet DDL)
+
+**A — DurableRebuildIntent**: separate per-source user intent with unique `intent_id`, monotonic `request_generation`, source stable identity, requested mode FULL/REBUILD/INCREMENTAL, `pending/claimed/deferred/completed/canceled/unknown`, claim/ref/history. Record atomically and idempotently; for Rebuild(all) enumerate the authoritative source set at request commit and persist one intent per source, including how disabled/absent sources behave. Repeated requests may coalesce only by an explicit ordered rule; never erase a later generation after older completion. Neither `pending` nor `deferred` changes old committed `global_volumes.index_status`, `last_error`, `journal`, `global_entries.is_stale` or AI state. Current genuine REBUILD_REQUIRED caused by native provider remains a real health fault.
+
+**B — OperationAuthority**: per-source monotonic strictly increasing `source_epoch` or `revision`, active opaque `operation_id` and `owner_generation`, `claimed_at/expires_at` as metadata only (time expiry alone cannot authorize takeover), plus `admission_state` `unadmitted/admitted/unknown/terminal`. Record the transition with CAS `WHERE volume_id = :id AND source_epoch = :expected_epoch ...`, validate rowcount == 1. Bumping epoch fences old owner permanently; same-state/same-second ABA cannot reuse authority. Owner claim belongs to DB, not WorkScheduler mutex or transient Service `busy`. **Service event v3 is accepted only via the current Desktop request identity and operation-bound sink adapter.** Service/Direct are mutually exclusive for one source owner. A Service stream of unknown outcome cannot become NotSent merely because local read failed.
+
+**C — CommittedHealth**: health is a fact written only by the owner of that transition: user intent does not prewrite it, source disability/permission/topology has **its own explicit and higher-priority revisioned writer category**; real provider errors remain attributable. `SourceHealth(status, reason, cursor, full/incremental timestamps, source_epoch, op_id)` committed by one CAS transaction. Late busy/error/READY/paused cannot overwrite a later owner; no restore snapshot after failed busy. Allow status metadata to reveal a distinct **deferred intent** without misrepresenting durable health, but no unreviewed public IPC DTO/schema expansion.
+
+**D — Entry/Managed/AI actionability**: all Global Entry upserts and stale events, triggered `entry_count` updates, Managed AI eligibility and derived jobs must be **owner-fenced**, with the check performed in the **same SQLite write transaction as its side effects**. A check-before-UPDATE in a separate connection is not CAS. Arbitrary independently valid user scope/policy/correction edits must survive a new provider generation and must not become blocked by a background Rebuild owner. P2 itself may establish the write-owner transaction primitives; **P3** is responsible for making multi-batch FULL/Rebuild publication visibly atomic and avoiding mass 100k stale in one long writer lock. Do not claim P2 fixes that by itself.
+
+## Critical state transitions and defensive decision rules
+
+| Event | Intent state | Service/owner | Committed state/data | P2 contract |
+| --- | --- | --- | --- | --- |
+| User Rebuild(one) | new/advanced Pending | no Service reservation yet | previous health/error/entries/Managed/AI untouched | **No premature stale or provider overwrite** |
+| User Rebuild(all) | one durable generation per source | per-source independent | unaffected sources untouched | disabled/missing source truth recorded |
+| ServiceBusy before `Sources` | remain Deferred/Pending | unadmitted, no owner effects | previous health & entries intact | retry later with bounded scheduler policy; never Direct because busy |
+| Typed NotSent with proved no effect | remain Pending | no admitted Service; Direct claim only by same DB owner | previous committed data intact | one path, no parallel Direct |
+| `Sources` verified/claimed | Claimed/Admitted | request identity + matching DB owner/revision | only after claim may set work-in-progress | no sink effects if claim fails |
+| Valid source event | Claimed | owner token is still current | owner-fenced write transaction, preserve external user facts | stale old events rejected before side effect |
+| Terminal success but no complete proof | Unknown/reconcile | no completion authority | NOT READY, no false empty volume success | prefer fail closed |
+| Admitted error/partial stream | Unknown/Failed recovery | owner fenced, never naive Direct replay | accurate incomplete health, maintain history | P3 needed for old/new visible snapshot |
+| Source disable/permission/OS identity changed | supersede/defer | new owner epoch or specialized writer authority | prevent irreversible action | no older op can restore READY |
+| Restart/stale lease/late result | persisted intent + recovery | old op fenced by new epoch before replay | never duplicate AI jobs or stale new observations | epoch strictly monotonic |
+
+## Concrete storage candidates — pending unique Schema allocation, NOT approved executable migration
+
+Propose `global_index_rebuild_intents` (durable intent/generation, user action, source binding, timestamps and recovery), `global_index_source_authority` (per-volume FK with monotonic epoch, current owner token, admission/terminal generation, last applied watermark), and optionally `global_index_operation_effects` (bounded checkpoint/outcome/audit/recovery). Do NOT independently add `source_epoch` on `global_volumes` and leave triggers/old writer APIs unfenced: those could still bypass the new owner. Choose the smallest SQL representation only after exact FK/write-path/trigger tests. Avoid touching `library_*`, F1 slot or Managed Library UID model.
+
+**Migration version:** master is currently Schema37; #381 B4-P0 reserves candidate v38. **P2 cannot allocate or assume v39 before #381 schema authority is committed/approved and source rebase occurs.** A dormant P2 storage candidate may be authored as a test-only SQL fixture without production schema mutation in the meantime. No two different v38 definitions, and never silently heal unknown v38 state.
+
+## Finite production dependency and scope (avoid endless research)
+
+- **Gate P2-D0 (this Owner blueprint):** source writer class/failure classification/DDL/version signoff; reconcile exact final HEAD of #398 with current master; explicit decision about #381 P0 migration ordering. **No code GO yet.**
+- **P2-P0 later Codex Cloud expand-only:** create durable Intent/OperationAuthority storage and transactional CAS primitives on a unique Owner-allocated schema version, with migration/recovery tests. **Dormant mode** (no behavior switch), no Global/Managed/AI stale writes; preserve all Schema and background worker contracts. Own Draft.
+- **P2-P1 later Codex Cloud owner cutover:** remove the user-triggered `rebuild()` prewrite, persist per-source intent with safe coalescing, enforce ownership in every Coordinator/Sink and relevant repository and Direct-side effect, account for triggers, topology and standalone policy writers; cannot promote if any old direct write bypasses. Own Draft.
+- **P3 later staged publication/acceptance:** replace multi-statement mass stale and incremental partial visibility with bounded atomic generation or an explicit Owner-accepted fail-closed capability; real 100k writer contention, crash/restart, native Windows Service and macOS qualification; no #380 GO until it passes. Own Draft.
+
+**P2-P1 cannot be honestly claimed safe merely by writing an intent table or checking a request ID**. It must prove (1) every durable effect uses the correct owner, (2) no Owner-unknown gap after Service admission, and (3) user corrections/Managed policy remain independent. #398 P1 accepted within scope, yet remains Draft/unmerged: any P2 implementation must base on a reviewed integration tree or wait for Owner merge decision; do not develop against assumed master changes.
+
+## Explicit stop
+`#380_P2_OWNER_SOURCE_AUTHORITY_BLUEPRINT_READY_FOR_OWNER_REVIEW` only for this **documentation**. Actual P2 production `NO_GO`, no Schema allocation, no master edit/merge/Issue close, no Codex Review, no CI waiver, no Windows Owner-PC development or release.

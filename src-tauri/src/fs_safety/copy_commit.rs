@@ -956,19 +956,28 @@ fn retire_claimed_directory_verified_against_target(
         return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
     }
     let target_path = target_parent.path().join(target_name);
-    let mut entry_count = 0usize;
+    let mut context = DirectoryRetirementContext {
+        entry_count: 0,
+        deletion_parent: target_parent,
+        cancel,
+    };
     retire_directory_entries_verified(
         &source_root,
         &source_path,
         &target_root,
         &target_path,
         0,
-        &mut entry_count,
-        target_parent,
-        cancel,
+        &mut context,
     )?;
     claim.delete_claim().map_err(map_claim_error)?;
     Ok(())
+}
+
+#[cfg(windows)]
+struct DirectoryRetirementContext<'a> {
+    entry_count: usize,
+    deletion_parent: &'a VerifiedDirectory,
+    cancel: Option<&'a AtomicBool>,
 }
 
 #[cfg(windows)]
@@ -978,31 +987,29 @@ fn retire_directory_entries_verified(
     target_parent_handle: &File,
     target_parent_path: &std::path::Path,
     depth: usize,
-    entry_count: &mut usize,
-    deletion_parent: &VerifiedDirectory,
-    cancel: Option<&AtomicBool>,
+    context: &mut DirectoryRetirementContext<'_>,
 ) -> Result<(), AtomicMoveError> {
     const MAX_DEPTH: usize = 64;
     const MAX_ENTRIES: usize = 5000;
     if depth >= MAX_DEPTH {
-        return Err(AtomicMoveError::UnsafePath);
+        return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
     }
-    if is_cancelled(cancel) {
+    if is_cancelled(context.cancel) {
         return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
     }
-    let mut entries = fs::read_dir(source_parent_path)
-        .map_err(AtomicMoveError::Io)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(AtomicMoveError::Io)?;
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(source_parent_path).map_err(AtomicMoveError::Io)? {
+        if context.entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
+            return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
+        }
+        entries.push(entry.map_err(AtomicMoveError::Io)?);
+    }
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
-        if is_cancelled(cancel) {
+        if is_cancelled(context.cancel) {
             return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
         }
-        *entry_count += 1;
-        if *entry_count > MAX_ENTRIES {
-            return Err(AtomicMoveError::UnsafePath);
-        }
+        context.entry_count += 1;
         let name = entry.file_name();
         let source_path = source_parent_path.join(&name);
         let target_path = target_parent_path.join(&name);
@@ -1033,17 +1040,15 @@ fn retire_directory_entries_verified(
                 &target_child,
                 &target_path,
                 depth + 1,
-                entry_count,
-                deletion_parent,
-                cancel,
+                context,
             )?;
         } else {
             ensure_windows_no_named_streams(&source_path)?;
             let source_identity =
-                identity::capture_identity_from_handle(&source_child, &source_path, cancel)
+                identity::capture_identity_from_handle(&source_child, &source_path, context.cancel)
                     .map_err(map_identity_error)?;
             let target_identity =
-                identity::capture_identity_from_handle(&target_child, &target_path, cancel)
+                identity::capture_identity_from_handle(&target_child, &target_path, context.cancel)
                     .map_err(map_identity_error)?;
             if !identity::content_identity_matches(&source_identity, &target_identity) {
                 return Err(AtomicMoveError::SourceChanged);
@@ -1051,7 +1056,7 @@ fn retire_directory_entries_verified(
         }
         source_claim::delete_open_handle(
             &source_child,
-            deletion_parent,
+            context.deletion_parent,
             &name,
             if is_directory {
                 ClaimedEntryKind::Directory

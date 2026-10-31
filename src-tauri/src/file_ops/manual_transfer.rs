@@ -801,7 +801,7 @@ fn snapshot(
         nearest_identity,
     ))
 }
-fn make_operation(
+pub(super) fn make_operation(
     file_id: &str,
     source: &Path,
     directory: &Path,

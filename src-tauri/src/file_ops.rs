@@ -70,6 +70,27 @@ pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const OPERATION_PROGRESS_BATCH_SIZE: u64 = 10;
 const OPERATION_PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(200);
 
+/// Build an operation through the same transfer preview snapshot logic used
+/// by the Tauri file-management entrypoint. This exists only for native QA
+/// harnesses that need to exercise the journaled executor without a WebView.
+#[cfg(feature = "native-qa")]
+pub fn native_qa_transfer_move_preview(
+    source: &Path,
+    destination_directory: &Path,
+) -> Result<OperationPreviewRequest, String> {
+    let name = source
+        .file_name()
+        .ok_or_else(|| "transfer_source_invalid".to_string())?;
+    let target = destination_directory.join(name);
+    manual_transfer::make_operation(
+        RECOVERY_ACTION_FILE_ID,
+        source,
+        destination_directory,
+        &target,
+        manual_transfer::TransferAction::Move,
+    )
+}
+
 #[cfg(any(test, feature = "native-qa"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationTestFaultPoint {

@@ -3,9 +3,10 @@
 use fylura_tauri::{
     db::Database,
     file_ops::{
-        execute_moves_with_persistence, reconcile_pending_operation_journal,
-        restore_moves_with_persistence, set_operation_test_fault, ExecuteMovesRequest,
-        OperationLogDto, OperationPreviewRequest, OperationTestFaultPoint, RestoreMovesRequest,
+        execute_moves_with_persistence, native_qa_transfer_move_preview,
+        reconcile_pending_operation_journal, restore_moves_with_persistence,
+        set_operation_test_fault, ExecuteMovesRequest, OperationLogDto, OperationPreviewRequest,
+        OperationTestFaultPoint, RestoreMovesRequest,
     },
     fs_safety::{
         atomic_move::test_faults::{self, AtomicFaultPoint},
@@ -888,22 +889,16 @@ fn native_file_hardening_smoke() {
         );
         let canary_hash = sha256_file(&directory_source.join("canary.txt"));
         let nested_hash = sha256_file(&directory_source.join("nested").join("内容.bin"));
+        let move_preview = native_qa_transfer_move_preview(&directory_source, &target_volume)
+            .expect("build transfer preview for the isolated directory move");
+        assert_eq!(
+            move_preview.target_path,
+            directory_target.to_string_lossy().into_owned()
+        );
         let move_result = execute_moves_with_persistence(
             &db,
             ExecuteMovesRequest {
-                operations: vec![OperationPreviewRequest {
-                    id: format!("native-cross-volume-directory-{run_id}"),
-                    file_id: format!("native-cross-volume-directory-file-{run_id}"),
-                    operation_type: "move".to_string(),
-                    source_path: directory_source.to_string_lossy().into_owned(),
-                    target_path: directory_target.to_string_lossy().into_owned(),
-                    old_name: "cross-volume-directory".to_string(),
-                    new_name: "cross-volume-directory".to_string(),
-                    // This isolated fixture meets the transfer preconditions;
-                    // keep the preview executable so the smoke reaches the
-                    // Windows cross-volume directory transaction.
-                    is_executable: Some(true),
-                }],
+                operations: vec![move_preview],
             },
         )
         .expect("execute journaled cross-volume directory move");

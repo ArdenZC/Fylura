@@ -241,14 +241,18 @@ fn execute_moves_core_with_identity(
                         // the published tree before source retirement can
                         // begin, so restart recovery can distinguish the
                         // committed target from a later replacement.
-                        let target = Path::new(&log.path_after);
+                        // Own this path before mutating the journal row below.
+                        // The target snapshot is derived from the committed
+                        // pathname, while the row receives the resulting
+                        // identity proof.
+                        let target = PathBuf::from(&log.path_after);
                         let fingerprint =
-                            file_operation_fingerprint(target, "move").map_err(|_| {
+                            file_operation_fingerprint(&target, "move").map_err(|_| {
                                 crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
                             })?;
                         apply_target_fingerprint(log, &fingerprint);
                         let tree = crate::file_ops::manual_transfer::directory_tree_snapshot(
-                            target,
+                            &target,
                         )
                         .and_then(|tree| {
                             crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(

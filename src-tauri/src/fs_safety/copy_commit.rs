@@ -657,7 +657,7 @@ fn copy_regular_file(
     cancel: Option<&AtomicBool>,
 ) -> Result<(), AtomicMoveError> {
     use std::io::{Seek, SeekFrom};
-    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
 
     if is_cancelled(cancel) {
@@ -1862,7 +1862,6 @@ mod tests {
 
     #[test]
     fn native_cross_volume_directory_move_runs_when_an_isolated_volume_is_available() {
-        use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
 
         let source_root = fixture("native-cross-volume-source");

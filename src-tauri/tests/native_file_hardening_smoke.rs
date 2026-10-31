@@ -893,7 +893,7 @@ fn native_file_hardening_smoke() {
             .expect("build transfer preview for the isolated directory move");
         assert_eq!(
             move_preview.target_path,
-            directory_target.to_string_lossy().into_owned()
+            directory_target.to_string_lossy().replace('\\', "/")
         );
         let move_result = execute_moves_with_persistence(
             &db,

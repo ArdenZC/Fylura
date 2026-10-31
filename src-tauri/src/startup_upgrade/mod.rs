@@ -1,5 +1,6 @@
 //! A native modal loop remains live while SQLite opens on a worker. No webview,
 //! IPC permission, indexer or watcher is started before the database is ready.
+use fylura_tauri::db::Database;
 use std::{
     path::PathBuf,
     sync::{
@@ -7,7 +8,6 @@ use std::{
         mpsc, Arc,
     },
 };
-use zen_canvas_tauri::db::Database;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(feature = "native-qa")]
@@ -20,9 +20,9 @@ pub fn run_native_qa() -> Result<(), String> {
     qa::run()
 }
 
-const TITLE: &str = "Zen Canvas — Database upgrade";
+const TITLE: &str = "Fylura — Database upgrade";
 const MESSAGE: &str = "Preparing your local search database";
-const DETAILS: &str = "Checking available storage, updating search indexes and preparing exact source statistics. This may take several minutes. Your files are not changed.\n\nYou can cancel and retry when you next open Zen Canvas. Please keep the app open until cancellation finishes.";
+const DETAILS: &str = "Checking available storage, updating search indexes and preparing exact source statistics. This may take several minutes. Your files are not changed.\n\nYou can cancel and retry when you next open Fylura. Please keep the app open until cancellation finishes.";
 
 struct Worker {
     path: PathBuf,
@@ -56,7 +56,7 @@ impl Worker {
             #[cfg(feature = "native-qa")]
             qa::delay_worker();
             let result=std::panic::catch_unwind(||Database::open_with_upgrade_cancellation(path,cancel))
-                .map_err(|_|"The database upgrade worker stopped unexpectedly. Restart Zen Canvas to retry. SQLite will recover its transaction.".to_string())
+                .map_err(|_|"The database upgrade worker stopped unexpectedly. Restart Fylura to retry. SQLite will recover its transaction.".to_string())
                 .and_then(|r|r.map_err(|e|e.to_string()));
             let _ = sender.send(result);
         });
@@ -75,7 +75,7 @@ impl Worker {
                 Ok(result) => self.result = Some(result),
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.result = Some(Err(
-                        "The upgrade worker disconnected. Restart Zen Canvas to retry.".into(),
+                        "The upgrade worker disconnected. Restart Fylura to retry.".into(),
                     ))
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
@@ -112,7 +112,7 @@ fn needs_upgrade(path: &std::path::Path) -> bool {
     rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .and_then(|c| c.query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0)))
         .map_or(true, |version| {
-            version != i64::from(zen_canvas_tauri::db::SUPPORTED_SCHEMA_VERSION)
+            version != i64::from(fylura_tauri::db::SUPPORTED_SCHEMA_VERSION)
         })
 }
 
@@ -139,7 +139,7 @@ pub fn open(path: PathBuf, background: bool) -> Result<Database, String> {
     if background {
         // An autostart/tray launch must not start an invisible multi-minute
         // upgrade or steal focus. A foreground launch resumes from user_version.
-        return Err("Database upgrade pending. Open Zen Canvas normally to review and start the upgrade; background indexing has not started.".into());
+        return Err("Database upgrade pending. Open Fylura normally to review and start the upgrade; background indexing has not started.".into());
     }
     #[cfg(windows)]
     {
@@ -157,5 +157,5 @@ pub fn open(path: PathBuf, background: bool) -> Result<Database, String> {
 }
 
 fn recovery_message(error: &str, path: &std::path::Path) -> String {
-    format!("The database could not be opened.\n\n{error}\n\nDatabase location: {}\n\nFree space on the database and system temporary volumes if storage is full, then choose Retry. Close other Zen Canvas processes if the database is busy.\n\nIf the problem persists, exit all Zen Canvas processes, then preserve the database together with any existing -wal and -shm files before contacting support. Do not delete indexes or change the schema version. A completed commit is retained; an interrupted transaction is recovered by SQLite at the next open.", path.display())
+    format!("The database could not be opened.\n\n{error}\n\nDatabase location: {}\n\nFree space on the database and system temporary volumes if storage is full, then choose Retry. Close other Fylura processes if the database is busy.\n\nIf the problem persists, exit all Fylura processes, then preserve the database together with any existing -wal and -shm files before contacting support. Do not delete indexes or change the schema version. A completed commit is retained; an interrupted transaction is recovered by SQLite at the next open.", path.display())
 }

@@ -1,6 +1,6 @@
 param(
   [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
-  [string]$LogoHtmlPath = "C:\Users\77588\Desktop\zen_canvas_logo.html",
+  [string]$LogoHtmlPath = (Join-Path $PSScriptRoot "..\build\temporary-brand-source.html"),
   [string]$ChromePath = ""
 )
 
@@ -102,8 +102,9 @@ function Write-BrandIconHtml {
   <meta charset="utf-8">
   <!--
     Source: $sourceForComment
-    The app icon below intentionally copies the provided logo HTML design,
-    scaled from 256px to 1024px. Mode: $Mode.
+    TEMPORARY ONLY: this generated placeholder supports the Fylura identity
+    migration while logo design is in progress. It is not an approved logo.
+    The source file is a local token fixture, not a design reference. Mode: $Mode.
   -->
   <style>
     html, body {
@@ -381,7 +382,7 @@ function Draw-BrandSidebar {
   $captionBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(132, 151, 178))
   $format = New-Object System.Drawing.StringFormat
   $format.Alignment = [System.Drawing.StringAlignment]::Center
-  $graphics.DrawString("Zen Canvas", $titleFont, $titleBrush, ([System.Drawing.RectangleF]::new(0, 138, 164, 24)), $format)
+  $graphics.DrawString("Fylura", $titleFont, $titleBrush, ([System.Drawing.RectangleF]::new(0, 138, 164, 24)), $format)
   $graphics.DrawString("SPATIAL ELEGANCE", $captionFont, $captionBrush, ([System.Drawing.RectangleF]::new(0, 164, 164, 20)), $format)
 
   $linePen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(45, 255, 255, 255)), 1
@@ -418,7 +419,7 @@ function Draw-InstallerHeader {
   $captionFont = New-Object System.Drawing.Font "Segoe UI", 6, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Point)
   $titleBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(15, 23, 42))
   $captionBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(100, 116, 139))
-  $graphics.DrawString("Zen Canvas", $titleFont, $titleBrush, 52, 11)
+  $graphics.DrawString("Fylura", $titleFont, $titleBrush, 52, 11)
   $graphics.DrawString("PREMIUM INSTALLER", $captionFont, $captionBrush, 53, 31)
   $titleBrush.Dispose()
   $captionBrush.Dispose()
@@ -457,7 +458,7 @@ function Draw-DmgBackground {
   $mutedBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(148, 163, 184))
   $format = New-Object System.Drawing.StringFormat
   $format.Alignment = [System.Drawing.StringAlignment]::Center
-  $graphics.DrawString("Zen Canvas", $titleFont, $textBrush, ([System.Drawing.RectangleF]::new(0, 146, 640, 38)), $format)
+  $graphics.DrawString("Fylura", $titleFont, $textBrush, ([System.Drawing.RectangleF]::new(0, 146, 640, 38)), $format)
   $graphics.DrawString("Drag to Applications to install", $captionFont, $mutedBrush, ([System.Drawing.RectangleF]::new(0, 186, 640, 20)), $format)
   $graphics.DrawString("Local-first file lifecycle assistant", $captionFont, $mutedBrush, ([System.Drawing.RectangleF]::new(0, 368, 640, 20)), $format)
   $format.Dispose()

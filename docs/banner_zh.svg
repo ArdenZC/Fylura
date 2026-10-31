@@ -1,3 +1,4 @@
+<!-- TEMPORARY Fylura banner artwork; not the approved product logo. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 260" width="100%">
   <rect width="800" height="260" rx="24" fill="#0f172a" stroke="#1e293b" stroke-width="2"/>
   <defs>
@@ -42,7 +43,7 @@
   </g>
 
   <!-- Title and Subtitle Text -->
-  <text x="240" y="115" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="700" fill="url(#textGradient)" letter-spacing="-1">Zen Canvas</text>
+  <text x="240" y="115" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="700" fill="url(#textGradient)" letter-spacing="-1">Fylura</text>
   <text x="242" y="152" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700" fill="#34C759" letter-spacing="4">个人数字资产管家</text>
   <text x="242" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="400" fill="#64748B" letter-spacing="0.5">基于 SQLite FTS5 与 Tauri 的本地优先文件生命周期管理器</text>
 

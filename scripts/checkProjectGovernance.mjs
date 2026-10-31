@@ -271,7 +271,7 @@ if (/\bW-1 Open Source Research\s*[—-]\s*completed\b/iu.test(w0)
 
 const supportedPlatformFacts = collapseWhitespace(supportedPlatforms);
 if (supportedPlatforms) {
-  if (!/Zen Canvas\s+supports:\s*-\s*Windows\b/iu.test(supportedPlatformFacts)) {
+  if (!/Fylura\s+supports:\s*-\s*Windows\b/iu.test(supportedPlatformFacts)) {
     failures.push("SUPPORTED_PLATFORMS.md: Windows product target is missing");
   }
   if (!/macOS\s+13\s+or\s+later\s+on\s+Apple Silicon/iu.test(supportedPlatformFacts)) {

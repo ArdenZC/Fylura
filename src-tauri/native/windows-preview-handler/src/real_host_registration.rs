@@ -18,6 +18,9 @@ use std::{
     process::Command,
 };
 
+use fylura_windows_preview_handler::test_registration::{
+    self, Registration, FRIENDLY_NAME, TEST_EXTENSION, TEST_PROGID,
+};
 use windows::Win32::{
     System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -25,14 +28,11 @@ use windows::Win32::{
     },
     UI::Shell::{IPreviewHandler, SHChangeNotify, SHCNE_ASSOCCHANGED, SHCNF_IDLIST},
 };
-use zen_canvas_windows_preview_handler::test_registration::{
-    self, Registration, FRIENDLY_NAME, TEST_EXTENSION, TEST_PROGID,
-};
 
 const FIXTURE_A_NAME: &str = "zen-w4-03-v2-a.zcv2preview";
 const FIXTURE_B_NAME: &str = "zen-w4-03-v2-b.zcv2preview";
-const FIXTURE_A_CONTENT: &[u8] = b"Zen Canvas W4-03 v2 real-host fixture A\r\nselection A\r\n";
-const FIXTURE_B_CONTENT: &[u8] = b"Zen Canvas W4-03 v2 real-host fixture B\r\nselection B\r\n";
+const FIXTURE_A_CONTENT: &[u8] = b"Fylura W4-03 v2 real-host fixture A\r\nselection A\r\n";
+const FIXTURE_B_CONTENT: &[u8] = b"Fylura W4-03 v2 real-host fixture B\r\nselection B\r\n";
 
 struct ComApartment;
 

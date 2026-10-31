@@ -48,7 +48,7 @@ const tempRoot = fs.mkdtempSync(
   path.join(tempParent, "service-runtime-authority-smoke-"),
 );
 const serviceName =
-  "ZenCanvasServiceRuntimeSmoke-" +
+  "FyluraServiceRuntimeSmoke-" +
   process.pid +
   "-" +
   Date.now().toString(36);

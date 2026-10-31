@@ -704,13 +704,13 @@ jobs:
                   profile = message.get("profile") or {}
                   path = message.get("executable")
                   if (message.get("reason") == "compiler-artifact"
-                      and target.get("name") == "zen_canvas_tauri"
+                      and target.get("name") == "fylura_tauri"
                       and "lib" in target.get("kind", [])
                       and profile.get("test") is True
                       and isinstance(path, str)):
                       artifacts.append(path)
           if len(artifacts) != 1:
-              raise SystemExit("expected exactly one zen_canvas_tauri lib test executable; found %d" % len(artifacts))
+              raise SystemExit("expected exactly one fylura_tauri lib test executable; found %d" % len(artifacts))
           path = artifacts[0]
           if not os.path.isfile(path) or not os.access(path, os.X_OK):
               raise SystemExit("Cargo test executable is absent or not executable")
@@ -1313,7 +1313,7 @@ jobs:
           for root in report_roots:
               if not root.is_dir():
                   continue
-              for path in root.glob("*zen_canvas_tauri*.ips"):
+              for path in root.glob("*fylura_tauri*.ips"):
                   try:
                       stat = path.stat()
                       if stat.st_mtime < start_epoch or stat.st_size > 1024 * 1024:

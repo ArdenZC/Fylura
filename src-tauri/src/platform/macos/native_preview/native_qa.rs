@@ -205,7 +205,7 @@ fn write_harness_pdf(path: &Path, label: &str) -> Result<(), String> {
             content
         )
         .into_bytes(),
-        format!("<< /Title (Zen Canvas Quick Look {escaped_label}) >>").into_bytes(),
+        format!("<< /Title (Fylura Quick Look {escaped_label}) >>").into_bytes(),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
     ];
     let mut bytes = b"%PDF-1.4\n".to_vec();

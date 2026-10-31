@@ -29,7 +29,7 @@ pub fn run(
             "direct qualification requires the task-owned VHD marker and runner profile".into(),
         );
     }
-    let db = Database::open(profile.join("zen-canvas.sqlite3"))?;
+    let db = Database::open(profile.join("fylura.sqlite3"))?;
     let enabled = db
         .list_global_volumes()?
         .into_iter()
@@ -97,7 +97,7 @@ pub fn run(
     }
     drop(sink);
     drop(db);
-    let reopened = Database::open(profile.join("zen-canvas.sqlite3"))?;
+    let reopened = Database::open(profile.join("fylura.sqlite3"))?;
     reopened.save_global_index_coverage(
         reopened.global_index_coverage()?.policy.revision,
         CoverageMode::SmartLean,

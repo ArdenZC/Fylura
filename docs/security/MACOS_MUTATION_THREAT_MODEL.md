@@ -14,7 +14,7 @@ create a second journal, queue, trash namespace authority, or recovery store.
 ## Safety levels
 
 macOS does not provide the Windows source-handle rename primitive used by the
-existing Windows path. Zen Canvas therefore distinguishes the guarantees:
+existing Windows path. Fylura therefore distinguishes the guarantees:
 
 - Level A, descriptor-bound copy/clone: implemented for regular files and
   directory staging; descriptor-bound destructive rename/delete is not claimed

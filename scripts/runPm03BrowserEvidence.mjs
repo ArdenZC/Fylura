@@ -40,8 +40,8 @@ const mutationCommands = new Set([
 
 function labels(language) {
   return language === "en"
-    ? { automation: "Automation", intents: "Intents", advanced: "Advanced Policies", settings: "Settings", settingsGroup: "Smart organize", search: /Search Zen Canvas/ }
-    : { automation: "自动化", intents: "自动化意图", advanced: "高级策略", settings: "设置", settingsGroup: "智能整理", search: /搜索 Zen Canvas/ };
+    ? { automation: "Automation", intents: "Intents", advanced: "Advanced Policies", settings: "Settings", settingsGroup: "Smart organize", search: /Search Fylura/ }
+    : { automation: "自动化", intents: "自动化意图", advanced: "高级策略", settings: "设置", settingsGroup: "智能整理", search: /搜索 Fylura/ };
 }
 
 async function newPage(name, language, viewport, query = "") {

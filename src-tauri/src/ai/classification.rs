@@ -2080,16 +2080,16 @@ fn ai_classification_json_error(content: &str, detail: &str) -> String {
             .to_string();
     }
     if lower.contains("```") {
-        return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。"
+        return "模型返回了 Markdown 代码块，Fylura 已尝试提取 JSON，但结构仍不符合要求。"
             .to_string();
     }
     if detail.contains("没有任何可应用的分类项") {
         return detail.to_string();
     }
     if detail.contains("classification item schema mismatch") {
-        return "AI 返回了 JSON，但部分分类项缺少字段，Zen Canvas 已尝试使用安全默认值处理。严重无效的项目会被跳过。".to_string();
+        return "AI 返回了 JSON，但部分分类项缺少字段，Fylura 已尝试使用安全默认值处理。严重无效的项目会被跳过。".to_string();
     }
-    format!("模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}")
+    format!("模型返回的内容不是 Fylura 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}")
 }
 
 fn default_file_type() -> String {

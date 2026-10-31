@@ -861,7 +861,7 @@ describe("Cleanup independent review behavior", () => {
     const findings = ["build", "dist"].map((name, index): AnalysisFinding => ({
       ...makeAcknowledgedFinding(run, index),
       title: name,
-      pathSnapshot: `F:/Coding/Zen-Canvas/Library/${name}`,
+      pathSnapshot: `F:/Coding/Fylura/Library/${name}`,
       actionKind: "reveal",
       executable: false,
       confidence: "estimated"

@@ -381,7 +381,7 @@ const explicitContracts: CommandContract[] = [
 
 function handlerCommands(): string[] {
   const handlerBlock = mainSource.match(/generate_handler!\[([\s\S]*?)\]\)/)?.[1] ?? "";
-  return [...handlerBlock.matchAll(/zen_canvas_tauri::(?:[a-z0-9_]+::)+([a-z0-9_]+)/g)].map(
+  return [...handlerBlock.matchAll(/fylura_tauri::(?:[a-z0-9_]+::)+([a-z0-9_]+)/g)].map(
     (match) => match[1],
   );
 }

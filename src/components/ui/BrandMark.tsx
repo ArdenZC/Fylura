@@ -34,7 +34,7 @@ export function BrandMark({
   size = "sidebar",
   decorative = false,
   className,
-  "aria-label": ariaLabel = "Zen Canvas"
+  "aria-label": ariaLabel = "Fylura"
 }: BrandMarkProps) {
   const classes = sizeClasses[size];
 

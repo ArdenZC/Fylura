@@ -6,7 +6,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use zen_canvas_tauri::{
+use fylura_tauri::{
     db::Database,
     file_ops::{
         execute_moves_core_with_progress, execute_moves_with_persistence,
@@ -337,7 +337,7 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_guard
     ));
     fs::create_dir_all(&root).expect("profile root");
     let db = Database::open(root.join("qa.sqlite3")).expect("profile database");
-    zen_canvas_tauri::platform::macos::copy::reset_copy_io_metrics();
+    fylura_tauri::platform::macos::copy::reset_copy_io_metrics();
 
     let sparse_source = root.join("sparse-100gb.bin");
     let sparse_target = root.join("sparse-100gb-copy.bin");
@@ -372,7 +372,7 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_guard
     let sparse_target_metadata = fs::metadata(&sparse_target).expect("sparse target metadata");
     assert_eq!(sparse_target_metadata.len(), sparse_size);
     let (sparse_read_calls, sparse_read_bytes) =
-        zen_canvas_tauri::platform::macos::copy::copy_io_metrics();
+        fylura_tauri::platform::macos::copy::copy_io_metrics();
     assert!(
         sparse_read_bytes <= 64 * 1024 * 1024,
         "sparse clone performed an unbounded sequential read: calls={sparse_read_calls} bytes={sparse_read_bytes}"

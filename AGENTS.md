@@ -1,4 +1,4 @@
-# Zen Canvas Agent Instructions
+# Fylura Agent Instructions
 
 This file is the stable repository constitution. `docs/project/STATUS.md` owns
 changing project stage, baseline, active task, release state and next phase.

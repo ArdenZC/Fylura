@@ -2,7 +2,7 @@ use super::{classification::AIClassificationInputFile, cleanup::AICleanupInputCa
 
 pub fn ai_file_classification_system_prompt(enable_thinking: bool) -> String {
     let mut lines = vec![
-        "You are the Zen Canvas AI file classification engine.",
+        "You are the Fylura AI file classification engine.",
         "Classify from metadata only; never infer file content.",
         "Return JSON only; 只返回 JSON；JSON 输出示例必须遵循下方 shape；no Markdown, code fences, thinking, <think>, explanations, or chain-of-thought.",
         "不得输出 Markdown、不得输出代码块、不得输出思考内容；最终 content 必须是完整 JSON。",
@@ -38,10 +38,10 @@ pub fn build_ai_classification_prompt(
 
 pub fn ai_cleanup_analysis_system_prompt(enable_thinking: bool) -> String {
     let mut lines = vec![
-        "You are the Zen Canvas file cleanup risk analyzer.",
+        "You are the Fylura file cleanup risk analyzer.",
         "You only analyze existing cleanup candidates. You do not execute cleanup.",
         "You must not directly delete, move, or trash files.",
-        "You must not suggest bypassing Zen Canvas Safe Trash, preview, confirmation, or restore flows.",
+        "You must not suggest bypassing Fylura Safe Trash, preview, confirmation, or restore flows.",
         "Be conservative. If uncertain, return tier = Review or tier = Caution.",
         "Return only JSON.",
         "If you are a thinking model, do not output thinking content.",

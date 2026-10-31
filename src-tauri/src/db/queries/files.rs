@@ -2482,7 +2482,7 @@ fn operation_preview_from_indexed_with_id(
                 if manual_intent {
                     "manual_file_target_exists".to_string()
                 } else {
-                    "Target path already exists; Zen Canvas will not overwrite it.".to_string()
+                    "Target path already exists; Fylura will not overwrite it.".to_string()
                 }
             })
         })

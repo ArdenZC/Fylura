@@ -190,7 +190,7 @@ function main(argv) {
   writeOutput({
     fixture_cache_hit: cacheHit ? "true" : "false",
     fixture_cache_key: [
-      "zen-canvas-perf-fixture",
+      "fylura-perf-fixture",
       identity.runner.os,
       identity.runner.arch,
       profile,

@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$serviceName = "ZenCanvasGlobalIndex"
+$serviceName = "FyluraGlobalIndex"
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
 $taskId = "zb05-global-index-service-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $runnerTemp $taskId))

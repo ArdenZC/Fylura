@@ -19,7 +19,7 @@ export function relocateWindowsNsisInstallerHooks(source) {
   let output = replaceExactly(
     source,
     HOOK_BLOCK,
-    "; Zen Canvas relocates installer hooks after product defines and runtime Vars.",
+    "; Fylura relocates installer hooks after product defines and runtime Vars.",
     "upstream installer hook block",
   );
 

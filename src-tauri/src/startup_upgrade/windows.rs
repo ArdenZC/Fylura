@@ -102,7 +102,7 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
             )
         };
         if hr < 0 {
-            let error=format!("Cannot display the native upgrade window (HRESULT {hr:#x}). Reopen Zen Canvas to retry. A completed commit is retained; SQLite recovers an interrupted upgrade.");
+            let error=format!("Cannot display the native upgrade window (HRESULT {hr:#x}). Reopen Fylura to retry. A completed commit is retained; SQLite recovers an interrupted upgrade.");
             drop(worker); // cancellation/worker completion precedes the final error notice
             let message = wide(&error);
             unsafe {

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use zen_canvas_tauri::db::Database;
-use zen_canvas_tauri::global_index::{
+use fylura_tauri::db::Database;
+use fylura_tauri::global_index::{
     search_global_entries, GlobalEntryInput, GlobalVolume, INDEX_STATUS_READY,
     PROVIDER_WINDOWS_MFT_USN, SCOPE_AUTHORIZATION_AUTHORIZED,
 };

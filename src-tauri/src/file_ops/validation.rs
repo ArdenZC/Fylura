@@ -13,7 +13,7 @@ pub(crate) enum FileOpError {
     RelativePath,
     #[error("Target parent directory does not exist.")]
     TargetParentMissing,
-    #[error("Target file already exists. Zen Canvas will not overwrite files.")]
+    #[error("Target file already exists. Fylura will not overwrite files.")]
     TargetExists,
     #[error("The requested file name is not safe.")]
     UnsafeFileName,

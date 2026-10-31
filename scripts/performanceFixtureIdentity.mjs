@@ -81,7 +81,7 @@ export function createPerformanceFixtureIdentity({
     .update(JSON.stringify(payload))
     .digest("hex");
   const fixtureCacheKey = [
-    "zen-canvas-perf-fixture",
+    "fylura-perf-fixture",
     runnerOs,
     runnerArch,
     normalizedProfile,

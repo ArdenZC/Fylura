@@ -1,7 +1,7 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn main() {
     if let Err(error) =
-        zen_canvas_tauri::platform::macos::native_preview::run_native_preview_lifecycle_harness()
+        fylura_tauri::platform::macos::native_preview::run_native_preview_lifecycle_harness()
     {
         eprintln!("macos_native_preview_lifecycle_failed:{error}");
         std::process::exit(1);

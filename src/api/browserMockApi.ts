@@ -3910,7 +3910,7 @@ function mockCleanupExecutionResult(args?: Record<string, unknown>): CleanupExec
         size: candidate.size,
         status: allowed ? "success" : "skipped",
         message: allowed
-          ? "Moved to Zen Canvas Safe Trash. Restore it from Recovery records."
+          ? "Moved to Fylura Safe Trash. Restore it from Recovery records."
           : "Only safe cleanup candidates can be moved."
       };
     });
@@ -3930,7 +3930,7 @@ function mockSafeTrashExecutionResult(args?: Record<string, unknown>): CleanupEx
     logs: result.logs.map((log, index) => ({
       ...log,
       message: log.status === "success"
-        ? "Moved to Zen Canvas Safe Trash. Restore it from Recovery records."
+        ? "Moved to Fylura Safe Trash. Restore it from Recovery records."
         : log.message,
       itemId: `browser-cleanup-item-${index}`,
       trashPath: `C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-${index}/${log.name}`
@@ -3983,7 +3983,7 @@ function mockCleanupTrashBatches(): CleanupTrashBatch[] {
       movedAt,
       restoredAt: null,
       status: "moved",
-      message: "Moved to Zen Canvas Safe Trash."
+      message: "Moved to Fylura Safe Trash."
     },
     {
       id: "browser-cleanup-restorable-1",
@@ -3995,7 +3995,7 @@ function mockCleanupTrashBatches(): CleanupTrashBatch[] {
       movedAt,
       restoredAt: null,
       status: "moved",
-      message: "Moved to Zen Canvas Safe Trash."
+      message: "Moved to Fylura Safe Trash."
     },
     {
       id: "browser-cleanup-conflict",
@@ -4031,7 +4031,7 @@ function mockCleanupTrashBatches(): CleanupTrashBatch[] {
       movedAt,
       restoredAt: "2026-07-06T09:12:00.000Z",
       status: "restored",
-      message: "Restored from Zen Canvas Safe Trash."
+      message: "Restored from Fylura Safe Trash."
     }
   ];
   return [
@@ -4084,7 +4084,7 @@ function mockCleanupRestoreResult(args?: Record<string, unknown>): CleanupRestor
       mockCleanupRestoreState.set(item.id, {
         status: "restored",
         restoredAt: new Date().toISOString(),
-        message: "Restored from Zen Canvas Safe Trash."
+        message: "Restored from Fylura Safe Trash."
       });
     }
     return {
@@ -4098,7 +4098,7 @@ function mockCleanupRestoreResult(args?: Record<string, unknown>): CleanupRestor
           ? "The safe trash source is missing."
           : status === "failed"
             ? "Restore failed."
-            : "Restored from Zen Canvas Safe Trash."
+            : "Restored from Fylura Safe Trash."
     };
   });
   return {

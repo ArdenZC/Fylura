@@ -19,12 +19,12 @@ function readWorkflow(relativePath: string) {
 function pullRequestInput(overrides: Record<string, unknown> = {}) {
   return {
     eventName: "pull_request",
-    repository: "ArdenZC/Zen-Canvas",
+    repository: "ArdenZC/Fylura",
     eventSha: MERGE_SHA,
     selectedRef: "refs/pull/94/merge",
     prBaseSha: BASE_SHA,
     prHeadSha: HEAD_SHA,
-    prHeadRepository: "ArdenZC/Zen-Canvas",
+    prHeadRepository: "ArdenZC/Fylura",
     prHeadRef: "fix/w2-r1-ci-evidence-governance",
     ...overrides,
   };
@@ -37,7 +37,7 @@ describe("CI source and merge-integration evidence", () => {
       lane: "head_validation",
     });
 
-    expect(evidence.checkout_repository).toBe("ardenzc/zen-canvas");
+    expect(evidence.checkout_repository).toBe("ardenzc/fylura");
     expect(evidence.checkout_ref).toBe(HEAD_SHA);
     expect(evidence.expected_checkout_sha).toBe(HEAD_SHA);
     expect(evidence.diff_base).toBe(BASE_SHA);
@@ -50,12 +50,12 @@ describe("CI source and merge-integration evidence", () => {
     const evidence = resolveCiEvidence({
       ...pullRequestInput({
         lane: "head_validation",
-        prHeadRepository: "contributor/Zen-Canvas",
+        prHeadRepository: "contributor/Fylura",
         prHeadRef: "feature/untrusted-change",
       }),
     });
 
-    expect(evidence.checkout_repository).toBe("contributor/zen-canvas");
+    expect(evidence.checkout_repository).toBe("contributor/fylura");
     expect(evidence.checkout_ref).toBe(HEAD_SHA);
     expect(evidence.expected_checkout_sha).toBe(HEAD_SHA);
     expect(evidence.head_repository_kind).toBe("fork");
@@ -68,7 +68,7 @@ describe("CI source and merge-integration evidence", () => {
       lane: "merge_integration",
     });
 
-    expect(evidence.checkout_repository).toBe("ardenzc/zen-canvas");
+    expect(evidence.checkout_repository).toBe("ardenzc/fylura");
     expect(evidence.checkout_ref).toBe(MERGE_SHA);
     expect(evidence.integration_commit_sha).toBe(MERGE_SHA);
     expect(evidence.expected_checkout_sha).toBe(MERGE_SHA);
@@ -81,7 +81,7 @@ describe("CI source and merge-integration evidence", () => {
     const evidence = resolveCiEvidence({
       eventName: "push",
       lane: "push",
-      repository: "ArdenZC/Zen-Canvas",
+      repository: "ArdenZC/Fylura",
       eventSha: HEAD_SHA,
       eventBefore: BASE_SHA,
       selectedRef: "refs/heads/master",
@@ -99,7 +99,7 @@ describe("CI source and merge-integration evidence", () => {
   ])("records %s Full Validation against an immutable event SHA", (eventName, expectedLane) => {
     const evidence = resolveCiEvidence({
       eventName,
-      repository: "ArdenZC/Zen-Canvas",
+      repository: "ArdenZC/Fylura",
       eventSha: HEAD_SHA,
       selectedRef: "refs/heads/master",
     });

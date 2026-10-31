@@ -1,14 +1,14 @@
-Zen Canvas End User Notice
+Fylura End User Notice
 
-Zen Canvas is a local-first personal file lifecycle assistant.
+Fylura is a local-first personal file lifecycle assistant.
 
 Core privacy and safety terms:
 
-1. Zen Canvas scans only the folders that you choose, or the personal user folders selected by the app.
-2. Zen Canvas does not upload your files to cloud services by default.
+1. Fylura scans only the folders that you choose, or the personal user folders selected by the app.
+2. Fylura does not upload your files to cloud services by default.
 3. Move and rename operations require a preview and user confirmation before execution.
 4. Delete actions are suggestions only in this version and are not executed automatically.
-5. Operation logs are retained to support recovery for Zen Canvas actions.
+5. Operation logs are retained to support recovery for Fylura actions.
 6. You are responsible for reviewing suggested file operations before confirming them.
 
 This unsigned preview build is provided for testing and early feedback.

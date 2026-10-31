@@ -4,15 +4,15 @@ use std::{
     time::Instant,
 };
 
+use fylura_tauri::db::{Database, InsertFileRequest};
 use rusqlite::{params, Connection};
-use zen_canvas_tauri::db::{Database, InsertFileRequest};
 
 pub const ROOT_ID: &str = "task05-benchmark-root";
 pub const ROOT_PATH: &str = "/task05/benchmark-library";
 pub const TAG_A: &str = "task05-benchmark-tag-a";
 pub const TAG_B: &str = "task05-benchmark-tag-b";
 pub const FIXTURE_FORMAT_VERSION: i64 = 1;
-pub const FIXTURE_SCHEMA_VERSION: i64 = zen_canvas_tauri::db::SUPPORTED_SCHEMA_VERSION as i64;
+pub const FIXTURE_SCHEMA_VERSION: i64 = fylura_tauri::db::SUPPORTED_SCHEMA_VERSION as i64;
 
 pub fn fixture_root() -> Option<PathBuf> {
     std::env::var_os("ZC_PERF_FIXTURE_ROOT").map(PathBuf::from)

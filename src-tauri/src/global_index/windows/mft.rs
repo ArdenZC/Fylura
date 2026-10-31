@@ -32,7 +32,7 @@ const NTFS_FILE_RECORD_NUMBER_MASK: u64 = 0x0000_ffff_ffff_ffff;
 /// This is distinct from a deleted/invalid journal history (1178/1181): the
 /// journal was never created, so a rebuild alone cannot recover it.
 const ERROR_JOURNAL_NOT_ACTIVE: u32 = 1179;
-/// Bounded default when Zen Canvas has to create the change journal on a
+/// Bounded default when Fylura has to create the change journal on a
 /// volume the user already authorized for indexing. Matches the Windows
 /// default order of magnitude and keeps the footprint predictable.
 const USN_JOURNAL_MAXIMUM_BYTES: u64 = 32 * 1024 * 1024;

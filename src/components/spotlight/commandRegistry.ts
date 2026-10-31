@@ -101,7 +101,7 @@ export function executeSpotlightCommand(
   actions.onClose();
 }
 
-export const SETTINGS_SECTION_EVENT = "zen-canvas:settings-section";
+export const SETTINGS_SECTION_EVENT = "fylura:settings-section";
 
 export function requestSettingsSection(sectionId: string) {
   try {

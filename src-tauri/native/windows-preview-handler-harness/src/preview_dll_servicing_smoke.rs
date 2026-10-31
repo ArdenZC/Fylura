@@ -25,7 +25,7 @@ mod windows_smoke {
         },
     };
 
-    const DLL_NAME: &str = "zen_canvas_windows_preview_handler.dll";
+    const DLL_NAME: &str = "fylura_windows_preview_handler.dll";
     fn wide(path: &Path) -> Vec<u16> {
         OsStr::new(path)
             .encode_wide()
@@ -241,14 +241,13 @@ mod windows_smoke {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os();
     let _program = args.next();
-    let first = args
-        .next()
-        .ok_or("usage: zen-canvas-windows-preview-dll-servicing-smoke <preview-handler.dll> [fixture-root]")?;
+    let first = args.next().ok_or(
+        "usage: fylura-windows-preview-dll-servicing-smoke <preview-handler.dll> [fixture-root]",
+    )?;
     if first == std::ffi::OsStr::new("--load-only") {
-        let source = args
-            .next()
-            .map(std::path::PathBuf::from)
-            .ok_or("usage: zen-canvas-windows-preview-dll-servicing-smoke --load-only <preview-handler.dll>")?;
+        let source = args.next().map(std::path::PathBuf::from).ok_or(
+            "usage: fylura-windows-preview-dll-servicing-smoke --load-only <preview-handler.dll>",
+        )?;
         return windows_smoke::load_only(&source);
     }
     let source = std::path::PathBuf::from(first);
@@ -266,5 +265,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("zen-canvas-windows-preview-dll-servicing-smoke requires Windows");
+    eprintln!("fylura-windows-preview-dll-servicing-smoke requires Windows");
 }

@@ -883,7 +883,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zen-canvas-native-host"
+name = "fylura-native-host"
 version = "0.1.0"
 dependencies = [
  "thiserror",
@@ -891,7 +891,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zen-canvas-preview-representation"
+name = "fylura-preview-representation"
 version = "0.1.0"
 dependencies = [
  "ammonia",
@@ -900,29 +900,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "zen-canvas-windows-preview-handler"
+name = "fylura-windows-preview-handler"
 version = "0.1.0"
 dependencies = [
  "uuid",
  "windows",
  "windows-core",
  "windows-sys",
- "zen-canvas-native-host",
- "zen-canvas-preview-representation",
- "zen-canvas-windows-preview-registration",
+ "fylura-native-host",
+ "fylura-preview-representation",
+ "fylura-windows-preview-registration",
 ]
 
 [[package]]
-name = "zen-canvas-windows-preview-handler-harness"
+name = "fylura-windows-preview-handler-harness"
 version = "0.1.0"
 dependencies = [
  "windows",
  "windows-core",
- "zen-canvas-windows-preview-registration",
+ "fylura-windows-preview-registration",
 ]
 
 [[package]]
-name = "zen-canvas-windows-preview-registration"
+name = "fylura-windows-preview-registration"
 version = "0.1.0"
 
 [[package]]

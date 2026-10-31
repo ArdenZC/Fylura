@@ -2,7 +2,7 @@
 
 ## Product targets
 
-Zen Canvas supports:
+Fylura supports:
 
 - Windows, with the existing source-handle and verified-directory mutation
   authority;
@@ -36,7 +36,7 @@ objects. Package-internal mutation is rejected.
 
 ## Recovery and cleanup
 
-macOS Safe Trash is Zen Canvas's durable recoverable namespace, recorded by the
+macOS Safe Trash is Fylura's durable recoverable namespace, recorded by the
 existing cleanup ledger and restored through History. Replacement retains the
 old target in a private backup and restores both source and destination only
 after identity verification. Permanent delete first uses a private quarantine;

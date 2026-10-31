@@ -271,7 +271,7 @@ async function exerciseViewport(viewport) {
       await openFloating(page, list, "Library JSON Floating");
       const tree = await assertRepresentation(page, "structured_tree", "Library JSON tree");
       assert(await tree.getAttribute("data-preview-structured-format") === "json", "JSON format was not rendered");
-      assert((await tree.textContent())?.includes("Zen Canvas") === true, "JSON scalar was not rendered");
+      assert((await tree.textContent())?.includes("Fylura") === true, "JSON scalar was not rendered");
       await pin(page, viewport, "Library JSON Pin");
       await assertRepresentation(page, "structured_tree", "Pinned JSON tree", "zen-pinned");
       await unpin(page, "Library JSON Unpin");

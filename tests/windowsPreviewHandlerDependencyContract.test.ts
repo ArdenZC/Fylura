@@ -25,7 +25,7 @@ describe("Windows Preview Handler dependency contract", () => {
 
   it("requires an x64 COM DLL and rejects redistributable runtime imports", () => {
     expect(verifierScript).toContain(
-      'expectedFileName = "zen_canvas_windows_preview_handler.dll"',
+      'expectedFileName = "fylura_windows_preview_handler.dll"',
     );
     expect(verifierScript).toContain("inspection.machine !== 0x8664");
     expect(verifierScript).toContain('"DllGetClassObject", "DllCanUnloadNow"');

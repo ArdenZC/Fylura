@@ -4,6 +4,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
+use fylura_native_host::HostProvidedHandle;
 use windows::{
     core::IUnknown,
     Win32::{
@@ -12,7 +13,6 @@ use windows::{
         UI::Shell::IPreviewHandlerFrame,
     },
 };
-use zen_canvas_native_host::HostProvidedHandle;
 
 use crate::completion::DeferredCompletion;
 

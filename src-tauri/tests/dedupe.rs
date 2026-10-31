@@ -1,16 +1,16 @@
+use fylura_tauri::{
+    db::{Database, InsertFileRequest},
+    dedupe::{
+        run_duplicate_detection, run_duplicate_detection_with_hasher, ContentHasher, DedupeError,
+        NoopDedupeEventEmitter,
+    },
+};
 use rusqlite::{params, Connection};
 use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
-};
-use zen_canvas_tauri::{
-    db::{Database, InsertFileRequest},
-    dedupe::{
-        run_duplicate_detection, run_duplicate_detection_with_hasher, ContentHasher, DedupeError,
-        NoopDedupeEventEmitter,
-    },
 };
 
 #[test]

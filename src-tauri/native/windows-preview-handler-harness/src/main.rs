@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use fylura_windows_preview_registration::PRODUCTION_CLSID_U128;
 use windows::Win32::System::Ole::IObjectWithSite;
 use windows::{
     core::{
@@ -44,7 +45,6 @@ use windows::{
         },
     },
 };
-use zen_canvas_windows_preview_registration::PRODUCTION_CLSID_U128;
 
 const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(PRODUCTION_CLSID_U128);
 const S_OK: HRESULT = HRESULT(0);
@@ -186,7 +186,7 @@ impl HostWindow {
             CreateWindowExW(
                 Default::default(),
                 w!("STATIC"),
-                w!("Zen Canvas W4-03 v2 harness host"),
+                w!("Fylura W4-03 v2 harness host"),
                 WS_POPUP | WS_VISIBLE,
                 x,
                 0,
@@ -287,7 +287,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut args = env::args_os();
     let _program = args.next();
     let dll_path = args.next().map(PathBuf::from).ok_or(
-        "usage: zen-canvas-windows-preview-handler-harness <preview-handler.dll> [fixture-root]",
+        "usage: fylura-windows-preview-handler-harness <preview-handler.dll> [fixture-root]",
     )?;
     let fixture_root = args.next().map(PathBuf::from);
     run(&dll_path, fixture_root)
@@ -346,7 +346,7 @@ fn run(dll_path: &Path, fixture_path: Option<PathBuf>) -> Result<(), Box<dyn Err
     for generation in 0..3 {
         let path = fixtures.source(
             &format!("generation-{generation}.zcv2preview"),
-            format!("Zen Canvas W4-03 v2 generation {generation}\r\n你好\r\n").as_bytes(),
+            format!("Fylura W4-03 v2 generation {generation}\r\n你好\r\n").as_bytes(),
         )?;
         run_memory_release_case(
             &handler_dll,

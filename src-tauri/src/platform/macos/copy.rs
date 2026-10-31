@@ -186,7 +186,11 @@ fn copy_commit_claim_with_source_retirement(
                 })?
         }
     };
-    if !namespace_identity_matches(claim.expected_identity(), &source_namespace_identity) {
+    if !namespace_identity_matches(
+        claim.expected_identity(),
+        &source_namespace_identity,
+        claim.kind(),
+    ) {
         return rollback_before_publish(claim, AtomicMoveError::SourceChanged);
     }
     let source_identity = if matches!(claim.kind(), ClaimedEntryKind::Directory) {
@@ -264,7 +268,7 @@ fn copy_commit_claim_with_source_retirement(
         }
     };
     let source_identity_matches = if matches!(claim.kind(), ClaimedEntryKind::File) {
-        namespace_identity_matches(&source_identity, &source_after_copy)
+        namespace_identity_matches(&source_identity, &source_after_copy, ClaimedEntryKind::File)
     } else {
         identity::content_identity_matches(&source_identity, &source_after_copy)
     };
@@ -481,7 +485,7 @@ pub(crate) fn copy_commit_source_stable(
             .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
     };
     if let Some(expected) = expected_identity {
-        if !namespace_identity_matches(expected, &source_namespace_identity) {
+        if !namespace_identity_matches(expected, &source_namespace_identity, kind) {
             return Err(AtomicMoveError::SourceChanged);
         }
     }
@@ -642,7 +646,7 @@ pub(crate) fn copy_commit_source_stable(
         }
     })?;
     let source_still_matches = if matches!(kind, ClaimedEntryKind::File) {
-        namespace_identity_matches(&source_identity, &source_after)
+        namespace_identity_matches(&source_identity, &source_after, ClaimedEntryKind::File)
     } else {
         identity::content_identity_matches(&source_identity, &source_after)
     };
@@ -992,10 +996,20 @@ fn clone_file_if_possible(
 fn namespace_identity_matches(
     expected: &identity::ExpectedFileIdentity,
     actual: &identity::ExpectedFileIdentity,
+    kind: ClaimedEntryKind,
 ) -> bool {
     let mut namespace_expected = expected.clone();
+    let content_size_is_not_namespace_size = matches!(kind, ClaimedEntryKind::Directory)
+        && (expected.sample_hash.is_some() || expected.full_hash.is_some());
     namespace_expected.sample_hash = None;
     namespace_expected.full_hash = None;
+    if content_size_is_not_namespace_size {
+        // Directory content identities store the logical sum of descendant
+        // bytes in `size`; fstat on the root handle reports the filesystem's
+        // directory-entry size. Content size is verified separately against
+        // the captured tree identity before and after copying.
+        namespace_expected.size = actual.size;
+    }
     identity::identity_matches(&namespace_expected, actual)
 }
 
@@ -1413,7 +1427,7 @@ fn directory_entry_names(parent_fd: RawFd) -> Result<Vec<OsString>, AtomicMoveEr
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::{copy_verification_policy, CopyVerificationPolicy};
+    use super::{copy_verification_policy, namespace_identity_matches, CopyVerificationPolicy};
     use crate::fs_safety::{identity::ExpectedFileIdentity, ClaimedEntryKind};
     use std::io::{self, Read};
 
@@ -1524,6 +1538,53 @@ mod tests {
         eprintln!(
             "macOS native performance stream10GiB logicalBytes={logical_size} readCalls={read_calls} readBytes={read_bytes} sourcePasses=1"
         );
+    }
+
+    #[test]
+    fn directory_namespace_check_distinguishes_content_size_from_root_size() {
+        let expected_content = ExpectedFileIdentity {
+            size: 42,
+            modified_ns: Some(7),
+            platform_volume_id: Some("volume".into()),
+            platform_file_id: Some("directory".into()),
+            sample_hash: Some("sample".into()),
+            full_hash: Some("tree".into()),
+        };
+        let actual_namespace = ExpectedFileIdentity {
+            size: 128,
+            modified_ns: Some(7),
+            platform_volume_id: Some("volume".into()),
+            platform_file_id: Some("directory".into()),
+            sample_hash: None,
+            full_hash: None,
+        };
+
+        assert!(namespace_identity_matches(
+            &expected_content,
+            &actual_namespace,
+            ClaimedEntryKind::Directory,
+        ));
+        assert!(!namespace_identity_matches(
+            &expected_content,
+            &actual_namespace,
+            ClaimedEntryKind::File,
+        ));
+
+        let mut changed_metadata_only = actual_namespace.clone();
+        changed_metadata_only.size = 64;
+        assert!(!namespace_identity_matches(
+            &actual_namespace,
+            &changed_metadata_only,
+            ClaimedEntryKind::Directory,
+        ));
+
+        let mut rebound_directory = actual_namespace.clone();
+        rebound_directory.platform_file_id = Some("replacement".into());
+        assert!(!namespace_identity_matches(
+            &expected_content,
+            &rebound_directory,
+            ClaimedEntryKind::Directory,
+        ));
     }
 }
 

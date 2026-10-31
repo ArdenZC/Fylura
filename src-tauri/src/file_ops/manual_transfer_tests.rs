@@ -846,6 +846,61 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
 
 #[cfg(windows)]
 #[test]
+fn fl20_external_directory_copy_supports_extended_windows_paths() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("extended-source");
+    fs::create_dir_all(source.join("nested")).unwrap();
+    fs::write(source.join("nested/inside.txt"), b"extended path copy").unwrap();
+    let destination = f.root.join("extended-destination");
+    fs::create_dir(&destination).unwrap();
+
+    let source = PathBuf::from(format!(r"\\?\{}", source.display()));
+    let destination = PathBuf::from(format!(r"\\?\{}", destination.display()));
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap();
+    let plan = preview(
+        &runtime,
+        tickets.iter().map(|ticket| ticket.id.clone()).collect(),
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    assert!(
+        plan.rows.iter().all(|row| row.error.is_none()),
+        "errors: {:?}",
+        plan.rows
+            .iter()
+            .map(|row| row.error.as_deref())
+            .collect::<Vec<_>>()
+    );
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+
+    let result = execute_moves_with_persistence(&f.db, request).unwrap();
+    assert_eq!(result.logs.len(), 1);
+    assert_eq!(result.logs[0].status, "success", "{:?}", result.logs[0]);
+    assert_eq!(
+        fs::read(destination.join("extended-source/nested/inside.txt")).unwrap(),
+        b"extended path copy"
+    );
+    assert!(source.join("nested/inside.txt").is_file());
+    runtime.dispose();
+}
+
+#[cfg(windows)]
+#[test]
 fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with_journal() {
     use crate::fs_safety::atomic_move::test_faults::{self, AtomicFaultPoint};
 

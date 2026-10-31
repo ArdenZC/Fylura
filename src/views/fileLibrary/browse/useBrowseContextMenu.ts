@@ -50,7 +50,10 @@ export function useBrowseContextMenu({
           : null;
     const rect = row?.getBoundingClientRect();
     const width = 260;
-    const height = entry.entryKind === "directory" ? 180 : 140;
+    const height = Math.min(
+      window.innerHeight - 16,
+      entry.entryKind === "directory" ? 360 : 320,
+    );
     setContextMenu({
       entry,
       restoreFocusElement,

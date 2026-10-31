@@ -411,7 +411,6 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
     expected_target_parent: Option<&super::DirectoryIdentity>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
-    let _ = operation;
     platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
@@ -486,10 +485,20 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     if target_exists && !(cfg!(target_os = "macos") && same_macos_namespace_entry(source, target)) {
         return Err(AtomicMoveError::TargetExists);
     }
+    identity::ensure_supported_entry(source).map_err(map_identity_error)?;
+    let namespace_directory_operation = matches!(
+        operation,
+        AtomicMoveOperation::Rename | AtomicMoveOperation::Trash | AtomicMoveOperation::Restore
+    ) && std::fs::symlink_metadata(source)
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false);
     let expected = match expected_identity {
         Some(expected)
             if expected.full_hash.is_some()
                 || (cfg!(target_os = "macos")
+                    && expected.platform_volume_id.is_some()
+                    && expected.platform_file_id.is_some())
+                || (namespace_directory_operation
                     && expected.platform_volume_id.is_some()
                     && expected.platform_file_id.is_some()) =>
         {
@@ -623,9 +632,17 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
                     identity::capture_namespace_identity_only(claim.current_path(), cancel)
                         .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
                 #[cfg(not(target_os = "macos"))]
-                let path_actual =
+                let path_actual = if namespace_directory_operation {
+                    // A directory operation is authorized by the stable
+                    // namespace identity above.  Capturing the general
+                    // namespace identity here would recursively hash the
+                    // directory tree, which is both unbounded and can report
+                    // a different identity shape than the retained handle.
+                    identity::capture_namespace_identity_only(claim.current_path(), cancel)
+                } else {
                     identity::capture_namespace_identity(claim.current_path(), cancel)
-                        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+                }
+                .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
                 #[cfg(target_os = "macos")]
                 // The retained descriptor was already checked for full
                 // content identity above; this pathname recheck is only a

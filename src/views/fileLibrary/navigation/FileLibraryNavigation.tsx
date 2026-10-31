@@ -28,6 +28,7 @@ import {
   type LocationPresentationGroupId,
   type LocationPresentationPlatform
 } from "./locationPresentation";
+import { DirectoryTree, describeDirectoryTreeError } from "./DirectoryTree";
 import { cn } from "../../../utils/tw";
 
 export type FileLibraryNavigationLayout = "large" | "drawer";
@@ -75,6 +76,7 @@ export function FileLibraryNavigation({
 }) {
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationsFailed, setLocationsFailed] = useState(false);
+  const [treeNavigationError, setTreeNavigationError] = useState<unknown | null>(null);
   const locationLoadStartedRef = useRef(false);
   const locations = state.workspace.locations;
   const librarySurface = useLibraryNavigationSurface();
@@ -112,6 +114,13 @@ export function FileLibraryNavigation({
 
   const query = usePaneQuerySelector();
   const pane = usePane();
+  const browseTarget = state.workspace.session.currentTarget;
+  const treeLocation = state.mode === "browse" && browseTarget?.kind === "browse"
+    ? state.workspace.browse?.location ?? null
+    : null;
+  useEffect(() => {
+    setTreeNavigationError(null);
+  }, [pane?.routingHint, treeLocation?.ref]);
   const navigation = (
     <nav
       className="file-library-navigation-panel"
@@ -137,6 +146,18 @@ export function FileLibraryNavigation({
           </> : <p className="file-library-navigation-muted" data-file-library-navigation-library-state="unavailable">{t("fileLibraryNavigationLibraryUnavailable")}</p>}
         </div>
       </section> : null}
+
+      {treeLocation && pane ? <DirectoryTree
+        controller={controller}
+        location={treeLocation}
+        currentPath={pane.routingHint}
+        paneId={pane.id}
+        platform={platform}
+        navigationError={treeNavigationError}
+        onNavigationError={(error) => setTreeNavigationError(error)}
+        t={t}
+      /> : null}
+      {treeNavigationError !== null && !treeLocation ? <p className="file-library-navigation-muted flex items-center gap-1" role="status"><CircleAlert size={14} aria-hidden="true" />{describeDirectoryTreeError(treeNavigationError, t)}</p> : null}
 
       <section className="file-library-navigation-section" aria-labelledby={pane ? `file-library-navigation-locations-heading-${pane.id}` : "file-library-navigation-locations-heading"}>
         <div className="file-library-navigation-section-heading">

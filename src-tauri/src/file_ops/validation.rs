@@ -1,5 +1,6 @@
 use super::*;
 
+use crate::fs_safety::VerifiedDirectory;
 use std::path::Component;
 use thiserror::Error;
 
@@ -107,12 +108,14 @@ pub(crate) fn rename_file_with_identity(
     actual_path_callback: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
     validate_safe_file_name(&new_name)?;
-    let source = validate_source_path(&PathBuf::from(source_path))?;
+    let source = validate_namespace_entry_path(&PathBuf::from(source_path))?;
+    ensure_not_safe_trash_operation(&source)?;
     let parent = source
         .parent()
         .ok_or(FileOpError::TargetParentMissing)
         .map_err(|error| error.to_string())?;
     let target = parent.join(new_name);
+    ensure_not_safe_trash_operation(&target)?;
 
     if fs::symlink_metadata(&target).is_ok()
         && !(cfg!(target_os = "macos") && same_macos_namespace_entry(&source, &target))
@@ -138,6 +141,65 @@ pub(crate) fn rename_file_with_identity(
     Ok(FileOperationResult {
         operation: "rename".to_string(),
         source_path: normalize_path(&source),
+        target_path: normalize_path(&target),
+    })
+}
+
+pub(crate) fn create_directory_with_safety(
+    parent_path: String,
+    name: String,
+    expected_parent: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+) -> Result<FileOperationResult, FileMutationError> {
+    validate_safe_file_name(&name)?;
+    let parent = VerifiedDirectory::open_existing(Path::new(&parent_path))
+        .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+    ensure_general_file_operation_allowed(parent.path())?;
+    ensure_not_safe_trash_operation(parent.path())?;
+    ensure_not_safe_trash_operation(&parent.path().join(&name))?;
+    if let Some(expected) = expected_parent {
+        let actual = crate::fs_safety::capture_namespace_identity_only(parent.path(), None)
+            .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+        if !crate::fs_safety::identity_matches(expected, &actual) {
+            return Err(FileMutationError::Validation(
+                "operation_preview_stale".into(),
+            ));
+        }
+    }
+    let child = parent
+        .create_child_directory(std::ffi::OsStr::new(&name))
+        .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+    let target = child.path().to_path_buf();
+    parent.sync().map_err(|_| {
+        FileMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        )
+    })?;
+    if let Some(observer) = actual_path_observer {
+        observer(parent.path(), &target, None).map_err(FileMutationError::Atomic)?;
+    }
+    if let Some(observer) = phase_observer {
+        observer("target_committed").map_err(FileMutationError::Atomic)?;
+    }
+    parent.ensure_unchanged().map_err(|_error| {
+        FileMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        )
+    })?;
+    let published = VerifiedDirectory::open_existing(&target).map_err(|_| {
+        FileMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        )
+    })?;
+    if published.identity() != child.identity() {
+        return Err(FileMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        ));
+    }
+    Ok(FileOperationResult {
+        operation: "create_directory".into(),
+        source_path: normalize_path(parent.path()),
         target_path: normalize_path(&target),
     })
 }
@@ -201,6 +263,7 @@ pub(crate) fn validate_target_path_with_parent_policy(
     {
         return Err(FileOpError::UnsafePathTraversal.to_string());
     }
+    ensure_not_safe_trash_operation(path)?;
     if fs::symlink_metadata(path).is_ok() {
         return Err(FileOpError::TargetExists.to_string());
     }
@@ -218,6 +281,7 @@ pub(crate) fn validate_target_path_with_parent_policy(
         .map_err(|error| error.to_string())?;
     let existing_ancestor = canonicalize_nearest_existing_ancestor(parent)?;
     ensure_general_file_operation_allowed(&existing_ancestor)?;
+    ensure_not_safe_trash_operation(&existing_ancestor)?;
     if !parent.exists() && !allow_create_parent {
         return Err(FileOpError::TargetParentMissing.to_string());
     }
@@ -237,6 +301,7 @@ pub(crate) fn validate_target_path_with_parent_policy(
         .canonicalize()
         .map_err(|_| FileOpError::TargetParentMissing.to_string())?;
     ensure_general_file_operation_allowed(&parent)?;
+    ensure_not_safe_trash_operation(&parent)?;
 
     Ok(parent.join(name))
 }
@@ -269,6 +334,8 @@ pub(crate) fn move_file_with_parent_policy_with_cancel_and_identity(
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
+    ensure_not_safe_trash_operation(&source)?;
+    ensure_not_safe_trash_operation(&target)?;
     move_file_no_overwrite_with_identity_for_operation_with_actual_paths(
         &source,
         &target,
@@ -327,6 +394,8 @@ pub(crate) fn copy_file_with_identity(
     let target = validate_target_path(&PathBuf::from(target_path))?;
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
+    ensure_not_safe_trash_operation(&source)?;
+    ensure_not_safe_trash_operation(&target)?;
     crate::fs_safety::atomic_move::atomic_copy_noreplace_with_claim_path_and_observer_with_actual_paths(
         &source,
         &target,
@@ -358,6 +427,8 @@ pub(crate) fn replace_file_with_identity(
 ) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target = validate_existing_target_path(&PathBuf::from(target_path))?;
+    ensure_not_safe_trash_operation(&source)?;
+    ensure_not_safe_trash_operation(&target)?;
     if normalize_path(&source) == normalize_path(&target)
         || (cfg!(target_os = "macos") && same_macos_namespace_entry(&source, &target))
     {
@@ -411,7 +482,6 @@ pub(crate) fn permanently_delete_with_identity(
     })
 }
 
-#[cfg(target_os = "macos")]
 fn move_path_to_system_trash_with_safety(
     source: &Path,
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
@@ -472,22 +542,6 @@ fn move_path_to_system_trash_with_safety(
     Ok((actual_source, actual_target))
 }
 
-#[cfg(not(target_os = "macos"))]
-fn move_path_to_system_trash_with_safety(
-    _source: &Path,
-    _expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
-    _planned_claim_path: Option<&Path>,
-    _operation_id: &str,
-    _phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    _actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
-) -> Result<(PathBuf, PathBuf), FileMutationError> {
-    crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
-        .map_err(|error| FileMutationError::Validation(error.to_string()))?;
-    Err(FileMutationError::Validation(
-        "system_trash_source_binding_unsupported".to_string(),
-    ))
-}
-
 fn validate_existing_target_path(path: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err(FileOpError::RelativePath.to_string());
@@ -499,6 +553,7 @@ fn validate_existing_target_path(path: &Path) -> Result<PathBuf, String> {
     {
         return Err(FileOpError::UnsafePathTraversal.to_string());
     }
+    ensure_not_safe_trash_operation(path)?;
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             FileOpError::TargetParentMissing.to_string()
@@ -522,14 +577,68 @@ fn validate_existing_target_path(path: &Path) -> Result<PathBuf, String> {
         .canonicalize()
         .map_err(|error| FileOpError::Io(error).to_string())?;
     ensure_general_file_operation_allowed(&parent)?;
+    ensure_not_safe_trash_operation(&parent.join(name))?;
     Ok(parent.join(name))
 }
 
+/// Validates a regular file or directory as one namespace object. This is
+/// used only for same-volume rename and Safe Trash, which never read a
+/// directory tree and bind the mutation to the captured object identity.
+pub(crate) fn validate_namespace_entry_path(path: &Path) -> Result<PathBuf, String> {
+    validate_cleanup_path_syntax(path)?;
+    ensure_general_file_operation_allowed(path)?;
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            FileOpError::SourceMissing.to_string()
+        } else {
+            FileOpError::Io(error).to_string()
+        }
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
+    }
+    if !metadata.is_file() && !metadata.is_dir() {
+        return Err(FileOpError::SourceNotFile.to_string());
+    }
+    let source = path
+        .canonicalize()
+        .map_err(|error| FileOpError::Io(error).to_string())?;
+    ensure_general_file_operation_allowed(&source)?;
+    VerifiedDirectory::open_existing(
+        source
+            .parent()
+            .ok_or_else(|| FileOpError::TargetParentMissing.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(source)
+}
+
+/// The Safe Trash is journal-owned storage. Ordinary transfers and renames
+/// cannot source from or target within it; History Restore has its own
+/// identity-checked path that deliberately allows a trashed source.
+pub(crate) fn ensure_not_safe_trash_operation(path: &Path) -> Result<(), String> {
+    if crate::storage_analyzer::is_zen_canvas_safe_trash_path(path) {
+        return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_cleanup_path_syntax(path: &Path) -> Result<(), String> {
+    let path_text = path.to_string_lossy();
+    let has_wildcard = if cfg!(windows) {
+        path.components().any(|component| match component {
+            Component::Normal(name) => {
+                let name = name.to_string_lossy();
+                name.contains('*') || name.contains('?')
+            }
+            _ => false,
+        })
+    } else {
+        path_text.contains('*') || path_text.contains('?')
+    };
     if path.as_os_str().is_empty()
-        || path.to_string_lossy().contains('\0')
-        || path.to_string_lossy().contains('*')
-        || path.to_string_lossy().contains('?')
+        || path_text.contains('\0')
+        || has_wildcard
         || path
             .components()
             .any(|component| component == Component::ParentDir)

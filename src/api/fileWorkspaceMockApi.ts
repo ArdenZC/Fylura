@@ -2411,7 +2411,7 @@ function w305Representation(source: PreviewSnapshot["source"]):
           root: {
             kind: "object",
             entries: [
-              { key: "project", value: { kind: "scalar", scalarType: "string", value: "Zen Canvas" } },
+              { key: "project", value: { kind: "scalar", scalarType: "string", value: "Fylura" } },
               { key: "enabled", value: { kind: "scalar", scalarType: "boolean", value: "true" } },
               { key: "tags", value: { kind: "array", items: [
                 { kind: "scalar", scalarType: "string", value: "preview" },

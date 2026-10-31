@@ -34,7 +34,7 @@ try {
   const screenshot = (name) => page.screenshot({ path: path.join(output, name), fullPage: false });
   await page.goto(`${baseUrl}/?browser-mock=1`);
   await page.getByRole("button", { name: "Files", exact: true }).click();
-  assert.equal(await page.title(), "Zen Canvas");
+  assert.equal(await page.title(), "Fylura");
   const left = page.locator("[data-pane-id]").first();
   await left.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
   await left.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Left");

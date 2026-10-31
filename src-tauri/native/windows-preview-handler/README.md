@@ -24,7 +24,7 @@ Build and run on Windows with:
 ```text
 cargo build --release --manifest-path src-tauri/native/windows-preview-handler/Cargo.toml --features test-observability
 cargo build --release --manifest-path src-tauri/native/windows-preview-handler-harness/Cargo.toml
-zen-canvas-windows-preview-handler-harness.exe <preview-handler.dll> <dedicated-fixture-root>
+fylura-windows-preview-handler-harness.exe <preview-handler.dll> <dedicated-fixture-root>
 ```
 
 Real Explorer/prevhost registration and evidence remain outside this

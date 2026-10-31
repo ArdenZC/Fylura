@@ -355,7 +355,7 @@ pub(crate) fn migrate_with_cancellation(
                 "ALTER TABLE files ADD COLUMN suggested_target_path TEXT NOT NULL DEFAULT '';",
                 "ALTER TABLE files ADD COLUMN suggested_name TEXT NOT NULL DEFAULT '';",
                 "ALTER TABLE files ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5;",
-                "ALTER TABLE files ADD COLUMN classification_reason TEXT NOT NULL DEFAULT 'Indexed by Zen Canvas Tauri backend.';",
+                "ALTER TABLE files ADD COLUMN classification_reason TEXT NOT NULL DEFAULT 'Indexed by Fylura Tauri backend.';",
                 "ALTER TABLE files ADD COLUMN matched_rules TEXT NOT NULL DEFAULT '[]';",
                 "ALTER TABLE files ADD COLUMN requires_confirmation INTEGER NOT NULL DEFAULT 0;",
             ],

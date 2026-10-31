@@ -16,7 +16,7 @@ export const generatedTemplatePath = path.join(
   "src-tauri",
   "windows",
   ".generated",
-  "zen-canvas-installer.nsi",
+  "fylura-installer.nsi",
 );
 
 const lines = (...values) => values.join("\n");
@@ -48,7 +48,7 @@ function replaceExactly(source, before, after, label) {
   return source.slice(0, first) + after + source.slice(first + before.length);
 }
 
-export function buildZenCanvasNsisTemplate(upstream) {
+export function buildFyluraNsisTemplate(upstream) {
   const canonicalUpstream = canonicalizeUpstreamTemplate(upstream);
   const actualBlobSha = gitBlobSha(canonicalUpstream);
   if (actualBlobSha !== TAURI_NSIS_UPSTREAM_BLOB_SHA) {
@@ -378,7 +378,7 @@ export function buildZenCanvasNsisTemplate(upstream) {
 
 export function prepareWindowsNsisTemplate() {
   const upstream = fs.readFileSync(upstreamTemplatePath, "utf8");
-  const output = buildZenCanvasNsisTemplate(upstream);
+  const output = buildFyluraNsisTemplate(upstream);
   fs.mkdirSync(path.dirname(generatedTemplatePath), { recursive: true });
   fs.writeFileSync(generatedTemplatePath, output, "utf8");
   return generatedTemplatePath;

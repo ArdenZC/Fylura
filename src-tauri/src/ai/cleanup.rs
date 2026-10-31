@@ -558,10 +558,10 @@ fn ai_cleanup_json_error(content: &str, detail: &str) -> String {
             .to_string();
     }
     if lower.contains("```") {
-        return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。"
+        return "模型返回了 Markdown 代码块，Fylura 已尝试提取 JSON，但结构仍不符合要求。"
             .to_string();
     }
-    format!("模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}")
+    format!("模型返回的内容不是 Fylura 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}")
 }
 
 fn sanitize_ai_cleanup_error(message: String, api_key: &str) -> String {

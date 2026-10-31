@@ -1,7 +1,7 @@
 //! App adapter for the one shared HostProvided implementation.
 //!
 //! The lifecycle, bounds, cancellation and post-read revalidation live in
-//! `zen-canvas-native-host`, which is also consumed by the Windows handler.
+//! `fylura-native-host`, which is also consumed by the Windows handler.
 //! This adapter only translates the app's existing `PreviewHostKind` enum so
 //! the app-side Preview contracts remain source-compatible.
 
@@ -17,7 +17,7 @@ use crate::file_workspace::{contracts::PreviewHostKind, preview::BoundedContentR
 use std::sync::Arc;
 
 #[allow(unused_imports)]
-pub(crate) use zen_canvas_native_host::{
+pub(crate) use fylura_native_host::{
     HostProvidedHandle, HostProvidedReadContext, HostProvidedReadSource, HostProvidedSourceError,
 };
 
@@ -30,7 +30,7 @@ pub(crate) struct HostProvidedConfig {
 
 impl Default for HostProvidedConfig {
     fn default() -> Self {
-        let shared = zen_canvas_native_host::HostProvidedConfig::default();
+        let shared = fylura_native_host::HostProvidedConfig::default();
         Self {
             max_records: shared.max_records,
             max_read_bytes: shared.max_read_bytes,
@@ -78,17 +78,17 @@ pub(crate) enum HostProvidedError {
 }
 
 pub(crate) struct HostProvidedRegistry {
-    inner: Arc<zen_canvas_native_host::HostProvidedRegistry>,
+    inner: Arc<fylura_native_host::HostProvidedRegistry>,
 }
 
 impl HostProvidedRegistry {
     pub(crate) fn new(config: HostProvidedConfig) -> Result<Arc<Self>, HostProvidedError> {
-        let shared = zen_canvas_native_host::HostProvidedConfig {
+        let shared = fylura_native_host::HostProvidedConfig {
             max_records: config.max_records,
             max_read_bytes: config.max_read_bytes,
             ttl: config.ttl,
         };
-        let inner = zen_canvas_native_host::HostProvidedRegistry::new(shared).map_err(map_error)?;
+        let inner = fylura_native_host::HostProvidedRegistry::new(shared).map_err(map_error)?;
         Ok(Arc::new(Self { inner }))
     }
 
@@ -97,7 +97,7 @@ impl HostProvidedRegistry {
         registration: HostProvidedRegistration,
     ) -> Result<HostProvidedHandle, HostProvidedError> {
         self.inner
-            .register(zen_canvas_native_host::HostProvidedRegistration {
+            .register(fylura_native_host::HostProvidedRegistration {
                 host: map_host(registration.host),
                 generation_id: registration.generation_id,
                 source: registration.source,
@@ -110,7 +110,7 @@ impl HostProvidedRegistry {
         request: &HostProvidedReadRequest,
     ) -> Result<BoundedContentRead, HostProvidedError> {
         self.inner
-            .read(&zen_canvas_native_host::HostProvidedReadRequest {
+            .read(&fylura_native_host::HostProvidedReadRequest {
                 host_token: request.host_token.clone(),
                 host: map_host(request.host),
                 generation_id: request.generation_id.clone(),
@@ -153,45 +153,41 @@ impl HostProvidedRegistry {
     }
 }
 
-fn map_host(host: PreviewHostKind) -> zen_canvas_native_host::HostProvidedHost {
+fn map_host(host: PreviewHostKind) -> fylura_native_host::HostProvidedHost {
     match host {
-        PreviewHostKind::ZenFloating => zen_canvas_native_host::HostProvidedHost::ZenFloating,
-        PreviewHostKind::ZenPinned => zen_canvas_native_host::HostProvidedHost::ZenPinned,
+        PreviewHostKind::ZenFloating => fylura_native_host::HostProvidedHost::ZenFloating,
+        PreviewHostKind::ZenPinned => fylura_native_host::HostProvidedHost::ZenPinned,
         PreviewHostKind::MacQuickLookExtension => {
-            zen_canvas_native_host::HostProvidedHost::MacQuickLookExtension
+            fylura_native_host::HostProvidedHost::MacQuickLookExtension
         }
         PreviewHostKind::WindowsQuickPreview => {
-            zen_canvas_native_host::HostProvidedHost::WindowsQuickPreview
+            fylura_native_host::HostProvidedHost::WindowsQuickPreview
         }
         PreviewHostKind::WindowsPreviewHandler => {
-            zen_canvas_native_host::HostProvidedHost::WindowsPreviewHandler
+            fylura_native_host::HostProvidedHost::WindowsPreviewHandler
         }
     }
 }
 
-fn map_error(error: zen_canvas_native_host::HostProvidedError) -> HostProvidedError {
+fn map_error(error: fylura_native_host::HostProvidedError) -> HostProvidedError {
     match error {
-        zen_canvas_native_host::HostProvidedError::InvalidRequest => {
-            HostProvidedError::InvalidRequest
-        }
-        zen_canvas_native_host::HostProvidedError::UnsupportedHost => {
+        fylura_native_host::HostProvidedError::InvalidRequest => HostProvidedError::InvalidRequest,
+        fylura_native_host::HostProvidedError::UnsupportedHost => {
             HostProvidedError::UnsupportedHost
         }
-        zen_canvas_native_host::HostProvidedError::CapacityExceeded => {
+        fylura_native_host::HostProvidedError::CapacityExceeded => {
             HostProvidedError::CapacityExceeded
         }
-        zen_canvas_native_host::HostProvidedError::InvalidOrStale => {
-            HostProvidedError::InvalidOrStale
-        }
-        zen_canvas_native_host::HostProvidedError::Disposed => HostProvidedError::Disposed,
-        zen_canvas_native_host::HostProvidedError::SourceUnavailable => {
+        fylura_native_host::HostProvidedError::InvalidOrStale => HostProvidedError::InvalidOrStale,
+        fylura_native_host::HostProvidedError::Disposed => HostProvidedError::Disposed,
+        fylura_native_host::HostProvidedError::SourceUnavailable => {
             HostProvidedError::SourceUnavailable
         }
-        zen_canvas_native_host::HostProvidedError::PermissionDenied => {
+        fylura_native_host::HostProvidedError::PermissionDenied => {
             HostProvidedError::PermissionDenied
         }
-        zen_canvas_native_host::HostProvidedError::Cancelled => HostProvidedError::Cancelled,
-        zen_canvas_native_host::HostProvidedError::Failed => HostProvidedError::Failed,
+        fylura_native_host::HostProvidedError::Cancelled => HostProvidedError::Cancelled,
+        fylura_native_host::HostProvidedError::Failed => HostProvidedError::Failed,
     }
 }
 

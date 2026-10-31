@@ -17,10 +17,10 @@ mod window;
 #[cfg(any(test, feature = "test-registration"))]
 pub mod test_registration;
 
+use fylura_native_host::{HostProvidedConfig, HostProvidedRegistry};
+use fylura_windows_preview_registration as registration;
 use std::sync::{atomic::AtomicU32, Arc, OnceLock};
 use windows::core::{GUID, HRESULT};
-use zen_canvas_native_host::{HostProvidedConfig, HostProvidedRegistry};
-use zen_canvas_windows_preview_registration as registration;
 
 pub const PREVIEW_HANDLER_CLSID: GUID = GUID::from_u128(registration::PRODUCTION_CLSID_U128);
 

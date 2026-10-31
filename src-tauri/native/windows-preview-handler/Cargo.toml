@@ -1,5 +1,5 @@
 [package]
-name = "zen-canvas-windows-preview-handler"
+name = "fylura-windows-preview-handler"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "zen-canvas-windows-preview-handler-real-host"
+name = "fylura-windows-preview-handler-real-host"
 path = "src/real_host_registration.rs"
 required-features = ["test-registration"]
 
@@ -17,9 +17,9 @@ test-observability = []
 test-registration = []
 
 [dependencies]
-zen-canvas-native-host = { path = "../host-provided" }
-zen-canvas-preview-representation = { path = "../preview-representation" }
-zen-canvas-windows-preview-registration = { path = "../windows-preview-registration" }
+fylura-native-host = { path = "../host-provided" }
+fylura-preview-representation = { path = "../preview-representation" }
+fylura-windows-preview-registration = { path = "../windows-preview-registration" }
 uuid = { version = "1", features = ["v4"] }
 windows-core = "0.61.2"
 windows = { version = "0.61.3", features = [

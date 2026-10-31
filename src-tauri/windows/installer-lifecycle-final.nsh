@@ -109,7 +109,7 @@ Function ZCPrepareInstallLifecycleFinal
   Call ZCStopCapturedServiceForLifecycle
   ${If} $ZC_LIFECYCLE_STOP_OK != 1
     Call ZCRecoverInstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not stop the exact captured Global Index service before file mutation. The captured service state was restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not stop the exact captured Global Index service before file mutation. The captured service state was restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -117,7 +117,7 @@ Function ZCPrepareInstallLifecycleFinal
   Call ZCResolveMainAppGateFinal
   ${If} $ZC_LIFECYCLE_GATE_OK != 1
     Call ZCRecoverInstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation was cancelled or the desktop process could not be closed before file mutation. The captured service state was restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura installation was cancelled or the desktop process could not be closed before file mutation. The captured service state was restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -125,7 +125,7 @@ Function ZCPrepareInstallLifecycleFinal
   Call ZCQuiescePreviewForLifecycle
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Call ZCRecoverInstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not withdraw the exact Preview Handler registration before file mutation. Preview and the captured service state were restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not withdraw the exact Preview Handler registration before file mutation. Preview and the captured service state were restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -137,7 +137,7 @@ Function un.ZCPrepareUninstallLifecycleFinal
   Call un.ZCStopCapturedServiceForLifecycle
   ${If} $ZC_LIFECYCLE_STOP_OK != 1
     Call un.ZCRecoverUninstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not stop the exact captured Global Index service before uninstall deletion. The original service state was restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not stop the exact captured Global Index service before uninstall deletion. The original service state was restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -145,7 +145,7 @@ Function un.ZCPrepareUninstallLifecycleFinal
   Call un.ZCResolveMainAppGateFinal
   ${If} $ZC_LIFECYCLE_GATE_OK != 1
     Call un.ZCRecoverUninstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas uninstall was cancelled or the desktop process could not be closed before file deletion. The original service state was restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall was cancelled or the desktop process could not be closed before file deletion. The original service state was restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -153,7 +153,7 @@ Function un.ZCPrepareUninstallLifecycleFinal
   Call un.ZCQuiescePreviewForLifecycle
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Call un.ZCRecoverUninstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not withdraw the exact Preview Handler registration before file deletion. Preview and the original service state were restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not withdraw the exact Preview Handler registration before file deletion. Preview and the original service state were restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -264,7 +264,7 @@ Function ZCEnsurePostInstallServiceFinal
     ; A captured repair service must still be the exact same owned service.
     ; Never recreate it if it disappeared and never adopt a replacement.
     ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
-      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The captured Zen Canvas Global Index service disappeared or changed ownership during repair; it was not recreated or adopted."
+      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The captured Fylura Global Index service disappeared or changed ownership during repair; it was not recreated or adopted."
       Call FailZenCanvasPostInstall
     ${EndIf}
     ; A successful repair has a different contract from failure recovery: the
@@ -272,7 +272,7 @@ Function ZCEnsurePostInstallServiceFinal
     ; originally STOPPED services converge to stable RUNNING here.
     Call ZCEnsureZenCanvasIndexServiceRunningForSuccessfulInstall
     ${If} $ZC_POSTINSTALL_SERVICE_CLEAN != 1
-      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The exact-owned Zen Canvas Global Index service could not be converged to stable RUNNING after repair."
+      StrCpy $ZC_POSTINSTALL_FAILURE_REASON "The exact-owned Fylura Global Index service could not be converged to stable RUNNING after repair."
       Call FailZenCanvasPostInstall
     ${EndIf}
     Return
@@ -453,7 +453,7 @@ FunctionEnd
 
 Function ZCFailPostInstallLifecycleFinal
   ${If} $ZC_POSTINSTALL_FAILURE_REASON == ""
-    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Zen Canvas post-install integration failed before the product lifecycle completed."
+    StrCpy $ZC_POSTINSTALL_FAILURE_REASON "Fylura post-install integration failed before the product lifecycle completed."
   ${EndIf}
   Call ZCHandlePostInstallFailureFinal
 
@@ -474,7 +474,7 @@ Function ZCFailPostInstallLifecycleFinal
   ${Else}
     StrCpy $3 "Preview cleanup could not be fully verified and remains withdrawn."
   ${EndIf}
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation did not complete. Product files may remain in the install directory, but this attempt is not represented as a successful product.$\r$\n$\r$\n$ZC_POSTINSTALL_FAILURE_REASON$\r$\n$\r$\n$1 $2 $3" /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Fylura installation did not complete. Product files may remain in the install directory, but this attempt is not represented as a successful product.$\r$\n$\r$\n$ZC_POSTINSTALL_FAILURE_REASON$\r$\n$\r$\n$1 $2 $3" /SD IDOK
   Abort
 FunctionEnd
 
@@ -488,7 +488,7 @@ Function un.ZCPostUninstallLifecycleFinal
   Call un.DeleteZenCanvasIndexService
   Call un.RemoveZenCanvasManufacturerProductMarker
   ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1
-    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Zen Canvas manufacturer install-location marker could not be removed with exact current ownership; it was preserved." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura manufacturer install-location marker could not be removed with exact current ownership; it was preserved." /SD IDOK
     Abort
   ${EndIf}
   ${If} $ZC_PREVIEW_ARTIFACT_REMOVED != 1

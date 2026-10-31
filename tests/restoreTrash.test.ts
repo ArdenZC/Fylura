@@ -8,7 +8,7 @@ function read(relativePath: string) {
 }
 
 describe("restore view cleanup safe trash", () => {
-  it("shows Zen Canvas safe trash batches and restore safety copy", () => {
+  it("shows safe trash batches and restore safety copy", () => {
     const source = read("src/views/restore/RestoreView.tsx");
     const t = makeTranslator("zh");
 

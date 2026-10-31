@@ -106,7 +106,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-global-search-benchmark-v1
+          shared-key: fylura-Windows-global-search-benchmark-v1
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -224,7 +224,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-${{ matrix.runner_key }}-global-index-cost-v1
+          shared-key: fylura-${{ matrix.runner_key }}-global-index-cost-v1
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -280,7 +280,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-global-search-exact-sql-1m-v1
+          shared-key: fylura-Windows-global-search-exact-sql-1m-v1
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -438,7 +438,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-global-search-benchmark-v1
+          shared-key: fylura-Windows-global-search-benchmark-v1
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -495,7 +495,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-Windows-global-search-benchmark-v1
+          shared-key: fylura-Windows-global-search-benchmark-v1
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
@@ -555,12 +555,12 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-canvas-${{ runner.os }}-global-search-benchmark-v1
+          shared-key: fylura-${{ runner.os }}-global-search-benchmark-v1
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
       - name: Compile native startup UI
-        run: cargo check --manifest-path src-tauri/Cargo.toml --features desktop-runtime --bin zen-canvas
+        run: cargo check --manifest-path src-tauri/Cargo.toml --features desktop-runtime --bin fylura
       - name: Resource, FULL, cancellation and process-death contracts
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib upgrade -- --nocapture --test-threads=1
       - name: Existing schema43 and search semantics
@@ -573,7 +573,7 @@ jobs:
         timeout-minutes: 3
         env:
           ZC_UPGRADE_UI_OUTPUT: ${{ github.workspace }}/ci-evidence/schema-upgrade-ui.json
-        run: cargo run --manifest-path src-tauri/Cargo.toml --features desktop-runtime,native-qa --bin zen-canvas -- --schema-upgrade-ui-qa
+        run: cargo run --manifest-path src-tauri/Cargo.toml --features desktop-runtime,native-qa --bin fylura -- --schema-upgrade-ui-qa
       - name: Bounded installed-schema migration measurement
         if: ${{ inputs.upgrade_measure }}
         run: >-

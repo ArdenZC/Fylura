@@ -7,7 +7,7 @@ use std::{
     thread,
 };
 
-use zen_canvas_tauri::{
+use fylura_tauri::{
     db::Database,
     file_ops::{
         execute_moves_with_persistence, restore_moves_with_persistence, ExecuteMovesRequest,
@@ -63,36 +63,35 @@ fn non_temp_fixture(name: &str) -> std::path::PathBuf {
 }
 
 fn replace_source_after_claim(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
-    if point
-        == zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimBeforeIdentityCheck
+    if point == fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimBeforeIdentityCheck
     {
         fs::write(source, b"attacker source replacement").expect("rebind source");
     }
 }
 
 fn replace_source_before_claim(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
     if point
-        == zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim
+        == fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim
     {
         fs::write(source, b"attacker source before claim").expect("replace source before claim");
     }
 }
 
 fn recreate_source_before_commit(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
     if point
-        == zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
+        == fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
     {
         let _ = fs::remove_file(source);
         fs::write(source, b"attacker recreated source").expect("recreate source");
@@ -100,12 +99,12 @@ fn recreate_source_before_commit(
 }
 
 fn create_or_replace_target_before_commit(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
     if point
-        == zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
+        == fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
     {
         let target = source.parent().expect("source parent").join("target.txt");
         let _ = fs::remove_file(&target);
@@ -114,12 +113,12 @@ fn create_or_replace_target_before_commit(
 }
 
 fn recreate_cross_volume_source_after_copy(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
     if point
-        == zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterStagingVerifiedBeforeCommit
+        == fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterStagingVerifiedBeforeCommit
     {
         let _ = fs::remove_file(source);
         fs::write(source, b"attacker cross-volume source").expect("recreate cross-volume source");
@@ -127,12 +126,12 @@ fn recreate_cross_volume_source_after_copy(
 }
 
 fn rebind_claim_namespace(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     _source: &std::path::Path,
     claim: &std::path::Path,
 ) {
     if point
-        == zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
+        == fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
     {
         let rebound = claim.with_extension("rebound");
         let _ = fs::rename(claim, &rebound);
@@ -141,12 +140,12 @@ fn rebind_claim_namespace(
 }
 
 fn occupy_target_then_source_on_rollback(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
     if point
-        == zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeCommit
+        == fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeCommit
     {
         fs::write(
             source.parent().expect("source parent").join("target.txt"),
@@ -155,19 +154,19 @@ fn occupy_target_then_source_on_rollback(
         .expect("occupy target");
     }
     if point
-        == zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeRollback
+        == fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeRollback
     {
         fs::write(source, b"attacker rollback source").expect("occupy rollback source");
     }
 }
 
 fn rebind_delete_claim(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     _source: &std::path::Path,
     claim: &std::path::Path,
 ) {
     if point
-        != zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeDelete
+        != fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeDelete
     {
         return;
     }
@@ -177,12 +176,11 @@ fn rebind_delete_claim(
 }
 
 fn rebind_replacement_backup(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     _source: &std::path::Path,
     claim: &std::path::Path,
 ) {
-    if point
-        != zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterReplacementBackupClaimed
+    if point != fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterReplacementBackupClaimed
     {
         return;
     }
@@ -192,12 +190,12 @@ fn rebind_replacement_backup(
 }
 
 fn recreate_package_namespace(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
     if point
-        != zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
+        != fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
     {
         return;
     }
@@ -206,12 +204,12 @@ fn recreate_package_namespace(
 }
 
 fn recreate_directory_namespace(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
     if point
-        != zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
+        != fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
     {
         return;
     }
@@ -220,12 +218,12 @@ fn recreate_directory_namespace(
 }
 
 fn recreate_symlink_namespace(
-    point: zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint,
+    point: fylura_tauri::fs_safety::source_claim::ClaimTestPoint,
     source: &std::path::Path,
     _claim: &std::path::Path,
 ) {
     if point
-        != zen_canvas_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
+        != fylura_tauri::fs_safety::source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit
     {
         return;
     }
@@ -247,18 +245,16 @@ struct ExpandedRaceMetrics {
 
 fn record_expanded_result(
     metrics: &mut ExpandedRaceMetrics,
-    result: &Result<zen_canvas_tauri::fs_safety::AtomicMoveOutcome, AtomicMoveError>,
+    result: &Result<fylura_tauri::fs_safety::AtomicMoveOutcome, AtomicMoveError>,
 ) {
     match result {
         Ok(_) => metrics.safe_success += 1,
         Err(error) => {
             metrics.safe_failure += 1;
             match error.commit_state() {
-                zen_canvas_tauri::fs_safety::AtomicMoveCommitState::RolledBack => {
-                    metrics.rollback += 1
-                }
-                zen_canvas_tauri::fs_safety::AtomicMoveCommitState::SourceCleanupPending
-                | zen_canvas_tauri::fs_safety::AtomicMoveCommitState::ManualReview => {
+                fylura_tauri::fs_safety::AtomicMoveCommitState::RolledBack => metrics.rollback += 1,
+                fylura_tauri::fs_safety::AtomicMoveCommitState::SourceCleanupPending
+                | fylura_tauri::fs_safety::AtomicMoveCommitState::ManualReview => {
                     metrics.manual_recovery += 1
                 }
                 _ => {}
@@ -300,7 +296,7 @@ fn execute(
     operation_type: &str,
     source: &std::path::Path,
     target: &std::path::Path,
-) -> zen_canvas_tauri::file_ops::OperationLogDto {
+) -> fylura_tauri::file_ops::OperationLogDto {
     execute_moves_with_persistence(
         db,
         ExecuteMovesRequest {
@@ -548,9 +544,9 @@ fn macos_target_creation_race_never_loses_source_payload() {
             Err(error) => {
                 safe_failure += 1;
                 match error.commit_state() {
-                    zen_canvas_tauri::fs_safety::AtomicMoveCommitState::RolledBack => rollback += 1,
-                    zen_canvas_tauri::fs_safety::AtomicMoveCommitState::SourceCleanupPending
-                    | zen_canvas_tauri::fs_safety::AtomicMoveCommitState::ManualReview => {
+                    fylura_tauri::fs_safety::AtomicMoveCommitState::RolledBack => rollback += 1,
+                    fylura_tauri::fs_safety::AtomicMoveCommitState::SourceCleanupPending
+                    | fylura_tauri::fs_safety::AtomicMoveCommitState::ManualReview => {
                         manual_recovery += 1
                     }
                     _ => {}
@@ -611,7 +607,7 @@ fn macos_target_creation_race_never_loses_source_payload() {
 
 #[test]
 fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() {
-    use zen_canvas_tauri::fs_safety::source_claim::{
+    use fylura_tauri::fs_safety::source_claim::{
         lock_claim_test_hooks, set_claim_test_hook, ClaimTestPoint,
     };
 
@@ -719,7 +715,7 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
             fs::remove_dir_all(&case_root).expect("remove replacement rebind case");
             continue;
         } else if scenario == 10 {
-            let result = zen_canvas_tauri::fs_safety::atomic_permanent_delete_for_test_with_hook(
+            let result = fylura_tauri::fs_safety::atomic_permanent_delete_for_test_with_hook(
                 &source,
                 rebind_delete_claim,
             );
@@ -888,10 +884,10 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
 
 #[test]
 fn macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided() {
-    use std::os::unix::fs::MetadataExt;
-    use zen_canvas_tauri::fs_safety::source_claim::{
+    use fylura_tauri::fs_safety::source_claim::{
         lock_claim_test_hooks, set_claim_test_hook, ClaimTestPoint,
     };
+    use std::os::unix::fs::MetadataExt;
 
     let Some(fixture_root) =
         std::env::var_os("ZEN_CANVAS_EXTERNAL_APFS_FIXTURE").map(std::path::PathBuf::from)

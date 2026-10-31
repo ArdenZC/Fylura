@@ -4,12 +4,10 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-use zen_canvas_tauri::platform::macos::file_provider::GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE;
-use zen_canvas_tauri::platform::macos::file_semantics::{
-    content_read_eligibility, open_content_read,
-};
-use zen_canvas_tauri::platform::macos::MacContentReadEligibility;
-use zen_canvas_tauri::platform::macos::{strategy, volume};
+use fylura_tauri::platform::macos::file_provider::GENERIC_FILE_PROVIDER_AWARENESS_AVAILABLE;
+use fylura_tauri::platform::macos::file_semantics::{content_read_eligibility, open_content_read};
+use fylura_tauri::platform::macos::MacContentReadEligibility;
+use fylura_tauri::platform::macos::{strategy, volume};
 
 #[test]
 fn local_fixture_is_readable_and_cloud_provider_fixtures_never_materialize_implicitly() {

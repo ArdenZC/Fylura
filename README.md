@@ -1,7 +1,7 @@
-# Zen Canvas
+# Fylura
 
 <div align="center">
-  <img src="docs/banner_zh.svg" width="100%" alt="Zen Canvas Banner" />
+  <img src="docs/banner_zh.svg" width="100%" alt="Fylura Banner" />
 </div>
 
 <br />
@@ -27,12 +27,18 @@
 ## 简介
 
 > **本地优先的个人文件生命周期管理助手。**
-> Zen Canvas 不替代系统资源管理器，也不是简单文件分类器；它把空间扫描、快速索引、智能解释、整理预览、安全执行和恢复记录串成一个可控闭环。
+> Fylura 不替代系统资源管理器，也不是简单文件分类器；它把空间扫描、快速索引、智能解释、整理预览、安全执行和恢复记录串成一个可控闭环。
 
 ## 支持平台
 
 - Windows。
 - macOS 13+，仅支持 Apple Silicon（arm64）。Intel Mac 不在支持范围内；不提供 Universal Binary 或 Rosetta 兼容保证。
+
+## 开发版身份迁移
+
+首次启动 Fylura 时，如果检测到旧开发版数据库，应用会在旧数据目录仍保留原件的情况下，将 SQLite 主库通过 SQLite Backup API 复制到新目录，并验证完整性。各平台对应数据根目录下的数据库从 `com.startlan.zencanvas/zen-canvas.sqlite3` 迁移到 `com.startlan.fylura/fylura.sqlite3`；复制包含 WAL 中已提交的状态，因此文件库、索引授权、History、Journal 和 Restore 记录继续可用。已有 Fylura 数据库始终优先，不会被旧库覆盖；若主库缺失但发现 WAL、SHM 或 Journal sidecar，应用会停止迁移并保留现场等待检查。迁移不会发起新的全盘索引。
+
+迁移前请先关闭 Zen Canvas 旧开发版及其 Windows 索引服务。Windows 安装器发现旧预览处理器仍占用共享 COM 注册时会安全中止；请先卸载旧开发版再安装，新旧卸载流程只处理各自拥有的安装、服务和系统注册，不删除用户数据。如果旧版启用了登录时启动，Fylura 只会在启动项名称和旧可执行文件路径完全匹配时迁移该设置；无法确认归属时会保留旧启动项。迁移完成后只启动 Fylura，避免旧版继续写入旧数据库形成分叉。历史 Safe Trash 目录等用户文件路径保持原样。
 
 ## 核心能力
 
@@ -42,7 +48,7 @@
 - **File Library**：用于查看已管理文件、状态筛选和分类原因；具体找文件优先使用 Global Search。
 - **Storage Cleanup**：分析持久化清理发现，确认后的候选项通过 Safe Trash 路径处理，并保留恢复记录。
 - **Preview & Execute**：按主文件夹和子文件夹展示整理方案；移动、重命名、清理和符合条件的永久删除都必须经过权威预览与显式确认。
-- **History / Restore**：查看 Zen Canvas 自己执行的操作与清理记录，并在身份重新校验通过后恢复仍可恢复的结果；记录持久化在 SQLite 中，并按设置的保留天数自动清理。
+- **History / Restore**：查看 Fylura 自己执行的操作与清理记录，并在身份重新校验通过后恢复仍可恢复的结果；记录持久化在 SQLite 中，并按设置的保留天数自动清理。
 - **Automation**：Manual / Schedule / Managed files changed 触发只负责准备可审核的 Organization Plan，始终 review-required / never-auto-execute；Rule Repository / Rule Proposal 保留在 Advanced Policies，不能作为新的 Organize / Cleanup 语义 fallback。
 - **Content Understanding**：在已管理文件范围内，根据明确的策略与同意提取和理解内容；结果不会成为文件系统变更权限。
 

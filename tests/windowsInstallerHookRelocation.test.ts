@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildZenCanvasNsisTemplate } from "../scripts/prepareWindowsNsisLifecycleTemplate.mjs";
+import { buildFyluraNsisTemplate } from "../scripts/prepareWindowsNsisLifecycleTemplate.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const upstreamPath = path.join(
@@ -14,7 +14,7 @@ const upstreamPath = path.join(
 describe("W4-04 package NSIS hook placement", () => {
   it("includes package lifecycle hooks only after product defines and runtime vars", () => {
     const upstream = fs.readFileSync(upstreamPath, "utf8");
-    const generated = buildZenCanvasNsisTemplate(upstream);
+    const generated = buildFyluraNsisTemplate(upstream);
 
     const hook = '!include "{{installer_hooks}}"';
     const mainBinary = '!define MAINBINARYNAME "{{main_binary_name}}"';

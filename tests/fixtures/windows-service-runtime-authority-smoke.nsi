@@ -8,10 +8,10 @@ ShowInstDetails nevershow
 !define ZC_SMOKE_OUTFILE "windows-service-runtime-authority-smoke.exe"
 !endif
 !ifndef ZC_SMOKE_SERVICE_NAME
-!define ZC_SMOKE_SERVICE_NAME "ZenCanvasServiceRuntimeSmoke"
+!define ZC_SMOKE_SERVICE_NAME "FyluraServiceRuntimeSmoke"
 !endif
 !ifndef ZC_SMOKE_ABSENT_SERVICE_NAME
-!define ZC_SMOKE_ABSENT_SERVICE_NAME "ZenCanvasServiceRuntimeSmokeAbsent"
+!define ZC_SMOKE_ABSENT_SERVICE_NAME "FyluraServiceRuntimeSmokeAbsent"
 !endif
 !ifndef ZC_SERVICE_RUNTIME_AUTHORITY_FILE
 !error "ZC_SERVICE_RUNTIME_AUTHORITY_FILE must point to the shared SCM authority."
@@ -83,7 +83,7 @@ Section
   !insertmacro ZC_SMOKE_QUERY_SERVICE "absent-before-create" "${ZC_SMOKE_ABSENT_SERVICE_NAME}" ${ZC_SERVICE_RUNTIME_ABSENT}
 
   ; 18D: an invalid SCM service name is an API uncertainty, not ABSENT.
-  !insertmacro ZC_SMOKE_QUERY_SERVICE "invalid-service-name" "ZenCanvasServiceRuntimeSmoke/invalid" ${ZC_SERVICE_RUNTIME_UNKNOWN}
+  !insertmacro ZC_SMOKE_QUERY_SERVICE "invalid-service-name" "FyluraServiceRuntimeSmoke/invalid" ${ZC_SERVICE_RUNTIME_UNKNOWN}
 
   ; T87: exercise the complete numeric SERVICE_* mapping through the same
   ; mapper used after QueryServiceStatusEx. No hosted system-service

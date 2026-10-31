@@ -2,7 +2,7 @@
 //! global-index service.
 //!
 //! The service accepts metadata-index commands only from the same installed
-//! Zen Canvas executable running in an interactive session. It never receives
+//! Fylura executable running in an interactive session. It never receives
 //! arbitrary paths or file-operation commands, and service shutdown remains an
 //! SCM-only operation.
 
@@ -10,7 +10,7 @@ use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
 use serde::{Deserialize, Serialize};
 
 pub const IPC_PROTOCOL_VERSION: u16 = 4;
-pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v4";
+pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\Fylura.GlobalIndex.v4";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1271,7 +1271,7 @@ mod tests {
     #[test]
     fn v4_service_protocol_and_event_frame_shape_remain_stable() {
         assert_eq!(IPC_PROTOCOL_VERSION, 4);
-        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\ZenCanvas.GlobalIndex.v4");
+        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\Fylura.GlobalIndex.v4");
 
         let request = IndexServiceRequest {
             protocol_version: IPC_PROTOCOL_VERSION,

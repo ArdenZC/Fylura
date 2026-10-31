@@ -9,13 +9,13 @@ use std::collections::BTreeMap;
 
 pub const PRODUCTION_CLSID: &str = "{3D1A446C-162E-4313-A026-8ADC792C4862}";
 pub const PRODUCTION_CLSID_U128: u128 = 0x3d1a446c_162e_4313_a026_8adc792c4862;
-pub const FRIENDLY_NAME: &str = "Zen Canvas Preview Handler";
+pub const FRIENDLY_NAME: &str = "Fylura Preview Handler";
 pub const SHELLEX_CATEGORY: &str = "{8895B1C6-B41F-4C1C-A562-0D564250836F}";
 pub const SHELLEX_CATEGORY_U128: u128 = 0x8895b1c6_b41f_4c1c_a562_0d564250836f;
 pub const PREVHOST_APP_ID: &str = "{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}";
 pub const PREVHOST_APP_ID_U128: u128 = 0x6d2b5079_2f0b_48dd_ab7f_97cec514d30b;
 pub const THREADING_MODEL: &str = "Apartment";
-pub const INSTALLED_DLL_RELATIVE_PATH: &str = r"native\zen_canvas_windows_preview_handler.dll";
+pub const INSTALLED_DLL_RELATIVE_PATH: &str = r"native\fylura_windows_preview_handler.dll";
 pub const PREVIEW_QUIESCE_ATTEMPTS: u32 = 20;
 pub const PREVIEW_QUIESCE_DELAY_MS: u32 = 250;
 
@@ -548,7 +548,7 @@ mod tests {
     #[test]
     fn t1_exact_production_identity_is_frozen() {
         assert_eq!(PRODUCTION_CLSID, "{3D1A446C-162E-4313-A026-8ADC792C4862}");
-        assert_eq!(FRIENDLY_NAME, "Zen Canvas Preview Handler");
+        assert_eq!(FRIENDLY_NAME, "Fylura Preview Handler");
         assert_eq!(SHELLEX_CATEGORY, "{8895B1C6-B41F-4C1C-A562-0D564250836F}");
         assert_eq!(PREVHOST_APP_ID, "{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}");
         assert_eq!(THREADING_MODEL, "Apartment");
@@ -589,7 +589,7 @@ mod tests {
     fn t5_plan_has_no_default_app_or_low_il_writes() {
         let plan = plan_install(
             &RegistrySnapshot::default(),
-            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll",
+            r"C:\Program Files\Fylura\native\fylura_windows_preview_handler.dll",
         )
         .unwrap();
         for action in plan.actions {
@@ -661,12 +661,12 @@ mod tests {
         snapshot.set(association_key(".rs"), "", PRODUCTION_CLSID);
         assert!(plan_install(
             &snapshot,
-            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll",
+            r"C:\Program Files\Fylura\native\fylura_windows_preview_handler.dll",
         )
         .is_err());
         assert!(plan_uninstall(
             &snapshot,
-            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll",
+            r"C:\Program Files\Fylura\native\fylura_windows_preview_handler.dll",
         )
         .is_err());
     }
@@ -772,8 +772,8 @@ mod tests {
 
         assert!(!ordinary_config.contains("\"resources\""));
         assert!(!ordinary_config.contains("target/release"));
-        assert!(package_config.contains("native/packaged/zen_canvas_windows_preview_handler.dll"));
-        assert!(package_config.contains("native/zen_canvas_windows_preview_handler.dll"));
+        assert!(package_config.contains("native/packaged/fylura_windows_preview_handler.dll"));
+        assert!(package_config.contains("native/fylura_windows_preview_handler.dll"));
         assert!(native_build.contains("nativeDllStats.size === 0"));
         assert!(native_build.contains("copyFileSync(nativeDllPath, packageResourcePath)"));
         assert!(package_build.contains("run(process.execPath, [nativeBuildScript])"));
@@ -836,15 +836,14 @@ mod tests {
             plan_install(&RegistrySnapshot::default(), "C:\\Zen\\native\\handler.dll").unwrap();
         assert!(fresh_plan.conflicts.is_empty());
 
-        let current_path =
-            r"C:\Program Files\Zen Canvas\native\zen_canvas_windows_preview_handler.dll";
+        let current_path = r"C:\Program Files\Fylura\native\fylura_windows_preview_handler.dll";
         let current_plan = plan_install(&owned_snapshot(current_path), current_path).unwrap();
         assert!(current_plan
             .actions
             .iter()
             .all(|action| matches!(action, RegistrationAction::NotifyAssociationChanged)));
 
-        let old_path = r"C:\Old Zen\native\zen_canvas_windows_preview_handler.dll";
+        let old_path = r"C:\Old Zen\native\fylura_windows_preview_handler.dll";
         assert!(plan_install(&owned_snapshot(old_path), current_path).is_err());
         assert!(plan_uninstall(&owned_snapshot(old_path), current_path).is_err());
 
@@ -1181,7 +1180,7 @@ mod tests {
         ));
         let main = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/main.rs"));
 
-        assert!(!hooks.contains("Zen Canvas.exe"));
+        assert!(!hooks.contains("Fylura.exe"));
         assert!(postinstall.contains("StrCpy $ZC_MAIN_BINARY_FILENAME \"${MAINBINARYNAME}.exe\""));
         assert!(service.contains("$INSTDIR\\$ZC_MAIN_BINARY_FILENAME"));
         assert!(service.contains("--index-service"));
@@ -1192,10 +1191,10 @@ mod tests {
                     .unwrap()
         );
         assert!(
-            service_host.contains("pub const INDEX_SERVICE_NAME: &str = \"ZenCanvasGlobalIndex\";")
+            service_host.contains("pub const INDEX_SERVICE_NAME: &str = \"FyluraGlobalIndex\";")
         );
         assert!(service_host
-            .contains("pub const INDEX_SERVICE_DISPLAY_NAME: &str = \"Zen Canvas Global Index\";"));
+            .contains("pub const INDEX_SERVICE_DISPLAY_NAME: &str = \"Fylura Global Index\";"));
         assert!(service_host.contains("--index-service"));
         assert!(main.contains("argument == \"--index-service\""));
     }
@@ -1373,7 +1372,7 @@ mod tests {
         assert!(ownership.contains("EnumRegKey $2 HKLM \"${ZC_INDEX_SERVICE_PARENT_KEY}\""));
         assert!(!hooks.to_ascii_lowercase().contains("sc qc"));
 
-        let expected = "\"C:\\\\Program Files\\\\Zen Canvas\\\\zen-canvas.exe\" --index-service";
+        let expected = "\"C:\\\\Program Files\\\\Fylura\\\\fylura.exe\" --index-service";
         let can_mutate_service =
             |image_path: Option<&str>| matches!(image_path, Some(value) if value == expected);
         assert!(!can_mutate_service(None));

@@ -10,8 +10,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use serde_json::Value;
-use zen_canvas_tauri::ai::{
+use fylura_tauri::ai::{
     debug::debug_preview,
     ollama::OllamaProvider,
     openai_compatible::{
@@ -30,7 +29,8 @@ use zen_canvas_tauri::ai::{
         InMemoryCredentialStore, AI_SETTINGS_KEY,
     },
 };
-use zen_canvas_tauri::{db::Database, settings::get_app_settings};
+use fylura_tauri::{db::Database, settings::get_app_settings};
+use serde_json::Value;
 
 #[derive(Default)]
 struct ReadbackMismatchStore {
@@ -136,7 +136,7 @@ fn ai_settings_roundtrip_uses_separate_settings_row_and_normalizes_paths() {
         base_url: " https://api.moonshot.cn/v1/ ".to_string(),
         chat_path: " chat/completions ".to_string(),
         api_key: " moonshot-secret ".to_string(),
-        api_key_action: zen_canvas_tauri::ai::settings::ApiKeyAction::Replace,
+        api_key_action: fylura_tauri::ai::settings::ApiKeyAction::Replace,
         model: " kimi-k2.6 ".to_string(),
         timeout_seconds: 1,
         batch_size: 1,

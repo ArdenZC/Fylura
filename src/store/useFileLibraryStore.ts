@@ -378,7 +378,7 @@ function aiClassificationSummaryMessage(summary: RuleExecutionSummary) {
 export function readableAIClassificationError(error: unknown) {
   const message = readableError(error);
   const normalized = message.toLowerCase();
-  if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) return message;
+  if (message.includes("模型返回") || message.includes("Fylura 需要的 JSON")) return message;
   if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
   if (isRateLimitError(normalized)) {
     return withProviderDetail("模型服务请求过快或达到限流，请减少本次处理数量或稍后重试。", message);
@@ -413,7 +413,7 @@ export function readableAIClassificationError(error: unknown) {
     message.includes("安全") ||
     message.includes("校验")
   ) {
-    return "AI 返回了不安全的路径或操作，Zen Canvas 已拒绝应用该结果。";
+    return "AI 返回了不安全的路径或操作，Fylura 已拒绝应用该结果。";
   }
   return message;
 }

@@ -50,7 +50,7 @@ pub(super) fn open(path: PathBuf) -> Result<Database, String> {
             worker.borrow().cancel();
             cancel.setEnabled(false);
             alert.setMessageText(&NSString::from_str("Cancelling upgrade"));
-            alert.setInformativeText(&NSString::from_str("Waiting for SQLite to roll back. Please keep Zen Canvas open until this window closes."));
+            alert.setInformativeText(&NSString::from_str("Waiting for SQLite to roll back. Please keep Fylura open until this window closes."));
         }
         timer.invalidate();
         alert.window().orderOut(None);

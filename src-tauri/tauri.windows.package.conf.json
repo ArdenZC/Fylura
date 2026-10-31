@@ -2,12 +2,12 @@
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "resources": {
-      "native/packaged/zen_canvas_windows_preview_handler.dll": "native/zen_canvas_windows_preview_handler.dll"
+      "native/packaged/fylura_windows_preview_handler.dll": "native/fylura_windows_preview_handler.dll"
     },
     "windows": {
       "nsis": {
         "installerHooks": "windows/installer-lifecycle-wrapper.nsh",
-        "template": "windows/.generated/zen-canvas-installer.nsi"
+        "template": "windows/.generated/fylura-installer.nsi"
       }
     }
   }

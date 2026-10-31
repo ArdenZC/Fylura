@@ -6,7 +6,7 @@ export const PERFORMANCE_TARGETS = Object.freeze({
   lib: Object.freeze({
     id: "lib",
     cargoArgs: ["--lib", "--features", PERFORMANCE_BUILD_FEATURES],
-    executableStem: "zen_canvas_tauri",
+    executableStem: "fylura_tauri",
     shardTarget: true,
   }),
   fts: Object.freeze({

@@ -63,7 +63,7 @@ async function startFrontendServer() {
 }
 
 async function waitForApp(page) {
-  if (await page.title() !== "Zen Canvas") {
+  if (await page.title() !== "Fylura") {
     throw new Error(`Unexpected page title: ${await page.title()}`);
   }
   await page.waitForSelector("#root", { state: "attached" });

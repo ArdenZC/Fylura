@@ -35,7 +35,7 @@ export async function waitForApp(page, label) {
     title: document.title,
     frameworkOverlay: Boolean(document.querySelector("vite-error-overlay, .vite-error-overlay"))
   }));
-  assert(identity.title.includes("Zen"), `${label}: unexpected page title ${identity.title}`);
+  assert(identity.title.includes("Fylura"), `${label}: unexpected page title ${identity.title}`);
   assert(!identity.frameworkOverlay, `${label}: framework error overlay mounted`);
 }
 

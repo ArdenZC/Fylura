@@ -26,15 +26,15 @@ Var ZC_SMOKE_ROOT
 Var ZC_SMOKE_OLD_HANDLE
 Var ZC_SMOKE_REPLACEMENT_HANDLE
 
-!define ZC_PREVIEW_INSTALLED_DLL "$INSTDIR\native\zen_canvas_windows_preview_handler.dll"
+!define ZC_PREVIEW_INSTALLED_DLL "$INSTDIR\native\fylura_windows_preview_handler.dll"
 
 !include "FileFunc.nsh"
 !include "Util.nsh"
 !include "${ZC_PREVIEW_DLL_SERVICING_FILE}"
 
 !macro ZC_SMOKE_ASSERT_PATHS LABEL
-  IfFileExists "$ZC_SMOKE_ROOT\native\zen_canvas_windows_preview_handler.dll" 0 ${LABEL}_canonical_missing
-  IfFileExists "$ZC_SMOKE_ROOT\nativezen_canvas_windows_preview_handler.dll" ${LABEL}_flattened_present ${LABEL}_done
+  IfFileExists "$ZC_SMOKE_ROOT\native\fylura_windows_preview_handler.dll" 0 ${LABEL}_canonical_missing
+  IfFileExists "$ZC_SMOKE_ROOT\nativefylura_windows_preview_handler.dll" ${LABEL}_flattened_present ${LABEL}_done
 ${LABEL}_canonical_missing:
   StrCpy $ZC_SMOKE_FAILED 1
   FileWrite $ZC_SMOKE_LOG "${LABEL}: canonical Preview DLL is missing$\r$\n"
@@ -60,7 +60,7 @@ Section
   CreateDirectory "$ZC_SMOKE_ROOT\native"
   IfErrors smoke_fresh_directory_failure
   Call ZCResetPreviewDllMutationState
-  !insertmacro ZC_INSTALL_RESOURCE "native/zen_canvas_windows_preview_handler.dll" "${ZC_SMOKE_SOURCE}"
+  !insertmacro ZC_INSTALL_RESOURCE "native/fylura_windows_preview_handler.dll" "${ZC_SMOKE_SOURCE}"
   !insertmacro ZC_SMOKE_ASSERT_PATHS "fresh"
   Goto smoke_mapped_start
 
@@ -82,14 +82,14 @@ smoke_mapped_start:
   File /a "/oname=native\mapped-seed.dll" "${ZC_SMOKE_SOURCE}"
   IfErrors smoke_mapped_seed_failure
   ClearErrors
-  Rename "$ZC_SMOKE_ROOT\native\mapped-seed.dll" "$ZC_SMOKE_ROOT\native\zen_canvas_windows_preview_handler.dll"
+  Rename "$ZC_SMOKE_ROOT\native\mapped-seed.dll" "$ZC_SMOKE_ROOT\native\fylura_windows_preview_handler.dll"
   IfErrors smoke_mapped_seed_failure
-  IfFileExists "$ZC_SMOKE_ROOT\native\zen_canvas_windows_preview_handler.dll" 0 smoke_mapped_seed_failure
+  IfFileExists "$ZC_SMOKE_ROOT\native\fylura_windows_preview_handler.dll" 0 smoke_mapped_seed_failure
 
   ; The NSIS toolchain is a 32-bit stub while the production Preview DLL is
   ; x64. Hold the exact x64 file with a movable, no-write-sharing handle so
   ; the servicing probe sees sharing violation while MoveFileEx can retire it.
-  System::Call 'kernel32::CreateFileW(w "$ZC_SMOKE_ROOT\native\zen_canvas_windows_preview_handler.dll", i 0x80000000, i 5, p 0, i 3, i 0x00000080, p 0) p.r1 ?e'
+  System::Call 'kernel32::CreateFileW(w "$ZC_SMOKE_ROOT\native\fylura_windows_preview_handler.dll", i 0x80000000, i 5, p 0, i 3, i 0x00000080, p 0) p.r1 ?e'
   StrCpy $ZC_SMOKE_OLD_HANDLE $1
   ${IntPtrCmp} $ZC_SMOKE_OLD_HANDLE -1 smoke_mapped_handle_failure smoke_mapped_handle_ready smoke_mapped_handle_ready
 
@@ -101,9 +101,9 @@ smoke_mapped_handle_ready:
   ${EndIf}
 
   Call ZCResetPreviewDllMutationState
-  !insertmacro ZC_INSTALL_RESOURCE "native\zen_canvas_windows_preview_handler.dll" "${ZC_SMOKE_SOURCE}"
+  !insertmacro ZC_INSTALL_RESOURCE "native\fylura_windows_preview_handler.dll" "${ZC_SMOKE_SOURCE}"
   !insertmacro ZC_SMOKE_ASSERT_PATHS "mapped"
-  System::Call 'kernel32::CreateFileW(w "$ZC_SMOKE_ROOT\native\zen_canvas_windows_preview_handler.dll", i 0x80000000, i 7, p 0, i 3, i 0x00000080, p 0) p.r2 ?e'
+  System::Call 'kernel32::CreateFileW(w "$ZC_SMOKE_ROOT\native\fylura_windows_preview_handler.dll", i 0x80000000, i 7, p 0, i 3, i 0x00000080, p 0) p.r2 ?e'
   StrCpy $ZC_SMOKE_REPLACEMENT_HANDLE $2
   ${IntPtrCmp} $ZC_SMOKE_REPLACEMENT_HANDLE -1 smoke_mapped_replacement_handle_failure smoke_mapped_replacement_handle_ready smoke_mapped_replacement_handle_ready
 

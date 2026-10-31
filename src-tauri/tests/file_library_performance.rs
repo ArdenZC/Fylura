@@ -6,12 +6,12 @@ use std::{
 
 mod support;
 
-use rusqlite::{params, Connection};
-use zen_canvas_tauri::db::{
+use fylura_tauri::db::{
     Database, FileLibraryScopeV2, FileLibrarySortV2, FileQueryFiltersV2, FileQueryRequestV2,
     FileQuerySpecV2, LibraryMatchMode, LibrarySelectionV1, LibrarySortDirection, LibrarySortKind,
     MutateFileUserTagsRequest, ResolveFileLibraryExactCountRequestV2, UserTagMutationOperation,
 };
+use rusqlite::{params, Connection};
 
 const PAGE_SIZE: u32 = 50;
 const DAILY_COMMON_QUERY_P95_LIMIT_MS: f64 = 100.0;
@@ -538,7 +538,7 @@ fn measure_query(
     label: &str,
     query: FileQuerySpecV2,
     cursor: Option<String>,
-) -> (Duration, zen_canvas_tauri::db::FileQueryResponseV2) {
+) -> (Duration, fylura_tauri::db::FileQueryResponseV2) {
     let started = Instant::now();
     let response = db
         .query_file_library_v2(FileQueryRequestV2 {
@@ -565,7 +565,7 @@ fn measure_stable_query(
     label: &str,
     query: FileQuerySpecV2,
     cursor: Option<String>,
-) -> (Duration, zen_canvas_tauri::db::FileQueryResponseV2) {
+) -> (Duration, fylura_tauri::db::FileQueryResponseV2) {
     // Warm the same SQLite plan/page set once, then gate on a timed execution.
     // This removes cold-cache noise from the p95 gate without changing the
     // product threshold or hiding a slow steady-state query.

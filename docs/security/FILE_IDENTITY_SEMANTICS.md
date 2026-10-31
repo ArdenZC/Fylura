@@ -1,4 +1,4 @@
-# Zen Canvas file identity semantics
+# Fylura file identity semantics
 
 This document defines the separate identity facts used by operation journals,
 filesystem mutation and Safe Trash recovery. It prevents the legacy

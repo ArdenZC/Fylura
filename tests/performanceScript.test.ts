@@ -773,7 +773,7 @@ describe("performance profile and manifest contract", () => {
     expect(full.schemaVersion).toBe(46);
     expect(full.payload.schemaVersion).toBe(46);
     expect(fs.readFileSync("src-tauri/tests/support/performance_fixture.rs", "utf8"))
-      .toContain("pub const FIXTURE_SCHEMA_VERSION: i64 = zen_canvas_tauri::db::SUPPORTED_SCHEMA_VERSION as i64;");
+      .toContain("pub const FIXTURE_SCHEMA_VERSION: i64 = fylura_tauri::db::SUPPORTED_SCHEMA_VERSION as i64;");
     expect(full.payload.inputs).toEqual(expect.arrayContaining([
       { path: "src-tauri/src/db/schema_global_generations.rs", sha256: sha256File("src-tauri/src/db/schema_global_generations.rs") },
       { path: "src-tauri/src/db/schema_global_generations.sql", sha256: sha256File("src-tauri/src/db/schema_global_generations.sql") },

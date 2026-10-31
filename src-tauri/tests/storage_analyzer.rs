@@ -161,8 +161,8 @@ fn pending_cleanup_query_includes_recovery_manual_review_without_terminal_histor
     assert!(!ids.contains("terminal"));
 }
 
-use zen_canvas_tauri::db::Database;
-use zen_canvas_tauri::storage_analyzer::{
+use fylura_tauri::db::Database;
+use fylura_tauri::storage_analyzer::{
     analyze_storage_roots_for_test, candidates_by_job_and_ids_for_test,
     classify_candidate_for_test, cleanup_preview_items_for_candidates, default_scan_roots_for_test,
     get_storage_cleanup_candidate_page_for_test, get_storage_cleanup_scan_status_for_test,
@@ -175,7 +175,7 @@ use zen_canvas_tauri::storage_analyzer::{
     StorageCleanupProgress, StorageCleanupState,
 };
 #[cfg(windows)]
-use zen_canvas_tauri::storage_analyzer::{
+use fylura_tauri::storage_analyzer::{
     move_cleanup_candidates_to_safe_trash_for_candidates, preview_cleanup_restore_item_for_test,
     reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db,
     restore_cleanup_trash_items_for_db_with_cancel_for_test,
@@ -295,6 +295,16 @@ fn storage_cleanup_rejects_unix_system_roots() {
 
     #[cfg(target_os = "macos")]
     assert!(is_forbidden_storage_path_for_test(Path::new("/System")));
+}
+
+#[test]
+fn storage_analyzer_protects_both_database_identity_paths() {
+    assert!(is_forbidden_storage_path_for_test(Path::new(
+        "/Users/example/Library/Application Support/com.startlan.zencanvas/zen-canvas.sqlite3"
+    )));
+    assert!(is_forbidden_storage_path_for_test(Path::new(
+        "/Users/example/Library/Application Support/com.startlan.fylura/fylura.sqlite3"
+    )));
 }
 
 #[test]
@@ -463,8 +473,8 @@ fn temp_execution_revalidation_enforces_age_policy() {
     )
     .expect("age execution temp file");
 
-    assert!(zen_canvas_tauri::storage_analyzer::is_cleanup_execution_forbidden(&recent, None));
-    assert!(!zen_canvas_tauri::storage_analyzer::is_cleanup_execution_forbidden(&old, None));
+    assert!(fylura_tauri::storage_analyzer::is_cleanup_execution_forbidden(&recent, None));
+    assert!(!fylura_tauri::storage_analyzer::is_cleanup_execution_forbidden(&old, None));
 }
 
 #[cfg(target_os = "macos")]
@@ -509,7 +519,7 @@ fn storage_cleanup_scan_job_can_report_progress_and_be_cancelled() {
     assert!(matches!(started.status.as_str(), "running" | "completed"));
     assert!(started.progress.scanned_entries > 0 || started.analysis.is_some());
 
-    zen_canvas_tauri::storage_analyzer::cancel_storage_cleanup_scan_for_test(&job_id, &state)
+    fylura_tauri::storage_analyzer::cancel_storage_cleanup_scan_for_test(&job_id, &state)
         .expect("cancel job");
     thread::sleep(Duration::from_millis(30));
     let cancelled = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
@@ -636,7 +646,7 @@ fn cleanup_running_and_cancelled_jobs_cannot_resolve_candidates() {
         .expect_err("running job must not resolve candidates");
     assert!(running.contains("not completed"));
 
-    zen_canvas_tauri::storage_analyzer::cancel_storage_cleanup_scan_for_test("job-running", &state)
+    fylura_tauri::storage_analyzer::cancel_storage_cleanup_scan_for_test("job-running", &state)
         .expect("cancel job state");
     let cancelled = candidates_by_job_and_ids_for_test(&state, "job-running", &[])
         .expect_err("cancelled job must not resolve candidates");
@@ -748,6 +758,9 @@ fn storage_analyzer_rejects_forbidden_system_and_app_database_paths() {
         "C:/ProgramData"
     )));
     assert!(is_forbidden_storage_path_for_test(&app_data));
+    assert!(is_forbidden_storage_path_for_test(Path::new(
+        "C:/Users/zen/AppData/Roaming/com.startlan.fylura/fylura.sqlite3"
+    )));
 }
 
 #[test]
@@ -936,7 +949,7 @@ fn cleanup_operation_preview_only_includes_safe_trash_candidates() {
 
     #[cfg(target_os = "macos")]
     {
-        assert_eq!(preview.previews[0].target_path, "Zen Canvas Safe Trash");
+        assert_eq!(preview.previews[0].target_path, "Fylura Safe Trash");
         assert_eq!(preview.previews[0].is_executable, Some(true));
         assert_eq!(preview.previews[0].blocking_reason, None);
     }
@@ -1889,7 +1902,7 @@ fn completed_cleanup_job_with_candidates(
 fn wait_for_completed_cleanup_job(
     state: &StorageCleanupState,
     job_id: &str,
-) -> zen_canvas_tauri::storage_analyzer::StorageAnalysis {
+) -> fylura_tauri::storage_analyzer::StorageAnalysis {
     for _ in 0..200 {
         let status = get_storage_cleanup_scan_status_for_test(job_id, state).expect("job status");
         match status.status.as_str() {

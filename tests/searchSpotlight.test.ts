@@ -492,8 +492,8 @@ describe("spotlight search navigation", () => {
     expect(setupSearchWindow).toContain(".resizable(false)");
     expect(setupSearchWindow).toContain(".skip_taskbar(true)");
     expect(setupSearchWindow).toContain(".always_on_top(true)");
-    expect(mainRs).toContain("zen_canvas_tauri::app_control::resize_search_window");
-    expect(mainRs).toContain("zen_canvas_tauri::app_control::hide_search_window_command");
+    expect(mainRs).toContain("fylura_tauri::app_control::resize_search_window");
+    expect(mainRs).toContain("fylura_tauri::app_control::hide_search_window_command");
     expect(mainRs).not.toContain("setup_search_window");
     expect(tauriApi).toContain("resizeSearchWindow(snapshot: SearchWindowSnapshot, expanded: boolean)");
     expect(tauriApi).toContain('invokeCommand<SearchWindowSnapshot>("resize_search_window"');

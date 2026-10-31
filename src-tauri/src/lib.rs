@@ -10,6 +10,10 @@ pub mod file_ops;
 pub mod file_workspace;
 pub mod fs_safety;
 pub mod global_index;
+// Native QA deliberately routes database access to disposable roots, so the
+// production app-data migration entrypoints are not reachable in that build.
+#[cfg_attr(feature = "native-qa", allow(dead_code))]
+pub mod identity_migration;
 pub mod ids;
 #[cfg(all(
     target_os = "windows",
@@ -157,7 +161,7 @@ pub fn database_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> 
     #[cfg(feature = "native-qa")]
     {
         let _ = app;
-        Ok(native_qa_profile_root()?.join("zen-canvas.sqlite3"))
+        Ok(native_qa_profile_root()?.join("fylura.sqlite3"))
     }
 
     #[cfg(not(feature = "native-qa"))]
@@ -166,7 +170,10 @@ pub fn database_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> 
             .path()
             .app_data_dir()
             .map_err(|error| error.to_string())?;
-        Ok(dir.join("zen-canvas.sqlite3"))
+        let data_root = dirs::data_dir()
+            .ok_or_else(|| "Fylura application data root is unavailable".to_string())?;
+        identity_migration::migrate_legacy_database(&data_root, &dir)?;
+        Ok(dir.join("fylura.sqlite3"))
     }
 }
 
@@ -183,7 +190,7 @@ mod native_qa_profile_guard_tests {
 
     #[test]
     fn admits_an_absolute_disposable_qa_root() {
-        let root = std::env::temp_dir().join("zen-canvas-qa-root-validation-only");
+        let root = std::env::temp_dir().join("fylura-qa-root-validation-only");
         assert_eq!(
             validate_native_qa_profile_root(Some(root.clone())).unwrap(),
             root

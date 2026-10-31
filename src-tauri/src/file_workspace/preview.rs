@@ -347,7 +347,7 @@ pub use super::preview_publication::{
     PreviewPublicationError, PreviewPublicationSink, PreviewPublicationUpdate,
 };
 
-pub use zen_canvas_native_host::BoundedContentRead;
+pub use fylura_native_host::BoundedContentRead;
 
 /// A bounded byte request for a previously issued opaque lease. It contains
 /// no path, provider URL or filesystem handle.

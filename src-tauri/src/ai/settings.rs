@@ -22,6 +22,8 @@ use crate::{
 
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
+// Keep this credential-store namespace stable across the product rename so
+// existing API keys remain available to the same local user account.
 const AI_CREDENTIAL_SERVICE: &str = "com.startlan.zencanvas";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const AI_CREDENTIAL_USER: &str = "ai-api-key";
@@ -616,6 +618,8 @@ fn profile_credential_entry(profile_id: &str) -> Result<keyring::Entry, String> 
         return Err("AI custom provider profile ID is invalid.".to_string());
     }
     keyring::Entry::new(
+        // Existing profile credentials use this service name; do not orphan
+        // them when the Tauri bundle identifier changes.
         "com.startlan.zencanvas.ai-profile",
         &format!("ai-api-key-{profile_id}"),
     )

@@ -1,6 +1,6 @@
 #[cfg(target_os = "macos")]
 fn main() {
-    if let Err(error) = zen_canvas_tauri::global_index::macos::run_qualification() {
+    if let Err(error) = fylura_tauri::global_index::macos::run_qualification() {
         eprintln!("{error}");
         std::process::exit(1);
     }

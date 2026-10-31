@@ -1,18 +1,18 @@
 [package]
-name = "zen-canvas-windows-preview-handler-harness"
+name = "fylura-windows-preview-handler-harness"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "zen-canvas-windows-preview-handler-harness"
+name = "fylura-windows-preview-handler-harness"
 path = "src/main.rs"
 
 [[bin]]
-name = "zen-canvas-windows-preview-dll-servicing-smoke"
+name = "fylura-windows-preview-dll-servicing-smoke"
 path = "src/preview_dll_servicing_smoke.rs"
 
 [dependencies]
-zen-canvas-windows-preview-registration = { path = "../windows-preview-registration" }
+fylura-windows-preview-registration = { path = "../windows-preview-registration" }
 windows-core = "0.61.2"
 windows = { version = "0.61.3", features = [
     "Win32_Foundation",

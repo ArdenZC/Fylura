@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>NSDesktopFolderUsageDescription</key>
-  <string>Zen Canvas needs access to your Desktop folder to scan and organize files you choose to manage.</string>
+  <string>Fylura needs access to your Desktop folder to scan and organize files you choose to manage.</string>
   <key>NSDocumentsFolderUsageDescription</key>
-  <string>Zen Canvas needs access to your Documents folder to index and organize your local documents.</string>
+  <string>Fylura needs access to your Documents folder to index and organize your local documents.</string>
   <key>NSDownloadsFolderUsageDescription</key>
-  <string>Zen Canvas needs access to your Downloads folder to scan and organize downloaded files.</string>
+  <string>Fylura needs access to your Downloads folder to scan and organize downloaded files.</string>
 </dict>
 </plist>

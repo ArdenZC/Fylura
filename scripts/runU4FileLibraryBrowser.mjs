@@ -27,7 +27,7 @@ try {
   await page.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "en"); });
   await page.goto(`${baseUrl}/?browser-mock=1`);
   await page.getByRole("button", { name: "Files", exact: true }).click();
-  assert.equal(await page.title(), "Zen Canvas");
+  assert.equal(await page.title(), "Fylura");
   const pane = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').first();
   await pane.getByRole("button", { name: "View all indexed files", exact: true }).click();
   const row = pane.locator('[role="option"]').first();

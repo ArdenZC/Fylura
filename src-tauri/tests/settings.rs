@@ -11,7 +11,7 @@ use std::{
 };
 
 static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
-use zen_canvas_tauri::{
+use fylura_tauri::{
     db::Database,
     settings::{
         get_app_settings, get_versioned_app_settings,

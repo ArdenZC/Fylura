@@ -10,6 +10,12 @@ use std::{
     thread::ThreadId,
 };
 
+use fylura_native_host::{
+    BoundedContentRead, HostProvidedHandle, HostProvidedHost, HostProvidedReadContext,
+    HostProvidedReadRequest, HostProvidedReadSource, HostProvidedRegistration,
+    HostProvidedRegistry, HostProvidedSourceError,
+};
+use fylura_preview_representation::{self, RepresentationCompleteness, SafeRepresentation};
 use uuid::Uuid;
 use windows::{
     core::{implement, Error, IUnknown, Interface, Ref, Result, BOOL, GUID, HRESULT},
@@ -30,12 +36,6 @@ use windows::{
         },
     },
 };
-use zen_canvas_native_host::{
-    BoundedContentRead, HostProvidedHandle, HostProvidedHost, HostProvidedReadContext,
-    HostProvidedReadRequest, HostProvidedReadSource, HostProvidedRegistration,
-    HostProvidedRegistry, HostProvidedSourceError,
-};
-use zen_canvas_preview_representation::{self, RepresentationCompleteness, SafeRepresentation};
 
 use crate::{
     capture::{self, IStreamCaptureReader},
@@ -360,14 +360,13 @@ impl PreviewHandler {
             }
             Err(_) => {
                 crate::record_stream_released();
-                let _ =
-                    window::set_surface_text(child, "Zen Canvas Preview Handler\r\ncapture failed");
+                let _ = window::set_surface_text(child, "Fylura Preview Handler\r\ncapture failed");
                 self.mark_preview_started(&generation_id, child);
                 return Err(error(E_FAIL, "bounded shell capture failed"));
             }
         };
 
-        window::set_surface_text(child, "Zen Canvas Preview Handler\r\ncapturing complete")?;
+        window::set_surface_text(child, "Fylura Preview Handler\r\ncapturing complete")?;
         let target = self.completion_target()?;
         let memory_complete = captured.complete;
         let extension = captured.extension.clone();
@@ -468,27 +467,27 @@ impl PreviewHandler {
                         if cancel.load(Ordering::Acquire) {
                             return Err("deferred request cancelled".to_string());
                         }
-                        let hint = zen_canvas_preview_representation::RepresentationHint {
+                        let hint = fylura_preview_representation::RepresentationHint {
                             extension,
                             media_type: None,
                         };
-                        let markdown = zen_canvas_preview_representation::is_markdown_hint(&hint);
+                        let markdown = fylura_preview_representation::is_markdown_hint(&hint);
                         let language = if markdown {
                             // The native surface is intentionally a safe,
                             // read-only Markdown source view. Run the shared
                             // sanitizer first so hostile Markdown cannot
                             // become an active representation in this host.
-                            zen_canvas_preview_representation::render_markdown(
+                            fylura_preview_representation::render_markdown(
                                 &read.bytes,
                                 read.complete,
                             )
                             .map_err(|error| error.to_string())?;
                             Some("markdown")
                         } else {
-                            zen_canvas_preview_representation::source_code_language(&hint)
+                            fylura_preview_representation::source_code_language(&hint)
                         };
                         let (representation, completeness) =
-                            zen_canvas_preview_representation::render_text(
+                            fylura_preview_representation::render_text(
                                 &read.bytes,
                                 read.complete,
                                 language,
@@ -567,9 +566,7 @@ impl PreviewHandler {
             Err(message) => {
                 let _ = window::set_surface_text(
                     child,
-                    &format!(
-                        "Zen Canvas Preview Handler\r\nunsupported or corrupt input\r\n{message}"
-                    ),
+                    &format!("Fylura Preview Handler\r\nunsupported or corrupt input\r\n{message}"),
                 );
                 self.revoke_handle(&handle, &generation_id);
             }
@@ -947,7 +944,7 @@ fn format_preview_text(preview: &DeferredPreview) -> String {
         ""
     };
     format!(
-        "Zen Canvas Preview Handler\r\nbounded bytes: {}\r\ningress: {completeness}\r\nlanguage: {language}\r\n\r\n{text}{truncation_note}",
+        "Fylura Preview Handler\r\nbounded bytes: {}\r\ningress: {completeness}\r\nlanguage: {language}\r\n\r\n{text}{truncation_note}",
         preview.bytes_len
     )
 }
@@ -971,7 +968,7 @@ fn format_preview_summary(preview: &DeferredPreview) -> String {
     };
     let language = preview.language.as_deref().unwrap_or("text");
     format!(
-        "Zen Canvas Preview Handler\r\nbounded bytes: {}\r\ningress: {completeness}\r\nlanguage: {language}\r\n\r\n[preview body unavailable within the native surface bound]",
+        "Fylura Preview Handler\r\nbounded bytes: {}\r\ningress: {completeness}\r\nlanguage: {language}\r\n\r\n[preview body unavailable within the native surface bound]",
         preview.bytes_len
     )
 }

@@ -465,12 +465,13 @@ Function ZCInitializeInstallLifecycle
   Call ZCResetPreviewDllMutationState
 
   ; All ownership/evidence is validated before the first service state change.
+  Call ValidateLegacyZenCanvasIndexServiceAbsent
   Call ValidateZenCanvasPreexistingProduct
   Call ValidateZenCanvasPreviewCore
   Call ValidateZenCanvasIndexServiceOwnership
   ${If} $ZC_PREEXISTING_PRODUCT == 0
   ${AndIf} $ZC_INDEX_SERVICE_OWNERSHIP == 1
-    MessageBox MB_ICONSTOP|MB_OK "A Zen Canvas Global Index service already exists without consistent Tauri product metadata. Installation was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "A Fylura Global Index service already exists without consistent Tauri product metadata. Installation was not changed." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -489,7 +490,7 @@ Function ZCPrepareInstallLifecycle
   Call ZCStopCapturedServiceForLifecycle
   ${If} $ZC_LIFECYCLE_STOP_OK != 1
     Call ZCRecoverInstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not stop the exact captured Global Index service before file mutation. The captured service state was restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not stop the exact captured Global Index service before file mutation. The captured service state was restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -497,7 +498,7 @@ Function ZCPrepareInstallLifecycle
   Call ZCResolveMainAppGate
   ${If} $ZC_LIFECYCLE_GATE_OK != 1
     Call ZCRecoverInstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation was cancelled or the desktop process could not be closed before file mutation. The captured service state was restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura installation was cancelled or the desktop process could not be closed before file mutation. The captured service state was restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -505,7 +506,7 @@ Function ZCPrepareInstallLifecycle
   Call ZCQuiescePreviewForLifecycle
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Call ZCRecoverInstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not withdraw the exact Preview Handler registration before file mutation. Preview and the captured service state were restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not withdraw the exact Preview Handler registration before file mutation. Preview and the captured service state were restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -531,7 +532,7 @@ FunctionEnd
 
 Function ZCFailInstallReversible
   Call ZCRecoverInstallReversible
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not replace the main executable before generated install mutation became irreversible. The prior Preview and captured service state were restored where verifiable." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Fylura could not replace the main executable before generated install mutation became irreversible. The prior Preview and captured service state were restored where verifiable." /SD IDOK
   SetErrorLevel 2
   Abort
 FunctionEnd
@@ -542,7 +543,7 @@ Function ZCFailInstallPartial
   ${EndIf}
   SetErrorLevel 2
   Call ZCHandleGeneratedInstallFailureFinal
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas installation did not complete after generated product mutation began. Preview remains withdrawn unless exact current product coherence proved a safe rollback; service and fresh metadata cleanup were limited to exact ownership evidence." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Fylura installation did not complete after generated product mutation began. Preview remains withdrawn unless exact current product coherence proved a safe rollback; service and fresh metadata cleanup were limited to exact ownership evidence." /SD IDOK
   Abort
 FunctionEnd
 
@@ -596,7 +597,7 @@ Function un.ZCInitializeUninstallLifecycle
   Call un.CaptureZenCanvasOriginalServiceState
   Call un.CheckZenCanvasPreDeleteProductEvidence
   ${If} $ZC_UNINSTALL_PREDELETE_COHERENT != 1
-    MessageBox MB_ICONSTOP|MB_OK "The installed Zen Canvas product could not be verified as a coherent pre-delete installation. Uninstall was not changed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "The installed Fylura product could not be verified as a coherent pre-delete installation. Uninstall was not changed." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -612,7 +613,7 @@ Function un.ZCPrepareUninstallLifecycle
   Call un.ZCStopCapturedServiceForLifecycle
   ${If} $ZC_LIFECYCLE_STOP_OK != 1
     Call un.ZCRecoverUninstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not stop the exact captured Global Index service before uninstall deletion. The original service state was restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not stop the exact captured Global Index service before uninstall deletion. The original service state was restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -620,7 +621,7 @@ Function un.ZCPrepareUninstallLifecycle
   Call un.ZCResolveMainAppGate
   ${If} $ZC_LIFECYCLE_GATE_OK != 1
     Call un.ZCRecoverUninstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas uninstall was cancelled or the desktop process could not be closed before file deletion. The original service state was restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall was cancelled or the desktop process could not be closed before file deletion. The original service state was restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -628,7 +629,7 @@ Function un.ZCPrepareUninstallLifecycle
   Call un.ZCQuiescePreviewForLifecycle
   ${If} $ZC_LIFECYCLE_PREVIEW_OK != 1
     Call un.ZCRecoverUninstallReversible
-    MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not withdraw the exact Preview Handler registration before file deletion. Preview and the original service state were restored where verifiable." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Fylura could not withdraw the exact Preview Handler registration before file deletion. Preview and the original service state were restored where verifiable." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
@@ -663,7 +664,7 @@ FunctionEnd
 
 Function un.ZCFailUninstallReversible
   Call un.ZCRecoverUninstallReversible
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas could not delete the main executable before uninstall became irreversible. Preview and the original service state were restored where verifiable." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Fylura could not delete the main executable before uninstall became irreversible. Preview and the original service state were restored where verifiable." /SD IDOK
   SetErrorLevel 2
   Abort
 FunctionEnd
@@ -680,7 +681,7 @@ Function un.ZCFailUninstallPartial
     Call un.CommitZenCanvasPreviewQuiesce
   ${EndIf}
   Call un.DeleteZenCanvasIndexService
-  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas uninstall is incomplete after generated deletion began. Preview remains withdrawn and the exact-owned Global Index service was removed where verifiable; product files or metadata may remain." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall is incomplete after generated deletion began. Preview remains withdrawn and the exact-owned Global Index service was removed where verifiable; product files or metadata may remain." /SD IDOK
   Abort
 FunctionEnd
 

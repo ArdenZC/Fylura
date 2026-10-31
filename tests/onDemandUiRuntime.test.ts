@@ -172,7 +172,8 @@ describe("on-demand UI runtime boundaries", () => {
     expect(enterBackground.indexOf("readiness.set_ready(generation, false)")).toBeLessThan(enterBackground.indexOf("workspace.dispose_generation(generation)"));
     expect(enterBackground.indexOf("workspace.dispose_generation(generation)")).toBeLessThan(enterBackground.indexOf("window.destroy()"));
     expect(main).toContain("if !background_launch {");
-    expect(main).toContain("Some(vec![\"--background\"])");
+    expect(main).toContain('.app_name("Fylura")');
+    expect(main).toContain('.args(["--background"])');
     expect(main).toContain("tauri_plugin_single_instance::init");
   });
 

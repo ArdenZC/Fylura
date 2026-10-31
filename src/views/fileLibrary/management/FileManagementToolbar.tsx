@@ -179,14 +179,47 @@ export function FileManagementToolbar() {
     setAutomaticTask(null);
     if (transfer?.origin === "selection") void releaseUnused(transfer.tickets.map((ticket) => ticket.id)).catch((value) => { if (mounted.current) setError(describeError(value)); });
   }
-  function moveSelection() { void run(async () => {
-    const tickets = await capturedSelection();
-    if (windows && tickets.some((ticket) => ticket.isDirectory)) {
-      await releaseUnused(tickets.map((ticket) => ticket.id));
-      throw Error("transfer_windows_directory_not_supported");
-    }
-    begin(tickets, "move", "selection");
-  }); }
+  function moveSelection() {
+    let accepted: { tickets: TransferTicket[]; destination: string; sourceSignature: string | undefined } | null = null;
+    void run(async () => {
+      const sourceSignature = currentSurface()?.signature;
+      const tickets = await capturedSelection();
+      if (windows && tickets.some((ticket) => ticket.isDirectory)) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        throw Error("transfer_windows_directory_not_supported");
+      }
+      if (!tickets.length) return;
+      let selectedDestination: string | string[] | null;
+      try {
+        selectedDestination = await open({ directory: true, multiple: false, title: t("fmDestination") });
+      } catch (error) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        throw error;
+      }
+      const destination = Array.isArray(selectedDestination) ? selectedDestination[0] : selectedDestination;
+      if (!destination) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        return;
+      }
+      if (currentSurface()?.signature !== sourceSignature) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        throw Error("transfer_selection_changed");
+      }
+      accepted = { tickets, destination, sourceSignature };
+    }).then(() => {
+      if (!accepted) return;
+      if (useFileManagementStore.getState().transferOpen || currentSurface()?.signature !== accepted.sourceSignature) {
+        void releaseUnused(accepted.tickets.map((ticket) => ticket.id)).catch((error) => setError(describeError(error)));
+        setError(t("wbSelectionChanged"));
+        return;
+      }
+      begin(accepted.tickets, "move", "selection", {
+        destination: accepted.destination,
+        sourcePaneId: pane?.id,
+        sourceSignature: accepted.sourceSignature,
+      });
+    });
+  }
   function trashSelection() { void run(async () => { begin(await capturedSelection(), "trash", "selection"); }); }
   function renameSelection() {
     void run(async () => {

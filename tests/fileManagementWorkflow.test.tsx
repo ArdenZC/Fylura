@@ -10,7 +10,8 @@ import { useFileManagementStore } from "../src/views/fileLibrary/management/file
 import { fileManagementApi as api, type TransferTicket, type TransferPreview } from "../src/api/fileManagementApi";
 import { tauriApi } from "../src/api/tauriApi";
 import type { OperationLog } from "../src/types/domain";
-const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), refreshHistory: vi.fn(async () => []) }));
+const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), open: vi.fn(), refreshHistory: vi.fn(async () => []) }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.open }));
 vi.mock("../src/contexts/AppContexts", async () => {
   const { makeTranslator } = await import("../src/i18n"); const t = makeTranslator("en");
   return { useI18nContext: () => ({ t, language: "en" }), useChromeContext: () => ({ platform: "win32" }), useNavigationContext: () => ({ setView: vi.fn() }) };
@@ -74,6 +75,17 @@ describe("File Library manual management workflow", () => {
     expect(api.executeTransfer).not.toHaveBeenCalled();
     await act(async () => { release(); });
     expect(api.executeTransfer).toHaveBeenCalledOnce();
+  });
+  it("picks an explicit destination before auto-executing a conflict-free toolbar Move", async () => {
+    mocks.open.mockResolvedValueOnce("C:/Elsewhere");
+    await render();
+    await click(t("fmMove"));
+    await flush();
+    expect(mocks.open).toHaveBeenCalledWith({ directory: true, multiple: false, title: t("fmDestination") });
+    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["one", "two"], action: "move", destinationDirectory: "C:/Elsewhere", skip: [], keepBoth: [] });
+    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-preview", confirmed: true });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(refresh).toHaveBeenCalledOnce();
   });
   it("cancels preview preparation without canceling unrelated file operations", async () => {
     useFileManagementStore.setState({clipboard:{action:"copy",tickets}});

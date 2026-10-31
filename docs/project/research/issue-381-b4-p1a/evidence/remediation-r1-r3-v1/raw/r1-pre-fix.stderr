@@ -1,0 +1,235 @@
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling parking_lot_core v0.9.12
+   Compiling find-msvc-tools v0.1.9
+   Compiling proc-macro2 v1.0.106
+   Compiling smallvec v1.15.2
+   Compiling shlex v2.0.1
+   Compiling cc v1.2.64
+   Compiling rand_core v0.10.1
+   Compiling vcpkg v0.2.15
+   Compiling scopeguard v1.2.0
+   Compiling pkg-config v0.3.33
+   Compiling getrandom v0.4.3
+   Compiling typenum v1.20.1
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling libsqlite3-sys v0.37.0
+   Compiling lock_api v0.4.14
+   Compiling serde_core v1.0.228
+   Compiling foldhash v0.2.0
+   Compiling cpufeatures v0.3.0
+   Compiling chacha20 v0.10.0
+   Compiling hashbrown v0.16.1
+   Compiling parking_lot v0.12.5
+   Compiling zmij v1.0.21
+   Compiling syn v2.0.118
+   Compiling rand v0.10.1
+   Compiling hashlink v0.11.1
+   Compiling scheduled-thread-pool v0.2.7
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling serde_json v1.0.150
+   Compiling log v0.4.32
+   Compiling bitflags v2.13.0
+   Compiling fallible-iterator v0.3.0
+   Compiling serde v1.0.228
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling r2d2 v0.8.10
+   Compiling digest v0.10.7
+   Compiling uuid v1.23.3
+   Compiling serde_derive v1.0.228
+   Compiling rusqlite v0.39.0
+   Compiling memchr v2.8.2
+   Compiling cpufeatures v0.2.17
+   Compiling itoa v1.0.18
+   Compiling sha2 v0.10.9
+   Compiling r2d2_sqlite v0.34.0
+   Compiling issue381-b4-p1a-f1 v0.1.0 (/tmp/issue381-b4p1a-r1-repro/repo/tests/issue381_b4_p1a_f1)
+warning: constant `PRODUCT_BUSY_TIMEOUT_MS` is never used
+  --> examples/../src/db.rs:10:11
+   |
+10 | pub const PRODUCT_BUSY_TIMEOUT_MS: u64 = 5_000;
+   |           ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `PRODUCT_POOL_SIZE` is never used
+  --> examples/../src/db.rs:11:11
+   |
+11 | pub const PRODUCT_POOL_SIZE: u32 = 8;
+   |           ^^^^^^^^^^^^^^^^^
+
+warning: struct `SlotManifest` is never constructed
+  --> examples/../src/db.rs:14:12
+   |
+14 | pub struct SlotManifest {
+   |            ^^^^^^^^^^^^
+
+warning: struct `BuiltSlot` is never constructed
+  --> examples/../src/db.rs:34:12
+   |
+34 | pub struct BuiltSlot {
+   |            ^^^^^^^^^
+
+warning: function `open_connection` is never used
+  --> examples/../src/db.rs:46:8
+   |
+46 | pub fn open_connection(path: &Path) -> rusqlite::Result<Connection> {
+   |        ^^^^^^^^^^^^^^^
+
+warning: function `configure_product_main` is never used
+  --> examples/../src/db.rs:50:8
+   |
+50 | pub fn configure_product_main(conn: &mut Connection) -> rusqlite::Result<()> {
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `open_product_pool` is never used
+  --> examples/../src/db.rs:60:8
+   |
+60 | pub fn open_product_pool(
+   |        ^^^^^^^^^^^^^^^^^
+
+warning: function `query_pool_settings` is never used
+  --> examples/../src/db.rs:68:8
+   |
+68 | pub fn query_pool_settings(conn: &Connection) -> rusqlite::Result<(String, i64, i64, i64, i64)> {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `create_slot` is never used
+  --> examples/../src/db.rs:78:8
+   |
+78 | pub fn create_slot(
+   |        ^^^^^^^^^^^
+
+warning: function `create_unsealed_slot` is never used
+   --> examples/../src/db.rs:221:8
+    |
+221 | pub fn create_unsealed_slot(
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `open_readonly` is never used
+   --> examples/../src/db.rs:282:8
+    |
+282 | pub fn open_readonly(path: &Path) -> rusqlite::Result<Connection> {
+    |        ^^^^^^^^^^^^^
+
+warning: function `verify_seal` is never used
+   --> examples/../src/db.rs:334:8
+    |
+334 | pub fn verify_seal(slot: &BuiltSlot) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    |        ^^^^^^^^^^^
+
+warning: function `create_authority_db` is never used
+   --> examples/../src/db.rs:370:8
+    |
+370 | pub fn create_authority_db(path: &Path, slot_id: &str, slot_sha256: &str) -> rusqlite::Result<()> {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `transition_slot` is never used
+   --> examples/../src/db.rs:417:8
+    |
+417 | pub fn transition_slot(
+    |        ^^^^^^^^^^^^^^^
+
+warning: function `authority_slot` is never used
+   --> examples/../src/db.rs:432:8
+    |
+432 | pub fn authority_slot(conn: &Connection) -> rusqlite::Result<(String, i64, i64)> {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `pool_get` is never used
+   --> examples/../src/db.rs:440:8
+    |
+440 | pub fn pool_get(
+    |        ^^^^^^^^
+
+warning: function `suffix` is never used
+   --> examples/../src/db.rs:446:8
+    |
+446 | pub fn suffix(path: &Path, suffix: &str) -> PathBuf {
+    |        ^^^^^^
+
+warning: function `sha256_bytes` is never used
+   --> examples/../src/db.rs:452:8
+    |
+452 | pub fn sha256_bytes(bytes: &[u8]) -> String {
+    |        ^^^^^^^^^^^^
+
+warning: function `path_digest` is never used
+   --> examples/../src/db.rs:456:8
+    |
+456 | pub fn path_digest(path: &Path) -> rusqlite::Result<Option<String>> {
+    |        ^^^^^^^^^^^
+
+warning: function `claim_live_lease_count` is never used
+   --> examples/../src/db.rs:465:8
+    |
+465 | pub fn claim_live_lease_count(conn: &Connection, slot_id: &str, now: i64) -> rusqlite::Result<i64> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `elapsed_ms` is never used
+   --> examples/../src/db.rs:473:8
+    |
+473 | pub fn elapsed_ms(start: Instant) -> f64 {
+    |        ^^^^^^^^^^
+
+warning: function `wal_bytes` is never used
+   --> examples/../src/db.rs:477:8
+    |
+477 | pub fn wal_bytes(path: &Path) -> u64 {
+    |        ^^^^^^^^^
+
+warning: function `file_system_sync` is never used
+   --> examples/../src/db.rs:483:8
+    |
+483 | pub fn file_system_sync(path: &Path) -> std::io::Result<()> {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `update_doc_for_delta` is never used
+   --> examples/../src/db.rs:487:8
+    |
+487 | pub fn update_doc_for_delta(
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `read_only_slot_tx` is never used
+   --> examples/../src/db.rs:514:8
+    |
+514 | pub fn read_only_slot_tx(path: &Path) -> rusqlite::Result<Connection> {
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: function `create_backup_copy` is never used
+   --> examples/../src/db.rs:521:8
+    |
+521 | pub fn create_backup_copy(source: &Path, dest: &Path) -> std::io::Result<u64> {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `Document` is never constructed
+ --> examples/../src/model.rs:5:12
+  |
+5 | pub struct Document {
+  |            ^^^^^^^^
+
+warning: function `documents` is never used
+  --> examples/../src/model.rs:15:8
+   |
+15 | pub fn documents(count: usize) -> Vec<Document> {
+   |        ^^^^^^^^^
+
+warning: function `corpus_sha256` is never used
+  --> examples/../src/model.rs:52:8
+   |
+52 | pub fn corpus_sha256(docs: &[Document]) -> String {
+   |        ^^^^^^^^^^^^^
+
+warning: function `file_sha256` is never used
+  --> examples/../src/model.rs:74:8
+   |
+74 | pub fn file_sha256(path: &std::path::Path) -> std::io::Result<(String, u64)> {
+   |        ^^^^^^^^^^^
+
+warning: `issue381-b4-p1a-f1` (example "r1_pre_fix") generated 30 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.56s
+     Running `/tmp/issue381-b4-p1a-target/debug/examples/r1_pre_fix`

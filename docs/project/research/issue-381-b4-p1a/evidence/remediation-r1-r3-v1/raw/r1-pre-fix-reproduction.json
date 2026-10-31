@@ -1,0 +1,21 @@
+{
+  "baseline_head": "12dfea7ec49e8ad576db4029a3da2fdadbe41ba1",
+  "baseline_tree": "60e5a1a8aa400360ef27ffb11ec0ad4e01cf3daf",
+  "checkout": "temporary detached worktree at the original PR HEAD; no branch or tracked file changed",
+  "probe_source": "r1-pre-fix-probe.rs",
+  "command": "cargo run --locked --manifest-path tests/issue381_b4_p1a_f1/Cargo.toml --example r1_pre_fix",
+  "cwd": "/tmp/issue381-b4p1a-r1-repro/repo",
+  "environment": {
+    "PATH_prefix": "/workspace/.cache/cargo/bin",
+    "CARGO_HOME": "/workspace/.cache/cargo",
+    "RUSTUP_HOME": "/workspace/.cache/rustup",
+    "CARGO_TARGET_DIR": "/tmp/issue381-b4-p1a-target"
+  },
+  "exit_code": 0,
+  "meaning_of_exit_code": "The probe exits zero only after observing and printing the expected SQLite binding error from the original query_rows implementation.",
+  "stdout": "EXPECTED_ORIGINAL_FAILURE query_rows(root=None, limit=Some(1)): Wrong number of parameters passed to query. Got 2, needed 3",
+  "files": {
+    "stdout": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/r1-pre-fix.stdout",
+    "stderr": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/r1-pre-fix.stderr"
+  }
+}

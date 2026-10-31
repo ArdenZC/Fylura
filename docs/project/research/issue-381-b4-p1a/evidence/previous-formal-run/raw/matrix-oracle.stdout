@@ -1,0 +1,1 @@
+{"exact_float_bits": true, "failed": 0, "oracle": "independent Python fixture-string BM25; does not import or invoke SQLite", "passed": 12, "query_snapshots_checked": 12}

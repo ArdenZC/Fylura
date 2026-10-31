@@ -1,0 +1,8 @@
+{
+  "all_commands_succeeded": true,
+  "matrix_decision": "P1A_BLOCKED_ENVIRONMENT",
+  "matrix_gate_count": 16,
+  "matrix_gates_satisfied": 16,
+  "source_head": "d2b916ac5889072945005036c7594dea2e23dbb2",
+  "source_tree": "080a2210a11ca001abd2ea98694653705a400f61"
+}

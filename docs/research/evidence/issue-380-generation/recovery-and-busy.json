@@ -1,0 +1,45 @@
+{
+  "source_sha256": "b88cc26700624223ae10a8bd405d0d1009e36c7d93f5ac25836938edfdbb19bf",
+  "sqlite": "3.53.1",
+  "recovery": [
+    {
+      "strategy": "C1",
+      "rows": 1000,
+      "recovery_open_and_full_projection_ms": 35.75545100011368,
+      "backup_ms": 4.196658999944702,
+      "backup_bytes": 8863744,
+      "restored_projection_equal": true
+    },
+    {
+      "strategy": "C2",
+      "rows": 1000,
+      "recovery_open_and_full_projection_ms": 38.40507600011733,
+      "backup_ms": 3.9904440000100294,
+      "backup_bytes": 8667136,
+      "restored_projection_equal": true
+    },
+    {
+      "strategy": "C3",
+      "rows": 1000,
+      "recovery_open_and_full_projection_ms": 43.34454900003948,
+      "backup_ms": 5.205559000160065,
+      "backup_bytes": 8491008,
+      "restored_projection_equal": true
+    }
+  ],
+  "writer_controls": [
+    {
+      "hold_requested_ms": 50.0,
+      "holder_ms": 50.186737000103676,
+      "outcome": "committed",
+      "elapsed_ms": 53.6004299999604
+    },
+    {
+      "hold_requested_ms": 5250.0,
+      "outcome": "sqlite_busy",
+      "code": 5,
+      "elapsed_ms": 5006.9626879999305,
+      "holder_ms": 5250.19118299997
+    }
+  ]
+}

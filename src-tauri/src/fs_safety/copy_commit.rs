@@ -418,6 +418,7 @@ fn copy_directory_claim(
             &mut entry_count,
             cancel,
         )?;
+        copy_windows_security_descriptor(claim.current_path(), &staging.path)?;
         let source_after = directory_content_digest(claim.current_path(), cancel)?;
         let staged = directory_content_digest(&staging.path, cancel)?;
         if source_before != source_after || source_before != staged {
@@ -649,6 +650,7 @@ fn copy_directory_contents(
         if metadata.is_dir() {
             fs::create_dir(&target_child).map_err(map_create_error)?;
             copy_directory_contents(&source_child, &target_child, depth + 1, entry_count, cancel)?;
+            copy_windows_security_descriptor(&source_child, &target_child)?;
             VerifiedDirectory::open_existing(&target_child)
                 .map_err(map_directory_error)?
                 .sync()
@@ -752,7 +754,121 @@ fn copy_regular_file(
     if !identity::content_identity_matches(&expected, &target_identity) {
         return Err(AtomicMoveError::CopyVerificationFailed);
     }
+    copy_windows_security_descriptor(source, target)?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn copy_windows_security_descriptor(
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<(), AtomicMoveError> {
+    use windows_sys::Win32::{
+        Foundation::GetLastError,
+        Security::{
+            SetFileSecurityW, PROTECTED_DACL_SECURITY_INFORMATION,
+            UNPROTECTED_DACL_SECURITY_INFORMATION,
+        },
+    };
+    let descriptor = read_windows_security_descriptor(source)?;
+    let dacl_inheritance = if descriptor.protected_dacl {
+        PROTECTED_DACL_SECURITY_INFORMATION
+    } else {
+        UNPROTECTED_DACL_SECURITY_INFORMATION
+    };
+    let target_wide = source_claim::windows_wide_path(target);
+    if unsafe {
+        SetFileSecurityW(
+            target_wide.as_ptr(),
+            descriptor.information | dacl_inheritance,
+            descriptor.bytes.as_ptr().cast_mut().cast(),
+        )
+    } == 0
+    {
+        let error = unsafe { GetLastError() };
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            error as i32,
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+struct WindowsSecurityDescriptor {
+    bytes: Vec<u8>,
+    information: u32,
+    protected_dacl: bool,
+}
+
+#[cfg(windows)]
+fn read_windows_security_descriptor(
+    path: &std::path::Path,
+) -> Result<WindowsSecurityDescriptor, AtomicMoveError> {
+    use std::ptr;
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER},
+        Security::{
+            GetFileSecurityW, GetSecurityDescriptorControl, DACL_SECURITY_INFORMATION,
+            GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, SE_DACL_PROTECTED,
+        },
+    };
+
+    let information =
+        OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    let wide = source_claim::windows_wide_path(path);
+    let mut descriptor_size = 0u32;
+    let first_read = unsafe {
+        GetFileSecurityW(
+            wide.as_ptr(),
+            information,
+            ptr::null_mut(),
+            0,
+            &mut descriptor_size,
+        )
+    };
+    let first_error = unsafe { GetLastError() };
+    if first_read != 0 || first_error != ERROR_INSUFFICIENT_BUFFER || descriptor_size == 0 {
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            first_error as i32,
+        )));
+    }
+    let mut bytes = vec![0u8; descriptor_size as usize];
+    let read = unsafe {
+        GetFileSecurityW(
+            wide.as_ptr(),
+            information,
+            bytes.as_mut_ptr().cast(),
+            descriptor_size,
+            &mut descriptor_size,
+        )
+    };
+    if read == 0 || descriptor_size as usize > bytes.len() {
+        let error = unsafe { GetLastError() };
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            error as i32,
+        )));
+    }
+    bytes.truncate(descriptor_size as usize);
+    let mut control = 0u16;
+    let mut revision = 0u32;
+    if unsafe {
+        GetSecurityDescriptorControl(
+            bytes.as_ptr().cast_mut().cast(),
+            &mut control,
+            &mut revision,
+        )
+    } == 0
+    {
+        let error = unsafe { GetLastError() };
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            error as i32,
+        )));
+    }
+    Ok(WindowsSecurityDescriptor {
+        bytes,
+        information,
+        protected_dacl: control & SE_DACL_PROTECTED != 0,
+    })
 }
 
 #[cfg(windows)]
@@ -846,6 +962,10 @@ fn directory_content_digest(
             return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
         }
         let verified = VerifiedDirectory::open_existing(current).map_err(map_directory_error)?;
+        let security_descriptor = windows_security_descriptor_bytes(current)?;
+        hasher.update(b"security-descriptor\0");
+        hasher.update(&(security_descriptor.len() as u64).to_le_bytes());
+        hasher.update(&security_descriptor);
         let relative = current
             .strip_prefix(root)
             .map_err(|_| AtomicMoveError::UnsafePath)?;
@@ -880,6 +1000,10 @@ fn directory_content_digest(
             if metadata.is_dir() {
                 visit(root, &path, depth + 1, entry_count, hasher, cancel)?;
             } else if metadata.is_file() {
+                let security_descriptor = windows_security_descriptor_bytes(&path)?;
+                hasher.update(b"security-descriptor\0");
+                hasher.update(&(security_descriptor.len() as u64).to_le_bytes());
+                hasher.update(&security_descriptor);
                 let mut options = OpenOptions::new();
                 options.read(true).custom_flags(
                     windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
@@ -915,6 +1039,111 @@ fn directory_content_digest(
     let mut entry_count = 0usize;
     visit(root, root, 0, &mut entry_count, &mut hasher, cancel)?;
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+#[cfg(windows)]
+fn windows_security_descriptor_bytes(path: &std::path::Path) -> Result<Vec<u8>, AtomicMoveError> {
+    use std::ptr;
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, LocalFree},
+        Security::Authorization::{
+            ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1,
+        },
+    };
+
+    let descriptor = read_windows_security_descriptor(path)?;
+    let mut sddl_pointer = ptr::null_mut();
+    let mut sddl_length = 0u32;
+    if unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor.bytes.as_ptr().cast_mut().cast(),
+            SDDL_REVISION_1,
+            descriptor.information,
+            &mut sddl_pointer,
+            &mut sddl_length,
+        )
+    } == 0
+    {
+        let error = unsafe { GetLastError() };
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            error as i32,
+        )));
+    }
+    let sddl = unsafe {
+        let slice =
+            std::slice::from_raw_parts(sddl_pointer, sddl_length.saturating_sub(1) as usize);
+        String::from_utf16_lossy(slice)
+    };
+    unsafe {
+        LocalFree(sddl_pointer.cast());
+    }
+    Ok(sddl.into_bytes())
+}
+
+#[cfg(windows)]
+fn windows_security_descriptor_bytes_from_handle(file: &File) -> Result<Vec<u8>, AtomicMoveError> {
+    use std::{os::windows::io::AsRawHandle, ptr};
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, LocalFree, HANDLE},
+        Security::Authorization::{
+            ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1,
+            SE_FILE_OBJECT,
+        },
+        Security::{
+            DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
+        },
+    };
+
+    let information =
+        OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    let mut descriptor = ptr::null_mut();
+    let status = unsafe {
+        GetSecurityInfo(
+            file.as_raw_handle() as HANDLE,
+            SE_FILE_OBJECT,
+            information,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            status as i32,
+        )));
+    }
+    let mut sddl_pointer = ptr::null_mut();
+    let mut sddl_length = 0u32;
+    if unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor,
+            SDDL_REVISION_1,
+            information,
+            &mut sddl_pointer,
+            &mut sddl_length,
+        )
+    } == 0
+    {
+        let error = unsafe { GetLastError() };
+        unsafe {
+            LocalFree(descriptor);
+        }
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            error as i32,
+        )));
+    }
+    let sddl = unsafe {
+        let slice =
+            std::slice::from_raw_parts(sddl_pointer, sddl_length.saturating_sub(1) as usize);
+        String::from_utf16_lossy(slice)
+    };
+    unsafe {
+        LocalFree(sddl_pointer.cast());
+        LocalFree(descriptor);
+    }
+    Ok(sddl.into_bytes())
 }
 
 /// Retires a cross-volume directory claim only after comparing each source
@@ -959,6 +1188,11 @@ fn retire_claimed_directory_verified_against_target(
     let target_root =
         open_windows_child_for_tree(target_parent.handle(), target_name, true, false)?;
     if windows_handle_directory_identity(&target_root)? != *expected_target {
+        return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+    }
+    if windows_security_descriptor_bytes_from_handle(&source_root)?
+        != windows_security_descriptor_bytes_from_handle(&target_root)?
+    {
         return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
     }
     let target_path = target_parent.path().join(target_name);
@@ -1037,6 +1271,11 @@ fn retire_directory_entries_verified(
             open_windows_child_for_tree(target_parent_handle, &name, is_directory, false)?;
         let target_child_info = windows_handle_entry_info(&target_child)?;
         if target_child_info.is_reparse || target_child_info.is_directory != is_directory {
+            return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+        }
+        if windows_security_descriptor_bytes_from_handle(&source_child)?
+            != windows_security_descriptor_bytes_from_handle(&target_child)?
+        {
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
         }
         if is_directory {
@@ -1125,14 +1364,14 @@ fn open_windows_directory_path_for_retirement(
         Storage::FileSystem::{
             CreateFileW, DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
             FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-            OPEN_EXISTING, SYNCHRONIZE,
+            OPEN_EXISTING, READ_CONTROL, SYNCHRONIZE,
         },
     };
     let path = source_claim::windows_wide_path(path);
     let raw = unsafe {
         CreateFileW(
             path.as_ptr(),
-            DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+            DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
             FILE_SHARE_READ | FILE_SHARE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,
@@ -1176,7 +1415,7 @@ fn open_windows_child_for_tree(
             Foundation::{RtlNtStatusToDosError, OBJ_CASE_INSENSITIVE, UNICODE_STRING},
             Storage::FileSystem::{
                 DELETE, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_READ,
-                SYNCHRONIZE,
+                READ_CONTROL, SYNCHRONIZE,
             },
             System::IO::IO_STATUS_BLOCK,
         },
@@ -1206,6 +1445,7 @@ fn open_windows_child_for_tree(
     let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
     let access = (if delete_access { DELETE } else { 0 })
         | FILE_READ_ATTRIBUTES
+        | READ_CONTROL
         | SYNCHRONIZE
         | if is_directory {
             FILE_LIST_DIRECTORY
@@ -2096,6 +2336,84 @@ mod tests {
             b"post-commit payload"
         );
         assert!(claim.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    fn mutate_claimed_file_dacl_after_target_commit(
+        point: source_claim::ClaimTestPoint,
+        _source: &std::path::Path,
+        claim: &std::path::Path,
+    ) {
+        if point == source_claim::ClaimTestPoint::AfterTargetCommitBeforeSourceCleanup {
+            let result = std::process::Command::new("icacls")
+                .arg(claim.join("nested").join("file.txt"))
+                .args(["/grant", "*S-1-5-32-545:(W)"])
+                .output()
+                .expect("change the claimed source DACL after publication");
+            assert!(
+                result.status.success(),
+                "could not mutate the claimed source DACL: {}",
+                String::from_utf8_lossy(&result.stderr).trim()
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn source_dacl_mutation_after_target_commit_preserves_claim_and_target() {
+        let _serial = source_claim::lock_claim_test_hooks();
+        let root = fixture("directory-dacl-mutation-after-commit");
+        let source_parent = root.join("source");
+        let target_parent_path = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent_path).expect("target parent");
+        let source = source_parent.join("tree");
+        fs::create_dir_all(source.join("nested")).expect("nested source");
+        fs::write(source.join("nested").join("file.txt"), b"stable source").expect("source file");
+        let target = target_parent_path.join("tree");
+        let claim_path = source_claim::planned_claim_path(&source, "directory-dacl-after-commit")
+            .expect("claim path");
+        let expected = identity::capture_namespace_identity_only(&source, None)
+            .expect("directory namespace identity");
+        let mut claim = source_claim::claim_source_at(
+            &source,
+            &expected,
+            &claim_path,
+            "directory-dacl-after-commit",
+            None,
+        )
+        .expect("source claim");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+
+        source_claim::set_claim_test_hook(Some(mutate_claimed_file_dacl_after_target_commit));
+        let result = copy_commit_claim(
+            &mut claim,
+            target_parent,
+            std::ffi::OsStr::new("tree"),
+            None,
+            None,
+        );
+        source_claim::set_claim_test_hook(None);
+
+        assert!(
+            matches!(
+                result,
+                Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(_))
+            ),
+            "{result:?}"
+        );
+        assert_eq!(
+            fs::read(target.join("nested").join("file.txt")).expect("committed target"),
+            b"stable source"
+        );
+        assert_eq!(
+            fs::read(claim_path.join("nested").join("file.txt")).expect("retained claim"),
+            b"stable source"
+        );
+        assert!(!source.exists());
+        drop(claim);
         let _ = fs::remove_dir_all(root);
     }
 }

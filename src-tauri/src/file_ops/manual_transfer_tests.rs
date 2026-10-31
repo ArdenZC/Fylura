@@ -1794,6 +1794,7 @@ fn fl20_external_file_move_is_previewed_journaled_and_restored_without_indexing(
 #[cfg(windows)]
 #[test]
 fn fl23_native_cross_volume_directory_move_and_history_restore_use_one_journal() {
+    use std::process::Command;
     use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
 
     let f = Fixture::new();
@@ -1831,6 +1832,26 @@ fn fl23_native_cross_volume_directory_move_and_history_restore_use_one_journal()
         b"cross-volume nested payload",
     )
     .expect("nested payload");
+    let inheritance = Command::new("icacls")
+        .arg(&source)
+        .args(["/inheritance:d"])
+        .output()
+        .expect("disable inherited ACLs on the isolated source fixture");
+    assert!(
+        inheritance.status.success(),
+        "could not make the source DACL fixture explicit: {}",
+        String::from_utf8_lossy(&inheritance.stderr).trim()
+    );
+    let explicit_acl = Command::new("icacls")
+        .arg(&source)
+        .args(["/grant", "*S-1-5-32-545:(OI)(CI)(RX)"])
+        .output()
+        .expect("add explicit source DACL fixture");
+    assert!(
+        explicit_acl.status.success(),
+        "could not add the explicit source DACL fixture: {}",
+        String::from_utf8_lossy(&explicit_acl.stderr).trim()
+    );
     let expected_root_hash = fixture_file_hash(&source.join("根.txt"));
     let expected_nested_hash = fixture_file_hash(&source.join("nested").join("內容.bin"));
 

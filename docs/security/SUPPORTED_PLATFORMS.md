@@ -6,8 +6,10 @@ Fylura supports:
 
 - Windows, with the existing source-handle and verified-directory mutation
   authority. Same-volume directory Move uses the existing no-replace atomic
-  source claim and operation journal; cross-volume directory Move remains
-  explicitly unsupported and is refused by the backend;
+  source claim and operation journal. Cross-volume directory Move stages on
+  the target volume, verifies content and owner/group/DACL security
+  descriptors, publishes without replacement, then retires the claimed source
+  only after revalidation;
 - macOS 13 or later on Apple Silicon (`aarch64-apple-darwin`), with the
   recoverable namespace and provider-coordination strategies described in
   `MACOS_MUTATION_THREAT_MODEL.md`.
@@ -83,10 +85,18 @@ attempting source cleanup.
 
 ## Windows and Linux
 
-Windows behavior remains unchanged: its source-handle and verified-directory
-primitives remain the filesystem authority. The legacy system Recycle Bin path
-continues to fail closed where source binding cannot be proven; Safe Trash is
-the durable cleanup route.
+Windows source-handle and verified-directory primitives remain the filesystem
+authority. Cross-volume directory Move is
+bounded to 5,000 entries and depth 64; reparse points, named streams,
+unsupported attributes, security-descriptor access failures, and source or
+target identity changes fail closed. Owner, group, and DACL changes are
+included in the cross-volume verification digest. The legacy system Recycle
+Bin path continues to fail closed where source binding cannot be proven; Safe
+Trash is the durable cleanup route. This Draft still requires Windows native
+GUI acceptance and active-transfer resource measurements before release
+qualification. Windows audit SACLs are not copied by this path, so SACL-bearing
+trees remain outside its qualified semantics until the backend can preserve or
+explicitly reject them.
 
 Linux is not a supported product platform. It is outside product support,
 build, release, and mutation-safety scope.

@@ -26,6 +26,7 @@ use std::{
     env, fs,
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
+    process::Command,
 };
 
 fn panic_after_restore_claim(point: ClaimTestPoint, _source: &Path, _claim: &Path) {
@@ -104,7 +105,7 @@ struct SmokeManifest {
     source_replacement: &'static str,
     target_parent_replacement: &'static str,
     staging_handle_copy_commit: &'static str,
-    cross_volume_directory_rejected: &'static str,
+    cross_volume_directory_move: &'static str,
     durability_failure: &'static str,
     safe_trash_durability_failure: &'static str,
     safe_trash_identity_mismatch: &'static str,
@@ -856,15 +857,88 @@ fn native_file_hardening_smoke() {
     if volume_prefix(&source_volume) != volume_prefix(&target_volume) {
         let directory_source = source_volume.join("cross-volume-directory");
         let directory_target = target_volume.join("cross-volume-directory");
-        fs::create_dir_all(&directory_source).expect("cross-volume directory source");
+        fs::create_dir_all(directory_source.join("nested").join("empty"))
+            .expect("cross-volume directory source and empty leaf");
         fs::write(directory_source.join("canary.txt"), b"directory canary")
             .expect("directory canary");
-        let error = atomic_move_noreplace(&directory_source, &directory_target, None, None)
-            .expect_err("cross-volume directory must fail closed");
-        assert_eq!(error.to_string(), "cross_volume_directory_move_unsupported");
+        fs::write(
+            directory_source.join("nested").join("内容.bin"),
+            b"nested cross-volume canary",
+        )
+        .expect("nested directory canary");
+        let inheritance = Command::new("icacls")
+            .arg(&directory_source)
+            .args(["/inheritance:d"])
+            .output()
+            .expect("make the cross-volume source DACL explicit");
+        assert!(
+            inheritance.status.success(),
+            "could not make the source DACL explicit: {}",
+            String::from_utf8_lossy(&inheritance.stderr).trim()
+        );
+        let explicit_acl = Command::new("icacls")
+            .arg(&directory_source)
+            .args(["/grant", "*S-1-5-32-545:(OI)(CI)(RX)"])
+            .output()
+            .expect("add an explicit cross-volume source DACL");
+        assert!(
+            explicit_acl.status.success(),
+            "could not add the explicit source DACL: {}",
+            String::from_utf8_lossy(&explicit_acl.stderr).trim()
+        );
+        let canary_hash = sha256_file(&directory_source.join("canary.txt"));
+        let nested_hash = sha256_file(&directory_source.join("nested").join("内容.bin"));
+        let move_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![OperationPreviewRequest {
+                    id: format!("native-cross-volume-directory-{run_id}"),
+                    file_id: format!("native-cross-volume-directory-file-{run_id}"),
+                    operation_type: "move".to_string(),
+                    source_path: directory_source.to_string_lossy().into_owned(),
+                    target_path: directory_target.to_string_lossy().into_owned(),
+                    old_name: "cross-volume-directory".to_string(),
+                    new_name: "cross-volume-directory".to_string(),
+                    is_executable: Some(false),
+                }],
+            },
+        )
+        .expect("execute journaled cross-volume directory move");
+        assert_eq!(move_result.logs.len(), 1);
+        assert_eq!(move_result.logs[0].status, "success");
+        assert_eq!(move_result.logs[0].operation_phase, "completed");
+        assert!(move_result.logs[0].can_restore);
+        assert!(!directory_source.exists());
         assert_eq!(
-            fs::read(directory_source.join("canary.txt")).expect("directory source unchanged"),
-            b"directory canary"
+            sha256_file(&directory_target.join("canary.txt")),
+            canary_hash,
+            "published file contents must match the source hash"
+        );
+        assert_eq!(
+            sha256_file(&directory_target.join("nested").join("内容.bin")),
+            nested_hash,
+            "published nested file contents must match the source hash"
+        );
+        assert!(directory_target.join("nested").join("empty").is_dir());
+
+        let directory_restore = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: move_result.logs,
+            },
+        )
+        .expect("restore cross-volume directory through History");
+        assert_eq!(directory_restore.restored, 1);
+        assert_eq!(directory_restore.failed, 0);
+        assert_eq!(directory_restore.logs[0].restore_status, "restored");
+        assert!(directory_source.join("nested").join("empty").is_dir());
+        assert_eq!(
+            sha256_file(&directory_source.join("canary.txt")),
+            canary_hash
+        );
+        assert_eq!(
+            sha256_file(&directory_source.join("nested").join("内容.bin")),
+            nested_hash
         );
         assert!(!directory_target.exists());
     }
@@ -1311,7 +1385,7 @@ fn native_file_hardening_smoke() {
         remove_isolated_fixture(secondary_root);
     }
     let manifest = SmokeManifest {
-        schema: "zen-canvas-native-file-hardening-smoke/v2",
+        schema: "zen-canvas-native-file-hardening-smoke/v3",
         fixture_root: fixture_text,
         database: database_text,
         source_volume: source_text,
@@ -1327,7 +1401,7 @@ fn native_file_hardening_smoke() {
         } else {
             "skipped_no_secondary_volume"
         },
-        cross_volume_directory_rejected: if cross_volume_exercised {
+        cross_volume_directory_move: if cross_volume_exercised {
             "passed"
         } else {
             "skipped_no_secondary_volume"

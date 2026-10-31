@@ -95,12 +95,48 @@ describe("release workflow security and W6 publication contract", () => {
     expect(triggers).not.toMatch(/^\s+push:\s*$/mu);
     expect(workflow).toContain('W6_RELEASE_PUBLICATION_ENABLED: "false"');
     expect(release).toContain(
-      "if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/') }}",
+      "if: ${{ inputs.qa_only != true && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/') }}",
     );
     expect(deferral).toContain('$env:W6_RELEASE_PUBLICATION_ENABLED -ne "true"');
     expect(deferral).toContain("GitHub Release publication is disabled while W6 product maturity work is active.");
     expect(release.indexOf("Enforce W6 publication deferral")).toBeLessThan(
       release.indexOf("Attach installers to GitHub Release"),
     );
+  });
+
+  it("keeps QA packaging explicit, read-only, short-lived, and separate from release qualification", () => {
+    const triggers = workflow.slice(0, workflow.indexOf("permissions:\n"));
+    const qualification = job("release-qualified-validation", "build");
+    const build = job("build", "release");
+    const release = job("release");
+    const qaUpload = step("Upload QA-only unqualified installers", "Upload installers");
+
+    expect(triggers).toContain("qa_only:");
+    expect(triggers).toContain("default: false");
+    expect(triggers).toContain("type: boolean");
+    expect(qualification).toContain("if: ${{ inputs.qa_only != true }}");
+    expect(build).toContain("needs: release-qualified-validation");
+    expect(build).toContain(
+      "if: ${{ always() && ((inputs.qa_only == true && startsWith(github.ref, 'refs/heads/')) || (inputs.qa_only != true && needs.release-qualified-validation.result == 'success')) }}",
+    );
+    expect(build).toContain("permissions:\n      contents: read\n");
+    expect(qaUpload).toContain("if: ${{ inputs.qa_only == true }}");
+    expect(qaUpload).toContain("name: Fylura-QA-UNQUALIFIED-");
+    expect(qaUpload).toContain("retention-days: 5");
+    expect(qaUpload).toContain("qa-package-provenance.json");
+    expect(qaUpload).toContain("installers-*.sha256");
+    expect(release).toContain("inputs.qa_only != true");
+    expect(release).toContain("permissions:\n      contents: write\n");
+  });
+
+  it("records exact source and verifies the built Windows x64 / Apple Silicon package architecture", () => {
+    expect(workflow).toContain("node scripts/qaPackageProvenance.mjs verify-architecture");
+    expect(workflow).toContain("node scripts/qaPackageProvenance.mjs write-provenance");
+    expect(workflow).toContain("EXPECTED_SHA: ${{ github.sha }}");
+    expect(workflow).toContain("EXPECTED_REF: ${{ github.ref }}");
+    expect(workflow).toContain("QA_RUNNER_OS: ${{ runner.os }}");
+    expect(workflow).toContain("QA_RUNNER_ARCH: ${{ runner.arch }}");
+    expect(workflow).toContain("run: npm run build -- --no-sign");
+    expect(workflow).toContain("Verify unsigned macOS DMG");
   });
 });

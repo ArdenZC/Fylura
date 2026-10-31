@@ -905,7 +905,11 @@ fn native_file_hardening_smoke() {
         )
         .expect("execute journaled cross-volume directory move");
         assert_eq!(move_result.logs.len(), 1);
-        assert_eq!(move_result.logs[0].status, "success");
+        assert_eq!(
+            move_result.logs[0].status, "success",
+            "cross-volume directory operation log: {:?}",
+            move_result.logs[0]
+        );
         assert_eq!(move_result.logs[0].operation_phase, "completed");
         assert!(move_result.logs[0].can_restore);
         assert!(!directory_source.exists());

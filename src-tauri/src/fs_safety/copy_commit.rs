@@ -469,6 +469,12 @@ fn copy_directory_claim(
                 observer("source_cleanup_pending")?;
             }
             #[cfg(any(test, feature = "native-qa"))]
+            source_claim::run_claim_test_hook(
+                source_claim::ClaimTestPoint::AfterTargetCommitBeforeSourceCleanup,
+                claim.original_path(),
+                claim.current_path(),
+            );
+            #[cfg(any(test, feature = "native-qa"))]
             if super::atomic_move::test_faults::take_fault(
                 super::atomic_move::test_faults::AtomicFaultPoint::SourceCleanup,
             ) {
@@ -1721,6 +1727,7 @@ mod tests {
         );
         assert!(target.join("嵌套").join("empty").is_dir());
         assert!(!source.exists());
+        drop(claim);
         assert!(!claim_path.exists());
         assert_eq!(
             phases,
@@ -1731,7 +1738,6 @@ mod tests {
                 "completed"
             ]
         );
-        drop(claim);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1889,10 +1895,13 @@ mod tests {
         );
         source_claim::set_claim_test_hook(None);
 
-        assert!(matches!(
-            result,
-            Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(_))
-        ));
+        assert!(
+            matches!(
+                result,
+                Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(_))
+            ),
+            "{result:?}"
+        );
         assert_eq!(
             fs::read(target.join("nested").join("file.txt")).expect("committed target"),
             b"stable source"

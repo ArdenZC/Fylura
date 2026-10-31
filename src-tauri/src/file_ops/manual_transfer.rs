@@ -572,33 +572,35 @@ impl FileWorkspaceRuntime {
         if !request.confirmed {
             return Err("transfer_confirmation_required".into());
         }
-        let plan = self
-            .inner
-            .transfers
-            .lock()
-            .map_err(|_| "transfer_state_unavailable")?
-            .previews
-            .remove(&request.preview_id)
-            .ok_or_else(|| {
-                #[cfg(test)]
-                eprintln!(
-                    "transfer stale at take: preview missing id={}",
-                    request.preview_id
-                );
-                "operation_preview_stale"
-            })?;
+        let plan = {
+            let mut state = self
+                .inner
+                .transfers
+                .lock()
+                .map_err(|_| "transfer_state_unavailable")?;
+            match state.previews.remove(&request.preview_id) {
+                Some(plan) => plan,
+                None => {
+                    #[cfg(test)]
+                    eprintln!(
+                        "transfer stale at take: preview missing id={}",
+                        request.preview_id
+                    );
+                    return Err("operation_preview_stale".into());
+                }
+            }
+        };
         for guard in &plan.trees {
             validate_tree_guard(guard)?;
         }
         for operation in &plan.operations {
-            if let Err(error) = revalidate(operation) {
+            revalidate(operation).inspect_err(|error| {
                 #[cfg(test)]
                 eprintln!(
                     "transfer stale at take: revalidation error={error} op={} source={} target={}",
                     operation.id, operation.source_path, operation.target_path
                 );
-                return Err(error);
-            }
+            })?;
         }
         Ok(ExecuteMovesRequest {
             operations: plan.operations,
@@ -851,13 +853,12 @@ pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<Director
         "move_to_trash" => TransferAction::Trash,
         _ => return Err("operation_preview_stale".into()),
     };
-    let destination_root = decode_transfer_root(&operation.id).map_err(|error| {
+    let destination_root = decode_transfer_root(&operation.id).inspect_err(|_| {
         #[cfg(test)]
         eprintln!(
             "transfer stale at take: destination root decode failed op={}",
             operation.id
         );
-        error
     })?;
     let source = Path::new(&operation.source_path);
     if action == TransferAction::Trash

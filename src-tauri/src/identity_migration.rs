@@ -6,7 +6,7 @@
 use rusqlite::{backup::Backup, Connection};
 use std::{
     ffi::{OsStr, OsString},
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -197,7 +197,9 @@ fn create_verified_snapshot(source_path: &Path, target_path: &Path) -> Result<()
     }
 
     drop(target);
-    File::open(target_path)
+    OpenOptions::new()
+        .write(true)
+        .open(target_path)
         .and_then(|file| file.sync_all())
         .map_err(|error| format!("identity_migration_snapshot_sync_failed: {error}"))?;
     Ok(())

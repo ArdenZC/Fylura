@@ -1028,7 +1028,7 @@ fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_for
         link_plan.rows[0]
             .error
             .as_deref()
-            .is_some_and(|error| error.contains("symlink_or_reparse_point")),
+            .is_some_and(|error| error == "symlink_or_reparse_point"),
         "an unpreserved link must be explicitly rejected: {:?}",
         link_plan.rows[0].error
     );

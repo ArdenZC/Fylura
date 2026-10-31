@@ -356,11 +356,14 @@ impl FileWorkspaceRuntime {
         for source in sources.iter().filter_map(|(_, source)| source.as_ref()) {
             if let Some(guard) = &source.tree_guard {
                 if !checked_trees.contains_key(&guard.root) {
-                    checked_trees.insert(
-                        guard.root.clone(),
-                        validate_tree_guard(guard)
-                            .map_err(|_| "transfer_source_tree_changed".into()),
-                    );
+                    let validation = validate_tree_guard(guard).map_err(|error| {
+                        if error == "symlink_or_reparse_point" {
+                            error
+                        } else {
+                            "transfer_source_tree_changed".into()
+                        }
+                    });
+                    checked_trees.insert(guard.root.clone(), validation);
                     trees.push(guard.clone());
                 }
             }
@@ -383,12 +386,12 @@ impl FileWorkspaceRuntime {
                 }
             };
             let validation = (|| {
-                if source
+                if let Some(Err(error)) = source
                     .tree_guard
                     .as_ref()
-                    .is_some_and(|guard| checked_trees.get(&guard.root).is_some_and(Result::is_err))
+                    .and_then(|guard| checked_trees.get(&guard.root))
                 {
-                    return Err("transfer_source_tree_changed".into());
+                    return Err(error.clone());
                 }
                 if file_namespace_fingerprint(Path::new(&source.ticket.path))? != source.identity {
                     return Err("transfer_source_changed".into());

@@ -56,7 +56,7 @@ try {
   await page.getByRole("button", { name: "Compare folders", exact: true }).click();
   const compare = page.locator(".u3-comparison");
   await compare.getByRole("table").waitFor();
-  for (const name of ["All 140", "Visible only on left 2", "Visible only on right 2", "Metadata differs 2", "Selected metadata matches 133", "Subfolder · not compared 1"]) {
+  for (const name of ["All 141", "Visible only on left 3", "Visible only on right 2", "Metadata differs 2", "Selected metadata matches 133", "Subfolder · not compared 1"]) {
     assert.equal(await compare.getByRole("button", { name, exact: true }).count(), 1);
   }
   assert.equal(await compare.locator(".u3-batch-details").evaluate((details) => details.open), false);
@@ -68,7 +68,7 @@ try {
     }).length;
   });
   assert.ok(visibleCompareRows >= 4, `expected a useful comparison viewport, saw ${visibleCompareRows} rows`);
-  checks.push("138 entries per side complete across multiple pages; six comparison statuses and exact case policy");
+  checks.push("138 file entries per side and one left-only directory complete across multiple pages; six comparison statuses and exact case policy");
   checks.push("Batch controls start collapsed; comparison results show at least four rows without scrolling at 1600x1000");
   await screenshot("02-compare-light.png");
   await compare.getByRole("button", { name: "Metadata differs 2", exact: true }).click();
@@ -100,12 +100,12 @@ try {
   await results.getByRole("button", { name: "Dismiss", exact: true }).first().click();
   checks.push("Filtered selection → Basket → conflict-only dialog blocks execution → Keep both + Skip → fresh preview auto-executes → result");
   // A deliberate one-sided Move has no conflict and should execute without confirmation.
-  await compare.getByRole("button", { name: "Visible only on left 2", exact: true }).click();
+  await compare.getByRole("button", { name: /Visible only on left/u }).click();
   await compare.getByRole("checkbox", { name: "Left pane: Document-001.txt", exact: true }).check();
   await actions.first().getByRole("button", { name: "Move to other pane", exact: true }).click();
   await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog").count(), 0);
-  await compare.getByRole("button", { name: "Visible only on left 1", exact: true }).waitFor();
+  await compare.getByRole("button", { name: "Visible only on left 2", exact: true }).waitFor();
   checks.push("Explicit no-conflict Move auto-executes without a confirmation dialog and refreshes comparison");
   await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).click();
   await right.locator(".fm-panel").getByRole("button", { name: "Dismiss", exact: true }).last().click();
@@ -132,9 +132,25 @@ try {
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
   }
   await page.setViewportSize({ width: 1600, height: 1000 });
+  await compare.getByRole("button", { name: /Visible only on left/u }).click();
+  const batchDetails = compare.locator(".u3-batch-details").first();
+  if (!(await batchDetails.evaluate((details) => details.open))) await batchDetails.locator("summary").first().click();
+  await compare.getByRole("checkbox", { name: "Left pane: MoveFolder", exact: true }).check();
+  await actions.first().getByRole("button", { name: "Move to other pane", exact: true }).click();
+  await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).waitFor();
+  await right.locator("button.fm-result-trigger").filter({ hasText: "Tasks" }).click();
+  const taskCenter = right.locator(".fm-panel");
+  await right.getByRole("region", { name: "Tasks", exact: true }).waitFor();
+  assert.match(await taskCenter.innerText(), /Completed/u);
+  await taskCenter.locator(".fm-task-entry details summary").first().click();
+  assert.match(await taskCenter.innerText(), /C:\/U3\/Left\/MoveFolder/u);
+  assert.match(await taskCenter.innerText(), /C:\/U3\/Right\/MoveFolder/u);
+  await screenshot("11-task-center-folder-move.png");
+  checks.push("Explicit folder Move feeds the shared task center and displays the resulting Journal/History item (browser-mock filesystem only)");
+  await right.locator("button.fm-result-trigger").filter({ hasText: "Tasks" }).click();
   await page.getByRole("button", { name: "History", exact: true }).click();
   await page.getByRole("heading", { name: "Operation batches", exact: true }).waitFor();
-  await screenshot("10-history.png");
+  await screenshot("12-history.png");
   checks.push("History reachable from transfer results; mock operations do not claim native Restore qualification");
   const chinese = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   chinese.on("pageerror", (error) => errors.push(error.message));
@@ -151,7 +167,7 @@ try {
   await chinesePane.locator("[data-browse-sort]").selectOption("name");
   await chinesePane.locator('[data-browse-entry-kind="directory"]').first().waitFor();
   await chinese.evaluate(() => document.documentElement.classList.add("dark"));
-  await chinese.screenshot({ path: path.join(output, "11-chinese-dark.png") });
+  await chinese.screenshot({ path: path.join(output, "13-chinese-dark.png") });
   checks.push("Chinese and English, light and dark, 820/980/1280/1600 widths without page overflow");
   assert.equal(await page.locator("vite-error-overlay").count(), 0);
   assert.deepEqual(errors, []);

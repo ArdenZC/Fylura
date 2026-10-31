@@ -15,10 +15,14 @@ for (let i = 0; i < 137; i++) {
   if (i !== 1) files.set(`C:/U3/Right/${name}`, { id: `right-${i}`, version: 1, size: i % 7 * 100 + (i === 3 ? 1 : 0), modified: 1700000000 + i + (i === 4 ? 5 : 0) });
 }
 for (const side of ["Left", "Right"]) files.set(`C:/U3/${side}/Subfolder`, { id: `${side}-folder`, version: 1, directory: true });
-files.set("C:/U3/Left/MoveFolder", { id: "move-folder", version: 1, directory: true });
-files.set("C:/U3/Left/MoveFolder/nested", { id: "move-folder-nested", version: 1, directory: true });
-files.set("C:/U3/Left/MoveFolder/nested/payload.txt", { id: "move-folder-payload", version: 1, size: 22, modified: 1 });
-files.set("C:/U3/Left/MoveFolder/empty", { id: "move-folder-empty", version: 1, directory: true });
+const includeFolderMoveFixture = typeof window !== "undefined"
+  && new URLSearchParams(window.location.search).has("u3-folder-move");
+if (includeFolderMoveFixture) {
+  files.set("C:/U3/Left/MoveFolder", { id: "move-folder", version: 1, directory: true });
+  files.set("C:/U3/Left/MoveFolder/nested", { id: "move-folder-nested", version: 1, directory: true });
+  files.set("C:/U3/Left/MoveFolder/nested/payload.txt", { id: "move-folder-payload", version: 1, size: 22, modified: 1 });
+  files.set("C:/U3/Left/MoveFolder/empty", { id: "move-folder-empty", version: 1, directory: true });
+}
 files.set("C:/U3/Left/Case.txt", { id: "case-left", version: 1, size: 1, modified: 1 });
 files.set("C:/U3/Right/case.txt", { id: "case-right", version: 1, size: 1, modified: 1 });
 const tickets = new Map<string, TransferTicket>();

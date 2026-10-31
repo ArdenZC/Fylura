@@ -32,7 +32,7 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   const screenshot = (name) => page.screenshot({ path: path.join(output, name), fullPage: false });
-  await page.goto(`${baseUrl}/?browser-mock=1`);
+  await page.goto(`${baseUrl}/?browser-mock=1&u3-folder-move=1`);
   await page.getByRole("button", { name: "Files", exact: true }).click();
   assert.equal(await page.title(), "Fylura");
   const left = page.locator("[data-pane-id]").first();

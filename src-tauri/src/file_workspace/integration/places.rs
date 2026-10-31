@@ -221,6 +221,9 @@ mod tests {
             assert!(paths.contains(&crate::path_identity::normalize_path(&canonical)));
         }
 
+        runtime
+            .dispose_for_main_teardown()
+            .expect("dispose workspace runtime before fixture cleanup");
         drop(runtime);
         fs::remove_dir_all(root).expect("remove places fixture");
     }

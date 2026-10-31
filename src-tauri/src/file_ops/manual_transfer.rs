@@ -767,7 +767,7 @@ fn snapshot(
     };
     let digest = blake3::hash(
         format!(
-            "transfer:v4:{file_id}:{}:{}:{action:?}:{identity:?}:{tree_fingerprint:?}:{}:{:?}",
+            "transfer:v5:{file_id}:{}:{}:{action:?}:{identity:?}:{tree_fingerprint:?}:{}:{:?}",
             normalize_path(&source),
             target_path_identity,
             normalize_path(&canonical_root),
@@ -776,10 +776,12 @@ fn snapshot(
         .as_bytes(),
     );
     let destination_path = normalize_path(&canonical_root);
+    let tree_fingerprint = tree_fingerprint.as_deref().unwrap_or("-");
     Ok((
         format!(
-            "op-transfer-v4-{}-{}",
+            "op-transfer-v5-{}-{}-{}",
             digest.to_hex(),
+            tree_fingerprint,
             encode_path_for_transfer_id(&destination_path)
         ),
         nearest_identity,
@@ -878,10 +880,22 @@ fn encode_path_for_transfer_id(path: &str) -> String {
 }
 
 fn decode_transfer_root(id: &str) -> Result<PathBuf, String> {
-    let payload = id
-        .strip_prefix("op-transfer-v4-")
-        .ok_or("operation_preview_stale")?;
-    let (digest, encoded_path) = payload.split_once('-').ok_or("operation_preview_stale")?;
+    let (version, payload) = if let Some(payload) = id.strip_prefix("op-transfer-v5-") {
+        (5, payload)
+    } else if let Some(payload) = id.strip_prefix("op-transfer-v4-") {
+        (4, payload)
+    } else {
+        return Err("operation_preview_stale".into());
+    };
+    let (digest, payload) = payload.split_once('-').ok_or("operation_preview_stale")?;
+    let encoded_path = if version == 5 {
+        payload
+            .split_once('-')
+            .map(|(_, encoded_path)| encoded_path)
+            .ok_or("operation_preview_stale")?
+    } else {
+        payload
+    };
     if digest.len() != 64 || encoded_path.is_empty() || encoded_path.len() % 2 != 0 {
         return Err("operation_preview_stale".into());
     }
@@ -905,6 +919,20 @@ fn decode_transfer_root(id: &str) -> Result<PathBuf, String> {
         return Err("operation_preview_stale".into());
     }
     Ok(root)
+}
+
+pub(crate) fn transfer_directory_tree_fingerprint(id: &str) -> Option<&str> {
+    let marker = id.rfind("op-transfer-v5-")?;
+    let payload = id.get(marker + "op-transfer-v5-".len()..)?;
+    let (digest, payload) = payload.split_once('-')?;
+    let (fingerprint, encoded_path) = payload.split_once('-')?;
+    (digest.len() == 64
+        && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && fingerprint.len() == 64
+        && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && !encoded_path.is_empty()
+        && encoded_path.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    .then_some(fingerprint)
 }
 pub(crate) fn execute(
     operation: &OperationPreviewRequest,
@@ -1198,7 +1226,7 @@ fn make_captured_source(
     })
 }
 
-fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
+pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
     let root_identity = crate::fs_safety::capture_source_object_identity(root)
         .map_err(|error| error.to_string())?;
     if !root.is_dir() {

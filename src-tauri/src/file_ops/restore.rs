@@ -264,11 +264,18 @@ pub(crate) fn restore_operation_log_with_observer(
     if let Err(failure) = operation_restore_identity_result(log, Path::new(&log.path_after)) {
         return mark_restore_manual_review(log, failure.message());
     }
+    if let Err(error) = verify_same_volume_directory_restore_tree(log, Path::new(&log.path_after)) {
+        return mark_restore_manual_review(log, error);
+    }
     if log.operation_type == "replace" {
         return restore_replacement_operation_log_with_observer(log, cancel_flag, phase_observer);
     }
 
-    let source_result = if matches!(log.operation_type.as_str(), "rename" | "move_to_trash") {
+    let restore_directory_move = log.operation_type == "move"
+        && std::fs::symlink_metadata(&log.path_after).is_ok_and(|metadata| metadata.is_dir());
+    let source_result = if matches!(log.operation_type.as_str(), "rename" | "move_to_trash")
+        || restore_directory_move
+    {
         validate_namespace_entry_path(&PathBuf::from(&log.path_after))
     } else {
         validate_source_path(&PathBuf::from(&log.path_after))
@@ -326,6 +333,35 @@ pub(crate) fn restore_operation_log_with_observer(
     restored.restore_error = None;
     restored.restore_phase = "completed".to_string();
     restored
+}
+
+fn verify_same_volume_directory_restore_tree(
+    log: &OperationLogDto,
+    path: &Path,
+) -> Result<(), String> {
+    if log.operation_type != "move"
+        || crate::file_ops::restore_volume_relation(log)
+            != crate::file_ops::RestoreVolumeRelation::SameVolume
+        || !std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
+    {
+        return Ok(());
+    }
+    // New transfer IDs retain the bounded directory namespace snapshot used
+    // by Preview. It binds Restore to the same tree shape/entry identities
+    // without storing an old Preview token or hashing every file's contents.
+    // Legacy IDs predate this proof and retain their previous physical-root
+    // identity policy so existing History remains usable.
+    let Some(expected) =
+        crate::file_ops::manual_transfer::transfer_directory_tree_fingerprint(&log.id)
+    else {
+        return Ok(());
+    };
+    let actual = crate::file_ops::manual_transfer::directory_tree_snapshot(path)?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err("restore_directory_tree_changed: the moved directory tree no longer matches its operation snapshot; review it before restoring".into())
+    }
 }
 
 fn restore_replacement_operation_log_with_observer(

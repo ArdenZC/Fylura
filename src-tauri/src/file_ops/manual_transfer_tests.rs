@@ -1243,6 +1243,67 @@ fn fl23_windows_same_volume_directory_move_is_journaled_and_restorable() {
     runtime.dispose();
 }
 
+#[cfg(windows)]
+#[test]
+fn fl23_windows_same_volume_directory_restore_refuses_a_changed_tree() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("changed-tree-source");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("content.txt"), b"before move").unwrap();
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let destination = f.root.join("changed-tree-target");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    let executed = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(executed.logs[0].status, "success");
+    let moved = destination.join("changed-tree-source");
+    fs::write(moved.join("content.txt"), b"content changed after the move").unwrap();
+
+    let restored = restore_moves_with_persistence(
+        &f.db,
+        RestoreMovesRequest {
+            logs: executed.logs,
+        },
+    )
+    .unwrap();
+    assert_eq!(restored.logs[0].restore_status, "manual_review");
+    assert!(restored.logs[0]
+        .restore_error
+        .as_deref()
+        .is_some_and(|error| error.contains("restore_directory_tree_changed")));
+    assert!(!source.exists());
+    assert_eq!(
+        fs::read(moved.join("content.txt")).unwrap(),
+        b"content changed after the move"
+    );
+    runtime.dispose();
+}
+
 #[test]
 fn fl20_external_transfer_rejects_a_replaced_destination_root() {
     let f = Fixture::new();

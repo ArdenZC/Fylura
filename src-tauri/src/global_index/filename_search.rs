@@ -6,6 +6,8 @@
 //! compact base plus the bounded in-memory overlay to one SQLite snapshot.
 
 use crate::db::DbError;
+#[cfg(test)]
+use rusqlite::StatementStatus;
 use rusqlite::{hooks::Action, Connection, OpenFlags, OptionalExtension, Transaction};
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -82,6 +84,57 @@ pub(crate) struct FilenameSearchDiagnostics {
     pub index_build_peak_bytes: usize,
     pub last_build_micros: u64,
     pub last_error: Option<String>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub(crate) struct FilenameIndexBuildMemoryPhase {
+    pub stage: &'static str,
+    pub elapsed_micros: u64,
+    pub name_bytes_capacity: usize,
+    pub name_offsets_capacity_bytes: usize,
+    pub extension_bytes_capacity: usize,
+    pub extension_offsets_capacity_bytes: usize,
+    pub stable_id_bytes_capacity: usize,
+    pub stable_id_offsets_capacity_bytes: usize,
+    pub rowid_capacity_bytes: usize,
+    pub modified_at_capacity_bytes: usize,
+    pub modified_at_present_capacity_bytes: usize,
+    pub name_ids_capacity_bytes: usize,
+    pub extension_ids_capacity_bytes: usize,
+    pub rowid_order_capacity_bytes: usize,
+    pub index_capacity_bytes: usize,
+    pub extension_dictionary_entries: usize,
+    pub extension_dictionary_capacity: usize,
+    pub extension_dictionary_key_capacity_bytes: usize,
+    pub extension_dictionary_estimated_bytes: usize,
+    pub sqlite_cache_used_bytes: Option<usize>,
+    pub sqlite_schema_used_bytes: Option<usize>,
+    pub sqlite_statement_used_bytes: Option<usize>,
+    pub sqlite_lookaside_used_bytes: Option<usize>,
+    pub sqlite_build_statement_memory_bytes: Option<usize>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub(crate) struct FilenameIndexBuildMemoryProfile {
+    pub phases: Vec<FilenameIndexBuildMemoryPhase>,
+    pub row_text_string_allocations: u64,
+    pub row_text_capacity_bytes: u64,
+    pub retained_name_capacity_bytes: u64,
+    pub retained_extension_key_capacity_bytes: u64,
+    pub max_single_row_text_capacity_bytes: usize,
+    pub row_text_temporary_capacity_bytes: u64,
+    pub vector_capacity_growth_buffers: u64,
+    pub vector_capacity_growth_bytes: u64,
+    pub vector_reallocation_conservative_peak_bytes: usize,
+    pub extension_dictionary_growth_events: u64,
+    pub extension_dictionary_growth_bytes: u64,
+    pub extension_dictionary_reallocation_conservative_peak_bytes: usize,
+    pub row_scan_micros: u64,
+    pub rowid_order_materialize_micros: u64,
+    pub rowid_order_sort_micros: u64,
+    pub total_build_micros: u64,
 }
 
 #[cfg(test)]
@@ -514,6 +567,18 @@ impl FilenameSearchManager {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn build_memory_profile_for_test(&self) -> Option<FilenameIndexBuildMemoryProfile> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state
+            .index
+            .as_deref()
+            .map(|index| index.build_memory_profile.clone())
     }
 
     #[cfg(test)]
@@ -1011,6 +1076,8 @@ pub(crate) struct FilenameSearchIndex {
     base_generation: u64,
     estimated_bytes: usize,
     peak_build_bytes: usize,
+    #[cfg(test)]
+    build_memory_profile: FilenameIndexBuildMemoryProfile,
 }
 
 impl FilenameSearchIndex {
@@ -1019,6 +1086,8 @@ impl FilenameSearchIndex {
         base_data_version: i64,
         base_generation: u64,
     ) -> rusqlite::Result<Self> {
+        #[cfg(test)]
+        let build_started = Instant::now();
         let active_volume_ids = {
             let mut statement = connection.prepare(
                 "SELECT id FROM global_volumes
@@ -1045,13 +1114,19 @@ impl FilenameSearchIndex {
             base_generation,
             estimated_bytes: 0,
             peak_build_bytes: 0,
+            #[cfg(test)]
+            build_memory_profile: FilenameIndexBuildMemoryProfile::default(),
         };
+        #[cfg(test)]
+        let mut build_profile = FilenameIndexBuildMemoryProfile::default();
         let mut current_name: Option<String> = None;
         let mut current_name_id = 0_u32;
         // The dictionary is build-only. Its key allocations are included in
         // peak accounting and released before the immutable index is published.
         let mut extension_ids = HashMap::<String, u32>::new();
         let mut extension_key_capacity_bytes = 0_usize;
+        #[cfg(test)]
+        let row_scan_started = Instant::now();
         {
             let mut statement = connection.prepare(FILENAME_INDEX_BUILD_SQL)?;
             let mut rows = statement.query([])?;
@@ -1065,17 +1140,79 @@ impl FilenameSearchIndex {
                 let extension = row.get::<_, String>(3)?;
                 let modified_at = row.get::<_, Option<i64>>(4)?;
 
+                #[cfg(test)]
+                {
+                    let row_text_capacity = stable_id
+                        .capacity()
+                        .saturating_add(name.capacity())
+                        .saturating_add(extension.capacity());
+                    build_profile.row_text_string_allocations =
+                        build_profile.row_text_string_allocations.saturating_add(3);
+                    build_profile.row_text_capacity_bytes = build_profile
+                        .row_text_capacity_bytes
+                        .saturating_add(row_text_capacity as u64);
+                    build_profile.max_single_row_text_capacity_bytes = build_profile
+                        .max_single_row_text_capacity_bytes
+                        .max(row_text_capacity);
+                }
+
+                #[cfg(test)]
+                let vector_capacities_before = index_vector_capacities(&index);
+
                 if current_name.as_deref() != Some(name.as_str()) {
                     current_name_id = index.names.push(&name)?;
+                    #[cfg(test)]
+                    {
+                        build_profile.retained_name_capacity_bytes = build_profile
+                            .retained_name_capacity_bytes
+                            .saturating_add(name.capacity() as u64);
+                    }
                     current_name = Some(name);
                 }
                 let extension_id = if let Some(&extension_id) = extension_ids.get(&extension) {
                     extension_id
                 } else {
+                    #[cfg(test)]
+                    let dictionary_table_bytes_before =
+                        extension_dictionary_table_bytes(&extension_ids);
+                    #[cfg(test)]
+                    let dictionary_capacity_before = extension_ids.capacity();
                     let extension_id = index.extensions.push(&extension)?;
                     extension_key_capacity_bytes =
                         extension_key_capacity_bytes.saturating_add(extension.capacity());
+                    #[cfg(test)]
+                    {
+                        build_profile.retained_extension_key_capacity_bytes = build_profile
+                            .retained_extension_key_capacity_bytes
+                            .saturating_add(extension.capacity() as u64);
+                    }
                     extension_ids.insert(extension, extension_id);
+                    #[cfg(test)]
+                    {
+                        let dictionary_table_bytes_after =
+                            extension_dictionary_table_bytes(&extension_ids);
+                        if extension_ids.capacity() != dictionary_capacity_before {
+                            build_profile.extension_dictionary_growth_events = build_profile
+                                .extension_dictionary_growth_events
+                                .saturating_add(1);
+                            build_profile.extension_dictionary_growth_bytes = build_profile
+                                .extension_dictionary_growth_bytes
+                                .saturating_add(
+                                    dictionary_table_bytes_after
+                                        .saturating_sub(dictionary_table_bytes_before)
+                                        as u64,
+                                );
+                            build_profile
+                                .extension_dictionary_reallocation_conservative_peak_bytes =
+                                build_profile
+                                    .extension_dictionary_reallocation_conservative_peak_bytes
+                                    .max(
+                                        dictionary_table_bytes_after
+                                            .saturating_add(dictionary_table_bytes_before)
+                                            .saturating_add(extension_key_capacity_bytes),
+                                    );
+                        }
+                    }
                     extension_id
                 };
                 index.stable_ids.push(&stable_id)?;
@@ -1086,6 +1223,35 @@ impl FilenameSearchIndex {
                 index
                     .modified_at_present
                     .push(u8::from(modified_at.is_some()));
+
+                #[cfg(test)]
+                {
+                    let vector_capacities_after = index_vector_capacities(&index);
+                    let mut old_reallocated_bytes = 0_usize;
+                    for (before, after) in vector_capacities_before
+                        .into_iter()
+                        .zip(vector_capacities_after)
+                    {
+                        if after > before {
+                            build_profile.vector_capacity_growth_buffers = build_profile
+                                .vector_capacity_growth_buffers
+                                .saturating_add(1);
+                            build_profile.vector_capacity_growth_bytes = build_profile
+                                .vector_capacity_growth_bytes
+                                .saturating_add(after.saturating_sub(before) as u64);
+                            old_reallocated_bytes = old_reallocated_bytes.saturating_add(before);
+                        }
+                    }
+                    if old_reallocated_bytes > 0 {
+                        build_profile.vector_reallocation_conservative_peak_bytes = build_profile
+                            .vector_reallocation_conservative_peak_bytes
+                            .max(
+                                index
+                                    .allocated_bytes()
+                                    .saturating_add(old_reallocated_bytes),
+                            );
+                    }
+                }
 
                 if index.rowids.len().is_multiple_of(16_384) {
                     let dictionary_bytes = extension_dictionary_build_bytes(
@@ -1102,7 +1268,32 @@ impl FilenameSearchIndex {
                     }
                 }
             }
+            drop(rows);
+            #[cfg(test)]
+            {
+                build_profile.row_scan_micros =
+                    row_scan_started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+                record_filename_index_build_phase(
+                    &mut build_profile,
+                    &index,
+                    "row_scan_complete_extension_dictionary_live",
+                    connection,
+                    Some((&extension_ids, extension_key_capacity_bytes)),
+                    Some(statement.get_status(StatementStatus::MemUsed).max(0) as usize),
+                    build_started,
+                );
+            }
         }
+        #[cfg(test)]
+        record_filename_index_build_phase(
+            &mut build_profile,
+            &index,
+            "sqlite_build_statement_dropped_extension_dictionary_live",
+            connection,
+            Some((&extension_ids, extension_key_capacity_bytes)),
+            None,
+            build_started,
+        );
         let dictionary_bytes =
             extension_dictionary_build_bytes(&extension_ids, extension_key_capacity_bytes);
         if dictionary_bytes > MAX_EXTENSION_DICTIONARY_BUILD_BYTES {
@@ -1112,19 +1303,93 @@ impl FilenameSearchIndex {
             .peak_build_bytes
             .max(index.allocated_bytes().saturating_add(dictionary_bytes));
         drop(extension_ids);
+        #[cfg(test)]
+        {
+            build_profile.row_text_temporary_capacity_bytes = build_profile
+                .row_text_capacity_bytes
+                .saturating_sub(build_profile.retained_name_capacity_bytes)
+                .saturating_sub(build_profile.retained_extension_key_capacity_bytes);
+            record_filename_index_build_phase(
+                &mut build_profile,
+                &index,
+                "extension_dictionary_dropped_before_rowid_order",
+                connection,
+                None,
+                None,
+                build_started,
+            );
+        }
+        #[cfg(test)]
+        let rowid_order_materialize_started = Instant::now();
         index.rowid_order = (0..index.rowids.len())
             .map(|entry_index| {
                 u32::try_from(entry_index).map_err(|_| rusqlite::Error::InvalidQuery)
             })
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        #[cfg(test)]
+        {
+            let rowid_order_capacity_bytes = index
+                .rowid_order
+                .capacity()
+                .saturating_mul(std::mem::size_of::<u32>());
+            if rowid_order_capacity_bytes > 0 {
+                build_profile.vector_capacity_growth_buffers = build_profile
+                    .vector_capacity_growth_buffers
+                    .saturating_add(1);
+                build_profile.vector_capacity_growth_bytes = build_profile
+                    .vector_capacity_growth_bytes
+                    .saturating_add(rowid_order_capacity_bytes as u64);
+                build_profile.vector_reallocation_conservative_peak_bytes = build_profile
+                    .vector_reallocation_conservative_peak_bytes
+                    .max(index.allocated_bytes());
+            }
+            build_profile.rowid_order_materialize_micros = rowid_order_materialize_started
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128)
+                as u64;
+            record_filename_index_build_phase(
+                &mut build_profile,
+                &index,
+                "rowid_order_materialized_before_sort",
+                connection,
+                None,
+                None,
+                build_started,
+            );
+        }
+        #[cfg(test)]
+        let rowid_order_sort_started = Instant::now();
         index
             .rowid_order
             .sort_unstable_by_key(|entry_index| index.rowids[*entry_index as usize]);
+        #[cfg(test)]
+        {
+            build_profile.rowid_order_sort_micros = rowid_order_sort_started
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64;
+            record_filename_index_build_phase(
+                &mut build_profile,
+                &index,
+                "rowid_order_sorted",
+                connection,
+                None,
+                None,
+                build_started,
+            );
+        }
         index.estimated_bytes = index.allocated_bytes();
         let estimated_peak = index.allocated_bytes();
         index.peak_build_bytes = index.peak_build_bytes.max(estimated_peak);
         if estimated_peak > MAX_INDEX_PRIVATE_BYTES {
             return Err(rusqlite::Error::InvalidQuery);
+        }
+        #[cfg(test)]
+        {
+            build_profile.total_build_micros =
+                build_started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+            index.build_memory_profile = build_profile;
         }
         Ok(index)
     }
@@ -1407,14 +1672,163 @@ impl FilenameSearchIndex {
     }
 }
 
+#[cfg(test)]
+fn index_vector_capacities(index: &FilenameSearchIndex) -> [usize; 12] {
+    [
+        index.names.bytes.capacity(),
+        index
+            .names
+            .offsets
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        index.extensions.bytes.capacity(),
+        index
+            .extensions
+            .offsets
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        index.stable_ids.bytes.capacity(),
+        index
+            .stable_ids
+            .offsets
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        index
+            .rowids
+            .capacity()
+            .saturating_mul(std::mem::size_of::<i64>()),
+        index
+            .modified_at
+            .capacity()
+            .saturating_mul(std::mem::size_of::<i64>()),
+        index.modified_at_present.capacity(),
+        index
+            .name_ids
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        index
+            .extension_ids
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        index
+            .rowid_order
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+    ]
+}
+
 fn extension_dictionary_build_bytes(
     dictionary: &HashMap<String, u32>,
     key_capacity_bytes: usize,
 ) -> usize {
+    extension_dictionary_table_bytes(dictionary).saturating_add(key_capacity_bytes)
+}
+
+fn extension_dictionary_table_bytes(dictionary: &HashMap<String, u32>) -> usize {
     dictionary
         .capacity()
         .saturating_mul(std::mem::size_of::<(String, u32)>() + 1)
-        .saturating_add(key_capacity_bytes)
+}
+
+#[cfg(test)]
+fn sqlite_db_status_used_bytes(connection: &Connection, operation: i32) -> Option<usize> {
+    let mut current = 0;
+    let mut highwater = 0;
+    let result = unsafe {
+        rusqlite::ffi::sqlite3_db_status(
+            connection.handle(),
+            operation,
+            &mut current,
+            &mut highwater,
+            0,
+        )
+    };
+    (result == rusqlite::ffi::SQLITE_OK && current >= 0).then_some(current as usize)
+}
+
+#[cfg(test)]
+fn record_filename_index_build_phase(
+    profile: &mut FilenameIndexBuildMemoryProfile,
+    index: &FilenameSearchIndex,
+    stage: &'static str,
+    connection: &Connection,
+    extension_dictionary: Option<(&HashMap<String, u32>, usize)>,
+    statement_memory_bytes: Option<usize>,
+    build_started: Instant,
+) {
+    let dictionary = extension_dictionary.map(|(dictionary, key_capacity_bytes)| {
+        (
+            dictionary.len(),
+            dictionary.capacity(),
+            key_capacity_bytes,
+            extension_dictionary_build_bytes(dictionary, key_capacity_bytes),
+        )
+    });
+    profile.phases.push(FilenameIndexBuildMemoryPhase {
+        stage,
+        elapsed_micros: build_started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+        name_bytes_capacity: index.names.bytes.capacity(),
+        name_offsets_capacity_bytes: index
+            .names
+            .offsets
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        extension_bytes_capacity: index.extensions.bytes.capacity(),
+        extension_offsets_capacity_bytes: index
+            .extensions
+            .offsets
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        stable_id_bytes_capacity: index.stable_ids.bytes.capacity(),
+        stable_id_offsets_capacity_bytes: index
+            .stable_ids
+            .offsets
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        rowid_capacity_bytes: index
+            .rowids
+            .capacity()
+            .saturating_mul(std::mem::size_of::<i64>()),
+        modified_at_capacity_bytes: index
+            .modified_at
+            .capacity()
+            .saturating_mul(std::mem::size_of::<i64>()),
+        modified_at_present_capacity_bytes: index.modified_at_present.capacity(),
+        name_ids_capacity_bytes: index
+            .name_ids
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        extension_ids_capacity_bytes: index
+            .extension_ids
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        rowid_order_capacity_bytes: index
+            .rowid_order
+            .capacity()
+            .saturating_mul(std::mem::size_of::<u32>()),
+        index_capacity_bytes: index.allocated_bytes(),
+        extension_dictionary_entries: dictionary.map_or(0, |value| value.0),
+        extension_dictionary_capacity: dictionary.map_or(0, |value| value.1),
+        extension_dictionary_key_capacity_bytes: dictionary.map_or(0, |value| value.2),
+        extension_dictionary_estimated_bytes: dictionary.map_or(0, |value| value.3),
+        sqlite_cache_used_bytes: sqlite_db_status_used_bytes(
+            connection,
+            rusqlite::ffi::SQLITE_DBSTATUS_CACHE_USED,
+        ),
+        sqlite_schema_used_bytes: sqlite_db_status_used_bytes(
+            connection,
+            rusqlite::ffi::SQLITE_DBSTATUS_SCHEMA_USED,
+        ),
+        sqlite_statement_used_bytes: sqlite_db_status_used_bytes(
+            connection,
+            rusqlite::ffi::SQLITE_DBSTATUS_STMT_USED,
+        ),
+        sqlite_lookaside_used_bytes: sqlite_db_status_used_bytes(
+            connection,
+            rusqlite::ffi::SQLITE_DBSTATUS_LOOKASIDE_USED,
+        ),
+        sqlite_build_statement_memory_bytes: statement_memory_bytes,
+    });
 }
 
 #[cfg(test)]

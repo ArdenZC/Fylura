@@ -49,14 +49,13 @@ jobs:
           $millionHelper = 'src-tauri/src/global_index/tests/issue494_1m_qualification.rs'
           $evidenceValidator = 'scripts/validate_issue494_1m_evidence.py'
           $workflow = '.github/workflows/issue-494-rowid-boundary-qualification.yml'
-          $runMillion = (
-            $changed -contains $candidateHarness -or
-            $changed -contains $millionHelper -or
-            $changed -contains $evidenceValidator -or
-            $changed -contains $workflow
-          )
+          # Keep the expensive 1M qualification behind changes to its dedicated
+          # helper only. Candidate harness and workflow edits belong to the
+          # bounded 100k/200k preflight; validator-only edits are checked
+          # offline against preserved raw evidence.
+          $runMillion = $changed -contains $millionHelper
           $runWriter = ($changed -contains $writerTest) -and -not $runMillion
-          $runSearch = $false
+          $runSearch = ($changed -contains $candidateHarness) -or ($changed -contains $workflow)
           foreach ($path in $changed) {
             if ($path -eq $writerTest -or $path -eq $candidateHarness -or
                 $path -eq $millionHelper -or $path -eq $evidenceValidator -or $path -eq $workflow) { continue }

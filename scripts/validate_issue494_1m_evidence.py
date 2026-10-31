@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -19,8 +20,18 @@ def require(condition: bool, message: str) -> None:
 
 
 def number(value: object, label: str) -> float:
-    require(isinstance(value, (int, float)), f"{label} is missing or non-numeric")
-    return float(value)
+    require(not isinstance(value, bool), f"{label} is missing or non-numeric")
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+    elif isinstance(value, str):
+        try:
+            parsed = float(value.strip())
+        except ValueError as error:
+            raise SystemExit(f"FAIL: {label} is missing or non-numeric") from error
+    else:
+        raise SystemExit(f"FAIL: {label} is missing or non-numeric")
+    require(math.isfinite(parsed), f"{label} is not finite")
+    return parsed
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -71,7 +82,11 @@ def main() -> None:
     require(context.get("entries") == 1_000_000, "fixture is not exactly 1M entries")
     require(context.get("debug_assertions") is False, "native run is not a Release build")
     require(context.get("desktop_runtime_feature") is True, "desktop-runtime feature was not enabled")
-    require(context.get("working_tree") == "", "qualification source tree was dirty")
+    working_tree = context.get("working_tree")
+    require(
+        working_tree in ("", "?? ../ci-evidence/"),
+        "qualification source tree was dirty beyond the generated evidence directory",
+    )
     source_text = source_path.read_text(encoding="utf-8")
     source_fields = dict(
         line.split("=", 1) for line in source_text.splitlines() if "=" in line

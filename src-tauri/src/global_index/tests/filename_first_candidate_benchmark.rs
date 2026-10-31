@@ -18,7 +18,9 @@ use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, StatementStatus};
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const FILENAME_CANDIDATE_WARMUPS: usize = 5;
 const FILENAME_CANDIDATE_SAMPLES: usize = 30;
@@ -150,23 +152,12 @@ fn issue494_filename_first_native_preflight() {
     let schema_objects = persistent_schema_objects(&baseline_conn);
     let db_before_index = database_metrics(&baseline_conn, &path);
 
-    let (process_before_index, process_after_index, index_build_peak_sampling) = if entries
-        == 1_000_000
-    {
-        million_qualification::rebuild_index_with_sampled_peak(&db)
-    } else {
-        let before = native_process_sample();
-        db.filename_search.enable_for_test();
-        db.filename_search
-            .rebuild_now_for_test()
-            .expect("synchronously build filename candidate for paired measurement");
-        let after = native_process_sample();
-        (
-            before,
-            after,
-            json!({ "measured": false, "reason": "sampled peak enabled only for the authorized 1M qualification" }),
-        )
-    };
+    let (process_before_index, process_after_index, index_build_peak_sampling) =
+        if entries == 1_000_000 {
+            million_qualification::rebuild_index_with_sampled_peak(&db)
+        } else {
+            rebuild_index_with_low_scale_sampled_peak(&db)
+        };
     let rss_before_index = process_before_index.and_then(|sample| sample.rss_bytes);
     let rss_after_index = process_after_index.and_then(|sample| sample.rss_bytes);
     let index_diagnostics = db.filename_search.diagnostics();
@@ -175,6 +166,10 @@ fn issue494_filename_first_native_preflight() {
         "candidate index must be ready before sampling"
     );
     assert_eq!(index_diagnostics.index_entries, entries as usize);
+    let index_build_memory_profile = db
+        .filename_search
+        .build_memory_profile_for_test()
+        .expect("capture build-phase memory profile");
 
     let fts_sql = diagnostic_search_tier_sql("fts");
     let trigram_sql = diagnostic_filename_trigram_candidates_sql();
@@ -395,6 +390,7 @@ fn issue494_filename_first_native_preflight() {
             "estimated_retained_index_bytes": index_diagnostics.index_private_bytes,
             "index_build_peak_bytes": index_diagnostics.index_build_peak_bytes,
             "sampled_process_index_build_peak": index_build_peak_sampling,
+            "build_phase_memory_profile": index_build_memory_profile_json(&index_build_memory_profile),
             "rss_before_index_build_bytes": rss_before_index,
             "rss_after_index_build_bytes": rss_after_index,
             "process_before_index_build": native_sample_json(process_before_index),
@@ -1080,6 +1076,152 @@ struct NativeProcessSample {
     private_bytes: Option<u64>,
     cpu_time_ns: Option<u64>,
     pageins: Option<u64>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct BuildProcessPeak {
+    samples: u64,
+    private_bytes: Option<u64>,
+    rss_bytes: Option<u64>,
+}
+
+impl BuildProcessPeak {
+    fn observe(&mut self, sample: Option<NativeProcessSample>) {
+        let Some(sample) = sample else {
+            return;
+        };
+        self.samples = self.samples.saturating_add(1);
+        self.private_bytes = max_optional_u64(self.private_bytes, sample.private_bytes);
+        self.rss_bytes = max_optional_u64(self.rss_bytes, sample.rss_bytes);
+    }
+}
+
+fn max_optional_u64(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (left, right) => left.or(right),
+    }
+}
+
+fn spawn_build_peak_sampler(
+    stop: Arc<AtomicBool>,
+    peak: Arc<Mutex<BuildProcessPeak>>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || loop {
+        peak.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .observe(native_process_sample());
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    })
+}
+
+fn rebuild_index_with_low_scale_sampled_peak(
+    db: &Database,
+) -> (
+    Option<NativeProcessSample>,
+    Option<NativeProcessSample>,
+    JsonValue,
+) {
+    let before = native_process_sample();
+    let stop = Arc::new(AtomicBool::new(false));
+    let peak = Arc::new(Mutex::new(BuildProcessPeak::default()));
+    let sampler = spawn_build_peak_sampler(Arc::clone(&stop), Arc::clone(&peak));
+
+    db.filename_search.enable_for_test();
+    let build_started = Instant::now();
+    let result = db.filename_search.rebuild_now_for_test();
+    let build_wall_ms = build_started.elapsed().as_secs_f64() * 1_000.0;
+    stop.store(true, Ordering::Release);
+    sampler.join().expect("join native build peak sampler");
+    result.expect("synchronously build filename candidate for paired measurement");
+    let after = native_process_sample();
+    let peak = *peak
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(
+        peak.samples > 0,
+        "native process sampler must observe the build"
+    );
+    let delta = |high: Option<u64>, base: Option<u64>| Some(high? as i64 - base? as i64);
+    let sample_control = measure_build_sampler_overhead_control();
+    let record = json!({
+        "measured": true,
+        "sampling_interval_ms": 5,
+        "sample_count": peak.samples,
+        "build_wall_ms": round_ms(build_wall_ms),
+        "peak_private_bytes": peak.private_bytes,
+        "peak_private_delta_from_prebuild_bytes": delta(peak.private_bytes, before.and_then(|sample| sample.private_bytes)),
+        "peak_working_set_bytes": peak.rss_bytes,
+        "peak_working_set_delta_from_prebuild_bytes": delta(peak.rss_bytes, before.and_then(|sample| sample.rss_bytes)),
+        "prebuild": native_sample_json(before),
+        "postbuild": native_sample_json(after),
+        "sampling_method": if cfg!(target_os = "windows") {
+            "5ms polling of Windows PrivateUsage and working set"
+        } else {
+            "5ms polling of macOS phys_footprint and resident size"
+        },
+        "sampler_overhead_control": sample_control
+    });
+    (before, after, record)
+}
+
+fn measure_build_sampler_overhead_control() -> JsonValue {
+    const WINDOW: Duration = Duration::from_millis(250);
+
+    let no_sampler_before = native_process_sample();
+    std::thread::sleep(WINDOW);
+    let no_sampler_after = native_process_sample();
+
+    let sampled_before = native_process_sample();
+    let stop = Arc::new(AtomicBool::new(false));
+    let peak = Arc::new(Mutex::new(BuildProcessPeak::default()));
+    let sampler = spawn_build_peak_sampler(Arc::clone(&stop), Arc::clone(&peak));
+    std::thread::sleep(WINDOW);
+    stop.store(true, Ordering::Release);
+    sampler.join().expect("join sampler overhead control");
+    let sampled_after = native_process_sample();
+    let peak = *peak
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let cpu_delta = |before: Option<NativeProcessSample>, after: Option<NativeProcessSample>| {
+        Some(after?.cpu_time_ns? as i64 - before?.cpu_time_ns? as i64)
+    };
+    let no_sampler_cpu_ns = cpu_delta(no_sampler_before, no_sampler_after);
+    let sampled_cpu_ns = cpu_delta(sampled_before, sampled_after);
+    let incremental_cpu_ns = sampled_cpu_ns
+        .zip(no_sampler_cpu_ns)
+        .map(|(sampled, no_sampler)| sampled - no_sampler);
+    let sampler_peak_private_delta = peak
+        .private_bytes
+        .zip(sampled_before.and_then(|sample| sample.private_bytes))
+        .map(|(peak, before)| peak as i64 - before as i64);
+    let sampler_peak_rss_delta = peak
+        .rss_bytes
+        .zip(sampled_before.and_then(|sample| sample.rss_bytes))
+        .map(|(peak, before)| peak as i64 - before as i64);
+    json!({
+        "window_ms_per_control": WINDOW.as_millis(),
+        "control_order": ["no_sampler", "5ms_process_sampler"],
+        "no_sampler_process_cpu_delta_ns": no_sampler_cpu_ns,
+        "sampler_process_cpu_delta_ns": sampled_cpu_ns,
+        "estimated_incremental_sampler_cpu_ns": incremental_cpu_ns,
+        "sampler_cpu_overhead_percent_of_window": incremental_cpu_ns
+            .map(|value| value as f64 / (WINDOW.as_nanos() as f64) * 100.0),
+        "sampler_control_sample_count": peak.samples,
+        "sampler_control_peak_private_delta_bytes": sampler_peak_private_delta,
+        "sampler_control_peak_working_set_delta_bytes": sampler_peak_rss_delta,
+        "measurement_note": "paired 250ms idle windows after build; process-wide CPU deltas include scheduler noise and estimate only the added 5ms polling cost"
+    })
+}
+
+fn index_build_memory_profile_json(
+    profile: &crate::global_index::filename_search::FilenameIndexBuildMemoryProfile,
+) -> JsonValue {
+    serde_json::to_value(profile).expect("serialize build memory profile")
 }
 
 #[cfg(target_os = "windows")]

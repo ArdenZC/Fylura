@@ -1,0 +1,454 @@
+{
+  "run": {
+    "id": 38360029127,
+    "name": "Issue 380 K2-G1 Native Authority",
+    "node_id": "WFR_kwLOS6-8oM8AAAAI7m-Xxw",
+    "head_branch": "test/issue-380-k2-g1-platform-authority",
+    "head_sha": "581aef465a2dc35ec4d5f3d87d89f1c2c8646365",
+    "path": ".github/workflows/issue380-k2-g1-native.yml",
+    "display_title": "test(global-index): #380 K2-G1 hosted OS authority feasibility",
+    "run_number": 2,
+    "event": "pull_request",
+    "status": "completed",
+    "conclusion": "success",
+    "workflow_id": 382911994,
+    "check_suite_id": 103931818252,
+    "check_suite_node_id": "CS_kwDOS6-8oM8AAAAYMtGxDA",
+    "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/runs/38360029127",
+    "html_url": "https://github.com/ArdenZC/Zen-Canvas/actions/runs/38360029127",
+    "pull_requests": [
+      {
+        "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/pulls/391",
+        "id": 4839547456,
+        "number": 391,
+        "head": {
+          "ref": "test/issue-380-k2-g1-platform-authority",
+          "sha": "581aef465a2dc35ec4d5f3d87d89f1c2c8646365",
+          "repo": {
+            "id": 1269808288,
+            "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas",
+            "name": "Zen-Canvas"
+          }
+        },
+        "base": {
+          "ref": "master",
+          "sha": "3275ac7c72df8ae4139a30f16c7f649971324e97",
+          "repo": {
+            "id": 1269808288,
+            "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas",
+            "name": "Zen-Canvas"
+          }
+        }
+      }
+    ],
+    "created_at": "2026-10-13T07:00:44Z",
+    "updated_at": "2026-10-13T07:01:29Z",
+    "actor": {
+      "login": "ArdenZC",
+      "id": 83076380,
+      "node_id": "MDQ6VXNlcjgzMDc2Mzgw",
+      "avatar_url": "https://avatars.githubusercontent.com/u/83076380?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ArdenZC",
+      "html_url": "https://github.com/ArdenZC",
+      "followers_url": "https://api.github.com/users/ArdenZC/followers",
+      "following_url": "https://api.github.com/users/ArdenZC/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ArdenZC/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ArdenZC/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ArdenZC/subscriptions",
+      "organizations_url": "https://api.github.com/users/ArdenZC/orgs",
+      "repos_url": "https://api.github.com/users/ArdenZC/repos",
+      "events_url": "https://api.github.com/users/ArdenZC/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ArdenZC/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "run_attempt": 1,
+    "referenced_workflows": [],
+    "run_started_at": "2026-10-13T07:00:44Z",
+    "triggering_actor": {
+      "login": "ArdenZC",
+      "id": 83076380,
+      "node_id": "MDQ6VXNlcjgzMDc2Mzgw",
+      "avatar_url": "https://avatars.githubusercontent.com/u/83076380?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ArdenZC",
+      "html_url": "https://github.com/ArdenZC",
+      "followers_url": "https://api.github.com/users/ArdenZC/followers",
+      "following_url": "https://api.github.com/users/ArdenZC/following{/other_user}",
+      "gists_url": "https://api.github.com/users/ArdenZC/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/ArdenZC/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/ArdenZC/subscriptions",
+      "organizations_url": "https://api.github.com/users/ArdenZC/orgs",
+      "repos_url": "https://api.github.com/users/ArdenZC/repos",
+      "events_url": "https://api.github.com/users/ArdenZC/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/ArdenZC/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "jobs_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/runs/38360029127/jobs",
+    "logs_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/runs/38360029127/logs",
+    "check_suite_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/check-suites/103931818252",
+    "artifacts_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/runs/38360029127/artifacts",
+    "cancel_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/runs/38360029127/cancel",
+    "rerun_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/runs/38360029127/rerun",
+    "previous_attempt_url": null,
+    "workflow_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/workflows/382911994",
+    "head_commit": {
+      "id": "581aef465a2dc35ec4d5f3d87d89f1c2c8646365",
+      "tree_id": "96ae4765812bfe9925f86119d57c0168def97bb3",
+      "message": "test(global-index): preserve native findings and qualify lock scope",
+      "timestamp": "2026-10-13T07:00:38Z",
+      "author": {
+        "name": "\u667a\u8d85 \u8212",
+        "email": "775886020@qq.com"
+      },
+      "committer": {
+        "name": "\u667a\u8d85 \u8212",
+        "email": "775886020@qq.com"
+      }
+    },
+    "repository": {
+      "id": 1269808288,
+      "node_id": "R_kgDOS6-8oA",
+      "name": "Zen-Canvas",
+      "full_name": "ArdenZC/Zen-Canvas",
+      "private": false,
+      "owner": {
+        "login": "ArdenZC",
+        "id": 83076380,
+        "node_id": "MDQ6VXNlcjgzMDc2Mzgw",
+        "avatar_url": "https://avatars.githubusercontent.com/u/83076380?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/ArdenZC",
+        "html_url": "https://github.com/ArdenZC",
+        "followers_url": "https://api.github.com/users/ArdenZC/followers",
+        "following_url": "https://api.github.com/users/ArdenZC/following{/other_user}",
+        "gists_url": "https://api.github.com/users/ArdenZC/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/ArdenZC/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/ArdenZC/subscriptions",
+        "organizations_url": "https://api.github.com/users/ArdenZC/orgs",
+        "repos_url": "https://api.github.com/users/ArdenZC/repos",
+        "events_url": "https://api.github.com/users/ArdenZC/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/ArdenZC/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "html_url": "https://github.com/ArdenZC/Zen-Canvas",
+      "description": "Zen Canvas - a local-first personal file lifecycle assistant with Spotlight-grade search, preview execution, and restore records.",
+      "fork": false,
+      "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas",
+      "forks_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/forks",
+      "keys_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/keys{/key_id}",
+      "collaborators_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/collaborators{/collaborator}",
+      "teams_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/teams",
+      "hooks_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/hooks",
+      "issue_events_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/issues/events{/number}",
+      "events_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/events",
+      "assignees_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/assignees{/user}",
+      "branches_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/branches{/branch}",
+      "tags_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/tags",
+      "blobs_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/blobs{/sha}",
+      "git_tags_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/tags{/sha}",
+      "git_refs_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/refs{/sha}",
+      "trees_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/trees{/sha}",
+      "statuses_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/statuses/{sha}",
+      "languages_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/languages",
+      "stargazers_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/stargazers",
+      "contributors_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/contributors",
+      "subscribers_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/subscribers",
+      "subscription_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/subscription",
+      "commits_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/commits{/sha}",
+      "git_commits_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/commits{/sha}",
+      "comments_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/comments{/number}",
+      "issue_comment_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/issues/comments{/number}",
+      "contents_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/contents/{+path}",
+      "compare_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/compare/{base}...{head}",
+      "merges_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/merges",
+      "archive_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/{archive_format}{/ref}",
+      "downloads_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/downloads",
+      "issues_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/issues{/number}",
+      "pulls_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/pulls{/number}",
+      "milestones_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/milestones{/number}",
+      "notifications_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/notifications{?since,all,participating}",
+      "labels_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/labels{/name}",
+      "releases_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/releases{/id}",
+      "deployments_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/deployments"
+    },
+    "head_repository": {
+      "id": 1269808288,
+      "node_id": "R_kgDOS6-8oA",
+      "name": "Zen-Canvas",
+      "full_name": "ArdenZC/Zen-Canvas",
+      "private": false,
+      "owner": {
+        "login": "ArdenZC",
+        "id": 83076380,
+        "node_id": "MDQ6VXNlcjgzMDc2Mzgw",
+        "avatar_url": "https://avatars.githubusercontent.com/u/83076380?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/ArdenZC",
+        "html_url": "https://github.com/ArdenZC",
+        "followers_url": "https://api.github.com/users/ArdenZC/followers",
+        "following_url": "https://api.github.com/users/ArdenZC/following{/other_user}",
+        "gists_url": "https://api.github.com/users/ArdenZC/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/ArdenZC/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/ArdenZC/subscriptions",
+        "organizations_url": "https://api.github.com/users/ArdenZC/orgs",
+        "repos_url": "https://api.github.com/users/ArdenZC/repos",
+        "events_url": "https://api.github.com/users/ArdenZC/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/ArdenZC/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "html_url": "https://github.com/ArdenZC/Zen-Canvas",
+      "description": "Zen Canvas - a local-first personal file lifecycle assistant with Spotlight-grade search, preview execution, and restore records.",
+      "fork": false,
+      "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas",
+      "forks_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/forks",
+      "keys_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/keys{/key_id}",
+      "collaborators_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/collaborators{/collaborator}",
+      "teams_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/teams",
+      "hooks_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/hooks",
+      "issue_events_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/issues/events{/number}",
+      "events_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/events",
+      "assignees_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/assignees{/user}",
+      "branches_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/branches{/branch}",
+      "tags_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/tags",
+      "blobs_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/blobs{/sha}",
+      "git_tags_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/tags{/sha}",
+      "git_refs_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/refs{/sha}",
+      "trees_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/trees{/sha}",
+      "statuses_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/statuses/{sha}",
+      "languages_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/languages",
+      "stargazers_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/stargazers",
+      "contributors_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/contributors",
+      "subscribers_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/subscribers",
+      "subscription_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/subscription",
+      "commits_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/commits{/sha}",
+      "git_commits_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/git/commits{/sha}",
+      "comments_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/comments{/number}",
+      "issue_comment_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/issues/comments{/number}",
+      "contents_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/contents/{+path}",
+      "compare_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/compare/{base}...{head}",
+      "merges_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/merges",
+      "archive_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/{archive_format}{/ref}",
+      "downloads_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/downloads",
+      "issues_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/issues{/number}",
+      "pulls_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/pulls{/number}",
+      "milestones_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/milestones{/number}",
+      "notifications_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/notifications{?since,all,participating}",
+      "labels_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/labels{/name}",
+      "releases_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/releases{/id}",
+      "deployments_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/deployments"
+    }
+  },
+  "artifacts": {
+    "total_count": 2,
+    "artifacts": [
+      {
+        "id": 11794575940,
+        "node_id": "MDg6QXJ0aWZhY3QxMTc5NDU3NTk0MA==",
+        "name": "issue380-k2-g1-macOS-581aef465a2dc35ec4d5f3d87d89f1c2c8646365",
+        "size_in_bytes": 12248,
+        "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11794575940",
+        "archive_download_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11794575940/zip",
+        "expired": false,
+        "digest": "sha256:ab77a27d84e996e3e97a01e89756092d12a4514a3af6c4710b0de0d220762476",
+        "created_at": "2026-10-13T07:01:24Z",
+        "updated_at": "2026-10-13T07:01:24Z",
+        "expires_at": "2026-11-12T07:01:23Z",
+        "workflow_run": {
+          "id": 38360029127,
+          "repository_id": 1269808288,
+          "head_repository_id": 1269808288,
+          "head_branch": "test/issue-380-k2-g1-platform-authority",
+          "head_sha": "581aef465a2dc35ec4d5f3d87d89f1c2c8646365"
+        }
+      },
+      {
+        "id": 11794199812,
+        "node_id": "MDg6QXJ0aWZhY3QxMTc5NDE5OTgxMg==",
+        "name": "issue380-k2-g1-Windows-581aef465a2dc35ec4d5f3d87d89f1c2c8646365",
+        "size_in_bytes": 21842,
+        "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11794199812",
+        "archive_download_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11794199812/zip",
+        "expired": false,
+        "digest": "sha256:b0edfce3eb0f59ac7f3cee2337e8f0da9133c5b32c507fa73507fba8060cbf43",
+        "created_at": "2026-10-13T07:01:18Z",
+        "updated_at": "2026-10-13T07:01:18Z",
+        "expires_at": "2026-11-12T07:01:17Z",
+        "workflow_run": {
+          "id": 38360029127,
+          "repository_id": 1269808288,
+          "head_repository_id": 1269808288,
+          "head_branch": "test/issue-380-k2-g1-platform-authority",
+          "head_sha": "581aef465a2dc35ec4d5f3d87d89f1c2c8646365"
+        }
+      }
+    ]
+  },
+  "preserved_files": {
+    "hosted-qualified-Windows.json": "8040660e65cdbbf90e3ea80553ff51f0fd75484a37c6701967480a7c35676d25",
+    "hosted-qualified-macOS.json": "c2b825f29ab7bcbb20399d6fe071a8c3b23519df22068f36b697fa229405500b"
+  },
+  "input_line_endings": "Windows checkout disk inputs are CRLF; macOS and committed Git blobs are LF. All actual recorded disk hashes were verified against Git LF bytes or exactly LF->CRLF transformed bytes. No semantic substitution. Final HEAD artifacts will be separately linked in PR closeout; these retained bytes remain anchored to 581aef4.",
+  "ordinary_ci": [
+    {
+      "id": 38359437781,
+      "head_sha": "e6afbf6f8b5311cfb5cfb5f0a327d5fbe2ccf788",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "jobs": [
+        {
+          "name": "Source checkout / evidence contract",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Change scope / routing contract",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validation lane plan",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Windows Global Index service qualification",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Frontend and format quality (merge_integration)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Native macOS performance (arm64) (merge_integration)",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "name": "Performance / Prepare (merge_integration)",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "name": "Documentation-only validation (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Package unsigned DMG (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Package NSIS (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Package metadata smoke (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Windows native Preview Handler (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Rust quality (windows-latest) (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Release compile (macos-latest) (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Dependency audit (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Rust quality (macos-latest) (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Release compile (windows-latest) (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Documentation-only validation",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Performance / Scan & Schema (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "name": "Performance / Intelligence (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "name": "Performance / Preview Platform (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "name": "Performance / Search (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "name": "Performance / Library & Content (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "name": "Performance / Workspace Foundation (${{ matrix.validation_lane }})",
+          "status": "completed",
+          "conclusion": "cancelled"
+        },
+        {
+          "name": "Performance profile",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Quality (windows-latest)",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Quality (macos-latest)",
+          "status": "completed",
+          "conclusion": "failure"
+        }
+      ],
+      "reason": "Normal PR CI automatically selected native performance/Performance Prepare due to new workflow path. Cancelled task-owned broad CI to enforce bounded scope; never count cancellation as PASS."
+    },
+    {
+      "id": 38360029169,
+      "head_sha": "581aef465a2dc35ec4d5f3d87d89f1c2c8646365",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "jobs": [],
+      "reason": "Normal PR CI automatically selected native performance/Performance Prepare due to new workflow path. Cancelled task-owned broad CI to enforce bounded scope; never count cancellation as PASS."
+    }
+  ]
+}

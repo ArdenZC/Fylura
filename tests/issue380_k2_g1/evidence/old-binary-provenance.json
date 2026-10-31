@@ -1,0 +1,201 @@
+{
+  "expected_file": "Zen Canvas_0.1.40_x64-setup.exe",
+  "expected_bytes": 9811183,
+  "expected_sha256": "02C9ECE0B6799947D8828E7BB0D0B9F52F95166DF3030FC2C503F1688EAD21F9",
+  "product_source": "843693ea7e3612a662a5331daaedef557d40fee1",
+  "actual_bytes_available": false,
+  "actual_sha256": null,
+  "execution": "NOT_RUN",
+  "reconstruction": "NOT_RUN",
+  "release_collection": [],
+  "known_candidate_artifacts": {
+    "37424135807": {
+      "total_count": 3,
+      "artifacts": [
+        {
+          "id": 11395091958,
+          "node_id": "MDg6QXJ0aWZhY3QxMTM5NTA5MTk1OA==",
+          "name": "windows-global-index-service-qualification",
+          "size_in_bytes": 2194,
+          "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11395091958",
+          "archive_download_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11395091958/zip",
+          "expired": false,
+          "digest": "sha256:9701d8eb587b1258714e976fd641f7717685f9941e40d46a73011650597dc12c",
+          "created_at": "2026-10-06T06:45:44Z",
+          "updated_at": "2026-10-06T06:45:44Z",
+          "expires_at": "2027-01-04T06:30:39Z",
+          "workflow_run": {
+            "id": 37424135807,
+            "repository_id": 1269808288,
+            "head_repository_id": 1269808288,
+            "head_branch": "product/pm-03-product-hierarchy-migration-closeout",
+            "head_sha": "843693ea7e3612a662a5331daaedef557d40fee1"
+          }
+        },
+        {
+          "id": 11394023896,
+          "node_id": "MDg6QXJ0aWZhY3QxMTM5NDAyMzg5Ng==",
+          "name": "ci-source-evidence",
+          "size_in_bytes": 589,
+          "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11394023896",
+          "archive_download_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11394023896/zip",
+          "expired": false,
+          "digest": "sha256:ccbe6d467f09d414eb94aef14d6dc27b78a14131ff6b9728db44fe6b1f0e6b84",
+          "created_at": "2026-10-06T06:30:49Z",
+          "updated_at": "2026-10-06T06:30:49Z",
+          "expires_at": "2027-01-04T06:30:39Z",
+          "workflow_run": {
+            "id": 37424135807,
+            "repository_id": 1269808288,
+            "head_repository_id": 1269808288,
+            "head_branch": "product/pm-03-product-hierarchy-migration-closeout",
+            "head_sha": "843693ea7e3612a662a5331daaedef557d40fee1"
+          }
+        },
+        {
+          "id": 11393959272,
+          "node_id": "MDg6QXJ0aWZhY3QxMTM5Mzk1OTI3Mg==",
+          "name": "ci-merge-integration-evidence",
+          "size_in_bytes": 615,
+          "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11393959272",
+          "archive_download_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11393959272/zip",
+          "expired": false,
+          "digest": "sha256:9a04774a14750b5086bdbab36fc09a4042de5d835d78973960d4699b766d2779",
+          "created_at": "2026-10-06T06:31:03Z",
+          "updated_at": "2026-10-06T06:31:03Z",
+          "expires_at": "2027-01-04T06:30:39Z",
+          "workflow_run": {
+            "id": 37424135807,
+            "repository_id": 1269808288,
+            "head_repository_id": 1269808288,
+            "head_branch": "product/pm-03-product-hierarchy-migration-closeout",
+            "head_sha": "843693ea7e3612a662a5331daaedef557d40fee1"
+          }
+        }
+      ]
+    },
+    "37560256010": {
+      "total_count": 3,
+      "artifacts": [
+        {
+          "id": 11456542183,
+          "node_id": "MDg6QXJ0aWZhY3QxMTQ1NjU0MjE4Mw==",
+          "name": "windows-global-index-service-qualification",
+          "size_in_bytes": 2201,
+          "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11456542183",
+          "archive_download_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11456542183/zip",
+          "expired": false,
+          "digest": "sha256:11122bb75e33d2d73eecde30c08a5f383b14f6e22fb906bb942fb4d68675981b",
+          "created_at": "2026-10-07T02:14:22Z",
+          "updated_at": "2026-10-07T02:14:22Z",
+          "expires_at": "2027-01-05T02:05:02Z",
+          "workflow_run": {
+            "id": 37560256010,
+            "repository_id": 1269808288,
+            "head_repository_id": 1269808288,
+            "head_branch": "product/pm-03-product-hierarchy-migration-closeout",
+            "head_sha": "b6aa48378fb827054e2df862adc44e0760a6a981"
+          }
+        },
+        {
+          "id": 11456297688,
+          "node_id": "MDg6QXJ0aWZhY3QxMTQ1NjI5NzY4OA==",
+          "name": "ci-source-evidence",
+          "size_in_bytes": 589,
+          "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11456297688",
+          "archive_download_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11456297688/zip",
+          "expired": false,
+          "digest": "sha256:ab6e25283164ee0ef59d5781dbf2a51d7b90fdc6163d0b5aef4f121662e7eec8",
+          "created_at": "2026-10-07T02:05:10Z",
+          "updated_at": "2026-10-07T02:05:10Z",
+          "expires_at": "2027-01-05T02:05:02Z",
+          "workflow_run": {
+            "id": 37560256010,
+            "repository_id": 1269808288,
+            "head_repository_id": 1269808288,
+            "head_branch": "product/pm-03-product-hierarchy-migration-closeout",
+            "head_sha": "b6aa48378fb827054e2df862adc44e0760a6a981"
+          }
+        },
+        {
+          "id": 11455999162,
+          "node_id": "MDg6QXJ0aWZhY3QxMTQ1NTk5OTE2Mg==",
+          "name": "ci-merge-integration-evidence",
+          "size_in_bytes": 613,
+          "url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11455999162",
+          "archive_download_url": "https://api.github.com/repos/ArdenZC/Zen-Canvas/actions/artifacts/11455999162/zip",
+          "expired": false,
+          "digest": "sha256:4b0faf55c55dbb078504e565b5a900ccb04f67b478fdcaa2c572d95191c97ae1",
+          "created_at": "2026-10-07T02:05:23Z",
+          "updated_at": "2026-10-07T02:05:23Z",
+          "expires_at": "2027-01-05T02:05:02Z",
+          "workflow_run": {
+            "id": 37560256010,
+            "repository_id": 1269808288,
+            "head_repository_id": 1269808288,
+            "head_branch": "product/pm-03-product-hierarchy-migration-closeout",
+            "head_sha": "b6aa48378fb827054e2df862adc44e0760a6a981"
+          }
+        }
+      ]
+    }
+  },
+  "installer_named_catalog_matches": [
+    {
+      "expired": false,
+      "id": 11746953497,
+      "name": "issue-380-s1r3-uninstaller-trace-38250509824-1",
+      "workflow_run": {
+        "head_branch": "research/issue-380-s1r3-nsis-uninstaller-trace-verification",
+        "head_repository_id": 1269808288,
+        "head_sha": "81bf1e7de4352e5971095167b8a4b18395c09338",
+        "id": 38250509824,
+        "repository_id": 1269808288
+      }
+    },
+    {
+      "expired": false,
+      "id": 11746355270,
+      "name": "issue-380-s1r2-nsis-launcher-38245775766-1",
+      "workflow_run": {
+        "head_branch": "research/issue-380-s1r2-nsis-launcher-verification",
+        "head_repository_id": 1269808288,
+        "head_sha": "f5651e3d26d1ccb2c2ac3922e9863295b6970b27",
+        "id": 38245775766,
+        "repository_id": 1269808288
+      }
+    },
+    {
+      "expired": false,
+      "id": 11743917718,
+      "name": "issue-380-s1r-nsis-zip-38243481115-1",
+      "workflow_run": {
+        "head_branch": "research/issue-380-s1r-nsis-zip-trace-persistence",
+        "head_repository_id": 1269808288,
+        "head_sha": "aa3f0b02ae7f86b455af94c311288627c895a838",
+        "id": 38243481115,
+        "repository_id": 1269808288
+      }
+    },
+    {
+      "expired": false,
+      "id": 11742942653,
+      "name": "issue-380-s1-synthetic-nsis-38240644332-1",
+      "workflow_run": {
+        "head_branch": "research/issue-380-s1-synthetic-nsis-runtime-trace",
+        "head_repository_id": 1269808288,
+        "head_sha": "fddbabb02333fb8e79907a79559a62e6a610dc2f",
+        "id": 38240644332,
+        "repository_id": 1269808288
+      }
+    }
+  ],
+  "official_provenance_comments": [
+    {
+      "body": "## Owner re-review PASS \u2014 standalone Search handoff remediation\n\nRe-review of exact candidate `843693ea7e3612a662a5331daaedef557d40fee1` / tree `72b1c263650951be118a5f23e820d5dca8e4e621` finds the previously observed native false-success path remediated within the authorized PM-03 boundary.\n\n### Verified handoff contract\n\n- Main readiness ACK is no longer treated as navigation success.\n- Rust arms a fixed navigation binding using generation / nonce / Search session / Search revision.\n- Main sends a bounded `acknowledge_search_navigation` outcome only after Main-side navigation validation.\n- Positive ACK is emitted only after `applySearchNavigation(...)` succeeds; mounted state commits before native Search is allowed to hide.\n- File-less commands such as Automation / Settings preserve generation, nonce, Search session/revision and current-view continuity, but no longer depend on unrelated File Library selected/focused projection churn.\n- File-result activation retains strict selected-file / selection-identity / focused-ID continuity and the existing ID-only activation path.\n- Rust revalidates the original Search session/revision/visible phase after Main readiness ACK and again before final close.\n- Final Search hide is scoped to the original session/revision; the old unconditional post-handoff `None` hide is no longer the successful activation path.\n- Navigation rejection / timeout / Main recreation / reopened Search fail closed and leave the active Search recoverable.\n- Standalone blur is suppressed while activation is pending, including invalidation of a pre-handoff blur timer, so focus transfer to Main cannot close Search before navigation commit.\n- Canonical native `automation`, inbound legacy `rules`, and resident `?view=automation` behavior remain intact.\n- Global Index issue #323 is untouched.\n\n### Permission boundary\n\nThe new acknowledgement command is Main-only, fixed-shape, generation/nonce/session/revision-bound and carries only an applied boolean. Search capability received no new write authority. No path, view, SQL, Rule, Automation execution or filesystem authority is added.\n\n### Exact-head validation\n\nCI [37424135807](https://github.com/ArdenZC/Zen-Canvas/actions/runs/37424135807) is SUCCESS on the exact head.\n\nObserved hosted coverage includes:\n\n- frontend/architecture suite: 175 files / 1,800 tests PASS, including `standaloneSearchHandoff.test.tsx` 12/12;\n- Windows Rust tests, watcher durable regression, Clippy, filesystem hardening, exact-candidate resident lifecycle build and real Windows background/resident regression PASS;\n- macOS Rust tests, Clippy and lifecycle checks PASS;\n- Windows/macOS release compile PASS;\n- Search performance lane PASS.\n\nSkipped package/other routing jobs remain skipped and are not counted as PASS.\n\n### Owner disposition\n\n**PM-03 STANDALONE SEARCH HANDOFF REMEDIATION \u2014 OWNER RE-REVIEW PASS / WINDOWS REQUALIFICATION AUTHORIZED.**\n\nUse only the fresh candidate built from `843693ea...`.\n\nReported Windows package:\n\n- size: `9,811,183 bytes`\n- SHA-256: `02C9ECE0B6799947D8828E7BB0D0B9F52F95166DF3030FC2C503F1688EAD21F9`\n- Schema 37 / package 0.1.40\n\nThe previous `332DF154...` package is superseded and must not be used for another Owner PASS attempt.\n\nThis is qualification authorization only. PR #322 remains Draft/unmerged; #273 and #323 remain open.",
+      "html_url": "https://github.com/ArdenZC/Zen-Canvas/pull/322#issuecomment-6011183156",
+      "id": 6011183156
+    }
+  ],
+  "search_limits": "Official repository releases, PR322 comments, two named candidate CI artifact collections, and paginated repository artifact names matching nsis|installer|windows.*package. No arbitrary retained archive contents searched, no external Owner drive access, no untrusted mirror. Synthetic NSIS artifacts are not the shipped installer."
+}

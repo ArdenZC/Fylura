@@ -267,7 +267,7 @@ jobs:
           } | tee "ci-evidence/issue494-1m-${{ matrix.runner_key }}-source.txt"
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b1 # v2.9.2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
           shared-key: zen-canvas-issue-494-1m-native-v1

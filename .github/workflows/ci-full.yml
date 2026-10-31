@@ -946,6 +946,26 @@ jobs:
           cache-on-failure: true
       - name: Build unsigned DMG
         run: npm run build -- --no-sign
+      - name: Run isolated DMG install, launch, restart, and data-preservation cycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_files=(src-tauri/target/release/bundle/dmg/*.dmg)
+          if [[ ${#dmg_files[@]} -ne 1 || ! -f ${dmg_files[0]} ]]; then
+            echo "Expected exactly one unsigned Fylura DMG, found ${#dmg_files[@]}." >&2
+            exit 1
+          fi
+          bash scripts/verifyMacosDmgLifecycle.sh \
+            "${dmg_files[0]}" \
+            "$RUNNER_TEMP/fylura-dmg-runtime-$GITHUB_SHA.json"
+      - name: Upload macOS DMG runtime lifecycle evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fylura-dmg-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/fylura-dmg-runtime-${{ github.sha }}.json
+          if-no-files-found: warn
+          retention-days: 7
 
   performance-profile:
     name: Performance profile

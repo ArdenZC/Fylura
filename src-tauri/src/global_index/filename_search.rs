@@ -52,6 +52,7 @@ pub(crate) fn record_candidate_search_stage(stage: &'static str, started: Instan
 const MAX_INDEX_ENTRIES: usize = 2_000_000;
 const MAX_INDEX_PRIVATE_BYTES: usize = 112 * 1024 * 1024;
 const MAX_EXTENSION_DICTIONARY_BUILD_BYTES: usize = 8 * 1024 * 1024;
+const FILENAME_READER_CACHE_LIMIT_KIB: i64 = 4_096;
 const MAX_OVERLAY_ROWIDS: usize = 16_384;
 const MAX_OVERLAY_BATCHES: usize = 8_192;
 const MAX_ROWIDS_PER_TRANSACTION: usize = MAX_OVERLAY_ROWIDS;
@@ -121,10 +122,11 @@ pub(crate) struct FilenameIndexBuildMemoryProfile {
     pub phases: Vec<FilenameIndexBuildMemoryPhase>,
     pub row_text_string_allocations: u64,
     pub row_text_capacity_bytes: u64,
-    pub retained_name_capacity_bytes: u64,
+    pub distinct_name_string_capacity_bytes_total: u64,
+    pub current_name_live_capacity_bytes: u64,
     pub retained_extension_key_capacity_bytes: u64,
     pub max_single_row_text_capacity_bytes: usize,
-    pub row_text_temporary_capacity_bytes: u64,
+    pub temporary_row_text_capacity_bytes_total: u64,
     pub vector_capacity_growth_buffers: u64,
     pub vector_capacity_growth_bytes: u64,
     pub vector_reallocation_conservative_peak_bytes: usize,
@@ -772,12 +774,11 @@ fn open_reader(path: &Path) -> rusqlite::Result<Connection> {
     )?;
     connection.busy_timeout(Duration::from_secs(5))?;
     connection.pragma_update(None, "query_only", "ON")?;
-    // This reader scans the filename projection once, so leave the process
-    // page cache bounded instead of faulting the whole database into a large
-    // mmap-backed resident working set. The main application pool retains its
-    // normal SQLite mmap configuration.
+    // This reader scans the filename projection once, so cap its page cache
+    // at 4 MiB instead of retaining the larger default cache. The main
+    // application pool retains its normal SQLite mmap configuration.
     connection.pragma_update(None, "mmap_size", 0_i64)?;
-    connection.pragma_update(None, "cache_size", -8_192_i64)?;
+    connection.pragma_update(None, "cache_size", -FILENAME_READER_CACHE_LIMIT_KIB)?;
     Ok(connection)
 }
 
@@ -1163,8 +1164,8 @@ impl FilenameSearchIndex {
                     current_name_id = index.names.push(&name)?;
                     #[cfg(test)]
                     {
-                        build_profile.retained_name_capacity_bytes = build_profile
-                            .retained_name_capacity_bytes
+                        build_profile.distinct_name_string_capacity_bytes_total = build_profile
+                            .distinct_name_string_capacity_bytes_total
                             .saturating_add(name.capacity() as u64);
                     }
                     current_name = Some(name);
@@ -1305,9 +1306,11 @@ impl FilenameSearchIndex {
         drop(extension_ids);
         #[cfg(test)]
         {
-            build_profile.row_text_temporary_capacity_bytes = build_profile
+            build_profile.current_name_live_capacity_bytes =
+                current_name.as_ref().map_or(0, |name| name.capacity()) as u64;
+            build_profile.temporary_row_text_capacity_bytes_total = build_profile
                 .row_text_capacity_bytes
-                .saturating_sub(build_profile.retained_name_capacity_bytes)
+                .saturating_sub(build_profile.current_name_live_capacity_bytes)
                 .saturating_sub(build_profile.retained_extension_key_capacity_bytes);
             record_filename_index_build_phase(
                 &mut build_profile,

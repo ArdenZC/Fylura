@@ -697,9 +697,9 @@ fn snapshot(
     };
     let source_is_directory = source.is_dir();
     ensure_not_safe_trash_operation(&source)?;
-    // Directory moves stay on the shared atomic-move path. Windows supports
-    // this only when the verified source claim and destination parent are on
-    // the same volume; atomic_move fails closed for cross-volume directories.
+    // Directory operations stay on the shared atomic-move path. The
+    // platform-specific commit layer decides whether the verified volume
+    // identities permit an atomic rename or require a staged copy/verify move.
     let tree_fingerprint =
         if source_is_directory && matches!(action, TransferAction::Copy | TransferAction::Move) {
             Some(directory_tree_snapshot(&source)?)
@@ -713,13 +713,6 @@ fn snapshot(
     ensure_general_file_operation_allowed(destination_root)?;
     ensure_not_safe_trash_operation(destination_root)?;
     let identity = file_namespace_fingerprint(&source)?;
-    #[cfg(windows)]
-    if source_is_directory
-        && action == TransferAction::Move
-        && identity.platform_volume_id.as_deref() != Some(destination.identity().volume_id.as_str())
-    {
-        return Err("transfer_windows_cross_volume_directory_move_unsupported".into());
-    }
     let canonical_root = destination_root
         .canonicalize()
         .map_err(|error| format!("transfer_destination_identity:{error}"))?;
@@ -933,6 +926,22 @@ pub(crate) fn transfer_directory_tree_fingerprint(id: &str) -> Option<&str> {
         && !encoded_path.is_empty()
         && encoded_path.bytes().all(|byte| byte.is_ascii_hexdigit()))
     .then_some(fingerprint)
+}
+
+const DIRECTORY_TREE_JOURNAL_PREFIX: &str = "directory-tree-v1:";
+
+pub(crate) fn encode_directory_tree_journal_fingerprint(fingerprint: &str) -> Option<String> {
+    if fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Some(format!("{DIRECTORY_TREE_JOURNAL_PREFIX}{fingerprint}"))
+    } else {
+        None
+    }
+}
+
+pub(crate) fn directory_tree_journal_fingerprint(value: Option<&str>) -> Option<&str> {
+    let fingerprint = value?.strip_prefix(DIRECTORY_TREE_JOURNAL_PREFIX)?;
+    (fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then_some(fingerprint)
 }
 pub(crate) fn execute(
     operation: &OperationPreviewRequest,

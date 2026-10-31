@@ -448,7 +448,10 @@ impl Database {
                 claim_created_at = ?6,
                 claim_platform_file_id = ?7,
                 claim_platform_volume_id = ?8,
-                claim_full_hash = ?9
+                claim_full_hash = ?9,
+                target_platform_file_id = ?10,
+                target_platform_volume_id = ?11,
+                target_full_hash = ?12
             WHERE id = ?1
             "#,
             params![
@@ -460,7 +463,10 @@ impl Database {
                 log.claim_created_at,
                 log.claim_platform_file_id,
                 log.claim_platform_volume_id,
-                log.claim_full_hash
+                log.claim_full_hash,
+                log.target_platform_file_id,
+                log.target_platform_volume_id,
+                log.target_full_hash
             ],
         )?;
         Ok(())
@@ -514,7 +520,8 @@ impl Database {
                 restore_claim_created_at = ?6,
                 restore_claim_platform_file_id = ?7,
                 restore_claim_platform_volume_id = ?8,
-                restore_claim_full_hash = ?9
+                restore_claim_full_hash = ?9,
+                target_full_hash = ?10
             WHERE id = ?1
             "#,
             params![
@@ -526,7 +533,8 @@ impl Database {
                 log.restore_claim_created_at,
                 log.restore_claim_platform_file_id,
                 log.restore_claim_platform_volume_id,
-                log.restore_claim_full_hash
+                log.restore_claim_full_hash,
+                log.target_full_hash
             ],
         )?;
         Ok(())

@@ -857,6 +857,39 @@ pub(crate) fn move_file_no_overwrite_with_identity_for_operation(
     )
 }
 
+/// Restore a directory move through the transfer path that verifies the
+/// destination parent while allowing the existing staged copy/verify/retire
+/// transaction when the original and restored locations are on different
+/// volumes. Files and ordinary Move callers keep their same-volume policy.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn restore_directory_move_with_identity(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel_flag: Option<&AtomicBool>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<(), FileMutationError> {
+    let target_parent_path = target.parent().ok_or_else(|| {
+        FileMutationError::Validation(FileOpError::TargetParentMissing.to_string())
+    })?;
+    let target_parent = VerifiedDirectory::open_existing(target_parent_path)
+        .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+    crate::fs_safety::atomic_move::atomic_move_with_verified_destination_for_transfer(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+        phase_observer,
+        crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
+        None,
+        Some(target_parent.identity()),
+    )
+    .map(|_| ())
+    .map_err(FileMutationError::Atomic)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn move_file_no_overwrite_with_identity_for_operation_with_actual_paths(
     source: &Path,

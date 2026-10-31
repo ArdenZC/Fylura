@@ -782,10 +782,6 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     }
     #[cfg(windows)]
     {
-        if matches!(claim.kind(), source_claim::ClaimedEntryKind::Directory) {
-            let _ = claim.rollback_to_original();
-            return Err(AtomicMoveError::CrossVolumeDirectoryMoveUnsupported);
-        }
         copy_commit::copy_commit_claim(&mut claim, target_parent, target_name, cancel, observer)
             .map(|_| AtomicMoveOutcome {
                 method: AtomicMoveMethod::CrossVolumeCopyCommit,

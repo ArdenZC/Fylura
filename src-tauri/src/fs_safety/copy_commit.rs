@@ -234,13 +234,14 @@ fn copy_commit_claim_with_source_retirement(
 ) -> Result<(), AtomicMoveError> {
     if claim.kind() != ClaimedEntryKind::File {
         #[cfg(windows)]
-        if claim.kind() == ClaimedEntryKind::Directory && !retire_source {
-            return copy_directory_claim_preserving_source(
+        if claim.kind() == ClaimedEntryKind::Directory {
+            return copy_directory_claim(
                 claim,
                 target_parent,
                 target_name,
                 cancel,
                 observer,
+                retire_source,
             );
         }
         let _ = claim.rollback_to_original();
@@ -352,12 +353,13 @@ fn copy_commit_claim_with_source_retirement(
 }
 
 #[cfg(windows)]
-fn copy_directory_claim_preserving_source(
+fn copy_directory_claim(
     claim: &mut SourceClaim,
     target_parent: VerifiedDirectory,
     target_name: &std::ffi::OsStr,
     cancel: Option<&AtomicBool>,
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    retire_source: bool,
 ) -> Result<(), AtomicMoveError> {
     if is_cancelled(cancel) {
         claim
@@ -452,12 +454,55 @@ fn copy_directory_claim_preserving_source(
         claim
             .sync()
             .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
-        claim
-            .rollback_to_original()
-            .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
-        claim
-            .sync_original_parent()
-            .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+        if retire_source {
+            if let Some(observer) = observer.as_deref_mut() {
+                observer("source_cleanup_pending")?;
+            }
+            #[cfg(any(test, feature = "native-qa"))]
+            if super::atomic_move::test_faults::take_fault(
+                super::atomic_move::test_faults::AtomicFaultPoint::SourceCleanup,
+            ) {
+                return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+            }
+            if is_cancelled(cancel) {
+                // The target is already durable. Restore the claimed source
+                // pathname when no source entry has been retired yet, and
+                // report a recoverable post-commit state instead of success.
+                claim
+                    .rollback_to_original()
+                    .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+                claim
+                    .sync_original_parent()
+                    .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+                return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+            }
+            let target_identity = crate::fs_safety::DirectoryIdentity {
+                volume_id: staging.root_volume_id.clone(),
+                file_id: staging.root_file_id.clone(),
+            };
+            retire_claimed_directory_verified_against_target(
+                claim,
+                &target_parent,
+                target_name,
+                &target_identity,
+                cancel,
+            )
+            .map_err(|error| {
+                AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+                    "source_cleanup_pending: {error}"
+                ))
+            })?;
+            claim
+                .sync_current_parent()
+                .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+        } else {
+            claim
+                .rollback_to_original()
+                .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+            claim
+                .sync_original_parent()
+                .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+        }
         if let Some(observer) = observer.as_deref_mut() {
             observer("completed")?;
         }
@@ -618,6 +663,7 @@ fn copy_regular_file(
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
     }
+    ensure_windows_no_named_streams(source)?;
     let mut source_options = OpenOptions::new();
     source_options
         .read(true)
@@ -627,6 +673,7 @@ fn copy_regular_file(
     if !metadata.is_file() || metadata_is_reparse_point(&metadata) {
         return Err(AtomicMoveError::ReparsePoint);
     }
+    ensure_supported_windows_file_attributes(&metadata)?;
     let expected = identity::capture_identity_from_handle(&reader, source, cancel)
         .map_err(map_identity_error)?;
     let path_expected = identity::capture_identity(source, cancel).map_err(map_identity_error)?;
@@ -660,7 +707,17 @@ fn copy_regular_file(
         hasher.update(&buffer[..read]);
         copied = copied.saturating_add(read as u64);
     }
+    let source_times = std::fs::FileTimes::new()
+        .set_accessed(metadata.accessed().map_err(AtomicMoveError::Io)?)
+        .set_modified(metadata.modified().map_err(AtomicMoveError::Io)?);
+    writer
+        .set_times(source_times)
+        .map_err(AtomicMoveError::Io)?;
+    writer
+        .set_permissions(metadata.permissions())
+        .map_err(AtomicMoveError::Io)?;
     writer.sync_all().map_err(AtomicMoveError::Io)?;
+    set_windows_copy_attributes(target, metadata.file_attributes())?;
     let full_hash = hasher.finalize().to_hex().to_string();
     if copied != expected.size || expected.full_hash.as_deref() != Some(full_hash.as_str()) {
         return Err(AtomicMoveError::CopyVerificationFailed);
@@ -673,6 +730,74 @@ fn copy_regular_file(
     let target_identity = identity::capture_identity(target, cancel).map_err(map_identity_error)?;
     if !identity::content_identity_matches(&expected, &target_identity) {
         return Err(AtomicMoveError::CopyVerificationFailed);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn ensure_supported_windows_file_attributes(
+    metadata: &std::fs::Metadata,
+) -> Result<(), AtomicMoveError> {
+    use std::os::windows::fs::MetadataExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_EA,
+        FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA,
+        FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_PINNED, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+        FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_TEMPORARY,
+        FILE_ATTRIBUTE_UNPINNED, FILE_ATTRIBUTE_VIRTUAL,
+    };
+    let unsupported = FILE_ATTRIBUTE_COMPRESSED
+        | FILE_ATTRIBUTE_DEVICE
+        | FILE_ATTRIBUTE_EA
+        | FILE_ATTRIBUTE_ENCRYPTED
+        | FILE_ATTRIBUTE_INTEGRITY_STREAM
+        | FILE_ATTRIBUTE_NO_SCRUB_DATA
+        | FILE_ATTRIBUTE_OFFLINE
+        | FILE_ATTRIBUTE_PINNED
+        | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+        | FILE_ATTRIBUTE_RECALL_ON_OPEN
+        | FILE_ATTRIBUTE_SPARSE_FILE
+        | FILE_ATTRIBUTE_TEMPORARY
+        | FILE_ATTRIBUTE_UNPINNED
+        | FILE_ATTRIBUTE_VIRTUAL;
+    if metadata.file_attributes() & unsupported != 0 {
+        return Err(AtomicMoveError::Io(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "cross-volume directory move encountered unsupported Windows file attributes",
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn set_windows_copy_attributes(
+    path: &std::path::Path,
+    source_attributes: u32,
+) -> Result<(), AtomicMoveError> {
+    use windows_sys::Win32::{
+        Foundation::GetLastError,
+        Storage::FileSystem::{
+            SetFileAttributesW, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN,
+            FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_READONLY,
+            FILE_ATTRIBUTE_SYSTEM,
+        },
+    };
+    let attributes = source_attributes
+        & (FILE_ATTRIBUTE_ARCHIVE
+            | FILE_ATTRIBUTE_HIDDEN
+            | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED
+            | FILE_ATTRIBUTE_READONLY
+            | FILE_ATTRIBUTE_SYSTEM);
+    let attributes = if attributes == 0 {
+        FILE_ATTRIBUTE_NORMAL
+    } else {
+        attributes
+    };
+    let wide = source_claim::windows_wide_path(path);
+    if unsafe { SetFileAttributesW(wide.as_ptr(), attributes) } == 0 {
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            unsafe { GetLastError() } as i32,
+        )));
     }
     Ok(())
 }
@@ -729,6 +854,7 @@ fn directory_content_digest(
             if metadata.is_dir() {
                 visit(root, &path, depth + 1, entry_count, hasher, cancel)?;
             } else if metadata.is_file() {
+                ensure_windows_no_named_streams(&path)?;
                 let mut options = OpenOptions::new();
                 options.read(true).custom_flags(
                     windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
@@ -738,6 +864,7 @@ fn directory_content_digest(
                 if !handle_metadata.is_file() || metadata_is_reparse_point(&handle_metadata) {
                     return Err(AtomicMoveError::ReparsePoint);
                 }
+                ensure_supported_windows_file_attributes(&handle_metadata)?;
                 let identity = identity::capture_identity_from_handle(&file, &path, cancel)
                     .map_err(map_identity_error)?;
                 let name = path
@@ -764,6 +891,395 @@ fn directory_content_digest(
     let mut entry_count = 0usize;
     visit(root, root, 0, &mut entry_count, &mut hasher, cancel)?;
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// Retires a cross-volume directory claim only after comparing each source
+/// file with the already published target while holding no-write handles on
+/// both entries. Directory handles are opened relative to their verified
+/// parent handles, and reparse points and special entries fail closed.
+#[cfg(windows)]
+fn retire_claimed_directory_verified_against_target(
+    claim: &mut SourceClaim,
+    target_parent: &VerifiedDirectory,
+    target_name: &std::ffi::OsStr,
+    expected_target: &super::verified_directory::DirectoryIdentity,
+    cancel: Option<&AtomicBool>,
+) -> Result<(), AtomicMoveError> {
+    let source_path = claim.current_path().to_path_buf();
+    let source_root = open_windows_directory_path_for_retirement(&source_path)?;
+    let source_identity = windows_handle_directory_identity(&source_root)?;
+    let expected_source = claim.actual_identity();
+    if source_identity.volume_id
+        != expected_source
+            .platform_volume_id
+            .as_deref()
+            .unwrap_or_default()
+        || source_identity.file_id
+            != expected_source
+                .platform_file_id
+                .as_deref()
+                .unwrap_or_default()
+    {
+        return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+    }
+    let source_path_identity = identity::capture_namespace_identity_only(&source_path, cancel)
+        .map_err(map_identity_error)?;
+    if source_path_identity.platform_volume_id.as_deref()
+        != Some(source_identity.volume_id.as_str())
+        || source_path_identity.platform_file_id.as_deref()
+            != Some(source_identity.file_id.as_str())
+    {
+        return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+    }
+
+    let target_root =
+        open_windows_child_for_tree(target_parent.handle(), target_name, true, false)?;
+    if windows_handle_directory_identity(&target_root)? != *expected_target {
+        return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+    }
+    let target_path = target_parent.path().join(target_name);
+    let mut entry_count = 0usize;
+    retire_directory_entries_verified(
+        &source_root,
+        &source_path,
+        &target_root,
+        &target_path,
+        0,
+        &mut entry_count,
+        target_parent,
+        cancel,
+    )?;
+    claim.delete_claim().map_err(map_claim_error)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn retire_directory_entries_verified(
+    source_parent_handle: &File,
+    source_parent_path: &std::path::Path,
+    target_parent_handle: &File,
+    target_parent_path: &std::path::Path,
+    depth: usize,
+    entry_count: &mut usize,
+    deletion_parent: &VerifiedDirectory,
+    cancel: Option<&AtomicBool>,
+) -> Result<(), AtomicMoveError> {
+    const MAX_DEPTH: usize = 64;
+    const MAX_ENTRIES: usize = 5000;
+    if depth >= MAX_DEPTH {
+        return Err(AtomicMoveError::UnsafePath);
+    }
+    if is_cancelled(cancel) {
+        return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+    }
+    let mut entries = fs::read_dir(source_parent_path)
+        .map_err(AtomicMoveError::Io)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(AtomicMoveError::Io)?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        if is_cancelled(cancel) {
+            return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+        }
+        *entry_count += 1;
+        if *entry_count > MAX_ENTRIES {
+            return Err(AtomicMoveError::UnsafePath);
+        }
+        let name = entry.file_name();
+        let source_path = source_parent_path.join(&name);
+        let target_path = target_parent_path.join(&name);
+        let metadata = fs::symlink_metadata(&source_path).map_err(AtomicMoveError::Io)?;
+        if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
+            return Err(AtomicMoveError::ReparsePoint);
+        }
+        let is_directory = metadata.is_dir();
+        if !is_directory && !metadata.is_file() {
+            return Err(AtomicMoveError::UnsafePath);
+        }
+        let source_child =
+            open_windows_child_for_tree(source_parent_handle, &name, is_directory, true)?;
+        let source_child_info = windows_handle_entry_info(&source_child)?;
+        if source_child_info.is_reparse || source_child_info.is_directory != is_directory {
+            return Err(AtomicMoveError::ReparsePoint);
+        }
+        let target_child =
+            open_windows_child_for_tree(target_parent_handle, &name, is_directory, false)?;
+        let target_child_info = windows_handle_entry_info(&target_child)?;
+        if target_child_info.is_reparse || target_child_info.is_directory != is_directory {
+            return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+        }
+        if is_directory {
+            retire_directory_entries_verified(
+                &source_child,
+                &source_path,
+                &target_child,
+                &target_path,
+                depth + 1,
+                entry_count,
+                deletion_parent,
+                cancel,
+            )?;
+        } else {
+            ensure_windows_no_named_streams(&source_path)?;
+            let source_identity =
+                identity::capture_identity_from_handle(&source_child, &source_path, cancel)
+                    .map_err(map_identity_error)?;
+            let target_identity =
+                identity::capture_identity_from_handle(&target_child, &target_path, cancel)
+                    .map_err(map_identity_error)?;
+            if !identity::content_identity_matches(&source_identity, &target_identity) {
+                return Err(AtomicMoveError::SourceChanged);
+            }
+        }
+        source_claim::delete_open_handle(
+            &source_child,
+            deletion_parent,
+            &name,
+            if is_directory {
+                ClaimedEntryKind::Directory
+            } else {
+                ClaimedEntryKind::File
+            },
+        )
+        .map_err(map_claim_error)?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+struct WindowsHandleEntryInfo {
+    is_directory: bool,
+    is_reparse: bool,
+    identity: super::verified_directory::DirectoryIdentity,
+}
+
+#[cfg(windows)]
+fn windows_handle_entry_info(handle: &File) -> Result<WindowsHandleEntryInfo, AtomicMoveError> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
+        FILE_ATTRIBUTE_REPARSE_POINT,
+    };
+    let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+    if unsafe { GetFileInformationByHandle(handle.as_raw_handle(), &mut info) } == 0 {
+        return Err(AtomicMoveError::Io(io::Error::last_os_error()));
+    }
+    Ok(WindowsHandleEntryInfo {
+        is_directory: info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0,
+        is_reparse: info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0,
+        identity: super::verified_directory::DirectoryIdentity {
+            volume_id: info.dwVolumeSerialNumber.to_string(),
+            file_id: (u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow))
+                .to_string(),
+        },
+    })
+}
+
+#[cfg(windows)]
+fn windows_handle_directory_identity(
+    handle: &File,
+) -> Result<super::verified_directory::DirectoryIdentity, AtomicMoveError> {
+    let info = windows_handle_entry_info(handle)?;
+    if !info.is_directory || info.is_reparse {
+        return Err(AtomicMoveError::ReparsePoint);
+    }
+    Ok(info.identity)
+}
+
+#[cfg(windows)]
+fn open_windows_directory_path_for_retirement(
+    path: &std::path::Path,
+) -> Result<File, AtomicMoveError> {
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, INVALID_HANDLE_VALUE},
+        Storage::FileSystem::{
+            CreateFileW, DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            OPEN_EXISTING, SYNCHRONIZE,
+        },
+    };
+    let path = source_claim::windows_wide_path(path);
+    let raw = unsafe {
+        CreateFileW(
+            path.as_ptr(),
+            DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if raw == INVALID_HANDLE_VALUE {
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            unsafe { GetLastError() } as i32,
+        )));
+    }
+    let handle = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
+    windows_handle_directory_identity(&handle)?;
+    Ok(handle)
+}
+
+#[cfg(windows)]
+fn open_windows_child_for_tree(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    is_directory: bool,
+    delete_access: bool,
+) -> Result<File, AtomicMoveError> {
+    use std::{
+        mem,
+        os::windows::{
+            ffi::OsStrExt,
+            io::{AsRawHandle, FromRawHandle, OwnedHandle},
+        },
+    };
+    use windows_sys::{
+        Wdk::{
+            Foundation::OBJECT_ATTRIBUTES,
+            Storage::FileSystem::{
+                NtCreateFile, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN,
+                FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
+            },
+        },
+        Win32::{
+            Foundation::{RtlNtStatusToDosError, OBJ_CASE_INSENSITIVE, UNICODE_STRING},
+            Storage::FileSystem::{
+                DELETE, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_READ,
+                SYNCHRONIZE,
+            },
+            System::IO::IO_STATUS_BLOCK,
+        },
+    };
+    let mut wide = name.encode_wide().collect::<Vec<_>>();
+    if wide.is_empty()
+        || wide.contains(&0)
+        || wide.len() > (u16::MAX as usize / 2)
+        || std::path::Path::new(name).components().count() != 1
+    {
+        return Err(AtomicMoveError::UnsafePath);
+    }
+    let unicode = UNICODE_STRING {
+        Length: (wide.len() * mem::size_of::<u16>()) as u16,
+        MaximumLength: (wide.len() * mem::size_of::<u16>()) as u16,
+        Buffer: wide.as_mut_ptr(),
+    };
+    let attributes = OBJECT_ATTRIBUTES {
+        Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+        RootDirectory: parent.as_raw_handle(),
+        ObjectName: &unicode,
+        Attributes: OBJ_CASE_INSENSITIVE,
+        SecurityDescriptor: std::ptr::null(),
+        SecurityQualityOfService: std::ptr::null(),
+    };
+    let mut raw = std::ptr::null_mut();
+    let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
+    let access = (if delete_access { DELETE } else { 0 })
+        | FILE_READ_ATTRIBUTES
+        | SYNCHRONIZE
+        | if is_directory {
+            FILE_LIST_DIRECTORY
+        } else {
+            FILE_READ_DATA
+        };
+    let options = FILE_OPEN_REPARSE_POINT
+        | FILE_SYNCHRONOUS_IO_NONALERT
+        | if is_directory {
+            FILE_DIRECTORY_FILE
+        } else {
+            FILE_NON_DIRECTORY_FILE
+        };
+    let status = unsafe {
+        NtCreateFile(
+            &mut raw,
+            access,
+            &attributes,
+            &mut io_status,
+            std::ptr::null(),
+            0,
+            FILE_SHARE_READ,
+            FILE_OPEN,
+            options,
+            std::ptr::null(),
+            0,
+        )
+    };
+    if status < 0 {
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(unsafe {
+            RtlNtStatusToDosError(status)
+        }
+            as i32)));
+    }
+    let handle = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
+    let info = windows_handle_entry_info(&handle)?;
+    if info.is_reparse || info.is_directory != is_directory {
+        return Err(AtomicMoveError::ReparsePoint);
+    }
+    Ok(handle)
+}
+
+#[cfg(windows)]
+fn ensure_windows_no_named_streams(path: &std::path::Path) -> Result<(), AtomicMoveError> {
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, INVALID_HANDLE_VALUE},
+        Storage::FileSystem::{
+            FindClose, FindFirstStreamW, FindNextStreamW, FindStreamInfoStandard,
+            WIN32_FIND_STREAM_DATA,
+        },
+    };
+    let metadata = fs::symlink_metadata(path).map_err(AtomicMoveError::Io)?;
+    if metadata_is_reparse_point(&metadata) || !metadata.is_file() {
+        return Err(AtomicMoveError::ReparsePoint);
+    }
+    let wide = source_claim::windows_wide_path(path);
+    let mut data = WIN32_FIND_STREAM_DATA::default();
+    let find = unsafe {
+        FindFirstStreamW(
+            wide.as_ptr(),
+            FindStreamInfoStandard,
+            (&mut data as *mut WIN32_FIND_STREAM_DATA).cast(),
+            0,
+        )
+    };
+    if find == INVALID_HANDLE_VALUE {
+        let code = unsafe { GetLastError() };
+        // Filesystems without named-stream support report ERROR_INVALID_FUNCTION.
+        if code == 1 {
+            return Ok(());
+        }
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            code as i32,
+        )));
+    }
+    let mut result = Ok(());
+    loop {
+        let end = data
+            .cStreamName
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(data.cStreamName.len());
+        if String::from_utf16_lossy(&data.cStreamName[..end]) != "::$DATA" {
+            result = Err(AtomicMoveError::Io(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "cross-volume directory move does not support alternate data streams",
+            )));
+            break;
+        }
+        data = WIN32_FIND_STREAM_DATA::default();
+        if unsafe { FindNextStreamW(find, (&mut data as *mut WIN32_FIND_STREAM_DATA).cast()) } == 0
+        {
+            let code = unsafe { GetLastError() };
+            if code != 38 {
+                result = Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+                    code as i32,
+                )));
+            }
+            break;
+        }
+    }
+    unsafe { FindClose(find) };
+    result
 }
 
 #[cfg(windows)]
@@ -1106,6 +1622,323 @@ mod tests {
         drop(claim);
         assert!(!claim_path.exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn staged_directory_move_preserves_nested_empty_tree_and_cleans_claim() {
+        let root = fixture("directory-move");
+        let source_parent = root.join("source");
+        let target_parent_path = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent_path).expect("target parent");
+        let source = source_parent.join("资料");
+        fs::create_dir_all(source.join("嵌套").join("empty")).expect("nested empty tree");
+        fs::write(source.join("根.txt"), b"root file bytes").expect("root file");
+        fs::write(source.join("嵌套").join("内容.bin"), b"nested file bytes").expect("nested file");
+        let claim_path =
+            source_claim::planned_claim_path(&source, "directory-move-test").expect("claim path");
+        let expected = identity::capture_namespace_identity_only(&source, None)
+            .expect("directory namespace identity");
+        let mut claim = source_claim::claim_source_at(
+            &source,
+            &expected,
+            &claim_path,
+            "directory-move-test",
+            None,
+        )
+        .expect("directory source claim");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+        let mut phases = Vec::new();
+        let mut observer = |phase: &str| {
+            phases.push(phase.to_string());
+            Ok(())
+        };
+
+        copy_commit_claim(
+            &mut claim,
+            target_parent,
+            std::ffi::OsStr::new("资料"),
+            None,
+            Some(&mut observer),
+        )
+        .expect("staged directory move");
+
+        let target = target_parent_path.join("资料");
+        assert_eq!(
+            fs::read(target.join("根.txt")).expect("root target"),
+            b"root file bytes"
+        );
+        assert_eq!(
+            fs::read(target.join("嵌套").join("内容.bin")).expect("nested target"),
+            b"nested file bytes"
+        );
+        assert!(target.join("嵌套").join("empty").is_dir());
+        assert!(!source.exists());
+        assert!(!claim_path.exists());
+        assert_eq!(
+            phases,
+            [
+                "copying",
+                "target_committed",
+                "source_cleanup_pending",
+                "completed"
+            ]
+        );
+        drop(claim);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn staged_directory_move_cancel_before_publish_restores_source_and_removes_stage() {
+        let root = fixture("directory-cancel");
+        let source_parent = root.join("source");
+        let target_parent_path = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent_path).expect("target parent");
+        let source = source_parent.join("tree");
+        fs::create_dir(&source).expect("source directory");
+        fs::write(source.join("one.txt"), b"one").expect("first file");
+        fs::write(source.join("two.txt"), b"two").expect("second file");
+        let claim_path =
+            source_claim::planned_claim_path(&source, "directory-cancel-test").expect("claim path");
+        let expected = identity::capture_namespace_identity_only(&source, None)
+            .expect("directory namespace identity");
+        let mut claim = source_claim::claim_source_at(
+            &source,
+            &expected,
+            &claim_path,
+            "directory-cancel-test",
+            None,
+        )
+        .expect("directory source claim");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+        let _serial = super::super::atomic_move::test_faults::lock();
+        super::super::atomic_move::test_faults::set_fault(Some(
+            super::super::atomic_move::test_faults::AtomicFaultPoint::CancelDirectoryCopyAfterEntry,
+        ));
+        let result = copy_commit_claim(
+            &mut claim,
+            target_parent,
+            std::ffi::OsStr::new("tree"),
+            None,
+            None,
+        );
+        super::super::atomic_move::test_faults::set_fault(None);
+
+        assert!(matches!(result, Err(AtomicMoveError::Cancelled)));
+        assert_eq!(
+            fs::read(source.join("one.txt")).expect("source restored"),
+            b"one"
+        );
+        assert!(!target_parent_path.join("tree").exists());
+        assert!(!claim_path.exists());
+        drop(claim);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn staged_directory_move_source_cleanup_fault_keeps_both_recoverable_copies() {
+        let root = fixture("directory-cleanup-fault");
+        let source_parent = root.join("source");
+        let target_parent_path = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent_path).expect("target parent");
+        let source = source_parent.join("tree");
+        fs::create_dir(&source).expect("source directory");
+        fs::write(source.join("file.txt"), b"recoverable bytes").expect("source file");
+        let claim_path = source_claim::planned_claim_path(&source, "directory-cleanup-test")
+            .expect("claim path");
+        let expected = identity::capture_namespace_identity_only(&source, None)
+            .expect("directory namespace identity");
+        let mut claim = source_claim::claim_source_at(
+            &source,
+            &expected,
+            &claim_path,
+            "directory-cleanup-test",
+            None,
+        )
+        .expect("directory source claim");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+        let _serial = super::super::atomic_move::test_faults::lock();
+        super::super::atomic_move::test_faults::set_fault(Some(
+            super::super::atomic_move::test_faults::AtomicFaultPoint::SourceCleanup,
+        ));
+        let result = copy_commit_claim(
+            &mut claim,
+            target_parent,
+            std::ffi::OsStr::new("tree"),
+            None,
+            None,
+        );
+        super::super::atomic_move::test_faults::set_fault(None);
+
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::TargetCommittedSourceCleanupPending)
+        ));
+        assert_eq!(
+            fs::read(target_parent_path.join("tree").join("file.txt")).expect("target"),
+            b"recoverable bytes"
+        );
+        assert!(claim_path.exists());
+        assert!(!source.exists());
+        drop(claim);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    fn mutate_claimed_directory_after_target_commit(
+        point: source_claim::ClaimTestPoint,
+        _source: &std::path::Path,
+        claim: &std::path::Path,
+    ) {
+        if point == source_claim::ClaimTestPoint::AfterTargetCommitBeforeSourceCleanup {
+            fs::write(
+                claim.join("nested").join("file.txt"),
+                b"changed after publish",
+            )
+            .expect("mutate claimed source after target commit");
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn source_tree_mutation_after_target_commit_preserves_claim_and_target() {
+        let _serial = source_claim::lock_claim_test_hooks();
+        let root = fixture("directory-source-mutation-after-commit");
+        let source_parent = root.join("source");
+        let target_parent_path = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent_path).expect("target parent");
+        let source = source_parent.join("tree");
+        fs::create_dir_all(source.join("nested")).expect("nested source");
+        fs::write(source.join("nested").join("file.txt"), b"stable source").expect("source file");
+        let target = target_parent_path.join("tree");
+        let claim_path =
+            source_claim::planned_claim_path(&source, "directory-mutation-after-commit")
+                .expect("claim path");
+        let expected = identity::capture_namespace_identity_only(&source, None)
+            .expect("directory namespace identity");
+        let mut claim = source_claim::claim_source_at(
+            &source,
+            &expected,
+            &claim_path,
+            "directory-mutation-after-commit",
+            None,
+        )
+        .expect("source claim");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+
+        source_claim::set_claim_test_hook(Some(mutate_claimed_directory_after_target_commit));
+        let result = copy_commit_claim(
+            &mut claim,
+            target_parent,
+            std::ffi::OsStr::new("tree"),
+            None,
+            None,
+        );
+        source_claim::set_claim_test_hook(None);
+
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(_))
+        ));
+        assert_eq!(
+            fs::read(target.join("nested").join("file.txt")).expect("committed target"),
+            b"stable source"
+        );
+        assert_eq!(
+            fs::read(claim_path.join("nested").join("file.txt")).expect("retained claim"),
+            b"changed after publish"
+        );
+        assert!(!source.exists());
+        drop(claim);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn native_cross_volume_directory_move_runs_when_an_isolated_volume_is_available() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+
+        let source_root = fixture("native-cross-volume-source");
+        let source_identity = identity::capture_namespace_identity_only(&source_root, None)
+            .expect("source volume identity");
+        let drive_mask = unsafe { GetLogicalDrives() };
+        let Some(target_fixture) = (b'A'..=b'Z').find_map(|letter| {
+            if drive_mask & (1 << (letter - b'A')) == 0 {
+                return None;
+            }
+            let drive_root = PathBuf::from(format!("{}:\\", letter as char));
+            let wide = source_claim::windows_wide_path(&drive_root);
+            // DRIVE_REMOVABLE and DRIVE_FIXED are the only filesystem classes
+            // this destructive fixture accepts; network and optical targets
+            // remain outside the automated native volume test.
+            if !matches!(unsafe { GetDriveTypeW(wide.as_ptr()) }, 2 | 3) {
+                return None;
+            }
+            let volume = identity::capture_namespace_identity_only(&drive_root, None).ok()?;
+            if volume.platform_volume_id == source_identity.platform_volume_id {
+                return None;
+            }
+            let fixture = drive_root.join(format!("Fylura-QA-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&fixture).ok().map(|_| fixture)
+        }) else {
+            eprintln!("UNVERIFIED: no writable independent local volume was available");
+            let _ = fs::remove_dir_all(source_root);
+            return;
+        };
+
+        let source = source_root.join("source tree");
+        fs::create_dir_all(source.join("嵌套").join("empty")).expect("nested empty directory");
+        fs::write(source.join("根.txt"), b"cross-volume source content").expect("root file");
+        fs::write(source.join("嵌套").join("內容.bin"), b"nested content").expect("nested file");
+        let target_parent_path = target_fixture.join("destination");
+        fs::create_dir(&target_parent_path).expect("target parent");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("verified target");
+        let target = target_parent_path.join("source tree");
+        let claim_path = source_claim::planned_claim_path(&source, "native-cross-volume")
+            .expect("source claim path");
+        let expected = identity::capture_namespace_identity_only(&source, None)
+            .expect("directory namespace identity");
+        let mut phases = Vec::new();
+        let mut observer = |phase: &str| {
+            phases.push(phase.to_string());
+            Ok(())
+        };
+
+        crate::fs_safety::atomic_move::atomic_move_with_verified_destination_for_transfer(
+            &source,
+            &target,
+            Some(&expected),
+            Some(&claim_path),
+            None,
+            Some(&mut observer),
+            super::super::atomic_move::AtomicMoveOperation::Move,
+            None,
+            Some(target_parent.identity()),
+        )
+        .expect("native cross-volume directory move");
+
+        assert!(!source.exists());
+        assert!(!claim_path.exists());
+        assert_eq!(
+            fs::read(target.join("根.txt")).expect("root file"),
+            b"cross-volume source content"
+        );
+        assert_eq!(
+            fs::read(target.join("嵌套").join("內容.bin")).expect("nested file"),
+            b"nested content"
+        );
+        assert!(target.join("嵌套").join("empty").is_dir());
+        assert!(phases.contains(&"source_cleanup_pending".to_string()));
+        let _ = fs::remove_dir_all(source_root);
+        let _ = fs::remove_dir_all(target_fixture);
     }
 
     #[test]

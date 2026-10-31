@@ -69,6 +69,26 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
                 phase_log.restore_phase = phase.to_string();
                 phase_log.restore_status = "pending".to_string();
                 phase_log.restore_error = None;
+                if phase == "target_committed" && super::is_directory_move_log(&phase_log) {
+                    let restored_target = Path::new(&phase_log.path_before);
+                    let tree = crate::file_ops::manual_transfer::directory_tree_snapshot(
+                        restored_target,
+                    )
+                    .and_then(|tree| {
+                        crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(
+                            &tree,
+                        )
+                        .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+                    })
+                    .map_err(|_| {
+                        crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                    })?;
+                    // `target_full_hash` stores the tree currently published
+                    // at the original path. Replacing this proof at the
+                    // restore commit boundary lets restart recovery identify
+                    // the restored object without reusing an old preview.
+                    phase_log.target_full_hash = Some(tree);
+                }
                 db.update_operation_restore_phase(&phase_log)
                     .map_err(|error| {
                         if matches!(
@@ -264,7 +284,7 @@ pub(crate) fn restore_operation_log_with_observer(
     if let Err(failure) = operation_restore_identity_result(log, Path::new(&log.path_after)) {
         return mark_restore_manual_review(log, failure.message());
     }
-    if let Err(error) = verify_same_volume_directory_restore_tree(log, Path::new(&log.path_after)) {
+    if let Err(error) = verify_directory_restore_tree(log, Path::new(&log.path_after)) {
         return mark_restore_manual_review(log, error);
     }
     if log.operation_type == "replace" {
@@ -306,15 +326,27 @@ pub(crate) fn restore_operation_log_with_observer(
         return mark_restore_failed(log, error);
     }
     let expected_identity = expected_restore_identity_from_log(log);
-    if let Err(error) = move_file_no_overwrite_with_identity_for_operation(
-        &source,
-        &target,
-        expected_identity.as_ref(),
-        Some(&restore_claim_path),
-        cancel_flag,
-        phase_observer,
-        crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
-    ) {
+    let restore_result = if restore_directory_move {
+        restore_directory_move_with_identity(
+            &source,
+            &target,
+            expected_identity.as_ref(),
+            Some(&restore_claim_path),
+            cancel_flag,
+            phase_observer,
+        )
+    } else {
+        move_file_no_overwrite_with_identity_for_operation(
+            &source,
+            &target,
+            expected_identity.as_ref(),
+            Some(&restore_claim_path),
+            cancel_flag,
+            phase_observer,
+            crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
+        )
+    };
+    if let Err(error) = restore_result {
         if error.is_cancelled() {
             return mark_restore_canceled(log);
         }
@@ -326,6 +358,27 @@ pub(crate) fn restore_operation_log_with_observer(
     }
 
     let mut restored = log.clone();
+    if restore_directory_move {
+        let tree = match crate::file_ops::manual_transfer::directory_tree_snapshot(&target)
+            .and_then(|tree| {
+                crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(
+                    &tree,
+                )
+                .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+            })
+        {
+            Ok(tree) => tree,
+            Err(error) => {
+                return mark_restore_manual_review(
+                    log,
+                    format!(
+                        "restore committed but restored directory tree proof could not be captured: {error}"
+                    ),
+                )
+            }
+        };
+        restored.target_full_hash = Some(tree);
+    }
     restored.can_undo = false;
     restored.can_restore = false;
     restored.restored_at = Some(current_timestamp_ms().to_string());
@@ -335,26 +388,17 @@ pub(crate) fn restore_operation_log_with_observer(
     restored
 }
 
-fn verify_same_volume_directory_restore_tree(
-    log: &OperationLogDto,
-    path: &Path,
-) -> Result<(), String> {
-    if log.operation_type != "move"
-        || crate::file_ops::restore_volume_relation(log)
-            != crate::file_ops::RestoreVolumeRelation::SameVolume
+fn verify_directory_restore_tree(log: &OperationLogDto, path: &Path) -> Result<(), String> {
+    if !super::is_directory_move_log(log)
         || !std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
     {
         return Ok(());
     }
-    // New transfer IDs retain the bounded directory namespace snapshot used
-    // by Preview. It binds Restore to the same tree shape/entry identities
-    // without storing an old Preview token or hashing every file's contents.
-    // Legacy IDs predate this proof and retain their previous physical-root
-    // identity policy so existing History remains usable.
-    let Some(expected) =
-        crate::file_ops::manual_transfer::transfer_directory_tree_fingerprint(&log.id)
-    else {
-        return Ok(());
+    // The target-side journal proof is authoritative for both same-volume
+    // renames and cross-volume copy/verify moves. Legacy same-volume transfer
+    // rows may fall back to the source snapshot embedded in their ID.
+    let Some(expected) = super::directory_move_tree_fingerprint(log) else {
+        return Err("restore_directory_tree_proof_missing: the journal has no target tree proof; review it before restoring".into());
     };
     let actual = crate::file_ops::manual_transfer::directory_tree_snapshot(path)?;
     if actual == expected {

@@ -1392,6 +1392,119 @@ fn fl20_external_file_move_is_previewed_journaled_and_restored_without_indexing(
     runtime.dispose();
 }
 
+#[cfg(windows)]
+#[test]
+fn fl23_native_cross_volume_directory_move_and_history_restore_use_one_journal() {
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+
+    let f = Fixture::new();
+    let source_root_identity = crate::fs_safety::capture_namespace_identity_only(&f.root, None)
+        .expect("source volume identity");
+    let drive_mask = unsafe { GetLogicalDrives() };
+    let Some(target_fixture) = (b'A'..=b'Z').find_map(|letter| {
+        if drive_mask & (1 << (letter - b'A')) == 0 {
+            return None;
+        }
+        let drive_root = PathBuf::from(format!("{}:\\", letter as char));
+        let wide = crate::fs_safety::source_claim::windows_wide_path(&drive_root);
+        if !matches!(unsafe { GetDriveTypeW(wide.as_ptr()) }, 2 | 3) {
+            return None;
+        }
+        let identity = crate::fs_safety::capture_namespace_identity_only(&drive_root, None).ok()?;
+        if identity.platform_volume_id == source_root_identity.platform_volume_id {
+            return None;
+        }
+        let fixture = drive_root.join(format!("Fylura-QA-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&fixture).ok().map(|_| fixture)
+    }) else {
+        eprintln!("UNVERIFIED: no writable independent local volume was available for FL-23 History Restore");
+        let fixture_root = f.root.clone();
+        drop(f);
+        let _ = fs::remove_dir_all(fixture_root);
+        return;
+    };
+
+    let source = f.root.join("external tree");
+    fs::create_dir_all(source.join("nested").join("empty")).expect("nested empty directory");
+    fs::write(source.join("根.txt"), b"cross-volume root payload").expect("root payload");
+    fs::write(
+        source.join("nested").join("內容.bin"),
+        b"cross-volume nested payload",
+    )
+    .expect("nested payload");
+    let expected_root_hash = fixture_file_hash(&source.join("根.txt"));
+    let expected_nested_hash = fixture_file_hash(&source.join("nested").join("內容.bin"));
+
+    let runtime = runtime(&f);
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .expect("capture external directory");
+    let destination = target_fixture.join("destination");
+    fs::create_dir(&destination).expect("destination directory");
+    let plan = preview(
+        &runtime,
+        vec![tickets[0].id.clone()],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .expect("consume live transfer preview");
+    let moved = execute_moves_with_persistence(&f.db, request).expect("execute directory move");
+    assert_eq!(
+        moved.logs[0].status, "success",
+        "{:?}",
+        moved.logs[0].error_message
+    );
+    assert!(moved.logs[0]
+        .target_full_hash
+        .as_deref()
+        .is_some_and(|proof| proof.starts_with("directory-tree-v1:")));
+    let moved_target = destination.join("external tree");
+    assert!(!source.exists());
+    assert_eq!(
+        fixture_file_hash(&moved_target.join("根.txt")),
+        expected_root_hash
+    );
+    assert_eq!(
+        fixture_file_hash(&moved_target.join("nested").join("內容.bin")),
+        expected_nested_hash
+    );
+    assert!(moved_target.join("nested").join("empty").is_dir());
+
+    let restored = restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: moved.logs })
+        .expect("restore cross-volume directory move from History");
+    assert_eq!(restored.logs[0].restore_status, "restored");
+    assert_eq!(
+        fixture_file_hash(&source.join("根.txt")),
+        expected_root_hash
+    );
+    assert_eq!(
+        fixture_file_hash(&source.join("nested").join("內容.bin")),
+        expected_nested_hash
+    );
+    assert!(source.join("nested").join("empty").is_dir());
+    assert!(!moved_target.exists());
+
+    runtime.dispose();
+    drop(runtime);
+    let fixture_root = f.root.clone();
+    drop(f);
+    let _ = fs::remove_dir_all(fixture_root);
+    let _ = fs::remove_dir_all(target_fixture);
+}
+
 #[test]
 fn fl20_releasing_external_candidates_invalidates_unconfirmed_previews() {
     let f = Fixture::new();

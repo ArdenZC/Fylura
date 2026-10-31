@@ -92,6 +92,30 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
         {
             apply_target_fingerprint(log, &target_fingerprint);
         }
+        if operation.operation_type == "move"
+            && identity_path
+                .symlink_metadata()
+                .is_ok_and(|metadata| metadata.is_dir())
+        {
+            match crate::file_ops::manual_transfer::directory_tree_snapshot(&identity_path)
+                .and_then(|tree| {
+                    crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(
+                        &tree,
+                    )
+                    .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+                }) {
+                Ok(tree) => log.target_full_hash = Some(tree),
+                Err(error) => {
+                    log.status = "manual_review".to_string();
+                    log.can_undo = false;
+                    log.can_restore = false;
+                    log.operation_phase = "target_committed".to_string();
+                    log.error_message = Some(format!(
+                        "target_committed_identity_unreadable: directory tree proof could not be captured: {error}"
+                    ));
+                }
+            }
+        }
         if cfg!(target_os = "macos") && operation.operation_type == "replace" {
             if let Err(error) = refresh_replacement_journal_identities(log) {
                 log.status = "manual_review".to_string();
@@ -206,6 +230,37 @@ fn execute_moves_core_with_identity(
                     // final save_operation_logs transaction succeeds.
                     log.status = "pending".to_string();
                     log.error_message = None;
+                    if operation.operation_type == "move"
+                        && phase == "target_committed"
+                        && Path::new(&log.path_after)
+                            .symlink_metadata()
+                            .is_ok_and(|metadata| metadata.is_dir())
+                    {
+                        // A directory copied to another volume has new
+                        // physical identities. Persist a bounded snapshot of
+                        // the published tree before source retirement can
+                        // begin, so restart recovery can distinguish the
+                        // committed target from a later replacement.
+                        let target = Path::new(&log.path_after);
+                        let fingerprint =
+                            file_operation_fingerprint(target, "move").map_err(|_| {
+                                crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                            })?;
+                        apply_target_fingerprint(log, &fingerprint);
+                        let tree = crate::file_ops::manual_transfer::directory_tree_snapshot(
+                            target,
+                        )
+                        .and_then(|tree| {
+                            crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(
+                                &tree,
+                            )
+                            .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+                        })
+                        .map_err(|_| {
+                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                        })?;
+                        log.target_full_hash = Some(tree);
+                    }
                     if cfg!(target_os = "macos")
                         && operation.operation_type == "replace"
                         && matches!(

@@ -1218,9 +1218,10 @@ fn fl23_windows_same_volume_directory_move_is_journaled_and_restorable() {
     );
     assert!(executed.logs[0].can_restore);
     assert!(!source.exists());
+    let expected_hash = blake3::hash(b"source remains");
     assert_eq!(
-        fs::read(destination.join("move-source/nested/content.txt")).unwrap(),
-        b"source remains"
+        blake3::hash(&fs::read(destination.join("move-source/nested/content.txt")).unwrap()),
+        expected_hash
     );
     let restored = restore_moves_with_persistence(
         &f.db,
@@ -1235,8 +1236,8 @@ fn fl23_windows_same_volume_directory_move_is_journaled_and_restorable() {
         restored.logs[0].restore_error
     );
     assert_eq!(
-        fs::read(source.join("nested/content.txt")).unwrap(),
-        b"source remains"
+        blake3::hash(&fs::read(source.join("nested/content.txt")).unwrap()),
+        expected_hash
     );
     assert!(!destination.join("move-source").exists());
     runtime.dispose();

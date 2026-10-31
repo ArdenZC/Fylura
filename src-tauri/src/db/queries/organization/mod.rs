@@ -2879,6 +2879,9 @@ fn paths_cross_volume(left: &str, right: &str) -> bool {
 pub(crate) mod tests {
     use super::*;
 
+    #[cfg(target_os = "windows")]
+    mod issue443_hosted;
+
     fn test_database() -> (Database, std::path::PathBuf) {
         let path = std::env::temp_dir().join(format!(
             "zen-canvas-organization-test-{}-{}.sqlite3",
@@ -6475,6 +6478,9 @@ pub(crate) mod tests {
     #[ignore = "Task 06 100/1k/10k plan ledger, review, dry-run, refresh, WAL and prune benchmark"]
     fn performance_task06_plan_100_1k_10k_repository() {
         use std::time::Instant;
+
+        #[cfg(target_os = "windows")]
+        issue443_hosted::run();
 
         for count in [100_usize, 1_000, 10_000] {
             let (db, path) = test_database();

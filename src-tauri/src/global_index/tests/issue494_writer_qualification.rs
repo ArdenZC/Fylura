@@ -401,8 +401,8 @@ fn measure_writer_case(
                 "pair_index": sample_index,
                 "rowid_start": first,
                 "writer_order": order,
-                "baseline": writer_timing_json(baseline_timing, force_full_checkpoint),
-                "candidate": writer_timing_json(candidate_timing, force_full_checkpoint),
+                "baseline": writer_timing_json(baseline_timing, !force_full_checkpoint),
+                "candidate": writer_timing_json(candidate_timing, !force_full_checkpoint),
                 "candidate_minus_baseline_ms": {
                     "total": candidate_timing.total_ms - baseline_timing.total_ms,
                     "update": candidate_timing.update_ms - baseline_timing.update_ms,

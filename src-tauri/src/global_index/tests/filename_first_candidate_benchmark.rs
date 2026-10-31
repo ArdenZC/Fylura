@@ -24,6 +24,8 @@ const FILENAME_CANDIDATE_WARMUPS: usize = 5;
 const FILENAME_CANDIDATE_SAMPLES: usize = 30;
 const FILENAME_CANDIDATE_WRITE_BATCHES: [usize; 2] = [512, 5_000];
 
+#[path = "issue494_1m_qualification.rs"]
+mod million_qualification;
 #[path = "issue494_writer_qualification.rs"]
 mod writer_qualification;
 
@@ -124,6 +126,14 @@ fn issue494_filename_first_native_preflight() {
     }
 
     let context = benchmark_context(entries);
+    if entries == 1_000_000 {
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "issue494_1m_native_qualification_started",
+            "context": context,
+            "required_native_contract": "Windows x86_64 and Apple Silicon macOS; exact 1M synthetic fixture; no production search-code changes"
+        }));
+    }
     let path = test_db_path();
     let _cleanup = BenchmarkCleanup(path.clone());
     let db = Database::open(&path).expect("open paired Global Index fixture");
@@ -140,13 +150,24 @@ fn issue494_filename_first_native_preflight() {
     let schema_objects = persistent_schema_objects(&baseline_conn);
     let db_before_index = database_metrics(&baseline_conn, &path);
 
-    let process_before_index = native_process_sample();
+    let (process_before_index, process_after_index, index_build_peak_sampling) = if entries
+        == 1_000_000
+    {
+        million_qualification::rebuild_index_with_sampled_peak(&db)
+    } else {
+        let before = native_process_sample();
+        db.filename_search.enable_for_test();
+        db.filename_search
+            .rebuild_now_for_test()
+            .expect("synchronously build filename candidate for paired measurement");
+        let after = native_process_sample();
+        (
+            before,
+            after,
+            json!({ "measured": false, "reason": "sampled peak enabled only for the authorized 1M qualification" }),
+        )
+    };
     let rss_before_index = process_before_index.and_then(|sample| sample.rss_bytes);
-    db.filename_search.enable_for_test();
-    db.filename_search
-        .rebuild_now_for_test()
-        .expect("synchronously build filename candidate for paired measurement");
-    let process_after_index = native_process_sample();
     let rss_after_index = process_after_index.and_then(|sample| sample.rss_bytes);
     let index_diagnostics = db.filename_search.diagnostics();
     assert!(
@@ -204,7 +225,7 @@ fn issue494_filename_first_native_preflight() {
         .collect::<Vec<_>>();
     plan_records.push(index_build_plan);
 
-    let candidate_cases = vec![
+    let mut candidate_cases = vec![
         CandidateCase {
             class: "single_name_prefix",
             query: "Annual Budget 2026",
@@ -249,6 +270,13 @@ fn issue494_filename_first_native_preflight() {
             expected_total: 0,
         },
     ];
+    if entries == 1_000_000 {
+        candidate_cases.push(million_qualification::sparse_filename_case(&baseline_conn));
+        assert_eq!(
+            candidate_cases[2].expected_total, 50_000,
+            "the 1M high-hit query must contain exactly 50,000 eligible filename matches"
+        );
+    }
 
     let candidate_sql_metrics = candidate_cases
         .iter()
@@ -266,8 +294,26 @@ fn issue494_filename_first_native_preflight() {
 
     let mut search_records = Vec::new();
     for case in &candidate_cases {
-        search_records.push(measure_search_pair(&db, &context, case));
-        search_records.push(measure_snapshot_pair(&db, &context, case));
+        let mut search_record = measure_search_pair(&db, &context, case);
+        if entries == 1_000_000 {
+            search_record["record_type"] = json!("issue494_1m_search_pair");
+            emit_record(&search_record);
+        }
+        search_records.push(search_record);
+        let mut snapshot_record = measure_snapshot_pair(&db, &context, case);
+        if entries == 1_000_000 {
+            snapshot_record["record_type"] = json!("issue494_1m_snapshot_pair");
+            emit_record(&snapshot_record);
+        }
+        search_records.push(snapshot_record);
+    }
+    if entries == 1_000_000 {
+        let window_record = million_qualification::verify_complete_candidate_window(
+            &db,
+            &expectations[3],
+            &context,
+        );
+        emit_record(&window_record);
     }
 
     let process_after_queries = native_process_sample();
@@ -317,9 +363,18 @@ fn issue494_filename_first_native_preflight() {
     let rss_after_queries_and_writes =
         process_after_queries_and_writes.and_then(|sample| sample.rss_bytes);
     let diagnostics_after = diagnostics_after_search;
+    if entries == 1_000_000 {
+        let source_authorization_record =
+            million_qualification::verify_revoked_source_fallback(&db, &context);
+        emit_record(&source_authorization_record);
+    }
     emit_record(&json!({
         "schema_version": 1,
-        "record_type": "issue494_filename_first_native_preflight",
+        "record_type": if entries == 1_000_000 {
+            "issue494_filename_first_1m_native_qualification"
+        } else {
+            "issue494_filename_first_native_preflight"
+        },
         "context": context,
         "fixture": {
             "entry_count": entries,
@@ -339,6 +394,7 @@ fn issue494_filename_first_native_preflight() {
             "distinct_filename_count": index_diagnostics.distinct_filename_count,
             "estimated_retained_index_bytes": index_diagnostics.index_private_bytes,
             "index_build_peak_bytes": index_diagnostics.index_build_peak_bytes,
+            "sampled_process_index_build_peak": index_build_peak_sampling,
             "rss_before_index_build_bytes": rss_before_index,
             "rss_after_index_build_bytes": rss_after_index,
             "process_before_index_build": native_sample_json(process_before_index),
@@ -369,6 +425,7 @@ fn issue494_filename_first_native_preflight() {
         },
         "paired_search_and_snapshot": search_records,
         "paired_batch_writes": paired_batch_writes,
+        "write_cost_semantics": "the 1M harness records paired 512/5,000-row forced-FULL-checkpoint stress costs; production WAL/autocheckpoint qualification remains the already completed, separately reported 200k writer evidence",
         "post_write_database": post_write_metrics,
         "rss_after_queries_and_writes_bytes": rss_after_queries_and_writes,
         "resource_attribution": {
@@ -381,6 +438,7 @@ fn issue494_filename_first_native_preflight() {
             "private_bytes_delta_index_build": sample_private_delta(process_before_index, process_after_index),
             "working_set_delta_index_build": sample_rss_delta(process_before_index, process_after_index),
             "private_bytes_delta_after_queries_and_writes": sample_private_delta(process_after_index, process_after_queries_and_writes),
+            "private_bytes_delta_before_index_to_after_queries_and_writes": sample_private_delta(process_before_index, process_after_queries_and_writes),
             "working_set_delta_after_queries_and_writes": sample_rss_delta(process_after_index, process_after_queries_and_writes),
             "candidate_reader_sqlite": candidate_reader_sqlite_memory,
             "estimated_retained_filename_index_heap_bytes": diagnostics_after.index_private_bytes,
@@ -486,6 +544,7 @@ fn measure_search_pair(db: &Database, context: &JsonValue, case: &CandidateCase)
         "sqlite_page_ids": result_ids(&expected[0]),
         "historical_joined_page_ids": result_ids(&expected[1]),
         "rowid_only_page_ids": result_ids(&expected[2]),
+        "independent_oracle_page_ids": case.expected_ids,
         "shared_result_fields_equal_except_rank": true,
         "sqlite_and_rowid_page_id_sets_equal": same_result_id_set(&expected[0], &expected[2]),
         "sqlite_order_matches_filename_oracle": result_ids(&expected[0]) == case.expected_ids,
@@ -570,6 +629,7 @@ fn measure_snapshot_pair(db: &Database, context: &JsonValue, case: &CandidateCas
         "production_sqlite_ids": result_ids(&expected[0].results),
         "historical_joined_ids": result_ids(&expected[1].results),
         "rowid_only_ids": result_ids(&expected[2].results),
+        "independent_oracle_page_ids": case.expected_ids,
         "all_source_health_revision_and_index_status_equal": true,
         "both_candidate_routes_match_independent_oracle_ids_and_order": true,
         "pair_order": "three routes run per sample; all six route orders are rotated, with five warmups and thirty measured samples per route",

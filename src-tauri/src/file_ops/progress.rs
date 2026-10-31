@@ -42,6 +42,7 @@ impl OperationProgressBuffer {
                 processed,
                 total: self.total,
                 current_path,
+                phase: None,
             });
             self.last_emit_at = now;
             self.processed_since_emit = 0;

@@ -424,6 +424,7 @@ pub async fn materialize_provider_preview<R: Runtime>(
             processed: 0,
             total: 1,
             current_path: preview.source_path.clone(),
+            phase: None,
         });
         #[cfg(target_os = "macos")]
         let result = crate::platform::macos::strategy::materialize_explicit(
@@ -436,6 +437,7 @@ pub async fn materialize_provider_preview<R: Runtime>(
                     processed,
                     total,
                     current_path: preview.source_path.clone(),
+                    phase: None,
                 });
             },
         )

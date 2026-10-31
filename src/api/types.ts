@@ -230,6 +230,7 @@ export interface OperationProgressPayload {
   processed: number;
   total: number;
   currentPath: string;
+  phase?: string;
 }
 
 export interface GlobalHotkeyErrorPayload {

@@ -155,6 +155,10 @@ describe("File Library manual management workflow", () => {
     expect(document.querySelector(".fm-task-progress")?.textContent).toContain(`1/2 · ${t("fmTaskItems")}`);
     expect(document.querySelector(".fm-task-progress")?.textContent).toContain("C:/Source/one.txt");
     expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmTaskBytesUnknown"));
+    useOperationQueueStore.setState({ operationProgress: { kind: "execute", batchId: "batch", processed: 0, total: 1, currentPath: "C:/Source/Folder", phase: "copying" } });
+    await render();
+    expect(document.querySelector(".fm-task-progress strong")?.textContent).toBe(t("fmTaskPhaseCopying"));
+    expect(document.querySelector(".fm-task-progress progress")?.hasAttribute("value")).toBe(false);
     await click(t("fmCancelRunning"));
     await act(async () => { resolve({ batch_id: "batch", logs: result(["failed", "failed"]) }); });
     await settle();

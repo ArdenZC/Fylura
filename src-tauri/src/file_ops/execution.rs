@@ -287,6 +287,14 @@ fn execute_moves_core_with_identity(
                             crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(message)
                         }
                     })?;
+                    emitter.emit_progress(OperationProgressPayload {
+                        kind: "execute".to_string(),
+                        batch_id: batch_id.clone(),
+                        processed: index as u64,
+                        total,
+                        current_path: operation.source_path.clone(),
+                        phase: Some(phase.to_string()),
+                    });
                 }
                 Ok(())
             };

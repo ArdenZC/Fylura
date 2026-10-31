@@ -53,7 +53,7 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
 describe("File Library manual management workflow", () => {
-  it.each(["Control", "Meta"])("uses backend IDs for %s shortcuts, leaves text editing alone, and auto-executes a conflict-free paste after backend preview", async (modifier) => {
+  it.each(["Control", "Meta"])("uses backend IDs for %s shortcuts, leaves text editing alone, and requires confirmation after paste preview", async (modifier) => {
     await render();
     const input=document.createElement("input");document.body.appendChild(input);input.focus();
     await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown",{key:"c",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
@@ -62,27 +62,36 @@ describe("File Library manual management workflow", () => {
     expect(api.captureTransfer).toHaveBeenCalledWith({selection:{kind:"explicit",fileIds:["managed-one","managed-two"]}});
     await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown",{key:"v",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
     await flush();
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(api.previewTransfer).not.toHaveBeenCalled();
+    await click(t("fmPrepare"));
     expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
+    expect(api.executeTransfer).not.toHaveBeenCalled();
+    await click(t("fmConfirm"));
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(refresh).toHaveBeenCalledOnce();expect(clear).toHaveBeenCalledOnce();expect(mocks.close).toHaveBeenCalled();
   });
-  it("waits for preview handle release before invoking a mutation", async () => {
+  it("waits for preview handle release before invoking a confirmed mutation", async () => {
     useFileManagementStore.setState({clipboard:{action:"copy",tickets}});
     let release!: () => void;
     mocks.close.mockImplementationOnce(() => new Promise<void>((resolve) => { release=resolve; }));
-    await render(); await click(`${t("fmPaste")} (2)`); await flush();
+    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare")); await click(t("fmConfirm")); await flush();
     expect(api.executeTransfer).not.toHaveBeenCalled();
     await act(async () => { release(); });
     expect(api.executeTransfer).toHaveBeenCalledOnce();
   });
-  it("picks an explicit destination before auto-executing a conflict-free toolbar Move", async () => {
+  it("picks an explicit destination, previews it, and waits for toolbar Move confirmation", async () => {
     mocks.open.mockResolvedValueOnce("C:/Elsewhere");
     await render();
     await click(t("fmMove"));
     await flush();
     expect(mocks.open).toHaveBeenCalledWith({ directory: true, multiple: false, title: t("fmDestination") });
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(api.previewTransfer).not.toHaveBeenCalled();
+    await click(t("fmPrepare"));
     expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["one", "two"], action: "move", destinationDirectory: "C:/Elsewhere", skip: [], keepBoth: [] });
+    expect(api.executeTransfer).not.toHaveBeenCalled();
+    await click(t("fmConfirm"));
     expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-preview", confirmed: true });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(refresh).toHaveBeenCalledOnce();
@@ -91,7 +100,7 @@ describe("File Library manual management workflow", () => {
     useFileManagementStore.setState({clipboard:{action:"copy",tickets}});
     let resolve!: (value: TransferPreview) => void;
     vi.mocked(api.previewTransfer).mockImplementationOnce(() => new Promise((r) => { resolve=r; }));
-    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmCancel"));
+    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare")); await click(t("fmCancel"));
     expect(tauriApi.cancelOperations).not.toHaveBeenCalled();
     await act(async () => { resolve(plan()); });
     expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(api.executeTransfer).not.toHaveBeenCalled();
@@ -100,7 +109,7 @@ describe("File Library manual management workflow", () => {
   it.each(["failed", "skipped"])("keeps %s cut/basket references after partial success and requests normal cancellation", async (remainingStatus) => {
     useFileManagementStore.setState({basket:tickets,clipboard:{action:"move",tickets},basketOpen:true});
     let resolve!: (value: any) => void;vi.mocked(api.executeTransfer).mockImplementation(() => new Promise((r)=>{resolve=r;}));
-    await render();await click(`${t("fmPaste")} (2)`);await flush();
+    await render();await click(`${t("fmPaste")} (2)`);await click(t("fmPrepare"));await click(t("fmConfirm"));await flush();
     await click(t("fmCancelRunning"));expect(tauriApi.cancelOperations).toHaveBeenCalledOnce();
     await act(async()=>{resolve({batch_id:"batch",logs:result(["success",remainingStatus])});});
     expect(useFileManagementStore.getState().basket.map((ticket)=>ticket.id)).toEqual(["two"]);
@@ -111,8 +120,8 @@ describe("File Library manual management workflow", () => {
     useFileManagementStore.setState({basket:tickets,basketOpen:true});
     const conflict=plan();conflict.rows[0]={ticketId:"one",preview:null,error:"transfer_source_changed",skipped:false};
     vi.mocked(api.previewTransfer).mockResolvedValue(conflict);
-    await render();await click(t("fmCopyBasket"));await flush();
-    expect(document.querySelector('[role="dialog"]')).toBeNull();expect(document.body.textContent).toContain(t("fmStale"));
+    await render();await click(t("fmCopyBasket"));await click(t("fmPrepare"));await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();expect(document.body.textContent).toContain(t("fmStale"));
     expect(useFileManagementStore.getState().statuses.one).toContain(t("fmStale"));
     expect(api.executeTransfer).not.toHaveBeenCalled();expect(useFileManagementStore.getState().basket).toHaveLength(2);
   });
@@ -140,7 +149,7 @@ describe("File Library manual management workflow", () => {
     const conflict = plan();
     conflict.rows[0] = { ticketId: "one", preview: null, error: "transfer_target_exists", skipped: false };
     vi.mocked(api.previewTransfer).mockResolvedValueOnce(conflict);
-    await render(); await click(`${t("fmPaste")} (2)`); await flush();
+    await render(); await click(`${t("fmPaste")} (2)`); await click(t("fmPrepare")); await flush();
     expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     const resolution = document.querySelector<HTMLSelectElement>(".fm-preview select")!;
     await act(async () => { resolution.value = "skip"; resolution.dispatchEvent(new Event("change", {bubbles:true})); });
@@ -171,7 +180,12 @@ describe("File Library manual management workflow", () => {
     await act(async () => useFileManagementStore.getState().requestAction("copy_other"));
     expect(api.captureTransfer).toHaveBeenCalledWith({selection:source.selection});
     await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(api.previewTransfer).not.toHaveBeenCalled();
+    await click(t("fmPrepare"));
     expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
+    expect(api.executeTransfer).not.toHaveBeenCalled();
+    await click(t("fmConfirm"));
     expect(beforeMutation).toHaveBeenCalledOnce();
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(afterMutation).toHaveBeenCalledWith(["C:/Target","C:/Source","C:/Other"]);
@@ -236,9 +250,10 @@ describe("File Library manual management workflow", () => {
     vi.mocked(api.previewTransfer).mockResolvedValue(denied);
     await render();
     await click(`${t("fmPaste")} (2)`);
-    await flush();
+    await click(t("fmPrepare"));
     expect(document.body.textContent).toContain("permission denied: access_denied");
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(button(t("fmConfirm")).disabled).toBe(true);
     expect(api.executeTransfer).not.toHaveBeenCalled();
   });
 

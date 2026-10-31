@@ -118,15 +118,14 @@ try {
   await dialog.waitFor({ state: "hidden" });
   await compare.getByRole("button", { name: "Visible only on left 1", exact: true }).waitFor();
   checks.push("Move preview cancel leaves source; subsequent confirmed Move refreshes comparison");
-  // Directory eligibility remains a backend-preview decision.
+  // Windows directory transfers stay unavailable until staging and restore exist.
   await compare.getByRole("button", { name: "Subfolder · not compared 1", exact: true }).click();
   await actions.first().getByRole("button", { name: "Select filtered side", exact: true }).click();
-  await actions.first().getByRole("button", { name: "Copy to other pane", exact: true }).click();
-  await prepare();
-  assert.equal(await dialog.getByRole("button", { name: "Confirm operation", exact: true }).isEnabled(), false);
-  assert.match(await dialog.innerText(), /directory|directories/i);
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  checks.push("Unsupported directory preview cannot execute");
+  const windowsDirectoryCopy = actions.first().getByRole("button", { name: "Copy to other pane", exact: true });
+  assert.equal(await windowsDirectoryCopy.isDisabled(), true);
+  assert.match(await windowsDirectoryCopy.getAttribute("title"), /Windows folder transfer is unavailable/i);
+  await actions.first().getByRole("button", { name: "Clear selection", exact: true }).click();
+  checks.push("Windows directory transfer is explicitly disabled with an explanation");
   await compare.getByRole("button", { name: /Visible only on right/ }).click();
   await page.evaluate(() => document.documentElement.classList.add("dark"));
   await screenshot("07-filter-dark.png");

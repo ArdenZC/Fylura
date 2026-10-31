@@ -27,7 +27,6 @@ type TransferIntent = {
   origin: "selection" | "clipboard" | "basket";
   sourcePaneId?: string;
   sourceSignature?: string;
-  automatic: boolean;
 };
 
 export function FileManagementToolbar() {
@@ -90,7 +89,6 @@ export function FileManagementToolbar() {
   const [destination, setDestination] = useState(""); const [plan, setPlan] = useState<TransferPreview | null>(null);
   const [skip, setSkip] = useState<string[]>([]); const [keepBoth, setKeepBoth] = useState<string[]>([]);
   const [progress, setProgress] = useState<OperationProgressPayload | null>(null);
-  const [automaticTask, setAutomaticTask] = useState<"preparing" | "executing" | null>(null);
   const destinationRef = useRef<HTMLInputElement | null>(null); const restoreRef = useRef<HTMLElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const preparing = useRef(0); const mounted = useRef(true); const busyRef = useRef(false);
@@ -166,17 +164,14 @@ export function FileManagementToolbar() {
     const nextDestination = options?.destination ?? (action === "rename" && tickets[0]
       ? tickets[0].path.replace(/[/\\][^/\\]+$/, "")
       : currentPath);
-    const automatic = (action === "copy" || action === "move") && nextDestination.trim().length > 0;
-    const nextTransfer: TransferIntent = { tickets, action, origin, automatic, sourcePaneId: options?.sourcePaneId, sourceSignature: options?.sourceSignature };
+    const nextTransfer: TransferIntent = { tickets, action, origin, sourcePaneId: options?.sourcePaneId, sourceSignature: options?.sourceSignature };
     useFileManagementStore.setState({ results: [], transferOpen: true }); setPreviewPage(0); setResultPage(0);
     setTransfer(nextTransfer);
     setDestination(nextDestination);
     setPlan(null); setSkip([]); setKeepBoth([]); setNewName(action === "rename" ? tickets[0]?.name ?? "" : ""); setError("");
-    if (automatic) void prepareForTransfer(nextTransfer, nextDestination, "", [], [], true);
   }
   function closeTransfer() {
     preparing.current++; setTransfer(null); setPlan(null); useFileManagementStore.setState({ transferOpen: false });
-    setAutomaticTask(null);
     if (transfer?.origin === "selection") void releaseUnused(transfer.tickets.map((ticket) => ticket.id)).catch((value) => { if (mounted.current) setError(describeError(value)); });
   }
   function moveSelection() {
@@ -238,7 +233,7 @@ export function FileManagementToolbar() {
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     useFileManagementStore.setState({ results: [], transferOpen: true });
     setPreviewPage(0); setResultPage(0);
-    setTransfer({ tickets: [], action: "create_directory", origin: "selection", automatic: false });
+    setTransfer({ tickets: [], action: "create_directory", origin: "selection" });
     setDestination(currentPath); setNewName(t("fmNewFolderDefault")); setPlan(null); setSkip([]); setKeepBoth([]); setError("");
   }
   function paste() { const clipboard = useFileManagementStore.getState().clipboard; if (clipboard) begin(clipboard.tickets, clipboard.action, "clipboard"); }
@@ -295,21 +290,11 @@ export function FileManagementToolbar() {
     const path = Array.isArray(result) ? result[0] : result;
     if (path) { setDestination(path); setPlan(null); }
   }
-  async function prepareForTransfer(intent: TransferIntent, target: string, name: string, nextSkip: string[], nextBoth: string[], automatic: boolean) {
+  async function prepareForTransfer(intent: TransferIntent, target: string, name: string, nextSkip: string[], nextBoth: string[]) {
     const epoch = ++preparing.current;
     setPlan(null);
-    if (automatic) setAutomaticTask("preparing");
     await run(async () => {
-      let next: TransferPreview;
-      try {
-        next = await api.previewTransfer({ ticketIds: intent.tickets.map((ticket) => ticket.id), action: intent.action, destinationDirectory: target, ...(intent.action === "rename" || intent.action === "create_directory" ? { newName: name } : {}), skip: nextSkip, keepBoth: nextBoth });
-      } catch (value) {
-        if (automatic && mounted.current && preparing.current === epoch) {
-          setTransfer(null); setAutomaticTask(null); useFileManagementStore.setState({ transferOpen: false });
-          if (intent.origin === "selection") await releaseUnused(intent.tickets.map((ticket) => ticket.id));
-        }
-        throw value;
-      }
+      const next: TransferPreview = await api.previewTransfer({ ticketIds: intent.tickets.map((ticket) => ticket.id), action: intent.action, destinationDirectory: target, ...(intent.action === "rename" || intent.action === "create_directory" ? { newName: name } : {}), skip: nextSkip, keepBoth: nextBoth });
       if (!mounted.current || preparing.current !== epoch) return;
       setPlan(next);
       const firstProblem = next.rows.find((row) => row.error && !row.skipped);
@@ -317,29 +302,11 @@ export function FileManagementToolbar() {
       const statuses = { ...useFileManagementStore.getState().statuses };
       next.rows.forEach((row) => { if (row.error) statuses[row.ticketId] = describeError(row.error); else delete statuses[row.ticketId]; });
       useFileManagementStore.setState({ statuses });
-
-      if (!automatic) return;
-      const hasConflict = next.rows.some((row) => !row.skipped && row.error?.includes("target_exists"));
-      if (hasConflict) {
-        setTransfer({ ...intent, automatic: false });
-        setAutomaticTask(null);
-        return;
-      }
-      const blocking = next.rows.find((row) => row.error && !row.skipped);
-      const incomplete = next.rows.length !== intent.tickets.length || next.rows.some((row) => !row.skipped && !row.preview);
-      if (blocking || incomplete) {
-        setError(describeError(blocking?.error ?? "transfer_preview_incomplete"));
-        setTransfer(null); setPlan(null); setAutomaticTask(null); useFileManagementStore.setState({ transferOpen: false });
-        if (intent.origin === "selection") await releaseUnused(intent.tickets.map((ticket) => ticket.id));
-        return;
-      }
-      setAutomaticTask("executing");
-      await executePlan(next, intent);
     });
   }
   async function prepare(nextSkip = skip, nextBoth = keepBoth) {
     if (!transfer) return;
-    await prepareForTransfer(transfer, destination, newName, nextSkip, nextBoth, false);
+    await prepareForTransfer(transfer, destination, newName, nextSkip, nextBoth);
   }
   async function executePlan(acceptedPlan: TransferPreview, acceptedTransfer: TransferIntent) {
       cancelRequested.current = false; executionSent.current = false;
@@ -349,7 +316,7 @@ export function FileManagementToolbar() {
         dispose = await tauriApi.onOperationProgress((update) => { if (mounted.current && update.kind === "execute") setProgress(update); });
         if (pane) await pane.beforeMutation(); else await previewController.closeForFileOperation();
         if (cancelRequested.current) {
-          setTransfer(null); setAutomaticTask(null); useFileManagementStore.setState({ transferOpen: false });
+          setTransfer(null); useFileManagementStore.setState({ transferOpen: false });
           if (acceptedTransfer.origin === "selection") await releaseUnused(acceptedTransfer.tickets.map((ticket) => ticket.id));
           return;
         }
@@ -358,7 +325,7 @@ export function FileManagementToolbar() {
         try { result = await api.executeTransfer({ previewId: acceptedPlan.id, confirmed: true }); }
         catch (value) {
           setError(`${t("fmExecutionUncertain")} ${readableError(value)}`);
-          if (acceptedTransfer.automatic) { setTransfer(null); setPlan(null); setAutomaticTask(null); useFileManagementStore.setState({ transferOpen: false }); }
+          setPlan(null);
           return;
         }
         const rows = acceptedPlan.rows.filter((row) => !row.skipped && row.preview);
@@ -367,7 +334,7 @@ export function FileManagementToolbar() {
         const current = useFileManagementStore.getState();
         useFileManagementStore.setState({ results: result.logs, statuses, basketOpen: false,
           ...(["move", "trash"].includes(acceptedTransfer.action) ? { basket: current.basket.filter((ticket) => !succeeded.has(ticket.id)), clipboard: current.clipboard ? { ...current.clipboard, tickets: current.clipboard.tickets.filter((ticket) => !succeeded.has(ticket.id)) } : null } : {}) });
-        setTransfer(null); setPlan(null); setAutomaticTask(null); setNotice(t("fmFinished")); useFileManagementStore.setState({ transferOpen: false });
+        setTransfer(null); setPlan(null); setNotice(t("fmFinished")); useFileManagementStore.setState({ transferOpen: false });
         if (result.logs.some((log) => log.status !== "success")) setPanel("results");
         previewController.close("escape");
         const affectedSurface = acceptedTransfer.sourcePaneId ? useFileManagementStore.getState().surfaces[acceptedTransfer.sourcePaneId]?.read() : currentSurface();
@@ -447,11 +414,6 @@ export function FileManagementToolbar() {
       {!!state.results.length && <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "results"} onClick={(event) => panel === "results" ? closePanel() : openPanel("results", event.currentTarget)}>{state.results.some((log) => log.status !== "success") ? <AlertTriangle size={14}/> : <Check size={14}/>}<span>{resultsSummary}</span></button>}
     </div>
     {focused && !transfer && (error || notice) && <div className="fm-notice" role={error ? "alert" : "status"}>{error || notice}<button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => { setError(""); setNotice(""); }}><X size={14}/></button></div>}
-     {focused && transfer?.automatic && automaticTask && <div className="fm-notice fm-task" role="status" aria-live="polite">
-       <span>{t(automaticTask === "preparing" ? "fmPrepare" : "fmRunning")}</span>
-       {progress && <><progress max={progress.total || 1} value={progress.processed}/><span>{cancelling ? t("fmCancelPending") : `${progress.processed}/${progress.total}`} · {progress.currentPath}</span></>}
-       <button className={buttonGhost} disabled={cancelling} onClick={cancelTask}>{t(progress ? "fmCancelRunning" : "fmCancel")}</button>
-     </div>}
     {panelOpen && <div ref={panelRef} id={panelId} className="fm-panel" role="region" aria-label={panelTitle}>
       <div className="fm-panel-heading"><h2>{panelTitle}{state.basketOpen ? ` (${state.basket.length})` : ""}</h2><button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => closePanel()}><X size={16}/></button></div>
       <div className="fm-panel-body">
@@ -484,7 +446,7 @@ export function FileManagementToolbar() {
       </>}
       </div>
     </div>}
-    {transfer && !transfer.automatic && <ModalPortal initialFocusRef={transfer.action === "rename" || transfer.action === "create_directory" ? nameInputRef : destinationRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={() => { if (!progress) closeTransfer(); }}>
+    {transfer && <ModalPortal initialFocusRef={transfer.action === "rename" || transfer.action === "create_directory" ? nameInputRef : destinationRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={() => { if (!progress) closeTransfer(); }}>
       <div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4">
         <section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-transfer-title-${pane.id}` : "fm-transfer-title"} aria-busy={busy}>
           <header className="fm-dialog-header">

@@ -1005,8 +1005,6 @@ fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_for
     );
     assert!(!target.exists());
 
-    let link_path = source.join("Contents/MacOS/内容链接");
-    std::os::unix::fs::symlink("内容.bin", &link_path).expect("symlink fixture");
     let link_ticket = runtime
         .capture_transfer(CaptureRequest {
             refs: vec![],
@@ -1016,6 +1014,8 @@ fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_for
         })
         .unwrap()
         .remove(0);
+    let link_path = source.join("Contents/MacOS/内容链接");
+    std::os::unix::fs::symlink("内容.bin", &link_path).expect("symlink fixture");
     let link_plan = preview(
         &runtime,
         vec![link_ticket.id],

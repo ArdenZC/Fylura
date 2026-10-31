@@ -595,10 +595,10 @@ impl FileWorkspaceRuntime {
         }
         for operation in &plan.operations {
             let revalidation = revalidate(operation);
-            if let Err(error) = &revalidation {
+            if let Err(_error) = &revalidation {
                 #[cfg(test)]
                 eprintln!(
-                    "transfer stale at take: revalidation error={error} op={} source={} target={}",
+                    "transfer stale at take: revalidation error={_error} op={} source={} target={}",
                     operation.id, operation.source_path, operation.target_path
                 );
             }

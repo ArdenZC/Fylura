@@ -949,7 +949,7 @@ fn cleanup_operation_preview_only_includes_safe_trash_candidates() {
 
     #[cfg(target_os = "macos")]
     {
-        assert_eq!(preview.previews[0].target_path, "Zen Canvas Safe Trash");
+        assert_eq!(preview.previews[0].target_path, "Fylura Safe Trash");
         assert_eq!(preview.previews[0].is_executable, Some(true));
         assert_eq!(preview.previews[0].blocking_reason, None);
     }

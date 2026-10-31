@@ -9,21 +9,30 @@ on:
       - "src-tauri/src/global_index/**"
       - "scripts/validate_issue494_1m_evidence.py"
       - ".github/workflows/issue-494-rowid-boundary-qualification.yml"
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact Owner-authorized Issue 494 candidate source SHA
+        required: true
+        type: string
+        default: 0251f3c1cbaa2f82703fffa3470153381f25c46f
 
 permissions:
   contents: read
 
 concurrency:
-  group: issue-494-rowid-boundary-${{ github.event.pull_request.head.sha || github.sha }}
+  group: issue-494-rowid-boundary-${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
   classify-latest-commit:
     if: >-
       ${{
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
-        github.event.pull_request.head.repo.full_name == github.repository
+        (github.event_name == 'pull_request' &&
+         github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
+         github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'workflow_dispatch' &&
+         github.ref == 'refs/heads/codex/issue-494-fts-rowid-boundary')
       }}
     runs-on: ubuntu-latest
     outputs:
@@ -41,6 +50,10 @@ jobs:
       - name: Classify the latest commit's qualification scope
         id: scope
         shell: pwsh
+        env:
+          ISSUE494_EVENT_NAME: ${{ github.event_name }}
+          ISSUE494_REF: ${{ github.ref }}
+          ISSUE494_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
           $changed = @(git diff --name-only HEAD^ HEAD)
           if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the exact PR-head commit.' }
@@ -49,13 +62,23 @@ jobs:
           $millionHelper = 'src-tauri/src/global_index/tests/issue494_1m_qualification.rs'
           $evidenceValidator = 'scripts/validate_issue494_1m_evidence.py'
           $workflow = '.github/workflows/issue-494-rowid-boundary-qualification.yml'
+          $authorizedMillionSha = '0251f3c1cbaa2f82703fffa3470153381f25c46f'
+          $manualMillion = (
+            $env:ISSUE494_EVENT_NAME -eq 'workflow_dispatch' -and
+            $env:ISSUE494_REF -eq 'refs/heads/codex/issue-494-fts-rowid-boundary' -and
+            $env:ISSUE494_CANDIDATE_SHA -eq $authorizedMillionSha
+          )
+          if ($env:ISSUE494_EVENT_NAME -eq 'workflow_dispatch' -and -not $manualMillion) {
+            throw 'Manual Issue 494 qualification is limited to the Owner-authorized 0251f3c source SHA on the PR branch.'
+          }
           # Keep the expensive 1M qualification behind changes to its dedicated
-          # helper only. Candidate harness and workflow edits belong to the
-          # bounded 100k/200k preflight; validator-only edits are checked
-          # offline against preserved raw evidence.
-          $runMillion = $changed -contains $millionHelper
+          # helper for PR events. The separately authorized manual dispatch
+          # pins the candidate checkout to the exact approved SHA.
+          $runMillion = ($changed -contains $millionHelper) -or $manualMillion
           $runWriter = ($changed -contains $writerTest) -and -not $runMillion
-          $runSearch = ($changed -contains $candidateHarness) -or ($changed -contains $workflow)
+          # A workflow-only dispatch-plumbing commit must not repeat the
+          # previously completed 100k/200k or writer-only matrices.
+          $runSearch = ($changed -contains $candidateHarness)
           foreach ($path in $changed) {
             if ($path -eq $writerTest -or $path -eq $candidateHarness -or
                 $path -eq $millionHelper -or $path -eq $evidenceValidator -or $path -eq $workflow) { continue }
@@ -195,9 +218,12 @@ jobs:
     if: >-
       ${{
         needs.classify-latest-commit.outputs.run_million == 'true' &&
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
-        github.event.pull_request.head.repo.full_name == github.repository
+        ((github.event_name == 'pull_request' &&
+          github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
+          github.event.pull_request.head.repo.full_name == github.repository) ||
+         (github.event_name == 'workflow_dispatch' &&
+          github.ref == 'refs/heads/codex/issue-494-fts-rowid-boundary' &&
+          inputs.candidate_sha == '0251f3c1cbaa2f82703fffa3470153381f25c46f'))
       }}
     name: ${{ matrix.label }} 1M native Release qualification
     strategy:
@@ -213,7 +239,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
     env:
-      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
       CARGO_BUILD_JOBS: 2
       ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "1000000"
       ZC_GLOBAL_SEARCH_BENCHMARK_IDLE_SECONDS: "1800"
@@ -223,7 +249,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
           persist-credentials: false
 

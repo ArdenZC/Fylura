@@ -171,6 +171,7 @@ export function FileManagementToolbar() {
   }, []);
   const describeError = useCallback((value: unknown) => {
     const detail = readableError(value);
+    if (detail.startsWith("symlink_or_reparse_point") || detail.startsWith("reparse_point") || detail.startsWith("symlink")) return localizedStableError(detail, t);
     const key = detail.includes("transfer_windows_directory_move_unsupported") || detail.includes("transfer_windows_cross_volume_directory_move_unsupported") ? "fmDirectoryMoveUnsupported" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
     return `${t(key)} ${detail}`;
   }, [t]);

@@ -995,6 +995,43 @@ fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_for
         source_acl
     );
     assert!(!target.exists());
+
+    let link_path = source.join("Contents/MacOS/内容链接");
+    std::os::unix::fs::symlink("内容.bin", &link_path).expect("symlink fixture");
+    let link_ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let link_plan = preview(
+        &runtime,
+        vec![link_ticket.id],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    assert!(
+        link_plan.rows[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("symlink_or_reparse_point")),
+        "an unpreserved link must be explicitly rejected: {:?}",
+        link_plan.rows[0].error
+    );
+    assert!(
+        source.exists(),
+        "rejected link operation must keep its source"
+    );
+    assert!(
+        !target.exists(),
+        "rejected link operation must not publish a target"
+    );
+    fs::remove_file(link_path).expect("remove symlink fixture");
     runtime.dispose();
     volume.detach().expect("detach task-owned APFS fixture");
 }

@@ -28,6 +28,7 @@ describe("stable error codes", () => {
     expect(localizedStableError("system_trash_source_binding_unsupported", zh)).toContain("系统回收站");
     expect(localizedStableError("directory_tree_limit_exceeded", en)).toContain("entry or nesting limit");
     expect(localizedStableError("transfer_nested_volume_unsupported", zh)).toContain("挂载卷");
+    expect(localizedStableError("symlink_or_reparse_point", en)).toContain("symlink or reparse point");
   });
 
   it("preserves unknown technical details for diagnostics", () => {

@@ -565,12 +565,7 @@ pub(crate) fn copy_commit_source_stable(
             let staging_physical = capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
             Ok(CopyProof::Structural { staging_physical })
         }
-        ClaimedEntryKind::Symlink => {
-            let link_target = readlink_at(source_parent.raw_fd(), source_name)?;
-            symlink_at(&link_target, target_parent.raw_fd(), &staging_name)?;
-            let staging_physical = capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
-            Ok(CopyProof::Structural { staging_physical })
-        }
+        ClaimedEntryKind::Symlink => Err(AtomicMoveError::Symlink),
     };
     let copy_proof = match copy_proof {
         Ok(proof) => proof,
@@ -818,12 +813,7 @@ fn copy_object(
             let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
             Ok(CopyProof::Structural { staging_physical })
         }
-        ClaimedEntryKind::Symlink => {
-            let target = fs::read_link(claim.current_path()).map_err(AtomicMoveError::Io)?;
-            symlink_at(&target, target_parent_fd, staging_name)?;
-            let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
-            Ok(CopyProof::Structural { staging_physical })
-        }
+        ClaimedEntryKind::Symlink => Err(AtomicMoveError::Symlink),
     }
 }
 
@@ -1309,10 +1299,7 @@ fn copy_tree_from_fd(
         }
         let relative_path = relative_prefix.join(&name);
         match source_identity.file_type {
-            value if value == libc::S_IFLNK as u32 => {
-                let target = readlink_at(source_fd, &name)?;
-                symlink_at(&target, destination_fd, &name)?;
-            }
+            value if value == libc::S_IFLNK as u32 => return Err(AtomicMoveError::Symlink),
             value if value == libc::S_IFDIR as u32 => {
                 let source_directory = open_file_at_directory(source_fd, &name)?;
                 let destination_directory = create_staging_directory(destination_fd, &name)?;
@@ -1401,35 +1388,6 @@ fn linkat(
         } else {
             Err(AtomicMoveError::Io(error))
         }
-    }
-}
-
-fn readlink_at(parent_fd: RawFd, name: &OsStr) -> Result<PathBuf, AtomicMoveError> {
-    use std::os::unix::ffi::OsStringExt;
-
-    let name = CString::new(name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
-    let mut buffer = vec![0_u8; 1024];
-    loop {
-        let length = unsafe {
-            libc::readlinkat(
-                parent_fd,
-                name.as_ptr(),
-                buffer.as_mut_ptr().cast(),
-                buffer.len(),
-            )
-        };
-        if length < 0 {
-            return Err(AtomicMoveError::Io(io::Error::last_os_error()));
-        }
-        let length = length as usize;
-        if length < buffer.len() {
-            buffer.truncate(length);
-            return Ok(PathBuf::from(std::ffi::OsString::from_vec(buffer)));
-        }
-        if buffer.len() >= 1024 * 1024 {
-            return Err(AtomicMoveError::UnsafePath);
-        }
-        buffer.resize(buffer.len() * 2, 0);
     }
 }
 
@@ -1801,17 +1759,6 @@ fn list_xattr_sizes(file: &File) -> Result<Vec<(Vec<u8>, isize)>, AtomicMoveErro
     }
     result.sort_unstable();
     Ok(result)
-}
-
-fn symlink_at(target: &Path, parent_fd: RawFd, name: &OsStr) -> Result<(), AtomicMoveError> {
-    let target =
-        CString::new(target.as_os_str().as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
-    let name = CString::new(name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
-    if unsafe { libc::symlinkat(target.as_ptr(), parent_fd, name.as_ptr()) } == 0 {
-        Ok(())
-    } else {
-        Err(AtomicMoveError::Io(io::Error::last_os_error()))
-    }
 }
 
 fn rename_noreplace(

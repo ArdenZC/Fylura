@@ -19,12 +19,14 @@ TEMP_ROOT="$TASK_ROOT/tmp"
 BUNDLE_ID="com.startlan.fylura"
 LEGACY_BUNDLE_ID="com.startlan.zencanvas"
 DATABASE_PATH="$PROFILE_ROOT/Library/Application Support/$BUNDLE_ID/fylura.sqlite3"
+LEGACY_DATABASE_PATH="$PROFILE_ROOT/Library/Application Support/$LEGACY_BUNDLE_ID/zen-canvas.sqlite3"
 APP_PID=""
 SOURCE_APP=""
 APP_BINARY=""
 MOUNT_ATTACHED=0
 LAUNCH_COUNT=0
 DATABASE_INTEGRITY="not_checked"
+LEGACY_DATABASE_ABSENT=1
 APP_REMOVED=0
 STATUS="FAIL"
 
@@ -37,8 +39,10 @@ write_evidence() {
     INSTALLED_APP="$INSTALLED_APP" \
     BUNDLE_ID="$BUNDLE_ID" \
     DATABASE_PATH="$DATABASE_PATH" \
+    LEGACY_DATABASE_PATH="$LEGACY_DATABASE_PATH" \
     LAUNCH_COUNT="$LAUNCH_COUNT" \
     DATABASE_INTEGRITY="$DATABASE_INTEGRITY" \
+    LEGACY_DATABASE_ABSENT="$LEGACY_DATABASE_ABSENT" \
     APP_REMOVED="$APP_REMOVED" \
     python3 - "$EVIDENCE_PATH" <<'PY'
 import json
@@ -54,8 +58,10 @@ document = {
     "installedApp": os.environ["INSTALLED_APP"],
     "bundleIdentifier": os.environ["BUNDLE_ID"],
     "databasePath": os.environ["DATABASE_PATH"],
+    "legacyDatabasePath": os.environ["LEGACY_DATABASE_PATH"],
     "successfulLaunches": int(os.environ["LAUNCH_COUNT"]),
     "databaseIntegrity": os.environ["DATABASE_INTEGRITY"],
+    "legacyDatabaseAbsent": os.environ["LEGACY_DATABASE_ABSENT"] == "1",
     "appBundleRemoved": os.environ["APP_REMOVED"] == "1",
     "userDatabasePreserved": os.environ["APP_REMOVED"] == "1",
 }
@@ -153,6 +159,11 @@ if [[ ! -x "$APP_BINARY" ]]; then
 fi
 
 check_database() {
+  if [[ -e "$LEGACY_DATABASE_PATH" ]]; then
+    LEGACY_DATABASE_ABSENT=0
+    echo "Fylura created or altered the legacy database path in the isolated profile: $LEGACY_DATABASE_PATH" >&2
+    return 1
+  fi
   if [[ ! -f "$DATABASE_PATH" ]]; then
     echo "Fylura did not create its database at the isolated app-data path: $DATABASE_PATH" >&2
     return 1

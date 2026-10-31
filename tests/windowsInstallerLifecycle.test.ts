@@ -79,6 +79,11 @@ const releaseWorkflowPath = path.join(
   "workflows",
   "release-build.yml",
 );
+const nsisLifecycleRuntimeScriptPath = path.join(
+  repositoryRoot,
+  "scripts",
+  "verifyWindowsNsisLifecycle.ps1",
+);
 
 function sectionBody(source: string, sectionName: string) {
   const start = source.indexOf(`Section ${sectionName}`);
@@ -441,6 +446,19 @@ function freshDetectionSeesProduct(
 }
 
 describe("W4-04 package NSIS lifecycle", () => {
+  it("does not assume unrelated Add/Remove Programs keys contain Fylura metadata", () => {
+    const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
+    const start = source.indexOf("function Get-FyluraUninstallEntries");
+    const end = source.indexOf("\n}", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const lookup = source.slice(start, end);
+
+    expect(lookup).toContain("$properties.PSObject.Properties['DisplayName']");
+    expect(lookup).toContain("$properties.PSObject.Properties['InstallLocation']");
+    expect(lookup).not.toContain("$properties.DisplayName");
+  });
+
   it("pins the exact Tauri 2.11.2 upstream template and package-only custom template", () => {
     expect(TAURI_NSIS_UPSTREAM_BLOB_SHA).toBe("a48a46149f6d6bdc76a0bf13f53e4acdfedb310b");
     const upstream = fs.readFileSync(upstreamPath, "utf8");

@@ -95,8 +95,13 @@ function Get-FyluraUninstallEntries {
     $matches = @(
         Get-ChildItem -LiteralPath $uninstallRoot -ErrorAction Stop | ForEach-Object {
             $properties = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
-            if ($properties.DisplayName -eq 'Fylura') {
-                [pscustomobject]@{ key = $_.PSChildName; installLocation = $properties.InstallLocation }
+            $displayNameProperty = if ($null -ne $properties) { $properties.PSObject.Properties['DisplayName'] }
+            if ($null -ne $displayNameProperty -and $displayNameProperty.Value -eq 'Fylura') {
+                $installLocationProperty = $properties.PSObject.Properties['InstallLocation']
+                [pscustomobject]@{
+                    key = $_.PSChildName
+                    installLocation = if ($null -ne $installLocationProperty) { $installLocationProperty.Value } else { $null }
+                }
             }
         } | Where-Object { $_ }
     )

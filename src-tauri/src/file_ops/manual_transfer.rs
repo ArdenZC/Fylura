@@ -696,10 +696,10 @@ fn snapshot(
         validate_transfer_source_path(source)?
     };
     let source_is_directory = source.is_dir();
-    if cfg!(windows) && source_is_directory && action == TransferAction::Move {
-        return Err("transfer_windows_directory_move_unsupported".into());
-    }
     ensure_not_safe_trash_operation(&source)?;
+    // Directory moves stay on the shared atomic-move path. Windows supports
+    // this only when the verified source claim and destination parent are on
+    // the same volume; atomic_move fails closed for cross-volume directories.
     let tree_fingerprint =
         if source_is_directory && matches!(action, TransferAction::Copy | TransferAction::Move) {
             Some(directory_tree_snapshot(&source)?)
@@ -713,6 +713,14 @@ fn snapshot(
     ensure_general_file_operation_allowed(destination_root)?;
     ensure_not_safe_trash_operation(destination_root)?;
     let identity = file_namespace_fingerprint(&source)?;
+    #[cfg(windows)]
+    if source_is_directory && action == TransferAction::Move {
+        if identity.platform_volume_id.as_deref()
+            != Some(destination.identity().volume_id.as_str())
+        {
+            return Err("transfer_windows_cross_volume_directory_move_unsupported".into());
+        }
+    }
     let canonical_root = destination_root
         .canonicalize()
         .map_err(|error| format!("transfer_destination_identity:{error}"))?;

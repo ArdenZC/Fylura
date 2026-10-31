@@ -5,7 +5,9 @@
 Fylura supports:
 
 - Windows, with the existing source-handle and verified-directory mutation
-  authority;
+  authority. Same-volume directory Move uses the existing no-replace atomic
+  source claim and operation journal; cross-volume directory Move remains
+  explicitly unsupported and is refused by the backend;
 - macOS 13 or later on Apple Silicon (`aarch64-apple-darwin`), with the
   recoverable namespace and provider-coordination strategies described in
   `MACOS_MUTATION_THREAT_MODEL.md`.

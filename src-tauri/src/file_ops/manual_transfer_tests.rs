@@ -1175,7 +1175,7 @@ fn fl20_external_directory_copy_preserves_empty_directories_and_empty_roots() {
 
 #[cfg(windows)]
 #[test]
-fn fl20_windows_external_directory_move_is_explicitly_rejected_without_mutation() {
+fn fl23_windows_same_volume_directory_move_is_journaled_and_restorable() {
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("move-source");
@@ -1200,12 +1200,40 @@ fn fl20_windows_external_directory_move_is_explicitly_rejected_without_mutation(
         vec![],
         vec![],
     );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let executed = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
-        plan.rows[0].error.as_deref(),
-        Some("transfer_windows_directory_move_unsupported")
+        executed.logs[0].status, "success",
+        "{:?}",
+        executed.logs[0].error_message
     );
-    assert!(source.join("nested/content.txt").is_file());
-    assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
+    assert!(executed.logs[0].can_restore);
+    assert!(!source.exists());
+    assert_eq!(
+        fs::read(destination.join("move-source/nested/content.txt")).unwrap(),
+        b"source remains"
+    );
+    let restored = restore_moves_with_persistence(
+        &f.db,
+        RestoreMovesRequest { logs: executed.logs },
+    )
+    .unwrap();
+    assert_eq!(
+        restored.logs[0].restore_status, "restored",
+        "{:?}",
+        restored.logs[0].restore_error
+    );
+    assert_eq!(fs::read(source.join("nested/content.txt")).unwrap(), b"source remains");
+    assert!(!destination.join("move-source").exists());
     runtime.dispose();
 }
 

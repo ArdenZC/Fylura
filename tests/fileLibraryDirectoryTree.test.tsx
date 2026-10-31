@@ -42,6 +42,12 @@ function page(entries: BrowseEntry[], requestId = "tree-request", nextCursor?: s
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 let root: Root;
 let host: HTMLDivElement;
 let container: HTMLDivElement;
@@ -54,9 +60,9 @@ async function flush() {
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 
-async function render(currentPath = "C:/", currentLocation = location) {
+async function render(currentPath: string | null = "C:/", currentLocation = location, rootPath: string | null = null, currentTargetKey: string | null = "browse-target") {
   await act(async () => {
-    root.render(<DirectoryTree controller={controller} location={currentLocation} currentPath={currentPath} paneId="pane-tree" platform="win32" navigationError={null} onNavigationError={navError} t={t} />);
+    root.render(<DirectoryTree controller={controller} location={currentLocation} currentPath={currentPath} currentTargetKey={currentTargetKey} rootPath={rootPath} paneId="pane-tree" platform="win32" navigationError={null} onNavigationError={navError} t={t} />);
   });
   await flush();
 }
@@ -216,6 +222,91 @@ describe("File Library directory tree", () => {
     const activeRoot = container.querySelector('button[title="C:/QA/Folder After"][aria-current="location"]');
     expect(activeRoot).toBeTruthy();
     expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeNotFound"));
+  });
+
+  it("uses the admitted root path when the tree label is stale and the current folder is empty", async () => {
+    const staleLabel = { ...location, displayName: "Restored Browse" } as LocationDescriptor;
+    vi.mocked(fileWorkspaceApi.locationBrowse).mockResolvedValue({
+      sessionId: "tree-session",
+      rootPathRef: { id: "root" },
+      location: staleLabel,
+    } as any);
+    vi.mocked(fileWorkspaceApi.browseStartEnumeration).mockResolvedValue(page([]));
+
+    await render("C:/QA/left", staleLabel, "C:/QA/left");
+
+    expect(container.querySelector('button[title="C:/QA/left"][aria-current="location"]')).toBeTruthy();
+    expect(container.textContent).toContain(t("fileLibraryNavigationTreeEmpty"));
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeNotFound"));
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
+  });
+
+  it("keeps the current Browse location unclassified while its pane route hint is unresolved", async () => {
+    await render(null);
+
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeNotFound"));
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
+    expect((container.querySelector(`button[aria-label="${t("fileLibraryNavigationTreeLocateCurrent")}"]`) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("locates a child on a later bounded page", async () => {
+    const qaLocation = { ...location, displayName: "QA" } as LocationDescriptor;
+    const firstPage = Array.from({ length: 32 }, (_, index) =>
+      directory(`Folder ${index}`, `C:/QA/Folder ${index}`, `paged-${index}`),
+    );
+    vi.mocked(fileWorkspaceApi.browseStartEnumeration).mockResolvedValueOnce(page(firstPage, "first", "cursor-next"));
+    vi.mocked(fileWorkspaceApi.browseNextPage).mockResolvedValueOnce(page([
+      directory("Target", "C:/QA/Target", "paged-target"),
+    ], "second"));
+
+    await render("C:/QA/Target", qaLocation);
+
+    expect(fileWorkspaceApi.browseNextPage).toHaveBeenCalledWith({ sessionId: "tree-session", cursor: "cursor-next", pageSize: 32 });
+    expect(container.querySelector('button[title="C:/QA/Target"][aria-current="location"]')).toBeTruthy();
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
+  });
+
+  it("reconciles the newest pane target after a previous Locate request is still scanning", async () => {
+    const qaLocation = { ...location, displayName: "QA" } as LocationDescriptor;
+    const pendingPage = deferred<BrowsePage>();
+    vi.mocked(fileWorkspaceApi.browseStartEnumeration).mockResolvedValue(page([
+      directory("Folder A", "C:/QA/Folder A", "folder-a"),
+    ], "first", "cursor-next"));
+    vi.mocked(fileWorkspaceApi.browseNextPage).mockReturnValueOnce(pendingPage.promise);
+
+    await render("C:/QA/NotCreated", qaLocation);
+    expect(fileWorkspaceApi.browseNextPage).toHaveBeenCalledTimes(1);
+
+    await render("C:/QA/Folder A", qaLocation);
+    pendingPage.resolve(page([], "second"));
+    await flush();
+    await flush();
+
+    expect(container.querySelector('button[title="C:/QA/Folder A"][aria-current="location"]')).toBeTruthy();
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeNotFound"));
+  });
+
+  it("refreshes a stale tree session when Locate is retried", async () => {
+    const qaLocation = { ...location, displayName: "QA" } as LocationDescriptor;
+    let enumeration = 0;
+    vi.mocked(fileWorkspaceApi.browseStartEnumeration).mockImplementation(async (request) => {
+      enumeration += 1;
+      return enumeration === 1
+        ? page([], request.requestId)
+        : page([directory("Appeared", "C:/QA/Appeared", `appeared-${enumeration}`)], request.requestId);
+    });
+
+    await render("C:/QA/Appeared", qaLocation);
+    expect(container.textContent).toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
+
+    await click(container.querySelector(`button[aria-label="${t("fileLibraryNavigationTreeLocateCurrent")}"]`)!);
+    await flush();
+    await flush();
+
+    expect(fileWorkspaceApi.locationBrowse).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('button[title="C:/QA/Appeared"][aria-current="location"]')).toBeTruthy();
+    expect(container.textContent).not.toContain(t("fileLibraryNavigationTreeCurrentNotLocated"));
   });
 
   it("rebases the tree root when navigation admits a new current folder", async () => {

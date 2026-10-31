@@ -680,6 +680,7 @@ function PaneHost({
     scope,
     setScope,
     routingHint: pane.path,
+    pathTargetKey: pane.pathTargetKey,
     updateLocation,
     registerPreview,
   };

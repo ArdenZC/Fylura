@@ -73,10 +73,11 @@ function pathBasename(path: string) {
   return separator < 0 ? normalized : normalized.slice(separator + 1);
 }
 
-function locationDisplayPath(displayName: string, currentPath: string, platform: NodeJS.Platform | "browser") {
+function locationDisplayPath(displayName: string, currentPath: string | null, platform: NodeJS.Platform | "browser") {
   // A Browse Location can itself be the active pane directory. Location labels
   // are names, not paths, so retain the already-admitted pane path for display
   // and highlighting when the label matches its final component.
+  if (currentPath === null) return displayName;
   if (normalizePath(displayName, platform) === normalizePath(currentPath, platform)) return currentPath;
   if (normalizePath(displayName, platform) === normalizePath(pathBasename(currentPath), platform)) return currentPath;
   return displayName;
@@ -105,6 +106,8 @@ export function DirectoryTree({
   controller,
   location,
   currentPath,
+  currentTargetKey,
+  rootPath,
   paneId,
   platform,
   navigationError,
@@ -113,7 +116,10 @@ export function DirectoryTree({
 }: {
   controller: FileLibraryExperienceController;
   location: LocationDescriptor;
-  currentPath: string;
+  currentPath: string | null;
+  currentTargetKey: string | null;
+  /** The current Browse target is the admitted root of this tree session. */
+  rootPath: string | null;
   paneId: string;
   platform: NodeJS.Platform | "browser";
   navigationError: unknown | null;
@@ -125,9 +131,16 @@ export function DirectoryTree({
   const sessionRef = useRef<TreeSession | null>(null);
   const generationRef = useRef(0);
   const requestSequenceRef = useRef(0);
-  const busyRef = useRef(false);
+  const busyGenerationRef = useRef<number | null>(null);
   const locatingRef = useRef(false);
   const locateRequestRef = useRef<string | null>(null);
+  const pendingLocateRequestRef = useRef<string | null>(null);
+  const currentPathRef = useRef(currentPath);
+  currentPathRef.current = currentPath;
+  const currentTargetKeyRef = useRef(currentTargetKey);
+  currentTargetKeyRef.current = currentTargetKey;
+  const rootPathRef = useRef(rootPath);
+  rootPathRef.current = rootPath;
   const activeRowRef = useRef<HTMLButtonElement | null>(null);
   const treeItemRefs = useRef(new Map<string, HTMLDivElement>());
   const [focusedNodeKey, setFocusedNodeKey] = useState<string | null>(null);
@@ -136,15 +149,18 @@ export function DirectoryTree({
   const locatePageCountRef = useRef(0);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState<unknown | null>(null);
-  const [locateStatus, setLocateStatus] = useState<"not_found" | "depth_limit" | "node_limit" | "scan_limit" | null>(null);
+  const [locateStatus, setLocateStatus] = useState<"not_in_tree" | "unavailable" | "depth_limit" | "node_limit" | "scan_limit" | null>(null);
   const [locateNonce, setLocateNonce] = useState(0);
+  const [treeRefreshNonce, setTreeRefreshNonce] = useState(0);
   const [restoreEpoch, setRestoreEpoch] = useState(0);
   const [savedExpandedPaths, setSavedExpandedPaths] = useState<string[]>(() => readExpandedTreePaths(paneId));
-  const initialCurrentPathRef = useRef(currentPath);
+  const initialCurrentPathRef = useRef<string | null>(currentPath);
+  const initialTargetKeyRef = useRef<string | null>(currentTargetKey);
   const canBrowse = location.availability === "available" && location.capabilities.canBrowse;
   const locationKey = location.ref.kind === "managed"
     ? `managed:${location.ref.scanRootId}`
     : `ephemeral:${location.ref.browseSessionId}:${location.ref.locationId}`;
+  const treeBusy = busyGenerationRef.current === sessionRef.current?.generation;
 
   useEffect(() => {
     // Workbench restore can migrate saved expansion metadata to the live pane id
@@ -189,10 +205,10 @@ export function DirectoryTree({
   const loadChildren = useCallback(async (key: string, loadMore = false) => {
     const session = sessionRef.current;
     const initialNode = nodesRef.current.get(key);
-    if (!session || !initialNode || initialNode.loading || busyRef.current || initialNode.depth >= MAX_DEPTH) return;
+    if (!session || !initialNode || initialNode.loading || busyGenerationRef.current === session.generation || initialNode.depth >= MAX_DEPTH) return;
     if (nodesRef.current.size - 1 >= MAX_TREE_NODES && !loadMore) return;
     const generation = session.generation;
-    busyRef.current = true;
+    busyGenerationRef.current = generation;
     updateNode(key, (node) => ({ ...node, loading: true, error: null, expanded: true }));
     let page: BrowsePage | null = null;
     let scanned = initialNode.scannedCount;
@@ -228,6 +244,7 @@ export function DirectoryTree({
             const childKeys = [...parent.childKeys];
             const knownChildKeys = new Set(childKeys);
             let nodeCount = next.size - 1;
+            let stale = false;
             for (const entry of currentPage.entries) {
               scanned += 1;
               if (locatingRef.current) locateScannedRef.current += 1;
@@ -238,17 +255,22 @@ export function DirectoryTree({
                 isSafeTrashNamespacePath(entry.displayPath)
               ) continue;
               const childKey = childNodeKey(session.sessionId, entry.pathRef);
-              if (parent.depth === 0) {
-                const rootPath = parentDisplayPath(entry.displayPath);
-                if (rootPath !== null) {
+              if (parent.depth === 0 && rootPathRef.current === null) {
+                const inferredRootPath = parentDisplayPath(entry.displayPath);
+                if (inferredRootPath !== null) {
                   const refreshedParent = next.get(key);
-                  if (refreshedParent) next.set(key, { ...refreshedParent, displayPath: rootPath });
+                  if (refreshedParent) next.set(key, { ...refreshedParent, displayPath: inferredRootPath });
                 }
               }
               if (knownChildKeys.has(childKey) || nodeCount >= MAX_TREE_NODES) continue;
               try {
                 if (!session.retainedPathRefs.has(entry.pathRef.id)) {
                   await fileWorkspaceApi.browseRetainPath({ sessionId: session.sessionId, pathRef: entry.pathRef });
+                  if (generationRef.current !== generation || sessionRef.current !== session) {
+                    await fileWorkspaceApi.browseReleasePath({ sessionId: session.sessionId, pathRef: entry.pathRef }).catch(() => undefined);
+                    stale = true;
+                    break;
+                  }
                   session.retainedPathRefs.set(entry.pathRef.id, entry.pathRef);
                 }
               } catch (error) {
@@ -275,23 +297,27 @@ export function DirectoryTree({
               knownChildKeys.add(childKey);
               nodeCount += 1;
             }
-            const cursor = currentPage.nextCursor ?? null;
-            hasMore = cursor !== null;
-            const updatedParent = next.get(key);
-            if (updatedParent) {
-              next.set(key, {
-                ...updatedParent,
-                childKeys,
-                scannedCount: scanned,
-                nextCursor: cursor,
-                hasMore,
-                loaded: true,
-                loading: false,
-                error: failure,
-              });
+            if (stale || generationRef.current !== generation || sessionRef.current !== session) {
+              await fileWorkspaceApi.browseReleasePage({ page: currentPage }).catch(() => undefined);
+            } else {
+              const cursor = currentPage.nextCursor ?? null;
+              hasMore = cursor !== null;
+              const updatedParent = next.get(key);
+              if (updatedParent) {
+                next.set(key, {
+                  ...updatedParent,
+                  childKeys,
+                  scannedCount: scanned,
+                  nextCursor: cursor,
+                  hasMore,
+                  loaded: true,
+                  loading: false,
+                  error: failure,
+                });
+              }
+              publishNodes(next);
+              await fileWorkspaceApi.browseReleasePage({ page: currentPage }).catch(() => undefined);
             }
-            publishNodes(next);
-            await fileWorkspaceApi.browseReleasePage({ page: currentPage }).catch(() => undefined);
           }
         }
       }
@@ -299,7 +325,7 @@ export function DirectoryTree({
       failure = error;
       if (page) await fileWorkspaceApi.browseReleasePage({ page }).catch(() => undefined);
     } finally {
-      busyRef.current = false;
+      if (busyGenerationRef.current === generation) busyGenerationRef.current = null;
       if (generationRef.current === generation && sessionRef.current === session) {
         updateNode(key, (node) => ({ ...node, loading: false, error: failure ?? node.error }));
       }
@@ -315,6 +341,7 @@ export function DirectoryTree({
     publishNodes(new Map());
     autoExpandedRef.current.clear();
     locateRequestRef.current = null;
+    pendingLocateRequestRef.current = null;
     setLocateStatus(null);
     setSessionError(null);
     if (!canBrowse) {
@@ -338,7 +365,7 @@ export function DirectoryTree({
         key: childNodeKey(session.sessionId, response.rootPathRef),
         pathRef: response.rootPathRef,
         name: response.location.displayName,
-        displayPath: locationDisplayPath(response.location.displayName, currentPath, platform),
+        displayPath: rootPath ?? locationDisplayPath(response.location.displayName, currentPath, platform),
         depth: 0,
         childKeys: [],
         expanded: !readExpandedTreePaths(paneId).includes(ROOT_COLLAPSED_MARKER),
@@ -365,40 +392,75 @@ export function DirectoryTree({
       sessionRef.current = null;
       if (session) void disposeTreeSession(session);
     };
-  }, [canBrowse, disposeTreeSession, loadChildren, locationKey, location.displayName, paneId, platform, publishNodes]);
+  }, [canBrowse, disposeTreeSession, loadChildren, locationKey, location.displayName, paneId, platform, publishNodes, treeRefreshNonce]);
 
   useEffect(() => {
+    if (rootPath === null) return;
+    const root = [...nodesRef.current.values()].find((node) => node.depth === 0);
+    if (!root || normalizePath(root.displayPath, platform) === normalizePath(rootPath, platform)) return;
+    const next = new Map(nodesRef.current);
+    next.set(root.key, { ...root, displayPath: rootPath });
+    publishNodes(next);
+  }, [platform, publishNodes, rootPath]);
+
+  useEffect(() => {
+    if (currentPath === null) {
+      locateRequestRef.current = null;
+      pendingLocateRequestRef.current = null;
+      setLocateStatus(null);
+      return;
+    }
     const session = sessionRef.current;
     const root = [...nodes.values()].find((node) => node.depth === 0);
-    if (!session || !root || busyRef.current || locatingRef.current) return;
-    const pathChangedSinceMount = normalizePath(initialCurrentPathRef.current, platform)
-      !== normalizePath(currentPath, platform);
+    if (!session || !root) return;
+    const normalizedCurrentPath = normalizePath(currentPath, platform);
+    const requestKey = `${session.sessionId}:${currentTargetKey ?? "unknown"}:${normalizedCurrentPath}`;
+    if (locatingRef.current) {
+      if (locateRequestRef.current !== requestKey) {
+        pendingLocateRequestRef.current = requestKey;
+        setLocateStatus(null);
+      }
+      return;
+    }
+    if (busyGenerationRef.current === session.generation) return;
+    const initialPath = initialCurrentPathRef.current;
+    const pathChangedSinceMount = initialPath === null
+      || initialTargetKeyRef.current !== currentTargetKey
+      || normalizePath(initialPath, platform) !== normalizedCurrentPath;
     if (savedExpandedPaths.includes(ROOT_COLLAPSED_MARKER) && locateNonce === 0 && !pathChangedSinceMount) return;
-    const requestKey = `${session.sessionId}:${normalizePath(currentPath, platform)}`;
     if (locateRequestRef.current === requestKey) return;
     locatingRef.current = true;
+    locateRequestRef.current = requestKey;
     locateScannedRef.current = 0;
     locatePageCountRef.current = 0;
     setLocateStatus(null);
+    const isCurrentLocation = () => generationRef.current === session.generation
+      && sessionRef.current === session
+      && currentPathRef.current !== null
+      && currentTargetKeyRef.current === currentTargetKey
+      && normalizePath(currentPathRef.current, platform) === normalizedCurrentPath;
     void (async () => {
       let parentKey = root.key;
       let depth = 0;
       while (depth < MAX_DEPTH) {
-        if (generationRef.current !== session.generation || sessionRef.current !== session) return;
+        if (!isCurrentLocation()) return;
         let parent = nodesRef.current.get(parentKey);
         if (!parent) return;
         if (!parent.loaded) {
           if (parent.error !== null) {
-            locateRequestRef.current = requestKey;
-            setLocateStatus("not_found");
+            setLocateStatus("unavailable");
             return;
           }
           await loadChildren(parentKey);
+          if (!isCurrentLocation()) return;
           parent = nodesRef.current.get(parentKey);
           if (!parent || !parent.loaded) return;
         }
+        if (parent.error !== null) {
+          setLocateStatus("unavailable");
+          return;
+        }
         if (normalizePath(parent.displayPath, platform) === normalizePath(currentPath, platform)) {
-          locateRequestRef.current = requestKey;
           return;
         }
         const child = parent.childKeys
@@ -414,30 +476,26 @@ export function DirectoryTree({
             }
             const previousCursor = parent.nextCursor;
             await loadChildren(parentKey, true);
+            if (!isCurrentLocation()) return;
             const refreshed = nodesRef.current.get(parentKey);
             if (refreshed && refreshed.nextCursor !== previousCursor) continue;
             if (refreshed?.hasMore && nodesRef.current.size - 1 >= MAX_TREE_NODES) {
-              locateRequestRef.current = requestKey;
               setLocateStatus("node_limit");
               return;
             }
             if (refreshed?.error !== null && refreshed?.error !== undefined) {
-              locateRequestRef.current = requestKey;
-              setLocateStatus("not_found");
+              setLocateStatus("unavailable");
               return;
             }
             if (refreshed?.hasMore && locateScannedRef.current >= MAX_AUTO_LOCATE_ENTRIES) {
-              locateRequestRef.current = requestKey;
               setLocateStatus("scan_limit");
               return;
             }
           }
-          locateRequestRef.current = requestKey;
-          setLocateStatus(parent.hasMore ? "node_limit" : "not_found");
+          setLocateStatus(parent.hasMore ? "node_limit" : "not_in_tree");
           return;
         }
         if (normalizePath(child.displayPath, platform) === normalizePath(currentPath, platform)) {
-          locateRequestRef.current = requestKey;
           return;
         }
         if (!child.expanded) {
@@ -452,16 +510,21 @@ export function DirectoryTree({
         parentKey = child.key;
         depth += 1;
       }
-      locateRequestRef.current = requestKey;
       setLocateStatus("depth_limit");
     })().finally(() => {
       locatingRef.current = false;
       setRestoreEpoch((epoch) => epoch + 1);
+      const pendingRequest = pendingLocateRequestRef.current;
+      pendingLocateRequestRef.current = null;
+      if (pendingRequest !== null && currentPathRef.current !== null) {
+        const latestRequest = `${sessionRef.current?.sessionId ?? ""}:${currentTargetKeyRef.current ?? "unknown"}:${normalizePath(currentPathRef.current, platform)}`;
+        if (pendingRequest === latestRequest) setLocateNonce((nonce) => nonce + 1);
+      }
     });
-  }, [currentPath, loadChildren, locateNonce, nodes, persistExpanded, platform, publishNodes, savedExpandedPaths]);
+  }, [currentPath, currentTargetKey, loadChildren, locateNonce, nodes, persistExpanded, platform, publishNodes, savedExpandedPaths, treeBusy]);
 
   useEffect(() => {
-    if (!savedExpandedPaths.length || busyRef.current || locatingRef.current || !sessionRef.current) return;
+    if (!savedExpandedPaths.length || treeBusy || locatingRef.current || !sessionRef.current) return;
     const saved = new Set(savedExpandedPaths.map((path) => normalizePath(path, platform)));
     const candidate = [...nodesRef.current.values()].find((node) =>
       node.depth > 0
@@ -474,7 +537,7 @@ export function DirectoryTree({
     autoExpandedRef.current.add(candidate.key);
     updateNode(candidate.key, (node) => ({ ...node, expanded: true }));
     if (!candidate.loaded) void loadChildren(candidate.key);
-  }, [loadChildren, nodes, platform, restoreEpoch, savedExpandedPaths, updateNode]);
+  }, [loadChildren, nodes, platform, restoreEpoch, savedExpandedPaths, treeBusy, updateNode]);
 
   const rootKey = useMemo(() => [...nodes.values()].find((node) => node.depth === 0)?.key ?? null, [nodes]);
   const treeOrder = useMemo(() => {
@@ -489,7 +552,7 @@ export function DirectoryTree({
     return ordered;
   }, [nodes, rootKey]);
   const toggle = useCallback((node: TreeNode) => {
-    if (node.loading || busyRef.current) return;
+    if (node.loading || busyGenerationRef.current === sessionRef.current?.generation) return;
     const next = new Map(nodesRef.current);
     const current = next.get(node.key);
     if (!current) return;
@@ -525,10 +588,10 @@ export function DirectoryTree({
     }
   }, [controller, location.ref, onNavigationError, platform]);
 
-  const currentPathKey = normalizePath(currentPath, platform);
+  const currentPathKey = currentPath === null ? null : normalizePath(currentPath, platform);
   const activeNodeKey = treeOrder.find((key) => {
     const node = nodes.get(key);
-    return node !== undefined && normalizePath(node.displayPath, platform) === currentPathKey;
+    return currentPathKey !== null && node !== undefined && normalizePath(node.displayPath, platform) === currentPathKey;
   }) ?? null;
   const tabStopKey = focusedNodeKey && treeOrder.includes(focusedNodeKey)
     ? focusedNodeKey
@@ -560,10 +623,13 @@ export function DirectoryTree({
 
   const rootErrorLabel = sessionError === null ? null : describeDirectoryTreeError(sessionError, t);
   const locateCurrentFolder = useCallback(() => {
+    if (currentPath === null || busyGenerationRef.current === sessionRef.current?.generation) return;
     locateRequestRef.current = null;
+    pendingLocateRequestRef.current = null;
     setLocateStatus(null);
     setLocateNonce((nonce) => nonce + 1);
-  }, []);
+    setTreeRefreshNonce((nonce) => nonce + 1);
+  }, [currentPath]);
 
   useEffect(() => {
     if (locateNonce === 0 || sessionLoading) return;
@@ -572,7 +638,7 @@ export function DirectoryTree({
   }, [locateNonce, nodes, sessionLoading]);
 
   const renderNode = (node: TreeNode): ReactNode => {
-    const active = normalizePath(node.displayPath, platform) === currentPathKey;
+    const active = currentPathKey !== null && normalizePath(node.displayPath, platform) === currentPathKey;
     const canExpand = node.depth < MAX_DEPTH;
     const nodeLimitReached = nodes.size - 1 >= MAX_TREE_NODES && node.hasMore;
     return (
@@ -593,7 +659,7 @@ export function DirectoryTree({
             aria-label={node.expanded ? t("fileLibraryNavigationTreeCollapse") : t("fileLibraryNavigationTreeExpand")}
             aria-expanded={node.expanded}
             tabIndex={-1}
-            disabled={!canExpand || busyRef.current || node.loading}
+            disabled={!canExpand || treeBusy || node.loading}
             onClick={() => toggle(node)}
           >
             {node.loading ? <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
@@ -628,7 +694,7 @@ export function DirectoryTree({
           <button
             type="button"
             className="file-library-navigation-item ml-8 min-h-7 text-[11px]"
-            disabled={node.loading || nodeLimitReached || busyRef.current}
+            disabled={node.loading || nodeLimitReached || treeBusy}
             onClick={() => void loadChildren(node.key, true)}
           >
             {node.loading ? t("fileLibraryNavigationTreeLoading") : nodeLimitReached ? t("fileLibraryNavigationTreeNodeLimit") : t("fileLibraryNavigationTreeLoadMore")}
@@ -642,14 +708,14 @@ export function DirectoryTree({
     <section className="file-library-navigation-section" aria-labelledby={`file-library-navigation-tree-heading-${paneId}`} data-file-library-directory-tree="true">
       <div className="file-library-navigation-section-heading">
         <h3 id={`file-library-navigation-tree-heading-${paneId}`} className="file-library-navigation-section-title">{t("fileLibraryNavigationTree")}</h3>
-        <button type="button" className="file-library-navigation-group-toggle !min-h-7 !w-7 !justify-center !p-0" disabled={sessionLoading || !rootKey} title={t("fileLibraryNavigationTreeLocateCurrent")} aria-label={t("fileLibraryNavigationTreeLocateCurrent")} onClick={locateCurrentFolder}>
+        <button type="button" className="file-library-navigation-group-toggle !min-h-7 !w-7 !justify-center !p-0" disabled={sessionLoading || !rootKey || currentPath === null || treeBusy} title={t("fileLibraryNavigationTreeLocateCurrent")} aria-label={t("fileLibraryNavigationTreeLocateCurrent")} onClick={locateCurrentFolder}>
           <LocateFixed size={14} aria-hidden="true" />
         </button>
       </div>
       {!canBrowse ? <p className="file-library-navigation-muted" role="status">{locationAvailabilityLabel(location.availability, t)}</p> : null}
       {canBrowse && sessionLoading ? <p className="file-library-navigation-muted flex items-center gap-1" role="status"><LoaderCircle size={13} className="animate-spin" aria-hidden="true" />{t("fileLibraryNavigationTreeLoading")}</p> : null}
       {canBrowse && (rootErrorLabel || navigationError !== null) ? <p className="file-library-navigation-muted flex items-center gap-1" role="status"><CircleAlert size={13} aria-hidden="true" />{rootErrorLabel ?? describeDirectoryTreeError(navigationError, t)}</p> : null}
-      {canBrowse && locateStatus ? <p className="file-library-navigation-muted" role="status">{t(locateStatus === "not_found" ? "fileLibraryNavigationTreeNotFound" : locateStatus === "depth_limit" ? "fileLibraryNavigationTreeDepthLimit" : locateStatus === "scan_limit" ? "fileLibraryNavigationTreeScanLimit" : "fileLibraryNavigationTreeNodeLimit")}</p> : null}
+      {canBrowse && locateStatus ? <p className="file-library-navigation-muted" role="status">{t(locateStatus === "not_in_tree" ? "fileLibraryNavigationTreeCurrentNotLocated" : locateStatus === "unavailable" ? "fileLibraryNavigationTreeUnavailable" : locateStatus === "depth_limit" ? "fileLibraryNavigationTreeDepthLimit" : locateStatus === "scan_limit" ? "fileLibraryNavigationTreeScanLimit" : "fileLibraryNavigationTreeNodeLimit")}</p> : null}
       {canBrowse && !sessionLoading && rootKey ? <div role="tree" aria-label={t("fileLibraryNavigationTree")} className="file-library-navigation-list">
         {nodes.get(rootKey) ? renderNode(nodes.get(rootKey)!) : null}
       </div> : null}

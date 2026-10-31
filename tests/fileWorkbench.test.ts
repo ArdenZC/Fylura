@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { FileWorkbenchModel, workbenchTargetKey } from "../src/views/fileLibrary/workbench/workbenchModel";
+import { currentWorkbenchBrowsePath, FileWorkbenchModel, workbenchTargetKey } from "../src/views/fileLibrary/workbench/workbenchModel";
 import { FileLibraryExperienceController } from "../src/views/fileLibrary/fileLibraryExperience";
 import {
   FileWorkspaceController,
@@ -32,6 +32,23 @@ const defer = <T>() => {
 };
 
 describe("U2 independent workspace instances", () => {
+  it("does not expose a stale pane route as the current Browse path", () => {
+    const currentTarget = {
+      kind: "browse" as const,
+      location: { kind: "managed" as const, scanRootId: "current-root" },
+      pathRef: { id: "current-path" },
+    };
+    const previousTarget = {
+      kind: "browse" as const,
+      location: { kind: "managed" as const, scanRootId: "previous-root" },
+      pathRef: { id: "previous-path" },
+    };
+
+    expect(currentWorkbenchBrowsePath("C:/Previous/Folder", workbenchTargetKey(previousTarget), currentTarget)).toBeNull();
+    expect(currentWorkbenchBrowsePath("", workbenchTargetKey(currentTarget), currentTarget)).toBeNull();
+    expect(currentWorkbenchBrowsePath("C:/Current/Folder", workbenchTargetKey(currentTarget), currentTarget)).toBe("C:/Current/Folder");
+  });
+
   it("retains each tab and pane's controller, history presentation and selection, then disposes only the closed tab", async () => {
     const root = new FileLibraryExperienceController();
     const model = new FileWorkbenchModel(root);

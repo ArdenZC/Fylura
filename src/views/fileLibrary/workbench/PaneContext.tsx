@@ -14,6 +14,7 @@ export interface PaneContextValue {
   scope: LibraryScope;
   setScope: (scope: LibraryScope) => void;
   routingHint: string;
+  pathTargetKey?: string | null;
   updateLocation: (path: string, targetKey?: string | null) => void;
   activate: () => void;
   peerId?: string;

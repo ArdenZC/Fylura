@@ -30,6 +30,7 @@ import {
 } from "./locationPresentation";
 import { DirectoryTree, describeDirectoryTreeError } from "./DirectoryTree";
 import { cn } from "../../../utils/tw";
+import { currentWorkbenchBrowsePath, workbenchTargetKey } from "../workbench/workbenchModel";
 
 export type FileLibraryNavigationLayout = "large" | "drawer";
 
@@ -114,13 +115,33 @@ export function FileLibraryNavigation({
 
   const query = usePaneQuerySelector();
   const pane = usePane();
-  const browseTarget = state.workspace.session.currentTarget;
-  const treeLocation = state.mode === "browse" && browseTarget?.kind === "browse"
-    ? state.workspace.browse?.location ?? null
+  const currentTarget = state.workspace.session.currentTarget;
+  const currentTargetKey = workbenchTargetKey(currentTarget);
+  const browseTarget = currentTarget?.kind === "browse" ? currentTarget : null;
+  const browse = state.workspace.browse;
+  const treeAdmissionMatchesTarget = browseTarget?.location.kind === "ephemeral"
+    && browse !== null
+    && browseTarget.location.browseSessionId === browse.sessionId
+    && browse.location.ref.kind === "ephemeral"
+    && browse.location.ref.browseSessionId === browse.sessionId
+    && browseTarget.location.locationId === browse.location.ref.locationId;
+  const treeLocation = state.mode === "browse" && treeAdmissionMatchesTarget
+    ? browse?.location ?? null
+    : null;
+  const treeCurrentPath = pane && browseTarget !== null
+    ? currentWorkbenchBrowsePath(pane.routingHint, pane.pathTargetKey, browseTarget)
+    : null;
+  const treeRootPath = treeCurrentPath !== null
+    && browse !== null
+    && treeAdmissionMatchesTarget
+    && browseTarget !== null
+    && browseTarget.location.kind === "ephemeral"
+    && browseTarget.pathRef.id === browse.rootPathRef.id
+    ? treeCurrentPath
     : null;
   useEffect(() => {
     setTreeNavigationError(null);
-  }, [pane?.routingHint, treeLocation?.ref]);
+  }, [currentTargetKey, pane?.routingHint, treeLocation?.ref]);
   const navigation = (
     <nav
       className="file-library-navigation-panel"
@@ -150,7 +171,9 @@ export function FileLibraryNavigation({
       {treeLocation && pane ? <DirectoryTree
         controller={controller}
         location={treeLocation}
-        currentPath={pane.routingHint}
+        currentPath={treeCurrentPath}
+        currentTargetKey={currentTargetKey}
+        rootPath={treeRootPath}
         paneId={pane.id}
         platform={platform}
         navigationError={treeNavigationError}

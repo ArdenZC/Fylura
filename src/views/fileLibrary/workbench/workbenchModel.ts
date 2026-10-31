@@ -21,6 +21,20 @@ export function workbenchTargetKey(target: NavigationTarget | null) {
     : `ephemeral:${target.location.browseSessionId}:${target.location.locationId}`;
   return `browse:${locationKey}:${target.pathRef.id}`;
 }
+
+export function currentWorkbenchBrowsePath(
+  path: string,
+  pathTargetKey: string | null | undefined,
+  target: NavigationTarget | null,
+) {
+  if (
+    target?.kind !== "browse"
+    || path.trim().length === 0
+    || pathTargetKey !== workbenchTargetKey(target)
+  ) return null;
+  return path;
+}
+
 export interface WorkbenchTab {
   id: string;
   panes: WorkbenchPane[];

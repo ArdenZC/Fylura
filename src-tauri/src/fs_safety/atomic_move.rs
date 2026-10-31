@@ -554,7 +554,10 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     identity::ensure_supported_entry(source).map_err(map_identity_error)?;
     let namespace_directory_operation = matches!(
         operation,
-        AtomicMoveOperation::Rename | AtomicMoveOperation::Trash | AtomicMoveOperation::Restore
+        AtomicMoveOperation::Rename
+            | AtomicMoveOperation::Move
+            | AtomicMoveOperation::Trash
+            | AtomicMoveOperation::Restore
     ) && std::fs::symlink_metadata(source)
         .map(|metadata| metadata.is_dir())
         .unwrap_or(false)

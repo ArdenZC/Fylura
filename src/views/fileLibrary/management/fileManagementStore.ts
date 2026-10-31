@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { useEffect, useId, useRef } from "react";
 import type { EntryRef, BrowseEntryRef, BrowsePathRef } from "../../../types/fileWorkspace";
 import type { LibrarySelectionV1, OperationLog } from "../../../types/domain";
-import type { TransferTicket, TransferAction } from "../../../api/fileManagementApi";
+import type { TransferTicket, TransferAction, TransferPreview } from "../../../api/fileManagementApi";
 import { usePane } from "../workbench/PaneContext";
 import type { BrowseSourceOwner } from "../browse/browseSourceOwner";
 
@@ -27,6 +27,34 @@ export interface PendingPaneTransfer {
   tickets: TransferTicket[]; action: TransferAction; destination: string;
   destinationEntry?: BrowseEntryRef; external?: boolean;
 }
+export interface ManagementTransferIntent {
+  id: string;
+  tickets: TransferTicket[];
+  action: TransferAction;
+  newName?: string;
+  origin: "selection" | "clipboard" | "basket" | "external";
+  destinationDirectory: string;
+  destinationEntry?: BrowseEntryRef;
+  destinationPaneId?: string;
+  destinationSignature?: string;
+  sourcePaneId?: string;
+  sourceSignature?: string;
+}
+export interface ActiveTransferTask {
+  id: string;
+  origin: ManagementTransferIntent["origin"];
+  intent: ManagementTransferIntent;
+  action: TransferAction;
+  sourceSummary: string;
+  destinationSummary: string;
+  totalItems: number | null;
+  phase: "preview" | "execute" | "awaiting_conflict" | "canceling";
+  cancelRequested: boolean;
+  preview: TransferPreview | null;
+  conflictTicketIds: string[];
+  skip: string[];
+  keepBoth: string[];
+}
 interface ManagementState {
   owner: string | null;
   surface: (() => ManagementSurface) | null;
@@ -44,6 +72,7 @@ interface ManagementState {
   transferRunning: boolean;
   activeTransferId: string | null;
   transferTicketIds: string[];
+  activeTransferTask: ActiveTransferTask | null;
   externalDropAction: TransferAction;
   pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "rename" | "trash" | "create_directory" | "copy_other" | "move_other" | null;
   requestAction: (action: ManagementState["pendingAction"]) => void;
@@ -51,7 +80,7 @@ interface ManagementState {
 /** Shared tickets, clipboard and outcomes; every source projection has an explicit pane owner. */
 export const useFileManagementStore = create<ManagementState>((set, get) => ({
   owner: null, surface: null, surfaces: {}, activePaneId: null, pendingTransfer: null, transferOpen: false,
-  transferActive: false, transferRunning: false, activeTransferId: null, externalDropAction: "copy",
+  transferActive: false, transferRunning: false, activeTransferId: null, activeTransferTask: null, externalDropAction: "copy",
   basket: [], clipboard: null, results: [], statuses: {}, basketOpen: false, transferTicketIds: [], pendingAction: null,
   activatePane: (activePaneId) => {
     const entry = get().surfaces[activePaneId];

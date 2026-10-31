@@ -714,11 +714,11 @@ fn snapshot(
     ensure_not_safe_trash_operation(destination_root)?;
     let identity = file_namespace_fingerprint(&source)?;
     #[cfg(windows)]
-    if source_is_directory && action == TransferAction::Move {
-        if identity.platform_volume_id.as_deref() != Some(destination.identity().volume_id.as_str())
-        {
-            return Err("transfer_windows_cross_volume_directory_move_unsupported".into());
-        }
+    if source_is_directory
+        && action == TransferAction::Move
+        && identity.platform_volume_id.as_deref() != Some(destination.identity().volume_id.as_str())
+    {
+        return Err("transfer_windows_cross_volume_directory_move_unsupported".into());
     }
     let canonical_root = destination_root
         .canonicalize()

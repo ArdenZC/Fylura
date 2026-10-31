@@ -10,6 +10,9 @@ pub mod file_ops;
 pub mod file_workspace;
 pub mod fs_safety;
 pub mod global_index;
+// Native QA deliberately routes database access to disposable roots, so the
+// production app-data migration entrypoints are not reachable in that build.
+#[cfg_attr(feature = "native-qa", allow(dead_code))]
 pub mod identity_migration;
 pub mod ids;
 #[cfg(all(

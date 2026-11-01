@@ -4,6 +4,10 @@
 
 This directory does not replace production code, security contracts, historical taskbooks, or closeout evidence. It provides the stable index that tells contributors which of those sources are current and how they relate.
 
+## Owner-approved product direction (2026-11-01)
+
+Read [ADR-0016 — File-first four core jobs](DECISIONS/0016-file-first-four-core-jobs.md) for any work touching onboarding, Files mode exposure, Global Search consent, AI Organize, AI Cleanup or ordinary navigation. It fixes **one visible Files/Browse mode**, preserves dormant Managed Library code/data, treats AI Organize and AI Cleanup as independent grouped-plan workflows and makes the welcome flow skippable. The older W0/W2 two-mode experience and V4.3 Cleanup AI recheck remain historical implementation evidence, not a mandate for future UI. Execution truth still comes from production code/CI and current issues; this document does not assert these changes are implemented.
+
 ## Default task context
 
 For an ordinary bounded task, use this sequence:

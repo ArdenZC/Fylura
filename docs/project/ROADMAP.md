@@ -2,7 +2,24 @@
 
 The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
 
-Last verified: 2026-10-05
+Historical sequencing verification: 2026-10-05. Later dated W6/Track status sections below remain historical until reconciled against live #512, #527, PRs and actual master; do not infer current activation or CI from an old 'Current' heading.
+
+## Owner-approved product UX rebaseline — 2026-11-01
+
+**Decision:** [ADR-0016 — File-first four core jobs](DECISIONS/0016-file-first-four-core-jobs.md). **Tracking:** [#527](https://github.com/ArdenZC/Fylura/issues/527) for first-use/Files UX; [#512](https://github.com/ArdenZC/Fylura/issues/512) for feature delivery; [#487](https://github.com/ArdenZC/Fylura/issues/487) for whole-product cross-platform QA. This section is a **product direction and proposed dependency ordering**, not a report of new implementation, a broad Track activation, or release authorization.
+
+| Delivery priority | User-facing outcome | Technical dependencies / what changes | What is preserved |
+| --- | --- | --- | --- |
+| **P0 — Files-first onboarding & surface** | A short skippable visual introduction to Files, AI Organize, AI Cleanup and Global Search; immediate Files Browse without selected root; optional volume-indexing consent; one visible Files mode | Change Onboarding/initial routing, navigation/mode presentation, Settings scope UX; include clean/upgrade profile and permission tests | Managed Library mode code, Query V2, tags/Saved Views, databases, existing managed roots and AI/volume permissions |
+| **P1 — Finish everyday file management** | Tabs, dual panes, Basket, native drag/clipboard, directory tasks, progress/cancel/recovery work together with minimal interruption | Reconcile FL-19/20/21/22/23/24 against actual merged code and #512; Windows and Apple Silicon macOS use the same user semantics | Single Preview/Revalidation/Journal/Restore chain; no unnecessary no-conflict modal |
+| **P2 — AI Organize task completion** | Choose **any** supported folder/selected files; AI creates grouped plan; exception-first review; single coherent approval and recovery | Extend one-off source admission beyond LibrarySelectionV1 and adapt plan UI; reuse Managed AI/SemanticAssessmentV1 and existing Plan executor | No requirement to persist Managed root; no duplicate mutation engine |
+| **P2 — AI Cleanup task completion** | Deterministic findings + AI analyses form an **overall grouped cleanup proposal**; user approves eligible Safe Trash batch, risky items are exceptions | Upgrade old contextual AI-recheck presentation while honoring existing AI-only Cleanup currentness, independent consent and conservative eligibility | Detector/Analysis Finding truth, Preview, Safe Trash, Cleanup journal, Restore; AI cannot authorize deletion |
+| **P3 — Search, resource & native qualification** | Reliable explicitly authorized Smart Lean sources, truthful indexing coverage and Zen Zero under long-running real workloads; both platforms pass real user tasks | Smart Lean system-file high-volume evidence, source/permission/migration diagnostics, #487 native matrix | Global Search FTS/1M ranking/performance remains a **separate owner/workstream**, with existing correctness and performance gates |
+| **P4 — Only after measured value** | Decide whether a separate Managed Library/long-term AI mode is worth re-exposing | Usability evidence, model cost/latency, indexing and resident power measurements | Existing dormant implementation intact; Preference Memory, whole-disk embeddings and System One remain paused/research |
+
+**Delivery gates:** group-first/exception-first interaction, one-off AI Organize without durable Library admission, AI-proposed Cleanup without relaxing safe eligibility, no initial scan/index without consent, no silent upgrade-data loss, restart and no-AI behavior, real Win/macOS GUI evidence, bounded AI/token/resource cost. A model's confidence never substitutes for backend safe-batch or cleanup eligibility.
+
+**Change management:** This direction supersedes historical *user-visible* dual-mode and compulsory managed-folder onboarding assumptions; it does **not** erase completed W0–W6 work, rewrite previous QA evidence, merge outstanding PRs, or authorize public release. Implement in coherent feature packages; don't create a fresh framework, second scan/indexer or mutation/recovery owner.
 
 ## Completed
 

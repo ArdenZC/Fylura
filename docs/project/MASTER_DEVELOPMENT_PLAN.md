@@ -71,13 +71,25 @@ filesystem mutation authority
 
 AI may propose meaning and plans. Existing deterministic safety, policy, preview, journal, Safe Trash, Restore and identity authorities decide whether and how a proposal may become a filesystem change.
 
+### 1.2 Owner product rebaseline — 2026-11-01
+
+The accepted [ADR-0016: File-first four core jobs](DECISIONS/0016-file-first-four-core-jobs.md) refines **user-visible** product direction without deleting earlier file-domain authorities or changing normative safety rules:
+
+1. The only ordinary user-facing **Files mode is direct Browse / File Management**, with real folders, tabs, dual panes, File Basket, Preview and ordinary file operations.
+2. **Managed Library remains implemented and its persistent data, tags, Saved Views, Query V2 and compatibility remain preserved**, but its separate mode is not part of the primary user-facing flow. Long-term AI maintenance is optional future work, not a default promise.
+3. **Global Search**, **AI Organize** and **AI Cleanup** are first-class independent user tasks. AI Organize and AI Cleanup both produce comprehensible grouped proposals; users approve the aggregate and handle exceptions instead of confirming each safe file one by one. AI does not become mutation authority.
+4. First launch introduces real product capabilities, is skippable, permits immediate Files use without folder selection, and requests explicit opt-in to supported-local-volume Global Search indexing. AI/managed-content permissions are separate and just-in-time.
+5. Preserve existing Win/macOS, Zen Zero, identity, Preview, journal, Safe Trash and Restore guarantees. Do not infer native QA/Release completion from this product decision.
+
+The historical W0/W2 two-mode *implementation architecture* remains useful evidence. It no longer requires exposing both modes as ordinary navigation in future UX. Release/active task state remains owned by `STATUS.md` and `ROADMAP.md`.
+
 ## 2. File Library 2.0 product model
 
-File Library 2.0 is one product surface with two first-class working modes that share the same higher-level workspace shell.
+The historical File Library 2.0 foundation contains two technically distinct source modes under one workspace. **Under ADR-0016 only Browse is exposed as the default ordinary Files mode; Managed Library is retained as a dormant/advanced internal capability, not deleted.**
 
-### 2.1 Library Mode
+### 2.1 Library Mode — preserved internal managed view
 
-Library Mode is the managed/semantic view.
+Library Mode remains the existing managed/semantic view, preserved for compatible data and potential future product exposure. It is not a required entry mode or prerequisite for ordinary Files, AI Organize or AI Cleanup.
 
 It is backed by existing managed authorities such as File Library Query V2 and managed selection. It is appropriate for:
 
@@ -87,9 +99,9 @@ It is backed by existing managed authorities such as File Library Query V2 and m
 - durable metadata and classification;
 - higher-level workflows that rely on indexed/managed truth.
 
-### 2.2 Browse Mode
+### 2.2 Browse Mode — the sole default user-facing Files mode
 
-Browse Mode is the familiar filesystem view.
+Browse Mode is the familiar filesystem view and the default experience at launch.
 
 It exists because many users want Finder/Explorer-like direct navigation and should not be forced to adopt a semantic Library workflow for ordinary file browsing.
 
@@ -105,7 +117,7 @@ Browse Mode must not silently create scan roots, index unmanaged trees, or turn 
 
 ### 2.3 Shared dimensions
 
-Library vs Browse is independent from presentation dimensions such as:
+The preserved internal Library/Browse source distinction is independent from presentation dimensions such as:
 
 - List vs Grid;
 - Inspector / Context Panel state;
@@ -732,7 +744,7 @@ Zen should consume the system metadata authority instead of rebuilding a second 
 
 ### External and network storage
 
-Internal/local fixed storage may participate by default when the supported native contract is available.
+Supported internal/local fixed storage may participate **only after explicit user consent/source authorization** as defined by ADR-0016. Initial defaults must not silently authorize every fixed drive; previously consented existing-user sources retain their truthful migration/availability state.
 
 Removable/external and network/NAS sources should remain explicit/configurable and may use scheduled/manual refresh rather than permanent realtime observation when that is the lighter truthful behavior.
 
@@ -741,6 +753,8 @@ Removable/external and network/NAS sources should remain explicit/configurable a
 Future semantic Organize/Cleanup work should converge on:
 
 > **AI decides meaning. Deterministic systems provide facts, policy, validation and safe execution.**
+
+Under ADR-0016 these are two **equally visible, on-demand primary user jobs**. Both should produce a grouped, explanatory plan; ordinary safe groups can be reviewed as a batch, while conflicts, uncertain/sensitive cases and blocked actions are clearly separated. Users must not be forced to admit an arbitrary one-off folder to the durable Managed Library to request an AI task.
 
 This does not move current durable authorities merely by being recorded here.
 
@@ -779,7 +793,7 @@ policy + review
 → Safe Trash / Restore authority
 ```
 
-A detector may prove “same hash”, “large”, “old”, “similar” or “temporary pattern”; that does not automatically mean “delete this”.
+A detector may prove “same hash”, “large”, “old”, “similar” or “temporary pattern”; that does not automatically mean “delete this”. AI semantic evaluation and the user-facing overall cleanup proposal are part of the target Cleanup experience, rather than merely an optional recheck button. AI cannot promote an ineligible candidate to Safe Trash, bypass preview/confirmation or grant permanent deletion.
 
 ### Rules and learning
 
@@ -820,7 +834,7 @@ Goal: Zen becomes an extremely light desktop foundation before intelligence brea
 - AI Planner;
 - AI Organize;
 - AI Cleanup;
-- Preference Memory;
+- optional Preference Memory research (not a default feature or an implementation prerequisite);
 - Rules-to-Policy/Trigger/Signal/View migration;
 - plan-generating Automation.
 

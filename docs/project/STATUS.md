@@ -2,6 +2,10 @@
 
 Last verified: 2026-10-29 (active snapshot; dated records below retained)
 
+## Owner product-direction addendum — 2026-11-01
+
+**Product decision, not implementation/CI status:** [ADR-0016](DECISIONS/0016-file-first-four-core-jobs.md) / [#527](https://github.com/ArdenZC/Fylura/issues/527) approves one visible Files/Browse mode (retain existing Managed Library code and durable data), skippable first-launch capability tour, optional explicit Global Search disk indexing, and two independent AI product jobs: one-off grouped Organize and AI-explained grouped Cleanup. No default background AI, no forced first-run folder selection, and no per-file confirmation for ordinary safe grouped plans. The target task order and implementation gaps are recorded in [ROADMAP.md](ROADMAP.md). **These behavior changes are not yet implemented or qualified merely by this ADR.** The 2026-10-29 snapshot and earlier entries below are dated implementation evidence, not a newer product-direction override. Follow current #512/PR/master for changing delivery state.
+
 ## Active execution snapshot — 2026-10-29
 
 This short section supersedes dated status claims below. For changing facts, check

@@ -53,7 +53,7 @@ describe("Smart Lean expensive PR qualification routing", () => {
     }
   });
 
-  it("does not launch 100k ingestion for query-only edits such as #524", () => {
+  it("does not launch 100k ingestion for pure query, UI and activation edits", () => {
     for (const file of [
       "src-tauri/src/global_index/search.rs",
       "src-tauri/src/global_index/filename_search.rs",
@@ -70,6 +70,19 @@ describe("Smart Lean expensive PR qualification routing", () => {
       expect(triggersFor(file), file).toBe(false);
     }
     expect(routes).not.toContain("src-tauri/src/global_index/**");
+  });
+
+  it("triggers the owner check when an ingestion edit is mixed with query changes", () => {
+    // A PR that also touches repository.rs or coordinator.rs is not query-only,
+    // even if many of its changes are to SQL ranking or Settings.
+    const mixedPaths = [
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/coordinator.rs",
+      "src/views/settings/SettingsView.tsx",
+    ];
+    expect(mixedPaths.some(triggersFor)).toBe(true);
+    expect(["src-tauri/src/global_index/search.rs", "src/views/settings/SettingsView.tsx"].some(triggersFor)).toBe(false);
   });
 
   it("keeps manual 1k/100k/200k dispatch and the full coverage policy gate", () => {

@@ -1309,6 +1309,14 @@ struct DirectoryContentDigest {
 }
 
 #[cfg(windows)]
+struct DirectoryContentDigestState {
+    root: PathBuf,
+    entry_count: usize,
+    byte_count: u64,
+    hasher: blake3::Hasher,
+}
+
+#[cfg(windows)]
 fn directory_content_digest(
     root: &std::path::Path,
     cancel: Option<&AtomicBool>,
@@ -1316,12 +1324,9 @@ fn directory_content_digest(
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<DirectoryContentDigest, AtomicMoveError> {
     fn visit(
-        root: &std::path::Path,
         current: &std::path::Path,
         depth: usize,
-        entry_count: &mut usize,
-        byte_count: &mut u64,
-        hasher: &mut blake3::Hasher,
+        state: &mut DirectoryContentDigestState,
         cancel: Option<&AtomicBool>,
         progress: &mut crate::fs_safety::DirectoryTransferProgress,
         observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
@@ -1338,31 +1343,33 @@ fn directory_content_digest(
         let verified = VerifiedDirectory::open_existing(current).map_err(map_directory_error)?;
         ensure_windows_sacl_absent_at_path(current)?;
         let security_descriptor = windows_security_descriptor_bytes(current)?;
-        hasher.update(b"security-descriptor\0");
-        hasher.update(&(security_descriptor.len() as u64).to_le_bytes());
-        hasher.update(&security_descriptor);
+        state.hasher.update(b"security-descriptor\0");
+        state
+            .hasher
+            .update(&(security_descriptor.len() as u64).to_le_bytes());
+        state.hasher.update(&security_descriptor);
         let relative = current
-            .strip_prefix(root)
+            .strip_prefix(&state.root)
             .map_err(|_| AtomicMoveError::UnsafePath)?;
         let name = relative
             .as_os_str()
             .encode_wide()
             .flat_map(u16::to_le_bytes)
             .collect::<Vec<_>>();
-        hasher.update(b"directory\0");
-        hasher.update(&(name.len() as u64).to_le_bytes());
-        hasher.update(&name);
+        state.hasher.update(b"directory\0");
+        state.hasher.update(&(name.len() as u64).to_le_bytes());
+        state.hasher.update(&name);
         let mut entries = Vec::new();
         for entry in fs::read_dir(current).map_err(AtomicMoveError::Io)? {
-            if entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
+            if state.entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
                 return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
             }
             entries.push(entry.map_err(AtomicMoveError::Io)?);
         }
         entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
-            *entry_count += 1;
-            if *entry_count > MAX_ENTRIES {
+            state.entry_count += 1;
+            if state.entry_count > MAX_ENTRIES {
                 return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
             }
             let path = entry.path();
@@ -1375,22 +1382,14 @@ fn directory_content_digest(
             ensure_windows_no_named_streams(&path)?;
             progress.record_item(&path, observer)?;
             if metadata.is_dir() {
-                visit(
-                    root,
-                    &path,
-                    depth + 1,
-                    entry_count,
-                    byte_count,
-                    hasher,
-                    cancel,
-                    progress,
-                    observer,
-                )?;
+                visit(&path, depth + 1, state, cancel, progress, observer)?;
             } else if metadata.is_file() {
                 let security_descriptor = windows_security_descriptor_bytes(&path)?;
-                hasher.update(b"security-descriptor\0");
-                hasher.update(&(security_descriptor.len() as u64).to_le_bytes());
-                hasher.update(&security_descriptor);
+                state.hasher.update(b"security-descriptor\0");
+                state
+                    .hasher
+                    .update(&(security_descriptor.len() as u64).to_le_bytes());
+                state.hasher.update(&security_descriptor);
                 let mut options = OpenOptions::new();
                 options.read(true).custom_flags(
                     windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
@@ -1402,20 +1401,22 @@ fn directory_content_digest(
                 }
                 let identity = identity::capture_identity_from_handle(&file, &path, cancel)
                     .map_err(map_identity_error)?;
-                *byte_count = (*byte_count).saturating_add(identity.size);
+                state.byte_count = state.byte_count.saturating_add(identity.size);
                 progress.record_bytes(&path, identity.size, observer)?;
                 let name = path
-                    .strip_prefix(root)
+                    .strip_prefix(&state.root)
                     .map_err(|_| AtomicMoveError::UnsafePath)?
                     .as_os_str()
                     .encode_wide()
                     .flat_map(u16::to_le_bytes)
                     .collect::<Vec<_>>();
-                hasher.update(b"file\0");
-                hasher.update(&(name.len() as u64).to_le_bytes());
-                hasher.update(&name);
-                hasher.update(&identity.size.to_le_bytes());
-                hasher.update(identity.full_hash.as_deref().unwrap_or_default().as_bytes());
+                state.hasher.update(b"file\0");
+                state.hasher.update(&(name.len() as u64).to_le_bytes());
+                state.hasher.update(&name);
+                state.hasher.update(&identity.size.to_le_bytes());
+                state
+                    .hasher
+                    .update(identity.full_hash.as_deref().unwrap_or_default().as_bytes());
             } else {
                 return Err(AtomicMoveError::UnsafePath);
             }
@@ -1424,24 +1425,17 @@ fn directory_content_digest(
         Ok(())
     }
 
-    let mut hasher = blake3::Hasher::new();
-    let mut entry_count = 0usize;
-    let mut byte_count = 0u64;
-    visit(
-        root,
-        root,
-        0,
-        &mut entry_count,
-        &mut byte_count,
-        &mut hasher,
-        cancel,
-        progress,
-        observer,
-    )?;
+    let mut state = DirectoryContentDigestState {
+        root: root.to_path_buf(),
+        entry_count: 0,
+        byte_count: 0,
+        hasher: blake3::Hasher::new(),
+    };
+    visit(root, 0, &mut state, cancel, progress, observer)?;
     Ok(DirectoryContentDigest {
-        hash: hasher.finalize().to_hex().to_string(),
-        entries: entry_count as u64,
-        bytes: byte_count,
+        hash: state.hasher.finalize().to_hex().to_string(),
+        entries: state.entry_count as u64,
+        bytes: state.byte_count,
     })
 }
 
@@ -1698,16 +1692,13 @@ fn retire_claimed_directory_verified_against_target(
         deletion_parent: target_parent,
         cancel,
     };
-    retire_directory_entries_verified(
-        &source_root,
-        &source_path,
-        &target_root,
-        &target_path,
-        0,
-        &mut context,
-        progress,
-        observer,
-    )?;
+    let location = DirectoryRetirementLocation {
+        source_parent_handle: &source_root,
+        source_parent_path: &source_path,
+        target_parent_handle: &target_root,
+        target_parent_path: &target_path,
+    };
+    retire_directory_entries_verified(&location, 0, &mut context, progress, observer)?;
     claim.delete_claim().map_err(map_claim_error)?;
     Ok(())
 }
@@ -1720,11 +1711,16 @@ struct DirectoryRetirementContext<'a> {
 }
 
 #[cfg(windows)]
+struct DirectoryRetirementLocation<'a> {
+    source_parent_handle: &'a File,
+    source_parent_path: &'a std::path::Path,
+    target_parent_handle: &'a File,
+    target_parent_path: &'a std::path::Path,
+}
+
+#[cfg(windows)]
 fn retire_directory_entries_verified(
-    source_parent_handle: &File,
-    source_parent_path: &std::path::Path,
-    target_parent_handle: &File,
-    target_parent_path: &std::path::Path,
+    location: &DirectoryRetirementLocation<'_>,
     depth: usize,
     context: &mut DirectoryRetirementContext<'_>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
@@ -1739,7 +1735,7 @@ fn retire_directory_entries_verified(
         return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
     }
     let mut entries = Vec::new();
-    for entry in fs::read_dir(source_parent_path).map_err(AtomicMoveError::Io)? {
+    for entry in fs::read_dir(location.source_parent_path).map_err(AtomicMoveError::Io)? {
         if context.entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
             return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
         }
@@ -1752,8 +1748,8 @@ fn retire_directory_entries_verified(
         }
         context.entry_count += 1;
         let name = entry.file_name();
-        let source_path = source_parent_path.join(&name);
-        let target_path = target_parent_path.join(&name);
+        let source_path = location.source_parent_path.join(&name);
+        let target_path = location.target_parent_path.join(&name);
         let metadata = fs::symlink_metadata(&source_path).map_err(AtomicMoveError::Io)?;
         if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
             return Err(AtomicMoveError::ReparsePoint);
@@ -1763,7 +1759,7 @@ fn retire_directory_entries_verified(
             return Err(AtomicMoveError::UnsafePath);
         }
         let source_child =
-            open_windows_child_for_tree(source_parent_handle, &name, is_directory, true)?;
+            open_windows_child_for_tree(location.source_parent_handle, &name, is_directory, true)?;
         let source_child_privilege = WindowsSaclPrivilege::enable()?;
         ensure_windows_sacl_absent_from_handle(&source_child, &source_child_privilege)?;
         drop(source_child_privilege);
@@ -1772,7 +1768,7 @@ fn retire_directory_entries_verified(
             return Err(AtomicMoveError::ReparsePoint);
         }
         let target_child =
-            open_windows_child_for_tree(target_parent_handle, &name, is_directory, false)?;
+            open_windows_child_for_tree(location.target_parent_handle, &name, is_directory, false)?;
         let target_child_info = windows_handle_entry_info(&target_child)?;
         if target_child_info.is_reparse || target_child_info.is_directory != is_directory {
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
@@ -1783,11 +1779,14 @@ fn retire_directory_entries_verified(
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
         }
         if is_directory {
+            let child_location = DirectoryRetirementLocation {
+                source_parent_handle: &source_child,
+                source_parent_path: &source_path,
+                target_parent_handle: &target_child,
+                target_parent_path: &target_path,
+            };
             retire_directory_entries_verified(
-                &source_child,
-                &source_path,
-                &target_child,
-                &target_path,
+                &child_location,
                 depth + 1,
                 context,
                 progress,
@@ -2661,7 +2660,7 @@ mod tests {
         let copied = progress_events
             .iter()
             .filter(|progress| progress.stage == "copying")
-            .last()
+            .next_back()
             .expect("final copying progress");
         assert_eq!(copied.processed_items, 4);
         assert_eq!(
@@ -2673,7 +2672,7 @@ mod tests {
         let retired = progress_events
             .iter()
             .filter(|progress| progress.stage == "source_retirement")
-            .last()
+            .next_back()
             .expect("final source-retirement progress");
         assert_eq!(retired.processed_items, 4);
         assert_eq!(retired.total_items, Some(4));

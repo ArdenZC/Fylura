@@ -136,14 +136,17 @@ impl DirectoryTransferProgress {
         self.emit(observer)
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn set_total_items(&mut self, total_items: Option<u64>) {
         self.total_items = total_items;
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn total_items(&self) -> Option<u64> {
         self.total_items
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn processed_items(&self) -> u64 {
         self.processed_items
     }

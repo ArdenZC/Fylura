@@ -1,5 +1,21 @@
 # Fylura Global Search 最终产品验收报告
 
+## 2026-11-01 Windows 原生 GUI 终验更新（优先于下方历史结论）
+
+**本轮 Owner 决策：`READY_FOR_OWNER_MERGE_DEFAULT_OFF`，但 `CANDIDATE_DEFAULT_ON_NOT_READY`。** 以下为 2026-11-01 实机终验的后续更新；下文 2026-10-31 的 `ENVIRONMENT_UNVERIFIED` 结论属于历史阶段，不再代表 Windows GUI 当前状态。实际取证报告保存在本轮 Owner 的 `OWNER_ACCEPTANCE_REPORT.md` 和任务自有 `F:\FyluraQA\` 证据目录，不应把仅凭 CI 取得的结论写成原生 GUI 验收。
+
+- **被测身份：** #518 原代码 HEAD `2878dfc3c13845a1568b9ecfd09edb3ce93af2c6`；`cargo build --release --bin fylura --features "desktop-runtime,global-search-filename-relevance-candidate,tauri/custom-protocol"`，rustc 1.97.1；可执行文件 SHA-256 `14a5ecb53c40177b266b5722640f7e2c00718e15978e160360a78b5a239fa0aa`。WebView2 CDP 仅操作实际 GUI，索引授权、撤权和查询经过真实 Tauri IPC，没有通过 SQLite 或测试内部 API 造假。
+- **Windows 来源 / 正反例：** 任务自有 VHDX `V:`，固定 NTFS、USN 能力位、稳定卷 GUID，按真实设置界面全盘确认后建立 56 项 MFT/USN 索引，系统盘未获授权；`G:` FAT32 拒绝启用，报告 `windows_global_index_unsupported_filesystem:FAT32`。
+- **Windows GUI `PASS`：** 候选 OFF 与显式 `ZC_GLOBAL_SEARCH_FILENAME_RELEVANCE_CANDIDATE=1` ON 后 `needle` 均返回 40/40、`report`/ `port` 各 7、`zeta` 1、中文查询 1、零命中 0；`port` 排序发生预期变化，证明候选真实启用，结果集合未丢失。关闭来源授权后结果立即归零，同一旧结果 ID 的 `open_global_search_result` / `reveal_global_search_result` / `file_workspace_browse_open` 均返回 `global_search_source_disabled`；OFF/ON 重启仍零命中，重新授权恢复 40 条。
+- **退出及资源边界：** 关闭 GUI 后主进程与六个 WebView2 进程全部退出，索引服务按设计保留。约 56 条测试索引的轻负载样本：主进程工作集 64.1 MB、WebView2 树 481.4 MB、服务 18.1 MB，60 秒空闲 CPU 增量 0.031s。**这不等于**通过 30 分钟、1M 大语料或历史 Windows 大于 4 GiB 内存/异常退出资格。
+- **Writer `POINT_PASS_INCONCLUSIVE`：** 生产 WAL 512 行 p95 +2.222%，配对 bootstrap 95% CI `[-18.969%,+14.752%]`，仍无法证明不超过 +10% 门槛。26/100 对伴随自动 checkpoint，100/100 对 WAL frame 数一致，当前 100 对样本的统计分辨率不足；未改门槛，未重跑 1M、100k/200k 或 writer 矩阵。
+- **macOS / Smart Lean：** Apple Silicon 安装版 GUI 仍 `UNVERIFIED`。托管 macOS Smart Lean 原生 APFS/Spotlight 夹具 `spotlight_external_not_indexed`，资格标记 `UNVERIFIED`、工作流表现为 FAIL；同次 100k 摄取基准通过，Windows 资格通过。不要把夹具空结果当成候选算法失败或通过。
+- **独立事项：** #404 SQLITE_BUSY 当前 CI 未复现，保留原始证据；首次启动的原生选目录弹窗、本机 Explorer 可见窗口不在此次查询候选闭环已验证范围。受控测试 VHDX/测试 profile 已卸载或删除，服务 ImagePath 恢复到已安装的 `C:\Program Files\Fylura\fylura.exe`。
+- **合并与发布边界：** 候选仍须 Cargo feature 和启动环境变量同时开启；默认运行路径不启用候选。上述实机终验支持**代码以默认关闭状态合并**，不能自动授权将候选设为默认、宣布完整 macOS 或 Zen Zero 资源资格通过，亦不改变下一阶段 writer 统计要求。
+
+---
+
+
 记录日期：2026-10-31（Asia/Shanghai）
 验收范围：Issue [#494](https://github.com/ArdenZC/Fylura/issues/494)，现有 [Draft PR #518](https://github.com/ArdenZC/Fylura/pull/518)
 

@@ -81,6 +81,7 @@ const FRONTEND_INFRASTRUCTURE_PATHS = new Set([
   "scripts/w2-01-browser-gate.d.mts",
   "scripts/runw2-01browsergate.mjs",
   "scripts/runw2-10browsergate.mjs",
+  "scripts/runcleanupvisibilitybrowser.mjs",
   "scripts/runw2-11browsergate.mjs",
   "scripts/runw3-10phaseabrowserharness.mjs",
   "scripts/runw3-10browsergate.mjs",

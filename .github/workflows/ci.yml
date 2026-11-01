@@ -460,6 +460,18 @@ jobs:
           W210_EXPECTED_CHECKOUT_SHA: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
           W210_LANE: ${{ matrix.validation_lane }}
         run: npm run test:browser:w2-10:real
+      - name: Cleanup finding visibility and selection browser regression
+        env:
+          CLEANUP_VISUAL_ARTIFACT_DIR: ${{ runner.temp }}/cleanup-visibility-browser-gate
+        run: npm run test:browser:cleanup-visibility:real
+      - name: Upload cleanup visibility browser failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cleanup-visibility-browser-gate-failure-${{ matrix.validation_lane }}
+          path: ${{ runner.temp }}/cleanup-visibility-browser-gate
+          if-no-files-found: ignore
+          retention-days: 2
       - name: Upload W2-10 browser gate failure artifacts
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

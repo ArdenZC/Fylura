@@ -140,7 +140,6 @@ describe("CI change routing", () => {
       "src-tauri/src/global_index/windows/service_host.rs",
       "src-tauri/native-qa/global_index_probe.rs",
       "scripts/qualifyWindowsGlobalIndexService.ps1",
-      ".github/workflows/ci.yml",
     ]) {
       expect(
         route([changedPath]).windows_global_index_service_qualification_changed,
@@ -151,6 +150,10 @@ describe("CI change routing", () => {
     for (const changedPath of [
       "src-tauri/src/file_ops.rs",
       "src/App.tsx",
+      ".github/workflows/ci.yml",
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/filename_search.rs",
+      "src-tauri/src/global_index/tests/search_source_authorization.rs",
       "docs/project/tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md",
     ]) {
       expect(
@@ -225,11 +228,54 @@ describe("CI change routing", () => {
     expect(scope.performance_any).toBe(false);
   });
 
-  it("routes workflow changes to every 100k suite but keeps Full explicit", () => {
-    const scope = route([".github/workflows/ci.yml"]);
-    expect(scope.workflow_changed).toBe(true);
-    expect(scope.full_validation).toBe(false);
-    expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
+  it("keeps CI control-plane edits in governance/frontend without broadcasting six performance domains", () => {
+    for (const changedPath of [
+      ".github/workflows/ci.yml",
+      ".github/workflows/smart-lean.yml",
+      ".github/workflows/release-build.yml",
+      "scripts/classifyCiChanges.mjs",
+      "scripts/ciValidationPlan.mjs",
+      "scripts/ciEvidence.mjs",
+    ]) {
+      const scope = route([changedPath]);
+      expect(scope.docs_only, changedPath).toBe(false);
+      expect(scope.workflow_changed, changedPath).toBe(true);
+      expect(scope.frontend_changed, changedPath).toBe(true);
+      expect(scope.high_risk, changedPath).toBe(changedPath.startsWith(".github/workflows/"));
+      expect(scope.all_domains_100k, changedPath).toBe(false);
+      expect(scope.performance_any, changedPath).toBe(false);
+      expect(performanceFlags(scope), changedPath).toEqual([false, false, false, false, false, false]);
+    }
+  });
+
+  it("continues to qualify real source admission while skipping only known query-only Global Index owners", () => {
+    for (const changedPath of [
+      "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/coordinator.rs",
+      "src-tauri/src/global_index/models.rs",
+      "src-tauri/src/global_index/index_scope/native.rs",
+      "src-tauri/src/global_index/windows/volumes.rs",
+      "src-tauri/src/global_index/windows/service.rs",
+      "src-tauri/src/global_index/unfamiliar_new_owner.rs",
+    ]) {
+      expect(route([changedPath]).windows_global_index_service_qualification_changed, changedPath).toBe(true);
+    }
+    const mixed = route([
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/repository.rs",
+      ".github/workflows/smart-lean.yml",
+    ]);
+    expect(mixed.windows_global_index_service_qualification_changed).toBe(true);
+    expect(mixed.perf_search).toBe(true);
+  });
+
+  it("does not let CI-config-only changes waive existing required Quality summaries", () => {
+    const interactive = readWorkflow(".github/workflows/ci.yml");
+    expect(interactive).toContain("name: Quality (windows-latest)");
+    expect(interactive).toContain("name: Quality (macos-latest)");
+    expect(interactive).toContain("name: Change scope / routing contract");
+    expect(interactive).toContain("name: Documentation-only validation");
+    expect(interactive).toContain("check_expected");
   });
 
   it("routes performance harness changes to every 100k suite", () => {

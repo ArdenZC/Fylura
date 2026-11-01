@@ -34,8 +34,6 @@ const WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS = new Set([
   "src-tauri/cargo.toml",
   "src-tauri/cargo.lock",
   "src-tauri/native-qa/global_index_probe.rs",
-  "scripts/classifycichanges.mjs",
-  "scripts/classifycichanges.d.mts",
   "scripts/qualifywindowsglobalindexservice.ps1",
 ]);
 

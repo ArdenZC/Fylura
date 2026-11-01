@@ -53,8 +53,11 @@ $password = ConvertTo-SecureString (([Guid]::NewGuid().ToString("N")) + "aA1!") 
 $userCreated = $false
 $userSid = $null
 $qaRoot = Join-Path "C:\fylura-native-qa" $qaName
+$sourceNamespaceRoot = Split-Path -Parent $qaRoot
 $sourceTemp = Join-Path $qaRoot "temp"
 $secondaryRoot = Join-Path (Join-Path "D:\fylura-native-qa" $qaName) "secondary"
+$secondaryUserRoot = Split-Path -Parent $secondaryRoot
+$secondaryNamespaceRoot = Split-Path -Parent $secondaryUserRoot
 $evidenceRoot = Join-Path $env:RUNNER_TEMP "fylura-native-file-qa-evidence"
 $configPath = Join-Path $qaRoot "fylura-native-file-qa-config.json"
 $qaExecutable = Join-Path $qaRoot "bin\native_file_hardening_smoke.exe"
@@ -68,6 +71,15 @@ try {
     $adminSids = @(Get-LocalGroupMember -Group "Administrators" | ForEach-Object { $_.SID.Value })
     if ($adminSids -contains $userSid) {
         throw "isolated QA account was added to Administrators"
+    }
+
+    foreach ($path in @($sourceNamespaceRoot, $secondaryNamespaceRoot, $secondaryUserRoot)) {
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+        $traverseGrant = "*${userSid}:(X)"
+        & icacls.exe $path /grant $traverseGrant | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not grant the ordinary QA account traversal through $path"
+        }
     }
 
     foreach ($path in @($qaRoot, $sourceTemp, $secondaryRoot, $evidenceRoot)) {
@@ -128,6 +140,13 @@ finally {
         if ($userSid) {
             Get-CimInstance Win32_UserProfile -Filter "SID='$userSid'" -ErrorAction SilentlyContinue |
                 Remove-CimInstance -ErrorAction SilentlyContinue
+        }
+    }
+    if ($userSid) {
+        foreach ($path in @($sourceNamespaceRoot, $secondaryNamespaceRoot)) {
+            if (Test-Path -LiteralPath $path) {
+                & icacls.exe $path /remove:g "*${userSid}" | Out-Null
+            }
         }
     }
 }

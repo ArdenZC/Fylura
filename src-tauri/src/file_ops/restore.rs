@@ -60,7 +60,7 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
     let mut failed = 0_usize;
     let batch_id = restore_progress_batch_id(&request.logs);
     let total = request.logs.len() as u64;
-    let mut progress = OperationProgressBuffer::new("restore", batch_id, total);
+    let mut progress = OperationProgressBuffer::new("restore", batch_id.clone(), total);
     let mut logs = Vec::with_capacity(request.logs.len());
     for (index, log) in prepared_logs.iter().enumerate() {
         let mut phase_log = log.clone();

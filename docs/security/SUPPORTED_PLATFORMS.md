@@ -9,12 +9,22 @@ Fylura supports:
   source claim and operation journal. Cross-volume directory Move stages on
   the target volume, verifies content and owner/group/DACL security
   descriptors, publishes without replacement, then retires the claimed source
-  only after revalidation;
+  only after revalidation. Staged transfers fail closed if an audit SACL is
+  present or the process cannot reliably inspect it; the refusal is surfaced
+  to the user and does not silently fall back to another operation;
 - macOS 13 or later on Apple Silicon (`aarch64-apple-darwin`), with the
   recoverable namespace and provider-coordination strategies described in
   `MACOS_MUTATION_THREAT_MODEL.md`.
 
 Intel Macs, Universal binaries, Rosetta, and Linux are not product targets.
+
+## Bounded directory transfers
+
+Windows and macOS directory copy, Move, and Restore are bounded to 5,000
+descendant entries and 64 directory levels including the selected root. A
+tree beyond either limit is explicitly refused before mutation. The source
+remains unchanged; Fylura does not silently skip entries or report a partial
+tree as a complete transfer.
 
 ## macOS operation support
 
@@ -94,9 +104,12 @@ included in the cross-volume verification digest. The legacy system Recycle
 Bin path continues to fail closed where source binding cannot be proven; Safe
 Trash is the durable cleanup route. This Draft still requires Windows native
 GUI acceptance and active-transfer resource measurements before release
-qualification. Windows audit SACLs are not copied by this path, so SACL-bearing
-trees remain outside its qualified semantics until the backend can preserve or
-explicitly reject them.
+qualification. A staged Windows transfer is refused when an audit SACL is
+present or the process cannot enable `SeSecurityPrivilege` and reliably verify
+that SACLs are absent. This can make staged directory transfers unavailable
+under a restricted Windows token; the task center reports the reason and
+leaves the source untouched. Same-volume atomic rename preserves the original
+security descriptor without staging.
 
 During cross-volume staging, each target entry is protected from destination
 parent DACL inheritance while retaining the source's current owner, group, and

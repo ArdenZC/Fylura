@@ -3,10 +3,10 @@
 use fylura_tauri::{
     db::Database,
     file_ops::{
-        execute_moves_with_persistence, native_qa_transfer_move_preview,
-        reconcile_pending_operation_journal, restore_moves_with_persistence,
-        set_operation_test_fault, ExecuteMovesRequest, OperationLogDto, OperationPreviewRequest,
-        OperationTestFaultPoint, RestoreMovesRequest,
+        execute_moves_with_persistence, native_qa_transfer_copy_preview,
+        native_qa_transfer_move_preview, reconcile_pending_operation_journal,
+        restore_moves_with_persistence, set_operation_test_fault, ExecuteMovesRequest,
+        OperationLogDto, OperationPreviewRequest, OperationTestFaultPoint, RestoreMovesRequest,
     },
     fs_safety::{
         atomic_move::test_faults::{self, AtomicFaultPoint},
@@ -90,32 +90,6 @@ fn ordinary_restore_fixture(
         target,
         moved.logs.into_iter().next().expect("ordinary restore log"),
     )
-}
-
-fn native_copy_operation(
-    run_id: &str,
-    label: &str,
-    source: &Path,
-    target: &Path,
-) -> OperationPreviewRequest {
-    OperationPreviewRequest {
-        id: format!("native-copy-{label}-{run_id}"),
-        file_id: format!("native-copy-file-{label}-{run_id}"),
-        operation_type: "copy".to_string(),
-        source_path: source.to_string_lossy().into_owned(),
-        target_path: target.to_string_lossy().into_owned(),
-        old_name: source
-            .file_name()
-            .expect("copy source name")
-            .to_string_lossy()
-            .into_owned(),
-        new_name: target
-            .file_name()
-            .expect("copy target name")
-            .to_string_lossy()
-            .into_owned(),
-        is_executable: Some(true),
-    }
 }
 
 #[derive(Serialize)]
@@ -904,7 +878,7 @@ fn native_file_hardening_smoke() {
     let cross_volume_exercised = volume_prefix(&source_volume) != volume_prefix(&target_volume);
     let same_copy_parent = source_volume.join("ordinary-copy-destination");
     fs::create_dir_all(&same_copy_parent).expect("same-volume copy target parent");
-    let same_file_source = source_volume.join("ordinary-copy-source.txt");
+    let same_file_source = source_volume.join("ordinary-copy-file.txt");
     let same_file_target = same_copy_parent.join("ordinary-copy-file.txt");
     fs::write(&same_file_source, b"ordinary same-volume copy canary")
         .expect("same-volume Copy source");
@@ -921,22 +895,27 @@ fn native_file_hardening_smoke() {
         &db,
         ExecuteMovesRequest {
             operations: vec![
-                native_copy_operation(&run_id, "same-file", &same_file_source, &same_file_target),
-                native_copy_operation(
-                    &run_id,
-                    "same-directory",
-                    &same_directory_source,
-                    &same_directory_target,
-                ),
+                native_qa_transfer_copy_preview(&same_file_source, &same_copy_parent)
+                    .expect("same-volume file Copy Preview"),
+                native_qa_transfer_copy_preview(&same_directory_source, &same_copy_parent)
+                    .expect("same-volume directory Copy Preview"),
             ],
         },
     )
     .expect("execute ordinary same-volume Copy fixtures");
     assert_eq!(same_copy_result.logs.len(), 2);
-    assert!(same_copy_result
-        .logs
-        .iter()
-        .all(|log| log.status == "success"));
+    assert!(
+        same_copy_result
+            .logs
+            .iter()
+            .all(|log| log.status == "success"),
+        "same-volume Copy must execute through a fresh transfer Preview: {:?}",
+        same_copy_result
+            .logs
+            .iter()
+            .map(|log| (&log.status, &log.error_message))
+            .collect::<Vec<_>>()
+    );
     assert!(
         same_file_source.is_file(),
         "same-volume Copy must retain its source"
@@ -1053,7 +1032,7 @@ fn native_file_hardening_smoke() {
     if cross_volume_exercised {
         let cross_copy_parent = target_volume.join("ordinary-copy-destination");
         fs::create_dir_all(&cross_copy_parent).expect("cross-volume copy target parent");
-        let cross_file_source = source_volume.join("ordinary-cross-copy-source.txt");
+        let cross_file_source = source_volume.join("ordinary-cross-copy-file.txt");
         let cross_file_target = cross_copy_parent.join("ordinary-cross-copy-file.txt");
         fs::write(&cross_file_source, b"ordinary cross-volume copy canary")
             .expect("cross-volume Copy source");
@@ -1070,18 +1049,10 @@ fn native_file_hardening_smoke() {
             &db,
             ExecuteMovesRequest {
                 operations: vec![
-                    native_copy_operation(
-                        &run_id,
-                        "cross-file",
-                        &cross_file_source,
-                        &cross_file_target,
-                    ),
-                    native_copy_operation(
-                        &run_id,
-                        "cross-directory",
-                        &cross_directory_source,
-                        &cross_directory_target,
-                    ),
+                    native_qa_transfer_copy_preview(&cross_file_source, &cross_copy_parent)
+                        .expect("cross-volume file Copy Preview"),
+                    native_qa_transfer_copy_preview(&cross_directory_source, &cross_copy_parent)
+                        .expect("cross-volume directory Copy Preview"),
                 ],
             },
         )

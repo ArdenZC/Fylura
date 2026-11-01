@@ -769,6 +769,7 @@ impl Drop for StagingDirectory {
 }
 
 #[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
 fn copy_directory_contents(
     source: &std::path::Path,
     target: &std::path::Path,

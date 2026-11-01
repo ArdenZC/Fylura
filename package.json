@@ -25,6 +25,7 @@
     "test:browser:w2-09:real": "node scripts/runW2-09BrowserGate.mjs",
     "test:browser:w2-10:real": "node scripts/runW2-10BrowserGate.mjs",
     "test:browser:w2-11:real": "node scripts/runW2-11BrowserGate.mjs",
+    "test:browser:cleanup-visibility:real": "node scripts/runCleanupVisibilityBrowser.mjs",
     "test:browser:w3-02:real": "node scripts/runW3-02BrowserGate.mjs",
     "test:browser:w3-03:real": "node scripts/runW3-03BrowserGate.mjs",
     "test:browser:w3-04:real": "node scripts/runW3-04BrowserGate.mjs",

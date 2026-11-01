@@ -41,6 +41,13 @@ pub(crate) fn file_operation_fingerprint(
     operation_type: &str,
 ) -> Result<FileIdentityFingerprint, String> {
     let _ = operation_type;
+    if path
+        .symlink_metadata()
+        .map_err(|error| error.to_string())?
+        .is_dir()
+    {
+        return file_namespace_fingerprint(path);
+    }
     // macOS clone/copy/replace selection must not pre-read a sparse or
     // provider-backed source just to manufacture a preview hash. The native
     // copy policy chooses a physical clone from namespace identity and falls

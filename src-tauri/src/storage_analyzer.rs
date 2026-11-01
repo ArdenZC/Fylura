@@ -5259,6 +5259,10 @@ fn is_current_user_temp_path(path: &Path) -> bool {
     )
 }
 
+pub fn is_zen_canvas_safe_trash_path(path: &Path) -> bool {
+    is_zen_canvas_safe_trash_path_text(&normalize_for_compare(path))
+}
+
 fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
     lower.ends_with("/.zen-canvas-trash")
         || lower.contains("/.zen-canvas-trash/")

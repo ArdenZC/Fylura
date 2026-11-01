@@ -937,6 +937,15 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "get_active_analysis_run":
       return (mockAnalysisRuns.find((run) => ["queued", "running", "cancelling"].includes(run.status)) ?? null) as T;
     case "list_analysis_runs":
+      if (
+        ["visibility", "visibility-many"].includes(mockCleanupPresentationScenario())
+        && !mockAnalysisRuns.some((run) => run.requestKey === "browser-cleanup-visibility")
+      ) {
+        startMockAnalysisRun({
+          requestKey: "browser-cleanup-visibility",
+          scope: { kind: "approvedCleanupPaths", paths: ["C:/Users/Zen/Downloads"] }
+        });
+      }
       return mockAnalysisRuns.slice(0, Number(args?.limit ?? 20)) as T;
     case "list_analysis_run_detectors":
       return [] as T;
@@ -1833,7 +1842,13 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
   const now = Math.floor(Date.now() / 1000);
   const scenario = mockCleanupPresentationScenario();
   const failed = scenario === "analysis-failure";
-  const hasPresentationFindings = scenario === "current-assessment" || scenario === "request-unavailable" || scenario === "preview";
+  const singleFindingVisibilityFixture = scenario === "visibility";
+  const manyFindingVisibilityFixture = scenario === "visibility-many";
+  const visibilityFixture = singleFindingVisibilityFixture || manyFindingVisibilityFixture;
+  const hasPresentationFindings = visibilityFixture || scenario === "current-assessment" || scenario === "request-unavailable" || scenario === "preview";
+  const safeFindingCount = singleFindingVisibilityFixture ? 1 : manyFindingVisibilityFixture ? 48 : hasPresentationFindings ? 1 : 0;
+  const reviewFindingCount = hasPresentationFindings && !visibilityFixture ? 1 : 0;
+  const presentationFindingCount = safeFindingCount + reviewFindingCount;
   const requestedPaths = request?.scope?.paths?.map((path) => path.trim()).filter(Boolean) ?? [];
   const cleanupCandidates = mockStorageAnalysis().candidates;
   const safeCandidate = cleanupCandidates.find((candidate) => candidate.id === "storage-safe-node-modules");
@@ -1861,13 +1876,15 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
     detectorsTotal: mockAnalysisDetectors.length,
     detectorsCompleted: mockAnalysisDetectors.length,
     detectorsFailed: failed ? 1 : 0,
-    findingsStaged: hasPresentationFindings ? 2 : 0,
-    findingsPublished: hasPresentationFindings ? 2 : 0,
-    safeCount: hasPresentationFindings ? 1 : 0,
-    reviewCount: hasPresentationFindings ? 1 : 0,
+    findingsStaged: presentationFindingCount,
+    findingsPublished: presentationFindingCount,
+    safeCount: safeFindingCount,
+    reviewCount: reviewFindingCount,
     cautionCount: 0,
     exactReclaimableBytes: hasPresentationFindings ? safeCandidate?.size ?? 1024 : 0,
-    potentialReclaimableBytes: hasPresentationFindings ? (safeCandidate?.size ?? 1024) + (reviewCandidate?.size ?? 1024) : 0,
+    potentialReclaimableBytes: hasPresentationFindings
+      ? (safeCandidate?.size ?? 1024) * safeFindingCount + (reviewCandidate?.size ?? 1024) * reviewFindingCount
+      : 0,
     warningCount: 0,
     errorCount: failed ? 1 : 0,
     startedAt: now,
@@ -1880,17 +1897,27 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
   };
   mockAnalysisFindings = hasPresentationFindings
     ? [
-      makeMockCleanupFinding(run, safeCandidate, safeFindingId, safePath, "safe"),
-      makeMockCleanupFinding(run, reviewCandidate, reviewFindingId, reviewPath, "review")
+      ...Array.from({ length: safeFindingCount }, (_, index) => {
+        const id = safeFindingCount > 1 ? `${safeFindingId}-${index + 1}` : safeFindingId;
+        const path = safeFindingCount > 1 ? `${safePath}-${index + 1}` : safePath;
+        const finding = makeMockCleanupFinding(run, safeCandidate, id, path, "safe");
+        return visibilityFixture
+          ? {
+            ...finding,
+            reason: "This deliberately long cleanup reason checks whether the complete finding row remains readable and whether its selection control stays visible and reachable after the row grows. It wraps across several lines at narrow widths so browser layout validation can detect clipping in the findings viewport."
+          }
+          : finding;
+      }),
+      ...(reviewFindingCount ? [makeMockCleanupFinding(run, reviewCandidate, reviewFindingId, reviewPath, "review")] : [])
     ]
     : [];
   mockAnalysisRuns = [run, ...mockAnalysisRuns].slice(0, 20);
   return run;
 }
 
-function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "request-unavailable" | "preview" {
+function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "request-unavailable" | "preview" | "visibility" | "visibility-many" {
   const value = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
-  return value === "analysis-failure" || value === "current-assessment" || value === "request-unavailable" || value === "preview" ? value : "none";
+  return value === "analysis-failure" || value === "current-assessment" || value === "request-unavailable" || value === "preview" || value === "visibility" || value === "visibility-many" ? value : "none";
 }
 
 function makeMockCleanupFinding(

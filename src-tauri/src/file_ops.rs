@@ -2539,12 +2539,14 @@ mod tests {
         assert_eq!(progress.events().last().map(|event| event.total), Some(11));
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     #[test]
-    fn execute_moves_core_fails_closed_when_system_trash_cannot_bind_source_handle() {
+    fn execute_moves_core_safe_delete_uses_journaled_trash_and_restores() {
         let root = test_dir();
         let source = root.join("trash-me.txt");
-        fs::write(&source, "temporary").expect("write source");
+        let original = b"temporary";
+        let original_hash = blake3::hash(original);
+        fs::write(&source, original).expect("write source");
         let file = fs::OpenOptions::new()
             .write(true)
             .open(&source)
@@ -2567,16 +2569,32 @@ mod tests {
                 is_executable: Some(true),
             }],
         });
-        assert_eq!(result.logs[0].status, "failed");
-        assert_eq!(
-            result.logs[0].error_message.as_deref(),
-            Some("system_trash_source_binding_unsupported")
-        );
+        assert_eq!(result.logs[0].status, "success");
+        assert!(result.logs[0].error_message.is_none());
         assert_eq!(result.logs[0].operation_type, "move_to_trash");
-        assert_eq!(result.logs[0].target_path, "Recycle Bin");
-        assert!(source.exists());
-        assert!(!result.logs[0].can_restore);
+        let trashed = PathBuf::from(&result.logs[0].path_after);
+        assert!(trashed.to_string_lossy().contains(".zen-canvas-trash"));
+        assert!(!source.exists());
+        assert_eq!(
+            blake3::hash(&fs::read(&trashed).expect("read Safe Trash copy")),
+            original_hash
+        );
+        assert!(result.logs[0].can_restore);
         assert_eq!(result.logs[0].restore_status, "not_restored");
+
+        let restored = restore_moves_core(RestoreMovesRequest {
+            logs: result.logs.clone(),
+        });
+        assert_eq!(restored.restored, 1);
+        assert_eq!(restored.failed, 0);
+        assert_eq!(restored.logs[0].restore_status, "restored");
+        assert!(source.exists());
+        assert_eq!(
+            blake3::hash(&fs::read(&source).expect("read restored source")),
+            original_hash
+        );
+        assert!(!trashed.exists());
+        drop(file);
     }
 
     #[test]

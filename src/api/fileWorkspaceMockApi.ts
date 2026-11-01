@@ -295,6 +295,7 @@ function w302Stats() {
       lateStarts: number;
       createHostKinds: PreviewHostKind[];
       activeBackendHostKinds: Record<string, PreviewHostKind>;
+      activeBackendSources: Record<string, PreviewSnapshot["source"]>;
       browseNextPageCalls: number;
       browseNextPageLengths: number[];
       resolveNext: () => void;
@@ -312,6 +313,7 @@ function w302Stats() {
       lateStarts: 0,
       createHostKinds: [],
       activeBackendHostKinds: {},
+      activeBackendSources: {},
       browseNextPageCalls: 0,
       browseNextPageLengths: [],
       resolveNext: resolveNextPreviewStart,
@@ -1508,6 +1510,7 @@ function createPreview(request: PreviewCreateRequest): PreviewSnapshot {
   if (fixture !== null) {
     fixture.createHostKinds.push(request.hostKind);
     fixture.activeBackendHostKinds[previewId] = request.hostKind;
+    fixture.activeBackendSources[previewId] = snapshot.source;
   }
   return parsePreviewSnapshot(snapshot);
 }
@@ -1628,6 +1631,7 @@ function disposePreview(request: MockArgs) {
   const fixture = w302Stats();
   if (fixture !== null) fixture.disposeCalls += 1;
   if (fixture !== null) delete fixture.activeBackendHostKinds[previewId];
+  if (fixture !== null) delete fixture.activeBackendSources[previewId];
   if (!previews.delete(previewId) && fixture === null) throw new Error("preview_session_not_found");
 }
 
@@ -1644,6 +1648,7 @@ function switchPreviewSource(request: MockArgs): PreviewSnapshot {
     sourceVersion: undefined,
     representation: undefined
   };
+  if (fixture !== null) fixture.activeBackendSources[String(request?.previewId ?? "")] = source;
   record.pendingSnapshots = undefined;
   return parsePreviewSnapshot(record.snapshot);
 }

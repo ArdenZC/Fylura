@@ -6,9 +6,13 @@ import { FolderComparison } from "../src/views/fileLibrary/compare/FolderCompari
 import { useFileManagementStore } from "../src/views/fileLibrary/management/fileManagementStore";
 import type { BrowseSourceOwner } from "../src/views/fileLibrary/browse/browseSourceOwner";
 import type { BrowsePresentationEntry } from "../src/views/fileLibrary/presentation/contracts";
+const runtime = vi.hoisted(() => ({ platform: "darwin" as NodeJS.Platform }));
 vi.mock("../src/contexts/AppContexts", async () => {
   const { makeTranslator } = await import("../src/i18n");
-  return { useI18nContext: () => ({ t: makeTranslator("en"), language: "en" }) };
+  return {
+    useI18nContext: () => ({ t: makeTranslator("en"), language: "en" }),
+    useChromeContext: () => ({ platform: runtime.platform }),
+  };
 });
 const entry = (side: string, name: string): BrowsePresentationEntry => ({ source:"browse", displayName:name, entryKind:"file", size:10, modifiedAt:1,
   renderKey: name as BrowsePresentationEntry["renderKey"], entryRef:{kind:"ephemeral",browseSessionId:side,entryId:`${side}-${name}`} });
@@ -26,6 +30,7 @@ function source(side: string, names: string[]) {
 }
 const click = async(text:string) => act(async()=>{[...host.querySelectorAll('button')].find((b)=>b.textContent?.trim()===text)!.click();});
 beforeEach(async()=>{
+  runtime.platform = "darwin";
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
   sources.splice(0,sources.length,source("left",["same","left-only"]),source("right",["same","right-only"]));
   useFileManagementStore.setState({transferOpen:false,pendingAction:null}); publish();
@@ -75,5 +80,23 @@ describe("comparison source-owned workflow",()=>{
     await click('Pause');
     await act(async()=>{publish();await new Promise(resolve=>setTimeout(resolve,10));});
     expect(sources[0].loadNextPage).toHaveBeenCalledTimes(1);
+  });
+  it("keeps directory Copy available on Windows and disables only directory Move", async()=>{
+    runtime.platform = "win32";
+    const directory = { ...entry("left", "folder"), entryKind: "directory" as const };
+    Object.assign(sources[0], {
+      entries: [directory],
+      selectedIds: new Set([directory.entryRef.entryId]),
+      selectedCount: 1,
+    });
+    publish();
+    await act(async()=>root.render(<FolderComparison paneIds={["0","1"]} activate={(id)=>useFileManagementStore.getState().activatePane(id)}/>));
+    await click("Compare folders");
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>(".u3-batch-actions > div:first-child button")];
+    expect(buttons.find((button) => button.textContent === "Add to basket")?.disabled).toBe(false);
+    expect(buttons.find((button) => button.textContent === "Copy to other pane")?.disabled).toBe(false);
+    expect(buttons.find((button) => button.textContent === "Move to other pane")?.disabled).toBe(true);
+    await act(async()=>buttons.find((button) => button.textContent === "Copy to other pane")!.click());
+    expect(useFileManagementStore.getState().pendingAction).toBe("copy_other");
   });
 });

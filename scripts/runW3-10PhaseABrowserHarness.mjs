@@ -128,10 +128,10 @@ async function waitForLibrary(page) {
   const navigation = page.getByRole("button", { name: "Files", exact: true });
   await navigation.waitFor({ state: "visible" });
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (await page.locator('.file-library-workspace[data-mode="library"]').count() > 0) break;
+    if (await page.locator(".file-library-workspace").count() > 0) break;
     await navigation.click();
     try {
-      await page.waitForSelector('.file-library-workspace[data-mode="library"]', { timeout: 5_000 });
+      await page.waitForSelector(".file-library-workspace", { timeout: 5_000 });
       break;
     } catch (error) {
       if (attempt === 2) {
@@ -142,6 +142,12 @@ async function waitForLibrary(page) {
         throw new Error(`File Library did not mount ${JSON.stringify(diagnostics)} (${error.message})`);
       }
     }
+  }
+  const libraryTab = page.locator('[role="tab"][data-file-library-mode="library"]');
+  await libraryTab.waitFor({ state: "visible" });
+  if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) {
+    await libraryTab.click();
+    await page.waitForSelector('.file-library-workspace[data-mode="library"]', { state: "visible" });
   }
   const allIndexedFiles = page.getByRole("button", { name: "View all indexed files", exact: true });
   if (await allIndexedFiles.count() > 0 && await allIndexedFiles.first().isVisible()) await allIndexedFiles.first().click();

@@ -169,6 +169,7 @@ function operationLabel(operation: OperationPreview["operation_type"], t: Transl
   if (operation === "duplicate") return t("operationDuplicate");
   if (operation === "replace") return t("operationReplace");
   if (operation === "permanent_delete") return t("operationPermanentDelete");
+  if (operation === "create_directory") return t("operationCreateDirectory");
   return t("operationMove");
 }
 

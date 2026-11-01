@@ -644,7 +644,9 @@ fn p1_pause_acknowledged_during_sources_event_is_not_cleared_by_index_start() {
     runtime
         .handle_request(request, &mut connection)
         .expect("service exchange completed");
-    let pause_response = connection.pause_response.expect("independent Pause response");
+    let pause_response = connection
+        .pause_response
+        .expect("independent Pause response");
     assert!(pause_response.ok, "typed Pause must be acknowledged");
     assert_eq!(pause_response.status.as_deref(), Some(INDEX_STATUS_PAUSED));
     let index_response = connection.response.expect("index terminal response");

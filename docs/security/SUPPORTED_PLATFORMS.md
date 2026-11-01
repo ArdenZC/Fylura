@@ -7,11 +7,11 @@ Fylura supports:
 - Windows, with the existing source-handle and verified-directory mutation
   authority. Same-volume directory Move uses the existing no-replace atomic
   source claim and operation journal. Cross-volume directory Move stages on
-  the target volume, verifies content and owner/group/DACL security
-  descriptors, publishes without replacement, then retires the claimed source
-  only after revalidation. Staged transfers fail closed if an audit SACL is
-  present or the process cannot reliably inspect it; the refusal is surfaced
-  to the user and does not silently fall back to another operation;
+  the target volume, verifies copied content, publishes without replacement,
+  then retires the claimed source only after revalidation. New staged objects
+  inherit the destination directory's normal permissions and mandatory
+  integrity label. Fylura does not read or copy the source Owner, DACL, or SACL,
+  and does not require `SeSecurityPrivilege` for ordinary Copy or Move;
 - macOS 13 or later on Apple Silicon (`aarch64-apple-darwin`), with the
   recoverable namespace and provider-coordination strategies described in
   `MACOS_MUTATION_THREAT_MODEL.md`.
@@ -97,29 +97,25 @@ attempting source cleanup.
 
 Windows source-handle and verified-directory primitives remain the filesystem
 authority. Cross-volume directory Move is
-bounded to 5,000 entries and depth 64; reparse points, named streams,
-unsupported attributes, security-descriptor access failures, and source or
-target identity changes fail closed. Owner, group, and DACL changes are
-included in the cross-volume verification digest. The legacy system Recycle
-Bin path continues to fail closed where source binding cannot be proven; Safe
-Trash is the durable cleanup route. This Draft still requires Windows native
-GUI acceptance and active-transfer resource measurements before release
-qualification. A staged Windows transfer is refused when an audit SACL is
-present or the process cannot enable `SeSecurityPrivilege` and reliably verify
-that SACLs are absent. This can make staged directory transfers unavailable
-under a restricted Windows token; the task center reports the reason and
-leaves the source untouched. Same-volume atomic rename preserves the original
-security descriptor without staging.
+bounded to 5,000 entries and depth 64. Reparse points, EFS-encrypted files,
+extended attributes, NTFS named streams, sparse files, integrity streams,
+offline/provider placeholders, and other unsupported special attributes are
+rejected before source cleanup; Fylura does not silently discard them. For
+ordinary staged Copy and Move, target files and directories inherit the
+destination parent's DACL and mandatory integrity label. Source Owner, DACL,
+and SACL are neither read nor copied, and the source's permissions are not
+modified. Same-volume atomic rename moves the existing filesystem objects and
+preserves their original metadata and security descriptor.
 
-During cross-volume staging, each target entry is protected from destination
-parent DACL inheritance while retaining the source's current owner, group, and
-DACL ACEs. This keeps a different destination-parent ACL from being merged
-silently into the moved tree. DACL control flags and the per-ACE inherited
-marker are excluded from the content comparison because staging materializes
-inherited ACEs as explicit ACEs. ACE type, rights, SIDs, conditions, and all
-other ACE flags remain verified at staging, publication, and source retirement.
-Future changes to the source parent's inherited ACL will not propagate to the
-staged target.
+Move follows the target-first sequence: verify the source, copy to isolated
+staging, verify copied data, publish without replacement, persist the commit,
+revalidate the source, then retire it. If copying, verification, publication,
+or source cleanup fails, the source is retained and the journal records the
+resulting recoverable state. Copy leaves the source in place. The legacy system
+Recycle Bin path continues to fail closed where source binding cannot be
+proven; Safe Trash is the durable cleanup route. This Draft still requires
+Windows native GUI acceptance and active-transfer resource measurements before
+release qualification.
 
 Linux is not a supported product platform. It is outside product support,
 build, release, and mutation-safety scope.

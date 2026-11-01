@@ -242,6 +242,7 @@ describe("CI change routing", () => {
       expect(scope.workflow_changed, changedPath).toBe(true);
       expect(scope.frontend_changed, changedPath).toBe(true);
       expect(scope.high_risk, changedPath).toBe(changedPath.startsWith(".github/workflows/"));
+      expect(scope.windows_global_index_service_qualification_changed, changedPath).toBe(false);
       expect(scope.all_domains_100k, changedPath).toBe(false);
       expect(scope.performance_any, changedPath).toBe(false);
       expect(performanceFlags(scope), changedPath).toEqual([false, false, false, false, false, false]);

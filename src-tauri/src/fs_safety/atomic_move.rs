@@ -1531,10 +1531,47 @@ pub mod test_faults {
         SourceCleanup,
         CancelDirectoryCopyAfterEntry,
         WindowsSaclInspectionUnavailable,
+        WindowsSaclTransferUnsupported,
     }
 
     thread_local! {
         static FAULT: RefCell<Option<AtomicFaultPoint>> = const { RefCell::new(None) };
+    }
+
+    #[cfg(all(test, windows))]
+    thread_local! {
+        static VERIFIED_ABSENT_SACL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    #[cfg(all(test, windows))]
+    pub(crate) struct VerifiedAbsentSaclTestGuard {
+        previous: bool,
+    }
+
+    #[cfg(all(test, windows))]
+    impl Drop for VerifiedAbsentSaclTestGuard {
+        fn drop(&mut self) {
+            VERIFIED_ABSENT_SACL.with(|override_state| override_state.set(self.previous));
+        }
+    }
+
+    /// Simulate a successful SACL absence inspection for transaction tests
+    /// that exercise copy/Move journal behavior. Native filesystem smoke runs
+    /// do not enable this test-only override and record the runner's actual
+    /// SeSecurityPrivilege capability separately.
+    #[cfg(all(test, windows))]
+    pub(crate) fn assume_sacl_verified_absent_for_test() -> VerifiedAbsentSaclTestGuard {
+        let previous = VERIFIED_ABSENT_SACL.with(|override_state| {
+            let previous = override_state.get();
+            override_state.set(true);
+            previous
+        });
+        VerifiedAbsentSaclTestGuard { previous }
+    }
+
+    #[cfg(all(test, windows))]
+    pub(crate) fn sacl_verified_absent_override_for_test() -> bool {
+        VERIFIED_ABSENT_SACL.with(std::cell::Cell::get)
     }
 
     #[cfg(all(test, windows))]

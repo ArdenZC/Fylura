@@ -1018,6 +1018,16 @@ fn ensure_windows_sacl_absent_at_path(path: &std::path::Path) -> Result<(), Atom
     if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
         return Err(AtomicMoveError::ReparsePoint);
     }
+    #[cfg(test)]
+    if super::atomic_move::test_faults::take_fault(
+        super::atomic_move::test_faults::AtomicFaultPoint::WindowsSaclTransferUnsupported,
+    ) {
+        return Err(AtomicMoveError::WindowsSaclTransferUnsupported);
+    }
+    #[cfg(test)]
+    if super::atomic_move::test_faults::sacl_verified_absent_override_for_test() {
+        return Ok(());
+    }
     let _privilege = WindowsSaclPrivilege::enable()?;
     let wide = source_claim::windows_wide_path(path);
     let flags = FILE_FLAG_OPEN_REPARSE_POINT
@@ -1052,8 +1062,12 @@ fn ensure_windows_sacl_absent_at_path(path: &std::path::Path) -> Result<(), Atom
 #[cfg(windows)]
 fn ensure_windows_sacl_absent_from_handle(
     file: &File,
-    _privilege: &WindowsSaclPrivilege,
+    privilege: &WindowsSaclPrivilege,
 ) -> Result<(), AtomicMoveError> {
+    #[cfg(test)]
+    if privilege.verified_absent_test_override {
+        return Ok(());
+    }
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::{
         Foundation::{GetLastError, LocalFree, HANDLE},
@@ -1098,7 +1112,9 @@ fn ensure_windows_sacl_absent_from_handle(
 struct WindowsSaclPrivilege {
     token: windows_sys::Win32::Foundation::HANDLE,
     previous: windows_sys::Win32::Security::TOKEN_PRIVILEGES,
-    _lock: std::sync::MutexGuard<'static, ()>,
+    _lock: Option<std::sync::MutexGuard<'static, ()>>,
+    #[cfg(test)]
+    verified_absent_test_override: bool,
 }
 
 #[cfg(windows)]
@@ -1113,6 +1129,15 @@ impl WindowsSaclPrivilege {
             },
             System::Threading::{GetCurrentProcess, OpenProcessToken},
         };
+        #[cfg(test)]
+        if super::atomic_move::test_faults::sacl_verified_absent_override_for_test() {
+            return Ok(Self {
+                token: std::ptr::null_mut(),
+                previous: TOKEN_PRIVILEGES::default(),
+                _lock: None,
+                verified_absent_test_override: true,
+            });
+        }
         #[cfg(any(test, feature = "native-qa"))]
         if super::atomic_move::test_faults::take_fault(
             super::atomic_move::test_faults::AtomicFaultPoint::WindowsSaclInspectionUnavailable,
@@ -1172,7 +1197,9 @@ impl WindowsSaclPrivilege {
         Ok(Self {
             token,
             previous,
-            _lock: lock,
+            _lock: Some(lock),
+            #[cfg(test)]
+            verified_absent_test_override: false,
         })
     }
 }
@@ -1181,6 +1208,10 @@ impl WindowsSaclPrivilege {
 impl Drop for WindowsSaclPrivilege {
     fn drop(&mut self) {
         use windows_sys::Win32::{Foundation::CloseHandle, Security::AdjustTokenPrivileges};
+        #[cfg(test)]
+        if self.verified_absent_test_override {
+            return;
+        }
         unsafe {
             AdjustTokenPrivileges(
                 self.token,
@@ -2397,6 +2428,11 @@ mod tests {
     use super::*;
     use std::{fs, io::Write};
 
+    fn assume_sacl_verified_absent_for_test(
+    ) -> super::super::atomic_move::test_faults::VerifiedAbsentSaclTestGuard {
+        super::super::atomic_move::test_faults::assume_sacl_verified_absent_for_test()
+    }
+
     fn fixture(label: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "zen-canvas-staging-{label}-{}",
@@ -2490,13 +2526,23 @@ mod tests {
         fs::create_dir_all(source.join("nested")).expect("nested fixture");
         let nested_file = source.join("nested").join("audited.txt");
         fs::write(&nested_file, b"audited source bytes").expect("nested source");
-        ensure_windows_transfer_security_supported(&source, None)
-            .expect("ordinary no-SACL directory is supported");
-        apply_test_audit_sacl(&nested_file);
-        assert!(matches!(
-            ensure_windows_transfer_security_supported(&source, None),
-            Err(AtomicMoveError::WindowsSaclTransferUnsupported)
-        ));
+        let actual_audit_sacl_inspection = match ensure_windows_transfer_security_supported(
+            &source, None,
+        ) {
+            Ok(()) => {
+                apply_test_audit_sacl(&nested_file);
+                assert!(matches!(
+                    ensure_windows_transfer_security_supported(&source, None),
+                    Err(AtomicMoveError::WindowsSaclTransferUnsupported)
+                ));
+                true
+            }
+            Err(AtomicMoveError::WindowsSaclInspectionUnavailable) => {
+                eprintln!("UNVERIFIED: this Windows token cannot inspect SACLs; the native smoke records the fail-closed refusal, and the transaction rollback is covered by an injected SACL refusal");
+                false
+            }
+            Err(error) => panic!("unexpected initial SACL inspection result: {error:?}"),
+        };
 
         let expected = identity::capture_namespace_identity_only(&source, None)
             .expect("source namespace identity");
@@ -2511,6 +2557,12 @@ mod tests {
         )
         .expect("claim source directory");
         let target_parent = VerifiedDirectory::open_existing(&root).expect("target parent");
+        if !actual_audit_sacl_inspection {
+            super::super::atomic_move::test_faults::set_fault(Some(
+                super::super::atomic_move::test_faults::AtomicFaultPoint::
+                    WindowsSaclTransferUnsupported,
+            ));
+        }
         let result = copy_commit_claim(
             &mut claim,
             target_parent,
@@ -2518,6 +2570,7 @@ mod tests {
             None,
             None,
         );
+        super::super::atomic_move::test_faults::set_fault(None);
         assert!(matches!(
             result,
             Err(AtomicMoveError::WindowsSaclTransferUnsupported)
@@ -2560,6 +2613,7 @@ mod tests {
 
     #[test]
     fn copy_commit_reports_each_persistable_filesystem_phase_in_order() {
+        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture("phases");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
@@ -2611,6 +2665,7 @@ mod tests {
 
     #[test]
     fn staged_directory_move_preserves_nested_empty_tree_and_cleans_claim() {
+        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture("directory-move");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
@@ -2701,6 +2756,7 @@ mod tests {
 
     #[test]
     fn staged_directory_move_cancel_before_publish_restores_source_and_removes_stage() {
+        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture("directory-cancel");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
@@ -2750,6 +2806,7 @@ mod tests {
 
     #[test]
     fn staged_directory_move_source_cleanup_fault_keeps_both_recoverable_copies() {
+        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture("directory-cleanup-fault");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
@@ -2817,6 +2874,7 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn source_tree_mutation_after_target_commit_preserves_claim_and_target() {
+        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let _serial = source_claim::lock_claim_test_hooks();
         let root = fixture("directory-source-mutation-after-commit");
         let source_parent = root.join("source");
@@ -2877,6 +2935,7 @@ mod tests {
     fn native_cross_volume_directory_move_runs_when_an_isolated_volume_is_available() {
         use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
 
+        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let source_root = fixture("native-cross-volume-source");
         let source_identity = identity::capture_namespace_identity_only(&source_root, None)
             .expect("source volume identity");
@@ -2991,6 +3050,7 @@ mod tests {
         label: &str,
         point: super::super::atomic_move::test_faults::AtomicFaultPoint,
     ) -> (Result<(), AtomicMoveError>, PathBuf, PathBuf, PathBuf) {
+        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture(label);
         let source = root.join("source.txt");
         let target = root.join("target.txt");
@@ -3082,6 +3142,7 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn source_dacl_mutation_after_target_commit_preserves_claim_and_target() {
+        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let _serial = source_claim::lock_claim_test_hooks();
         let root = fixture("directory-dacl-mutation-after-commit");
         let source_parent = root.join("source");

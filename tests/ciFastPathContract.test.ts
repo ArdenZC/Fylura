@@ -173,6 +173,7 @@ describe("CI final performance remediation contract", () => {
       "macos_target_creation_race_never_loses_source_payload",
       "macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss",
       "macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided",
+      "fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_forks",
     ];
 
     for (const [workflow, iterations] of expectedRaceIterations) {
@@ -197,6 +198,16 @@ describe("CI final performance remediation contract", () => {
       expect(ordinaryRustTests).toContain("cargo test --manifest-path src-tauri/Cargo.toml --features \"desktop-runtime native-qa\" -- \\");
       expect((ordinaryRustTests.match(/--skip /g) ?? []).length).toBe(raceTests.length);
       for (const testName of raceTests) expect(ordinaryRustTests).toContain("--skip " + testName);
+
+      const apfsStart = macosQuality.indexOf("      - name: Native APFS cross-volume directory Move evidence");
+      const apfsEnd = macosQuality.indexOf("\n      - name:", apfsStart + 1);
+      expect(apfsStart).toBeGreaterThanOrEqual(0);
+      expect(apfsEnd).toBeGreaterThan(apfsStart);
+      const apfsEvidenceStep = macosQuality.slice(apfsStart, apfsEnd);
+      expect(apfsEvidenceStep).toContain("--exact --nocapture --test-threads=1");
+      expect(apfsEvidenceStep).toContain("FL23_APFS_NATIVE_PASS fs=[^ ]+ distinct_volume=true directory_move=true restore=true source_retired=true");
+      expect(macosQuality).toContain("- name: Upload APFS native directory Move evidence");
+
       expect(raceStep).toContain("        env:\n          ZEN_CANVAS_MACOS_RACE_ITERATIONS: \"" + iterations + "\"\n          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: \"" + iterations + "\"");
       expect(raceStep).toContain("--test macos_mutation_fail_closed");
       expect((raceStep.match(/--test macos_mutation_fail_closed/g) ?? []).length).toBe(1);

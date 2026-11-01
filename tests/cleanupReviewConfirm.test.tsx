@@ -183,6 +183,12 @@ describe("cleanup review confirmation", () => {
 
     const acknowledge = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("确认后加入清单"));
     expect(acknowledge).toBeTruthy();
+    const findingRow = document.querySelector<HTMLElement>('[data-analysis-finding-id="finding-review-cache"]');
+    const rowActions = findingRow?.querySelector<HTMLElement>("[data-cleanup-row-actions]");
+    const findingText = findingRow?.textContent ?? "";
+    expect(rowActions).toBeTruthy();
+    expect(findingText.indexOf("确认后加入清单")).toBeGreaterThanOrEqual(0);
+    expect(findingText.indexOf("确认后加入清单")).toBeLessThan(findingText.indexOf("原因"));
     await act(async () => acknowledge?.click());
     expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain("确认加入清理清单");
 

@@ -57,6 +57,7 @@ $sourceTemp = Join-Path $qaRoot "temp"
 $secondaryRoot = Join-Path (Join-Path "D:\fylura-native-qa" $qaName) "secondary"
 $evidenceRoot = Join-Path $env:RUNNER_TEMP "fylura-native-file-qa-evidence"
 $configPath = Join-Path $qaRoot "fylura-native-file-qa-config.json"
+$qaExecutable = Join-Path $qaRoot "bin\native_file_hardening_smoke.exe"
 
 try {
     New-LocalUser -Name $qaName -Password $password -PasswordNeverExpires -AccountNeverExpires -Description "Isolated standard-user Fylura filesystem QA" | Out-Null
@@ -76,9 +77,11 @@ try {
             throw "could not grant the ordinary QA account access to $path"
         }
     }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $qaExecutable) -Force | Out-Null
+    Copy-Item -LiteralPath $testExecutable.FullName -Destination $qaExecutable
 
     $config = [ordered]@{
-        TestExecutable = $testExecutable.FullName
+        TestExecutable = $qaExecutable
         SourceTemp = $sourceTemp
         SecondaryRoot = $secondaryRoot
         EvidenceRoot = $evidenceRoot

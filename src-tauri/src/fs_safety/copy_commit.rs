@@ -2659,8 +2659,7 @@ mod tests {
         );
         let copied = progress_events
             .iter()
-            .filter(|progress| progress.stage == "copying")
-            .next_back()
+            .rfind(|progress| progress.stage == "copying")
             .expect("final copying progress");
         assert_eq!(copied.processed_items, 4);
         assert_eq!(
@@ -2671,8 +2670,7 @@ mod tests {
         assert_eq!(copied.total_bytes, None);
         let retired = progress_events
             .iter()
-            .filter(|progress| progress.stage == "source_retirement")
-            .next_back()
+            .rfind(|progress| progress.stage == "source_retirement")
             .expect("final source-retirement progress");
         assert_eq!(retired.processed_items, 4);
         assert_eq!(retired.total_items, Some(4));

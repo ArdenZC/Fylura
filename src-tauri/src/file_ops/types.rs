@@ -201,6 +201,16 @@ pub struct OperationProgressPayload {
     pub processed: u64,
     pub total: u64,
     pub current_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processed_items: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_items: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processed_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_bytes: Option<u64>,
 }
 
 #[derive(Clone, Default)]

@@ -370,8 +370,19 @@ impl SourceClaim {
         }
         #[cfg(not(any(test, feature = "native-qa")))]
         {
-            self.delete_claim_tree_with_callback(|_, _| {})
+            self.delete_claim_tree_with_callback(|_, _| {}, |_, _| Ok(()))
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn delete_claim_tree_with_progress<F>(
+        &mut self,
+        on_deleted: F,
+    ) -> Result<(), SourceClaimError>
+    where
+        F: FnMut(&Path, u64) -> Result<(), SourceClaimError>,
+    {
+        self.delete_claim_tree_with_callback(|_, _| {}, on_deleted)
     }
 
     #[cfg(all(target_os = "macos", any(test, feature = "native-qa")))]
@@ -379,23 +390,28 @@ impl SourceClaim {
         &mut self,
         hook: Option<Hook>,
     ) -> Result<(), SourceClaimError> {
-        self.delete_claim_tree_with_callback(|source, claim| {
-            run_claim_test_hook_with_override(
-                hook,
-                ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
-                source,
-                claim,
-            );
-        })
+        self.delete_claim_tree_with_callback(
+            |source, claim| {
+                run_claim_test_hook_with_override(
+                    hook,
+                    ClaimTestPoint::AfterClaimVerifiedBeforeDelete,
+                    source,
+                    claim,
+                );
+            },
+            |_, _| Ok(()),
+        )
     }
 
     #[cfg(target_os = "macos")]
-    fn delete_claim_tree_with_callback<F>(
+    fn delete_claim_tree_with_callback<F, G>(
         &mut self,
         before_delete: F,
+        mut on_deleted: G,
     ) -> Result<(), SourceClaimError>
     where
         F: FnOnce(&Path, &Path),
+        G: FnMut(&Path, u64) -> Result<(), SourceClaimError>,
     {
         if self.deleted {
             return Ok(());
@@ -406,10 +422,14 @@ impl SourceClaim {
         self.current_parent
             .ensure_unchanged()
             .map_err(map_directory_error)?;
+        let display_root = self.original_path().to_path_buf();
         remove_namespace_tree(
             self.current_parent.raw_fd(),
             &self.current_name,
             self.physical_identity,
+            &display_root,
+            true,
+            &mut on_deleted,
         )?;
         self.deleted = true;
         Ok(())
@@ -1336,6 +1356,9 @@ fn remove_namespace_tree(
     parent_fd: std::os::fd::RawFd,
     name: &OsStr,
     expected: crate::platform::macos::identity::MacPhysicalIdentity,
+    display_path: &Path,
+    is_root: bool,
+    on_deleted: &mut impl FnMut(&Path, u64) -> Result<(), SourceClaimError>,
 ) -> Result<(), SourceClaimError> {
     use std::os::unix::{
         ffi::OsStrExt,
@@ -1379,6 +1402,9 @@ fn remove_namespace_tree(
                 directory.as_raw_fd(),
                 &child,
                 child_identity(directory.as_raw_fd(), &child)?,
+                &display_path.join(&child),
+                false,
+                on_deleted,
             )?;
         }
         drop(directory);
@@ -1398,6 +1424,9 @@ fn remove_namespace_tree(
         if unsafe { libc::unlinkat(parent_fd, name_c.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
             return Err(SourceClaimError::Io(io::Error::last_os_error()));
         }
+        if !is_root {
+            on_deleted(display_path, 0)?;
+        }
     } else {
         let name_c = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| SourceClaimError::ClaimFailed("embedded NUL in claim name".to_string()))?;
@@ -1415,6 +1444,16 @@ fn remove_namespace_tree(
         }
         if unsafe { libc::unlinkat(parent_fd, name_c.as_ptr(), 0) } != 0 {
             return Err(SourceClaimError::Io(io::Error::last_os_error()));
+        }
+        if !is_root {
+            on_deleted(
+                display_path,
+                if actual.file_type == libc::S_IFREG as u32 {
+                    actual.size
+                } else {
+                    0
+                },
+            )?;
         }
     }
     Ok(())

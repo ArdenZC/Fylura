@@ -12,6 +12,7 @@ import {
   openFloating,
   pinPreview,
   resolveDeferredPreview,
+  resolveImageAsset,
   trackPageSecurity,
   unpinPreview,
   waitForApp,
@@ -28,6 +29,12 @@ const VIEWPORTS = Object.freeze([
 const FIXTURE_QUERY = "w3-09-browser-fixture=integration&w3-02-browser-fixture=preview&w3-03-browser-fixture=pinned&w3-04-browser-fixture=providers&w3-05-browser-fixture=providers&w3-06-browser-fixture=images&w3-07-browser-fixture=folders&w3-08-browser-fixture=archives";
 const TASK_TEMP_DIR = path.resolve(`.tmp-tests/w3-10-browser-runtime-${process.pid}`);
 const ARTIFACT_DIR = path.resolve(`.tmp-tests/w3-10-browser-gate-${process.pid}`);
+const TRACE_STARTED_AT = Date.now();
+
+function traceW310(stage, details = "") {
+  const suffix = details ? ` ${details}` : "";
+  console.log(`[w3-10-gate] elapsed_ms=${Date.now() - TRACE_STARTED_AT} stage=${stage}${suffix}`);
+}
 
 async function chooseArchiveAfterBurst(page, name) {
   const list = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="library"]').first();
@@ -84,6 +91,7 @@ await mkdir(TASK_TEMP_DIR, { recursive: true });
 await mkdir(ARTIFACT_DIR, { recursive: true });
 
 function runGate(script, env) {
+  traceW310("child-start", script);
   const result = spawnSync(
     process.execPath,
     [path.resolve("scripts", script)],
@@ -95,13 +103,17 @@ function runGate(script, env) {
   );
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
+  traceW310("child-complete", script);
 }
 
+traceW310("phase-a-start");
 runGate("runW3-10PhaseABrowserHarness.mjs", {
   W310_SOURCE_HEAD: sourceHead,
   W310_EXPECTED_CHECKOUT_SHA: expectedCheckoutSha,
 });
+traceW310("phase-a-complete");
 
+traceW310("rapid-vite-start");
 const server = await createServer({
   configFile: path.resolve("vite.config.ts"),
   server: { host: "127.0.0.1", port: 0, strictPort: false },
@@ -110,10 +122,13 @@ await server.listen();
 const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
 if (!baseUrl) throw new Error("Vite did not expose a local browser URL.");
 const appOrigin = new URL(baseUrl).origin;
+traceW310("rapid-vite-ready", baseUrl);
+traceW310("rapid-chromium-start");
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.W310_CHROMIUM_EXECUTABLE ? { executablePath: process.env.W310_CHROMIUM_EXECUTABLE } : {}),
 });
+traceW310("chromium-ready");
 
 async function installBrowserEvidence(context) {
   await context.addInitScript(() => {
@@ -140,6 +155,7 @@ async function installBrowserEvidence(context) {
 }
 
 async function runRapidSwitchViewport(viewport) {
+  traceW310("rapid-viewport-start", `${viewport.width}x${viewport.height}`);
   const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
   await installBrowserEvidence(context);
   const page = await context.newPage();
@@ -149,8 +165,11 @@ async function runRapidSwitchViewport(viewport) {
   try {
     await page.goto(`${baseUrl}?${FIXTURE_QUERY}`, { waitUntil: "commit" });
     await waitForApp(page, `W3-10 rapid-switch ${viewport.width}x${viewport.height}`);
+    traceW310("rapid-app-ready", `${viewport.width}x${viewport.height}`);
 
+    traceW310("rapid-image-selection-start", `${viewport.width}x${viewport.height}`);
     const imageSelection = await chooseLibraryFile(page, "image-sample.png", { unfiltered: true });
+    traceW310("rapid-image-preview-open-start", `${viewport.width}x${viewport.height}`);
     await openFloating(page, imageSelection.list, "W3-10 rapid-switch image seed");
     const image = page.locator('[data-preview-representation="image"]');
     await image.waitFor({ state: "visible" }).catch(async (error) => {
@@ -168,8 +187,8 @@ async function runRapidSwitchViewport(viewport) {
       }));
       throw new Error(`W3-10 rapid-switch ${viewport.width}x${viewport.height}: image seed did not mount ${JSON.stringify(diagnostics)} (${String(error)})`);
     });
-    await page.waitForFunction(() => (window.__zcW306?.pendingAssetCount ?? 0) > 0);
-    await page.evaluate(() => window.__zcW306?.resolveAllAssets());
+    traceW310("rapid-image-asset-settle-start", `${viewport.width}x${viewport.height}`);
+    await resolveImageAsset(page, `W3-10 rapid-switch ${viewport.width}x${viewport.height}`);
     await page.waitForFunction(() => document.querySelector('[data-preview-representation="image"]')?.getAttribute("data-preview-image-status") === "ready").catch(async (error) => {
       const diagnostics = await page.evaluate(() => ({
         state: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
@@ -187,13 +206,16 @@ async function runRapidSwitchViewport(viewport) {
     });
     const imageLifecycle = await page.evaluate(() => JSON.parse(JSON.stringify(window.__zcW310Browser ?? {})));
     assert(imageLifecycle.created?.length > 0, `W3-10 rapid-switch ${viewport.width}x${viewport.height}: image object URL was not created`);
+    traceW310("rapid-image-ready", `${viewport.width}x${viewport.height}`);
 
+    traceW310("rapid-switch-burst-start", `${viewport.width}x${viewport.height}`);
     const structuredSelection = await chooseLibraryFile(page, "structured-sample.json", { unfiltered: true });
     const finalSelection = await chooseArchiveAfterBurst(page, "archive-sample.zip");
     await page.waitForFunction(() => (window.__zcW302?.pendingStartCount ?? 0) > 0);
     await resolveDeferredPreview(page, "W3-10 rapid-switch latest-wins burst");
 
     await assertArchivePreview(page, "W3-10 rapid-switch final archive");
+    traceW310("rapid-switch-burst-settled", `${viewport.width}x${viewport.height}`);
     const finalState = await page.evaluate(() => ({
       shellCount: document.querySelectorAll('[data-preview-shell="true"]').length,
       floatingCount: document.querySelectorAll('[data-preview-host="zen-floating"]').length,
@@ -238,6 +260,7 @@ async function runRapidSwitchViewport(viewport) {
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: image object URL was not revoked ${JSON.stringify(afterSwitchLifecycle)}`);
     await assertNoHorizontalOverflow(page, `W3-10 rapid-switch final Floating ${viewport.width}x${viewport.height}`);
 
+    traceW310("rapid-pin-start", `${viewport.width}x${viewport.height}`);
     await pinPreview(page, viewport, `W3-10 rapid-switch Pinned ${viewport.width}x${viewport.height}`);
     await assertArchivePreview(page, `W3-10 rapid-switch Pinned ${viewport.width}x${viewport.height}`, "zen-pinned");
     const pinnedState = await page.evaluate(() => ({
@@ -250,9 +273,12 @@ async function runRapidSwitchViewport(viewport) {
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: Floating/Pinned ownership was not exclusive ${JSON.stringify(pinnedState)}`);
     assert(pinnedState.identity?.includes("w3-08-sample") === true,
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: Pinned source identity changed ${JSON.stringify(pinnedState)}`);
+    traceW310("rapid-pin-complete", `${viewport.width}x${viewport.height}`);
     await assertNoHorizontalOverflow(page, `W3-10 rapid-switch Pinned ${viewport.width}x${viewport.height}`);
     await unpinPreview(page, `W3-10 rapid-switch Unpin ${viewport.width}x${viewport.height}`);
+    traceW310("rapid-unpin-complete", `${viewport.width}x${viewport.height}`);
 
+    traceW310("rapid-focus-restore-start", `${viewport.width}x${viewport.height}`);
     const reopenedList = page.locator('[data-shared-file-list="true"][data-shared-file-list-source="library"]').first();
     await reopenedList.waitFor({ state: "visible" });
     await clearLibrarySelectionAfterUnpin(page, reopenedList);
@@ -268,6 +294,7 @@ async function runRapidSwitchViewport(viewport) {
     }));
     assert(restoredFocus.shellCount === 0 && restoredFocus.listSource === "library" && restoredFocus.activeDescendant === finalSelection.itemId,
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: keyboard focus was not restored to the originating list ${JSON.stringify(restoredFocus)}`);
+    traceW310("rapid-focus-restore-complete", `${viewport.width}x${viewport.height}`);
     await assertNoHorizontalOverflow(page, `W3-10 rapid-switch closed ${viewport.width}x${viewport.height}`);
 
     assert(security.networkViolations.length === 0,
@@ -277,6 +304,7 @@ async function runRapidSwitchViewport(viewport) {
     const lifecycle = await page.evaluate(() => JSON.parse(JSON.stringify(window.__zcW310Browser ?? {})));
     assert((lifecycle.live ?? []).length === 0,
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: object URLs remained live after close ${JSON.stringify(lifecycle)}`);
+    traceW310("rapid-viewport-complete", `${viewport.width}x${viewport.height}`);
     return {
       viewport,
       sourceHead,
@@ -303,7 +331,10 @@ async function runRapidSwitchViewport(viewport) {
 const evidence = [];
 let completed = false;
 try {
-  for (const viewport of VIEWPORTS) evidence.push(await runRapidSwitchViewport(viewport));
+  for (const viewport of VIEWPORTS) {
+    traceW310("rapid-matrix-viewport", `${viewport.width}x${viewport.height}`);
+    evidence.push(await runRapidSwitchViewport(viewport));
+  }
   await writeFile(path.join(ARTIFACT_DIR, "rapid-switch.json"), JSON.stringify({
     sourceHead,
     actualCheckoutSha,

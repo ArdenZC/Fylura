@@ -221,7 +221,39 @@ mod tests {
             assert!(paths.contains(&crate::path_identity::normalize_path(&canonical)));
         }
 
+        runtime
+            .dispose_for_main_teardown()
+            .expect("dispose workspace runtime before fixture cleanup");
+        let resources = runtime.resource_counts();
+        assert_eq!(
+            resources.browse_sessions, 0,
+            "browse sessions after teardown"
+        );
+        assert_eq!(
+            resources.browse_entry_refs, 0,
+            "browse entry refs after teardown"
+        );
+        assert_eq!(
+            resources.browse_path_refs, 0,
+            "browse path refs after teardown"
+        );
+        assert_eq!(
+            resources.browse_active_enumerations, 0,
+            "browse enumerations after teardown"
+        );
         drop(runtime);
-        fs::remove_dir_all(root).expect("remove places fixture");
+        for entry in fs::read_dir(&root).expect("read places fixture for cleanup") {
+            let path = entry.expect("places fixture child").path();
+            let metadata = fs::symlink_metadata(&path).expect("places fixture child metadata");
+            let result = if metadata.file_type().is_dir() {
+                fs::remove_dir_all(&path)
+            } else {
+                fs::remove_file(&path)
+            };
+            result.unwrap_or_else(|error| {
+                panic!("remove places fixture child {}: {error}", path.display())
+            });
+        }
+        fs::remove_dir(&root).expect("remove empty places fixture root");
     }
 }

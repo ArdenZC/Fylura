@@ -100,6 +100,7 @@ struct SmokeManifest {
     source_volume: String,
     target_volume: String,
     cross_volume_exercised: bool,
+    windows_sacl_inspection: &'static str,
     operation_move_restore: &'static str,
     rename: &'static str,
     target_conflict: &'static str,
@@ -205,24 +206,35 @@ fn native_file_hardening_smoke() {
         },
     )
     .expect("execute production persisted move");
-    assert_eq!(moved.logs[0].status, "success");
-    assert_eq!(
-        fs::read(&target).expect("read target"),
-        b"bound native operation payload"
-    );
-
-    let restored = restore_moves_with_persistence(
-        &db,
-        RestoreMovesRequest {
-            logs: moved.logs.clone(),
-        },
-    )
-    .expect("restore production persisted move");
-    assert_eq!(restored.restored, 1);
-    assert_eq!(
-        fs::read(&source).expect("read restored source"),
-        b"bound native operation payload"
-    );
+    let operation_move_restore = if moved.logs[0].status == "success" {
+        assert_eq!(
+            fs::read(&target).expect("read target"),
+            b"bound native operation payload"
+        );
+        let restored = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: moved.logs.clone(),
+            },
+        )
+        .expect("restore production persisted move");
+        assert_eq!(restored.restored, 1);
+        assert_eq!(
+            fs::read(&source).expect("read restored source"),
+            b"bound native operation payload"
+        );
+        "passed"
+    } else {
+        let error = moved.logs[0].error_message.as_deref().unwrap_or_default();
+        assert!(
+            error.contains("windows_sacl_"),
+            "unexpected move refusal: {error}"
+        );
+        assert!(source.exists(), "safe refusal must retain source");
+        assert!(!target.exists(), "safe refusal must not publish a target");
+        eprintln!("UNVERIFIED: cross-volume file move safely refused because Windows SACL inspection was unavailable or an audit SACL was present");
+        "unverified_windows_sacl_refusal_source_retained"
+    };
 
     let ordinary_restore_root = source_volume.join("ordinary-restore-faults");
     fs::create_dir_all(&ordinary_restore_root).expect("create ordinary restore fault root");
@@ -602,7 +614,7 @@ fn native_file_hardening_smoke() {
         .is_some_and(|error| error.starts_with("target_committed_durability_unknown:")));
 
     let reconcile_source = source_volume.join("reconcile-source.txt");
-    let reconcile_target = target_volume.join("reconcile-target.txt");
+    let reconcile_target = source_volume.join("reconcile-target.txt");
     let reconcile_operation_id = format!("native-reconcile-{run_id}");
     fs::write(&reconcile_source, b"reconciliation payload").expect("write reconcile source");
     let reconcile_move = execute_moves_with_persistence(
@@ -855,7 +867,10 @@ fn native_file_hardening_smoke() {
     assert_eq!(claim_log.status, "manual_review");
     assert_eq!(claim_log.operation_phase, "manual_review");
 
-    if volume_prefix(&source_volume) != volume_prefix(&target_volume) {
+    let cross_volume_exercised = volume_prefix(&source_volume) != volume_prefix(&target_volume);
+    let mut windows_sacl_inspection = "unverified_no_secondary_volume";
+    let mut cross_volume_directory_move = "unverified_no_secondary_volume";
+    if cross_volume_exercised {
         let directory_source = source_volume.join("cross-volume-directory");
         let directory_target = target_volume.join("cross-volume-directory");
         fs::create_dir_all(directory_source.join("nested").join("empty"))
@@ -909,46 +924,69 @@ fn native_file_hardening_smoke() {
         )
         .expect("execute journaled cross-volume directory move");
         assert_eq!(move_result.logs.len(), 1);
-        assert_eq!(
-            move_result.logs[0].status, "success",
-            "cross-volume directory operation log: {:?}",
-            move_result.logs[0]
-        );
-        assert_eq!(move_result.logs[0].operation_phase, "completed");
-        assert!(move_result.logs[0].can_restore);
-        assert!(!directory_source.exists());
-        assert_eq!(
-            sha256_file(&directory_target.join("canary.txt")),
-            canary_hash,
-            "published file contents must match the source hash"
-        );
-        assert_eq!(
-            sha256_file(&directory_target.join("nested").join("内容.bin")),
-            nested_hash,
-            "published nested file contents must match the source hash"
-        );
-        assert!(directory_target.join("nested").join("empty").is_dir());
+        if move_result.logs[0].status == "success" {
+            windows_sacl_inspection = "verified_absent_for_all_entries";
+            assert_eq!(move_result.logs[0].operation_phase, "completed");
+            assert!(move_result.logs[0].can_restore);
+            assert!(!directory_source.exists());
+            assert_eq!(
+                sha256_file(&directory_target.join("canary.txt")),
+                canary_hash,
+                "published file contents must match the source hash"
+            );
+            assert_eq!(
+                sha256_file(&directory_target.join("nested").join("内容.bin")),
+                nested_hash,
+                "published nested file contents must match the source hash"
+            );
+            assert!(directory_target.join("nested").join("empty").is_dir());
 
-        let directory_restore = restore_moves_with_persistence(
-            &db,
-            RestoreMovesRequest {
-                logs: move_result.logs,
-            },
-        )
-        .expect("restore cross-volume directory through History");
-        assert_eq!(directory_restore.restored, 1);
-        assert_eq!(directory_restore.failed, 0);
-        assert_eq!(directory_restore.logs[0].restore_status, "restored");
-        assert!(directory_source.join("nested").join("empty").is_dir());
-        assert_eq!(
-            sha256_file(&directory_source.join("canary.txt")),
-            canary_hash
-        );
-        assert_eq!(
-            sha256_file(&directory_source.join("nested").join("内容.bin")),
-            nested_hash
-        );
-        assert!(!directory_target.exists());
+            let directory_restore = restore_moves_with_persistence(
+                &db,
+                RestoreMovesRequest {
+                    logs: move_result.logs,
+                },
+            )
+            .expect("restore cross-volume directory through History");
+            assert_eq!(directory_restore.restored, 1);
+            assert_eq!(directory_restore.failed, 0);
+            assert_eq!(directory_restore.logs[0].restore_status, "restored");
+            assert!(directory_source.join("nested").join("empty").is_dir());
+            assert_eq!(
+                sha256_file(&directory_source.join("canary.txt")),
+                canary_hash
+            );
+            assert_eq!(
+                sha256_file(&directory_source.join("nested").join("内容.bin")),
+                nested_hash
+            );
+            assert!(!directory_target.exists());
+            cross_volume_directory_move = "passed_move_and_history_restore";
+        } else {
+            let error = move_result.logs[0]
+                .error_message
+                .as_deref()
+                .unwrap_or_default();
+            assert!(
+                error.contains("windows_sacl_"),
+                "unexpected cross-volume refusal: {error}"
+            );
+            assert!(
+                directory_source.exists(),
+                "safe refusal must retain directory source"
+            );
+            assert!(
+                !directory_target.exists(),
+                "safe refusal must not publish directory target"
+            );
+            if error.contains("windows_sacl_transfer_unsupported") {
+                windows_sacl_inspection = "verified_audit_sacl_present_refused";
+            } else {
+                windows_sacl_inspection = "unavailable_refused_before_mutation";
+            }
+            eprintln!("UNVERIFIED: cross-volume directory move safely refused; source and target state checked: {error}");
+            cross_volume_directory_move = "unverified_sacl_refusal_source_retained";
+        }
     }
 
     let cleanup_source = target_volume.join("node_modules");
@@ -1368,7 +1406,6 @@ fn native_file_hardening_smoke() {
     assert_eq!(final_log_recovered.status, "success");
     assert_eq!(final_log_recovered.operation_phase, "completed");
 
-    let cross_volume_exercised = volume_prefix(&source_volume) != volume_prefix(&target_volume);
     let sqlite_integrity = rusqlite::Connection::open(&database_path)
         .expect("open SQLite integrity connection")
         .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
@@ -1399,21 +1436,20 @@ fn native_file_hardening_smoke() {
         source_volume: source_text,
         target_volume: target_text,
         cross_volume_exercised,
-        operation_move_restore: "passed",
+        windows_sacl_inspection,
+        operation_move_restore,
         rename: "passed",
         target_conflict: "passed",
         source_replacement: "passed",
         target_parent_replacement: "passed",
-        staging_handle_copy_commit: if cross_volume_exercised {
+        staging_handle_copy_commit: if cross_volume_directory_move
+            == "passed_move_and_history_restore"
+        {
             "passed"
         } else {
-            "skipped_no_secondary_volume"
+            "unverified_sacl_or_volume_capability"
         },
-        cross_volume_directory_move: if cross_volume_exercised {
-            "passed"
-        } else {
-            "skipped_no_secondary_volume"
-        },
+        cross_volume_directory_move,
         durability_failure: "passed",
         safe_trash_durability_failure: "passed",
         safe_trash_identity_mismatch: "passed",

@@ -544,6 +544,7 @@ jobs:
           ZC_NATIVE_QA_WATCHER_TRACE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "performance-test-tauri native-qa" --lib watcher::tests::windows_recommended_watcher_publishes_real_file_create_and_append -- --exact --nocapture --test-threads=1
       - name: Native filesystem hardening smoke
+        if: ${{ always() && !cancelled() }}
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
       - name: Setup Node for resident lifecycle assets
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7

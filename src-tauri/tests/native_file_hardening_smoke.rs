@@ -1451,7 +1451,10 @@ fn native_file_hardening_smoke() {
             "could not make the source DACL explicit: {}",
             String::from_utf8_lossy(&inheritance.stderr).trim()
         );
-        let source_only_acl_marker = "S-1-5-21-1111111111-2222222222-3333333333-4444";
+        // Use a mapped built-in SID so `icacls` can create the source-only
+        // marker consistently on hosted Windows runners.
+        let source_only_acl_marker = "S-1-5-32-546";
+        let source_only_acl_name = "builtin\\guests";
         let explicit_acl = Command::new("icacls")
             .arg(&directory_source)
             .args(["/grant", &format!("*{source_only_acl_marker}:(OI)(CI)(RX)")])
@@ -1468,7 +1471,11 @@ fn native_file_hardening_smoke() {
             .expect("read explicit source ACL");
         assert!(source_acl.status.success());
         let source_acl = String::from_utf8_lossy(&source_acl.stdout).into_owned();
-        assert!(source_acl.contains(source_only_acl_marker));
+        let acl_has_source_only_marker = |acl: &str| {
+            acl.contains(source_only_acl_marker)
+                || acl.to_ascii_lowercase().contains(source_only_acl_name)
+        };
+        assert!(acl_has_source_only_marker(&source_acl));
         assert!(
             !source_acl.contains("(I)"),
             "the source fixture must have an explicit, non-inherited ACL: {source_acl}"
@@ -1536,7 +1543,7 @@ fn native_file_hardening_smoke() {
             "new target directory must use destination-parent ACL inheritance: {target_acl}"
         );
         assert!(
-            !target_acl.contains(source_only_acl_marker),
+            !acl_has_source_only_marker(&target_acl),
             "the source's explicit ACL marker must not be copied to the target: {target_acl}"
         );
         windows_cross_volume_directory_acl =

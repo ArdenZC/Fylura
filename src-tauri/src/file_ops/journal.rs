@@ -106,7 +106,10 @@ pub(crate) fn persist_pending_operation_journal(
             // provider materialization/coordination and after the journal row
             // exists; preparation itself must not read iCloud/File Provider
             // bytes.
-            let fingerprint = if cfg!(target_os = "macos") {
+            let is_directory = fs::symlink_metadata(Path::new(&operation.source_path))
+                .map(|metadata| metadata.is_dir())
+                .unwrap_or(false);
+            let fingerprint = if cfg!(target_os = "macos") || is_directory {
                 file_namespace_fingerprint(Path::new(&operation.source_path))
             } else {
                 file_identity_fingerprint(Path::new(&operation.source_path))
@@ -277,8 +280,11 @@ pub(crate) fn make_operation_log(
     let system_trash = trash_operation && actual_target_path == "Recycle Bin";
     let source_preserving_copy = matches!(operation.operation_type.as_str(), "copy" | "duplicate");
     let irreversible_operation = operation.operation_type == "permanent_delete";
-    let can_restore =
-        success && !system_trash && !source_preserving_copy && !irreversible_operation;
+    let can_restore = success
+        && !system_trash
+        && !source_preserving_copy
+        && !irreversible_operation
+        && operation.operation_type != "create_directory";
     let restore_status = if system_trash && success {
         "unavailable"
     } else {

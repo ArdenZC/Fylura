@@ -1,15 +1,20 @@
 import { LocateFixed } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useI18nContext } from "../../../contexts/AppContexts";
+import { useChromeContext, useI18nContext } from "../../../contexts/AppContexts";
 import { useFileManagementStore } from "../management/fileManagementStore";
+import type { BrowseSourceOwner } from "../browse/browseSourceOwner";
 import { compareFolders, type Difference } from "./compareFolders";
 import "./folderComparison.css";
 
 const LIMIT = 10_000;
 const PAGE = 40;
 const statuses: Difference[] = ["left", "right", "different", "same", "directory", "unknown"];
+function hasDirectorySelection(source: BrowseSourceOwner | undefined) {
+  return source?.entries.some((entry) => source.selectedIds.has(entry.entryRef.entryId) && entry.entryKind === "directory") ?? false;
+}
 export function FolderComparison({ paneIds, activate, compact = false }: { paneIds: string[]; activate: (id: string) => void; compact?: boolean }) {
   const { t } = useI18nContext();
+  const { platform } = useChromeContext();
   const surfaces = useFileManagementStore((s) => s.surfaces);
   const locked = useFileManagementStore((s) => s.transferOpen || s.transferActive);
   const sources = paneIds.map((id) => surfaces[id]?.read().browseSource);
@@ -89,7 +94,7 @@ export function FolderComparison({ paneIds, activate, compact = false }: { paneI
           <button disabled={locked} onClick={() => select(side, [])}>{t("libraryClearSelection")}</button>
           <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000} onClick={() => action(side, "basket")}>{t("fmAddBasket")}</button>
           <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000} onClick={() => action(side, "copy_other")}>{t("wbCopyOther")}</button>
-          <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000} onClick={() => action(side, "move_other")}>{t("wbMoveOther")}</button>
+          <button disabled={locked || !source?.selectedCount || source.selectedCount > 1000 || platform === "win32" && hasDirectorySelection(source)} title={platform === "win32" && hasDirectorySelection(source) ? t("fmDirectoryMoveUnsupported") : undefined} onClick={() => action(side, "move_other")}>{t("wbMoveOther")}</button>
         </div>)}</div>
         <details className="u3-compare-help"><summary>{t("u3BatchLimits")}</summary>{t("u3BatchHelp")}</details>
         </details>

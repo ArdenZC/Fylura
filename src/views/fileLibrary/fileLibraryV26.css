@@ -379,6 +379,11 @@
   color: var(--zc-text-primary);
 }
 
+.file-library-workspace .file-library-navigation-list [role="treeitem"]:focus-visible {
+  outline: 2px solid var(--zc-focus-ring);
+  outline-offset: 2px;
+}
+
 .file-library-workspace[data-layout="large"] .file-library-context-panel-inline {
   border: 0;
   border-left: 1px solid var(--zc-divider);

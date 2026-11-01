@@ -256,7 +256,8 @@ export function useBrowseSourceOwner({
   useEffect(() => {
     if (state.mode !== "browse") return;
     if (locations.length > 0) {
-      setLocationState((current) => current === "loading" ? current : "ready");
+      setLocationState("ready");
+      setLocationError(false);
       return;
     }
     if (locationState === "idle" && !locationLoadStartedRef.current) void loadLocations();

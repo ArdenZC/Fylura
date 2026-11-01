@@ -198,8 +198,10 @@ async function runRapidSwitchViewport(viewport) {
       shellCount: document.querySelectorAll('[data-preview-shell="true"]').length,
       floatingCount: document.querySelectorAll('[data-preview-host="zen-floating"]').length,
       pinnedCount: document.querySelectorAll('[data-preview-host="zen-pinned"]').length,
-      identity: document.querySelector('[data-preview-host="zen-floating"]')?.getAttribute("data-preview-identity") ?? null,
-      source: document.querySelector('[data-preview-host="zen-floating"]')?.getAttribute("data-preview-source") ?? null,
+      identity: document.querySelector('[data-preview-host="zen-floating"] [data-preview-card="true"]')?.getAttribute("data-preview-identity") ?? null,
+      source: document.querySelector('[data-preview-host="zen-floating"] [data-preview-card="true"]')?.getAttribute("data-preview-source") ?? null,
+      backendSources: Object.entries(window.__zcW302?.activeBackendSources ?? {}).filter(([previewId]) =>
+        window.__zcW302?.activeBackendHostKinds[previewId] === "zen_floating"),
       representations: [...document.querySelectorAll('[data-preview-host="zen-floating"] [data-preview-representation]')]
         .map((element) => element.getAttribute("data-preview-representation")),
       selectedId: document.querySelector('[data-shared-file-list-source="library"] [aria-selected="true"]')?.getAttribute("id") ?? null,
@@ -214,6 +216,10 @@ async function runRapidSwitchViewport(viewport) {
     assert(finalState.identity?.includes("w3-08-sample") === true,
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: final source identity did not win ${JSON.stringify(finalState)}`);
     assert(finalState.source === "library", `W3-10 rapid-switch ${viewport.width}x${viewport.height}: final source kind was not library ${JSON.stringify(finalState)}`);
+    assert(finalState.backendSources.length === 1
+      && finalState.backendSources[0]?.[1]?.kind === "managed"
+      && finalState.backendSources[0]?.[1]?.fileId === finalState.identity,
+    `W3-10 rapid-switch ${viewport.width}x${viewport.height}: Preview Controller and backend source identity diverged ${JSON.stringify(finalState)}`);
     assert(finalState.representations.length === 1 && finalState.representations[0] === "archive_tree",
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: stale representation remained ${JSON.stringify(finalState)}`);
     assert(finalState.selectedId === finalSelection.itemId && finalState.activeDescendant === finalSelection.itemId,
@@ -238,7 +244,7 @@ async function runRapidSwitchViewport(viewport) {
       shellCount: document.querySelectorAll('[data-preview-shell="true"]').length,
       floatingCount: document.querySelectorAll('[data-preview-host="zen-floating"]').length,
       pinnedCount: document.querySelectorAll('[data-preview-host="zen-pinned"]').length,
-      identity: document.querySelector('[data-preview-host="zen-pinned"]')?.getAttribute("data-preview-identity") ?? null,
+      identity: document.querySelector('[data-preview-host="zen-pinned"] [data-preview-card="true"]')?.getAttribute("data-preview-identity") ?? null,
     }));
     assert(pinnedState.shellCount === 1 && pinnedState.floatingCount === 0 && pinnedState.pinnedCount === 1,
       `W3-10 rapid-switch ${viewport.width}x${viewport.height}: Floating/Pinned ownership was not exclusive ${JSON.stringify(pinnedState)}`);
@@ -254,6 +260,7 @@ async function runRapidSwitchViewport(viewport) {
     await openFloating(page, reopened.list, `W3-10 rapid-switch close focus ${viewport.width}x${viewport.height}`);
     await page.keyboard.press("Escape");
     await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))));
     const restoredFocus = await page.evaluate(() => ({
       shellCount: document.querySelectorAll('[data-preview-shell="true"]').length,
       listSource: document.activeElement?.closest('[data-shared-file-list="true"]')?.getAttribute("data-shared-file-list-source") ?? null,

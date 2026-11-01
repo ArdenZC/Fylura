@@ -15,6 +15,7 @@ import { fileManagementApi } from "../../../api/fileManagementApi";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { usePane } from "./PaneContext";
 import { readableError } from "../../../utils/viewHelpers";
+import { workbenchTargetKey } from "./workbenchModel";
 
 export function pathCrumbs(path: string) {
   const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
@@ -50,6 +51,7 @@ export function PathBar() {
   }, []);
   const updateLocation = pane?.updateLocation;
   const target = state.workspace.session.currentTarget;
+  const targetKey = workbenchTargetKey(target);
   const sessionId =
     target?.kind === "browse" && target.location.kind === "ephemeral"
       ? target.location.browseSessionId
@@ -57,7 +59,7 @@ export function PathBar() {
   const pathId = target?.kind === "browse" ? target.pathRef.id : undefined;
   useEffect(() => {
     let cancelled = false;
-    updateLocation?.("");
+    updateLocation?.("", targetKey);
     setError("");
     if (sessionId && target?.kind === "browse")
       void fileManagementApi
@@ -66,6 +68,7 @@ export function PathBar() {
           if (!cancelled)
             updateLocation?.(
               places.find((place) => place.current)?.routingHint ?? "",
+              targetKey,
             );
         })
         .catch((cause) => {
@@ -74,7 +77,7 @@ export function PathBar() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, pathId, updateLocation]);
+  }, [sessionId, pathId, targetKey, updateLocation]);
   useEffect(() => {
     if (editing && !busy) {
       input.current?.focus();

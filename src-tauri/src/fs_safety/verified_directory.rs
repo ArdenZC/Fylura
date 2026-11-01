@@ -92,6 +92,36 @@ impl VerifiedDirectory {
         self.handle.sync_all()
     }
 
+    /// Creates one child directory relative to this verified directory handle.
+    /// It fails when the name already exists and returns the identity captured
+    /// from the newly created directory handle.
+    pub(crate) fn create_child_directory(
+        &self,
+        name: &std::ffi::OsStr,
+    ) -> Result<VerifiedDirectory, PathGuardError> {
+        if name.is_empty()
+            || Path::new(name).components().count() != 1
+            || Path::new(name)
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(PathGuardError::UnsafePath);
+        }
+        #[cfg(windows)]
+        {
+            create_windows_child_directory(self, name)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            create_macos_child_directory(self, name)
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            let _ = (self, name);
+            Err(PathGuardError::UnsupportedPlatformLinux)
+        }
+    }
+
     pub fn ensure_unchanged(&self) -> Result<(), PathGuardError> {
         let current = Self::open_existing(&self.path)?;
         if current.identity != self.identity {
@@ -99,6 +129,120 @@ impl VerifiedDirectory {
         }
         Ok(())
     }
+}
+
+#[cfg(windows)]
+fn create_windows_child_directory(
+    parent: &VerifiedDirectory,
+    name: &std::ffi::OsStr,
+) -> Result<VerifiedDirectory, PathGuardError> {
+    use std::{
+        mem,
+        os::windows::ffi::OsStrExt,
+        os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
+    };
+    use windows_sys::{
+        Wdk::{
+            Foundation::OBJECT_ATTRIBUTES,
+            Storage::FileSystem::{
+                NtCreateFile, FILE_CREATE, FILE_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
+                FILE_SYNCHRONOUS_IO_NONALERT,
+            },
+        },
+        Win32::{
+            Foundation::{RtlNtStatusToDosError, OBJ_CASE_INSENSITIVE, UNICODE_STRING},
+            Storage::FileSystem::{
+                FILE_ADD_SUBDIRECTORY, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
+                FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES,
+                SYNCHRONIZE,
+            },
+            System::IO::IO_STATUS_BLOCK,
+        },
+    };
+    let mut wide = name.encode_wide().collect::<Vec<_>>();
+    if wide.is_empty() || wide.contains(&0) || wide.len() > (u16::MAX as usize / 2) {
+        return Err(PathGuardError::UnsafePath);
+    }
+    let unicode = UNICODE_STRING {
+        Length: (wide.len() * mem::size_of::<u16>()) as u16,
+        MaximumLength: (wide.len() * mem::size_of::<u16>()) as u16,
+        Buffer: wide.as_mut_ptr(),
+    };
+    let attributes = OBJECT_ATTRIBUTES {
+        Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+        RootDirectory: parent.handle.as_raw_handle(),
+        ObjectName: &unicode,
+        Attributes: OBJ_CASE_INSENSITIVE,
+        SecurityDescriptor: std::ptr::null(),
+        SecurityQualityOfService: std::ptr::null(),
+    };
+    let mut raw = std::ptr::null_mut();
+    let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
+    let status = unsafe {
+        NtCreateFile(
+            &mut raw,
+            FILE_LIST_DIRECTORY
+                | FILE_ADD_SUBDIRECTORY
+                | FILE_READ_ATTRIBUTES
+                | FILE_WRITE_ATTRIBUTES
+                | SYNCHRONIZE,
+            &attributes,
+            &mut io_status,
+            std::ptr::null(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_CREATE,
+            FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+            std::ptr::null(),
+            0,
+        )
+    };
+    if status < 0 {
+        return Err(PathGuardError::Io(io::Error::from_raw_os_error(unsafe {
+            RtlNtStatusToDosError(status)
+        }
+            as i32)));
+    }
+    let handle = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
+    inspect_windows_directory(&handle)?;
+    let identity = windows_directory_identity(&handle)?;
+    Ok(VerifiedDirectory {
+        path: parent.path.join(name),
+        identity,
+        handle,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn create_macos_child_directory(
+    parent: &VerifiedDirectory,
+    name: &std::ffi::OsStr,
+) -> Result<VerifiedDirectory, PathGuardError> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, os::unix::io::FromRawFd};
+    let name = CString::new(name.as_bytes()).map_err(|_| PathGuardError::UnsafePath)?;
+    if unsafe { libc::mkdirat(parent.raw_fd(), name.as_ptr(), 0o755) } != 0 {
+        return Err(PathGuardError::Io(io::Error::last_os_error()));
+    }
+    let fd = unsafe {
+        libc::openat(
+            parent.raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(PathGuardError::Io(io::Error::last_os_error()));
+    }
+    let handle = unsafe { File::from_raw_fd(fd) };
+    let identity = macos_directory_identity(&handle)?;
+    parent.sync()?;
+    Ok(VerifiedDirectory {
+        path: parent
+            .path
+            .join(std::ffi::OsStr::from_bytes(name.as_bytes())),
+        identity,
+        handle,
+    })
 }
 
 #[cfg(windows)]

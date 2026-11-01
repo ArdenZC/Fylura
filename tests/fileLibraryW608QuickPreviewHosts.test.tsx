@@ -113,6 +113,36 @@ async function settle() {
 }
 
 describe("W6-08 Quick Preview image host projection", () => {
+  it("keeps W3-10 source attributes on the inner Floating and Pinned card", async () => {
+    hostHarness.t = makeTranslator("en");
+
+    for (const [host, Component] of [
+      ["floating", ZenFloatingQuickPreview],
+      ["pinned", ZenPinnedPreview]
+    ] as const) {
+      const container = document.body.appendChild(document.createElement("div"));
+      let root: Root | undefined = createRoot(container);
+      hostHarness.value = { controller: {
+        requestPreviewAsset: vi.fn(() => Promise.resolve({ mediaType: "image/png", bytes: new Uint8Array([1]) })),
+        restoreFocusTarget: vi.fn(() => null),
+        updateNativePreviewGeometry: vi.fn(() => Promise.resolve(null))
+      }, state: previewState(host) };
+      try {
+        await act(async () => root?.render(createElement(Component)));
+        const hostNode = container.querySelector(`[data-preview-host="zen-${host}"]`);
+        const card = hostNode?.querySelector<HTMLElement>('[data-preview-card="true"]');
+        expect(hostNode?.hasAttribute("data-preview-identity")).toBe(false);
+        expect(hostNode?.hasAttribute("data-preview-source")).toBe(false);
+        expect(card?.getAttribute("data-preview-identity")).toBe(source.previewSource.kind === "managed" ? source.previewSource.fileId : "none");
+        expect(card?.getAttribute("data-preview-source")).toBe("library");
+      } finally {
+        act(() => root?.unmount());
+        root = undefined;
+        container.remove();
+      }
+    }
+  });
+
   it("renders controller-owned Details state through Pin, Unpin, source changes, and reopen", async () => {
     const controller = {
       close: vi.fn(() => true),

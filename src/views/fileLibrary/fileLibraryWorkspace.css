@@ -327,6 +327,11 @@
   outline-offset: 2px;
 }
 
+.file-library-navigation-list [role="treeitem"]:focus-visible {
+  outline: 2px solid var(--zc-focus-ring);
+  outline-offset: 2px;
+}
+
 .file-library-navigation-location {
   min-width: 0;
   border-radius: var(--zc-radius-control);

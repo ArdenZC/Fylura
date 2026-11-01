@@ -156,13 +156,6 @@ finally {
     if (Test-Path -LiteralPath $secondaryParent) {
         Remove-Item -LiteralPath $secondaryParent -Recurse -Force -ErrorAction SilentlyContinue
     }
-    if ($userCreated) {
-        Remove-LocalUser -Name $qaName -ErrorAction SilentlyContinue
-        if ($userSid) {
-            Get-CimInstance Win32_UserProfile -Filter "SID='$userSid'" -ErrorAction SilentlyContinue |
-                Remove-CimInstance -ErrorAction SilentlyContinue
-        }
-    }
     if ($userSid) {
         foreach ($path in @($sourceNamespaceRoot, $secondaryNamespaceRoot)) {
             if (Test-Path -LiteralPath $path) {
@@ -172,6 +165,13 @@ finally {
                     throw "could not remove the ordinary QA account ACL from $path (icacls exit $aclCleanupExitCode)"
                 }
             }
+        }
+    }
+    if ($userCreated) {
+        Remove-LocalUser -Name $qaName -ErrorAction SilentlyContinue
+        if ($userSid) {
+            Get-CimInstance Win32_UserProfile -Filter "SID='$userSid'" -ErrorAction SilentlyContinue |
+                Remove-CimInstance -ErrorAction SilentlyContinue
         }
     }
 }

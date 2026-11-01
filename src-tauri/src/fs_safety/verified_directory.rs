@@ -278,14 +278,24 @@ fn open_windows_relative(
         return Err(PathGuardError::UnsafePath);
     }
 
-    let root = open_windows_root(&root_path)?;
+    let root = open_windows_root(&root_path, names.is_empty() && !create_missing)?;
     let mut current = root;
     let mut current_path = root_path;
-    for name in names {
+    let names_len = names.len();
+    for (index, name) in names.into_iter().enumerate() {
+        let writable = index + 1 == names_len;
         let next = if create_missing {
-            open_or_create_windows_child(&current, &name)?
+            match open_windows_child_with_disposition(&current, &name, false, writable) {
+                Ok(next) => next,
+                Err(PathGuardError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
+                    let create_parent =
+                        reopen_windows_directory_for_child_creation(&current_path, &current)?;
+                    open_windows_child_with_disposition(&create_parent, &name, true, writable)?
+                }
+                Err(error) => return Err(error),
+            }
         } else {
-            open_windows_child(&current, &name)?
+            open_windows_child_with_disposition(&current, &name, false, index + 1 == names_len)?
         };
         inspect_windows_directory(&next)?;
         current_path.push(&name);
@@ -301,7 +311,10 @@ fn open_windows_relative(
 }
 
 #[cfg(windows)]
-fn open_windows_root(path: &Path) -> Result<File, PathGuardError> {
+fn reopen_windows_directory_for_child_creation(
+    path: &Path,
+    expected: &File,
+) -> Result<File, PathGuardError> {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
@@ -309,6 +322,7 @@ fn open_windows_root(path: &Path) -> Result<File, PathGuardError> {
         FILE_FLAG_OPEN_REPARSE_POINT, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
         FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, OPEN_EXISTING, SYNCHRONIZE,
     };
+
     let wide = super::source_claim::windows_wide_path(path);
     let raw = unsafe {
         CreateFileW(
@@ -332,20 +346,49 @@ fn open_windows_root(path: &Path) -> Result<File, PathGuardError> {
     }
     let handle = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
     inspect_windows_directory(&handle)?;
+    if windows_directory_identity(&handle)? != windows_directory_identity(expected)? {
+        return Err(PathGuardError::IdentityChanged);
+    }
     Ok(handle)
 }
 
 #[cfg(windows)]
-fn open_windows_child(parent: &File, name: &std::ffi::OsStr) -> Result<File, PathGuardError> {
-    open_windows_child_with_disposition(parent, name, false)
-}
-
-#[cfg(windows)]
-fn open_or_create_windows_child(
-    parent: &File,
-    name: &std::ffi::OsStr,
-) -> Result<File, PathGuardError> {
-    open_windows_child_with_disposition(parent, name, true)
+fn open_windows_root(path: &Path, writable: bool) -> Result<File, PathGuardError> {
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ADD_SUBDIRECTORY, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, OPEN_EXISTING, SYNCHRONIZE,
+    };
+    let wide = super::source_claim::windows_wide_path(path);
+    let access = FILE_LIST_DIRECTORY
+        | FILE_READ_ATTRIBUTES
+        | SYNCHRONIZE
+        | if writable {
+            FILE_ADD_SUBDIRECTORY | FILE_WRITE_ATTRIBUTES
+        } else {
+            0
+        };
+    let raw = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            access,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if raw == INVALID_HANDLE_VALUE {
+        return Err(PathGuardError::Io(io::Error::from_raw_os_error(
+            unsafe { GetLastError() } as i32,
+        )));
+    }
+    let handle = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
+    inspect_windows_directory(&handle)?;
+    Ok(handle)
 }
 
 #[cfg(windows)]
@@ -353,6 +396,7 @@ fn open_windows_child_with_disposition(
     parent: &File,
     name: &std::ffi::OsStr,
     create_missing: bool,
+    writable: bool,
 ) -> Result<File, PathGuardError> {
     use std::{
         mem,
@@ -396,14 +440,18 @@ fn open_windows_child_with_disposition(
     };
     let mut raw = std::ptr::null_mut();
     let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
+    let access = FILE_LIST_DIRECTORY
+        | FILE_READ_ATTRIBUTES
+        | SYNCHRONIZE
+        | if writable {
+            FILE_ADD_SUBDIRECTORY | FILE_WRITE_ATTRIBUTES
+        } else {
+            0
+        };
     let status = unsafe {
         NtCreateFile(
             &mut raw,
-            FILE_LIST_DIRECTORY
-                | FILE_ADD_SUBDIRECTORY
-                | FILE_READ_ATTRIBUTES
-                | FILE_WRITE_ATTRIBUTES
-                | SYNCHRONIZE,
+            access,
             &attributes,
             &mut io_status,
             std::ptr::null(),

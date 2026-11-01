@@ -452,6 +452,30 @@ pub(crate) fn restore_volume_relation(log: &OperationLogDto) -> RestoreVolumeRel
     }
 }
 
+pub(crate) fn is_directory_move_log(log: &OperationLogDto) -> bool {
+    log.operation_type == "move"
+        && (crate::file_ops::manual_transfer::directory_tree_journal_fingerprint(
+            log.target_full_hash.as_deref(),
+        )
+        .is_some()
+            || crate::file_ops::manual_transfer::transfer_directory_tree_fingerprint(&log.id)
+                .is_some()
+            || Path::new(&log.path_after)
+                .symlink_metadata()
+                .is_ok_and(|metadata| metadata.is_dir()))
+}
+
+pub(crate) fn directory_move_tree_fingerprint(log: &OperationLogDto) -> Option<&str> {
+    crate::file_ops::manual_transfer::directory_tree_journal_fingerprint(
+        log.target_full_hash.as_deref(),
+    )
+    .or_else(|| {
+        (restore_volume_relation(log) == RestoreVolumeRelation::SameVolume)
+            .then(|| crate::file_ops::manual_transfer::transfer_directory_tree_fingerprint(&log.id))
+            .flatten()
+    })
+}
+
 /// Identity of the path currently holding the file being restored (path_after).
 /// A file ID is meaningful only when both operation volumes are known to be
 /// the same. Missing volume metadata is deliberately not treated as proof of
@@ -475,6 +499,20 @@ pub(crate) fn expected_restore_identity_from_log(
             platform_file_id,
             sample_hash: log.source_quick_hash.clone(),
             full_hash: log.source_full_hash.clone(),
+        });
+    }
+    if is_directory_move_log(log) {
+        let size = fs::symlink_metadata(&log.path_after)
+            .ok()
+            .map(|metadata| metadata.len())
+            .or(log.source_size)?;
+        return Some(crate::fs_safety::ExpectedFileIdentity {
+            size,
+            modified_ns: None,
+            platform_volume_id: log.target_platform_volume_id.clone(),
+            platform_file_id: log.target_platform_file_id.clone(),
+            sample_hash: None,
+            full_hash: None,
         });
     }
     let platform_file_id = if restore_volume_relation(log) == RestoreVolumeRelation::SameVolume {
@@ -511,6 +549,22 @@ pub(crate) fn expected_restore_original_identity_from_log(
             platform_file_id: None,
             sample_hash: log.source_quick_hash.clone(),
             full_hash: log.source_full_hash.clone(),
+        });
+    }
+    if is_directory_move_log(log) {
+        let size = fs::symlink_metadata(&log.path_before)
+            .ok()
+            .map(|metadata| metadata.len())
+            .or(log.source_size)?;
+        return Some(crate::fs_safety::ExpectedFileIdentity {
+            size,
+            modified_ns: None,
+            platform_volume_id: log.source_platform_volume_id.clone(),
+            platform_file_id: (restore_volume_relation(log) == RestoreVolumeRelation::SameVolume)
+                .then(|| log.source_platform_file_id.clone())
+                .flatten(),
+            sample_hash: None,
+            full_hash: None,
         });
     }
     // Replacement publishes the source through a verified copy/clone commit.
@@ -566,6 +620,21 @@ pub(crate) fn journal_target_identity_matches(
     log: &OperationLogDto,
     path: &Path,
 ) -> Result<bool, ()> {
+    if is_directory_move_log(log) {
+        let actual =
+            crate::fs_safety::capture_namespace_identity_only(path, None).map_err(|_| ())?;
+        if log.target_platform_volume_id.as_deref() != actual.platform_volume_id.as_deref()
+            || log.target_platform_file_id.as_deref() != actual.platform_file_id.as_deref()
+        {
+            return Ok(false);
+        }
+        let Some(expected_tree) = directory_move_tree_fingerprint(log) else {
+            return Err(());
+        };
+        let actual_tree =
+            crate::file_ops::manual_transfer::directory_tree_snapshot(path).map_err(|_| ())?;
+        return Ok(actual_tree == expected_tree);
+    }
     let Some(size) = log.source_size else {
         return Err(());
     };
@@ -639,6 +708,27 @@ pub(crate) fn operation_restore_identity_result(
             crate::recovery::RecoveryErrorCode::RestoreSourceIdentityMismatch,
             "restore source identity does not match the operation journal",
         ));
+    }
+    if is_directory_move_log(log) {
+        let Some(expected_tree) = directory_move_tree_fingerprint(log) else {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
+                "directory restore source tree proof is missing",
+            ));
+        };
+        let actual_tree =
+            crate::file_ops::manual_transfer::directory_tree_snapshot(path).map_err(|error| {
+                crate::recovery::RecoveryFailure::new(
+                    crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
+                    format!("directory restore source tree could not be verified: {error}"),
+                )
+            })?;
+        if actual_tree != expected_tree {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::RestoreSourceIdentityMismatch,
+                "directory restore source tree no longer matches its committed journal proof",
+            ));
+        }
     }
     Ok(())
 }
@@ -715,6 +805,27 @@ pub(crate) fn operation_restore_original_identity_result(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
             "restore original-path identity does not match the operation journal",
         ));
+    }
+    if is_directory_move_log(log) {
+        let Some(expected_tree) = directory_move_tree_fingerprint(log) else {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                "directory restore tree proof is missing",
+            ));
+        };
+        let actual_tree =
+            crate::file_ops::manual_transfer::directory_tree_snapshot(path).map_err(|error| {
+                crate::recovery::RecoveryFailure::new(
+                    crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                    format!("restored directory tree could not be verified: {error}"),
+                )
+            })?;
+        if actual_tree != expected_tree {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+                "restored directory tree does not match its committed journal proof",
+            ));
+        }
     }
     Ok(())
 }

@@ -5,12 +5,26 @@
 Fylura supports:
 
 - Windows, with the existing source-handle and verified-directory mutation
-  authority;
+  authority. Same-volume directory Move uses the existing no-replace atomic
+  source claim and operation journal. Cross-volume directory Move stages on
+  the target volume, verifies copied content, publishes without replacement,
+  then retires the claimed source only after revalidation. New staged objects
+  inherit the destination directory's normal permissions and mandatory
+  integrity label. Fylura does not read or copy the source Owner, DACL, or SACL,
+  and does not require `SeSecurityPrivilege` for ordinary Copy or Move;
 - macOS 13 or later on Apple Silicon (`aarch64-apple-darwin`), with the
   recoverable namespace and provider-coordination strategies described in
   `MACOS_MUTATION_THREAT_MODEL.md`.
 
 Intel Macs, Universal binaries, Rosetta, and Linux are not product targets.
+
+## Bounded directory transfers
+
+Windows and macOS directory copy, Move, and Restore are bounded to 5,000
+descendant entries and 64 directory levels including the selected root. A
+tree beyond either limit is explicitly refused before mutation. The source
+remains unchanged; Fylura does not silently skip entries or report a partial
+tree as a complete transfer.
 
 ## macOS operation support
 
@@ -81,10 +95,27 @@ attempting source cleanup.
 
 ## Windows and Linux
 
-Windows behavior remains unchanged: its source-handle and verified-directory
-primitives remain the filesystem authority. The legacy system Recycle Bin path
-continues to fail closed where source binding cannot be proven; Safe Trash is
-the durable cleanup route.
+Windows source-handle and verified-directory primitives remain the filesystem
+authority. Cross-volume directory Move is
+bounded to 5,000 entries and depth 64. Reparse points, EFS-encrypted files,
+extended attributes, NTFS named streams, sparse files, integrity streams,
+offline/provider placeholders, and other unsupported special attributes are
+rejected before source cleanup; Fylura does not silently discard them. For
+ordinary staged Copy and Move, target files and directories inherit the
+destination parent's DACL and mandatory integrity label. Source Owner, DACL,
+and SACL are neither read nor copied, and the source's permissions are not
+modified. Same-volume atomic rename moves the existing filesystem objects and
+preserves their original metadata and security descriptor.
+
+Move follows the target-first sequence: verify the source, copy to isolated
+staging, verify copied data, publish without replacement, persist the commit,
+revalidate the source, then retire it. If copying, verification, publication,
+or source cleanup fails, the source is retained and the journal records the
+resulting recoverable state. Copy leaves the source in place. The legacy system
+Recycle Bin path continues to fail closed where source binding cannot be
+proven; Safe Trash is the durable cleanup route. This Draft still requires
+Windows native GUI acceptance and active-transfer resource measurements before
+release qualification.
 
 Linux is not a supported product platform. It is outside product support,
 build, release, and mutation-safety scope.

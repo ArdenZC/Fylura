@@ -10,6 +10,8 @@ use thiserror::Error;
 
 const SAMPLE_SIZE: u64 = 1024 * 1024;
 const HASH_BUFFER_SIZE: usize = 1024 * 1024;
+pub const DIRECTORY_IDENTITY_ENTRY_LIMIT: usize = 5000;
+pub const DIRECTORY_IDENTITY_DEPTH_LIMIT: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExpectedFileIdentity {
@@ -466,15 +468,40 @@ fn hash_directory(
     path: &Path,
     cancel: Option<&AtomicBool>,
 ) -> Result<(u64, String, String), IdentityError> {
-    let entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
-    let mut entries_with_names = entries
-        .into_iter()
-        .map(|entry| {
-            let name = entry.file_name();
-            let raw_name = raw_os_name_bytes(&name)?;
-            Ok((raw_name, entry))
-        })
-        .collect::<Result<Vec<_>, IdentityError>>()?;
+    let metadata = fs::symlink_metadata(path)?;
+    let root_volume = platform_volume_id(path, &metadata);
+    let mut entry_count = 0usize;
+    hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut entry_count)
+}
+
+fn hash_directory_at(
+    path: &Path,
+    cancel: Option<&AtomicBool>,
+    depth: usize,
+    root_volume: Option<&str>,
+    entry_count: &mut usize,
+) -> Result<(u64, String, String), IdentityError> {
+    if depth >= DIRECTORY_IDENTITY_DEPTH_LIMIT {
+        return Err(IdentityError::ContentReadRejected(
+            "directory_depth_limit_exceeded",
+        ));
+    }
+    let mut entries_with_names = Vec::new();
+    for entry in fs::read_dir(path)? {
+        if is_cancelled(cancel) {
+            return Err(IdentityError::Cancelled);
+        }
+        if *entry_count >= DIRECTORY_IDENTITY_ENTRY_LIMIT {
+            return Err(IdentityError::ContentReadRejected(
+                "directory_entry_limit_exceeded",
+            ));
+        }
+        *entry_count += 1;
+        let entry = entry?;
+        let name = entry.file_name();
+        let raw_name = raw_os_name_bytes(&name)?;
+        entries_with_names.push((raw_name, entry));
+    }
     entries_with_names.sort_by(|(left_name, left), (right_name, right)| {
         left_name
             .cmp(right_name)
@@ -491,7 +518,26 @@ fn hash_directory(
         }
         let child_path = entry.path();
         let child_metadata = fs::symlink_metadata(&child_path)?;
-        let child = capture_namespace_identity(&child_path, cancel)?;
+        let child_volume = platform_volume_id(&child_path, &child_metadata);
+        if root_volume.is_some() && child_volume.as_deref() != root_volume {
+            return Err(IdentityError::ContentReadRejected(
+                "nested_volume_entry_unsupported",
+            ));
+        }
+        let child = if child_metadata.is_dir() {
+            let (size, sample_hash, full_hash) =
+                hash_directory_at(&child_path, cancel, depth + 1, root_volume, entry_count)?;
+            ExpectedFileIdentity {
+                size,
+                modified_ns: modified_ns(&child_metadata),
+                platform_volume_id: child_volume,
+                platform_file_id: platform_file_id(&child_path, &child_metadata),
+                sample_hash: Some(sample_hash),
+                full_hash: Some(full_hash),
+            }
+        } else {
+            capture_namespace_identity(&child_path, cancel)?
+        };
         let kind = if child_metadata.file_type().is_symlink() {
             b"symlink\0".as_slice()
         } else if child_metadata.is_dir() {
@@ -699,6 +745,40 @@ mod tests {
         assert!(identity.sample_hash.is_none());
         assert!(identity.full_hash.is_none());
         assert_eq!(identity.size, fs::metadata(&path).expect("metadata").len());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn directory_identity_stops_at_the_bounded_entry_limit() {
+        let root = fixture("entry-limit");
+        for index in 0..=DIRECTORY_IDENTITY_ENTRY_LIMIT {
+            fs::write(root.join(format!("entry-{index:04}")), b"").expect("entry");
+        }
+
+        assert!(matches!(
+            capture_identity(&root, None),
+            Err(IdentityError::ContentReadRejected(
+                "directory_entry_limit_exceeded"
+            ))
+        ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn directory_identity_stops_at_the_bounded_depth_limit() {
+        let root = fixture("depth-limit");
+        let mut current = root.clone();
+        for _ in 0..DIRECTORY_IDENTITY_DEPTH_LIMIT {
+            current = current.join("d");
+            fs::create_dir(&current).expect("nested directory");
+        }
+
+        assert!(matches!(
+            capture_identity(&root, None),
+            Err(IdentityError::ContentReadRejected(
+                "directory_depth_limit_exceeded"
+            ))
+        ));
         let _ = fs::remove_dir_all(root);
     }
 

@@ -20,25 +20,16 @@ export interface FileLibraryContextMenuItem {
 
 export function libraryTransferMenuItems({
   t,
-  windows,
-  isDirectory,
-  clipboardIncludesDirectory,
   closeContextMenu,
   requestAction,
 }: {
   t: Translator;
-  windows: boolean;
-  isDirectory: boolean;
-  clipboardIncludesDirectory: boolean;
   closeContextMenu: (reason?: "action" | "dialog-handoff") => void;
   requestAction: (action: "copy" | "cut" | "paste" | "basket") => void;
 }): FileLibraryContextMenuItem[] {
   return (["copy", "cut", "paste", "basket"] as const).map((action) => {
-    const disabled = windows && (action === "paste" ? clipboardIncludesDirectory : isDirectory);
     return {
       label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : "fmPaste"),
-      disabled,
-      title: disabled ? t("fmWindowsDirectories") : undefined,
       action: () => {
         closeContextMenu(action === "paste" ? "dialog-handoff" : "action");
         requestAction(action);

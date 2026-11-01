@@ -371,6 +371,9 @@ export function localizedStableError(error: unknown, t: Translator): string {
   if (message.startsWith("mac_provider_offline")) return t("errorMacProviderOffline");
   if (message.startsWith("mac_provider_permission_denied")) return t("errorMacProviderPermissionDenied");
   if (message.startsWith("mac_filesystem_capability_insufficient")) return t("errorMacFilesystemCapabilityInsufficient");
+  if (message.startsWith("directory_tree_limit_exceeded") || message.startsWith("transfer_directory_entry_limit") || message.startsWith("transfer_directory_depth_limit")) return t("errorDirectoryTreeLimitExceeded");
+  if (message.startsWith("directory_nested_volume_unsupported") || message.startsWith("transfer_nested_volume_unsupported")) return t("errorDirectoryNestedVolumeUnsupported");
+  if (message.startsWith("symlink_or_reparse_point") || message.startsWith("reparse_point") || message.startsWith("symlink")) return t("errorDirectoryLinkUnsupported");
   if (message.startsWith("restore_pending_reconciliation")) return t("errorRestorePendingReconciliation");
   if (message.startsWith("claim_identity_mismatch")) return t("errorClaimIdentityMismatch");
   if (message.startsWith("manual_review_required")) return t("errorManualReviewRequired");

@@ -70,6 +70,58 @@ pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const OPERATION_PROGRESS_BATCH_SIZE: u64 = 10;
 const OPERATION_PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(200);
 
+/// Build an operation through the same transfer preview snapshot logic used
+/// by the Tauri file-management entrypoint. This exists only for native QA
+/// harnesses that need to exercise the journaled executor without a WebView.
+#[cfg(feature = "native-qa")]
+pub fn native_qa_transfer_move_preview(
+    source: &Path,
+    destination_directory: &Path,
+) -> Result<OperationPreviewRequest, String> {
+    native_qa_transfer_preview(
+        source,
+        destination_directory,
+        manual_transfer::TransferAction::Move,
+    )
+}
+
+/// Build a source-preserving Copy through the same transfer preview snapshot
+/// logic used by the Tauri file-management entrypoint.
+#[cfg(feature = "native-qa")]
+pub fn native_qa_transfer_copy_preview(
+    source: &Path,
+    destination_directory: &Path,
+) -> Result<OperationPreviewRequest, String> {
+    native_qa_transfer_preview(
+        source,
+        destination_directory,
+        manual_transfer::TransferAction::Copy,
+    )
+}
+
+#[cfg(feature = "native-qa")]
+fn native_qa_transfer_preview(
+    source: &Path,
+    destination_directory: &Path,
+    action: manual_transfer::TransferAction,
+) -> Result<OperationPreviewRequest, String> {
+    let source = source.canonicalize().map_err(|error| error.to_string())?;
+    let destination_directory = destination_directory
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let name = source
+        .file_name()
+        .ok_or_else(|| "transfer_source_invalid".to_string())?;
+    let target = destination_directory.join(name);
+    manual_transfer::make_operation(
+        RECOVERY_ACTION_FILE_ID,
+        &source,
+        &destination_directory,
+        &target,
+        action,
+    )
+}
+
 #[cfg(any(test, feature = "native-qa"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationTestFaultPoint {
@@ -424,6 +476,11 @@ pub async fn materialize_provider_preview<R: Runtime>(
             processed: 0,
             total: 1,
             current_path: preview.source_path.clone(),
+            phase: None,
+            processed_items: None,
+            total_items: None,
+            processed_bytes: None,
+            total_bytes: None,
         });
         #[cfg(target_os = "macos")]
         let result = crate::platform::macos::strategy::materialize_explicit(
@@ -436,6 +493,11 @@ pub async fn materialize_provider_preview<R: Runtime>(
                     processed,
                     total,
                     current_path: preview.source_path.clone(),
+                    phase: None,
+                    processed_items: None,
+                    total_items: None,
+                    processed_bytes: None,
+                    total_bytes: None,
                 });
             },
         )

@@ -60,19 +60,57 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
     let mut failed = 0_usize;
     let batch_id = restore_progress_batch_id(&request.logs);
     let total = request.logs.len() as u64;
-    let mut progress = OperationProgressBuffer::new("restore", batch_id, total);
+    let mut progress = OperationProgressBuffer::new("restore", batch_id.clone(), total);
     let mut logs = Vec::with_capacity(request.logs.len());
     for (index, log) in prepared_logs.iter().enumerate() {
         let mut phase_log = log.clone();
         let mut phase_observer =
-            |phase: &str| {
+            |event: crate::fs_safety::FileOperationEvent| {
+                let phase = match event {
+                    crate::fs_safety::FileOperationEvent::Phase(phase) => phase,
+                    crate::fs_safety::FileOperationEvent::Progress(progress) => {
+                        emitter.emit_progress(OperationProgressPayload {
+                            kind: "restore".to_string(),
+                            batch_id: batch_id.clone(),
+                            processed: index as u64,
+                            total,
+                            current_path: progress.current_path,
+                            phase: Some(progress.stage),
+                            processed_items: Some(progress.processed_items),
+                            total_items: progress.total_items,
+                            processed_bytes: Some(progress.processed_bytes),
+                            total_bytes: progress.total_bytes,
+                        });
+                        return Ok(());
+                    }
+                };
                 phase_log.restore_phase = phase.to_string();
                 phase_log.restore_status = "pending".to_string();
                 phase_log.restore_error = None;
+                if phase == "target_committed" && super::is_directory_move_log(&phase_log) {
+                    let restored_target = Path::new(&phase_log.path_before);
+                    let tree = crate::file_ops::manual_transfer::directory_tree_snapshot(
+                        restored_target,
+                    )
+                    .and_then(|tree| {
+                        crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(
+                            &tree,
+                        )
+                        .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+                    })
+                    .map_err(|_| {
+                        crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                    })?;
+                    // `target_full_hash` stores the tree currently published
+                    // at the original path. Replacing this proof at the
+                    // restore commit boundary lets restart recovery identify
+                    // the restored object without reusing an old preview.
+                    phase_log.target_full_hash = Some(tree);
+                }
                 db.update_operation_restore_phase(&phase_log)
                     .map_err(|error| {
                         if matches!(
-                            phase,
+                            phase.as_str(),
                             "target_committed" | "source_cleanup_pending" | "completed"
                         ) {
                             crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
@@ -83,7 +121,7 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
                         }
                     })?;
                 #[cfg(any(test, feature = "native-qa"))]
-            match phase {
+            match phase.as_str() {
                 "source_claimed"
                     if take_operation_test_fault(
                         OperationTestFaultPoint::AfterRestoreSourceClaimedBeforeTargetCommit,
@@ -98,6 +136,18 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
                     ) => panic!("AfterRestoreCompletedPhaseBeforeFinalTransaction"),
                 _ => {}
             }
+                emitter.emit_progress(OperationProgressPayload {
+                    kind: "restore".to_string(),
+                    batch_id: batch_id.clone(),
+                    processed: index as u64,
+                    total,
+                    current_path: log.path_after.clone(),
+                    phase: Some(phase),
+                    processed_items: None,
+                    total_items: None,
+                    processed_bytes: None,
+                    total_bytes: None,
+                });
                 Ok(())
             };
         let result = if is_operation_cancelled(&cancel_flag) {
@@ -261,6 +311,9 @@ pub(crate) fn restore_operation_log_with_observer(
     if log.path_before.trim().is_empty() || log.path_after.trim().is_empty() {
         return mark_restore_failed(log, "Restore metadata is incomplete.");
     }
+    if let Err(error) = verify_directory_restore_tree(log, Path::new(&log.path_after)) {
+        return mark_restore_manual_review(log, error);
+    }
     if let Err(failure) = operation_restore_identity_result(log, Path::new(&log.path_after)) {
         return mark_restore_manual_review(log, failure.message());
     }
@@ -268,7 +321,11 @@ pub(crate) fn restore_operation_log_with_observer(
         return restore_replacement_operation_log_with_observer(log, cancel_flag, phase_observer);
     }
 
-    let source_result = if matches!(log.operation_type.as_str(), "rename" | "move_to_trash") {
+    let restore_directory_move = log.operation_type == "move"
+        && std::fs::symlink_metadata(&log.path_after).is_ok_and(|metadata| metadata.is_dir());
+    let source_result = if matches!(log.operation_type.as_str(), "rename" | "move_to_trash")
+        || restore_directory_move
+    {
         validate_namespace_entry_path(&PathBuf::from(&log.path_after))
     } else {
         validate_source_path(&PathBuf::from(&log.path_after))
@@ -299,15 +356,27 @@ pub(crate) fn restore_operation_log_with_observer(
         return mark_restore_failed(log, error);
     }
     let expected_identity = expected_restore_identity_from_log(log);
-    if let Err(error) = move_file_no_overwrite_with_identity_for_operation(
-        &source,
-        &target,
-        expected_identity.as_ref(),
-        Some(&restore_claim_path),
-        cancel_flag,
-        phase_observer,
-        crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
-    ) {
+    let restore_result = if restore_directory_move {
+        restore_directory_move_with_identity(
+            &source,
+            &target,
+            expected_identity.as_ref(),
+            Some(&restore_claim_path),
+            cancel_flag,
+            phase_observer,
+        )
+    } else {
+        move_file_no_overwrite_with_identity_for_operation(
+            &source,
+            &target,
+            expected_identity.as_ref(),
+            Some(&restore_claim_path),
+            cancel_flag,
+            phase_observer,
+            crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
+        )
+    };
+    if let Err(error) = restore_result {
         if error.is_cancelled() {
             return mark_restore_canceled(log);
         }
@@ -319,6 +388,27 @@ pub(crate) fn restore_operation_log_with_observer(
     }
 
     let mut restored = log.clone();
+    if restore_directory_move {
+        let tree = match crate::file_ops::manual_transfer::directory_tree_snapshot(&target)
+            .and_then(|tree| {
+                crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(
+                    &tree,
+                )
+                .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+            })
+        {
+            Ok(tree) => tree,
+            Err(error) => {
+                return mark_restore_manual_review(
+                    log,
+                    format!(
+                        "restore committed but restored directory tree proof could not be captured: {error}"
+                    ),
+                )
+            }
+        };
+        restored.target_full_hash = Some(tree);
+    }
     restored.can_undo = false;
     restored.can_restore = false;
     restored.restored_at = Some(current_timestamp_ms().to_string());
@@ -326,6 +416,26 @@ pub(crate) fn restore_operation_log_with_observer(
     restored.restore_error = None;
     restored.restore_phase = "completed".to_string();
     restored
+}
+
+fn verify_directory_restore_tree(log: &OperationLogDto, path: &Path) -> Result<(), String> {
+    if !super::is_directory_move_log(log)
+        || !std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
+    {
+        return Ok(());
+    }
+    // The target-side journal proof is authoritative for both same-volume
+    // renames and cross-volume copy/verify moves. Legacy same-volume transfer
+    // rows may fall back to the source snapshot embedded in their ID.
+    let Some(expected) = super::directory_move_tree_fingerprint(log) else {
+        return Err("restore_directory_tree_proof_missing: the journal has no target tree proof; review it before restoring".into());
+    };
+    let actual = crate::file_ops::manual_transfer::directory_tree_snapshot(path)?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err("restore_directory_tree_changed: the moved directory tree no longer matches its operation snapshot; review it before restoring".into())
+    }
 }
 
 fn restore_replacement_operation_log_with_observer(

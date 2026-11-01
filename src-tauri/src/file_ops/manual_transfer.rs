@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 
 const LIMIT: usize = 1000;
 const EXTERNAL_PATH_LIMIT: usize = 256;
-const EXTERNAL_TREE_ENTRY_LIMIT: usize = 5000;
-const EXTERNAL_TREE_DEPTH_LIMIT: usize = 64;
+const EXTERNAL_TREE_ENTRY_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_ENTRY_LIMIT;
+const EXTERNAL_TREE_DEPTH_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT;
 #[derive(Default)]
 pub(crate) struct TransferState {
     sources: HashMap<String, Source>,
@@ -356,11 +356,14 @@ impl FileWorkspaceRuntime {
         for source in sources.iter().filter_map(|(_, source)| source.as_ref()) {
             if let Some(guard) = &source.tree_guard {
                 if !checked_trees.contains_key(&guard.root) {
-                    checked_trees.insert(
-                        guard.root.clone(),
-                        validate_tree_guard(guard)
-                            .map_err(|_| "transfer_source_tree_changed".into()),
-                    );
+                    let validation = validate_tree_guard(guard).map_err(|error| {
+                        if error == "symlink_or_reparse_point" {
+                            error
+                        } else {
+                            "transfer_source_tree_changed".into()
+                        }
+                    });
+                    checked_trees.insert(guard.root.clone(), validation);
                     trees.push(guard.clone());
                 }
             }
@@ -383,12 +386,12 @@ impl FileWorkspaceRuntime {
                 }
             };
             let validation = (|| {
-                if source
+                if let Some(Err(error)) = source
                     .tree_guard
                     .as_ref()
-                    .is_some_and(|guard| checked_trees.get(&guard.root).is_some_and(Result::is_err))
+                    .and_then(|guard| checked_trees.get(&guard.root))
                 {
-                    return Err("transfer_source_tree_changed".into());
+                    return Err(error.clone());
                 }
                 if file_namespace_fingerprint(Path::new(&source.ticket.path))? != source.identity {
                     return Err("transfer_source_changed".into());
@@ -572,19 +575,37 @@ impl FileWorkspaceRuntime {
         if !request.confirmed {
             return Err("transfer_confirmation_required".into());
         }
-        let plan = self
-            .inner
-            .transfers
-            .lock()
-            .map_err(|_| "transfer_state_unavailable")?
-            .previews
-            .remove(&request.preview_id)
-            .ok_or("operation_preview_stale")?;
+        let plan = {
+            let mut state = self
+                .inner
+                .transfers
+                .lock()
+                .map_err(|_| "transfer_state_unavailable")?;
+            match state.previews.remove(&request.preview_id) {
+                Some(plan) => plan,
+                None => {
+                    #[cfg(test)]
+                    eprintln!(
+                        "transfer stale at take: preview missing id={}",
+                        request.preview_id
+                    );
+                    return Err("operation_preview_stale".into());
+                }
+            }
+        };
         for guard in &plan.trees {
             validate_tree_guard(guard)?;
         }
         for operation in &plan.operations {
-            revalidate(operation)?;
+            let revalidation = revalidate(operation);
+            if let Err(_error) = &revalidation {
+                #[cfg(test)]
+                eprintln!(
+                    "transfer stale at take: revalidation error={_error} op={} source={} target={}",
+                    operation.id, operation.source_path, operation.target_path
+                );
+            }
+            revalidation?;
         }
         Ok(ExecuteMovesRequest {
             operations: plan.operations,
@@ -696,10 +717,10 @@ fn snapshot(
         validate_transfer_source_path(source)?
     };
     let source_is_directory = source.is_dir();
-    if cfg!(windows) && source_is_directory && action == TransferAction::Move {
-        return Err("transfer_windows_directory_move_unsupported".into());
-    }
     ensure_not_safe_trash_operation(&source)?;
+    // Directory operations stay on the shared atomic-move path. The
+    // platform-specific commit layer decides whether the verified volume
+    // identities permit an atomic rename or require a staged copy/verify move.
     let tree_fingerprint =
         if source_is_directory && matches!(action, TransferAction::Copy | TransferAction::Move) {
             Some(directory_tree_snapshot(&source)?)
@@ -760,7 +781,7 @@ fn snapshot(
     };
     let digest = blake3::hash(
         format!(
-            "transfer:v4:{file_id}:{}:{}:{action:?}:{identity:?}:{tree_fingerprint:?}:{}:{:?}",
+            "transfer:v5:{file_id}:{}:{}:{action:?}:{identity:?}:{tree_fingerprint:?}:{}:{:?}",
             normalize_path(&source),
             target_path_identity,
             normalize_path(&canonical_root),
@@ -769,16 +790,18 @@ fn snapshot(
         .as_bytes(),
     );
     let destination_path = normalize_path(&canonical_root);
+    let tree_fingerprint = tree_fingerprint.as_deref().unwrap_or("none");
     Ok((
         format!(
-            "op-transfer-v4-{}-{}",
+            "op-transfer-v5-{}-{}-{}",
             digest.to_hex(),
+            tree_fingerprint,
             encode_path_for_transfer_id(&destination_path)
         ),
         nearest_identity,
     ))
 }
-fn make_operation(
+pub(super) fn make_operation(
     file_id: &str,
     source: &Path,
     directory: &Path,
@@ -835,7 +858,13 @@ pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<Director
         "move_to_trash" => TransferAction::Trash,
         _ => return Err("operation_preview_stale".into()),
     };
-    let destination_root = decode_transfer_root(&operation.id)?;
+    let destination_root = decode_transfer_root(&operation.id).inspect_err(|_| {
+        #[cfg(test)]
+        eprintln!(
+            "transfer stale at take: destination root decode failed op={}",
+            operation.id
+        );
+    })?;
     let source = Path::new(&operation.source_path);
     if action == TransferAction::Trash
         && operation.target_path != safe_trash_operation_target(source, &operation.id)
@@ -855,6 +884,11 @@ pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<Director
         action,
     )?;
     if id != operation.id {
+        #[cfg(test)]
+        eprintln!(
+            "transfer stale at take: id changed old={} new={}",
+            operation.id, id
+        );
         return Err("operation_preview_stale".into());
     }
     Ok(identity)
@@ -871,10 +905,30 @@ fn encode_path_for_transfer_id(path: &str) -> String {
 }
 
 fn decode_transfer_root(id: &str) -> Result<PathBuf, String> {
-    let payload = id
-        .strip_prefix("op-transfer-v4-")
-        .ok_or("operation_preview_stale")?;
-    let (digest, encoded_path) = payload.split_once('-').ok_or("operation_preview_stale")?;
+    let (version, payload) = if let Some(payload) = id.strip_prefix("op-transfer-v5-") {
+        (5, payload)
+    } else if let Some(payload) = id.strip_prefix("op-transfer-v4-") {
+        (4, payload)
+    } else {
+        return Err("operation_preview_stale".into());
+    };
+    let (digest, payload) = payload.split_once('-').ok_or("operation_preview_stale")?;
+    let encoded_path = if version == 5 {
+        // Older v5 IDs represented a missing directory fingerprint as "-",
+        // which creates an ambiguous triple separator before the hex path.
+        // Keep those transient previews readable while using an unambiguous
+        // non-hex sentinel for newly generated file previews.
+        if let Some(encoded_path) = payload.strip_prefix("--") {
+            encoded_path
+        } else {
+            payload
+                .split_once('-')
+                .map(|(_, encoded_path)| encoded_path)
+                .ok_or("operation_preview_stale")?
+        }
+    } else {
+        payload
+    };
     if digest.len() != 64 || encoded_path.is_empty() || encoded_path.len() % 2 != 0 {
         return Err("operation_preview_stale".into());
     }
@@ -899,6 +953,37 @@ fn decode_transfer_root(id: &str) -> Result<PathBuf, String> {
     }
     Ok(root)
 }
+
+pub(crate) fn transfer_directory_tree_fingerprint(id: &str) -> Option<&str> {
+    let marker = id.rfind("op-transfer-v5-")?;
+    let payload = id.get(marker + "op-transfer-v5-".len()..)?;
+    let (digest, payload) = payload.split_once('-')?;
+    let (fingerprint, encoded_path) = payload.split_once('-')?;
+    (digest.len() == 64
+        && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && fingerprint.len() == 64
+        && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && !encoded_path.is_empty()
+        && encoded_path.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    .then_some(fingerprint)
+}
+
+const DIRECTORY_TREE_JOURNAL_PREFIX: &str = "directory-tree-v1:";
+
+pub(crate) fn encode_directory_tree_journal_fingerprint(fingerprint: &str) -> Option<String> {
+    if fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Some(format!("{DIRECTORY_TREE_JOURNAL_PREFIX}{fingerprint}"))
+    } else {
+        None
+    }
+}
+
+pub(crate) fn directory_tree_journal_fingerprint(value: Option<&str>) -> Option<&str> {
+    let fingerprint = value?.strip_prefix(DIRECTORY_TREE_JOURNAL_PREFIX)?;
+    (fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then_some(fingerprint)
+}
+
 pub(crate) fn execute(
     operation: &OperationPreviewRequest,
     context: OperationExecutionContext<'_>,
@@ -1191,7 +1276,7 @@ fn make_captured_source(
     })
 }
 
-fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
+pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
     let root_identity = crate::fs_safety::capture_source_object_identity(root)
         .map_err(|error| error.to_string())?;
     if !root.is_dir() {
@@ -1200,14 +1285,13 @@ fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
     let root_namespace = file_namespace_fingerprint(root)?;
     let mut records = vec![format!(".:directory:{root_identity:?}:{root_namespace:?}")];
     let mut entry_count = 0usize;
-    let mut file_count = 0usize;
     collect_directory_tree(
         root,
         root,
         0,
         &mut entry_count,
         &mut records,
-        &mut file_count,
+        root_namespace.platform_volume_id.as_deref(),
     )?;
     records.sort();
     let mut hasher = blake3::Hasher::new();
@@ -1224,15 +1308,18 @@ fn collect_directory_tree(
     depth: usize,
     entry_count: &mut usize,
     records: &mut Vec<String>,
-    file_count: &mut usize,
+    root_volume: Option<&str>,
 ) -> Result<(), String> {
     if depth >= EXTERNAL_TREE_DEPTH_LIMIT {
         return Err("transfer_directory_depth_limit".into());
     }
-    let mut entries = std::fs::read_dir(directory)
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(directory).map_err(|error| error.to_string())? {
+        if entry_count.saturating_add(entries.len()) >= EXTERNAL_TREE_ENTRY_LIMIT {
+            return Err("transfer_directory_entry_limit".into());
+        }
+        entries.push(entry.map_err(|error| error.to_string())?);
+    }
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
         *entry_count += 1;
@@ -1243,6 +1330,9 @@ fn collect_directory_tree(
         let physical_identity = crate::fs_safety::capture_source_object_identity(&path)
             .map_err(|error| error.to_string())?;
         let identity = file_namespace_fingerprint(&path)?;
+        if root_volume.is_some() && identity.platform_volume_id.as_deref() != root_volume {
+            return Err("transfer_nested_volume_unsupported".into());
+        }
         ensure_general_file_operation_allowed(&path)?;
         let relative_path = path
             .strip_prefix(root)
@@ -1253,16 +1343,12 @@ fn collect_directory_tree(
             records.push(format!(
                 "{relative_display}:directory:{physical_identity:?}:{identity:?}"
             ));
-            collect_directory_tree(root, &path, depth + 1, entry_count, records, file_count)?;
+            collect_directory_tree(root, &path, depth + 1, entry_count, records, root_volume)?;
         } else if path.is_file() {
             validate_source_path(&path)?;
             records.push(format!(
                 "{relative_display}:file:{physical_identity:?}:{identity:?}"
             ));
-            *file_count += 1;
-            if *file_count > LIMIT {
-                return Err("transfer_selection_limit_1000".into());
-            }
         } else {
             return Err("transfer_source_invalid".into());
         }
@@ -1377,4 +1463,27 @@ pub(crate) async fn execute_registered<R: Runtime>(
     })
     .await
     .map_err(|e| format!("transfer_execution_failed:{e}"))?
+}
+
+#[cfg(test)]
+mod transfer_root_tests {
+    use super::{decode_transfer_root, encode_path_for_transfer_id};
+
+    #[test]
+    fn transfer_root_decoder_accepts_file_and_directory_v5_ids() {
+        let root = std::env::temp_dir().join("fylura-transfer-root");
+        let encoded = encode_path_for_transfer_id(root.to_str().expect("UTF-8 test path"));
+        let digest = "a".repeat(64);
+        let fingerprint = "b".repeat(64);
+
+        for id in [
+            format!("op-transfer-v5-{digest}-none-{encoded}"),
+            // File previews created by the earlier v5 writer used "-" as
+            // the missing-fingerprint sentinel, yielding three separators.
+            format!("op-transfer-v5-{digest}---{encoded}"),
+            format!("op-transfer-v5-{digest}-{fingerprint}-{encoded}"),
+        ] {
+            assert_eq!(decode_transfer_root(&id).unwrap(), root);
+        }
+    }
 }

@@ -58,7 +58,6 @@ export function LibraryMode() {
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const handleQueryError = useCallback((error: unknown) => onError(readableError(error)), [onError]);
   const source = useLibrarySourceOwner({ onError: handleQueryError });
-  const clipboardIncludesDirectory = useFileManagementStore((store) => store.clipboard?.tickets.some((ticket) => ticket.isDirectory) ?? false);
   useLibraryManagementSurface(source);
 
   const currentTarget = experienceState.workspace.session.currentTarget;
@@ -464,8 +463,8 @@ export function LibraryMode() {
             closeContextMenu("dialog-handoff");
             openLibraryPreview(fileId, trigger);
           }}
-          onMove={platform === "win32" && contextMenu.file.isDirectory ? undefined : () => { closeContextMenu("dialog-handoff"); useFileManagementStore.getState().requestAction("move"); }}
-          transferItems={libraryTransferMenuItems({t,windows:platform==="win32",isDirectory:contextMenu.file.isDirectory,clipboardIncludesDirectory,closeContextMenu,requestAction:(action)=>useFileManagementStore.getState().requestAction(action)})}
+          onMove={() => { closeContextMenu("dialog-handoff"); useFileManagementStore.getState().requestAction("move"); }}
+          transferItems={libraryTransferMenuItems({t,closeContextMenu,requestAction:(action)=>useFileManagementStore.getState().requestAction(action)})}
           onRename={capabilities?.renameAvailable && !contextMenu.file.isDirectory && !contextMenu.file.isStale ? () => {
             closeContextMenu("dialog-handoff"); source.setExplicitSelection([contextMenu.file.id], contextMenu.file.id);
             setRenameFile(contextMenu.file);

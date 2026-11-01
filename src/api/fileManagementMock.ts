@@ -15,6 +15,14 @@ for (let i = 0; i < 137; i++) {
   if (i !== 1) files.set(`C:/U3/Right/${name}`, { id: `right-${i}`, version: 1, size: i % 7 * 100 + (i === 3 ? 1 : 0), modified: 1700000000 + i + (i === 4 ? 5 : 0) });
 }
 for (const side of ["Left", "Right"]) files.set(`C:/U3/${side}/Subfolder`, { id: `${side}-folder`, version: 1, directory: true });
+const includeFolderMoveFixture = typeof window !== "undefined"
+  && new URLSearchParams(window.location.search).has("u3-folder-move");
+if (includeFolderMoveFixture) {
+  files.set("C:/U3/Left/MoveFolder", { id: "move-folder", version: 1, directory: true });
+  files.set("C:/U3/Left/MoveFolder/nested", { id: "move-folder-nested", version: 1, directory: true });
+  files.set("C:/U3/Left/MoveFolder/nested/payload.txt", { id: "move-folder-payload", version: 1, size: 22, modified: 1 });
+  files.set("C:/U3/Left/MoveFolder/empty", { id: "move-folder-empty", version: 1, directory: true });
+}
 files.set("C:/U3/Left/Case.txt", { id: "case-left", version: 1, size: 1, modified: 1 });
 files.set("C:/U3/Right/case.txt", { id: "case-right", version: 1, size: 1, modified: 1 });
 const tickets = new Map<string, TransferTicket>();
@@ -63,7 +71,10 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
       const ticket = tickets.get(ticketId); const skipped = request.skip?.includes(ticketId) ?? false;
       if (!ticket) return { ticketId, skipped, preview: null, error: "transfer_reference_expired" };
       if ((ticket.path.startsWith("C:/U1/") || ticket.path.startsWith("C:/U3/")) && !files.has(ticket.path)) return { ticketId, skipped, preview: null, error: "transfer_source_changed" };
-      if (ticket.isDirectory) return { ticketId, skipped, preview: null, error: "transfer_directory_not_supported" };
+      if (ticket.isDirectory && request.action !== "move") return { ticketId, skipped, preview: null, error: "transfer_directory_not_supported" };
+      if (ticket.isDirectory && request.action === "move" && request.destinationDirectory.replace(/\\/g, "/").startsWith(`${ticket.path.replace(/\\/g, "/")}/`)) {
+        return { ticketId, skipped, preview: null, error: "transfer_directory_into_itself" };
+      }
       if (skipped) return { ticketId, skipped: true, preview: null, error: null };
       let name = request.action === "rename" ? String(request.newName ?? "") : ticket.name;
       const targetDirectory = request.action === "rename" || request.action === "trash"
@@ -93,8 +104,16 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
       const op = row.preview!; const source = files.get(op.source_path) ?? { id: `created-${++serial}`, version: 1 };
       if (op.operation_type === "create_directory") files.set(op.target_path, { ...source, id: `published-${++serial}`, directory: true });
       else {
-        files.set(op.target_path, { ...source, id: `published-${++serial}` });
-        if (["move", "move_to_trash", "rename"].includes(op.operation_type)) files.delete(op.source_path);
+        if (source.directory && op.operation_type === "move") {
+          const moved = [...files.entries()].filter(([path]) => path === op.source_path || path.startsWith(`${op.source_path}/`));
+          for (const [path, file] of moved) {
+            files.set(`${op.target_path}${path.slice(op.source_path.length)}`, { ...file, id: `published-${++serial}` });
+            files.delete(path);
+          }
+        } else {
+          files.set(op.target_path, { ...source, id: `published-${++serial}` });
+          if (["move", "move_to_trash", "rename"].includes(op.operation_type)) files.delete(op.source_path);
+        }
       }
       const canRestore = ["move", "move_to_trash", "rename"].includes(op.operation_type);
       return { id: `log-${++serial}`, batch_id: batchId, operation_type: op.operation_type, source_path: op.source_path, target_path: op.target_path, path_before: op.source_path, path_after: op.target_path, name_before: op.old_name, name_after: op.new_name, old_name: op.old_name, new_name: op.new_name, error_message: null, restored_at: null, restore_error: null, status: "success", can_restore: canRestore, can_undo: canRestore, restore_status: "not_restored", operation_phase: "completed", created_at: new Date().toISOString() } as OperationLog;

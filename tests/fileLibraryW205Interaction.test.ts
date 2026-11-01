@@ -19,6 +19,7 @@ import {
 import { decideListLoadMore, nextNavigationIndex, SharedFileList } from "../src/views/fileLibrary/list/SharedFileList";
 
 const t = makeTranslator("en");
+const SCROLL_SETTLE_MS = 200;
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 const nativeClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
@@ -96,8 +97,11 @@ function browseSource(entries: ReturnType<typeof adaptBrowseEntry>[], overrides:
   } as unknown as BrowseSourceOwner;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root !== null) {
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, SCROLL_SETTLE_MS));
+    });
     act(() => root?.unmount());
     root = null;
   }

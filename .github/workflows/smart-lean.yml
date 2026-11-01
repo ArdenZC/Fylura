@@ -2,11 +2,18 @@ name: Smart Lean product qualification
 on:
   pull_request:
     paths:
-      # Smart Lean measures index-coverage policy and production admission.
-      # Search/query/activation edits (e.g. #518/#524) use the ordinary CI
-      # Search shard instead of automatically running a 100k ingestion matrix.
+      # Policy, source-bound entry persistence and provider admission are all
+      # production inputs to Smart Lean. SQL-only query/activation edits do not
+      # trigger the expensive benchmark; a PR touching shared ingestion owners
+      # (even when also touching Search, e.g. #518) must still qualify.
       - 'src-tauri/src/global_index/index_scope/**'
       - 'src-tauri/src/db/schema_index_coverage.rs'
+      - 'src-tauri/src/global_index/repository.rs'
+      - 'src-tauri/src/global_index/coordinator.rs'
+      - 'src-tauri/src/global_index/models.rs'
+      - 'src-tauri/src/global_index/windows/mod.rs'
+      - 'src-tauri/src/global_index/windows/service.rs'
+      - 'src-tauri/src/global_index/macos/mod.rs'
       # Native ingestion changes can affect coverage and admission on one OS.
       - 'src-tauri/src/global_index/windows/mft.rs'
       - 'src-tauri/src/global_index/windows/usn.rs'

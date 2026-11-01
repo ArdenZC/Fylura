@@ -166,8 +166,14 @@ finally {
     if ($userSid) {
         foreach ($path in @($sourceNamespaceRoot, $secondaryNamespaceRoot)) {
             if (Test-Path -LiteralPath $path) {
-                & icacls.exe $path /remove:g "*${userSid}" | Out-Null
+                & icacls.exe $path /remove:g "*${userSid}"
+                $aclCleanupExitCode = $LASTEXITCODE
+                if ($aclCleanupExitCode -ne 0) {
+                    throw "could not remove the ordinary QA account ACL from $path (icacls exit $aclCleanupExitCode)"
+                }
             }
         }
     }
 }
+
+exit 0

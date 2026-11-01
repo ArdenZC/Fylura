@@ -382,6 +382,13 @@ pub(crate) fn revalidated_global_entry(
     if !volume.enabled {
         return Err("global_search_source_disabled".to_string());
     }
+    if volume.platform == "windows"
+        && volume.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED
+    {
+        // Treat a result from a revoked or unconfirmed Windows source as
+        // absent so stale renderer state cannot reveal that entry or activate it.
+        return Err("global_search_result_not_found".to_string());
+    }
     if let Some(reason) = db
         .entry_coverage_rejection(entry_id)
         .map_err(global_index_database_error)?

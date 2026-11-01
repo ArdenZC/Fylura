@@ -185,6 +185,9 @@ function isDbCorePath(path) {
 }
 
 function isSearchPath(path) {
+  // Workflows are orchestration, not product Search source files. In particular
+  // global-search-benchmark.yml must not select product Search just by name.
+  if (path.startsWith(".github/workflows/")) return false;
   // "research" contains the substring "search". Strip that lexical container
   // before the legacy broad Search-name check so research-only paths do not
   // accidentally trigger the product Search performance suite.

@@ -652,6 +652,9 @@ describe("CI final performance remediation contract", () => {
       expect(frontend).toContain("W2-10 interaction accessibility responsive browser gate");
       expect(frontend).toContain("npm run test:browser:w2-10:real");
       expect(frontend).toContain("w2-10-browser-gate-failure");
+      expect(frontend).toContain("Cleanup finding visibility and selection browser regression");
+      expect(frontend).toContain("npm run test:browser:cleanup-visibility:real");
+      expect(frontend).toContain("cleanup-visibility-browser-gate-failure");
       expect(frontend).toContain("W2-11 integrated experience performance browser gate");
       expect(frontend).toContain("npm run test:browser:w2-11:real");
       expect(frontend).toContain("w2-11-browser-gate-failure");

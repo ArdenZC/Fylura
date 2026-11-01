@@ -66,6 +66,8 @@ import { useCleanupExecutionController } from "./useCleanupExecutionController";
 import { useCleanupSelectionController } from "./useCleanupSelectionController";
 import { AIReadinessNotice, cleanupReadinessText } from "../shared/AIReadinessNotice";
 
+const FINDING_VIRTUALIZATION_THRESHOLD = 20;
+
 type Props = {
   initialRoots?: string[];
   api?: CleanupApi;
@@ -77,7 +79,7 @@ type Props = {
 function browserPresentationCleanupPath(kind: "downloads" | "desktop" | "documents" | "temp"): string | null {
   if (!isBrowserMockEnabled()) return null;
   const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
-  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview"].includes(fixture)) return null;
+  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview", "visibility", "visibility-many"].includes(fixture)) return null;
   // Explicit PM-01 browser fixtures use synthetic paths; native scope selection remains OS-owned.
   return {
     downloads: "C:/Users/Zen/Downloads",
@@ -880,6 +882,7 @@ function StorageCleanupPanel({
     updateAiWorkState("canceling");
   }, [t, updateAiWorkState]);
 
+  const virtualizeFindings = findings.length > FINDING_VIRTUALIZATION_THRESHOLD;
   const virtualizer = useVirtualizer({
     count: findings.length,
     getScrollElement: () => findingListRef.current,
@@ -888,16 +891,17 @@ function StorageCleanupPanel({
     getItemKey: (index) => findings[index]?.id ?? index
   });
   useEffect(() => {
+    if (!virtualizeFindings) return;
     const frame = requestAnimationFrame(() => {
       virtualizer.measure();
       findingListRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeTier, evidenceByFinding, expandedEvidence, findings, virtualizer]);
+  }, [activeTier, evidenceByFinding, expandedEvidence, findings, virtualizeFindings, virtualizer]);
   const virtualItems = virtualizer.getVirtualItems();
   const renderedVirtualItems = virtualItems.length
     ? virtualItems
-    : findings.slice(0, 20).map((_, index) => ({ index, start: index * FINDING_ROW_HEIGHT, size: FINDING_ROW_HEIGHT, key: findings[index]?.id ?? index }));
+    : findings.slice(0, FINDING_VIRTUALIZATION_THRESHOLD).map((_, index) => ({ index, start: index * FINDING_ROW_HEIGHT, size: FINDING_ROW_HEIGHT, key: findings[index]?.id ?? index }));
 
   const onFindingListKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
@@ -933,6 +937,26 @@ function StorageCleanupPanel({
         ? "current"
         : "pending";
   const cleanupRestoreWorkflowState: WorkflowStepState = cleanupWorkflowCurrent === 3 ? "current" : "pending";
+  const renderFindingRow = (finding: AnalysisFinding, index: number, start?: number) => (
+    <FindingRow
+      key={finding.id}
+      finding={finding}
+      selected={selectedFindingIds.has(finding.id)}
+      evidence={evidenceByFinding[finding.id]}
+      evidenceExpanded={expandedEvidence.has(finding.id)}
+      t={t}
+      index={index}
+      virtualized={virtualizeFindings}
+      measureElement={virtualizeFindings ? virtualizer.measureElement : undefined}
+      style={virtualizeFindings && start !== undefined ? { transform: `translateY(${start}px)` } : undefined}
+      onToggle={toggleFinding}
+      onReveal={revealFinding}
+      onToggleEvidence={toggleEvidence}
+      onRevalidate={revalidateFinding}
+      interactionLocked={isMutating || isAiWorking}
+      tierLabel={tierLabel}
+    />
+  );
 
   return (
     <>
@@ -1109,35 +1133,28 @@ function StorageCleanupPanel({
                 { value: "caution", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupCautionTier"), count: run.cautionCount }) }
               ]}
             />
-            <section className="min-h-0 overflow-hidden rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]" data-cleanup-findings>
+            <section className="min-w-0 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]" data-cleanup-findings data-cleanup-findings-virtualized={virtualizeFindings}>
               {loadingFindings && !findings.length ? <DurableTaskStatus state="running" title={t("storageCleanupFindingsLoading")} description={t("storageCleanupFindingsLoadingDesc")} density="compact" /> : null}
               {!loadingFindings && !findings.length ? <StateBlock tone={activeTier === "caution" ? "info" : "neutral"} title={t("storageCleanupNoFindingsTitle")} description={t("storageCleanupNoFindingsDesc")} density="compact" /> : null}
               {findings.length ? (
-                <div ref={findingListRef} className="max-h-[min(62vh,720px)] overflow-auto outline-none" role="list" aria-label={t("storageCleanupFindingsListLabel")} tabIndex={0} onKeyDown={onFindingListKeyDown}>
-                  <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
-                    {renderedVirtualItems.map((virtualItem) => {
-                      const finding = findings[virtualItem.index];
-                      return (
-                        <FindingRow
-                          key={finding.id}
-                          finding={finding}
-                          selected={selectedFindingIds.has(finding.id)}
-                          evidence={evidenceByFinding[finding.id]}
-                          evidenceExpanded={expandedEvidence.has(finding.id)}
-                          t={t}
-                          index={virtualItem.index}
-                          measureElement={virtualizer.measureElement}
-                          style={{ transform: `translateY(${virtualItem.start}px)` }}
-                          onToggle={toggleFinding}
-                          onReveal={revealFinding}
-                          onToggleEvidence={toggleEvidence}
-                          onRevalidate={revalidateFinding}
-                          interactionLocked={isMutating || isAiWorking}
-                          tierLabel={tierLabel}
-                        />
-                      );
-                    })}
-                  </div>
+                <div
+                  ref={findingListRef}
+                  className={cn("overflow-auto outline-none", virtualizeFindings ? "h-[min(62vh,720px)]" : "max-h-[min(62vh,720px)]")}
+                  data-cleanup-findings-scroll-owner={virtualizeFindings ? "virtualizer" : "normal-flow"}
+                  role="list"
+                  aria-label={t("storageCleanupFindingsListLabel")}
+                  tabIndex={0}
+                  onKeyDown={onFindingListKeyDown}
+                >
+                  {virtualizeFindings ? (
+                    <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+                      {renderedVirtualItems.map((virtualItem) => renderFindingRow(findings[virtualItem.index], virtualItem.index, virtualItem.start))}
+                    </div>
+                  ) : (
+                    <div className="min-w-0">
+                      {findings.map((finding, index) => renderFindingRow(finding, index))}
+                    </div>
+                  )}
                 </div>
               ) : null}
               {nextCursor ? <div className="flex justify-center border-t border-[var(--zc-divider)] p-3"><Button variant="secondary" size="compact" disabled={loadingFindings || isMutating || isAiWorking} onClick={() => void loadFindings(run.id, activeTierRef.current, nextCursor, true, run.revision).catch(() => undefined)}>{t("storageCleanupLoadMore")}</Button></div> : null}

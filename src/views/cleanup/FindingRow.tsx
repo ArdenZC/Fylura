@@ -15,6 +15,7 @@ export function FindingRow({
   evidenceExpanded,
   t,
   index,
+  virtualized,
   measureElement,
   style,
   onToggle,
@@ -30,8 +31,9 @@ export function FindingRow({
   evidenceExpanded: boolean;
   t: Translator;
   index: number;
-  measureElement: (element: HTMLElement | null) => void;
-  style: { transform: string };
+  virtualized: boolean;
+  measureElement?: (element: HTMLElement | null) => void;
+  style?: { transform: string };
   onToggle: (finding: AnalysisFinding) => void;
   onReveal: (finding: AnalysisFinding) => void;
   onToggleEvidence: (finding: AnalysisFinding) => void;
@@ -47,10 +49,10 @@ export function FindingRow({
   const riskNote = finding.riskNote ? findingRiskLabel(finding.riskNote, t) : null;
   return (
     <article
-      className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3", selected && "bg-[var(--zc-surface-selected)]")}
-      ref={measureElement}
-      data-index={index}
-      style={style}
+      className={cn(virtualized ? "absolute left-0 top-0" : "relative", "grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3", selected && "bg-[var(--zc-surface-selected)]")}
+      ref={virtualized ? measureElement : undefined}
+      data-index={virtualized ? index : undefined}
+      style={virtualized ? style : undefined}
       data-analysis-finding-id={finding.id}
       data-tier={finding.tier}
     >

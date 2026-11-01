@@ -1936,7 +1936,8 @@ describe("Cleanup independent review behavior", () => {
   });
 
   it("remeasures an expanded virtual finding row before positioning the following row", async () => {
-    const run = makeRun("run-virtual-measure", "completed", 0, { safeCount: 2 });
+    const run = makeRun("run-virtual-measure", "completed", 0, { safeCount: 22 });
+    const findings = Array.from({ length: 22 }, (_, index) => makeSafeFinding(run, index));
     const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
@@ -1951,7 +1952,7 @@ describe("Cleanup independent review behavior", () => {
       listAnalysisRuns: async () => [run],
       getAnalysisRun: async () => run,
       listAnalysisFindings: async (request: { tier?: string }) => ({
-        findings: request.tier === "safe" ? [makeSafeFinding(run, 0), makeSafeFinding(run, 1)] : [],
+        findings: request.tier === "safe" ? findings : [],
         nextCursor: null,
         limit: 100
       }),

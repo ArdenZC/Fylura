@@ -1282,18 +1282,26 @@ fn retire_claimed_directory_verified_against_target(
         return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
     }
     let target_path = target_parent.path().join(target_name);
-    let mut context = DirectoryRetirementContext {
-        entry_count: 0,
-        deletion_parent: target_parent,
-        cancel,
-    };
-    let location = DirectoryRetirementLocation {
-        source_parent_handle: &source_root,
-        source_parent_path: &source_path,
-        target_parent_handle: &target_root,
-        target_parent_path: &target_path,
-    };
-    retire_directory_entries_verified(&location, 0, &mut context, progress, observer)?;
+    {
+        let mut context = DirectoryRetirementContext {
+            entry_count: 0,
+            deletion_parent: target_parent,
+            cancel,
+        };
+        let location = DirectoryRetirementLocation {
+            source_parent_handle: &source_root,
+            source_parent_path: &source_path,
+            target_parent_handle: &target_root,
+            target_parent_path: &target_path,
+        };
+        retire_directory_entries_verified(&location, 0, &mut context, progress, observer)?;
+    }
+    // Windows can defer namespace removal while a directory handle still
+    // references the claimed root. Close both traversal handles before
+    // retiring the root claim so a successful Move cannot leave a hidden
+    // source tree behind after all verified children were removed.
+    drop(source_root);
+    drop(target_root);
     claim.delete_claim().map_err(map_claim_error)?;
     Ok(())
 }

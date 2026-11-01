@@ -1362,16 +1362,6 @@ fn native_file_hardening_smoke() {
 
         let denied_parent = target_volume.join("permission-denied-destination");
         fs::create_dir_all(&denied_parent).expect("create permission-failure target parent");
-        let denied = Command::new("icacls")
-            .arg(&denied_parent)
-            .args(["/deny", "*S-1-5-32-545:(WD,AD)"])
-            .output()
-            .expect("inject ordinary-user target write denial");
-        assert!(
-            denied.status.success(),
-            "could not inject target permission failure: {}",
-            String::from_utf8_lossy(&denied.stderr).trim()
-        );
         let denied_source = source_volume.join("cross-volume-permission-failure-directory");
         fs::create_dir_all(denied_source.join("nested")).expect("create denied Move source");
         fs::write(
@@ -1380,16 +1370,27 @@ fn native_file_hardening_smoke() {
         )
         .expect("write denied Move source payload");
         let denied_hash = sha256_file(&denied_source.join("nested").join("payload.bin"));
+        // Preview must be captured while the destination is usable. Revoke
+        // write access afterward so execution revalidation, rather than
+        // Preview construction, observes the ordinary-user permission error.
+        let denied_preview = native_qa_transfer_move_preview(&denied_source, &denied_parent)
+            .expect("preview cross-volume permission failure");
+        let denied = Command::new("icacls")
+            .arg(&denied_parent)
+            .args(["/deny", "*S-1-5-32-545:(WD,AD)"])
+            .output()
+            .expect("inject ordinary-user target write denial after Preview");
+        assert!(
+            denied.status.success(),
+            "could not inject target permission failure: {}",
+            String::from_utf8_lossy(&denied.stderr).trim()
+        );
         let denied_result = execute_moves_with_persistence(
             &db,
             ExecuteMovesRequest {
-                operations: vec![
-                    native_qa_transfer_move_preview(&denied_source, &denied_parent)
-                        .expect("preview cross-volume permission failure"),
-                ],
+                operations: vec![denied_preview],
             },
-        )
-        .expect("execute cross-volume permission failure");
+        );
         let remove_deny = Command::new("icacls")
             .arg(&denied_parent)
             .args(["/remove:d", "*S-1-5-32-545"])
@@ -1400,6 +1401,7 @@ fn native_file_hardening_smoke() {
             "could not restore isolated target ACL: {}",
             String::from_utf8_lossy(&remove_deny.stderr).trim()
         );
+        let denied_result = denied_result.expect("execute cross-volume permission failure");
         assert_eq!(denied_result.logs[0].status, "failed");
         assert!(denied_source.join("nested").join("payload.bin").is_file());
         assert_eq!(

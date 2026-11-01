@@ -234,6 +234,12 @@ impl ServiceRuntime {
                         crate::global_index::models::INDEX_STATUS_ERROR,
                     )
                 })?;
+            // Publish the initial cancellation generation before the Sources
+            // event. The desktop can issue Pause from its Sources/admission
+            // callback on another pipe; resetting cancel *after* this event
+            // would erase an already acknowledged Pause and let indexing
+            // complete as Ready.
+            self.cancel.store(false, Ordering::Release);
             connection
                 .send_event(IndexServiceEvent::Sources {
                     sources: vec![source.volume.clone()],
@@ -245,7 +251,6 @@ impl ServiceRuntime {
                         crate::global_index::models::INDEX_STATUS_ERROR,
                     )
                 })?;
-            self.cancel.store(false, Ordering::Release);
             self.set_state("indexing", None);
             let mut sink = PipeSink {
                 connection,

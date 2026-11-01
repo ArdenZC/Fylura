@@ -576,6 +576,93 @@ fn p1_runtime_busy_reservation_covers_terminal_response_send_success_and_failure
         assert!(!runtime.busy.load(Ordering::Acquire));
     }
 }
+
+#[test]
+fn p1_pause_acknowledged_during_sources_event_is_not_cleared_by_index_start() {
+    // Deterministic interleaving of two real ServiceRuntime command paths.
+    // The installed desktop handles Sources on the indexing pipe and sends
+    // Pause over another pipe before returning from its admission callback.
+    // Old ordering reset cancel=false *after* Sources and completed as Ready.
+    struct PauseOnSources {
+        runtime: Arc<ServiceRuntime>,
+        response: Option<IndexServiceResponse>,
+        pause_response: Option<IndexServiceResponse>,
+        source_events: usize,
+        subsequent_events: usize,
+    }
+    impl IndexServiceConnection for PauseOnSources {
+        fn send_event(&mut self, event: IndexServiceEvent) -> Result<(), String> {
+            if matches!(event, IndexServiceEvent::Sources { .. }) {
+                self.source_events += 1;
+                assert_eq!(self.source_events, 1, "unexpected duplicate source event");
+                let mut pause = Self {
+                    runtime: self.runtime.clone(),
+                    response: None,
+                    pause_response: None,
+                    source_events: 0,
+                    subsequent_events: 0,
+                };
+                self.runtime.handle_request(
+                    IndexServiceRequest::new(IndexServiceCommand::Pause, None),
+                    &mut pause,
+                )?;
+                self.pause_response = pause.response;
+            } else {
+                self.subsequent_events += 1;
+            }
+            Ok(())
+        }
+        fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String> {
+            self.response = Some(response);
+            Ok(())
+        }
+        fn read_lookup_response(
+            &mut self,
+            _id: &str,
+        ) -> Result<IndexServiceLookupResponse, String> {
+            Err("no lookup expected after acknowledged Pause".into())
+        }
+    }
+
+    let runtime = runtime(Provider {
+        gate: None,
+        fault: None,
+    });
+    let request = IndexServiceRequest::new(
+        IndexServiceCommand::StartInitialIndex {
+            source_id: "v".into(),
+        },
+        Some(source()),
+    );
+    let mut connection = PauseOnSources {
+        runtime: runtime.clone(),
+        response: None,
+        pause_response: None,
+        source_events: 0,
+        subsequent_events: 0,
+    };
+    runtime
+        .handle_request(request, &mut connection)
+        .expect("service exchange completed");
+    let pause_response = connection
+        .pause_response
+        .expect("independent Pause response");
+    assert!(pause_response.ok, "typed Pause must be acknowledged");
+    assert_eq!(pause_response.status.as_deref(), Some(INDEX_STATUS_PAUSED));
+    let index_response = connection.response.expect("index terminal response");
+    assert!(
+        matches!(
+            super::super::service_errors::decode(&index_response),
+            GlobalIndexError::Paused
+        ),
+        "acknowledged Pause must not turn into Ready: {index_response:?}",
+    );
+    assert_eq!(connection.source_events, 1);
+    assert_eq!(connection.subsequent_events, 0, "no entries after Pause");
+    assert_eq!(runtime.status(), INDEX_STATUS_PAUSED);
+    assert!(runtime.cancel.load(Ordering::Acquire));
+}
+
 #[test]
 fn p1_runtime_cancel_and_shutdown_do_not_fabricate_completed_scan() {
     for shutdown in [false, true] {

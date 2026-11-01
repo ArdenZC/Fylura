@@ -1929,15 +1929,32 @@ fn open_windows_directory_path_for_retirement(
         System::SystemServices::ACCESS_SYSTEM_SECURITY,
     };
     let path = source_claim::windows_wide_path(path);
+    // The transaction-test override represents a verified-absent SACL and
+    // permits the hosted runner to exercise source retirement without the
+    // system-security right. Production always opens this source handle with
+    // ACCESS_SYSTEM_SECURITY after enabling SeSecurityPrivilege.
+    #[cfg(test)]
+    let requires_sacl_access =
+        !super::atomic_move::test_faults::sacl_verified_absent_override_for_test();
+    #[cfg(not(test))]
+    let requires_sacl_access = true;
+    let _privilege = requires_sacl_access
+        .then(WindowsSaclPrivilege::enable)
+        .transpose()?;
+    let access = DELETE
+        | FILE_LIST_DIRECTORY
+        | FILE_READ_ATTRIBUTES
+        | READ_CONTROL
+        | SYNCHRONIZE
+        | if requires_sacl_access {
+            ACCESS_SYSTEM_SECURITY
+        } else {
+            0
+        };
     let raw = unsafe {
         CreateFileW(
             path.as_ptr(),
-            DELETE
-                | FILE_LIST_DIRECTORY
-                | FILE_READ_ATTRIBUTES
-                | READ_CONTROL
-                | SYNCHRONIZE
-                | ACCESS_SYSTEM_SECURITY,
+            access,
             FILE_SHARE_READ | FILE_SHARE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,

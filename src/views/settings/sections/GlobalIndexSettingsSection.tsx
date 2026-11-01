@@ -60,7 +60,8 @@ export function GlobalIndexSettingsSection({
       && source.volume.filesystemType.trim().toLowerCase() === "ntfs";
   const hasWindowsUnsupportedCapabilityError = (source: GlobalIndexSource) =>
     source.volume.lastError === "windows_global_index_unstable_volume_identity"
-      || source.volume.lastError?.startsWith("windows_global_index_unsupported_") === true;
+      || source.volume.lastError?.startsWith("windows_global_index_unsupported_") === true
+      || source.volume.lastError === "windows_global_index_usn_journal_support_not_advertised";
   const isUnsupportedWindowsSource = (source: GlobalIndexSource) =>
     source.volume.platform === "windows"
       && (source.volume.provider === "windows_unsupported"
@@ -174,6 +175,7 @@ export function GlobalIndexSettingsSection({
             <SettingsInlineMessage tone="warning" role="alert">
               <strong>{t("globalIndexServiceUnavailable")}</strong>
               <span>{t("globalIndexServiceUnavailableDesc")}</span>
+              {providerStatusText(status.providerStatus) ? <span>{providerStatusText(status.providerStatus)}</span> : null}
             </SettingsInlineMessage>
           ) : null}
           {hasSources && hasEnabledSource ? (

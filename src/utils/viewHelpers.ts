@@ -331,7 +331,8 @@ export function localizedStableError(error: unknown, t: Translator): string {
   if (windowsGlobalIndexError === "windows_global_index_unstable_volume_identity") {
     return t("globalIndexErrorWindowsStableIdentity");
   }
-  if (windowsGlobalIndexError === "windows_global_index_unsupported_virtual_volume") {
+  if (windowsGlobalIndexError === "windows_global_index_unsupported_virtual_volume"
+    || windowsGlobalIndexError === "windows_global_index_usn_journal_support_not_advertised") {
     return t("globalIndexErrorWindowsUsnJournalUnavailable");
   }
   if (windowsGlobalIndexError.startsWith("windows_global_index_unsupported_filesystem:")) {

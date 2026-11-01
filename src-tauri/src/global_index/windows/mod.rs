@@ -773,6 +773,35 @@ impl Default for WindowsGlobalIndexProvider {
     }
 }
 
+fn safe_service_transport_diagnostic(error: &str) -> String {
+    if error == "index_service_pipe_busy" {
+        return "pipe_busy".to_string();
+    }
+    let Some((raw_stage, raw_code)) = error.split_once(':') else {
+        return "unknown".to_string();
+    };
+    let Some(stage) = raw_stage.strip_prefix("index_service_") else {
+        return "unknown".to_string();
+    };
+    if !matches!(
+        stage,
+        "pipe_wait_failed" | "pipe_open_failed" | "pipe_mode_failed"
+    ) {
+        return "unknown".to_string();
+    }
+    match raw_code.parse::<u32>() {
+        Ok(code) => format!("{stage}:{code}"),
+        Err(_) => "unknown".to_string(),
+    }
+}
+
+fn service_unavailable_status(provider: &str, error: &str) -> String {
+    format!(
+        "{provider}:service_unavailable:{}",
+        safe_service_transport_diagnostic(error)
+    )
+}
+
 impl GlobalIndexProvider for WindowsGlobalIndexProvider {
     fn has_external_source_operation_admission(&self) -> bool {
         true
@@ -862,9 +891,9 @@ impl GlobalIndexProvider for WindowsGlobalIndexProvider {
                 ))
             }
             Ok(response) => Err(Self::service_response_error(&response)),
-            Err(service::IndexServiceCallError::NotSent(_)) => {
+            Err(service::IndexServiceCallError::NotSent(error)) => {
                 self.service_failed();
-                Ok(format!("{}:service_unavailable", self.direct.status()?))
+                Ok(service_unavailable_status(&self.direct.status()?, &error))
             }
             Err(error) => Err(error.into_global()),
         }
@@ -2228,6 +2257,29 @@ mod tests {
                 .status()
                 .expect("direct status"),
             "windows_mft_usn"
+        );
+    }
+
+    #[test]
+    fn service_unavailable_status_keeps_only_allowlisted_stage_and_win32_code() {
+        assert_eq!(
+            service_unavailable_status("windows_mft_usn", "index_service_pipe_wait_failed:2"),
+            "windows_mft_usn:service_unavailable:pipe_wait_failed:2"
+        );
+        assert_eq!(
+            service_unavailable_status("windows_mft_usn", "index_service_pipe_busy"),
+            "windows_mft_usn:service_unavailable:pipe_busy"
+        );
+        assert_eq!(
+            service_unavailable_status(
+                "windows_mft_usn",
+                "index_service_pipe_open_failed:C:\\private\\service.pipe"
+            ),
+            "windows_mft_usn:service_unavailable:unknown"
+        );
+        assert_eq!(
+            service_unavailable_status("windows_mft_usn", "unexpected failure"),
+            "windows_mft_usn:service_unavailable:unknown"
         );
     }
 

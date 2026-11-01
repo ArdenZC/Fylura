@@ -1812,14 +1812,14 @@ mod tests {
             unsupported.volume.filesystem_type = "ReFS".into();
             unsupported.volume.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
             unsupported.volume.last_error =
-                Some("windows_global_index_unsupported_virtual_volume".into());
+                Some("windows_global_index_usn_journal_support_not_advertised".into());
         }
         let unsupported_error = coordinator
             .authorize_source(&legacy.id, true)
             .expect_err("a source without current NTFS MFT capability cannot be confirmed");
         assert!(unsupported_error
             .to_string()
-            .contains("windows_global_index_unsupported_virtual_volume"));
+            .contains("windows_global_index_usn_journal_support_not_advertised"));
         assert_eq!(probe.scan_calls.load(Ordering::Acquire), 0);
         assert_eq!(
             db.get_global_volume(&legacy.id)

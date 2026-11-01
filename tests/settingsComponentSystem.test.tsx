@@ -22,6 +22,7 @@ import {
 import { SettingsSecretField } from "../src/views/settings/components/SettingsSecretField";
 import { GlobalIndexSettingsSection } from "../src/views/settings/sections/GlobalIndexSettingsSection";
 import { useSettingsGlobalIndexController } from "../src/views/settings/controllers/useSettingsGlobalIndexController";
+import { globalIndexProviderStatusText } from "../src/views/settings/SettingsView";
 import { makeTranslator } from "../src/i18n";
 import type { GlobalIndexSource, GlobalIndexStatus } from "../src/types/domain";
 
@@ -467,13 +468,13 @@ describe("settings component system", () => {
     unsupportedProvider.volume.id = "unsupported-provider";
     unsupportedProvider.volume.provider = "windows_unsupported";
     unsupportedProvider.volume.indexStatus = "unavailable";
-    unsupportedProvider.volume.lastError = "windows_global_index_unsupported_virtual_volume";
+    unsupportedProvider.volume.lastError = "windows_global_index_usn_journal_support_not_advertised";
     const unsupportedLegacy = unconfirmedWindowsGlobalIndexSource();
     unsupportedLegacy.volume.id = "unsupported-legacy";
     unsupportedLegacy.volume.provider = "windows_recursive_fallback";
     unsupportedLegacy.volume.scopeAuthorizationState = "legacy_confirmation_required";
     unsupportedLegacy.volume.indexStatus = "unavailable";
-    unsupportedLegacy.volume.lastError = "windows_global_index_unsupported_virtual_volume";
+    unsupportedLegacy.volume.lastError = "windows_global_index_usn_journal_support_not_advertised";
     await act(async () => root.render(
       <GlobalIndexSettingsSection
         t={makeTranslator("en")}
@@ -492,7 +493,7 @@ describe("settings component system", () => {
 
     expect(container.querySelector('[data-settings-status="authorization_required"]')).toBeNull();
     expect(container.querySelector('[data-settings-status="unavailable"]')).not.toBeNull();
-    expect(container.querySelectorAll('[data-global-index-source-capability-error="windows_global_index_unsupported_virtual_volume"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-global-index-source-capability-error="windows_global_index_usn_journal_support_not_advertised"]')).toHaveLength(2);
     expect(container.textContent).toContain("USN journal support");
     const sourceSwitches = [...container.querySelectorAll<HTMLInputElement>('[role="switch"]')];
     expect(sourceSwitches).toHaveLength(2);
@@ -500,6 +501,38 @@ describe("settings component system", () => {
     await act(async () => sourceSwitches.forEach((sourceSwitch) => sourceSwitch.click()));
     expect(container.querySelector('[role="alertdialog"]')).toBeNull();
     expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("shows the named-pipe failure stage and Win32 code without exposing a pipe path", async () => {
+    const source = unconfirmedWindowsGlobalIndexSource();
+    source.volume.enabled = true;
+    source.volume.scopeAuthorizationState = "authorized";
+    source.volume.indexStatus = "ready";
+    const status = globalIndexStatus({
+      platform: "windows",
+      status: "ready",
+      providerStatus: "windows_mft_usn:service_unavailable:pipe_wait_failed:2",
+      indexedVolumes: 1,
+      readyVolumes: 1
+    });
+    await act(async () => root.render(
+      <GlobalIndexSettingsSection
+        t={makeTranslator("en")}
+        status={status}
+        sources={[source]}
+        loadState="loaded"
+        loadError={null}
+        isLoading={false}
+        isUpdating={false}
+        statusText={(value) => value}
+        providerStatusText={(value) => globalIndexProviderStatusText(value, makeTranslator("en"))}
+        errorText={() => null}
+        onAction={vi.fn()}
+      />
+    ));
+
+    expect(container.textContent).toContain("Waiting for the Windows Global Index named pipe failed (Win32 error 2).");
+    expect(container.textContent).not.toContain("\\\\.\\pipe");
   });
 
   it("keeps legacy Windows fallback rows available for explicit reconfirmation", async () => {

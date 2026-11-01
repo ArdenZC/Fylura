@@ -38,10 +38,8 @@ pub fn discover_windows_volumes() -> Result<Vec<GlobalSourceDescriptor>, GlobalI
 }
 
 /// `FILE_SUPPORTS_USN_JOURNAL` — reported by `GetVolumeInformationW` for a
-/// filesystem that can host a USN change journal. This is a capability probe,
-/// not a name match: it distinguishes a real NTFS volume from a virtual/cloud
-/// mount (e.g. Google Drive for desktop) that may advertise NTFS-like metadata
-/// over a local cache while being unable to host a journal at all.
+/// filesystem that can host a USN change journal. A missing flag means only
+/// that Windows did not advertise this capability; it does not identify why.
 const FILE_SUPPORTS_USN_JOURNAL: u32 = 0x0200_0000;
 
 /// Identity + capability decision for one discovered volume.
@@ -90,8 +88,7 @@ pub(crate) fn classify_volume(
         // Fail closed rather than fall back to a serial-derived identity.
         Some("windows_global_index_unstable_volume_identity".to_string())
     } else if !supports_usn_journal {
-        // A cloud/virtual mount presenting NTFS metadata without USN support.
-        Some("windows_global_index_unsupported_virtual_volume".to_string())
+        Some("windows_global_index_usn_journal_support_not_advertised".to_string())
     } else {
         Some(format!(
             "windows_global_index_unsupported_drive_kind:{kind}"
@@ -322,16 +319,15 @@ mod tests {
     }
 
     #[test]
-    fn google_drive_style_virtual_volume_is_rejected() {
-        // Owner-confirmed: G:\ is Google Drive for desktop. Its virtual drive
-        // may present NTFS-like metadata but cannot host a USN journal, so it
-        // must never enter the MFT/USN path or inherit NTFS authorization.
+    fn ntfs_volume_without_advertised_usn_support_is_rejected_without_guessing_why() {
+        // The capability flag is absent. This does not prove whether the
+        // volume is virtual, unsupported, or affected by another limitation.
         let c = classify_volume(Some(GUID), 0, "NTFS", DRIVE_FIXED, 0);
         assert_eq!(c.provider, PROVIDER_WINDOWS_UNSUPPORTED);
         assert!(!c.native_provider_eligible);
         assert_eq!(
             c.unsupported_reason.as_deref(),
-            Some("windows_global_index_unsupported_virtual_volume")
+            Some("windows_global_index_usn_journal_support_not_advertised")
         );
     }
 

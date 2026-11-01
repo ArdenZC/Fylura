@@ -155,9 +155,22 @@ function globalIndexStatusText(status: string, t: Translator) {
   return t(key);
 }
 
-function globalIndexProviderStatusText(status: string | null | undefined, t: Translator) {
+export function globalIndexProviderStatusText(status: string | null | undefined, t: Translator) {
   if (!status) return null;
-  if (status.includes("service_unavailable")) return t("globalIndexServiceUnavailable");
+  if (status.includes(":service_unavailable")) {
+    const diagnostic = status.match(/:service_unavailable:(.+)$/)?.[1];
+    if (diagnostic === "pipe_busy") return t("globalIndexServicePipeBusy");
+    const parsed = /^(pipe_wait_failed|pipe_open_failed|pipe_mode_failed):([0-9]{1,10})$/.exec(diagnostic ?? "");
+    if (parsed) {
+      const key = parsed[1] === "pipe_wait_failed"
+        ? "globalIndexServicePipeWaitFailed"
+        : parsed[1] === "pipe_open_failed"
+          ? "globalIndexServicePipeOpenFailed"
+          : "globalIndexServicePipeModeFailed";
+      return t(key).replace("{code}", parsed[2]);
+    }
+    return t("globalIndexServiceUnavailable");
+  }
   if (status.startsWith("windows_index_service:")) return t("globalIndexServiceRunning");
   return t("globalIndexProviderDirectFallback");
 }
@@ -192,7 +205,8 @@ function globalIndexErrorText(error: string | null | undefined, t: Translator) {
   if (message === "windows_global_index_unstable_volume_identity") {
     return t("globalIndexErrorWindowsStableIdentity");
   }
-  if (message === "windows_global_index_unsupported_virtual_volume") {
+  if (message === "windows_global_index_unsupported_virtual_volume"
+    || message === "windows_global_index_usn_journal_support_not_advertised") {
     return t("globalIndexErrorWindowsUsnJournalUnavailable");
   }
   if (message.startsWith("windows_global_index_unsupported_filesystem:")) {

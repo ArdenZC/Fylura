@@ -199,14 +199,18 @@ describe("cleanup review confirmation", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const move = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("移到安全回收站"));
-    expect(move).toBeTruthy();
-    await act(async () => move?.click());
+    // The primary row action is a preview; its button text is also its accessible name.
+    const previewAction = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("预览所选 Safe Trash 操作"));
+    expect(previewAction).toBeTruthy();
+    await act(async () => previewAction?.click());
     expect(previewCleanupOperations).toHaveBeenCalledWith(run.id, [{ findingId: currentFinding.id, expectedRevision: currentFinding.revision, reviewConfirmation: { decisionRevision: 3 } }]);
+    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
 
     const previewConfirm = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("确认进入 Safe Trash"));
     expect(previewConfirm).toBeTruthy();
     await act(async () => previewConfirm?.click());
+    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
     const trashConfirm = [...document.querySelector('[role="alertdialog"]')!.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent === "移到安全回收站");
     await act(async () => trashConfirm?.click());

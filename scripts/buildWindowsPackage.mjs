@@ -7,6 +7,7 @@ import {
   prepareWindowsNsisTemplate,
 } from "./prepareWindowsNsisLifecycleTemplate.mjs";
 import { assertGeneratedPreviewResourcePathFile } from "./verifyWindowsNsisPreviewResource.mjs";
+import { resolveTauriBuildFeatures } from "./tauriBuildFeatures.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nativeBuildScript = path.join(repositoryRoot, "scripts", "buildWindowsPreviewHandler.mjs");
@@ -64,7 +65,9 @@ try {
     ".bin",
     process.platform === "win32" ? "tauri.cmd" : "tauri",
   );
-  const tauriArgs = ["build", "--features", "desktop-runtime"];
+  const tauriFeatures = resolveTauriBuildFeatures();
+  console.log(`Building Tauri package with Cargo features: ${tauriFeatures.join(",")}`);
+  const tauriArgs = ["build", "--features", tauriFeatures.join(",")];
   if (process.platform === "win32") {
     tauriArgs.push("--config", packageConfig);
   }
@@ -81,3 +84,4 @@ try {
     cleanWindowsNsisTemplate();
   }
 }
+

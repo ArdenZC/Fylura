@@ -2,6 +2,12 @@ name: Build Release Installers
 
 on:
   workflow_dispatch:
+    inputs:
+      qa_only:
+        description: Build short-lived, unqualified installer artifacts for isolated QA
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -14,6 +20,7 @@ env:
 jobs:
   release-qualified-validation:
     name: Require CI Full Validation for exact SHA
+    if: ${{ inputs.qa_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -73,17 +80,14 @@ jobs:
   build:
     name: ${{ matrix.name }}
     needs: release-qualified-validation
+    if: ${{ always() && ((inputs.qa_only == true && startsWith(github.ref, 'refs/heads/')) || (inputs.qa_only != true && needs.release-qualified-validation.result == 'success')) }}
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Windows NSIS
-            os: windows-latest
-          - name: macOS DMG
-            os: macos-latest
+        include: ${{ fromJSON(inputs.qa_only == true && '[{"name":"Windows NSIS","os":"windows-latest"}]' || '[{"name":"Windows NSIS","os":"windows-latest"},{"name":"macOS DMG","os":"macos-latest"}]') }}
 
     steps:
       - name: Checkout
@@ -155,6 +159,8 @@ jobs:
 
       - name: Package Windows installer
         if: runner.os == 'Windows'
+        env:
+          QA_ONLY_PACKAGE_MODE: ${{ inputs.qa_only == true && 'true' || 'false' }}
         run: npm run build
 
       - name: Verify Windows Preview resource path and servicing smoke
@@ -176,6 +182,13 @@ jobs:
             if ($installer.Length -le 0) { throw "Windows installer is empty: $($installer.FullName)" }
             if ($installer.Name -notlike "*$version*") { throw "Windows installer version mismatch: $($installer.Name)" }
           }
+
+      - name: Verify QA package architecture
+        if: ${{ inputs.qa_only == true && runner.os == 'Windows' }}
+        env:
+          QA_RUNNER_OS: ${{ runner.os }}
+          QA_RUNNER_ARCH: ${{ runner.arch }}
+        run: node scripts/qaPackageProvenance.mjs verify-architecture
 
       - name: Verify Windows NSIS registry authority semantics
         if: runner.os == 'Windows'
@@ -203,6 +216,13 @@ jobs:
             [[ "$name" != *"x86_64"* ]]
             [[ "$name" != *"universal"* ]]
           done
+
+      - name: Verify QA package architecture
+        if: ${{ inputs.qa_only == true && runner.os == 'macOS' }}
+        env:
+          QA_RUNNER_OS: ${{ runner.os }}
+          QA_RUNNER_ARCH: ${{ runner.arch }}
+        run: node scripts/qaPackageProvenance.mjs verify-architecture
 
       - name: Generate Node SBOM
         if: runner.os == 'Windows'
@@ -254,7 +274,37 @@ jobs:
             printf '%s  %s\n' "$hash" "$(basename "$dmg")" >> installers-macos.sha256
           done
 
+      - name: Write QA-only package provenance
+        if: ${{ inputs.qa_only == true }}
+        env:
+          QA_ONLY_PACKAGE_MODE: "true"
+          QA_EVENT_NAME: ${{ github.event_name }}
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          QA_RUNNER_OS: ${{ runner.os }}
+          QA_RUNNER_ARCH: ${{ runner.arch }}
+          QA_RUN_ID: ${{ github.run_id }}
+          QA_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node scripts/qaPackageProvenance.mjs write-provenance
+
+      - name: Upload QA-only unqualified installers
+        if: ${{ inputs.qa_only == true }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Fylura-QA-UNQUALIFIED-${{ runner.os }}-${{ runner.arch }}-CANDIDATE-${{ github.sha }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg
+            sbom-node.cdx.json
+            src-tauri/sbom-rust.cdx.json
+            installers-*.sha256
+            qa-package-provenance.json
+          if-no-files-found: error
+          retention-days: 5
+
       - name: Upload installers
+        if: ${{ inputs.qa_only != true }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Fylura-${{ runner.os }}
@@ -268,7 +318,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ inputs.qa_only != true && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: windows-latest
     permissions:
       contents: write
@@ -372,3 +422,4 @@ jobs:
             release-artifacts/**/*.sha256
             release-artifacts/**/*.cdx.json
           fail_on_unmatched_files: true
+

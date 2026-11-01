@@ -97,7 +97,10 @@ pub(crate) struct GlobalSearchSnapshot {
 #[derive(Debug, Serialize)]
 struct GlobalSearchRevisionFact {
     source_id: String,
+    platform: String,
     enabled: bool,
+    coverage_pending: bool,
+    scope_authorization_state: String,
     provider: String,
     status: String,
     last_error: Option<String>,
@@ -160,7 +163,7 @@ fn execute_entry_upsert(
 }
 
 const PREPARED_SOURCE_HEALTH_SQL: &str = r#"
-    SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+    SELECT gv.id, gv.platform, gv.enabled, gv.coverage_pending, gv.scope_authorization_state, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
            COALESCE(f.active_ids, 0), f.max_last_seen_at, COALESCE(f.active_rows, 0), f.volume_id
     FROM global_volumes gv
     LEFT JOIN global_entry_source_facts f ON f.volume_id = gv.id
@@ -202,7 +205,7 @@ const GLOBAL_SEARCH_SOURCE_HEALTH_SQL: &str = r#"
         WHERE is_stale = 0
         GROUP BY volume_id
     )
-    SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+    SELECT gv.id, gv.platform, gv.enabled, gv.coverage_pending, gv.scope_authorization_state, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
            COALESCE(active_volume_facts.active_entry_count, 0),
            active_volume_facts.max_last_seen_at
     FROM global_volumes gv
@@ -221,18 +224,18 @@ impl GlobalSearchSourceHealthQueryCandidate {
         match self {
             Self::Original => {
                 r#"
-                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+                SELECT gv.id, gv.platform, gv.enabled, gv.coverage_pending, gv.scope_authorization_state, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
                        COUNT(ge.id), MAX(ge.last_seen_at)
                 FROM global_volumes gv
                 LEFT JOIN global_entries ge
                   ON ge.volume_id = gv.id AND ge.is_stale = 0
-                GROUP BY gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at
+                GROUP BY gv.id, gv.platform, gv.enabled, gv.coverage_pending, gv.scope_authorization_state, gv.provider, gv.index_status, gv.last_error, gv.updated_at
                 ORDER BY gv.id ASC
                 "#
             }
             Self::CorrelatedAggregates => {
                 r#"
-                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+                SELECT gv.id, gv.platform, gv.enabled, gv.coverage_pending, gv.scope_authorization_state, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
                        (SELECT COUNT(ge.id)
                         FROM global_entries ge
                         WHERE ge.volume_id = gv.id AND ge.is_stale = 0),
@@ -247,12 +250,12 @@ impl GlobalSearchSourceHealthQueryCandidate {
             #[cfg(test)]
             Self::GroupByVolumeId => {
                 r#"
-                SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+                SELECT gv.id, gv.platform, gv.enabled, gv.coverage_pending, gv.scope_authorization_state, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
                        COUNT(ge.id), MAX(ge.last_seen_at)
                 FROM global_volumes gv
                 LEFT JOIN global_entries ge
                   ON ge.volume_id = gv.id AND ge.is_stale = 0
-                GROUP BY gv.id
+                GROUP BY gv.id, gv.platform, gv.enabled, gv.coverage_pending, gv.scope_authorization_state, gv.provider, gv.index_status, gv.last_error, gv.updated_at
                 ORDER BY gv.id ASC
                 "#
             }
@@ -1640,15 +1643,18 @@ fn load_prepared_source_health(
     let mut source_health = Vec::new();
     let rows = statement.query_map([], |row| {
         let source_id = row.get::<_, String>(0)?;
-        let enabled = row.get::<_, i64>(1)? != 0;
-        let provider = row.get::<_, String>(2)?;
-        let status = row.get::<_, String>(3)?;
-        let last_error = row.get::<_, Option<String>>(4)?;
-        let updated_at = row.get::<_, i64>(5)?;
-        let active_entry_count = row.get::<_, i64>(6)?;
-        let max_last_seen_at = row.get::<_, Option<i64>>(7)?;
-        let active_rows = if prepared { row.get::<_, i64>(8)? } else { 0 };
-        let valid = !prepared || row.get::<_, Option<String>>(9)?.is_some();
+        let platform = row.get::<_, String>(1)?;
+        let enabled = row.get::<_, i64>(2)? != 0;
+        let coverage_pending = row.get::<_, i64>(3)? != 0;
+        let scope_authorization_state = row.get::<_, String>(4)?;
+        let provider = row.get::<_, String>(5)?;
+        let status = row.get::<_, String>(6)?;
+        let last_error = row.get::<_, Option<String>>(7)?;
+        let updated_at = row.get::<_, i64>(8)?;
+        let active_entry_count = row.get::<_, i64>(9)?;
+        let max_last_seen_at = row.get::<_, Option<i64>>(10)?;
+        let active_rows = if prepared { row.get::<_, i64>(11)? } else { 0 };
+        let valid = !prepared || row.get::<_, Option<String>>(12)?.is_some();
         Ok((
             valid,
             active_rows,
@@ -1662,7 +1668,10 @@ fn load_prepared_source_health(
             },
             GlobalSearchRevisionFact {
                 source_id,
+                platform,
                 enabled,
+                coverage_pending,
+                scope_authorization_state,
                 provider,
                 status,
                 last_error,
@@ -1715,13 +1724,16 @@ pub(crate) fn load_global_search_source_health_candidate(
     let mut source_health = Vec::new();
     let rows = statement.query_map([], |row| {
         let source_id = row.get::<_, String>(0)?;
-        let enabled = row.get::<_, i64>(1)? != 0;
-        let provider = row.get::<_, String>(2)?;
-        let status = row.get::<_, String>(3)?;
-        let last_error = row.get::<_, Option<String>>(4)?;
-        let updated_at = row.get::<_, i64>(5)?;
-        let active_entry_count = row.get::<_, i64>(6)?;
-        let max_last_seen_at = row.get::<_, Option<i64>>(7)?;
+        let platform = row.get::<_, String>(1)?;
+        let enabled = row.get::<_, i64>(2)? != 0;
+        let coverage_pending = row.get::<_, i64>(3)? != 0;
+        let scope_authorization_state = row.get::<_, String>(4)?;
+        let provider = row.get::<_, String>(5)?;
+        let status = row.get::<_, String>(6)?;
+        let last_error = row.get::<_, Option<String>>(7)?;
+        let updated_at = row.get::<_, i64>(8)?;
+        let active_entry_count = row.get::<_, i64>(9)?;
+        let max_last_seen_at = row.get::<_, Option<i64>>(10)?;
         Ok((
             GlobalSearchSourceHealth {
                 source_id: source_id.clone(),
@@ -1733,7 +1745,10 @@ pub(crate) fn load_global_search_source_health_candidate(
             },
             GlobalSearchRevisionFact {
                 source_id,
+                platform,
                 enabled,
+                coverage_pending,
+                scope_authorization_state,
                 provider,
                 status,
                 last_error,

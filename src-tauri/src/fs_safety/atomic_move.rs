@@ -59,6 +59,10 @@ pub enum AtomicMoveError {
     CrossDevice,
     #[error("cross_volume_directory_move_unsupported")]
     CrossVolumeDirectoryMoveUnsupported,
+    #[error("windows_sacl_transfer_unsupported")]
+    WindowsSaclTransferUnsupported,
+    #[error("windows_sacl_inspection_unavailable")]
+    WindowsSaclInspectionUnavailable,
     #[error("cross_volume_file_move_unsupported_on_macos")]
     CrossVolumeFileMoveUnsupportedOnMacos,
     #[error("atomic_noreplace_unsupported")]
@@ -599,6 +603,25 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
         Some(path) => source_claim::rebind_claim_path(source, path).map_err(map_claim_error)?,
         None => source_claim::planned_claim_path(source, "atomic-move").map_err(map_claim_error)?,
     };
+    #[cfg(windows)]
+    if allow_cross_volume
+        && matches!(
+            operation,
+            AtomicMoveOperation::Move | AtomicMoveOperation::Restore
+        )
+    {
+        let source_volume = expected
+            .platform_volume_id
+            .as_deref()
+            .ok_or(AtomicMoveError::WindowsSaclInspectionUnavailable)?;
+        if source_volume != target_parent.identity().volume_id {
+            // A cross-volume copy cannot preserve Windows audit SACLs today.
+            // Inspect every source entry before creating the source claim or
+            // staging area. If privilege or descriptor access is unavailable,
+            // fail closed instead of treating that state as an absent SACL.
+            copy_commit::ensure_windows_transfer_security_supported(source, cancel)?;
+        }
+    }
     if let Some(callback) = actual_path_observer {
         callback(source, target, Some(&claim_path))?;
     }
@@ -817,7 +840,9 @@ fn notify_phase(
     phase: &str,
 ) -> Result<(), AtomicMoveError> {
     if let Some(observer) = observer.as_deref_mut() {
-        observer(phase)?;
+        observer(crate::fs_safety::FileOperationEvent::Phase(
+            phase.to_string(),
+        ))?;
     }
     Ok(())
 }
@@ -1450,6 +1475,8 @@ fn atomic_copy_noreplace_uncoordinated(
                 identity::capture_namespace_identity(source, cancel).map_err(map_identity_error)?
             }
         };
+        #[cfg(windows)]
+        copy_commit::ensure_windows_transfer_security_supported(source, cancel)?;
         let claim_path = match planned_claim_path {
             Some(path) => source_claim::rebind_claim_path(source, path).map_err(map_claim_error)?,
             None => source_claim::planned_claim_path(source, "copy").map_err(map_claim_error)?,
@@ -1503,6 +1530,7 @@ pub mod test_faults {
         TargetIdentity,
         SourceCleanup,
         CancelDirectoryCopyAfterEntry,
+        WindowsSaclInspectionUnavailable,
     }
 
     thread_local! {

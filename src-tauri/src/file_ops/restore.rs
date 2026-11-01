@@ -65,7 +65,25 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
     for (index, log) in prepared_logs.iter().enumerate() {
         let mut phase_log = log.clone();
         let mut phase_observer =
-            |phase: &str| {
+            |event: crate::fs_safety::FileOperationEvent| {
+                let phase = match event {
+                    crate::fs_safety::FileOperationEvent::Phase(phase) => phase,
+                    crate::fs_safety::FileOperationEvent::Progress(progress) => {
+                        emitter.emit_progress(OperationProgressPayload {
+                            kind: "restore".to_string(),
+                            batch_id: batch_id.clone(),
+                            processed: index as u64,
+                            total,
+                            current_path: progress.current_path,
+                            phase: Some(progress.stage),
+                            processed_items: Some(progress.processed_items),
+                            total_items: progress.total_items,
+                            processed_bytes: Some(progress.processed_bytes),
+                            total_bytes: progress.total_bytes,
+                        });
+                        return Ok(());
+                    }
+                };
                 phase_log.restore_phase = phase.to_string();
                 phase_log.restore_status = "pending".to_string();
                 phase_log.restore_error = None;
@@ -92,7 +110,7 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
                 db.update_operation_restore_phase(&phase_log)
                     .map_err(|error| {
                         if matches!(
-                            phase,
+                            phase.as_str(),
                             "target_committed" | "source_cleanup_pending" | "completed"
                         ) {
                             crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
@@ -103,7 +121,7 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
                         }
                     })?;
                 #[cfg(any(test, feature = "native-qa"))]
-            match phase {
+            match phase.as_str() {
                 "source_claimed"
                     if take_operation_test_fault(
                         OperationTestFaultPoint::AfterRestoreSourceClaimedBeforeTargetCommit,
@@ -118,6 +136,18 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
                     ) => panic!("AfterRestoreCompletedPhaseBeforeFinalTransaction"),
                 _ => {}
             }
+                emitter.emit_progress(OperationProgressPayload {
+                    kind: "restore".to_string(),
+                    batch_id: batch_id.clone(),
+                    processed: index as u64,
+                    total,
+                    current_path: log.path_after.clone(),
+                    phase: Some(phase),
+                    processed_items: None,
+                    total_items: None,
+                    processed_bytes: None,
+                    total_bytes: None,
+                });
                 Ok(())
             };
         let result = if is_operation_cancelled(&cancel_flag) {

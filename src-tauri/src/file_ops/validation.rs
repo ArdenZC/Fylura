@@ -180,7 +180,10 @@ pub(crate) fn create_directory_with_safety(
         observer(parent.path(), &target, None).map_err(FileMutationError::Atomic)?;
     }
     if let Some(observer) = phase_observer {
-        observer("target_committed").map_err(FileMutationError::Atomic)?;
+        observer(crate::fs_safety::FileOperationEvent::Phase(
+            "target_committed".to_string(),
+        ))
+        .map_err(FileMutationError::Atomic)?;
     }
     parent.ensure_unchanged().map_err(|_error| {
         FileMutationError::Atomic(

@@ -193,6 +193,9 @@ fn copy_commit_claim_with_source_retirement(
     ) {
         return rollback_before_publish(claim, AtomicMoveError::SourceChanged);
     }
+    if matches!(claim.kind(), ClaimedEntryKind::Directory) {
+        notify_phase(&mut observer, "preparing")?;
+    }
     let source_identity = if matches!(claim.kind(), ClaimedEntryKind::Directory) {
         claim
             .verify_content_identity(cancel)
@@ -201,6 +204,10 @@ fn copy_commit_claim_with_source_retirement(
         source_namespace_identity.clone()
     };
     notify_phase(&mut observer, "copying")?;
+    let mut directory_progress = crate::fs_safety::DirectoryTransferProgress::new("copying");
+    if matches!(claim.kind(), ClaimedEntryKind::Directory) {
+        directory_progress.reset("copying", None, None, &mut observer)?;
+    }
 
     let copy_proof = match copy_object(
         claim,
@@ -208,12 +215,25 @@ fn copy_commit_claim_with_source_retirement(
         &staging_name,
         cancel,
         Some(claim.expected_identity()),
+        Some(&mut directory_progress),
+        &mut observer,
+        claim.current_path(),
     ) {
         Ok(proof) => proof,
         Err(error) => {
             cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
             return rollback_before_publish(claim, error);
         }
+    };
+    let directory_total_items = if matches!(claim.kind(), ClaimedEntryKind::Directory) {
+        directory_progress.finish(&mut observer)?;
+        let total_items = directory_progress.processed_items();
+        directory_progress.set_total_items(Some(total_items));
+        let total_items = directory_progress.total_items();
+        directory_progress.reset("verify_source", None, None, &mut observer)?;
+        total_items
+    } else {
+        None
     };
 
     let source_after_copy = if matches!(claim.kind(), ClaimedEntryKind::File) {
@@ -280,6 +300,10 @@ fn copy_commit_claim_with_source_retirement(
         );
         return rollback_before_publish(claim, AtomicMoveError::SourceChanged);
     }
+    if matches!(claim.kind(), ClaimedEntryKind::Directory) {
+        directory_progress.finish(&mut observer)?;
+        directory_progress.reset("verify_staging", None, None, &mut observer)?;
+    }
 
     if let Err(error) = verify_staged_copy(
         &copy_proof,
@@ -297,6 +321,10 @@ fn copy_commit_claim_with_source_retirement(
             Some(copy_proof.staging_physical()),
         );
         return rollback_before_publish(claim, error);
+    }
+    if matches!(claim.kind(), ClaimedEntryKind::Directory) {
+        directory_progress.finish(&mut observer)?;
+        directory_progress.reset("publishing", None, None, &mut observer)?;
     }
     #[cfg(any(test, feature = "native-qa"))]
     crate::fs_safety::source_claim::run_claim_test_hook(
@@ -352,6 +380,9 @@ fn copy_commit_claim_with_source_retirement(
         rollback_claim_error(claim, error)
     })?;
     notify_phase(&mut observer, "target_committed")?;
+    if matches!(claim.kind(), ClaimedEntryKind::Directory) {
+        directory_progress.reset("verify_target", None, None, &mut observer)?;
+    }
 
     verify_committed_copy(
         &copy_proof,
@@ -368,13 +399,72 @@ fn copy_commit_claim_with_source_retirement(
         .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
     notify_phase(&mut observer, "source_cleanup_pending")?;
     if retire_source {
-        claim.delete_claim_tree().map_err(|error| {
-            AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
-                "{}: {}",
-                crate::platform::macos::strategy::MAC_SOURCE_RETIREMENT_PENDING,
-                error
-            ))
-        })?;
+        if is_cancelled(cancel) {
+            claim
+                .rollback_to_original()
+                .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+            claim
+                .sync_original_parent()
+                .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+            return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+        }
+        if matches!(claim.kind(), ClaimedEntryKind::Directory) {
+            directory_progress.reset(
+                "source_retirement",
+                directory_total_items,
+                Some(source_identity.size),
+                &mut observer,
+            )?;
+            claim
+                .delete_claim_tree_with_progress(|path, bytes| {
+                    directory_progress
+                        .record_item(path, &mut observer)
+                        .and_then(|()| {
+                            if bytes > 0 {
+                                directory_progress.record_bytes(path, bytes, &mut observer)?;
+                            }
+                            Ok(())
+                        })
+                        .map_err(|error| {
+                            crate::fs_safety::SourceClaimError::ClaimFailed(error.to_string())
+                        })?;
+                    if is_cancelled(cancel) {
+                        return Err(crate::fs_safety::SourceClaimError::ClaimFailed(
+                            "source_cleanup_cancelled".to_string(),
+                        ));
+                    }
+                    Ok(())
+                })
+                .map_err(|error| {
+                    AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+                        "{}: {}",
+                        crate::platform::macos::strategy::MAC_SOURCE_RETIREMENT_PENDING,
+                        error
+                    ))
+                })?;
+            directory_progress.finish(&mut observer)?;
+        } else {
+            directory_progress.reset(
+                "source_retirement",
+                Some(1),
+                Some(source_identity.size),
+                &mut observer,
+            )?;
+            claim.delete_claim().map_err(|error| {
+                AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+                    "{}: {}",
+                    crate::platform::macos::strategy::MAC_SOURCE_RETIREMENT_PENDING,
+                    error
+                ))
+            })?;
+            directory_progress.record_item(claim.original_path(), &mut observer)?;
+            directory_progress.record_bytes(
+                claim.original_path(),
+                source_identity.size,
+                &mut observer,
+            )?;
+            directory_progress.finish(&mut observer)?;
+        }
     } else {
         claim
             .rollback_to_original()
@@ -493,6 +583,9 @@ pub(crate) fn copy_commit_source_stable(
     // Directory content identity has a different size domain (the logical sum
     // of child content), so capture it only after the namespace binding has
     // passed and use it exclusively for copy/source-stability verification.
+    if matches!(kind, ClaimedEntryKind::Directory) {
+        notify_phase(&mut observer, "preparing")?;
+    }
     let source_identity = if matches!(kind, ClaimedEntryKind::Directory) {
         let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
         crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
@@ -503,6 +596,8 @@ pub(crate) fn copy_commit_source_stable(
 
     let staging_name = OsString::from(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     notify_phase(&mut observer, "copying")?;
+    let mut directory_progress = crate::fs_safety::DirectoryTransferProgress::new("copying");
+    let mut directory_total_items = None;
     let copy_proof = match kind {
         ClaimedEntryKind::File => {
             let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
@@ -518,17 +613,24 @@ pub(crate) fn copy_commit_source_stable(
             } else {
                 cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
                 let destination = create_staging_file(target_parent.raw_fd(), &staging_name)?;
-                let actual = if matches!(verification_policy, CopyVerificationPolicy::StreamingHash)
-                {
-                    copy_file_contents_and_verify_expected(
-                        handle,
-                        &destination,
-                        expected_identity,
-                        cancel,
-                    )?
-                } else {
-                    copy_file_contents_and_hash(handle, &destination, cancel)?
-                };
+                directory_progress.reset("copying", None, None, &mut observer)?;
+                let actual = copy_file_contents_and_hash_with_progress(
+                    handle,
+                    &destination,
+                    cancel,
+                    source,
+                    &mut directory_progress,
+                    &mut observer,
+                )?;
+                if matches!(verification_policy, CopyVerificationPolicy::StreamingHash) {
+                    let expected =
+                        expected_identity.ok_or(AtomicMoveError::CopyVerificationFailed)?;
+                    if !identity::content_identity_matches(expected, &actual) {
+                        return Err(AtomicMoveError::SourceChanged);
+                    }
+                }
+                directory_progress.record_item(source, &mut observer)?;
+                directory_progress.finish(&mut observer)?;
                 destination.sync_all().map_err(AtomicMoveError::Io)?;
                 let staging_physical =
                     capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
@@ -545,6 +647,7 @@ pub(crate) fn copy_commit_source_stable(
             // one destination link per source (dev, inode) pair.
             cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
             let destination = create_staging_directory(target_parent.raw_fd(), &staging_name)?;
+            directory_progress.reset("copying", None, None, &mut observer)?;
             let source_root_device = {
                 use std::os::unix::fs::MetadataExt;
                 handle.metadata().map_err(AtomicMoveError::Io)?.dev()
@@ -558,7 +661,14 @@ pub(crate) fn copy_commit_source_stable(
                 &mut state,
                 0,
                 cancel,
+                Some(&mut directory_progress),
+                &mut observer,
+                source,
             )?;
+            directory_progress.finish(&mut observer)?;
+            let total_items = directory_progress.processed_items();
+            directory_progress.set_total_items(Some(total_items));
+            directory_total_items = Some(total_items);
             let metadata = handle.metadata().map_err(AtomicMoveError::Io)?;
             copy_fd_metadata(&metadata, &destination)?;
             copy_metadata_with_native_api(handle, &destination)?;
@@ -577,6 +687,9 @@ pub(crate) fn copy_commit_source_stable(
         }
     };
 
+    if matches!(kind, ClaimedEntryKind::Directory) {
+        directory_progress.reset("verify_staging", None, None, &mut observer)?;
+    }
     if let Err(error) = verify_staged_copy(
         &copy_proof,
         kind,
@@ -593,6 +706,9 @@ pub(crate) fn copy_commit_source_stable(
             Some(copy_proof.staging_physical()),
         );
         return Err(error);
+    }
+    if matches!(kind, ClaimedEntryKind::Directory) {
+        directory_progress.finish(&mut observer)?;
     }
     #[cfg(any(test, feature = "native-qa"))]
     crate::fs_safety::source_claim::run_claim_test_hook(
@@ -621,6 +737,9 @@ pub(crate) fn copy_commit_source_stable(
         }
     }
 
+    if matches!(kind, ClaimedEntryKind::Directory) {
+        directory_progress.reset("verify_source", None, None, &mut observer)?;
+    }
     let source_after = match (kind, source_handle.as_ref(), verification_policy) {
         (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::PhysicalClone)
         | (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::StreamingHash) => {
@@ -660,6 +779,10 @@ pub(crate) fn copy_commit_source_stable(
         );
         return Err(AtomicMoveError::MacClaimIdentityMismatch);
     }
+    if matches!(kind, ClaimedEntryKind::Directory) {
+        directory_progress.finish(&mut observer)?;
+        directory_progress.reset("publishing", None, None, &mut observer)?;
+    }
 
     #[cfg(any(test, feature = "native-qa"))]
     crate::fs_safety::source_claim::run_claim_test_hook(
@@ -694,6 +817,9 @@ pub(crate) fn copy_commit_source_stable(
         );
     })?;
     notify_phase(&mut observer, "target_committed")?;
+    if matches!(kind, ClaimedEntryKind::Directory) {
+        directory_progress.reset("verify_target", None, None, &mut observer)?;
+    }
 
     verify_committed_copy(
         &copy_proof,
@@ -712,6 +838,9 @@ pub(crate) fn copy_commit_source_stable(
         notify_phase(&mut observer, "completed")?;
         return Ok(());
     }
+    if is_cancelled(cancel) {
+        return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+    }
 
     let claim_path = match planned_claim_path {
         Some(path) => crate::fs_safety::source_claim::rebind_claim_path(source, path)
@@ -722,6 +851,16 @@ pub(crate) fn copy_commit_source_stable(
     if let Some(callback) = actual_path_observer.as_mut() {
         (*callback)(source, target, Some(&claim_path))?;
     }
+    directory_progress.reset(
+        "source_retirement",
+        if matches!(kind, ClaimedEntryKind::Directory) {
+            directory_total_items
+        } else {
+            Some(1)
+        },
+        Some(source_identity.size),
+        &mut observer,
+    )?;
     notify_phase(&mut observer, "source_cleanup_pending")?;
     let mut claim = crate::fs_safety::source_claim::claim_source_at(
         source,
@@ -738,9 +877,39 @@ pub(crate) fn copy_commit_source_stable(
         ))
     })?;
     if let Err(error) = if claim.kind() == ClaimedEntryKind::Directory {
-        claim.delete_claim_tree()
+        claim.delete_claim_tree_with_progress(|path, bytes| {
+            directory_progress
+                .record_item(path, &mut observer)
+                .and_then(|()| {
+                    if bytes > 0 {
+                        directory_progress.record_bytes(path, bytes, &mut observer)?;
+                    }
+                    Ok(())
+                })
+                .map_err(|error| {
+                    crate::fs_safety::SourceClaimError::ClaimFailed(error.to_string())
+                })?;
+            if is_cancelled(cancel) {
+                return Err(crate::fs_safety::SourceClaimError::ClaimFailed(
+                    "source_cleanup_cancelled".to_string(),
+                ));
+            }
+            Ok(())
+        })
     } else {
-        claim.delete_claim()
+        (|| {
+            claim.delete_claim()?;
+            directory_progress
+                .record_item(claim.original_path(), &mut observer)
+                .and_then(|()| {
+                    directory_progress.record_bytes(
+                        claim.original_path(),
+                        source_identity.size,
+                        &mut observer,
+                    )
+                })
+                .map_err(|error| crate::fs_safety::SourceClaimError::ClaimFailed(error.to_string()))
+        })()
     } {
         return Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
             "{}: {}",
@@ -748,6 +917,7 @@ pub(crate) fn copy_commit_source_stable(
             error
         )));
     }
+    directory_progress.finish(&mut observer)?;
     notify_phase(&mut observer, "completed")?;
     Ok(())
 }
@@ -758,6 +928,9 @@ fn copy_object(
     staging_name: &OsStr,
     cancel: Option<&AtomicBool>,
     expected: Option<&identity::ExpectedFileIdentity>,
+    mut progress: Option<&mut crate::fs_safety::DirectoryTransferProgress>,
+    observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    source_root_path: &Path,
 ) -> Result<CopyProof, AtomicMoveError> {
     match claim.kind() {
         ClaimedEntryKind::File => {
@@ -776,11 +949,31 @@ fn copy_object(
             }
             cleanup_staging_at(target_parent_fd, staging_name, None);
             let destination = create_staging_file(target_parent_fd, staging_name)?;
-            let actual = if matches!(policy, CopyVerificationPolicy::StreamingHash) {
-                copy_file_contents_and_verify_expected(&source, &destination, expected, cancel)?
+            if let Some(progress) = progress.as_deref_mut() {
+                progress.reset("copying", None, None, observer)?;
+            }
+            let actual = if let Some(progress) = progress.as_deref_mut() {
+                copy_file_contents_and_hash_with_progress(
+                    &source,
+                    &destination,
+                    cancel,
+                    source_root_path,
+                    progress,
+                    observer,
+                )?
             } else {
                 copy_file_contents_and_hash(&source, &destination, cancel)?
             };
+            if matches!(policy, CopyVerificationPolicy::StreamingHash) {
+                let expected = expected.ok_or(AtomicMoveError::CopyVerificationFailed)?;
+                if !identity::content_identity_matches(expected, &actual) {
+                    return Err(AtomicMoveError::SourceChanged);
+                }
+            }
+            if let Some(progress) = progress.as_deref_mut() {
+                progress.record_item(source_root_path, observer)?;
+                progress.finish(observer)?;
+            }
             destination.sync_all().map_err(AtomicMoveError::Io)?;
             let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
             Ok(CopyProof::Streamed {
@@ -808,6 +1001,9 @@ fn copy_object(
                 &mut state,
                 0,
                 cancel,
+                progress,
+                observer,
+                source_root_path,
             )?;
             let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
             copy_fd_metadata(&metadata, &destination)?;
@@ -1017,24 +1213,6 @@ fn namespace_identity_matches(
     identity::identity_matches(&namespace_expected, actual)
 }
 
-/// Copies a regular file while computing the same BLAKE3 content identity
-/// used by the operation preview. The returned proof is later compared with a
-/// full identity capture of the staged target so a same-inode staging mutation
-/// cannot turn a source-pass proof into a pathname-only check.
-fn copy_file_contents_and_verify_expected(
-    source: &File,
-    destination: &File,
-    expected: Option<&identity::ExpectedFileIdentity>,
-    cancel: Option<&AtomicBool>,
-) -> Result<identity::ExpectedFileIdentity, AtomicMoveError> {
-    let expected = expected.ok_or(AtomicMoveError::CopyVerificationFailed)?;
-    let actual = copy_file_contents_and_hash(source, destination, cancel)?;
-    if !identity::content_identity_matches(expected, &actual) {
-        return Err(AtomicMoveError::SourceChanged);
-    }
-    Ok(actual)
-}
-
 /// Streams a regular file once while producing the same BLAKE3 identity as
 /// the preview. Callers retain the proof and compare it against the staged
 /// target before publication so path rebinding and same-inode mutation are
@@ -1044,6 +1222,31 @@ fn copy_file_contents_and_hash(
     destination: &File,
     cancel: Option<&AtomicBool>,
 ) -> Result<identity::ExpectedFileIdentity, AtomicMoveError> {
+    copy_file_contents_and_hash_with_callback(source, destination, cancel, |_| Ok(()))
+}
+
+fn copy_file_contents_and_hash_with_progress(
+    source: &File,
+    destination: &File,
+    cancel: Option<&AtomicBool>,
+    path: &Path,
+    progress: &mut crate::fs_safety::DirectoryTransferProgress,
+    observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<identity::ExpectedFileIdentity, AtomicMoveError> {
+    copy_file_contents_and_hash_with_callback(source, destination, cancel, |bytes| {
+        progress.record_bytes(path, bytes as u64, observer)
+    })
+}
+
+fn copy_file_contents_and_hash_with_callback<F>(
+    source: &File,
+    destination: &File,
+    cancel: Option<&AtomicBool>,
+    mut on_read: F,
+) -> Result<identity::ExpectedFileIdentity, AtomicMoveError>
+where
+    F: FnMut(usize) -> Result<(), AtomicMoveError>,
+{
     let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
     let size = metadata.len();
     let mut source = source.try_clone().map_err(AtomicMoveError::Io)?;
@@ -1056,7 +1259,8 @@ fn copy_file_contents_and_hash(
         .map_err(AtomicMoveError::Io)?;
     destination.set_len(0).map_err(AtomicMoveError::Io)?;
 
-    let actual = stream_copy_with_hash(&mut source, &mut destination, size, cancel)?;
+    let actual =
+        stream_copy_with_callback(&mut source, &mut destination, size, cancel, &mut on_read)?;
     copy_metadata_with_native_api(&source, &destination)?;
     Ok(actual)
 }
@@ -1066,6 +1270,16 @@ fn stream_copy_with_hash<R: Read, W: Write>(
     destination: &mut W,
     size: u64,
     cancel: Option<&AtomicBool>,
+) -> Result<identity::ExpectedFileIdentity, AtomicMoveError> {
+    stream_copy_with_callback(source, destination, size, cancel, |_| Ok(()))
+}
+
+fn stream_copy_with_callback<R: Read, W: Write, F: FnMut(usize) -> Result<(), AtomicMoveError>>(
+    source: &mut R,
+    destination: &mut W,
+    size: u64,
+    cancel: Option<&AtomicBool>,
+    mut on_read: F,
 ) -> Result<identity::ExpectedFileIdentity, AtomicMoveError> {
     let mut full_hasher = blake3::Hasher::new();
     full_hasher.update(b"file\0");
@@ -1085,6 +1299,7 @@ fn stream_copy_with_hash<R: Read, W: Write>(
             break;
         }
         record_copy_read(read);
+        on_read(read)?;
         let chunk = &buffer[..read];
         full_hasher.update(chunk);
         destination.write_all(chunk).map_err(AtomicMoveError::Io)?;
@@ -1286,6 +1501,9 @@ fn copy_tree_from_fd(
     state: &mut DirectoryCopyState,
     depth: usize,
     cancel: Option<&AtomicBool>,
+    mut progress: Option<&mut crate::fs_safety::DirectoryTransferProgress>,
+    observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    root_path: &Path,
 ) -> Result<(), AtomicMoveError> {
     if depth >= crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT {
         return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
@@ -1304,6 +1522,7 @@ fn copy_tree_from_fd(
             return Err(AtomicMoveError::DirectoryNestedVolumeUnsupported);
         }
         let relative_path = relative_prefix.join(&name);
+        let progress_path = root_path.join(&relative_path);
         match source_identity.file_type {
             value if value == libc::S_IFLNK as u32 => return Err(AtomicMoveError::Symlink),
             value if value == libc::S_IFDIR as u32 => {
@@ -1317,6 +1536,9 @@ fn copy_tree_from_fd(
                     state,
                     depth + 1,
                     cancel,
+                    progress.as_deref_mut(),
+                    observer,
+                    root_path,
                 )?;
                 let metadata = source_directory.metadata().map_err(AtomicMoveError::Io)?;
                 copy_fd_metadata(&metadata, &destination_directory)?;
@@ -1331,10 +1553,24 @@ fn copy_tree_from_fd(
                 if source_identity.nlink > 1 {
                     if let Some(first_path) = state.hardlinks.get(&key) {
                         linkat(destination_root_fd, first_path, destination_fd, &name)?;
+                        if let Some(progress) = progress.as_deref_mut() {
+                            progress.record_bytes(
+                                &progress_path,
+                                source_identity.size,
+                                observer,
+                            )?;
+                        }
                     } else {
                         let source_file = open_file_at(source_fd, &name)?;
                         let destination_file = create_staging_file(destination_fd, &name)?;
-                        copy_file_contents_and_metadata(&source_file, &destination_file, cancel)?;
+                        copy_tree_file_contents_and_metadata(
+                            &source_file,
+                            &destination_file,
+                            cancel,
+                            &progress_path,
+                            progress.as_deref_mut(),
+                            observer,
+                        )?;
                         let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
                         copy_fd_metadata(&metadata, &destination_file)?;
                         destination_file.sync_all().map_err(AtomicMoveError::Io)?;
@@ -1343,13 +1579,24 @@ fn copy_tree_from_fd(
                 } else {
                     let source_file = open_file_at(source_fd, &name)?;
                     let destination_file = create_staging_file(destination_fd, &name)?;
-                    copy_file_contents_and_metadata(&source_file, &destination_file, cancel)?;
+                    copy_tree_file_contents_and_metadata(
+                        &source_file,
+                        &destination_file,
+                        cancel,
+                        &progress_path,
+                        progress.as_deref_mut(),
+                        observer,
+                    )?;
                     let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
                     copy_fd_metadata(&metadata, &destination_file)?;
                     destination_file.sync_all().map_err(AtomicMoveError::Io)?;
                 }
             }
             _ => return Err(AtomicMoveError::UnsafePath),
+        }
+
+        if let Some(progress) = progress.as_deref_mut() {
+            progress.record_item(&progress_path, observer)?;
         }
 
         let current_identity =
@@ -1360,6 +1607,45 @@ fn copy_tree_from_fd(
         }
     }
     Ok(())
+}
+
+fn copy_tree_file_contents_and_metadata(
+    source: &File,
+    destination: &File,
+    cancel: Option<&AtomicBool>,
+    progress_path: &Path,
+    mut progress: Option<&mut crate::fs_safety::DirectoryTransferProgress>,
+    observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<(), AtomicMoveError> {
+    let Some(progress) = progress.as_deref_mut() else {
+        return copy_file_contents_and_metadata(source, destination, cancel);
+    };
+    let mut source = source.try_clone().map_err(AtomicMoveError::Io)?;
+    source
+        .seek(SeekFrom::Start(0))
+        .map_err(AtomicMoveError::Io)?;
+    let mut destination = destination.try_clone().map_err(AtomicMoveError::Io)?;
+    destination
+        .seek(SeekFrom::Start(0))
+        .map_err(AtomicMoveError::Io)?;
+    destination.set_len(0).map_err(AtomicMoveError::Io)?;
+    let mut buffer = [0_u8; HASH_BUFFER_SIZE];
+    loop {
+        if is_cancelled(cancel) {
+            return Err(AtomicMoveError::Cancelled);
+        }
+        let read = source.read(&mut buffer).map_err(AtomicMoveError::Io)?;
+        if read == 0 {
+            break;
+        }
+        record_copy_read(read);
+        destination
+            .write_all(&buffer[..read])
+            .map_err(AtomicMoveError::Io)?;
+        progress.record_bytes(progress_path, read as u64, observer)?;
+    }
+    copy_metadata_with_native_api(&source, &destination)?;
+    verify_clone_metadata(&source, &destination)
 }
 
 fn linkat(
@@ -1506,6 +1792,73 @@ mod tests {
             b"attacker staging payload"
         );
         fs::remove_dir_all(&root).expect("remove staging rebound fixture");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn directory_copy_emits_real_item_and_byte_progress_before_commit() {
+        use std::fs;
+
+        let root = std::env::temp_dir().join(format!(
+            "fylura-directory-progress-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(root.join("source/nested/empty")).expect("create fixture tree");
+        let payload = vec![0x5a; 12 * 1024 * 1024];
+        fs::write(root.join("source/nested/payload.bin"), &payload).expect("write payload");
+        let source = root.join("source");
+        let target = root.join("target");
+        let mut observed = Vec::new();
+        let mut observer = |event: crate::fs_safety::FileOperationEvent| {
+            observed.push(event);
+            Ok(())
+        };
+
+        super::copy_commit_source_stable(
+            &source,
+            &target,
+            None,
+            None,
+            None,
+            Some(&mut observer),
+            false,
+            None,
+            None,
+        )
+        .expect("copy directory with progress");
+        drop(observer);
+
+        let copying = observed
+            .iter()
+            .filter_map(|event| match event {
+                crate::fs_safety::FileOperationEvent::Progress(progress)
+                    if progress.stage == "copying" =>
+                {
+                    Some(progress)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            copying.len() >= 3,
+            "large-file progress must update in chunks"
+        );
+        assert!(copying.windows(2).all(|pair| {
+            pair[0].processed_bytes <= pair[1].processed_bytes
+                && pair[0].processed_items <= pair[1].processed_items
+        }));
+        let completed_copy = copying.last().expect("final copy counters");
+        assert_eq!(completed_copy.processed_bytes, payload.len() as u64);
+        assert_eq!(completed_copy.total_bytes, None);
+        assert_eq!(completed_copy.processed_items, 3);
+        assert_eq!(completed_copy.total_items, None);
+        assert_eq!(
+            fs::read(target.join("nested/payload.bin")).expect("copied payload"),
+            payload
+        );
+        assert!(target.join("nested/empty").is_dir());
+        assert!(source.exists());
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]
@@ -1902,6 +2255,7 @@ fn publish_directory_exclusive(
         source.metadata().map_err(AtomicMoveError::Io)?.dev()
     };
     let mut state = DirectoryCopyState::new(source_root_device);
+    let mut no_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>> = None;
     if copy_tree_from_fd(
         source.as_raw_fd(),
         destination.as_raw_fd(),
@@ -1910,6 +2264,9 @@ fn publish_directory_exclusive(
         &mut state,
         0,
         cancel,
+        None,
+        &mut no_observer,
+        Path::new(""),
     )
     .is_err()
     {
@@ -2091,7 +2448,9 @@ fn notify_phase(
     phase: &str,
 ) -> Result<(), AtomicMoveError> {
     if let Some(observer) = observer.as_deref_mut() {
-        observer(phase)?;
+        observer(crate::fs_safety::FileOperationEvent::Phase(
+            phase.to_string(),
+        ))?;
     }
     Ok(())
 }

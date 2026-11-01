@@ -217,84 +217,95 @@ fn execute_moves_core_with_identity(
             let phase_log = RefCell::new(prepared.map(|item| item.journal_log.clone()));
             let actual_paths = RefCell::new(None::<ActualOperationPaths>);
             let mut observed_phase = None;
-            let mut phase_observer = |phase: &str| {
-                observed_phase = Some(phase.to_string());
-                if let Some(db) = journal_db {
-                    let mut phase_log = phase_log.borrow_mut();
-                    let Some(log) = phase_log.as_mut() else {
-                        return Ok(());
-                    };
-                    log.operation_phase = phase.to_string();
-                    // The filesystem callback is not the durable operation
-                    // completion boundary.  Keep the row pending until the
-                    // final save_operation_logs transaction succeeds.
-                    log.status = "pending".to_string();
-                    log.error_message = None;
-                    if operation.operation_type == "move"
-                        && phase == "target_committed"
-                        && Path::new(&log.path_after)
-                            .symlink_metadata()
-                            .is_ok_and(|metadata| metadata.is_dir())
-                    {
-                        // A directory copied to another volume has new
-                        // physical identities. Persist a bounded snapshot of
-                        // the published tree before source retirement can
-                        // begin, so restart recovery can distinguish the
-                        // committed target from a later replacement.
-                        // Own this path before mutating the journal row below.
-                        // The target snapshot is derived from the committed
-                        // pathname, while the row receives the resulting
-                        // identity proof.
-                        let target = PathBuf::from(&log.path_after);
-                        let fingerprint =
-                            file_operation_fingerprint(&target, "move").map_err(|_| {
-                                crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
-                            })?;
-                        apply_target_fingerprint(log, &fingerprint);
-                        let tree = crate::file_ops::manual_transfer::directory_tree_snapshot(
-                            &target,
-                        )
-                        .and_then(|tree| {
-                            crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(
-                                &tree,
-                            )
-                            .ok_or_else(|| "directory tree fingerprint encoding failed".into())
-                        })
-                        .map_err(|_| {
-                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
-                        })?;
-                        log.target_full_hash = Some(tree);
-                    }
-                    if cfg!(target_os = "macos")
-                        && operation.operation_type == "replace"
-                        && matches!(
-                            phase,
-                            "target_committed" | "source_cleanup_pending" | "completed"
-                        )
-                    {
-                        refresh_replacement_journal_identities(log).map_err(|_| {
-                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
-                        })?;
-                    }
-                    db.update_operation_phase(log).map_err(|error| {
-                        let message = format!("journal phase persistence failed: {error}");
-                        if matches!(
-                            phase,
-                            "target_committed" | "source_cleanup_pending" | "completed"
-                        ) {
-                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
-                        } else {
-                            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(message)
+            let mut phase_observer = |event: crate::fs_safety::FileOperationEvent| {
+                match event {
+                    crate::fs_safety::FileOperationEvent::Phase(phase) => {
+                        observed_phase = Some(phase.clone());
+                        if let Some(db) = journal_db {
+                            let mut phase_log = phase_log.borrow_mut();
+                            if let Some(log) = phase_log.as_mut() {
+                                log.operation_phase = phase.clone();
+                                // Keep the row pending until the final log
+                                // transaction succeeds.
+                                log.status = "pending".to_string();
+                                log.error_message = None;
+                                if operation.operation_type == "move"
+                                    && phase == "target_committed"
+                                    && Path::new(&log.path_after)
+                                        .symlink_metadata()
+                                        .is_ok_and(|metadata| metadata.is_dir())
+                                {
+                                    let target = PathBuf::from(&log.path_after);
+                                    let fingerprint =
+                                        file_operation_fingerprint(&target, "move").map_err(|_| {
+                                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                                        })?;
+                                    apply_target_fingerprint(log, &fingerprint);
+                                    let tree = crate::file_ops::manual_transfer::directory_tree_snapshot(
+                                        &target,
+                                    )
+                                    .and_then(|tree| {
+                                        crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(
+                                            &tree,
+                                        )
+                                        .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+                                    })
+                                    .map_err(|_| {
+                                        crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                                    })?;
+                                    log.target_full_hash = Some(tree);
+                                }
+                                if cfg!(target_os = "macos")
+                                    && operation.operation_type == "replace"
+                                    && matches!(
+                                        phase.as_str(),
+                                        "target_committed" | "source_cleanup_pending" | "completed"
+                                    )
+                                {
+                                    refresh_replacement_journal_identities(log).map_err(|_| {
+                                        crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                                    })?;
+                                }
+                                db.update_operation_phase(log).map_err(|error| {
+                                    let message = format!("journal phase persistence failed: {error}");
+                                    if matches!(
+                                        phase.as_str(),
+                                        "target_committed" | "source_cleanup_pending" | "completed"
+                                    ) {
+                                        crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                                    } else {
+                                        crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(message)
+                                    }
+                                })?;
+                            }
                         }
-                    })?;
-                    emitter.emit_progress(OperationProgressPayload {
-                        kind: "execute".to_string(),
-                        batch_id: batch_id.clone(),
-                        processed: index as u64,
-                        total,
-                        current_path: operation.source_path.clone(),
-                        phase: Some(phase.to_string()),
-                    });
+                        emitter.emit_progress(OperationProgressPayload {
+                            kind: "execute".to_string(),
+                            batch_id: batch_id.clone(),
+                            processed: index as u64,
+                            total,
+                            current_path: operation.source_path.clone(),
+                            phase: Some(phase),
+                            processed_items: None,
+                            total_items: None,
+                            processed_bytes: None,
+                            total_bytes: None,
+                        });
+                    }
+                    crate::fs_safety::FileOperationEvent::Progress(progress) => {
+                        emitter.emit_progress(OperationProgressPayload {
+                            kind: "execute".to_string(),
+                            batch_id: batch_id.clone(),
+                            processed: index as u64,
+                            total,
+                            current_path: progress.current_path,
+                            phase: Some(progress.stage),
+                            processed_items: Some(progress.processed_items),
+                            total_items: progress.total_items,
+                            processed_bytes: Some(progress.processed_bytes),
+                            total_bytes: progress.total_bytes,
+                        });
+                    }
                 }
                 Ok(())
             };
@@ -342,8 +353,9 @@ fn execute_moves_core_with_identity(
                     app_data_dir: app_data_dir.as_deref(),
                     expected_identity: expected_identity.as_ref(),
                     planned_claim_path: prepared.map(|item| item.claim_path.as_path()),
-                    phase_observer: journal_db
-                        .map(|_| &mut phase_observer as &mut crate::fs_safety::PhaseObserver<'_>),
+                    phase_observer: Some(
+                        &mut phase_observer as &mut crate::fs_safety::PhaseObserver<'_>,
+                    ),
                     actual_path_observer: Some(
                         &mut actual_path_observer as &mut crate::fs_safety::ActualPathObserver<'_>,
                     ),

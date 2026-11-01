@@ -669,7 +669,7 @@ impl Drop for TaskApfsDirectory {
 
 #[cfg(target_os = "macos")]
 impl IsolatedApfsVolume {
-    fn create() -> Option<Self> {
+    fn create() -> Self {
         use std::process::Command;
 
         let root_path = std::env::temp_dir().join(format!(
@@ -690,10 +690,7 @@ impl IsolatedApfsVolume {
             .arg(&name)
             .arg(&image)
             .output();
-        let Ok(created) = created else {
-            eprintln!("UNVERIFIED: hdiutil is unavailable for an isolated FL-23 APFS volume");
-            return None;
-        };
+        let created = created.expect("required APFS qualification needs hdiutil");
         if !created.status.success() {
             panic!(
                 "APFS-capable macOS host could not create isolated APFS image: {}",
@@ -705,10 +702,7 @@ impl IsolatedApfsVolume {
             .arg(&mountpoint)
             .arg(&image)
             .output();
-        let Ok(attached) = attached else {
-            eprintln!("UNVERIFIED: hdiutil could not attach the isolated FL-23 APFS image");
-            return None;
-        };
+        let attached = attached.expect("required APFS qualification needs hdiutil attach");
         if !attached.status.success() {
             let _ = Command::new("hdiutil")
                 .args(["detach", "-quiet", "-force"])
@@ -719,11 +713,17 @@ impl IsolatedApfsVolume {
                 String::from_utf8_lossy(&attached.stderr).trim()
             );
         }
-        Some(Self {
+        let volume = Self {
             _root: root,
             mountpoint,
             attached: true,
-        })
+        };
+        assert_eq!(
+            macos_filesystem_type(&volume.mountpoint),
+            "apfs",
+            "the isolated image must be mounted as APFS before the move test runs"
+        );
+        volume
     }
 
     fn detach(&mut self) -> Result<(), String> {
@@ -755,6 +755,24 @@ impl IsolatedApfsVolume {
             "could not detach task-owned APFS fixture: {last_error}"
         ))
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_filesystem_type(path: &Path) -> String {
+    use std::{ffi::CStr, os::unix::ffi::OsStrExt};
+
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .expect("APFS mountpoint contains no NUL");
+    let mut info = unsafe { std::mem::zeroed::<libc::statfs>() };
+    assert_eq!(
+        unsafe { libc::statfs(path.as_ptr(), &mut info) },
+        0,
+        "statfs must confirm the APFS fixture mount: {}",
+        std::io::Error::last_os_error()
+    );
+    unsafe { CStr::from_ptr(info.f_fstypename.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[cfg(target_os = "macos")]
@@ -867,9 +885,7 @@ fn read_test_acl(path: &Path) -> Vec<String> {
 #[cfg(target_os = "macos")]
 #[test]
 fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_forks() {
-    let Some(mut volume) = IsolatedApfsVolume::create() else {
-        return;
-    };
+    let mut volume = IsolatedApfsVolume::create();
     use std::os::unix::fs::MetadataExt;
 
     let f = Fixture::new();
@@ -1004,6 +1020,10 @@ fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_for
         source_acl
     );
     assert!(!target.exists());
+    eprintln!(
+        "FL23_APFS_NATIVE_PASS fs={} distinct_volume=true directory_move=true restore=true source_retired=true",
+        macos_filesystem_type(&volume.mountpoint)
+    );
 
     let link_ticket = runtime
         .capture_transfer(CaptureRequest {

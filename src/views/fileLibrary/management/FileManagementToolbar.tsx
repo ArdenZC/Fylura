@@ -10,6 +10,7 @@ import { useChromeContext, useI18nContext, useNavigationContext } from "../../..
 import { useOperationQueueStore } from "../../../store/useOperationQueueStore";
 import { groupOperationLogs, type OperationHistoryBatch } from "../../history/historyModel";
 import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/tw";
+import { formatBytes } from "../../../utils/format";
 import { localizedStableError, readableError } from "../../../utils/viewHelpers";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
@@ -172,7 +173,7 @@ export function FileManagementToolbar() {
   const describeError = useCallback((value: unknown) => {
     const detail = readableError(value);
     if (detail.startsWith("symlink_or_reparse_point") || detail.startsWith("reparse_point") || detail.startsWith("symlink")) return localizedStableError(detail, t);
-    const key = detail.includes("transfer_windows_directory_move_unsupported") || detail.includes("transfer_windows_cross_volume_directory_move_unsupported") ? "fmDirectoryMoveUnsupported" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
+    const key = detail.includes("windows_sacl_") ? "fmWindowsSaclUnsupported" : detail.includes("directory_tree_limit_exceeded") || detail.includes("transfer_directory_depth_limit") || detail.includes("transfer_directory_entry_limit") ? "fmDirectoryTreeLimit" : detail.includes("transfer_windows_directory_move_unsupported") || detail.includes("transfer_windows_cross_volume_directory_move_unsupported") ? "fmDirectoryMoveUnsupported" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
     return `${t(key)} ${detail}`;
   }, [t]);
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -666,10 +667,28 @@ export function FileManagementToolbar() {
     const keys: Record<string, string> = {
       prepared: "fmTaskPhasePrepared", source_claimed: "fmTaskPhaseSourceClaimed", copying: "fmTaskPhaseCopying",
       target_committed: "fmTaskPhaseTargetCommitted", source_cleanup_pending: "fmTaskPhaseCleanupPending",
+      preparing: "fmTaskPhasePreparing", verify_source: "fmTaskPhaseVerifying",
+      verify_staging: "fmTaskPhaseVerifying", verify_target: "fmTaskPhaseVerifying",
+      publishing: "fmTaskPhasePublishing", source_retirement: "fmTaskPhaseSourceRetirement",
       manual_review: "fmTaskNeedsReview", rolled_back: "fmTaskPhaseRolledBack", completed: "fmTaskCompleted"
     };
     const key = (keys[phase ?? ""] ?? "fmTaskPhaseUnknown") as Parameters<typeof t>[0];
     return t(key);
+  };
+  const taskProgressDetails = (progress: typeof liveTaskProgress) => {
+    if (!progress) return "";
+    const parts: string[] = [];
+    if (progress.processedItems !== undefined) {
+      parts.push(progress.totalItems === undefined
+        ? progress.processedItems + " " + t("fmTaskItems")
+        : progress.processedItems + "/" + progress.totalItems + " " + t("fmTaskItems"));
+    }
+    if (progress.processedBytes !== undefined) {
+      parts.push(progress.totalBytes === undefined
+        ? formatBytes(progress.processedBytes) + " " + t("fmTaskBytesTransferred")
+        : formatBytes(progress.processedBytes) + " / " + formatBytes(progress.totalBytes));
+    }
+    return parts.join(" · ");
   };
   const resolution = (id: string, value: string) => {
     setSkip((current) => value === "skip" ? [...new Set([...current, id])] : current.filter((item) => item !== id));
@@ -724,7 +743,7 @@ export function FileManagementToolbar() {
       <div className="fm-task-heading"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : liveTaskProgress ? `${liveTaskProgress.processed}/${liveTaskProgress.total} · ${t("fmTaskItems")}` : state.activeTransferTask.phase === "canceling" ? t("fmCancelPending") : t("fmExecuting")}</strong><button className={buttonGhost} disabled={state.activeTransferTask.cancelRequested} onClick={cancelRunningTransfer}>{state.activeTransferTask.cancelRequested ? t("fmCancelPending") : t("fmCancelRunning")}</button></div>
       {liveTaskProgress && liveTaskProgress.total > 0 && !liveTaskProgress.phase ? <progress max={liveTaskProgress.total} value={liveTaskProgress.processed}/> : <progress />}
       <span className="fm-path" title={liveTaskProgress?.currentPath || state.activeTransferTask.sourceSummary}>{liveTaskProgress?.currentPath || `${state.activeTransferTask.sourceSummary} → ${state.activeTransferTask.destinationSummary}`}</span>
-      <p className="fm-muted">{t("fmTaskBytesUnknown")}</p>
+      <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
       <div className="fm-toolbar"><button className={buttonGhost} onClick={() => openPanel("tasks")}>{t("fmTaskDetails")}</button><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>
     </aside>}
     {panelOpen && <div ref={panelRef} id={panelId} className="fm-panel" role="region" aria-label={panelTitle}>
@@ -753,7 +772,7 @@ export function FileManagementToolbar() {
           <p className="fm-path" title={state.activeTransferTask.sourceSummary}>{t("fmSource")}: {state.activeTransferTask.sourceSummary || "—"}</p>
           <p className="fm-path" title={state.activeTransferTask.destinationSummary}>{t("fmDestination")}: {state.activeTransferTask.destinationSummary || "—"}</p>
           {liveTaskProgress && <p>{`${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}`}</p>}
-          <p className="fm-muted">{t("fmTaskBytesUnknown")}</p>
+          <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
           {state.transferOpen && <p role="status">{t("fmTaskAwaitingConflict")}</p>}
           {state.transferRunning && <button className={buttonSecondary} disabled={state.activeTransferTask.cancelRequested} onClick={cancelRunningTransfer}>{state.activeTransferTask.cancelRequested ? t("fmCancelPending") : t("fmCancelRunning")}</button>}
         </section>}

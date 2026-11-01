@@ -231,6 +231,10 @@ export interface OperationProgressPayload {
   total: number;
   currentPath: string;
   phase?: string;
+  processedItems?: number;
+  totalItems?: number;
+  processedBytes?: number;
+  totalBytes?: number;
 }
 
 export interface GlobalHotkeyErrorPayload {

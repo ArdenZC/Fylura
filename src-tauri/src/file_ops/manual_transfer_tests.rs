@@ -9,12 +9,6 @@ use crate::file_workspace::integration::{
 use crate::file_workspace::{EntryRef, WorkspacePlatform};
 use crate::platform::macos::quick_look::MacThumbnailService;
 
-#[cfg(windows)]
-fn assume_sacl_verified_absent_for_test(
-) -> crate::fs_safety::atomic_move::test_faults::VerifiedAbsentSaclTestGuard {
-    crate::fs_safety::atomic_move::test_faults::assume_sacl_verified_absent_for_test()
-}
-
 fn runtime(f: &Fixture) -> FileWorkspaceRuntime {
     FileWorkspaceRuntime::new(
         f.db.clone(),
@@ -58,7 +52,6 @@ fn preview(
 #[test]
 fn u1_batch_collects_managed_and_disposed_browse_sources_then_copies_with_journal() {
     #[cfg(windows)]
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
     let f = Fixture::new();
     let runtime = runtime(&f);
     fs::create_dir(f.root.join("other")).unwrap();
@@ -398,7 +391,6 @@ fn u1_favorites_survive_runtime_recreation_and_unavailable_locations_are_hints_o
 #[test]
 fn u1_partial_batch_cancellation_preserves_unprocessed_sources_and_durable_results() {
     #[cfg(windows)]
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
     struct CancelAtTen(Arc<AtomicBool>);
     impl OperationProgressEmitter for CancelAtTen {
         fn emit_progress(&self, payload: OperationProgressPayload) {
@@ -1174,7 +1166,6 @@ fn u1_skipped_same_name_does_not_reserve_a_batch_destination() {
 #[test]
 fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_preview() {
     #[cfg(windows)]
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("drop-source");
@@ -1275,7 +1266,6 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
 #[cfg(windows)]
 #[test]
 fn fl20_external_directory_copy_supports_extended_windows_paths() {
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("extended-source");
@@ -1333,7 +1323,6 @@ fn fl20_external_directory_copy_supports_extended_windows_paths() {
 fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with_journal() {
     use crate::fs_safety::atomic_move::test_faults::{self, AtomicFaultPoint};
 
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("cancelled-folder");
@@ -1403,7 +1392,6 @@ fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with
 #[test]
 fn fl20_external_directory_conflict_requires_skip_or_keep_both_without_overwrite() {
     #[cfg(windows)]
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("folder-conflict");
@@ -1505,7 +1493,6 @@ fn fl20_external_directory_conflict_requires_skip_or_keep_both_without_overwrite
 #[test]
 fn fl20_external_directory_copy_preserves_empty_directories_and_empty_roots() {
     #[cfg(windows)]
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("empty-source");
@@ -1836,7 +1823,13 @@ fn fl23_native_cross_volume_directory_move_and_history_restore_use_one_journal()
     use std::process::Command;
     use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
 
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
+    struct TargetVolumeFixture(PathBuf);
+    impl Drop for TargetVolumeFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     let f = Fixture::new();
     let source_root_identity = crate::fs_safety::capture_namespace_identity_only(&f.root, None)
         .expect("source volume identity");
@@ -1863,6 +1856,7 @@ fn fl23_native_cross_volume_directory_move_and_history_restore_use_one_journal()
         let _ = fs::remove_dir_all(fixture_root);
         return;
     };
+    let target_fixture = TargetVolumeFixture(target_fixture);
 
     let source = f.root.join("external tree");
     fs::create_dir_all(source.join("nested").join("empty")).expect("nested empty directory");
@@ -1904,7 +1898,7 @@ fn fl23_native_cross_volume_directory_move_and_history_restore_use_one_journal()
             external_paths: vec![normalize_path(&source)],
         })
         .expect("capture external directory");
-    let destination = target_fixture.join("destination");
+    let destination = target_fixture.0.join("destination");
     fs::create_dir(&destination).expect("destination directory");
     let plan = preview(
         &runtime,
@@ -2013,7 +2007,6 @@ fn fl20_releasing_external_candidates_invalidates_unconfirmed_previews() {
 #[test]
 fn fl20_releasing_a_repeated_external_capture_preserves_the_basket_ticket() {
     #[cfg(windows)]
-    let _sacl_absence = assume_sacl_verified_absent_for_test();
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("shared-source.txt");

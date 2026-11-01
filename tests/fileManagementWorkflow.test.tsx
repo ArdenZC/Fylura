@@ -128,19 +128,14 @@ describe("File Library manual management workflow", () => {
     expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["folder"], action: "move", destinationDirectory: "C:/Target", skip: [], keepBoth: [] });
     expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "folder-move-preview", confirmed: true });
   });
-  it("offers an explicit Copy action after Windows rejects a cross-volume folder Move", async () => {
+  it("executes a Windows cross-volume folder Move through the shared Move Preview", async () => {
     useFileManagementStore.setState({ clipboard: { action: "move", tickets: [folderTicket] }, surface: () => ({ signature: "target", count: 0, browse: { sessionId: "target", pathRef: { id: "target" } }, routingHint: "E:/Target", refresh, clear }) });
-    const rejected: TransferPreview = { id: "cross-volume-rejection", destinationDirectory: "E:/Target", rows: [{ ticketId: folderTicket.id, skipped: false, preview: null, error: "transfer_windows_cross_volume_directory_move_unsupported" }] };
-    vi.mocked(api.previewTransfer).mockReset().mockResolvedValueOnce(rejected).mockResolvedValueOnce(folderPlan("copy", "E:/Target"));
+    vi.mocked(api.previewTransfer).mockReset().mockResolvedValueOnce(folderPlan("move", "E:/Target"));
     await render();
     await click(`${t("fmPaste")} (1)`);
-    expect(document.body.textContent).toContain(t("fmDirectoryMoveUnsupported"));
-    expect(button(t("fmDirectoryMoveCopyInstead"))).toBeTruthy();
-    expect(api.executeTransfer).not.toHaveBeenCalled();
 
-    await click(t("fmDirectoryMoveCopyInstead"));
-    expect(api.previewTransfer).toHaveBeenNthCalledWith(2, { ticketIds: ["folder"], action: "copy", destinationDirectory: "E:/Target", skip: [], keepBoth: [] });
-    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "folder-copy-preview", confirmed: true });
+    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["folder"], action: "move", destinationDirectory: "E:/Target", skip: [], keepBoth: [] });
+    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "folder-move-preview", confirmed: true });
   });
   it("shows backend progress and unknown bytes while a transfer is running", async () => {
     useFileManagementStore.setState({ clipboard: { action: "copy", tickets } });
@@ -149,7 +144,7 @@ describe("File Library manual management workflow", () => {
     await render();
     await click(`${t("fmPaste")} (2)`);
     await settle();
-    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmWindowsCopyAuditNotice"));
+    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmTaskBytesUnknown"));
     expect(document.querySelector(".fm-task-progress progress")?.hasAttribute("value")).toBe(false);
     useOperationQueueStore.setState({ operationProgress: { kind: "execute", batchId: "batch", processed: 1, total: 2, currentPath: "C:/Source/one.txt" } });
     await render();

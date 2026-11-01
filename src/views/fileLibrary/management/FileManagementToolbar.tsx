@@ -72,8 +72,6 @@ export function FileManagementToolbar() {
   useEffect(() => { if (!focused) setPanel(null); }, [focused]);
   const [previewPage, setPreviewPage] = useState(0); const [basketPage, setBasketPage] = useState(0); const [resultPage, setResultPage] = useState(0);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
-  const [copyFallback, setCopyFallback] = useState<TransferIntent | null>(null);
-  const copyFallbackRef = useRef<TransferIntent | null>(null); copyFallbackRef.current = copyFallback;
   useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(""), 4000);
@@ -159,8 +157,6 @@ export function FileManagementToolbar() {
       mounted.current = false;
       const active = transferRef.current;
       const activeIds = new Set(active?.tickets.map((ticket) => ticket.id) ?? []);
-      const fallback = copyFallbackRef.current;
-      if (fallback) void releaseUnused(fallback.tickets.map((ticket) => ticket.id)).catch(() => {});
       const store = useFileManagementStore.getState();
       if (!store.transferRunning && store.activeTransferTask?.phase !== "awaiting_conflict" && store.transferTicketIds.some((id) => activeIds.has(id))) {
         useFileManagementStore.setState({ transferOpen: false, transferActive: false, transferRunning: false, activeTransferId: null, activeTransferTask: null, transferTicketIds: [] });
@@ -173,7 +169,7 @@ export function FileManagementToolbar() {
   const describeError = useCallback((value: unknown) => {
     const detail = readableError(value);
     if (detail.startsWith("symlink_or_reparse_point") || detail.startsWith("reparse_point") || detail.startsWith("symlink")) return localizedStableError(detail, t);
-    const key = detail.includes("windows_sacl_") ? "fmWindowsSaclUnsupported" : detail.includes("directory_tree_limit_exceeded") || detail.includes("transfer_directory_depth_limit") || detail.includes("transfer_directory_entry_limit") ? "fmDirectoryTreeLimit" : detail.includes("transfer_windows_directory_move_unsupported") || detail.includes("transfer_windows_cross_volume_directory_move_unsupported") ? "fmDirectoryMoveUnsupported" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
+    const key = detail.includes("windows_special_metadata_unsupported") ? "fmWindowsSpecialMetadataUnsupported" : detail.includes("directory_tree_limit_exceeded") || detail.includes("transfer_directory_depth_limit") || detail.includes("transfer_directory_entry_limit") ? "fmDirectoryTreeLimit" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
     return `${t(key)} ${detail}`;
   }, [t]);
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -299,22 +295,9 @@ export function FileManagementToolbar() {
         const statuses = { ...useFileManagementStore.getState().statuses };
         outcome.preview.rows.forEach((row) => { if (row.error && !row.skipped) statuses[row.ticketId] = describeError(row.error); });
         useFileManagementStore.setState({ statuses });
-        const unsupportedDirectoryMoves = intent.action === "move"
-          ? outcome.preview.rows
-            .filter((row) => row.error?.includes("transfer_windows_cross_volume_directory_move_unsupported"))
-            .map((row) => row.ticketId)
-          : [];
-        const fallbackTickets = intent.tickets.filter((ticket) => unsupportedDirectoryMoves.includes(ticket.id));
-        if (fallbackTickets.length) {
-          const fallback: TransferIntent = { ...intent, tickets: fallbackTickets };
-          setCopyFallback(fallback);
-          const retained = new Set(fallbackTickets.map((ticket) => ticket.id));
-          const unused = intent.tickets.filter((ticket) => !retained.has(ticket.id)).map((ticket) => ticket.id);
-          if (unused.length) await releaseUnused(unused).catch(() => {});
-        }
         setError([...new Set(outcome.errors)].map((item) => describeError(item)).join("\n"));
         clearTransferState(intent);
-        if (!fallbackTickets.length) releaseTransient(intent);
+        releaseTransient(intent);
         return;
       }
       if (outcome.kind === "stale") {
@@ -430,7 +413,7 @@ export function FileManagementToolbar() {
       sourceSignature: options.sourceSignature,
     };
     closePanel(false); setError("");
-    setNotice(action === "copy" && platform === "win32" ? t("fmWindowsCopyAuditNotice") : "");
+    setNotice("");
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const sourceSummary = tickets.length <= 2 ? tickets.map((ticket) => ticket.path).join(" · ") : `${tickets[0]!.path} · +${tickets.length - 1}`;
     useFileManagementStore.setState({ results: [], transferOpen: false, transferActive: true, transferRunning: true, activeTransferId: intent.id, transferTicketIds: tickets.map((ticket) => ticket.id), activeTransferTask: {
@@ -441,29 +424,7 @@ export function FileManagementToolbar() {
     setTransfer(intent); setPlan(null); setConflictTicketIds([]); setSkip([]); setKeepBoth([]); setPreviewPage(0); setResultPage(0);
     void startTransfer(intent, [], []);
   }
-  function copyInstead() {
-    const fallback = copyFallbackRef.current;
-    if (!fallback) return;
-    if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen) {
-      setError(t("fmTransferBusy")); return;
-    }
-    if (fallback.origin === "clipboard") {
-      useFileManagementStore.setState({ clipboard: { action: "copy", tickets: fallback.tickets } });
-    }
-    setCopyFallback(null);
-    begin(fallback.tickets, "copy", fallback.origin, {
-      destinationDirectory: fallback.destinationDirectory,
-      destinationEntry: fallback.destinationEntry,
-      destinationPaneId: fallback.destinationPaneId,
-      destinationSignature: fallback.destinationSignature,
-      sourcePaneId: fallback.sourcePaneId,
-      sourceSignature: fallback.sourceSignature,
-    });
-  }
   function dismissNotice() {
-    const fallback = copyFallbackRef.current;
-    copyFallbackRef.current = null; setCopyFallback(null);
-    if (fallback) void releaseUnused(fallback.tickets.map((ticket) => ticket.id)).catch(() => {});
     setError(""); setNotice("");
   }
   function closeTransfer() {
@@ -741,7 +702,7 @@ export function FileManagementToolbar() {
     <div className="fm-toolbar fm-primary-toolbar">
       <span className="fm-selection" data-has-selection={!disabled} aria-live="polite">{t("fmSelection")} <strong>{selected}</strong></span>
       <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} title={t("fmShortcutNewFolder")} onClick={createDirectory}><FolderPlus size={14}/>{t("fmNewFolder")}</button>
-      <button className={buttonGhost} disabled={disabled} title={platform === "win32" ? t("fmWindowsCopyAuditNotice") : undefined} onClick={() => collect("copy")}><Copy size={14}/>{t("fmCopy")}</button>
+      <button className={buttonGhost} disabled={disabled} onClick={() => collect("copy")}><Copy size={14}/>{t("fmCopy")}</button>
       <button className={buttonGhost} disabled={disabled} onClick={() => collect("cut")}><Scissors size={14}/>{t("fmCut")}</button>
       <button className={buttonGhost} disabled={pasteDisabled} onClick={paste}><ClipboardPaste size={14}/>{t("fmPaste")}{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
       <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
@@ -752,13 +713,12 @@ export function FileManagementToolbar() {
       <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls={panelId} onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basket.length > 0 && <span className="fm-count">{state.basket.length}</span>}</button>
       {!!state.results.length && <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "results"} onClick={(event) => panel === "results" ? closePanel() : openPanel("results", event.currentTarget)}>{state.results.some((log) => log.status !== "success") ? <AlertTriangle size={14}/> : <Check size={14}/>}<span>{resultsSummary}</span></button>}
     </div>
-    {focused && (error || notice) && <div className="fm-notice" role={error ? "alert" : "status"}>{error || notice}{copyFallback && <button className={buttonSecondary} onClick={copyInstead}>{t("fmDirectoryMoveCopyInstead")}</button>}<button className={buttonGhost} aria-label={t("fmDismiss")} onClick={dismissNotice}><X size={14}/></button></div>}
+    {focused && (error || notice) && <div className="fm-notice" role={error ? "alert" : "status"}>{error || notice}<button className={buttonGhost} aria-label={t("fmDismiss")} onClick={dismissNotice}><X size={14}/></button></div>}
       {focused && state.activeTransferTask && state.transferRunning && <aside className="fm-task-progress" role="status" aria-live="polite">
       <div className="fm-task-heading"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : liveTaskProgress ? `${liveTaskProgress.processed}/${liveTaskProgress.total} · ${t("fmTaskItems")}` : state.activeTransferTask.phase === "canceling" ? t("fmCancelPending") : t("fmExecuting")}</strong><button className={buttonGhost} disabled={state.activeTransferTask.cancelRequested} onClick={cancelRunningTransfer}>{state.activeTransferTask.cancelRequested ? t("fmCancelPending") : t("fmCancelRunning")}</button></div>
       {taskProgressBar(liveTaskProgress)}
       <span className="fm-path" title={liveTaskProgress?.currentPath || state.activeTransferTask.sourceSummary}>{liveTaskProgress?.currentPath || `${state.activeTransferTask.sourceSummary} → ${state.activeTransferTask.destinationSummary}`}</span>
       <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
-      {platform === "win32" && state.activeTransferTask.action === "copy" && <p className="fm-muted" role="note">{t("fmWindowsCopyAuditNotice")}</p>}
       <div className="fm-toolbar"><button className={buttonGhost} onClick={() => openPanel("tasks")}>{t("fmTaskDetails")}</button><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>
     </aside>}
     {panelOpen && <div ref={panelRef} id={panelId} className="fm-panel" role="region" aria-label={panelTitle}>
@@ -789,7 +749,6 @@ export function FileManagementToolbar() {
           {liveTaskProgress && taskProgressBar(liveTaskProgress)}
           {liveTaskProgress && <p>{`${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}`}</p>}
           <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
-          {platform === "win32" && state.activeTransferTask.action === "copy" && <p className="fm-muted" role="note">{t("fmWindowsCopyAuditNotice")}</p>}
           {state.transferOpen && <p role="status">{t("fmTaskAwaitingConflict")}</p>}
           {state.transferRunning && <button className={buttonSecondary} disabled={state.activeTransferTask.cancelRequested} onClick={cancelRunningTransfer}>{state.activeTransferTask.cancelRequested ? t("fmCancelPending") : t("fmCancelRunning")}</button>}
         </section>}

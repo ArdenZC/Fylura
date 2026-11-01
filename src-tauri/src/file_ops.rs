@@ -2229,8 +2229,6 @@ mod tests {
 
     #[test]
     fn copy_fallback_writes_through_temp_file_then_removes_source() {
-        let _sacl_absence =
-            crate::fs_safety::atomic_move::test_faults::assume_sacl_verified_absent_for_test();
         let root = test_dir();
         let source = root.join("source.txt");
         let target = root.join("target.txt");

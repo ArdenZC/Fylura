@@ -342,7 +342,15 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
       - name: Native filesystem hardening smoke
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
+        shell: pwsh
+        run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1
+      - name: Upload ordinary-user native filesystem evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-native-file-smoke-full-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fylura-native-file-qa-evidence
+          if-no-files-found: warn
 
   windows-native-preview-handler:
     name: Windows native Preview Handler

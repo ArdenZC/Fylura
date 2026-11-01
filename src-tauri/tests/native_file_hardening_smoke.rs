@@ -92,14 +92,58 @@ fn ordinary_restore_fixture(
     )
 }
 
+struct TokenEvidence {
+    identity: String,
+    groups: String,
+    privileges: String,
+    is_administrator: bool,
+    security_privilege_enabled: bool,
+}
+
+fn capture_token_evidence() -> TokenEvidence {
+    fn whoami(argument: &str) -> String {
+        let output = Command::new("whoami")
+            .arg(argument)
+            .output()
+            .unwrap_or_else(|error| panic!("run whoami {argument}: {error}"));
+        assert!(
+            output.status.success(),
+            "whoami {argument} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+    let identity = whoami("/user");
+    let groups = whoami("/groups");
+    let privileges = whoami("/priv");
+    let is_administrator = groups.contains("S-1-5-32-544");
+    let security_privilege_enabled = privileges.lines().any(|line| {
+        line.contains("SeSecurityPrivilege") && line.to_ascii_lowercase().contains("enabled")
+    });
+    TokenEvidence {
+        identity,
+        groups,
+        privileges,
+        is_administrator,
+        security_privilege_enabled,
+    }
+}
+
 #[derive(Serialize)]
 struct SmokeManifest {
     schema: &'static str,
     fixture_root: String,
     database: String,
     source_volume: String,
+    source_volume_id: String,
     target_volume: String,
+    target_volume_id: String,
     cross_volume_exercised: bool,
+    token_evidence_path: String,
+    token_identity: String,
+    token_is_administrator: bool,
+    token_security_privilege_enabled: bool,
+    token_privileges: String,
     ordinary_same_volume_file_copy: &'static str,
     ordinary_same_volume_directory_copy: &'static str,
     ordinary_cross_volume_file_copy: &'static str,
@@ -107,8 +151,7 @@ struct SmokeManifest {
     ordinary_same_volume_file_move: &'static str,
     ordinary_same_volume_directory_move: &'static str,
     ordinary_cross_volume_file_move: &'static str,
-    windows_copy_audit_policy: &'static str,
-    windows_sacl_inspection: &'static str,
+    windows_cross_volume_directory_acl: &'static str,
     operation_move_restore: &'static str,
     rename: &'static str,
     target_conflict: &'static str,
@@ -163,6 +206,33 @@ impl Drop for FixtureGuard {
 #[ignore = "native filesystem QA harness; run explicitly with --features 'desktop-runtime native-qa'"]
 fn native_file_hardening_smoke() {
     let run_id = uuid::Uuid::new_v4().to_string();
+    let token = capture_token_evidence();
+    let require_standard_user = env::var_os("ZC_NATIVE_QA_REQUIRE_STANDARD_USER").is_some();
+    if require_standard_user {
+        assert!(
+            !token.is_administrator,
+            "native filesystem smoke must run as a standard user; groups: {}",
+            token.groups
+        );
+        assert!(
+            !token.security_privilege_enabled,
+            "ordinary Move must not require enabled SeSecurityPrivilege: {}",
+            token.privileges
+        );
+    }
+    let artifact_root = env::var_os("ZC_NATIVE_QA_ARTIFACT_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| env::temp_dir().join("zen-canvas-native-qa-artifacts"));
+    let token_evidence_path = artifact_root.join("native-file-hardening-token.txt");
+    fs::create_dir_all(&artifact_root).expect("create native QA evidence directory");
+    fs::write(
+        &token_evidence_path,
+        format!(
+            "USER\n{}\nGROUPS\n{}\nPRIVILEGES\n{}\n",
+            token.identity, token.groups, token.privileges
+        ),
+    )
+    .expect("write actual test token evidence");
     let fixture_root = env::temp_dir().join(format!("zen-canvas-final-hardening-v413-{run_id}"));
     let source_volume = fixture_root.join("source-volume");
     let target_volume = secondary_target_root(&fixture_root, &run_id);
@@ -214,35 +284,30 @@ fn native_file_hardening_smoke() {
         },
     )
     .expect("execute production persisted move");
-    let operation_move_restore = if moved.logs[0].status == "success" {
-        assert_eq!(
-            fs::read(&target).expect("read target"),
-            b"bound native operation payload"
-        );
-        let restored = restore_moves_with_persistence(
-            &db,
-            RestoreMovesRequest {
-                logs: moved.logs.clone(),
-            },
-        )
-        .expect("restore production persisted move");
-        assert_eq!(restored.restored, 1);
-        assert_eq!(
-            fs::read(&source).expect("read restored source"),
-            b"bound native operation payload"
-        );
-        "passed"
-    } else {
-        let error = moved.logs[0].error_message.as_deref().unwrap_or_default();
-        assert!(
-            error.contains("windows_sacl_"),
-            "unexpected move refusal: {error}"
-        );
-        assert!(source.exists(), "safe refusal must retain source");
-        assert!(!target.exists(), "safe refusal must not publish a target");
-        eprintln!("UNVERIFIED: cross-volume file move safely refused because Windows SACL inspection was unavailable or an audit SACL was present");
-        "unverified_windows_sacl_refusal_source_retained"
-    };
+    assert_eq!(
+        moved.logs[0].status, "success",
+        "ordinary same-volume Move must succeed: {:?}",
+        moved.logs[0].error_message
+    );
+    assert_eq!(moved.logs[0].operation_phase, "completed");
+    assert!(moved.logs[0].can_restore);
+    assert_eq!(
+        fs::read(&target).expect("read target"),
+        b"bound native operation payload"
+    );
+    let restored = restore_moves_with_persistence(
+        &db,
+        RestoreMovesRequest {
+            logs: moved.logs.clone(),
+        },
+    )
+    .expect("restore production persisted move");
+    assert_eq!(restored.restored, 1);
+    assert_eq!(
+        fs::read(&source).expect("read restored source"),
+        b"bound native operation payload"
+    );
+    let operation_move_restore = "passed";
 
     let ordinary_restore_root = source_volume.join("ordinary-restore-faults");
     fs::create_dir_all(&ordinary_restore_root).expect("create ordinary restore fault root");
@@ -875,7 +940,19 @@ fn native_file_hardening_smoke() {
     assert_eq!(claim_log.status, "manual_review");
     assert_eq!(claim_log.operation_phase, "manual_review");
 
-    let cross_volume_exercised = volume_prefix(&source_volume) != volume_prefix(&target_volume);
+    let source_volume_id = physical_volume_id(&source_volume);
+    let target_volume_id = physical_volume_id(&target_volume);
+    let cross_volume_exercised = source_volume_id != target_volume_id;
+    if env::var_os("ZC_NATIVE_QA_REQUIRE_CROSS_VOLUME").is_some() {
+        assert!(
+            cross_volume_exercised,
+            "required native QA paths must be on distinct volumes: source={} ({}) target={} ({})",
+            source_volume.display(),
+            source_volume_id,
+            target_volume.display(),
+            target_volume_id
+        );
+    }
     let same_copy_parent = source_volume.join("ordinary-copy-destination");
     fs::create_dir_all(&same_copy_parent).expect("same-volume copy target parent");
     let same_file_source = source_volume.join("ordinary-copy-file.txt");
@@ -1027,7 +1104,7 @@ fn native_file_hardening_smoke() {
     let ordinary_same_volume_file_move = "passed_move_and_history_restore";
     let ordinary_same_volume_directory_move = "passed_move_and_history_restore";
     let mut ordinary_cross_volume_file_move = "unverified_no_secondary_volume";
-    let mut windows_sacl_inspection = "unverified_no_secondary_volume";
+    let mut windows_cross_volume_directory_acl = "unverified_no_secondary_volume";
     let mut cross_volume_directory_move = "unverified_no_secondary_volume";
     if cross_volume_exercised {
         let cross_copy_parent = target_volume.join("ordinary-copy-destination");
@@ -1112,41 +1189,225 @@ fn native_file_hardening_smoke() {
         )
         .expect("execute journaled cross-volume file Move");
         assert_eq!(cross_move_result.logs.len(), 1);
-        if cross_move_result.logs[0].status == "success" {
-            assert_eq!(cross_move_result.logs[0].operation_phase, "completed");
-            assert!(cross_move_result.logs[0].can_restore);
-            assert!(!cross_move_file_source.exists());
-            assert_eq!(sha256_file(&cross_move_file_target), cross_move_file_hash);
-            let restored = restore_moves_with_persistence(
-                &db,
-                RestoreMovesRequest {
-                    logs: cross_move_result.logs,
-                },
-            )
-            .expect("restore cross-volume file Move through History");
-            assert_eq!(restored.restored, 1);
-            assert_eq!(restored.failed, 0);
-            assert!(cross_move_file_source.is_file());
-            assert_eq!(sha256_file(&cross_move_file_source), cross_move_file_hash);
-            assert!(!cross_move_file_target.exists());
-            ordinary_cross_volume_file_move = "passed_move_and_history_restore";
-        } else {
-            let error = cross_move_result.logs[0]
-                .error_message
-                .as_deref()
-                .unwrap_or_default();
-            assert!(
-                error.contains("windows_sacl_"),
-                "unexpected ordinary cross-volume file Move refusal: {error}"
-            );
-            assert!(cross_move_file_source.is_file());
-            assert_eq!(sha256_file(&cross_move_file_source), cross_move_file_hash);
-            assert!(
-                !cross_move_file_target.exists(),
-                "cross-volume Move refusal must not publish a target"
-            );
-            ordinary_cross_volume_file_move = "unverified_sacl_refusal_source_retained";
-        }
+        assert_eq!(
+            cross_move_result.logs[0].status, "success",
+            "ordinary standard-user cross-volume file Move must succeed: {:?}",
+            cross_move_result.logs[0].error_message
+        );
+        assert_eq!(cross_move_result.logs[0].operation_phase, "completed");
+        assert!(cross_move_result.logs[0].can_restore);
+        assert!(!cross_move_file_source.exists());
+        assert_eq!(sha256_file(&cross_move_file_target), cross_move_file_hash);
+        let restored = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: cross_move_result.logs,
+            },
+        )
+        .expect("restore cross-volume file Move through History");
+        assert_eq!(restored.restored, 1);
+        assert_eq!(restored.failed, 0);
+        assert!(cross_move_file_source.is_file());
+        assert_eq!(sha256_file(&cross_move_file_source), cross_move_file_hash);
+        assert!(!cross_move_file_target.exists());
+        ordinary_cross_volume_file_move = "passed_move_and_history_restore";
+
+        let cancelled_source = source_volume.join("cross-volume-cancelled-directory");
+        let cancelled_target = target_volume.join("cross-volume-cancelled-directory");
+        fs::create_dir_all(cancelled_source.join("nested").join("empty"))
+            .expect("create cross-volume cancellation source");
+        fs::write(cancelled_source.join("a.bin"), vec![b'a'; 256 * 1024])
+            .expect("write first cross-volume cancellation source file");
+        let mut cancelled_permissions = fs::metadata(cancelled_source.join("a.bin"))
+            .expect("read cancellation source permissions")
+            .permissions();
+        cancelled_permissions.set_readonly(true);
+        fs::set_permissions(cancelled_source.join("a.bin"), cancelled_permissions)
+            .expect("mark first cancellation source file read-only");
+        fs::write(cancelled_source.join("nested").join("b.bin"), b"not copied")
+            .expect("write second cross-volume cancellation source file");
+        let cancelled_hash = sha256_file(&cancelled_source.join("a.bin"));
+        let cancelled_preview = native_qa_transfer_move_preview(&cancelled_source, &target_volume)
+            .expect("preview cross-volume directory Move cancellation fixture");
+        test_faults::set_fault(Some(AtomicFaultPoint::CancelDirectoryCopyAfterEntry));
+        let cancelled_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![cancelled_preview],
+            },
+        )
+        .expect("execute injected cross-volume directory cancellation");
+        test_faults::set_fault(None);
+        assert_eq!(cancelled_result.logs.len(), 1);
+        assert_eq!(cancelled_result.logs[0].status, "skipped");
+        assert_eq!(cancelled_result.logs[0].operation_phase, "copying");
+        assert!(cancelled_source.join("nested").join("empty").is_dir());
+        assert_eq!(sha256_file(&cancelled_source.join("a.bin")), cancelled_hash);
+        assert!(cancelled_source.join("nested").join("b.bin").is_file());
+        assert!(!cancelled_target.exists());
+        assert!(fs::read_dir(&target_volume)
+            .expect("inspect cross-volume staging cleanup")
+            .all(|entry| !entry
+                .expect("read target directory entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".zen-canvas-stage-")));
+
+        let out_of_space_source = source_volume.join("cross-volume-space-failure-directory");
+        let out_of_space_target = target_volume.join("cross-volume-space-failure-directory");
+        fs::create_dir_all(out_of_space_source.join("nested"))
+            .expect("create space-failure source");
+        fs::write(
+            out_of_space_source.join("payload.bin"),
+            vec![b'x'; 512 * 1024],
+        )
+        .expect("write space-failure payload");
+        let out_of_space_hash = sha256_file(&out_of_space_source.join("payload.bin"));
+        let out_of_space_preview =
+            native_qa_transfer_move_preview(&out_of_space_source, &target_volume)
+                .expect("preview injected cross-volume space failure");
+        test_faults::set_fault(Some(AtomicFaultPoint::OutOfSpaceDuringCopy));
+        let out_of_space_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![out_of_space_preview],
+            },
+        )
+        .expect("execute injected cross-volume space failure");
+        test_faults::set_fault(None);
+        assert_eq!(out_of_space_result.logs.len(), 1);
+        assert_eq!(out_of_space_result.logs[0].status, "failed");
+        assert!(out_of_space_result.logs[0]
+            .error_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("injected_out_of_space_during_copy"));
+        assert_eq!(
+            sha256_file(&out_of_space_source.join("payload.bin")),
+            out_of_space_hash,
+            "a staging write failure must retain the source"
+        );
+        assert!(!out_of_space_target.exists());
+        assert!(fs::read_dir(&target_volume)
+            .expect("inspect out-of-space staging cleanup")
+            .all(|entry| !entry
+                .expect("read target directory entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".zen-canvas-stage-")));
+
+        let conflict_source = source_volume.join("cross-volume-conflict.txt");
+        let conflict_parent = target_volume.join("conflict-destination");
+        fs::create_dir_all(&conflict_parent).expect("create conflict destination");
+        let conflict_target = conflict_parent.join("cross-volume-conflict.txt");
+        fs::write(&conflict_source, b"source must survive target conflict")
+            .expect("write conflicting Move source");
+        fs::write(&conflict_target, b"pre-existing target must survive")
+            .expect("write pre-existing Move target");
+        let conflict_source_hash = sha256_file(&conflict_source);
+        let conflict_target_hash = sha256_file(&conflict_target);
+        let conflict_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![native_qa_transfer_move_preview(
+                    &conflict_source,
+                    &conflict_parent,
+                )
+                .expect("preview cross-volume no-overwrite Move")],
+            },
+        )
+        .expect("execute cross-volume no-overwrite Move");
+        assert_eq!(conflict_result.logs[0].status, "failed");
+        assert!(conflict_result.logs[0]
+            .error_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("target_exists"));
+        assert_eq!(sha256_file(&conflict_source), conflict_source_hash);
+        assert_eq!(sha256_file(&conflict_target), conflict_target_hash);
+
+        let stream_source = source_volume.join("cross-volume-stream.txt");
+        let stream_target = target_volume.join("cross-volume-stream.txt");
+        fs::write(&stream_source, b"ordinary file stream base data")
+            .expect("write alternate-stream fixture");
+        let mut stream_path = stream_source.as_os_str().to_os_string();
+        stream_path.push(":fylura-qa");
+        let stream_path = PathBuf::from(stream_path);
+        fs::write(&stream_path, b"alternate stream payload").expect("write alternate data stream");
+        let stream_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![
+                    native_qa_transfer_move_preview(&stream_source, &target_volume)
+                        .expect("preview unsupported alternate-stream Move"),
+                ],
+            },
+        )
+        .expect("execute unsupported alternate-stream Move");
+        assert_eq!(stream_result.logs[0].status, "failed");
+        assert!(stream_result.logs[0]
+            .error_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("windows_special_metadata_unsupported:alternate_data_stream"));
+        assert!(stream_source.is_file());
+        assert_eq!(
+            fs::read(&stream_path).expect("retained alternate data stream"),
+            b"alternate stream payload"
+        );
+        assert!(!stream_target.exists());
+
+        let denied_parent = target_volume.join("permission-denied-destination");
+        fs::create_dir_all(&denied_parent).expect("create permission-failure target parent");
+        let denied = Command::new("icacls")
+            .arg(&denied_parent)
+            .args(["/deny", "*S-1-5-32-545:(WD,AD)"])
+            .output()
+            .expect("inject ordinary-user target write denial");
+        assert!(
+            denied.status.success(),
+            "could not inject target permission failure: {}",
+            String::from_utf8_lossy(&denied.stderr).trim()
+        );
+        let denied_source = source_volume.join("cross-volume-permission-failure-directory");
+        fs::create_dir_all(denied_source.join("nested")).expect("create denied Move source");
+        fs::write(
+            denied_source.join("nested").join("payload.bin"),
+            b"permission failure",
+        )
+        .expect("write denied Move source payload");
+        let denied_hash = sha256_file(&denied_source.join("nested").join("payload.bin"));
+        let denied_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![
+                    native_qa_transfer_move_preview(&denied_source, &denied_parent)
+                        .expect("preview cross-volume permission failure"),
+                ],
+            },
+        )
+        .expect("execute cross-volume permission failure");
+        let remove_deny = Command::new("icacls")
+            .arg(&denied_parent)
+            .args(["/remove:d", "*S-1-5-32-545"])
+            .output()
+            .expect("remove ordinary-user target write denial");
+        assert!(
+            remove_deny.status.success(),
+            "could not restore isolated target ACL: {}",
+            String::from_utf8_lossy(&remove_deny.stderr).trim()
+        );
+        assert_eq!(denied_result.logs[0].status, "failed");
+        assert!(denied_source.join("nested").join("payload.bin").is_file());
+        assert_eq!(
+            sha256_file(&denied_source.join("nested").join("payload.bin")),
+            denied_hash,
+            "a target permission error must restore the source namespace"
+        );
+        assert!(!denied_parent
+            .join("cross-volume-permission-failure-directory")
+            .exists());
+        assert_eq!(fs::read_dir(&denied_parent).unwrap().count(), 0);
 
         let directory_source = source_volume.join("cross-volume-directory");
         let directory_target = target_volume.join("cross-volume-directory");
@@ -1159,6 +1420,15 @@ fn native_file_hardening_smoke() {
             b"nested cross-volume canary",
         )
         .expect("nested directory canary");
+        let readonly_file = directory_source.join("nested").join("readonly.txt");
+        fs::write(&readonly_file, b"read-only metadata canary")
+            .expect("write read-only metadata canary");
+        let mut readonly_permissions = fs::metadata(&readonly_file)
+            .expect("read source file permissions")
+            .permissions();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&readonly_file, readonly_permissions)
+            .expect("mark source file read-only");
         let inheritance = Command::new("icacls")
             .arg(&directory_source)
             .args(["/inheritance:d"])
@@ -1169,18 +1439,31 @@ fn native_file_hardening_smoke() {
             "could not make the source DACL explicit: {}",
             String::from_utf8_lossy(&inheritance.stderr).trim()
         );
+        let source_only_acl_marker = "S-1-5-21-1111111111-2222222222-3333333333-4444";
         let explicit_acl = Command::new("icacls")
             .arg(&directory_source)
-            .args(["/grant", "*S-1-5-32-545:(OI)(CI)(RX)"])
+            .args(["/grant", &format!("*{source_only_acl_marker}:(OI)(CI)(RX)")])
             .output()
-            .expect("add an explicit cross-volume source DACL");
+            .expect("add an explicit source-only ACL marker");
         assert!(
             explicit_acl.status.success(),
-            "could not add the explicit source DACL: {}",
+            "could not add the source-only ACL marker: {}",
             String::from_utf8_lossy(&explicit_acl.stderr).trim()
+        );
+        let source_acl = Command::new("icacls")
+            .arg(&directory_source)
+            .output()
+            .expect("read explicit source ACL");
+        assert!(source_acl.status.success());
+        let source_acl = String::from_utf8_lossy(&source_acl.stdout).into_owned();
+        assert!(source_acl.contains(source_only_acl_marker));
+        assert!(
+            !source_acl.contains("(I)"),
+            "the source fixture must have an explicit, non-inherited ACL: {source_acl}"
         );
         let canary_hash = sha256_file(&directory_source.join("canary.txt"));
         let nested_hash = sha256_file(&directory_source.join("nested").join("内容.bin"));
+        let readonly_hash = sha256_file(&readonly_file);
         let move_preview = native_qa_transfer_move_preview(&directory_source, &target_volume)
             .expect("build transfer preview for the isolated directory move");
         let canonical_directory_target = target_volume
@@ -1201,69 +1484,150 @@ fn native_file_hardening_smoke() {
         )
         .expect("execute journaled cross-volume directory move");
         assert_eq!(move_result.logs.len(), 1);
-        if move_result.logs[0].status == "success" {
-            windows_sacl_inspection = "verified_absent_for_all_entries";
-            assert_eq!(move_result.logs[0].operation_phase, "completed");
-            assert!(move_result.logs[0].can_restore);
-            assert!(!directory_source.exists());
-            assert_eq!(
-                sha256_file(&directory_target.join("canary.txt")),
-                canary_hash,
-                "published file contents must match the source hash"
-            );
-            assert_eq!(
-                sha256_file(&directory_target.join("nested").join("内容.bin")),
-                nested_hash,
-                "published nested file contents must match the source hash"
-            );
-            assert!(directory_target.join("nested").join("empty").is_dir());
+        assert_eq!(
+            move_result.logs[0].status, "success",
+            "ordinary standard-user cross-volume directory Move must succeed: {:?}",
+            move_result.logs[0].error_message
+        );
+        assert_eq!(move_result.logs[0].operation_phase, "completed");
+        assert!(move_result.logs[0].can_restore);
+        assert!(!directory_source.exists());
+        assert_eq!(
+            sha256_file(&directory_target.join("canary.txt")),
+            canary_hash,
+            "published file contents must match the source hash"
+        );
+        assert_eq!(
+            sha256_file(&directory_target.join("nested").join("内容.bin")),
+            nested_hash,
+            "published nested file contents must match the source hash"
+        );
+        assert_eq!(
+            sha256_file(&directory_target.join("nested").join("readonly.txt")),
+            readonly_hash
+        );
+        assert!(
+            fs::metadata(directory_target.join("nested").join("readonly.txt"))
+                .expect("read target read-only metadata")
+                .permissions()
+                .readonly()
+        );
+        assert!(directory_target.join("nested").join("empty").is_dir());
+        let target_acl = Command::new("icacls")
+            .arg(&directory_target)
+            .output()
+            .expect("read target ACL inherited from destination parent");
+        assert!(target_acl.status.success());
+        let target_acl = String::from_utf8_lossy(&target_acl.stdout).into_owned();
+        assert!(
+            target_acl.contains("(I)"),
+            "new target directory must use destination-parent ACL inheritance: {target_acl}"
+        );
+        assert!(
+            !target_acl.contains(source_only_acl_marker),
+            "the source's explicit ACL marker must not be copied to the target: {target_acl}"
+        );
+        windows_cross_volume_directory_acl =
+            "passed_destination_parent_inherited_source_acl_not_copied";
 
-            let directory_restore = restore_moves_with_persistence(
-                &db,
-                RestoreMovesRequest {
-                    logs: move_result.logs,
-                },
-            )
-            .expect("restore cross-volume directory through History");
-            assert_eq!(directory_restore.restored, 1);
-            assert_eq!(directory_restore.failed, 0);
-            assert_eq!(directory_restore.logs[0].restore_status, "restored");
-            assert!(directory_source.join("nested").join("empty").is_dir());
-            assert_eq!(
-                sha256_file(&directory_source.join("canary.txt")),
-                canary_hash
-            );
-            assert_eq!(
-                sha256_file(&directory_source.join("nested").join("内容.bin")),
-                nested_hash
-            );
-            assert!(!directory_target.exists());
-            cross_volume_directory_move = "passed_move_and_history_restore";
-        } else {
-            let error = move_result.logs[0]
-                .error_message
+        let directory_restore = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: move_result.logs,
+            },
+        )
+        .expect("restore cross-volume directory through History");
+        assert_eq!(directory_restore.restored, 1);
+        assert_eq!(directory_restore.failed, 0);
+        assert_eq!(directory_restore.logs[0].restore_status, "restored");
+        assert!(directory_source.join("nested").join("empty").is_dir());
+        assert_eq!(
+            sha256_file(&directory_source.join("canary.txt")),
+            canary_hash
+        );
+        assert_eq!(
+            sha256_file(&directory_source.join("nested").join("内容.bin")),
+            nested_hash
+        );
+        assert_eq!(sha256_file(&readonly_file), readonly_hash);
+        assert!(fs::metadata(&readonly_file)
+            .expect("read restored read-only source metadata")
+            .permissions()
+            .readonly());
+        assert!(!directory_target.exists());
+        cross_volume_directory_move = "passed_move_and_history_restore";
+
+        let pending_source = source_volume.join("cross-volume-cleanup-pending-directory");
+        let pending_target = target_volume.join("cross-volume-cleanup-pending-directory");
+        fs::create_dir_all(pending_source.join("nested")).expect("create cleanup-pending source");
+        fs::write(
+            pending_source.join("nested").join("payload.bin"),
+            b"cleanup pending",
+        )
+        .expect("write cleanup-pending payload");
+        let pending_hash = sha256_file(&pending_source.join("nested").join("payload.bin"));
+        let pending_preview = native_qa_transfer_move_preview(&pending_source, &target_volume)
+            .expect("preview cleanup-pending cross-volume Move");
+        test_faults::set_fault(Some(AtomicFaultPoint::SourceCleanup));
+        let pending_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![pending_preview],
+            },
+        )
+        .expect("execute injected post-publication cleanup failure");
+        test_faults::set_fault(None);
+        let pending_log = pending_result.logs.first().expect("cleanup-pending log");
+        assert_eq!(pending_log.status, "manual_review");
+        assert_eq!(pending_log.operation_phase, "source_cleanup_pending");
+        assert!(pending_log
+            .error_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("target_committed_source_cleanup_pending"));
+        assert!(!pending_source.exists());
+        assert!(pending_target.is_dir());
+        assert_eq!(
+            sha256_file(&pending_target.join("nested").join("payload.bin")),
+            pending_hash
+        );
+        let pending_claim = PathBuf::from(
+            pending_log
+                .source_claim_path
                 .as_deref()
-                .unwrap_or_default();
-            assert!(
-                error.contains("windows_sacl_"),
-                "unexpected cross-volume refusal: {error}"
-            );
-            assert!(
-                directory_source.exists(),
-                "safe refusal must retain directory source"
-            );
-            assert!(
-                !directory_target.exists(),
-                "safe refusal must not publish directory target"
-            );
-            if error.contains("windows_sacl_transfer_unsupported") {
-                windows_sacl_inspection = "verified_audit_sacl_present_refused";
-            } else {
-                windows_sacl_inspection = "unavailable_refused_before_mutation";
-            }
-            eprintln!("UNVERIFIED: cross-volume directory move safely refused; source and target state checked: {error}");
-            cross_volume_directory_move = "unverified_sacl_refusal_source_retained";
-        }
+                .expect("persisted source claim path"),
+        );
+        assert!(pending_claim.is_dir());
+        assert_eq!(
+            sha256_file(&pending_claim.join("nested").join("payload.bin")),
+            pending_hash,
+            "both committed target and claimed source remain intact"
+        );
+        let mut interrupted_log = pending_log.clone();
+        interrupted_log.status = "pending".to_string();
+        db.save_operation_logs(
+            &interrupted_log.batch_id,
+            std::slice::from_ref(&interrupted_log),
+        )
+        .expect("persist interrupted cleanup-pending state");
+        assert_eq!(
+            reconcile_pending_operation_journal(&db)
+                .expect("reconcile cross-volume cleanup-pending Move"),
+            1
+        );
+        let recovered_pending_log = db
+            .get_operation_logs(Some(300))
+            .expect("read recovered cleanup-pending operation")
+            .into_iter()
+            .find(|log| log.id == pending_log.id)
+            .expect("recovered cleanup-pending operation");
+        assert_eq!(recovered_pending_log.status, "manual_review");
+        assert_eq!(
+            recovered_pending_log.operation_phase,
+            "source_cleanup_pending"
+        );
+        assert!(pending_claim.exists());
+        assert!(pending_target.exists());
     }
 
     let cleanup_source = target_volume.join("node_modules");
@@ -1688,9 +2052,7 @@ fn native_file_hardening_smoke() {
         .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
         .expect("SQLite integrity_check");
     assert_eq!(sqlite_integrity, "ok");
-    let manifest_path = env::temp_dir()
-        .join("zen-canvas-native-qa-artifacts")
-        .join("native-file-hardening-smoke.json");
+    let manifest_path = artifact_root.join("native-file-hardening-smoke.json");
     fs::create_dir_all(manifest_path.parent().expect("manifest parent"))
         .expect("create manifest directory");
     let fixture_text = fixture_root.to_string_lossy().into_owned();
@@ -1707,12 +2069,19 @@ fn native_file_hardening_smoke() {
         remove_isolated_fixture(secondary_root);
     }
     let manifest = SmokeManifest {
-        schema: "zen-canvas-native-file-hardening-smoke/v5",
+        schema: "zen-canvas-native-file-hardening-smoke/v6",
         fixture_root: fixture_text,
         database: database_text,
         source_volume: source_text,
+        source_volume_id,
         target_volume: target_text,
+        target_volume_id,
         cross_volume_exercised,
+        token_evidence_path: token_evidence_path.to_string_lossy().into_owned(),
+        token_identity: token.identity,
+        token_is_administrator: token.is_administrator,
+        token_security_privilege_enabled: token.security_privilege_enabled,
+        token_privileges: token.privileges,
         ordinary_same_volume_file_copy,
         ordinary_same_volume_directory_copy,
         ordinary_cross_volume_file_copy,
@@ -1720,20 +2089,13 @@ fn native_file_hardening_smoke() {
         ordinary_same_volume_file_move,
         ordinary_same_volume_directory_move,
         ordinary_cross_volume_file_move,
-        windows_copy_audit_policy: "destination_parent_inherited_source_sacl_not_copied",
-        windows_sacl_inspection,
+        windows_cross_volume_directory_acl,
         operation_move_restore,
         rename: "passed",
         target_conflict: "passed",
         source_replacement: "passed",
         target_parent_replacement: "passed",
-        staging_handle_copy_commit: if cross_volume_directory_move
-            == "passed_move_and_history_restore"
-        {
-            "passed"
-        } else {
-            "unverified_sacl_or_volume_capability"
-        },
+        staging_handle_copy_commit: "passed",
         cross_volume_directory_move,
         durability_failure: "passed",
         safe_trash_durability_failure: "passed",
@@ -1782,36 +2144,40 @@ fn sha256_file(path: &Path) -> String {
 }
 
 fn secondary_target_root(fixture_root: &Path, run_id: &str) -> PathBuf {
-    let source_prefix = volume_prefix(fixture_root);
+    let source_volume_id = physical_volume_id(
+        fixture_root
+            .parent()
+            .expect("source temp root has a parent"),
+    );
     if let Ok(configured) = env::var("ZEN_CANVAS_NATIVE_QA_SECONDARY_TEMP") {
         let configured = PathBuf::from(configured);
-        if configured.is_absolute() && volume_prefix(&configured) != source_prefix {
-            return configured
-                .join(format!("zen-canvas-final-hardening-v413-{run_id}"))
-                .join("target-volume");
+        if configured.is_absolute() && fs::create_dir_all(&configured).is_ok() {
+            if physical_volume_id(&configured) != source_volume_id {
+                return configured
+                    .join(format!("zen-canvas-final-hardening-v413-{run_id}"))
+                    .join("target-volume");
+            }
         }
     }
     for drive in b'C'..=b'Z' {
-        let candidate_root = PathBuf::from(format!(
-            "{}:\\zen-canvas-final-hardening-v413-{run_id}",
-            drive as char
-        ));
-        if volume_prefix(&candidate_root) == source_prefix {
-            continue;
-        }
-        let candidate = candidate_root.join("target-volume");
-        if fs::create_dir_all(&candidate).is_ok() {
-            return candidate;
+        let candidate_root = PathBuf::from(format!("{}:\\fylura-native-qa", drive as char));
+        if fs::create_dir_all(&candidate_root).is_ok()
+            && physical_volume_id(&candidate_root) != source_volume_id
+        {
+            return candidate_root
+                .join(format!("zen-canvas-final-hardening-v413-{run_id}"))
+                .join("target-volume");
         }
     }
     fixture_root.join("target-volume")
 }
 
-fn volume_prefix(path: &Path) -> String {
-    path.components()
-        .next()
-        .map(|component| component.as_os_str().to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default()
+fn physical_volume_id(path: &Path) -> String {
+    VerifiedDirectory::open_existing(path)
+        .unwrap_or_else(|error| panic!("open volume identity path {}: {error}", path.display()))
+        .identity()
+        .volume_id
+        .clone()
 }
 
 fn remove_isolated_fixture(path: &Path) {
@@ -1819,6 +2185,7 @@ fn remove_isolated_fixture(path: &Path) {
     assert!(text.contains("zen-canvas-final-hardening-v413-"));
     assert!(path.parent().is_some());
     if path.exists() {
+        clear_fixture_readonly(path).expect("clear read-only fixture attributes");
         fs::remove_dir_all(path).expect("remove isolated native QA fixture");
     }
 }
@@ -1827,6 +2194,22 @@ fn remove_isolated_fixture_if_present(path: &Path) {
     let text = path.to_string_lossy().to_ascii_lowercase();
     if text.contains("zen-canvas-final-hardening-v413-") && path.parent().is_some() && path.exists()
     {
+        let _ = clear_fixture_readonly(path);
         let _ = fs::remove_dir_all(path);
     }
+}
+
+fn clear_fixture_readonly(path: &Path) -> std::io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        for entry in fs::read_dir(path)? {
+            clear_fixture_readonly(&entry?.path())?;
+        }
+    }
+    if metadata.permissions().readonly() {
+        let mut permissions = metadata.permissions();
+        permissions.set_readonly(false);
+        fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
 }

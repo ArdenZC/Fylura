@@ -232,8 +232,26 @@ fn copy_commit_claim_with_source_retirement(
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     retire_source: bool,
 ) -> Result<(), AtomicMoveError> {
-    if retire_source {
-        if let Err(error) = ensure_windows_sacl_absent_at_path(claim.current_path()) {
+    // Windows creates each staging entry under the verified destination
+    // parent, so the target receives that parent's normal inherited security
+    // descriptor (including its mandatory integrity label). Cross-volume
+    // transfers intentionally do not inspect or copy the source Owner, DACL,
+    // or SACL; the source remains claimed and unchanged until the target is
+    // verified, published without replacement, and durable.
+    #[cfg(windows)]
+    if claim.kind() == ClaimedEntryKind::File {
+        let source_path = claim.current_path().to_path_buf();
+        let preflight = (|| {
+            let source_handle = claim.open_read().map_err(map_claim_error)?;
+            let metadata = source_handle.metadata().map_err(AtomicMoveError::Io)?;
+            if !metadata.is_file() || metadata_is_reparse_point(&metadata) {
+                return Err(AtomicMoveError::ReparsePoint);
+            }
+            ensure_supported_windows_file_attributes(&metadata)?;
+            ensure_windows_no_named_streams(&source_path)?;
+            Ok(())
+        })();
+        if let Err(error) = preflight {
             return rollback_before_publish(claim, error);
         }
     }
@@ -253,16 +271,18 @@ fn copy_commit_claim_with_source_retirement(
         return Err(AtomicMoveError::CrossVolumeDirectoryMoveUnsupported);
     }
     if is_cancelled(cancel) {
-        let _ = claim.rollback_to_original();
-        return Err(AtomicMoveError::Cancelled);
+        return rollback_before_publish(claim, AtomicMoveError::Cancelled);
     }
-    claim
-        .verify_current_identity(cancel)
-        .map_err(map_claim_error)?;
-    target_parent
-        .ensure_unchanged()
-        .map_err(map_directory_error)?;
-    let mut staging = StagingFile::create(&target_parent, target_name)?;
+    if let Err(error) = claim.verify_current_identity(cancel) {
+        return rollback_before_publish(claim, map_claim_error(error));
+    }
+    if let Err(error) = target_parent.ensure_unchanged() {
+        return rollback_before_publish(claim, map_directory_error(error));
+    }
+    let mut staging = match StagingFile::create(&target_parent, target_name) {
+        Ok(staging) => staging,
+        Err(error) => return rollback_before_publish(claim, error),
+    };
     let mut target_committed = false;
     let result = (|| {
         if let Some(observer) = observer.as_deref_mut() {
@@ -292,10 +312,6 @@ fn copy_commit_claim_with_source_retirement(
             &target_parent.path().join(target_name),
         );
         staging.verify_path_binding(cancel)?;
-        if retire_source {
-            ensure_windows_sacl_absent_at_path(claim.current_path())?;
-            ensure_windows_sacl_absent_at_path(&staging.path)?;
-        }
         staging.commit_noreplace(target_name)?;
         target_committed = true;
         if let Some(observer) = observer.as_deref_mut() {
@@ -357,8 +373,31 @@ fn copy_commit_claim_with_source_retirement(
                     .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
                 return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
             }
-            if ensure_windows_sacl_absent_at_path(claim.current_path()).is_err() {
-                return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+            #[cfg(windows)]
+            {
+                let source_path = claim.current_path().to_path_buf();
+                let source_handle = claim.open_read().map_err(|error| {
+                    AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+                        "source_cleanup_pending: {error}"
+                    ))
+                })?;
+                let metadata = source_handle.metadata().map_err(|error| {
+                    AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+                        "source_cleanup_pending: {error}"
+                    ))
+                })?;
+                if !metadata.is_file() || metadata_is_reparse_point(&metadata) {
+                    return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+                }
+                ensure_supported_windows_file_attributes(&metadata)
+                    .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+                ensure_windows_no_named_streams(&source_path)
+                    .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
+                claim.verify_current_identity(cancel).map_err(|error| {
+                    AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+                        "source_cleanup_pending: {error}"
+                    ))
+                })?;
             }
             claim.delete_claim().map_err(|error| {
                 AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string())
@@ -468,13 +507,8 @@ fn copy_directory_claim(
         }
         ensure_supported_windows_file_attributes(&source_root_metadata)?;
         ensure_windows_no_named_streams(claim.current_path())?;
-        let source_before = directory_content_digest(
-            claim.current_path(),
-            cancel,
-            &mut progress,
-            &mut observer,
-            retire_source,
-        )?;
+        let source_before =
+            directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)?;
         progress.finish(&mut observer)?;
         Ok(source_before)
     })();
@@ -519,25 +553,17 @@ fn copy_directory_claim(
             cancel,
             &mut progress,
             &mut observer,
-            retire_source,
         )?;
+        copy_windows_directory_metadata(claim.current_path(), &staging.path)?;
         progress.finish(&mut observer)?;
-        if retire_source {
-            copy_windows_security_descriptor(claim.current_path(), &staging.path)?;
-        }
         progress.reset(
             "verify_source",
             Some(source_before.entries),
             Some(source_before.bytes),
             &mut observer,
         )?;
-        let source_after = directory_content_digest(
-            claim.current_path(),
-            cancel,
-            &mut progress,
-            &mut observer,
-            retire_source,
-        )?;
+        let source_after =
+            directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)?;
         progress.finish(&mut observer)?;
         progress.reset(
             "verify_staging",
@@ -545,13 +571,7 @@ fn copy_directory_claim(
             Some(source_before.bytes),
             &mut observer,
         )?;
-        let staged = directory_content_digest(
-            &staging.path,
-            cancel,
-            &mut progress,
-            &mut observer,
-            retire_source,
-        )?;
+        let staged = directory_content_digest(&staging.path, cancel, &mut progress, &mut observer)?;
         progress.finish(&mut observer)?;
         if source_before.hash != source_after.hash || source_before.hash != staged.hash {
             return Err(AtomicMoveError::CopyVerificationFailed);
@@ -599,7 +619,6 @@ fn copy_directory_claim(
             cancel,
             &mut progress,
             &mut observer,
-            retire_source,
         )
         .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
         progress.finish(&mut observer)?;
@@ -778,7 +797,6 @@ fn copy_directory_contents(
     cancel: Option<&AtomicBool>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    require_sacl_absent: bool,
 ) -> Result<(), AtomicMoveError> {
     const MAX_DEPTH: usize = 64;
     const MAX_ENTRIES: usize = 5000;
@@ -821,24 +839,14 @@ fn copy_directory_contents(
                 cancel,
                 progress,
                 observer,
-                require_sacl_absent,
             )?;
-            if require_sacl_absent {
-                copy_windows_security_descriptor(&source_child, &target_child)?;
-            }
+            copy_windows_directory_metadata(&source_child, &target_child)?;
             VerifiedDirectory::open_existing(&target_child)
                 .map_err(map_directory_error)?
                 .sync()
                 .map_err(AtomicMoveError::Io)?;
         } else if metadata.is_file() {
-            copy_regular_file(
-                &source_child,
-                &target_child,
-                cancel,
-                progress,
-                observer,
-                require_sacl_absent,
-            )?;
+            copy_regular_file(&source_child, &target_child, cancel, progress, observer)?;
         } else {
             return Err(AtomicMoveError::UnsafePath);
         }
@@ -863,7 +871,6 @@ fn copy_regular_file(
     cancel: Option<&AtomicBool>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    require_sacl_absent: bool,
 ) -> Result<(), AtomicMoveError> {
     use std::io::{Seek, SeekFrom};
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
@@ -871,9 +878,6 @@ fn copy_regular_file(
 
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
-    }
-    if require_sacl_absent {
-        ensure_windows_sacl_absent_at_path(source)?;
     }
     ensure_windows_no_named_streams(source)?;
     let mut source_options = OpenOptions::new();
@@ -919,6 +923,14 @@ fn copy_regular_file(
         hasher.update(&buffer[..read]);
         copied = copied.saturating_add(read as u64);
         progress.record_bytes(source, read as u64, observer)?;
+        #[cfg(any(test, feature = "native-qa"))]
+        if super::atomic_move::test_faults::take_fault(
+            super::atomic_move::test_faults::AtomicFaultPoint::OutOfSpaceDuringCopy,
+        ) {
+            return Err(AtomicMoveError::Io(io::Error::other(
+                "injected_out_of_space_during_copy",
+            )));
+        }
     }
     let source_times = std::fs::FileTimes::new()
         .set_accessed(metadata.accessed().map_err(AtomicMoveError::Io)?)
@@ -944,386 +956,61 @@ fn copy_regular_file(
     if !identity::content_identity_matches(&expected, &target_identity) {
         return Err(AtomicMoveError::CopyVerificationFailed);
     }
-    if require_sacl_absent {
-        copy_windows_security_descriptor(source, target)?;
-    }
     Ok(())
 }
 
 #[cfg(windows)]
-fn copy_windows_security_descriptor(
+fn copy_windows_directory_metadata(
     source: &std::path::Path,
     target: &std::path::Path,
 ) -> Result<(), AtomicMoveError> {
-    use windows_sys::Win32::{
-        Foundation::GetLastError,
-        Security::{SetFileSecurityW, PROTECTED_DACL_SECURITY_INFORMATION},
-    };
-    // This helper is used only for destructive Move after SACL absence has
-    // been established. Source-preserving Copy deliberately skips it and
-    // inherits the destination parent's DACL and audit policy.
-    ensure_windows_sacl_absent_at_path(source)?;
-    let descriptor = read_windows_security_descriptor(source)?;
-    let target_wide = source_claim::windows_wide_path(target);
-    if unsafe {
-        SetFileSecurityW(
-            target_wide.as_ptr(),
-            // Keep the source's current effective ACE list when the staged
-            // entry is created under a different parent. Leaving inheritance
-            // enabled here would silently merge the destination parent's
-            // DACL into the moved tree and could broaden access.
-            descriptor.information | PROTECTED_DACL_SECURITY_INFORMATION,
-            descriptor.bytes.as_ptr().cast_mut().cast(),
-        )
-    } == 0
-    {
-        let error = unsafe { GetLastError() };
-        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
-            error as i32,
-        )));
-    }
-    ensure_windows_sacl_absent_at_path(target)?;
-    Ok(())
-}
-
-/// Fail closed for Windows staged transfers when SACL state cannot be read or
-/// when an audit ACL is present. The privilege is enabled only while opening
-/// and inspecting each entry, then immediately restored.
-#[cfg(windows)]
-pub(crate) fn ensure_windows_transfer_security_supported(
-    root: &std::path::Path,
-    cancel: Option<&AtomicBool>,
-) -> Result<(), AtomicMoveError> {
-    fn visit(
-        current: &std::path::Path,
-        depth: usize,
-        entry_count: &mut usize,
-        cancel: Option<&AtomicBool>,
-    ) -> Result<(), AtomicMoveError> {
-        const MAX_DEPTH: usize = 64;
-        const MAX_ENTRIES: usize = 5000;
-        if is_cancelled(cancel) {
-            return Err(AtomicMoveError::Cancelled);
-        }
-        if depth >= MAX_DEPTH {
-            return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
-        }
-        ensure_windows_sacl_absent_at_path(current)?;
-        let metadata = fs::symlink_metadata(current).map_err(AtomicMoveError::Io)?;
-        if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
-            return Err(AtomicMoveError::ReparsePoint);
-        }
-        if !metadata.is_dir() {
-            if metadata.is_file() {
-                return Ok(());
-            }
-            return Err(AtomicMoveError::UnsafePath);
-        }
-        let mut entries = Vec::new();
-        for entry in fs::read_dir(current).map_err(AtomicMoveError::Io)? {
-            if entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
-                return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
-            }
-            entries.push(entry.map_err(AtomicMoveError::Io)?);
-        }
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            if is_cancelled(cancel) {
-                return Err(AtomicMoveError::Cancelled);
-            }
-            *entry_count += 1;
-            if *entry_count > MAX_ENTRIES {
-                return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
-            }
-            visit(&entry.path(), depth + 1, entry_count, cancel)?;
-        }
-        Ok(())
-    }
-
-    let mut entry_count = 0;
-    visit(root, 0, &mut entry_count, cancel)
-}
-
-#[cfg(windows)]
-fn ensure_windows_sacl_absent_at_path(path: &std::path::Path) -> Result<(), AtomicMoveError> {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::{
         Foundation::{GetLastError, INVALID_HANDLE_VALUE},
         Storage::FileSystem::{
             CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, READ_CONTROL,
+            FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, OPEN_EXISTING, SYNCHRONIZE,
         },
-        System::SystemServices::ACCESS_SYSTEM_SECURITY,
     };
 
-    let metadata = fs::symlink_metadata(path).map_err(AtomicMoveError::Io)?;
-    if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
+    let source_metadata = fs::symlink_metadata(source).map_err(AtomicMoveError::Io)?;
+    if !source_metadata.is_dir() || metadata_is_reparse_point(&source_metadata) {
         return Err(AtomicMoveError::ReparsePoint);
     }
-    #[cfg(test)]
-    if super::atomic_move::test_faults::take_fault(
-        super::atomic_move::test_faults::AtomicFaultPoint::WindowsSaclTransferUnsupported,
-    ) {
-        return Err(AtomicMoveError::WindowsSaclTransferUnsupported);
-    }
-    #[cfg(test)]
-    if super::atomic_move::test_faults::sacl_verified_absent_override_for_test() {
-        return Ok(());
-    }
-    let _privilege = WindowsSaclPrivilege::enable()?;
-    let wide = source_claim::windows_wide_path(path);
-    let flags = FILE_FLAG_OPEN_REPARSE_POINT
-        | if metadata.is_dir() {
-            FILE_FLAG_BACKUP_SEMANTICS
-        } else {
-            0
-        };
+    ensure_supported_windows_file_attributes(&source_metadata)?;
+    ensure_windows_no_named_streams(source)?;
+
+    let wide = source_claim::windows_wide_path(target);
     let raw = unsafe {
         CreateFileW(
             wide.as_ptr(),
-            READ_CONTROL | ACCESS_SYSTEM_SECURITY,
+            FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | SYNCHRONIZE,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,
-            flags,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
             std::ptr::null_mut(),
         )
     };
     if raw == INVALID_HANDLE_VALUE {
-        let _error = unsafe { GetLastError() };
-        return Err(AtomicMoveError::WindowsSaclInspectionUnavailable);
+        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
+            unsafe { GetLastError() } as i32,
+        )));
     }
-    let handle = unsafe { std::fs::File::from(OwnedHandle::from_raw_handle(raw)) };
-    let info = windows_handle_entry_info(&handle)?;
-    if info.is_reparse || info.is_directory != metadata.is_dir() {
+    let target_handle = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
+    let target_metadata = target_handle.metadata().map_err(AtomicMoveError::Io)?;
+    if !target_metadata.is_dir() || metadata_is_reparse_point(&target_metadata) {
         return Err(AtomicMoveError::ReparsePoint);
     }
-    ensure_windows_sacl_absent_from_handle(&handle, &_privilege)
-}
-
-#[cfg(windows)]
-fn ensure_windows_sacl_absent_from_handle(
-    file: &File,
-    _privilege: &WindowsSaclPrivilege,
-) -> Result<(), AtomicMoveError> {
-    #[cfg(test)]
-    if _privilege.verified_absent_test_override {
-        return Ok(());
-    }
-    use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::{
-        Foundation::{GetLastError, LocalFree, HANDLE},
-        Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT},
-        Security::{GetSecurityDescriptorSacl, SACL_SECURITY_INFORMATION},
-    };
-    let mut descriptor = std::ptr::null_mut();
-    let status = unsafe {
-        GetSecurityInfo(
-            file.as_raw_handle() as HANDLE,
-            SE_FILE_OBJECT,
-            SACL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            &mut descriptor,
-        )
-    };
-    if status != 0 {
-        return Err(AtomicMoveError::WindowsSaclInspectionUnavailable);
-    }
-    let mut present = 0;
-    let mut sacl = std::ptr::null_mut();
-    let mut defaulted = 0;
-    let read_ok =
-        unsafe { GetSecurityDescriptorSacl(descriptor, &mut present, &mut sacl, &mut defaulted) };
-    unsafe {
-        LocalFree(descriptor);
-    }
-    if read_ok == 0 {
-        let _ = unsafe { GetLastError() };
-        return Err(AtomicMoveError::WindowsSaclInspectionUnavailable);
-    }
-    if present != 0 {
-        return Err(AtomicMoveError::WindowsSaclTransferUnsupported);
-    }
+    let times = std::fs::FileTimes::new()
+        .set_accessed(source_metadata.accessed().map_err(AtomicMoveError::Io)?)
+        .set_modified(source_metadata.modified().map_err(AtomicMoveError::Io)?);
+    target_handle
+        .set_times(times)
+        .map_err(AtomicMoveError::Io)?;
+    set_windows_copy_attributes(target, source_metadata.file_attributes())?;
     Ok(())
-}
-
-#[cfg(windows)]
-struct WindowsSaclPrivilege {
-    token: windows_sys::Win32::Foundation::HANDLE,
-    previous: windows_sys::Win32::Security::TOKEN_PRIVILEGES,
-    _lock: Option<std::sync::MutexGuard<'static, ()>>,
-    #[cfg(test)]
-    verified_absent_test_override: bool,
-}
-
-#[cfg(windows)]
-impl WindowsSaclPrivilege {
-    fn enable() -> Result<Self, AtomicMoveError> {
-        use windows_sys::Win32::{
-            Foundation::{CloseHandle, GetLastError, ERROR_NOT_ALL_ASSIGNED, HANDLE, LUID},
-            Security::{
-                AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES,
-                SE_PRIVILEGE_ENABLED, SE_SECURITY_NAME, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES,
-                TOKEN_QUERY,
-            },
-            System::Threading::{GetCurrentProcess, OpenProcessToken},
-        };
-        #[cfg(test)]
-        if super::atomic_move::test_faults::sacl_verified_absent_override_for_test() {
-            return Ok(Self {
-                token: std::ptr::null_mut(),
-                previous: TOKEN_PRIVILEGES::default(),
-                _lock: None,
-                verified_absent_test_override: true,
-            });
-        }
-        #[cfg(any(test, feature = "native-qa"))]
-        if super::atomic_move::test_faults::take_fault(
-            super::atomic_move::test_faults::AtomicFaultPoint::WindowsSaclInspectionUnavailable,
-        ) {
-            return Err(AtomicMoveError::WindowsSaclInspectionUnavailable);
-        }
-        static PRIVILEGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let lock = PRIVILEGE_LOCK
-            .lock()
-            .map_err(|_| AtomicMoveError::WindowsSaclInspectionUnavailable)?;
-        let mut token: HANDLE = std::ptr::null_mut();
-        if unsafe {
-            OpenProcessToken(
-                GetCurrentProcess(),
-                TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-                &mut token,
-            )
-        } == 0
-        {
-            return Err(AtomicMoveError::WindowsSaclInspectionUnavailable);
-        }
-        let mut luid = LUID::default();
-        if unsafe { LookupPrivilegeValueW(std::ptr::null(), SE_SECURITY_NAME, &mut luid) } == 0 {
-            unsafe {
-                CloseHandle(token);
-            }
-            return Err(AtomicMoveError::WindowsSaclInspectionUnavailable);
-        }
-        let requested = TOKEN_PRIVILEGES {
-            PrivilegeCount: 1,
-            Privileges: [LUID_AND_ATTRIBUTES {
-                Luid: luid,
-                Attributes: SE_PRIVILEGE_ENABLED,
-            }],
-        };
-        let mut previous = TOKEN_PRIVILEGES::default();
-        unsafe {
-            windows_sys::Win32::Foundation::SetLastError(0);
-        }
-        if unsafe {
-            AdjustTokenPrivileges(
-                token,
-                0,
-                &requested,
-                std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
-                &mut previous,
-                std::ptr::null_mut(),
-            )
-        } == 0
-            || unsafe { GetLastError() } == ERROR_NOT_ALL_ASSIGNED
-        {
-            unsafe {
-                CloseHandle(token);
-            }
-            return Err(AtomicMoveError::WindowsSaclInspectionUnavailable);
-        }
-        Ok(Self {
-            token,
-            previous,
-            _lock: Some(lock),
-            #[cfg(test)]
-            verified_absent_test_override: false,
-        })
-    }
-}
-
-#[cfg(windows)]
-impl Drop for WindowsSaclPrivilege {
-    fn drop(&mut self) {
-        use windows_sys::Win32::{Foundation::CloseHandle, Security::AdjustTokenPrivileges};
-        #[cfg(test)]
-        if self.verified_absent_test_override {
-            return;
-        }
-        unsafe {
-            AdjustTokenPrivileges(
-                self.token,
-                0,
-                &self.previous,
-                std::mem::size_of::<windows_sys::Win32::Security::TOKEN_PRIVILEGES>() as u32,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            );
-            CloseHandle(self.token);
-        }
-    }
-}
-
-#[cfg(windows)]
-struct WindowsSecurityDescriptor {
-    bytes: Vec<u8>,
-    information: u32,
-}
-
-#[cfg(windows)]
-fn read_windows_security_descriptor(
-    path: &std::path::Path,
-) -> Result<WindowsSecurityDescriptor, AtomicMoveError> {
-    use std::ptr;
-    use windows_sys::Win32::{
-        Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER},
-        Security::{
-            GetFileSecurityW, DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION,
-            OWNER_SECURITY_INFORMATION,
-        },
-    };
-
-    let information =
-        OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
-    let wide = source_claim::windows_wide_path(path);
-    let mut descriptor_size = 0u32;
-    let first_read = unsafe {
-        GetFileSecurityW(
-            wide.as_ptr(),
-            information,
-            ptr::null_mut(),
-            0,
-            &mut descriptor_size,
-        )
-    };
-    let first_error = unsafe { GetLastError() };
-    if first_read != 0 || first_error != ERROR_INSUFFICIENT_BUFFER || descriptor_size == 0 {
-        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
-            first_error as i32,
-        )));
-    }
-    let mut bytes = vec![0u8; descriptor_size as usize];
-    let read = unsafe {
-        GetFileSecurityW(
-            wide.as_ptr(),
-            information,
-            bytes.as_mut_ptr().cast(),
-            descriptor_size,
-            &mut descriptor_size,
-        )
-    };
-    if read == 0 || descriptor_size as usize > bytes.len() {
-        let error = unsafe { GetLastError() };
-        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
-            error as i32,
-        )));
-    }
-    bytes.truncate(descriptor_size as usize);
-    Ok(WindowsSecurityDescriptor { bytes, information })
 }
 
 #[cfg(windows)]
@@ -1332,14 +1019,17 @@ fn ensure_supported_windows_file_attributes(
 ) -> Result<(), AtomicMoveError> {
     use std::os::windows::fs::MetadataExt;
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_EA,
-        FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA,
-        FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_PINNED, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
-        FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_TEMPORARY,
-        FILE_ATTRIBUTE_UNPINNED, FILE_ATTRIBUTE_VIRTUAL,
+        FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_EA, FILE_ATTRIBUTE_ENCRYPTED,
+        FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_OFFLINE,
+        FILE_ATTRIBUTE_PINNED, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_RECALL_ON_OPEN,
+        FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_UNPINNED,
+        FILE_ATTRIBUTE_VIRTUAL,
     };
-    let unsupported = FILE_ATTRIBUTE_COMPRESSED
-        | FILE_ATTRIBUTE_DEVICE
+    // The compressed bit describes storage layout. Copying the ordinary
+    // logical byte stream to a destination that does not support NTFS
+    // compression is still lossless, so do not block it. The target follows
+    // the destination volume's default storage policy.
+    let unsupported = FILE_ATTRIBUTE_DEVICE
         | FILE_ATTRIBUTE_EA
         | FILE_ATTRIBUTE_ENCRYPTED
         | FILE_ATTRIBUTE_INTEGRITY_STREAM
@@ -1352,11 +1042,34 @@ fn ensure_supported_windows_file_attributes(
         | FILE_ATTRIBUTE_TEMPORARY
         | FILE_ATTRIBUTE_UNPINNED
         | FILE_ATTRIBUTE_VIRTUAL;
-    if metadata.file_attributes() & unsupported != 0 {
-        return Err(AtomicMoveError::Io(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "cross-volume directory move encountered unsupported Windows file attributes",
-        )));
+    let attributes = metadata.file_attributes();
+    if attributes & unsupported != 0 {
+        let kind = if attributes & FILE_ATTRIBUTE_ENCRYPTED != 0 {
+            "encrypted_file"
+        } else if attributes & FILE_ATTRIBUTE_INTEGRITY_STREAM != 0 {
+            "integrity_stream"
+        } else if attributes
+            & (FILE_ATTRIBUTE_OFFLINE
+                | FILE_ATTRIBUTE_PINNED
+                | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+                | FILE_ATTRIBUTE_RECALL_ON_OPEN
+                | FILE_ATTRIBUTE_UNPINNED
+                | FILE_ATTRIBUTE_VIRTUAL)
+            != 0
+        {
+            "provider_placeholder"
+        } else if attributes & FILE_ATTRIBUTE_SPARSE_FILE != 0 {
+            "sparse_file"
+        } else if attributes & FILE_ATTRIBUTE_EA != 0 {
+            "extended_attributes"
+        } else if attributes & FILE_ATTRIBUTE_NO_SCRUB_DATA != 0 {
+            "no_scrub_data"
+        } else if attributes & FILE_ATTRIBUTE_TEMPORARY != 0 {
+            "temporary_file"
+        } else {
+            "unsupported_file_type"
+        };
+        return Err(AtomicMoveError::WindowsSpecialMetadataUnsupported(kind));
     }
     Ok(())
 }
@@ -1415,7 +1128,6 @@ fn directory_content_digest(
     cancel: Option<&AtomicBool>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    require_sacl_absent: bool,
 ) -> Result<DirectoryContentDigest, AtomicMoveError> {
     fn visit(
         current: &std::path::Path,
@@ -1424,7 +1136,6 @@ fn directory_content_digest(
         cancel: Option<&AtomicBool>,
         progress: &mut crate::fs_safety::DirectoryTransferProgress,
         observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-        require_sacl_absent: bool,
     ) -> Result<(), AtomicMoveError> {
         use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
         const MAX_DEPTH: usize = 64;
@@ -1436,15 +1147,6 @@ fn directory_content_digest(
             return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
         }
         let verified = VerifiedDirectory::open_existing(current).map_err(map_directory_error)?;
-        if require_sacl_absent {
-            ensure_windows_sacl_absent_at_path(current)?;
-            let security_descriptor = windows_security_descriptor_bytes(current)?;
-            state.hasher.update(b"security-descriptor\0");
-            state
-                .hasher
-                .update(&(security_descriptor.len() as u64).to_le_bytes());
-            state.hasher.update(&security_descriptor);
-        }
         let relative = current
             .strip_prefix(&state.root)
             .map_err(|_| AtomicMoveError::UnsafePath)?;
@@ -1475,30 +1177,11 @@ fn directory_content_digest(
                 return Err(AtomicMoveError::ReparsePoint);
             }
             ensure_supported_windows_file_attributes(&metadata)?;
-            if require_sacl_absent {
-                ensure_windows_sacl_absent_at_path(&path)?;
-            }
             ensure_windows_no_named_streams(&path)?;
             progress.record_item(&path, observer)?;
             if metadata.is_dir() {
-                visit(
-                    &path,
-                    depth + 1,
-                    state,
-                    cancel,
-                    progress,
-                    observer,
-                    require_sacl_absent,
-                )?;
+                visit(&path, depth + 1, state, cancel, progress, observer)?;
             } else if metadata.is_file() {
-                if require_sacl_absent {
-                    let security_descriptor = windows_security_descriptor_bytes(&path)?;
-                    state.hasher.update(b"security-descriptor\0");
-                    state
-                        .hasher
-                        .update(&(security_descriptor.len() as u64).to_le_bytes());
-                    state.hasher.update(&security_descriptor);
-                }
                 let mut options = OpenOptions::new();
                 options.read(true).custom_flags(
                     windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
@@ -1540,213 +1223,12 @@ fn directory_content_digest(
         byte_count: 0,
         hasher: blake3::Hasher::new(),
     };
-    visit(
-        root,
-        0,
-        &mut state,
-        cancel,
-        progress,
-        observer,
-        require_sacl_absent,
-    )?;
+    visit(root, 0, &mut state, cancel, progress, observer)?;
     Ok(DirectoryContentDigest {
         hash: state.hasher.finalize().to_hex().to_string(),
         entries: state.entry_count as u64,
         bytes: state.byte_count,
     })
-}
-
-#[cfg(windows)]
-fn windows_security_descriptor_bytes(path: &std::path::Path) -> Result<Vec<u8>, AtomicMoveError> {
-    use std::ptr;
-    use windows_sys::Win32::{
-        Foundation::{GetLastError, LocalFree},
-        Security::Authorization::{
-            ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1,
-        },
-    };
-
-    let descriptor = read_windows_security_descriptor(path)?;
-    let mut sddl_pointer = ptr::null_mut();
-    let mut sddl_length = 0u32;
-    if unsafe {
-        ConvertSecurityDescriptorToStringSecurityDescriptorW(
-            descriptor.bytes.as_ptr().cast_mut().cast(),
-            SDDL_REVISION_1,
-            descriptor.information,
-            &mut sddl_pointer,
-            &mut sddl_length,
-        )
-    } == 0
-    {
-        let error = unsafe { GetLastError() };
-        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
-            error as i32,
-        )));
-    }
-    let sddl = unsafe {
-        let slice =
-            std::slice::from_raw_parts(sddl_pointer, sddl_length.saturating_sub(1) as usize);
-        String::from_utf16_lossy(slice)
-    };
-    unsafe {
-        LocalFree(sddl_pointer.cast());
-    }
-    Ok(normalize_windows_security_descriptor_sddl(&sddl).into_bytes())
-}
-
-#[cfg(any(windows, test))]
-fn normalize_windows_security_descriptor_sddl(sddl: &str) -> String {
-    let Some(dacl_start) = sddl.find("D:").map(|index| index + 2) else {
-        return sddl.to_string();
-    };
-    let Some(dacl_end) = sddl[dacl_start..].find('(').map(|index| dacl_start + index) else {
-        return sddl.to_string();
-    };
-    let controls = &sddl[dacl_start..dacl_end];
-    let mut index = 0;
-    while index < controls.len() {
-        let remaining = &controls[index..];
-        if remaining.starts_with("AI") || remaining.starts_with("AR") {
-            index += 2;
-        } else if remaining.starts_with('P') {
-            index += 1;
-        } else {
-            break;
-        }
-    }
-    let without_dacl_control = format!(
-        "{}D:{}{}",
-        &sddl[..dacl_start - 2],
-        &controls[index..],
-        &sddl[dacl_end..]
-    );
-
-    // PROTECTED_DACL_SECURITY_INFORMATION materializes inherited ACEs on the
-    // target. Strip only the ACE `ID` marker before comparing descriptors;
-    // the ACE type, remaining inheritance flags, rights, SIDs, and conditions
-    // remain part of the digest.
-    let mut normalized = String::with_capacity(without_dacl_control.len());
-    let mut cursor = 0;
-    while let Some(relative_start) = without_dacl_control[cursor..].find('(') {
-        let start = cursor + relative_start;
-        normalized.push_str(&without_dacl_control[cursor..start]);
-        let bytes = without_dacl_control.as_bytes();
-        let mut depth = 0usize;
-        let mut end = None;
-        for (offset, byte) in bytes.iter().enumerate().skip(start) {
-            match byte {
-                b'(' => depth += 1,
-                b')' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        end = Some(offset + 1);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let Some(end) = end else {
-            normalized.push_str(&without_dacl_control[start..]);
-            return normalized;
-        };
-        let ace = &without_dacl_control[start..end];
-        let ace_bytes = ace.as_bytes();
-        let mut ace_depth = 0usize;
-        let mut separators = [None, None];
-        let mut separator_count = 0usize;
-        for (offset, byte) in ace_bytes.iter().enumerate().skip(1).take(ace.len() - 2) {
-            match byte {
-                b'(' => ace_depth += 1,
-                b')' => ace_depth = ace_depth.saturating_sub(1),
-                b';' if ace_depth == 0 && separator_count < separators.len() => {
-                    separators[separator_count] = Some(offset);
-                    separator_count += 1;
-                }
-                _ => {}
-            }
-        }
-        if let [Some(first_separator), Some(second_separator)] = separators {
-            let flags_start = first_separator + 1;
-            let flags = &ace[flags_start..second_separator];
-            let normalized_flags = flags.replace("ID", "");
-            normalized.push_str(&ace[..flags_start]);
-            normalized.push_str(&normalized_flags);
-            normalized.push_str(&ace[second_separator..]);
-        } else {
-            normalized.push_str(ace);
-        }
-        cursor = end;
-    }
-    normalized.push_str(&without_dacl_control[cursor..]);
-    normalized
-}
-
-#[cfg(windows)]
-fn windows_security_descriptor_bytes_from_handle(file: &File) -> Result<Vec<u8>, AtomicMoveError> {
-    use std::{os::windows::io::AsRawHandle, ptr};
-    use windows_sys::Win32::{
-        Foundation::{GetLastError, LocalFree, HANDLE},
-        Security::Authorization::{
-            ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1,
-            SE_FILE_OBJECT,
-        },
-        Security::{
-            DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
-        },
-    };
-
-    let information =
-        OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
-    let mut descriptor = ptr::null_mut();
-    let status = unsafe {
-        GetSecurityInfo(
-            file.as_raw_handle() as HANDLE,
-            SE_FILE_OBJECT,
-            information,
-            ptr::null_mut(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-            &mut descriptor,
-        )
-    };
-    if status != 0 {
-        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
-            status as i32,
-        )));
-    }
-    let mut sddl_pointer = ptr::null_mut();
-    let mut sddl_length = 0u32;
-    if unsafe {
-        ConvertSecurityDescriptorToStringSecurityDescriptorW(
-            descriptor,
-            SDDL_REVISION_1,
-            information,
-            &mut sddl_pointer,
-            &mut sddl_length,
-        )
-    } == 0
-    {
-        let error = unsafe { GetLastError() };
-        unsafe {
-            LocalFree(descriptor);
-        }
-        return Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
-            error as i32,
-        )));
-    }
-    let sddl = unsafe {
-        let slice =
-            std::slice::from_raw_parts(sddl_pointer, sddl_length.saturating_sub(1) as usize);
-        String::from_utf16_lossy(slice)
-    };
-    unsafe {
-        LocalFree(sddl_pointer.cast());
-        LocalFree(descriptor);
-    }
-    Ok(normalize_windows_security_descriptor_sddl(&sddl).into_bytes())
 }
 
 /// Retires a cross-volume directory claim only after comparing each source
@@ -1764,10 +1246,10 @@ fn retire_claimed_directory_verified_against_target(
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     let source_path = claim.current_path().to_path_buf();
-    let source_root_privilege = WindowsSaclPrivilege::enable()?;
+    let root_metadata = fs::symlink_metadata(&source_path).map_err(AtomicMoveError::Io)?;
+    ensure_supported_windows_file_attributes(&root_metadata)?;
+    ensure_windows_no_named_streams(&source_path)?;
     let source_root = open_windows_directory_path_for_retirement(&source_path)?;
-    ensure_windows_sacl_absent_from_handle(&source_root, &source_root_privilege)?;
-    drop(source_root_privilege);
     let source_identity = windows_handle_directory_identity(&source_root)?;
     let expected_source = claim.actual_identity();
     if source_identity.volume_id
@@ -1796,11 +1278,6 @@ fn retire_claimed_directory_verified_against_target(
     let target_root =
         open_windows_child_for_tree(target_parent.handle(), target_name, true, false)?;
     if windows_handle_directory_identity(&target_root)? != *expected_target {
-        return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
-    }
-    if windows_security_descriptor_bytes_from_handle(&source_root)?
-        != windows_security_descriptor_bytes_from_handle(&target_root)?
-    {
         return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
     }
     let target_path = target_parent.path().join(target_name);
@@ -1871,15 +1348,14 @@ fn retire_directory_entries_verified(
         if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
             return Err(AtomicMoveError::ReparsePoint);
         }
+        ensure_supported_windows_file_attributes(&metadata)?;
+        ensure_windows_no_named_streams(&source_path)?;
         let is_directory = metadata.is_dir();
         if !is_directory && !metadata.is_file() {
             return Err(AtomicMoveError::UnsafePath);
         }
         let source_child =
             open_windows_child_for_tree(location.source_parent_handle, &name, is_directory, true)?;
-        let source_child_privilege = WindowsSaclPrivilege::enable()?;
-        ensure_windows_sacl_absent_from_handle(&source_child, &source_child_privilege)?;
-        drop(source_child_privilege);
         let source_child_info = windows_handle_entry_info(&source_child)?;
         if source_child_info.is_reparse || source_child_info.is_directory != is_directory {
             return Err(AtomicMoveError::ReparsePoint);
@@ -1888,11 +1364,6 @@ fn retire_directory_entries_verified(
             open_windows_child_for_tree(location.target_parent_handle, &name, is_directory, false)?;
         let target_child_info = windows_handle_entry_info(&target_child)?;
         if target_child_info.is_reparse || target_child_info.is_directory != is_directory {
-            return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
-        }
-        if windows_security_descriptor_bytes_from_handle(&source_child)?
-            != windows_security_descriptor_bytes_from_handle(&target_child)?
-        {
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
         }
         if is_directory {
@@ -1990,33 +1461,11 @@ fn open_windows_directory_path_for_retirement(
         Storage::FileSystem::{
             CreateFileW, DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
             FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-            OPEN_EXISTING, READ_CONTROL, SYNCHRONIZE,
+            OPEN_EXISTING, SYNCHRONIZE,
         },
-        System::SystemServices::ACCESS_SYSTEM_SECURITY,
     };
     let path = source_claim::windows_wide_path(path);
-    // The transaction-test override represents a verified-absent SACL and
-    // permits the hosted runner to exercise source retirement without the
-    // system-security right. Production always opens this source handle with
-    // ACCESS_SYSTEM_SECURITY after enabling SeSecurityPrivilege.
-    #[cfg(test)]
-    let requires_sacl_access =
-        !super::atomic_move::test_faults::sacl_verified_absent_override_for_test();
-    #[cfg(not(test))]
-    let requires_sacl_access = true;
-    let _privilege = requires_sacl_access
-        .then(WindowsSaclPrivilege::enable)
-        .transpose()?;
-    let access = DELETE
-        | FILE_LIST_DIRECTORY
-        | FILE_READ_ATTRIBUTES
-        | READ_CONTROL
-        | SYNCHRONIZE
-        | if requires_sacl_access {
-            ACCESS_SYSTEM_SECURITY
-        } else {
-            0
-        };
+    let access = DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE;
     let raw = unsafe {
         CreateFileW(
             path.as_ptr(),
@@ -2064,9 +1513,8 @@ fn open_windows_child_for_tree(
             Foundation::{RtlNtStatusToDosError, OBJ_CASE_INSENSITIVE, UNICODE_STRING},
             Storage::FileSystem::{
                 DELETE, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_READ,
-                READ_CONTROL, SYNCHRONIZE,
+                SYNCHRONIZE,
             },
-            System::SystemServices::ACCESS_SYSTEM_SECURITY,
             System::IO::IO_STATUS_BLOCK,
         },
     };
@@ -2093,29 +1541,8 @@ fn open_windows_child_for_tree(
     };
     let mut raw = std::ptr::null_mut();
     let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
-    // Transaction tests can explicitly assume that the fixture SACL is
-    // absent, while still running under a hosted token that cannot enable
-    // SeSecurityPrivilege. In that test-only case the relative handle needs
-    // DELETE for retirement but does not need ACCESS_SYSTEM_SECURITY. The
-    // production path continues to require and hold the privilege whenever
-    // it opens a source entry for SACL verification and deletion.
-    #[cfg(test)]
-    let test_sacl_absence_verified =
-        super::atomic_move::test_faults::sacl_verified_absent_override_for_test();
-    #[cfg(not(test))]
-    let test_sacl_absence_verified = false;
-    let requires_sacl_access = delete_access && !test_sacl_absence_verified;
-    let _privilege = requires_sacl_access
-        .then(WindowsSaclPrivilege::enable)
-        .transpose()?;
     let access = (if delete_access { DELETE } else { 0 })
-        | (if requires_sacl_access {
-            ACCESS_SYSTEM_SECURITY
-        } else {
-            0
-        })
         | FILE_READ_ATTRIBUTES
-        | READ_CONTROL
         | SYNCHRONIZE
         | if is_directory {
             FILE_LIST_DIRECTORY
@@ -2202,10 +1629,9 @@ fn ensure_windows_no_named_streams(path: &std::path::Path) -> Result<(), AtomicM
             .position(|unit| *unit == 0)
             .unwrap_or(data.cStreamName.len());
         if String::from_utf16_lossy(&data.cStreamName[..end]) != "::$DATA" {
-            result = Err(AtomicMoveError::Io(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "cross-volume directory move does not support alternate data streams",
-            )));
+            result = Err(AtomicMoveError::WindowsSpecialMetadataUnsupported(
+                "alternate_data_stream",
+            ));
             break;
         }
         data = WIN32_FIND_STREAM_DATA::default();
@@ -2303,12 +1729,24 @@ fn remove_owned_staging_tree(
         for entry in fs::read_dir(path)? {
             remove_owned_staging_tree(&entry?.path(), None, false)?;
         }
+        clear_staging_readonly(path, &metadata)?;
         fs::remove_dir(path)
     } else if metadata.is_dir() {
         fs::remove_dir(path)
     } else {
+        clear_staging_readonly(path, &metadata)?;
         fs::remove_file(path)
     }
+}
+
+#[cfg(windows)]
+fn clear_staging_readonly(path: &std::path::Path, metadata: &std::fs::Metadata) -> io::Result<()> {
+    if metadata.permissions().readonly() {
+        let mut permissions = metadata.permissions();
+        permissions.set_readonly(false);
+        fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -2327,6 +1765,7 @@ fn copy_file_from_claim(
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     let mut reader = claim.open_read().map_err(map_claim_error)?;
+    let source_metadata = reader.metadata().map_err(AtomicMoveError::Io)?;
     let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"file\0");
@@ -2346,6 +1785,14 @@ fn copy_file_from_claim(
         copied = copied.saturating_add(read as u64);
         hasher.update(&buffer[..read]);
         progress.record_bytes(claim.current_path(), read as u64, observer)?;
+        #[cfg(any(test, feature = "native-qa"))]
+        if super::atomic_move::test_faults::take_fault(
+            super::atomic_move::test_faults::AtomicFaultPoint::OutOfSpaceDuringCopy,
+        ) {
+            return Err(AtomicMoveError::Io(io::Error::other(
+                "injected_out_of_space_during_copy",
+            )));
+        }
     }
     writer.sync_all().map_err(AtomicMoveError::Io)?;
     let hash = hasher.finalize().to_hex().to_string();
@@ -2354,6 +1801,19 @@ fn copy_file_from_claim(
     {
         return Err(AtomicMoveError::CopyVerificationFailed);
     }
+    let times = std::fs::FileTimes::new()
+        .set_accessed(source_metadata.accessed().map_err(AtomicMoveError::Io)?)
+        .set_modified(source_metadata.modified().map_err(AtomicMoveError::Io)?);
+    writer.set_times(times).map_err(AtomicMoveError::Io)?;
+    writer
+        .set_permissions(source_metadata.permissions())
+        .map_err(AtomicMoveError::Io)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        set_windows_copy_attributes(claim.current_path(), source_metadata.file_attributes())?;
+    }
+    writer.sync_all().map_err(AtomicMoveError::Io)?;
     Ok(())
 }
 
@@ -2493,42 +1953,10 @@ fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(Ordering::Acquire))
 }
 
-#[cfg(test)]
-mod security_descriptor_sddl_tests {
-    use super::normalize_windows_security_descriptor_sddl;
-
-    #[test]
-    fn comparison_ignores_only_dacl_inheritance_controls() {
-        assert_eq!(
-            normalize_windows_security_descriptor_sddl("O:SYG:SYD:PAI(A;CI;FA;;;SY)(A;ID;GR;;;BU)"),
-            "O:SYG:SYD:(A;CI;FA;;;SY)(A;;GR;;;BU)"
-        );
-        assert_eq!(
-            normalize_windows_security_descriptor_sddl("O:SYG:SYD:AIP(A;;GR;;;BU)"),
-            "O:SYG:SYD:(A;;GR;;;BU)"
-        );
-        assert_eq!(
-            normalize_windows_security_descriptor_sddl("O:SYG:SYD:NO_ACCESS_CONTROL"),
-            "O:SYG:SYD:NO_ACCESS_CONTROL"
-        );
-        assert_eq!(
-            normalize_windows_security_descriptor_sddl(
-                "O:SYG:SYD:(A;IDCI;GR;;;BU;(Member_of(S-1-5-32-545)))"
-            ),
-            "O:SYG:SYD:(A;CI;GR;;;BU;(Member_of(S-1-5-32-545)))"
-        );
-    }
-}
-
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use std::{fs, io::Write};
-
-    fn assume_sacl_verified_absent_for_test(
-    ) -> super::super::atomic_move::test_faults::VerifiedAbsentSaclTestGuard {
-        super::super::atomic_move::test_faults::assume_sacl_verified_absent_for_test()
-    }
 
     fn fixture(label: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
@@ -2537,50 +1965,6 @@ mod tests {
         ));
         fs::create_dir_all(&root).expect("fixture");
         root
-    }
-
-    fn apply_test_audit_sacl(path: &std::path::Path) {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::{
-            Foundation::{GetLastError, LocalFree},
-            Security::Authorization::{
-                ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
-            },
-            Security::{SetFileSecurityW, SACL_SECURITY_INFORMATION},
-        };
-
-        let _privilege = WindowsSaclPrivilege::enable().expect("SeSecurityPrivilege");
-        let sddl = "S:(AU;SAFA;FA;;;WD)\0".encode_utf16().collect::<Vec<_>>();
-        let mut descriptor = std::ptr::null_mut();
-        assert_ne!(
-            unsafe {
-                ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                    sddl.as_ptr(),
-                    SDDL_REVISION_1,
-                    &mut descriptor,
-                    std::ptr::null_mut(),
-                )
-            },
-            0,
-            "SACL test descriptor conversion failed: {}",
-            unsafe { GetLastError() }
-        );
-        let wide = path
-            .as_os_str()
-            .encode_wide()
-            .chain(Some(0))
-            .collect::<Vec<_>>();
-        let set_result =
-            unsafe { SetFileSecurityW(wide.as_ptr(), SACL_SECURITY_INFORMATION, descriptor) };
-        let error = if set_result == 0 {
-            Some(unsafe { GetLastError() })
-        } else {
-            None
-        };
-        unsafe {
-            LocalFree(descriptor);
-        }
-        assert!(error.is_none(), "setting test SACL failed: {error:?}");
     }
 
     #[test]
@@ -2595,30 +1979,8 @@ mod tests {
     }
 
     #[test]
-    fn sacl_inspection_unavailable_fails_closed_without_touching_source() {
-        let root = fixture("sacl-unavailable");
-        let source = root.join("source.bin");
-        fs::write(&source, b"SACL inspection must fail closed").expect("source fixture");
-        super::super::atomic_move::test_faults::set_fault(Some(
-            super::super::atomic_move::test_faults::AtomicFaultPoint::
-                WindowsSaclInspectionUnavailable,
-        ));
-        let result = ensure_windows_transfer_security_supported(&source, None);
-        super::super::atomic_move::test_faults::set_fault(None);
-        assert!(matches!(
-            result,
-            Err(AtomicMoveError::WindowsSaclInspectionUnavailable)
-        ));
-        assert_eq!(
-            fs::read(&source).expect("source remains"),
-            b"SACL inspection must fail closed"
-        );
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn source_preserving_copy_does_not_require_sacl_inspection() {
-        let root = fixture("copy-sacl-unavailable");
+    fn ordinary_file_and_directory_copy_preserve_sources() {
+        let root = fixture("ordinary-copy");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
         fs::create_dir_all(&source_parent).expect("source parent");
@@ -2640,9 +2002,6 @@ mod tests {
         let target_parent =
             VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
 
-        super::super::atomic_move::test_faults::set_fault(Some(
-            super::super::atomic_move::test_faults::AtomicFaultPoint::WindowsSaclInspectionUnavailable,
-        ));
         let file_result = copy_commit_claim_preserving_source(
             &mut file_claim,
             target_parent,
@@ -2650,16 +2009,10 @@ mod tests {
             None,
             None,
         );
-        let file_fault_probe = ensure_windows_transfer_security_supported(&source_file, None);
-        super::super::atomic_move::test_faults::set_fault(None);
         assert!(
             file_result.is_ok(),
-            "ordinary file Copy must not require SACL inspection: {file_result:?}"
+            "ordinary file Copy must succeed with destination directory permissions: {file_result:?}"
         );
-        assert!(matches!(
-            file_fault_probe,
-            Err(AtomicMoveError::WindowsSaclInspectionUnavailable)
-        ));
         assert_eq!(
             fs::read(&source_file).expect("source file remains"),
             b"ordinary copy without audit privilege"
@@ -2693,9 +2046,6 @@ mod tests {
         let target_parent =
             VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
 
-        super::super::atomic_move::test_faults::set_fault(Some(
-            super::super::atomic_move::test_faults::AtomicFaultPoint::WindowsSaclInspectionUnavailable,
-        ));
         let directory_result = copy_commit_claim_preserving_source(
             &mut directory_claim,
             target_parent,
@@ -2703,17 +2053,10 @@ mod tests {
             None,
             None,
         );
-        let directory_fault_probe =
-            ensure_windows_transfer_security_supported(&source_directory, None);
-        super::super::atomic_move::test_faults::set_fault(None);
         assert!(
             directory_result.is_ok(),
-            "ordinary nested-directory Copy must not require SACL inspection: {directory_result:?}"
+            "ordinary nested-directory Copy must succeed with destination directory permissions: {directory_result:?}"
         );
-        assert!(matches!(
-            directory_fault_probe,
-            Err(AtomicMoveError::WindowsSaclInspectionUnavailable)
-        ));
         assert_eq!(
             fs::read(source_directory.join("nested").join("payload.bin"))
                 .expect("source nested file remains"),
@@ -2736,76 +2079,6 @@ mod tests {
             .is_dir());
         drop(file_claim);
         drop(directory_claim);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn nested_sacl_is_rejected_and_a_claimed_directory_is_rolled_back() {
-        let root = fixture("nested-sacl");
-        let source = root.join("source");
-        fs::create_dir_all(source.join("nested")).expect("nested fixture");
-        let nested_file = source.join("nested").join("audited.txt");
-        fs::write(&nested_file, b"audited source bytes").expect("nested source");
-        let actual_audit_sacl_inspection = match ensure_windows_transfer_security_supported(
-            &source, None,
-        ) {
-            Ok(()) => {
-                apply_test_audit_sacl(&nested_file);
-                assert!(matches!(
-                    ensure_windows_transfer_security_supported(&source, None),
-                    Err(AtomicMoveError::WindowsSaclTransferUnsupported)
-                ));
-                true
-            }
-            Err(AtomicMoveError::WindowsSaclInspectionUnavailable) => {
-                eprintln!("UNVERIFIED: this Windows token cannot inspect SACLs; the native smoke records the fail-closed refusal, and the transaction rollback is covered by an injected SACL refusal");
-                false
-            }
-            Err(error) => panic!("unexpected initial SACL inspection result: {error:?}"),
-        };
-
-        let expected = identity::capture_namespace_identity_only(&source, None)
-            .expect("source namespace identity");
-        let claim_path = source_claim::planned_claim_path(&source, "nested-sacl-test")
-            .expect("planned claim path");
-        let mut claim = source_claim::claim_source_at(
-            &source,
-            &expected,
-            &claim_path,
-            "nested-sacl-test",
-            None,
-        )
-        .expect("claim source directory");
-        let target_parent = VerifiedDirectory::open_existing(&root).expect("target parent");
-        if !actual_audit_sacl_inspection {
-            super::super::atomic_move::test_faults::set_fault(Some(
-                super::super::atomic_move::test_faults::AtomicFaultPoint::
-                    WindowsSaclTransferUnsupported,
-            ));
-        }
-        let result = copy_commit_claim(
-            &mut claim,
-            target_parent,
-            std::ffi::OsStr::new("target"),
-            None,
-            None,
-        );
-        super::super::atomic_move::test_faults::set_fault(None);
-        assert!(matches!(
-            result,
-            Err(AtomicMoveError::WindowsSaclTransferUnsupported)
-        ));
-        assert!(source.is_dir(), "source namespace must be restored");
-        assert!(
-            !claim_path.exists(),
-            "private claim must be removed by rollback"
-        );
-        assert!(!root.join("target").exists(), "no target may be published");
-        assert_eq!(
-            fs::read(&nested_file).expect("source content"),
-            b"audited source bytes"
-        );
-        drop(claim);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -2833,7 +2106,6 @@ mod tests {
 
     #[test]
     fn copy_commit_reports_each_persistable_filesystem_phase_in_order() {
-        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture("phases");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
@@ -2885,7 +2157,6 @@ mod tests {
 
     #[test]
     fn staged_directory_move_preserves_nested_empty_tree_and_cleans_claim() {
-        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture("directory-move");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
@@ -2976,7 +2247,6 @@ mod tests {
 
     #[test]
     fn staged_directory_move_cancel_before_publish_restores_source_and_removes_stage() {
-        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture("directory-cancel");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
@@ -3026,7 +2296,6 @@ mod tests {
 
     #[test]
     fn staged_directory_move_source_cleanup_fault_keeps_both_recoverable_copies() {
-        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture("directory-cleanup-fault");
         let source_parent = root.join("source");
         let target_parent_path = root.join("target");
@@ -3094,7 +2363,6 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn source_tree_mutation_after_target_commit_preserves_claim_and_target() {
-        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let _serial = source_claim::lock_claim_test_hooks();
         let root = fixture("directory-source-mutation-after-commit");
         let source_parent = root.join("source");
@@ -3155,7 +2423,6 @@ mod tests {
     fn native_cross_volume_directory_move_runs_when_an_isolated_volume_is_available() {
         use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
 
-        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let source_root = fixture("native-cross-volume-source");
         let source_identity = identity::capture_namespace_identity_only(&source_root, None)
             .expect("source volume identity");
@@ -3270,7 +2537,6 @@ mod tests {
         label: &str,
         point: super::super::atomic_move::test_faults::AtomicFaultPoint,
     ) -> (Result<(), AtomicMoveError>, PathBuf, PathBuf, PathBuf) {
-        let _sacl_absence = assume_sacl_verified_absent_for_test();
         let root = fixture(label);
         let source = root.join("source.txt");
         let target = root.join("target.txt");
@@ -3361,8 +2627,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn source_dacl_mutation_after_target_commit_preserves_claim_and_target() {
-        let _sacl_absence = assume_sacl_verified_absent_for_test();
+    fn source_dacl_change_that_blocks_cleanup_retains_claim_and_target() {
         let _serial = source_claim::lock_claim_test_hooks();
         let root = fixture("directory-dacl-mutation-after-commit");
         let source_parent = root.join("source");

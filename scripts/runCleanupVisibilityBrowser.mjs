@@ -84,7 +84,7 @@ async function waitForFindingSelection(page, findingId, expected) {
   }, { id: findingId, pressed: expected });
 }
 
-async function runCase(viewport, density, scenario = "visibility") {
+async function runCase(viewport, density, scenario = "visibility", readiness = "disconnected") {
   const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
   await context.addInitScript((initialDensity) => {
     window.localStorage.setItem("zc-onboarding-complete", "true");
@@ -98,11 +98,11 @@ async function runCase(viewport, density, scenario = "visibility") {
   const pageErrors = [];
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
   page.on("pageerror", (error) => pageErrors.push(String(error)));
-  const label = `${viewport.width}x${viewport.height}-${density}-${scenario}`;
+  const label = `${viewport.width}x${viewport.height}-${density}-${scenario}-${readiness}`;
   const screenshotPrefix = path.join(ARTIFACT_DIR, label);
 
   try {
-    await page.goto(`${baseUrl}/?pm01-cleanup=${scenario}`, { waitUntil: "commit" });
+    await page.goto(`${baseUrl}/?pm01-cleanup=${scenario}&pm01-readiness=${readiness}`, { waitUntil: "commit" });
     assert((await page.title()).toLowerCase().includes("fylura"), `${label}: unexpected page title ${await page.title()}`);
     await page.getByRole("button", { name: "Storage Cleanup", exact: true }).click();
     await page.locator("[data-analysis-run-id]").waitFor({ state: "visible" });
@@ -141,9 +141,23 @@ async function runCase(viewport, density, scenario = "visibility") {
     assert(await select.getAttribute("aria-pressed") === "true", `${label}: selecting the finding did not update button state`);
     const selectionSummary = page.locator("[data-cleanup-selection-summary]");
     await selectionSummary.waitFor({ state: "visible" });
-    const preview = selectionSummary.getByRole("button", { name: "Move to Safe Trash", exact: true });
+    const preview = selectionSummary.getByRole("button", { name: "Preview selected Safe Trash move", exact: true });
     assert(await preview.isEnabled(), `${label}: selected finding did not expose an enabled Preview action`);
+    const assess = selectionSummary.getByRole("button", { name: "Assess selected green items", exact: true });
+    assert(await assess.count() === 1, `${label}: selected Safe finding did not expose the AI assessment action`);
+    const assessmentVisibility = await assertVisibleAndReachable(assess, `${label}-assessment`);
+    if (readiness === "cleanup-local-ready") {
+      assert(await assess.isEnabled(), `${label}: ready local presentation fixture disabled the assessment action`);
+      await assess.click();
+      await page.getByText(/Assessment request finished:/).waitFor({ state: "visible" });
+      assert(await page.locator("[data-ai-readiness-feature='cleanup']").getAttribute("data-ai-readiness-source") === "presentation-fixture", `${label}: expected an explicitly presentation-only readiness source`);
+      assert(await preview.isEnabled(), `${label}: assessment request removed the separately gated Preview action`);
+    } else {
+      assert(await assess.isDisabled(), `${label}: assessment action was enabled while provider readiness was disabled`);
+      assert(await page.getByRole("button", { name: "Open related settings", exact: true }).count() > 0, `${label}: readiness blocker did not offer its settings route`);
+    }
     await page.screenshot({ path: `${screenshotPrefix}-selected.png`, fullPage: false });
+    if (readiness === "cleanup-local-ready") await page.screenshot({ path: `${screenshotPrefix}-assessed.png`, fullPage: false });
 
     const identity = await page.evaluate(() => ({
       title: document.title,
@@ -152,7 +166,7 @@ async function runCase(viewport, density, scenario = "visibility") {
     }));
     assert(identity.visibleText && !identity.errorOverlay, `${label}: blank page or framework/error overlay ${JSON.stringify(identity)}`);
     assert(consoleErrors.length === 0 && pageErrors.length === 0, `${label}: browser errors ${JSON.stringify({ consoleErrors, pageErrors })}`);
-    console.log(`[cleanup-visibility] PASS ${label} reachability=${JSON.stringify(visibility)} sha=${ACTUAL_CHECKOUT_SHA} tree=${ACTUAL_CHECKOUT_TREE} worktreeDirty=${Boolean(WORKTREE_STATUS)}`);
+    console.log(`[cleanup-visibility] PASS ${label} reachability=${JSON.stringify({ selection: visibility, assessment: assessmentVisibility })} sha=${ACTUAL_CHECKOUT_SHA} tree=${ACTUAL_CHECKOUT_TREE} worktreeDirty=${Boolean(WORKTREE_STATUS)}`);
   } catch (error) {
     await page.screenshot({ path: `${screenshotPrefix}-failure.png`, fullPage: false }).catch(() => undefined);
     throw error;
@@ -167,6 +181,7 @@ try {
   }
   await runCase({ width: 1920, height: 1080 }, "default", "visibility-many");
   await runCase({ width: 960, height: 720 }, "compact", "visibility-many");
+  await runCase({ width: 960, height: 720 }, "compact", "visibility", "cleanup-local-ready");
   console.log(`[cleanup-visibility] screenshots=${ARTIFACT_DIR}`);
 } finally {
   await browser.close();

@@ -327,6 +327,9 @@ export function committedLifecycleRecoveryFailure(error: unknown): string | null
 
 export function localizedStableError(error: unknown, t: Translator): string {
   const message = readableError(error);
+  if (message.startsWith("Storage cleanup finding requires a current AI assessment:")) {
+    return t("storageCleanupCurrentAssessmentRequired");
+  }
   if (message === "global_search_result_excluded") return t("indexCoverageExcludedResult");
   if (message === "global_search_coverage_reconfiguring") return t("indexCoverageReconfiguring");
   if (message === "global_index_database_busy") return t("globalIndexErrorDatabaseBusy");

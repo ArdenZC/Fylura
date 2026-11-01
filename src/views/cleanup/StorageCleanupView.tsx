@@ -97,6 +97,7 @@ type AiOperation = {
   tierEpoch: number;
   tier: CleanupTier;
   runId: string;
+  action: "review" | "selected-safe";
   cancelRequested: boolean;
 };
 
@@ -670,17 +671,29 @@ function StorageCleanupPanel({
     setActiveTier(nextTier);
   }, [invalidatePreviewState]);
 
-  const recheckReviewFindings = useCallback(async () => {
-    if (!run || !api.analyzeCleanupCandidatesWithAI || !api.getAIFeatureReadiness) {
+  const recheckReviewFindings = useCallback(async (selectedSafeFindingIds?: readonly string[]) => {
+    const isSelectedSafeAssessment = selectedSafeFindingIds !== undefined;
+    if (!run || !api.analyzeCleanupCandidatesWithAI || !api.getAIFeatureReadiness
+      || (isSelectedSafeAssessment && !api.getAnalysisFinding)) {
       reportError(t("storageCleanupAIUnsupported"));
       return;
     }
     if (interactionLockedRef.current || aiReadinessCheckInFlight.current) return;
+    const targetFindingIds = isSelectedSafeAssessment
+      ? [...new Set(selectedSafeFindingIds)]
+      : [];
+    if (isSelectedSafeAssessment && (activeTierRef.current !== "safe"
+      || !targetFindingIds.length
+      || targetFindingIds.some((id) => !selectedFindingIds.has(id)))) {
+      setAiStatus(t("storageCleanupAISelectedSelectionChanged"));
+      return;
+    }
     const expectedScopeEpoch = scopeEpoch.current;
     const expectedTierEpoch = activeTierEpoch.current;
-    const expectedTier = activeTierRef.current;
+    const expectedTier = isSelectedSafeAssessment ? "safe" : activeTierRef.current;
     const reviewRunId = run.id;
     const reviewRunRevision = run.revision;
+    const expectedSelectionRevision = selectionRevision.current;
     aiReadinessCheckInFlight.current = true;
     setIsCheckingAIReadiness(true);
     let currentReadiness: AIProductFeatureReadiness | null = null;
@@ -695,6 +708,10 @@ function StorageCleanupPanel({
       || activeTierRef.current !== expectedTier
       || runRef.current?.id !== reviewRunId
       || (runRef.current?.revision ?? -1) < reviewRunRevision) return;
+    if (isSelectedSafeAssessment && selectionRevision.current !== expectedSelectionRevision) {
+      setAiStatus(t("storageCleanupAISelectedSelectionChanged"));
+      return;
+    }
     if (!currentReadiness || currentReadiness.cleanup.state !== "ready") {
       setAiStatus(currentReadiness
         ? cleanupReadinessText(
@@ -716,6 +733,7 @@ function StorageCleanupPanel({
       tierEpoch: expectedTierEpoch,
       tier: expectedTier,
       runId: reviewRunId,
+      action: isSelectedSafeAssessment ? "selected-safe" : "review",
       cancelRequested: false
     };
     aiOperationRef.current = operation;
@@ -746,7 +764,9 @@ function StorageCleanupPanel({
       && aiOperationRef.current?.id === operation.id
       && runRef.current?.id === reviewRunId
       && runRef.current.revision >= reviewRunRevision;
-    const canceledStatus = () => replaceCopy("storageCleanupAIRecheckCanceledSummary", {
+    const canceledStatus = () => replaceCopy(isSelectedSafeAssessment
+      ? "storageCleanupAISelectedCanceledSummary"
+      : "storageCleanupAIRecheckCanceledSummary", {
       processed,
       total,
       skipped,
@@ -797,31 +817,33 @@ function StorageCleanupPanel({
       return true;
     };
     try {
-      const ids: string[] = [];
-      let cursor: string | null = null;
-      do {
-        if (operation.cancelRequested) {
-          setAiStatus(canceledStatus());
-          return;
-        }
-        if (!ownsOperation()) return;
-        setAiStatus(replaceCopy("storageCleanupAIRecheckCollecting", { count: ids.length }));
-        const page: AnalysisFindingPage | undefined = await api.listAnalysisFindings?.({
-          runId: reviewRunId,
-          tier: "review",
-          status: "active",
-          cursor,
-          limit: FINDING_PAGE_SIZE
-        });
-        if (!page) throw new Error("cleanup_findings_unavailable");
-        if (stopAfterCancellation()) return;
-        if (!ownsOperation()) return;
-        ids.push(...page.findings.filter((finding) => finding.tier === "review" && finding.status === "active").map((finding) => finding.id));
-        cursor = page.nextCursor;
-      } while (cursor);
+      const ids: string[] = [...targetFindingIds];
+      if (!isSelectedSafeAssessment) {
+        let cursor: string | null = null;
+        do {
+          if (operation.cancelRequested) {
+            setAiStatus(canceledStatus());
+            return;
+          }
+          if (!ownsOperation()) return;
+          setAiStatus(replaceCopy("storageCleanupAIRecheckCollecting", { count: ids.length }));
+          const page: AnalysisFindingPage | undefined = await api.listAnalysisFindings?.({
+            runId: reviewRunId,
+            tier: "review",
+            status: "active",
+            cursor,
+            limit: FINDING_PAGE_SIZE
+          });
+          if (!page) throw new Error("cleanup_findings_unavailable");
+          if (stopAfterCancellation()) return;
+          if (!ownsOperation()) return;
+          ids.push(...page.findings.filter((finding) => finding.tier === "review" && finding.status === "active").map((finding) => finding.id));
+          cursor = page.nextCursor;
+        } while (cursor);
+      }
       total = ids.length;
       if (!ids.length) {
-        setAiStatus(t("storageCleanupAINoTargets"));
+        setAiStatus(t(isSelectedSafeAssessment ? "storageCleanupAISelectedNoTargets" : "storageCleanupAINoTargets"));
         return;
       }
       for (let offset = 0; offset < ids.length; offset += AI_RECHECK_BATCH_SIZE) {
@@ -830,22 +852,50 @@ function StorageCleanupPanel({
           return;
         }
         if (!ownsOperation()) return;
-        const batch = ids.slice(offset, offset + AI_RECHECK_BATCH_SIZE);
-        setAiStatus(replaceCopy("storageCleanupAIRecheckWorkingProgress", { processed, total: ids.length }));
+        let batch = ids.slice(offset, offset + AI_RECHECK_BATCH_SIZE);
+        setAiStatus(replaceCopy(
+          isSelectedSafeAssessment ? "storageCleanupAISelectedWorkingProgress" : "storageCleanupAIRecheckWorkingProgress",
+          { processed, total: ids.length }
+        ));
+        if (isSelectedSafeAssessment) {
+          const beforeAnalysis = await Promise.allSettled(batch.map((id) => api.getAnalysisFinding!(id)));
+          if (stopAfterCancellation()) return;
+          if (!ownsOperation()) return;
+          const eligible: AnalysisFinding[] = [];
+          const rejectedIds: string[] = [];
+          beforeAnalysis.forEach((result, index) => {
+            const finding = result.status === "fulfilled" ? result.value : null;
+            if (finding && isAnalysisFinding(finding) && finding.runId === reviewRunId
+              && finding.tier === "safe" && isFindingSelectable(finding)) {
+              eligible.push(finding);
+            } else {
+              rejectedIds.push(batch[index]);
+            }
+          });
+          if (eligible.length) reconcileUpdatedFindings(eligible);
+          if (rejectedIds.length) {
+            skipped += rejectedIds.length;
+            invalidateReadbackFailures(rejectedIds);
+          }
+          batch = eligible.map((finding) => finding.id);
+          if (!batch.length) continue;
+        }
         let updatedIds: string[] = [];
         let mutationFailedForBatch = false;
         try {
           const updated = await api.analyzeCleanupCandidatesWithAI(reviewRunId, batch);
           const batchIds = new Set(batch);
-          updatedIds = [...new Set(updated.map((candidate) => candidate.id).filter((id) => batchIds.has(id)))];
-          processed += updatedIds.length;
-          skipped += Math.max(0, batch.length - updatedIds.length);
+          const returnedIds = new Set(updated.map((candidate) => candidate.id).filter((id) => batchIds.has(id)));
+          processed += returnedIds.size;
+          skipped += Math.max(0, batch.length - returnedIds.size);
+          // Re-read every requested item, including partial/no-op responses. The API response is not durable authority.
+          updatedIds = [...batch];
         } catch {
           mutationFailedForBatch = true;
           mutationFailed += batch.length;
           updatedIds = [...batch];
         }
-        if (!(await reconcileSettledBatch(updatedIds, { mutationFailed: mutationFailedForBatch }))) return;
+        if (!(await reconcileSettledBatch(updatedIds, { mutationFailed: mutationFailedForBatch && !isSelectedSafeAssessment }))) return;
         if (operation.cancelRequested) {
           await finalizeCanceledOperation();
           return;
@@ -857,7 +907,9 @@ function StorageCleanupPanel({
         }
       }
       if (!ownsOperation()) return;
-      setAiStatus(replaceCopy("storageCleanupAIRecheckDoneSummary", { total, processed, skipped, mutationFailed, readbackFailed }));
+      setAiStatus(replaceCopy(isSelectedSafeAssessment
+        ? "storageCleanupAISelectedDoneSummary"
+        : "storageCleanupAIRecheckDoneSummary", { total, processed, skipped, mutationFailed, readbackFailed }));
       await loadRunDetails(reviewRunId, true, expectedScopeEpoch);
       if (!ownsOperation()) return;
       const currentRun = runRef.current;
@@ -871,14 +923,16 @@ function StorageCleanupPanel({
         updateAiWorkState("idle");
       }
     }
-  }, [api, invalidateReadbackFailures, loadFindings, loadRunDetails, reconcileUpdatedFindings, refreshAIReadiness, removeSelectionsForIds, reportError, replaceCopy, run, t, updateAiWorkState]);
+  }, [api, invalidateReadbackFailures, loadFindings, loadRunDetails, reconcileUpdatedFindings, refreshAIReadiness, removeSelectionsForIds, reportError, replaceCopy, run, selectedFindingIds, selectionRevision, t, updateAiWorkState]);
 
   const cancelAiRecheck = useCallback(() => {
     const operation = aiOperationRef.current;
     if (!operation || aiWorkStateRef.current !== "running") return;
     operation.cancelRequested = true;
     aiOperationEpoch.current += 1;
-    setAiStatus(t("storageCleanupAIRecheckCanceling"));
+    setAiStatus(t(operation.action === "selected-safe"
+      ? "storageCleanupAISelectedCanceling"
+      : "storageCleanupAIRecheckCanceling"));
     updateAiWorkState("canceling");
   }, [t, updateAiWorkState]);
 
@@ -1167,8 +1221,40 @@ function StorageCleanupPanel({
             <div className="min-w-0">
               <strong className="block text-sm text-[var(--zc-text-primary)]">{replaceCopy("storageCleanupSelectionSummary", { count: selectedFindingIds.size, size: formatBytes(selectedBytes) })}</strong>
               <span className={metadataText}>{t("storageCleanupSelectionSafety")}</span>
+              <span className={`${metadataText} block`} data-cleanup-current-assessment-guidance>
+                {selectedFindings.some((finding) => finding.tier === "safe")
+                  ? selectedFindings.some((finding) => finding.tier === "review")
+                    ? t("storageCleanupSelectionMixedAssessmentGuidance")
+                    : t("storageCleanupSelectionSafeAssessmentGuidance")
+                  : t("storageCleanupSelectionReviewAssessmentGuidance")}
+              </span>
             </div>
-            <Button variant="primary" disabled={isMutating || isAiWorking || Boolean(mutationUnavailable) || !api.previewCleanupOperations} onClick={() => void previewSelected().catch(() => undefined)}><Trash2 size={15} aria-hidden="true" />{t("storageCleanupMoveToSafeTrash")}</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {activeTier === "safe" && selectedFindings.some((finding) => finding.tier === "safe")
+                && api.analyzeCleanupCandidatesWithAI && api.getAnalysisFinding ? (
+                <Button
+                  variant="secondary"
+                  disabled={isMutating || isCheckingAIReadiness || (isAiWorking && aiOperationRef.current?.action !== "selected-safe")
+                    || (aiOperationRef.current?.action === "selected-safe" && aiWorkState === "canceling")
+                    || (!isAiWorking && aiReadiness?.cleanup.state !== "ready")}
+                  onClick={() => {
+                    if (aiOperationRef.current?.action === "selected-safe" && aiWorkState === "running") cancelAiRecheck();
+                    else if (!isAiWorking) {
+                      const safeIds = selectedFindings.filter((finding) => finding.tier === "safe").map((finding) => finding.id);
+                      void recheckReviewFindings(safeIds).catch(() => undefined);
+                    }
+                  }}
+                >
+                  {isCheckingAIReadiness || (isAiWorking && aiOperationRef.current?.action === "selected-safe")
+                    ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+                    : <Sparkles size={14} aria-hidden="true" />}
+                  {aiOperationRef.current?.action === "selected-safe"
+                    ? (aiWorkState === "canceling" ? t("storageCleanupAISelectedCanceling") : t("storageCleanupAISelectedCancel"))
+                    : t("storageCleanupAISelectedAnalyze")}
+                </Button>
+              ) : null}
+              <Button variant="primary" disabled={isMutating || isAiWorking || isCheckingAIReadiness || Boolean(mutationUnavailable) || !api.previewCleanupOperations} onClick={() => void previewSelected().catch(() => undefined)}><Trash2 size={15} aria-hidden="true" />{t("storageCleanupPreviewSelectedSafeTrash")}</Button>
+            </div>
           </footer>
         ) : null}
 

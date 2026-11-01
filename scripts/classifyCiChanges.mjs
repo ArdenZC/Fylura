@@ -34,9 +34,7 @@ const WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS = new Set([
   "src-tauri/cargo.toml",
   "src-tauri/cargo.lock",
   "src-tauri/native-qa/global_index_probe.rs",
-  "scripts/classifycichanges.mjs",
-  "scripts/classifycichanges.d.mts",
-  "scripts/qualifywindowsglobalindexservice.ps1",
+   "scripts/qualifywindowsglobalindexservice.ps1",
 ]);
 
 const HIGH_RISK_PREFIXES = [
@@ -140,18 +138,24 @@ function isWindowsNativePreviewHandlerPath(path) {
   return startsWithAny(path, WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES);
 }
 
-// A read-only query/sort/activation change must not run a privileged service
-// recovery fixture. Durable producer, source-owner, service and native paths do.
+// Only proven query/relevance owners can skip the Windows native service
+// recovery test. Unknown production owners fail closed, including future new
+// Index Scope / source-writer modules; macOS-only native code is separate.
+const GLOBAL_INDEX_SERVICE_QUERY_ONLY_PATHS = new Set([
+  "src-tauri/src/global_index/search.rs",
+  "src-tauri/src/global_index/query.rs",
+  "src-tauri/src/global_index/filename_search.rs",
+  "src-tauri/src/global_index/tests/search_source_authorization.rs",
+  "src-tauri/src/global_index/tests/filename_search_candidate.rs",
+  "src-tauri/src/global_index/tests/filename_first_candidate_benchmark.rs",
+  "src-tauri/src/global_index/tests/extension_single_key_tests.rs",
+]);
+
 function isWindowsGlobalIndexServiceQualificationPath(path) {
   return WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS.has(path)
-    || path.startsWith("src-tauri/src/global_index/windows/")
-    || path.startsWith("src-tauri/src/global_index/index_scope/")
-    || [
-      "src-tauri/src/global_index/mod.rs",
-      "src-tauri/src/global_index/repository.rs",
-      "src-tauri/src/global_index/coordinator.rs",
-      "src-tauri/src/global_index/models.rs",
-    ].includes(path);
+    || (path.startsWith("src-tauri/src/global_index/")
+      && !path.startsWith("src-tauri/src/global_index/macos/")
+      && !GLOBAL_INDEX_SERVICE_QUERY_ONLY_PATHS.has(path));
 }
 
 function isHighRiskPath(path) {

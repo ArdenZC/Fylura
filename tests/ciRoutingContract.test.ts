@@ -160,6 +160,8 @@ describe("CI change routing", () => {
       "src-tauri/src/global_index/repository.rs",
       "src-tauri/src/global_index/coordinator.rs",
       "src-tauri/src/global_index/models.rs",
+      "src-tauri/src/global_index/unfamiliar_new_owner.rs",
+      "src-tauri/src/global_index/wake.rs",
       "src-tauri/native-qa/global_index_probe.rs",
       "scripts/qualifyWindowsGlobalIndexService.ps1",
     ]) {
@@ -176,6 +178,9 @@ describe("CI change routing", () => {
       "src-tauri/src/global_index/tests/search_source_authorization.rs",
       ".github/workflows/ci.yml",
       ".github/workflows/smart-lean.yml",
+      "scripts/classifyCiChanges.mjs",
+      "scripts/ciValidationPlan.mjs",
+      "src-tauri/src/global_index/macos/spotlight.rs",
       "src/App.tsx",
       "docs/project/tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md",
     ]) {

@@ -193,8 +193,9 @@ fn copy_commit_claim_with_source_retirement(
     ) {
         return rollback_before_publish(claim, AtomicMoveError::SourceChanged);
     }
+    let mut directory_progress = crate::fs_safety::DirectoryTransferProgress::new("preparing");
     if matches!(claim.kind(), ClaimedEntryKind::Directory) {
-        notify_phase(&mut observer, "preparing")?;
+        directory_progress.reset("preparing", None, None, &mut observer)?;
     }
     let source_identity = if matches!(claim.kind(), ClaimedEntryKind::Directory) {
         claim
@@ -204,9 +205,8 @@ fn copy_commit_claim_with_source_retirement(
         source_namespace_identity.clone()
     };
     notify_phase(&mut observer, "copying")?;
-    let mut directory_progress = crate::fs_safety::DirectoryTransferProgress::new("copying");
     if matches!(claim.kind(), ClaimedEntryKind::Directory) {
-        directory_progress.reset("copying", None, None, &mut observer)?;
+        directory_progress.reset("copying", None, Some(source_identity.size), &mut observer)?;
     }
 
     let mut copy_progress = DirectoryCopyProgress {
@@ -586,8 +586,9 @@ pub(crate) fn copy_commit_source_stable(
     // Directory content identity has a different size domain (the logical sum
     // of child content), so capture it only after the namespace binding has
     // passed and use it exclusively for copy/source-stability verification.
+    let mut directory_progress = crate::fs_safety::DirectoryTransferProgress::new("preparing");
     if matches!(kind, ClaimedEntryKind::Directory) {
-        notify_phase(&mut observer, "preparing")?;
+        directory_progress.reset("preparing", None, None, &mut observer)?;
     }
     let source_identity = if matches!(kind, ClaimedEntryKind::Directory) {
         let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
@@ -599,7 +600,6 @@ pub(crate) fn copy_commit_source_stable(
 
     let staging_name = OsString::from(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     notify_phase(&mut observer, "copying")?;
-    let mut directory_progress = crate::fs_safety::DirectoryTransferProgress::new("copying");
     let mut directory_total_items = None;
     let copy_proof = match kind {
         ClaimedEntryKind::File => {
@@ -616,7 +616,12 @@ pub(crate) fn copy_commit_source_stable(
             } else {
                 cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
                 let destination = create_staging_file(target_parent.raw_fd(), &staging_name)?;
-                directory_progress.reset("copying", None, None, &mut observer)?;
+                directory_progress.reset(
+                    "copying",
+                    None,
+                    Some(source_identity.size),
+                    &mut observer,
+                )?;
                 let actual = copy_file_contents_and_hash_with_progress(
                     handle,
                     &destination,
@@ -650,7 +655,7 @@ pub(crate) fn copy_commit_source_stable(
             // one destination link per source (dev, inode) pair.
             cleanup_staging_at(target_parent.raw_fd(), &staging_name, None);
             let destination = create_staging_directory(target_parent.raw_fd(), &staging_name)?;
-            directory_progress.reset("copying", None, None, &mut observer)?;
+            directory_progress.reset("copying", None, Some(source_identity.size), &mut observer)?;
             let source_root_device = {
                 use std::os::unix::fs::MetadataExt;
                 handle.metadata().map_err(AtomicMoveError::Io)?.dev()
@@ -1850,9 +1855,13 @@ mod tests {
             pair[0].processed_bytes <= pair[1].processed_bytes
                 && pair[0].processed_items <= pair[1].processed_items
         }));
+        assert!(copying.iter().all(|progress| {
+            progress.total_bytes == Some(payload.len() as u64)
+                && progress.processed_bytes <= payload.len() as u64
+        }));
         let completed_copy = copying.last().expect("final copy counters");
         assert_eq!(completed_copy.processed_bytes, payload.len() as u64);
-        assert_eq!(completed_copy.total_bytes, None);
+        assert_eq!(completed_copy.total_bytes, Some(payload.len() as u64));
         assert_eq!(completed_copy.processed_items, 3);
         assert_eq!(completed_copy.total_items, None);
         assert_eq!(

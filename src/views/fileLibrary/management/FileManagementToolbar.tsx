@@ -690,6 +690,19 @@ export function FileManagementToolbar() {
     }
     return parts.join(" · ");
   };
+  const taskProgressBar = (progress: typeof liveTaskProgress) => {
+    const label = progress?.phase ? taskPhaseLabel(progress.phase) : t("fmExecuting");
+    if (progress?.processedBytes !== undefined && progress.totalBytes !== undefined && progress.totalBytes > 0) {
+      return <progress aria-label={label} max={progress.totalBytes} value={Math.min(progress.processedBytes, progress.totalBytes)}/>;
+    }
+    if (progress?.processedItems !== undefined && progress.totalItems !== undefined && progress.totalItems > 0) {
+      return <progress aria-label={label} max={progress.totalItems} value={Math.min(progress.processedItems, progress.totalItems)}/>;
+    }
+    if (progress && !progress.phase && progress.total > 0) {
+      return <progress aria-label={label} max={progress.total} value={progress.processed}/>;
+    }
+    return <progress aria-label={label}/>;
+  };
   const resolution = (id: string, value: string) => {
     setSkip((current) => value === "skip" ? [...new Set([...current, id])] : current.filter((item) => item !== id));
     setKeepBoth((current) => value === "both" ? [...new Set([...current, id])] : current.filter((item) => item !== id));
@@ -741,7 +754,7 @@ export function FileManagementToolbar() {
     {focused && (error || notice) && <div className="fm-notice" role={error ? "alert" : "status"}>{error || notice}{copyFallback && <button className={buttonSecondary} onClick={copyInstead}>{t("fmDirectoryMoveCopyInstead")}</button>}<button className={buttonGhost} aria-label={t("fmDismiss")} onClick={dismissNotice}><X size={14}/></button></div>}
       {focused && state.activeTransferTask && state.transferRunning && <aside className="fm-task-progress" role="status" aria-live="polite">
       <div className="fm-task-heading"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : liveTaskProgress ? `${liveTaskProgress.processed}/${liveTaskProgress.total} · ${t("fmTaskItems")}` : state.activeTransferTask.phase === "canceling" ? t("fmCancelPending") : t("fmExecuting")}</strong><button className={buttonGhost} disabled={state.activeTransferTask.cancelRequested} onClick={cancelRunningTransfer}>{state.activeTransferTask.cancelRequested ? t("fmCancelPending") : t("fmCancelRunning")}</button></div>
-      {liveTaskProgress && liveTaskProgress.total > 0 && !liveTaskProgress.phase ? <progress max={liveTaskProgress.total} value={liveTaskProgress.processed}/> : <progress />}
+      {taskProgressBar(liveTaskProgress)}
       <span className="fm-path" title={liveTaskProgress?.currentPath || state.activeTransferTask.sourceSummary}>{liveTaskProgress?.currentPath || `${state.activeTransferTask.sourceSummary} → ${state.activeTransferTask.destinationSummary}`}</span>
       <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
       <div className="fm-toolbar"><button className={buttonGhost} onClick={() => openPanel("tasks")}>{t("fmTaskDetails")}</button><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>
@@ -771,6 +784,7 @@ export function FileManagementToolbar() {
           <p>{t(state.activeTransferTask.action === "move" ? "fmMove" : "fmCopy")}</p>
           <p className="fm-path" title={state.activeTransferTask.sourceSummary}>{t("fmSource")}: {state.activeTransferTask.sourceSummary || "—"}</p>
           <p className="fm-path" title={state.activeTransferTask.destinationSummary}>{t("fmDestination")}: {state.activeTransferTask.destinationSummary || "—"}</p>
+          {liveTaskProgress && taskProgressBar(liveTaskProgress)}
           {liveTaskProgress && <p>{`${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}`}</p>}
           <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
           {state.transferOpen && <p role="status">{t("fmTaskAwaitingConflict")}</p>}
@@ -804,7 +818,7 @@ export function FileManagementToolbar() {
         {pageControls(state.basket.length, effectiveBasketPage, setBasketPage)}
       </>}
       {panel === "results" && <>
-        {state.activeTransferTask && state.transferRunning && <div className="fm-progress fm-task-details" role="status"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : t("fmExecuting")}</strong>{liveTaskProgress && liveTaskProgress.total > 0 && !liveTaskProgress.phase ? <progress max={liveTaskProgress.total} value={liveTaskProgress.processed}/> : <progress />}<span>{liveTaskProgress ? `${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}` : state.activeTransferTask.sourceSummary}</span><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>}
+        {state.activeTransferTask && state.transferRunning && <div className="fm-progress fm-task-details" role="status"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : t("fmExecuting")}</strong>{taskProgressBar(liveTaskProgress)}<span>{liveTaskProgress ? `${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}` : state.activeTransferTask.sourceSummary}</span><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>}
         <p className="fm-muted">{resultsSummary}</p>
         <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{log.status === "success" ? t("fmSucceeded") : log.status === "skipped" ? t("fmSkipped") : t("fmFailed")}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{localizedStableError(log.error_message, t)}</p>}</li>)}</ul>
         {pageControls(state.results.length, resultPage, setResultPage)}

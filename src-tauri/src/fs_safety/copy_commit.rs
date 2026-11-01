@@ -473,7 +473,12 @@ fn copy_directory_claim(
         Ok(source_before) => source_before,
         Err(error) => return rollback_before_publish(claim, error),
     };
-    if let Err(error) = progress.reset("copying", None, None, &mut observer) {
+    if let Err(error) = progress.reset(
+        "copying",
+        Some(source_before.entries),
+        Some(source_before.bytes),
+        &mut observer,
+    ) {
         return rollback_before_publish(claim, error);
     }
     if let Some(observer) = observer.as_deref_mut() {
@@ -508,11 +513,21 @@ fn copy_directory_claim(
         )?;
         progress.finish(&mut observer)?;
         copy_windows_security_descriptor(claim.current_path(), &staging.path)?;
-        progress.reset("verify_source", None, None, &mut observer)?;
+        progress.reset(
+            "verify_source",
+            Some(source_before.entries),
+            Some(source_before.bytes),
+            &mut observer,
+        )?;
         let source_after =
             directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)?;
         progress.finish(&mut observer)?;
-        progress.reset("verify_staging", None, None, &mut observer)?;
+        progress.reset(
+            "verify_staging",
+            Some(source_before.entries),
+            Some(source_before.bytes),
+            &mut observer,
+        )?;
         let staged = directory_content_digest(&staging.path, cancel, &mut progress, &mut observer)?;
         progress.finish(&mut observer)?;
         if source_before.hash != source_after.hash || source_before.hash != staged.hash {
@@ -550,7 +565,12 @@ fn copy_directory_claim(
         target_parent
             .sync()
             .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
-        progress.reset("verify_target", None, None, &mut observer)?;
+        progress.reset(
+            "verify_target",
+            Some(source_before.entries),
+            Some(source_before.bytes),
+            &mut observer,
+        )?;
         let target_digest = directory_content_digest(
             &target_parent.path().join(target_name),
             cancel,
@@ -2666,8 +2686,8 @@ mod tests {
             copied.processed_bytes,
             b"root file bytes".len() as u64 + b"nested file bytes".len() as u64
         );
-        assert_eq!(copied.total_items, None);
-        assert_eq!(copied.total_bytes, None);
+        assert_eq!(copied.total_items, Some(4));
+        assert_eq!(copied.total_bytes, Some(copied.processed_bytes));
         let retired = progress_events
             .iter()
             .rfind(|progress| progress.stage == "source_retirement")

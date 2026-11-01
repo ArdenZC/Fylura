@@ -1,6 +1,6 @@
 # Fylura Project Status
 
-Last verified: 2026-10-29 (active snapshot; dated records below retained)
+Last verified: 2026-11-01 (current engineering checkpoint; earlier snapshots below are historical)
 
 ## Owner product-direction addendum — 2026-11-01
 
@@ -10,7 +10,7 @@ Last verified: 2026-10-29 (active snapshot; dated records below retained)
 
 **Verified GitHub baseline:** `master@c2e26672923526e6a29da3ea3b5fd317301e125a` after [product direction #528](https://github.com/ArdenZC/Fylura/pull/528). Check live `master` before implementation; this SHA is a dated reference, not a pinned task base.
 
-- **Engineering decision:** Owner approved the medium-scope B plan (risk-proportional CI and merge/activation/release separation). This decision changes no required GitHub status name, user-data safety invariant, resource threshold, macOS release acceptance or product-default feature flag by itself. See the approved proposal in `docs/research/CI_RISK_PROPORTIONAL_B_PLAN_2026-11-01.md` once merged.
+- **Engineering decision:** Owner approved the medium-scope B plan (risk-proportional CI and merge/activation/release separation). This decision changes no required GitHub status name, user-data safety invariant, resource threshold, macOS release acceptance or product-default feature flag by itself. See [B plan first-batch implementation](../research/CI_RISK_PROPORTIONAL_B_PLAN_2026-11-01.md) once merged.
 - **Active code candidate:** [#518](https://github.com/ArdenZC/Fylura/pull/518) at `fb00cc435942cdc6bfce392eaba2538e83bd9e85`, OPEN/DRAFT/default-OFF, real Windows GUI Search/source-revocation PASS; main exact-head CI #41313526841 FAIL (Windows service Pause/durable-state and macOS small RSS trend). Do not label it merged or default-on.
 - **Integrated:** #524 default Search source authorization, #525/#526 Smart Lean CI trigger refinement, #521 File Task Center. Existing product-direction [ADR-0016](DECISIONS/0016-file-first-four-core-jobs.md) is approved specification, **not implementation**.
 - **Next product evidence:** [#487](https://github.com/ArdenZC/Fylura/issues/487) owns full native Windows/macOS coverage; [#512](https://github.com/ArdenZC/Fylura/issues/512) owns product inventory. Apple Silicon installed GUI acceptance and historical >4 GiB/exit are UNVERIFIED.

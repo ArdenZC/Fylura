@@ -92,6 +92,32 @@ fn ordinary_restore_fixture(
     )
 }
 
+fn native_copy_operation(
+    run_id: &str,
+    label: &str,
+    source: &Path,
+    target: &Path,
+) -> OperationPreviewRequest {
+    OperationPreviewRequest {
+        id: format!("native-copy-{label}-{run_id}"),
+        file_id: format!("native-copy-file-{label}-{run_id}"),
+        operation_type: "copy".to_string(),
+        source_path: source.to_string_lossy().into_owned(),
+        target_path: target.to_string_lossy().into_owned(),
+        old_name: source
+            .file_name()
+            .expect("copy source name")
+            .to_string_lossy()
+            .into_owned(),
+        new_name: target
+            .file_name()
+            .expect("copy target name")
+            .to_string_lossy()
+            .into_owned(),
+        is_executable: Some(true),
+    }
+}
+
 #[derive(Serialize)]
 struct SmokeManifest {
     schema: &'static str,
@@ -100,6 +126,14 @@ struct SmokeManifest {
     source_volume: String,
     target_volume: String,
     cross_volume_exercised: bool,
+    ordinary_same_volume_file_copy: &'static str,
+    ordinary_same_volume_directory_copy: &'static str,
+    ordinary_cross_volume_file_copy: &'static str,
+    ordinary_cross_volume_directory_copy: &'static str,
+    ordinary_same_volume_file_move: &'static str,
+    ordinary_same_volume_directory_move: &'static str,
+    ordinary_cross_volume_file_move: &'static str,
+    windows_copy_audit_policy: &'static str,
     windows_sacl_inspection: &'static str,
     operation_move_restore: &'static str,
     rename: &'static str,
@@ -868,9 +902,281 @@ fn native_file_hardening_smoke() {
     assert_eq!(claim_log.operation_phase, "manual_review");
 
     let cross_volume_exercised = volume_prefix(&source_volume) != volume_prefix(&target_volume);
+    let same_copy_parent = source_volume.join("ordinary-copy-destination");
+    fs::create_dir_all(&same_copy_parent).expect("same-volume copy target parent");
+    let same_file_source = source_volume.join("ordinary-copy-source.txt");
+    let same_file_target = same_copy_parent.join("ordinary-copy-file.txt");
+    fs::write(&same_file_source, b"ordinary same-volume copy canary")
+        .expect("same-volume Copy source");
+    let same_directory_source = source_volume.join("ordinary-copy-tree");
+    fs::create_dir_all(same_directory_source.join("nested").join("empty"))
+        .expect("same-volume copy tree");
+    fs::write(
+        same_directory_source.join("nested").join("payload.bin"),
+        b"ordinary same-volume nested copy canary",
+    )
+    .expect("same-volume nested Copy source");
+    let same_directory_target = same_copy_parent.join("ordinary-copy-tree");
+    let same_copy_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![
+                native_copy_operation(&run_id, "same-file", &same_file_source, &same_file_target),
+                native_copy_operation(
+                    &run_id,
+                    "same-directory",
+                    &same_directory_source,
+                    &same_directory_target,
+                ),
+            ],
+        },
+    )
+    .expect("execute ordinary same-volume Copy fixtures");
+    assert_eq!(same_copy_result.logs.len(), 2);
+    assert!(same_copy_result
+        .logs
+        .iter()
+        .all(|log| log.status == "success"));
+    assert!(
+        same_file_source.is_file(),
+        "same-volume Copy must retain its source"
+    );
+    assert!(
+        same_directory_source.is_dir(),
+        "same-volume directory Copy must retain its source"
+    );
+    assert_eq!(
+        sha256_file(&same_file_source),
+        sha256_file(&same_file_target),
+        "same-volume copied file content must match"
+    );
+    assert_eq!(
+        sha256_file(&same_directory_source.join("nested").join("payload.bin")),
+        sha256_file(&same_directory_target.join("nested").join("payload.bin")),
+        "same-volume copied nested directory content must match"
+    );
+    assert!(same_directory_target.join("nested").join("empty").is_dir());
+
+    let same_move_parent = source_volume.join("ordinary-move-destination");
+    fs::create_dir_all(&same_move_parent).expect("same-volume Move destination parent");
+    let same_move_file_source = source_volume.join("ordinary-move-source.txt");
+    let same_move_file_target = same_move_parent.join("ordinary-move-source.txt");
+    fs::write(&same_move_file_source, b"ordinary same-volume Move canary")
+        .expect("same-volume Move file source");
+    let same_move_directory_source = source_volume.join("ordinary-move-tree");
+    fs::create_dir_all(same_move_directory_source.join("nested").join("empty"))
+        .expect("same-volume Move tree");
+    fs::write(
+        same_move_directory_source
+            .join("nested")
+            .join("payload.bin"),
+        b"ordinary same-volume nested Move canary",
+    )
+    .expect("same-volume nested Move file");
+    let same_move_directory_target = same_move_parent.join("ordinary-move-tree");
+    let same_move_file_hash = sha256_file(&same_move_file_source);
+    let same_move_nested_hash = sha256_file(
+        &same_move_directory_source
+            .join("nested")
+            .join("payload.bin"),
+    );
+    let same_move_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![
+                native_qa_transfer_move_preview(&same_move_file_source, &same_move_parent)
+                    .expect("same-volume file Move Preview"),
+                native_qa_transfer_move_preview(&same_move_directory_source, &same_move_parent)
+                    .expect("same-volume directory Move Preview"),
+            ],
+        },
+    )
+    .expect("execute ordinary same-volume Move fixtures");
+    assert_eq!(same_move_result.logs.len(), 2);
+    assert!(same_move_result
+        .logs
+        .iter()
+        .all(|log| log.status == "success"));
+    assert!(same_move_result.logs.iter().all(|log| log.can_restore));
+    assert_eq!(same_move_result.logs[0].operation_phase, "completed");
+    assert_eq!(same_move_result.logs[1].operation_phase, "completed");
+    assert!(!same_move_file_source.exists());
+    assert!(!same_move_directory_source.exists());
+    assert_eq!(sha256_file(&same_move_file_target), same_move_file_hash);
+    assert_eq!(
+        sha256_file(
+            &same_move_directory_target
+                .join("nested")
+                .join("payload.bin")
+        ),
+        same_move_nested_hash
+    );
+    assert!(same_move_directory_target
+        .join("nested")
+        .join("empty")
+        .is_dir());
+    let same_move_restore = restore_moves_with_persistence(
+        &db,
+        RestoreMovesRequest {
+            logs: same_move_result.logs,
+        },
+    )
+    .expect("restore same-volume file and directory Move through History");
+    assert_eq!(same_move_restore.restored, 2);
+    assert_eq!(same_move_restore.failed, 0);
+    assert!(same_move_file_source.is_file());
+    assert!(same_move_directory_source
+        .join("nested")
+        .join("empty")
+        .is_dir());
+    assert_eq!(sha256_file(&same_move_file_source), same_move_file_hash);
+    assert_eq!(
+        sha256_file(
+            &same_move_directory_source
+                .join("nested")
+                .join("payload.bin")
+        ),
+        same_move_nested_hash
+    );
+    assert!(!same_move_file_target.exists());
+    assert!(!same_move_directory_target.exists());
+
+    let ordinary_same_volume_file_copy = "passed_source_retained_content_hash_matched";
+    let ordinary_same_volume_directory_copy = "passed_source_retained_nested_hash_matched";
+    let mut ordinary_cross_volume_file_copy = "unverified_no_secondary_volume";
+    let mut ordinary_cross_volume_directory_copy = "unverified_no_secondary_volume";
+    let ordinary_same_volume_file_move = "passed_move_and_history_restore";
+    let ordinary_same_volume_directory_move = "passed_move_and_history_restore";
+    let mut ordinary_cross_volume_file_move = "unverified_no_secondary_volume";
     let mut windows_sacl_inspection = "unverified_no_secondary_volume";
     let mut cross_volume_directory_move = "unverified_no_secondary_volume";
     if cross_volume_exercised {
+        let cross_copy_parent = target_volume.join("ordinary-copy-destination");
+        fs::create_dir_all(&cross_copy_parent).expect("cross-volume copy target parent");
+        let cross_file_source = source_volume.join("ordinary-cross-copy-source.txt");
+        let cross_file_target = cross_copy_parent.join("ordinary-cross-copy-file.txt");
+        fs::write(&cross_file_source, b"ordinary cross-volume copy canary")
+            .expect("cross-volume Copy source");
+        let cross_directory_source = source_volume.join("ordinary-cross-copy-tree");
+        fs::create_dir_all(cross_directory_source.join("nested").join("empty"))
+            .expect("cross-volume Copy tree");
+        fs::write(
+            cross_directory_source.join("nested").join("payload.bin"),
+            b"ordinary cross-volume nested copy canary",
+        )
+        .expect("cross-volume nested Copy source");
+        let cross_directory_target = cross_copy_parent.join("ordinary-cross-copy-tree");
+        let cross_copy_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![
+                    native_copy_operation(
+                        &run_id,
+                        "cross-file",
+                        &cross_file_source,
+                        &cross_file_target,
+                    ),
+                    native_copy_operation(
+                        &run_id,
+                        "cross-directory",
+                        &cross_directory_source,
+                        &cross_directory_target,
+                    ),
+                ],
+            },
+        )
+        .expect("execute ordinary cross-volume Copy fixtures under the runner token");
+        assert_eq!(cross_copy_result.logs.len(), 2);
+        assert!(
+            cross_copy_result
+                .logs
+                .iter()
+                .all(|log| log.status == "success"),
+            "ordinary Copy must not depend on SeSecurityPrivilege: {:?}",
+            cross_copy_result
+                .logs
+                .iter()
+                .map(|log| &log.error_message)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            cross_file_source.is_file(),
+            "cross-volume Copy must retain its source"
+        );
+        assert!(
+            cross_directory_source.is_dir(),
+            "cross-volume directory Copy must retain its source"
+        );
+        assert_eq!(
+            sha256_file(&cross_file_source),
+            sha256_file(&cross_file_target),
+            "cross-volume copied file content must match"
+        );
+        assert_eq!(
+            sha256_file(&cross_directory_source.join("nested").join("payload.bin")),
+            sha256_file(&cross_directory_target.join("nested").join("payload.bin")),
+            "cross-volume copied nested directory content must match"
+        );
+        assert!(cross_directory_target.join("nested").join("empty").is_dir());
+        ordinary_cross_volume_file_copy = "passed_source_retained_content_hash_matched";
+        ordinary_cross_volume_directory_copy = "passed_source_retained_nested_hash_matched";
+
+        let cross_move_file_source = source_volume.join("ordinary-cross-volume-move.txt");
+        let cross_move_file_target = target_volume.join("ordinary-cross-volume-move.txt");
+        fs::write(
+            &cross_move_file_source,
+            b"ordinary cross-volume Move canary",
+        )
+        .expect("cross-volume Move file source");
+        let cross_move_file_hash = sha256_file(&cross_move_file_source);
+        let cross_move_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![native_qa_transfer_move_preview(
+                    &cross_move_file_source,
+                    &target_volume,
+                )
+                .expect("cross-volume file Move Preview")],
+            },
+        )
+        .expect("execute journaled cross-volume file Move");
+        assert_eq!(cross_move_result.logs.len(), 1);
+        if cross_move_result.logs[0].status == "success" {
+            assert_eq!(cross_move_result.logs[0].operation_phase, "completed");
+            assert!(cross_move_result.logs[0].can_restore);
+            assert!(!cross_move_file_source.exists());
+            assert_eq!(sha256_file(&cross_move_file_target), cross_move_file_hash);
+            let restored = restore_moves_with_persistence(
+                &db,
+                RestoreMovesRequest {
+                    logs: cross_move_result.logs,
+                },
+            )
+            .expect("restore cross-volume file Move through History");
+            assert_eq!(restored.restored, 1);
+            assert_eq!(restored.failed, 0);
+            assert!(cross_move_file_source.is_file());
+            assert_eq!(sha256_file(&cross_move_file_source), cross_move_file_hash);
+            assert!(!cross_move_file_target.exists());
+            ordinary_cross_volume_file_move = "passed_move_and_history_restore";
+        } else {
+            let error = cross_move_result.logs[0]
+                .error_message
+                .as_deref()
+                .unwrap_or_default();
+            assert!(
+                error.contains("windows_sacl_"),
+                "unexpected ordinary cross-volume file Move refusal: {error}"
+            );
+            assert!(cross_move_file_source.is_file());
+            assert_eq!(sha256_file(&cross_move_file_source), cross_move_file_hash);
+            assert!(
+                !cross_move_file_target.exists(),
+                "cross-volume Move refusal must not publish a target"
+            );
+            ordinary_cross_volume_file_move = "unverified_sacl_refusal_source_retained";
+        }
+
         let directory_source = source_volume.join("cross-volume-directory");
         let directory_target = target_volume.join("cross-volume-directory");
         fs::create_dir_all(directory_source.join("nested").join("empty"))
@@ -1430,12 +1736,20 @@ fn native_file_hardening_smoke() {
         remove_isolated_fixture(secondary_root);
     }
     let manifest = SmokeManifest {
-        schema: "zen-canvas-native-file-hardening-smoke/v3",
+        schema: "zen-canvas-native-file-hardening-smoke/v5",
         fixture_root: fixture_text,
         database: database_text,
         source_volume: source_text,
         target_volume: target_text,
         cross_volume_exercised,
+        ordinary_same_volume_file_copy,
+        ordinary_same_volume_directory_copy,
+        ordinary_cross_volume_file_copy,
+        ordinary_cross_volume_directory_copy,
+        ordinary_same_volume_file_move,
+        ordinary_same_volume_directory_move,
+        ordinary_cross_volume_file_move,
+        windows_copy_audit_policy: "destination_parent_inherited_source_sacl_not_copied",
         windows_sacl_inspection,
         operation_move_restore,
         rename: "passed",

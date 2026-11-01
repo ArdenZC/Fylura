@@ -232,8 +232,10 @@ fn copy_commit_claim_with_source_retirement(
     mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     retire_source: bool,
 ) -> Result<(), AtomicMoveError> {
-    if let Err(error) = ensure_windows_sacl_absent_at_path(claim.current_path()) {
-        return rollback_before_publish(claim, error);
+    if retire_source {
+        if let Err(error) = ensure_windows_sacl_absent_at_path(claim.current_path()) {
+            return rollback_before_publish(claim, error);
+        }
     }
     if claim.kind() != ClaimedEntryKind::File {
         #[cfg(windows)]
@@ -290,8 +292,10 @@ fn copy_commit_claim_with_source_retirement(
             &target_parent.path().join(target_name),
         );
         staging.verify_path_binding(cancel)?;
-        ensure_windows_sacl_absent_at_path(claim.current_path())?;
-        ensure_windows_sacl_absent_at_path(&staging.path)?;
+        if retire_source {
+            ensure_windows_sacl_absent_at_path(claim.current_path())?;
+            ensure_windows_sacl_absent_at_path(&staging.path)?;
+        }
         staging.commit_noreplace(target_name)?;
         target_committed = true;
         if let Some(observer) = observer.as_deref_mut() {
@@ -464,8 +468,13 @@ fn copy_directory_claim(
         }
         ensure_supported_windows_file_attributes(&source_root_metadata)?;
         ensure_windows_no_named_streams(claim.current_path())?;
-        let source_before =
-            directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)?;
+        let source_before = directory_content_digest(
+            claim.current_path(),
+            cancel,
+            &mut progress,
+            &mut observer,
+            retire_source,
+        )?;
         progress.finish(&mut observer)?;
         Ok(source_before)
     })();
@@ -510,17 +519,25 @@ fn copy_directory_claim(
             cancel,
             &mut progress,
             &mut observer,
+            retire_source,
         )?;
         progress.finish(&mut observer)?;
-        copy_windows_security_descriptor(claim.current_path(), &staging.path)?;
+        if retire_source {
+            copy_windows_security_descriptor(claim.current_path(), &staging.path)?;
+        }
         progress.reset(
             "verify_source",
             Some(source_before.entries),
             Some(source_before.bytes),
             &mut observer,
         )?;
-        let source_after =
-            directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)?;
+        let source_after = directory_content_digest(
+            claim.current_path(),
+            cancel,
+            &mut progress,
+            &mut observer,
+            retire_source,
+        )?;
         progress.finish(&mut observer)?;
         progress.reset(
             "verify_staging",
@@ -528,7 +545,13 @@ fn copy_directory_claim(
             Some(source_before.bytes),
             &mut observer,
         )?;
-        let staged = directory_content_digest(&staging.path, cancel, &mut progress, &mut observer)?;
+        let staged = directory_content_digest(
+            &staging.path,
+            cancel,
+            &mut progress,
+            &mut observer,
+            retire_source,
+        )?;
         progress.finish(&mut observer)?;
         if source_before.hash != source_after.hash || source_before.hash != staged.hash {
             return Err(AtomicMoveError::CopyVerificationFailed);
@@ -576,6 +599,7 @@ fn copy_directory_claim(
             cancel,
             &mut progress,
             &mut observer,
+            retire_source,
         )
         .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
         progress.finish(&mut observer)?;
@@ -753,6 +777,7 @@ fn copy_directory_contents(
     cancel: Option<&AtomicBool>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    require_sacl_absent: bool,
 ) -> Result<(), AtomicMoveError> {
     const MAX_DEPTH: usize = 64;
     const MAX_ENTRIES: usize = 5000;
@@ -795,14 +820,24 @@ fn copy_directory_contents(
                 cancel,
                 progress,
                 observer,
+                require_sacl_absent,
             )?;
-            copy_windows_security_descriptor(&source_child, &target_child)?;
+            if require_sacl_absent {
+                copy_windows_security_descriptor(&source_child, &target_child)?;
+            }
             VerifiedDirectory::open_existing(&target_child)
                 .map_err(map_directory_error)?
                 .sync()
                 .map_err(AtomicMoveError::Io)?;
         } else if metadata.is_file() {
-            copy_regular_file(&source_child, &target_child, cancel, progress, observer)?;
+            copy_regular_file(
+                &source_child,
+                &target_child,
+                cancel,
+                progress,
+                observer,
+                require_sacl_absent,
+            )?;
         } else {
             return Err(AtomicMoveError::UnsafePath);
         }
@@ -827,6 +862,7 @@ fn copy_regular_file(
     cancel: Option<&AtomicBool>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    require_sacl_absent: bool,
 ) -> Result<(), AtomicMoveError> {
     use std::io::{Seek, SeekFrom};
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
@@ -835,7 +871,9 @@ fn copy_regular_file(
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
     }
-    ensure_windows_sacl_absent_at_path(source)?;
+    if require_sacl_absent {
+        ensure_windows_sacl_absent_at_path(source)?;
+    }
     ensure_windows_no_named_streams(source)?;
     let mut source_options = OpenOptions::new();
     source_options
@@ -905,7 +943,9 @@ fn copy_regular_file(
     if !identity::content_identity_matches(&expected, &target_identity) {
         return Err(AtomicMoveError::CopyVerificationFailed);
     }
-    copy_windows_security_descriptor(source, target)?;
+    if require_sacl_absent {
+        copy_windows_security_descriptor(source, target)?;
+    }
     Ok(())
 }
 
@@ -918,8 +958,9 @@ fn copy_windows_security_descriptor(
         Foundation::GetLastError,
         Security::{SetFileSecurityW, PROTECTED_DACL_SECURITY_INFORMATION},
     };
-    // This copier writes owner/group/DACL only. Never duplicate an object
-    // whose audit policy would be silently stripped by that descriptor.
+    // This helper is used only for destructive Move after SACL absence has
+    // been established. Source-preserving Copy deliberately skips it and
+    // inherits the destination parent's DACL and audit policy.
     ensure_windows_sacl_absent_at_path(source)?;
     let descriptor = read_windows_security_descriptor(source)?;
     let target_wide = source_claim::windows_wide_path(target);
@@ -1373,6 +1414,7 @@ fn directory_content_digest(
     cancel: Option<&AtomicBool>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    require_sacl_absent: bool,
 ) -> Result<DirectoryContentDigest, AtomicMoveError> {
     fn visit(
         current: &std::path::Path,
@@ -1381,6 +1423,7 @@ fn directory_content_digest(
         cancel: Option<&AtomicBool>,
         progress: &mut crate::fs_safety::DirectoryTransferProgress,
         observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+        require_sacl_absent: bool,
     ) -> Result<(), AtomicMoveError> {
         use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
         const MAX_DEPTH: usize = 64;
@@ -1392,13 +1435,15 @@ fn directory_content_digest(
             return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
         }
         let verified = VerifiedDirectory::open_existing(current).map_err(map_directory_error)?;
-        ensure_windows_sacl_absent_at_path(current)?;
-        let security_descriptor = windows_security_descriptor_bytes(current)?;
-        state.hasher.update(b"security-descriptor\0");
-        state
-            .hasher
-            .update(&(security_descriptor.len() as u64).to_le_bytes());
-        state.hasher.update(&security_descriptor);
+        if require_sacl_absent {
+            ensure_windows_sacl_absent_at_path(current)?;
+            let security_descriptor = windows_security_descriptor_bytes(current)?;
+            state.hasher.update(b"security-descriptor\0");
+            state
+                .hasher
+                .update(&(security_descriptor.len() as u64).to_le_bytes());
+            state.hasher.update(&security_descriptor);
+        }
         let relative = current
             .strip_prefix(&state.root)
             .map_err(|_| AtomicMoveError::UnsafePath)?;
@@ -1429,18 +1474,30 @@ fn directory_content_digest(
                 return Err(AtomicMoveError::ReparsePoint);
             }
             ensure_supported_windows_file_attributes(&metadata)?;
-            ensure_windows_sacl_absent_at_path(&path)?;
+            if require_sacl_absent {
+                ensure_windows_sacl_absent_at_path(&path)?;
+            }
             ensure_windows_no_named_streams(&path)?;
             progress.record_item(&path, observer)?;
             if metadata.is_dir() {
-                visit(&path, depth + 1, state, cancel, progress, observer)?;
+                visit(
+                    &path,
+                    depth + 1,
+                    state,
+                    cancel,
+                    progress,
+                    observer,
+                    require_sacl_absent,
+                )?;
             } else if metadata.is_file() {
-                let security_descriptor = windows_security_descriptor_bytes(&path)?;
-                state.hasher.update(b"security-descriptor\0");
-                state
-                    .hasher
-                    .update(&(security_descriptor.len() as u64).to_le_bytes());
-                state.hasher.update(&security_descriptor);
+                if require_sacl_absent {
+                    let security_descriptor = windows_security_descriptor_bytes(&path)?;
+                    state.hasher.update(b"security-descriptor\0");
+                    state
+                        .hasher
+                        .update(&(security_descriptor.len() as u64).to_le_bytes());
+                    state.hasher.update(&security_descriptor);
+                }
                 let mut options = OpenOptions::new();
                 options.read(true).custom_flags(
                     windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
@@ -1482,7 +1539,15 @@ fn directory_content_digest(
         byte_count: 0,
         hasher: blake3::Hasher::new(),
     };
-    visit(root, 0, &mut state, cancel, progress, observer)?;
+    visit(
+        root,
+        0,
+        &mut state,
+        cancel,
+        progress,
+        observer,
+        require_sacl_absent,
+    )?;
     Ok(DirectoryContentDigest {
         hash: state.hasher.finalize().to_hex().to_string(),
         entries: state.entry_count as u64,
@@ -2547,6 +2612,129 @@ mod tests {
             fs::read(&source).expect("source remains"),
             b"SACL inspection must fail closed"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn source_preserving_copy_does_not_require_sacl_inspection() {
+        let root = fixture("copy-sacl-unavailable");
+        let source_parent = root.join("source");
+        let target_parent_path = root.join("target");
+        fs::create_dir_all(&source_parent).expect("source parent");
+        fs::create_dir_all(&target_parent_path).expect("target parent");
+
+        let source_file = source_parent.join("ordinary.txt");
+        fs::write(&source_file, b"ordinary copy without audit privilege").expect("source file");
+        let expected_file = identity::capture_identity(&source_file, None).expect("file identity");
+        let file_claim_path = source_claim::planned_claim_path(&source_file, "copy-file-test")
+            .expect("file claim path");
+        let mut file_claim = source_claim::claim_source_at(
+            &source_file,
+            &expected_file,
+            &file_claim_path,
+            "copy-file-test",
+            None,
+        )
+        .expect("claim file for copy");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+
+        super::super::atomic_move::test_faults::set_fault(Some(
+            super::super::atomic_move::test_faults::AtomicFaultPoint::WindowsSaclInspectionUnavailable,
+        ));
+        let file_result = copy_commit_claim_preserving_source(
+            &mut file_claim,
+            target_parent,
+            std::ffi::OsStr::new("ordinary.txt"),
+            None,
+            None,
+        );
+        let file_fault_probe = ensure_windows_transfer_security_supported(&source_file, None);
+        super::super::atomic_move::test_faults::set_fault(None);
+        assert!(
+            file_result.is_ok(),
+            "ordinary file Copy must not require SACL inspection: {file_result:?}"
+        );
+        assert!(matches!(
+            file_fault_probe,
+            Err(AtomicMoveError::WindowsSaclInspectionUnavailable)
+        ));
+        assert_eq!(
+            fs::read(&source_file).expect("source file remains"),
+            b"ordinary copy without audit privilege"
+        );
+        assert_eq!(
+            fs::read(target_parent_path.join("ordinary.txt")).expect("copied file"),
+            b"ordinary copy without audit privilege"
+        );
+
+        let source_directory = source_parent.join("ordinary-tree");
+        fs::create_dir_all(source_directory.join("nested").join("empty"))
+            .expect("nested empty directory");
+        fs::write(
+            source_directory.join("nested").join("payload.bin"),
+            b"nested copy",
+        )
+        .expect("nested file");
+        let expected_directory = identity::capture_namespace_identity_only(&source_directory, None)
+            .expect("directory identity");
+        let directory_claim_path =
+            source_claim::planned_claim_path(&source_directory, "copy-directory-test")
+                .expect("directory claim path");
+        let mut directory_claim = source_claim::claim_source_at(
+            &source_directory,
+            &expected_directory,
+            &directory_claim_path,
+            "copy-directory-test",
+            None,
+        )
+        .expect("claim directory for copy");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+
+        super::super::atomic_move::test_faults::set_fault(Some(
+            super::super::atomic_move::test_faults::AtomicFaultPoint::WindowsSaclInspectionUnavailable,
+        ));
+        let directory_result = copy_commit_claim_preserving_source(
+            &mut directory_claim,
+            target_parent,
+            std::ffi::OsStr::new("ordinary-tree"),
+            None,
+            None,
+        );
+        let directory_fault_probe =
+            ensure_windows_transfer_security_supported(&source_directory, None);
+        super::super::atomic_move::test_faults::set_fault(None);
+        assert!(
+            directory_result.is_ok(),
+            "ordinary nested-directory Copy must not require SACL inspection: {directory_result:?}"
+        );
+        assert!(matches!(
+            directory_fault_probe,
+            Err(AtomicMoveError::WindowsSaclInspectionUnavailable)
+        ));
+        assert_eq!(
+            fs::read(source_directory.join("nested").join("payload.bin"))
+                .expect("source nested file remains"),
+            b"nested copy"
+        );
+        assert_eq!(
+            fs::read(
+                target_parent_path
+                    .join("ordinary-tree")
+                    .join("nested")
+                    .join("payload.bin")
+            )
+            .expect("copied nested file"),
+            b"nested copy"
+        );
+        assert!(target_parent_path
+            .join("ordinary-tree")
+            .join("nested")
+            .join("empty")
+            .is_dir());
+        drop(file_claim);
+        drop(directory_claim);
         let _ = fs::remove_dir_all(root);
     }
 

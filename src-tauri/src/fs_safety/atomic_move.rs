@@ -1475,8 +1475,9 @@ fn atomic_copy_noreplace_uncoordinated(
                 identity::capture_namespace_identity(source, cancel).map_err(map_identity_error)?
             }
         };
-        #[cfg(windows)]
-        copy_commit::ensure_windows_transfer_security_supported(source, cancel)?;
+        // Source-preserving Copy leaves all source security metadata intact.
+        // The staged destination inherits the destination parent's audit
+        // policy; it must not require SeSecurityPrivilege just to copy data.
         let claim_path = match planned_claim_path {
             Some(path) => source_claim::rebind_claim_path(source, path).map_err(map_claim_error)?,
             None => source_claim::planned_claim_path(source, "copy").map_err(map_claim_error)?,

@@ -207,6 +207,40 @@ export async function settlePreview(page, label) {
   throw new Error(`${label}: Preview did not settle ${JSON.stringify(diagnostics)}`);
 }
 
+export async function resolveImageAsset(page, label) {
+  try {
+    await page.waitForFunction(() => {
+      const image = document.querySelector('[data-preview-representation="image"]');
+      return image === null
+        || (window.__zcW306?.pendingAssetCount ?? 0) > 0
+        || image.getAttribute("data-preview-image-status") !== "loading";
+    }, undefined, { timeout: 5_000 });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      status: document.querySelector('[data-preview-representation="image"]')?.getAttribute("data-preview-image-status") ?? null,
+      previewState: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+      w306: window.__zcW306 ? JSON.parse(JSON.stringify(window.__zcW306)) : null,
+    }));
+    throw new Error(`${label}: image asset did not become pending or terminal within 5s ${JSON.stringify(diagnostics)} (${String(error)})`);
+  }
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await page.evaluate(() => window.__zcW306?.resolveAllAssets());
+    await page.evaluate(() => Promise.resolve());
+    const status = await page.locator('[data-preview-representation="image"]')
+      .getAttribute("data-preview-image-status")
+      .catch(() => null);
+    if (status === null || status === "ready" || status === "failed") return status;
+  }
+
+  const diagnostics = await page.evaluate(() => ({
+    status: document.querySelector('[data-preview-representation="image"]')?.getAttribute("data-preview-image-status") ?? null,
+    previewState: document.querySelector('[data-preview-shell="true"]')?.getAttribute("data-preview-state") ?? null,
+    w306: window.__zcW306 ? JSON.parse(JSON.stringify(window.__zcW306)) : null,
+  }));
+  throw new Error(`${label}: image asset did not settle after bounded resolution ${JSON.stringify(diagnostics)}`);
+}
+
 async function waitForPreviewHandoffReady(page, label, expectedState) {
   await page.waitForFunction((state) => {
     const shell = document.querySelector('[data-preview-shell="true"]');

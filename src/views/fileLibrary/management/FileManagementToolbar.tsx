@@ -429,7 +429,8 @@ export function FileManagementToolbar() {
       sourcePaneId: options.sourcePaneId,
       sourceSignature: options.sourceSignature,
     };
-    closePanel(false); setError(""); setNotice("");
+    closePanel(false); setError("");
+    setNotice(action === "copy" && platform === "win32" ? t("fmWindowsCopyAuditNotice") : "");
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const sourceSummary = tickets.length <= 2 ? tickets.map((ticket) => ticket.path).join(" · ") : `${tickets[0]!.path} · +${tickets.length - 1}`;
     useFileManagementStore.setState({ results: [], transferOpen: false, transferActive: true, transferRunning: true, activeTransferId: intent.id, transferTicketIds: tickets.map((ticket) => ticket.id), activeTransferTask: {
@@ -740,7 +741,7 @@ export function FileManagementToolbar() {
     <div className="fm-toolbar fm-primary-toolbar">
       <span className="fm-selection" data-has-selection={!disabled} aria-live="polite">{t("fmSelection")} <strong>{selected}</strong></span>
       <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} title={t("fmShortcutNewFolder")} onClick={createDirectory}><FolderPlus size={14}/>{t("fmNewFolder")}</button>
-      <button className={buttonGhost} disabled={disabled} onClick={() => collect("copy")}><Copy size={14}/>{t("fmCopy")}</button>
+      <button className={buttonGhost} disabled={disabled} title={platform === "win32" ? t("fmWindowsCopyAuditNotice") : undefined} onClick={() => collect("copy")}><Copy size={14}/>{t("fmCopy")}</button>
       <button className={buttonGhost} disabled={disabled} onClick={() => collect("cut")}><Scissors size={14}/>{t("fmCut")}</button>
       <button className={buttonGhost} disabled={pasteDisabled} onClick={paste}><ClipboardPaste size={14}/>{t("fmPaste")}{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
       <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
@@ -757,6 +758,7 @@ export function FileManagementToolbar() {
       {taskProgressBar(liveTaskProgress)}
       <span className="fm-path" title={liveTaskProgress?.currentPath || state.activeTransferTask.sourceSummary}>{liveTaskProgress?.currentPath || `${state.activeTransferTask.sourceSummary} → ${state.activeTransferTask.destinationSummary}`}</span>
       <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
+      {platform === "win32" && state.activeTransferTask.action === "copy" && <p className="fm-muted" role="note">{t("fmWindowsCopyAuditNotice")}</p>}
       <div className="fm-toolbar"><button className={buttonGhost} onClick={() => openPanel("tasks")}>{t("fmTaskDetails")}</button><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>
     </aside>}
     {panelOpen && <div ref={panelRef} id={panelId} className="fm-panel" role="region" aria-label={panelTitle}>
@@ -787,6 +789,7 @@ export function FileManagementToolbar() {
           {liveTaskProgress && taskProgressBar(liveTaskProgress)}
           {liveTaskProgress && <p>{`${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}`}</p>}
           <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
+          {platform === "win32" && state.activeTransferTask.action === "copy" && <p className="fm-muted" role="note">{t("fmWindowsCopyAuditNotice")}</p>}
           {state.transferOpen && <p role="status">{t("fmTaskAwaitingConflict")}</p>}
           {state.transferRunning && <button className={buttonSecondary} disabled={state.activeTransferTask.cancelRequested} onClick={cancelRunningTransfer}>{state.activeTransferTask.cancelRequested ? t("fmCancelPending") : t("fmCancelRunning")}</button>}
         </section>}

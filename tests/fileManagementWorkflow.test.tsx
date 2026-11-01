@@ -149,6 +149,7 @@ describe("File Library manual management workflow", () => {
     await render();
     await click(`${t("fmPaste")} (2)`);
     await settle();
+    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmWindowsCopyAuditNotice"));
     expect(document.querySelector(".fm-task-progress progress")?.hasAttribute("value")).toBe(false);
     useOperationQueueStore.setState({ operationProgress: { kind: "execute", batchId: "batch", processed: 1, total: 2, currentPath: "C:/Source/one.txt" } });
     await render();

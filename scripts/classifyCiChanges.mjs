@@ -29,7 +29,6 @@ const WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES = [
 ];
 
 const WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS = new Set([
-  ".github/workflows/ci.yml",
   "src-tauri/src/lib.rs",
   "src-tauri/src/main.rs",
   "src-tauri/cargo.toml",
@@ -38,6 +37,18 @@ const WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS = new Set([
   "scripts/classifycichanges.mjs",
   "scripts/classifycichanges.d.mts",
   "scripts/qualifywindowsglobalindexservice.ps1",
+]);
+
+// Explicit query-only owners cannot change the Windows service pause or
+// ingestion lifecycle. Unknown Global Index paths still qualify conservatively.
+const GLOBAL_INDEX_QUERY_ONLY_SERVICE_PATHS = new Set([
+  "src-tauri/src/global_index/search.rs",
+  "src-tauri/src/global_index/query.rs",
+  "src-tauri/src/global_index/filename_search.rs",
+  "src-tauri/src/global_index/tests/search_source_authorization.rs",
+  "src-tauri/src/global_index/tests/filename_search_candidate.rs",
+  "src-tauri/src/global_index/tests/filename_first_candidate_benchmark.rs",
+  "src-tauri/src/global_index/tests/extension_single_key_tests.rs",
 ]);
 
 const HIGH_RISK_PREFIXES = [
@@ -142,7 +153,8 @@ function isWindowsNativePreviewHandlerPath(path) {
 }
 
 function isWindowsGlobalIndexServiceQualificationPath(path) {
-  return path.startsWith("src-tauri/src/global_index/")
+  return (path.startsWith("src-tauri/src/global_index/")
+    && !GLOBAL_INDEX_QUERY_ONLY_SERVICE_PATHS.has(path))
     || WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS.has(path);
 }
 
@@ -241,15 +253,24 @@ function isPreviewPerformancePath(path) {
     || path === "scripts/runw3-10browsergate.mjs";
 }
 
-function isWorkflowPath(path) {
-  return path.startsWith(".github/workflows/")
-    || path === "scripts/classifycichanges.mjs"
-    || path.startsWith("scripts/performance")
+function isPerformanceHarnessPath(path) {
+  return path.startsWith("scripts/performance")
     || path.startsWith("scripts/runperformance")
     || path.startsWith("scripts/prepareperformance")
     || path.startsWith("scripts/checkperformance")
     || path.startsWith("src-tauri/tests/performance_fixture")
     || path.startsWith("src-tauri/tests/support/performance_fixture");
+}
+
+function isCiControlPlanePath(path) {
+  return path.startsWith(".github/workflows/")
+    || path === "scripts/classifycichanges.mjs"
+    || path === "scripts/civalidationplan.mjs"
+    || path === "scripts/cievidence.mjs";
+}
+
+function isWorkflowPath(path) {
+  return isCiControlPlanePath(path) || isPerformanceHarnessPath(path);
 }
 
 export function classifyCiScope({
@@ -265,8 +286,13 @@ export function classifyCiScope({
     || (event === "workflow_dispatch" && dispatchFull)
     || (event === "pull_request" && labels.has("full-validation"));
   const workflowChanged = hasAnyPath(normalizedPaths, isWorkflowPath);
+  // Workflow/config changes require governance and integration contracts but
+  // must not automatically fan out to six unrelated native 100k suites.
+  // Direct performance harness edits and DB core changes remain conservative.
+  const performanceHarnessChanged = hasAnyPath(normalizedPaths, isPerformanceHarnessPath);
+  const ciControlPlaneChanged = hasAnyPath(normalizedPaths, isCiControlPlanePath);
   const dbCoreChanged = hasAnyPath(normalizedPaths, isDbCorePath);
-  const allDomains100k = requestedFull || baseMissing || workflowChanged || dbCoreChanged;
+  const allDomains100k = requestedFull || baseMissing || performanceHarnessChanged || dbCoreChanged;
 
   const result = {
     docs_only: !requestedFull
@@ -279,13 +305,13 @@ export function classifyCiScope({
     windows_global_index_service_qualification_changed: requestedFull
       || baseMissing
       || hasAnyPath(normalizedPaths, isWindowsGlobalIndexServiceQualificationPath),
-    frontend_changed: requestedFull || hasAnyPath(normalizedPaths, isFrontendPath),
+    frontend_changed: requestedFull || ciControlPlaneChanged || hasAnyPath(normalizedPaths, isFrontendPath),
     rust_changed: requestedFull || hasAnyPath(normalizedPaths, isRustPath),
     macos_sensitive: requestedFull
       || hasAnyPath(normalizedPaths, (path) => isMacosSensitivePath(path) || isRustPath(path)),
     performance_sensitive: requestedFull
       || baseMissing
-      || workflowChanged
+      || performanceHarnessChanged
       || hasAnyPath(
         normalizedPaths,
         (path) => isNativePerformancePath(path) || isWorkspaceFoundationPath(path),

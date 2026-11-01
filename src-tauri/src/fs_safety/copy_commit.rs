@@ -1062,10 +1062,10 @@ fn ensure_windows_sacl_absent_at_path(path: &std::path::Path) -> Result<(), Atom
 #[cfg(windows)]
 fn ensure_windows_sacl_absent_from_handle(
     file: &File,
-    privilege: &WindowsSaclPrivilege,
+    _privilege: &WindowsSaclPrivilege,
 ) -> Result<(), AtomicMoveError> {
     #[cfg(test)]
-    if privilege.verified_absent_test_override {
+    if _privilege.verified_absent_test_override {
         return Ok(());
     }
     use std::os::windows::io::AsRawHandle;

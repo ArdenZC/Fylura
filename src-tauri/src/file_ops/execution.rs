@@ -367,9 +367,8 @@ fn execute_moves_core_with_identity(
             // batch save; otherwise that save can erase the target identity
             // needed to distinguish a recoverable source-cleanup interruption
             // from an ambiguous filesystem state after restart.
-            drop(phase_observer);
-            drop(actual_path_observer);
-            if let Some(journal_log) = phase_log.into_inner() {
+            let journal_log = phase_log.borrow().clone();
+            if let Some(journal_log) = journal_log {
                 log.source_claim_path = log.source_claim_path.or(journal_log.source_claim_path);
                 log.claim_created_at = log.claim_created_at.or(journal_log.claim_created_at);
                 log.claim_platform_file_id = log

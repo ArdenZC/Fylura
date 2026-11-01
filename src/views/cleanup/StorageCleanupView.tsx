@@ -66,6 +66,8 @@ import { useCleanupExecutionController } from "./useCleanupExecutionController";
 import { useCleanupSelectionController } from "./useCleanupSelectionController";
 import { AIReadinessNotice, cleanupReadinessText } from "../shared/AIReadinessNotice";
 
+const FINDING_VIRTUALIZATION_THRESHOLD = 20;
+
 type Props = {
   initialRoots?: string[];
   api?: CleanupApi;
@@ -77,7 +79,7 @@ type Props = {
 function browserPresentationCleanupPath(kind: "downloads" | "desktop" | "documents" | "temp"): string | null {
   if (!isBrowserMockEnabled()) return null;
   const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
-  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview"].includes(fixture)) return null;
+  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview", "visibility", "visibility-many"].includes(fixture)) return null;
   // Explicit PM-01 browser fixtures use synthetic paths; native scope selection remains OS-owned.
   return {
     downloads: "C:/Users/Zen/Downloads",
@@ -95,6 +97,7 @@ type AiOperation = {
   tierEpoch: number;
   tier: CleanupTier;
   runId: string;
+  action: "review" | "selected-safe";
   cancelRequested: boolean;
 };
 
@@ -668,17 +671,29 @@ function StorageCleanupPanel({
     setActiveTier(nextTier);
   }, [invalidatePreviewState]);
 
-  const recheckReviewFindings = useCallback(async () => {
-    if (!run || !api.analyzeCleanupCandidatesWithAI || !api.getAIFeatureReadiness) {
+  const recheckReviewFindings = useCallback(async (selectedSafeFindingIds?: readonly string[]) => {
+    const isSelectedSafeAssessment = selectedSafeFindingIds !== undefined;
+    if (!run || !api.analyzeCleanupCandidatesWithAI || !api.getAIFeatureReadiness
+      || (isSelectedSafeAssessment && !api.getAnalysisFinding)) {
       reportError(t("storageCleanupAIUnsupported"));
       return;
     }
     if (interactionLockedRef.current || aiReadinessCheckInFlight.current) return;
+    const targetFindingIds = isSelectedSafeAssessment
+      ? [...new Set(selectedSafeFindingIds)]
+      : [];
+    if (isSelectedSafeAssessment && (activeTierRef.current !== "safe"
+      || !targetFindingIds.length
+      || targetFindingIds.some((id) => !selectedFindingIds.has(id)))) {
+      setAiStatus(t("storageCleanupAISelectedSelectionChanged"));
+      return;
+    }
     const expectedScopeEpoch = scopeEpoch.current;
     const expectedTierEpoch = activeTierEpoch.current;
-    const expectedTier = activeTierRef.current;
+    const expectedTier = isSelectedSafeAssessment ? "safe" : activeTierRef.current;
     const reviewRunId = run.id;
     const reviewRunRevision = run.revision;
+    const expectedSelectionRevision = selectionRevision.current;
     aiReadinessCheckInFlight.current = true;
     setIsCheckingAIReadiness(true);
     let currentReadiness: AIProductFeatureReadiness | null = null;
@@ -693,6 +708,10 @@ function StorageCleanupPanel({
       || activeTierRef.current !== expectedTier
       || runRef.current?.id !== reviewRunId
       || (runRef.current?.revision ?? -1) < reviewRunRevision) return;
+    if (isSelectedSafeAssessment && selectionRevision.current !== expectedSelectionRevision) {
+      setAiStatus(t("storageCleanupAISelectedSelectionChanged"));
+      return;
+    }
     if (!currentReadiness || currentReadiness.cleanup.state !== "ready") {
       setAiStatus(currentReadiness
         ? cleanupReadinessText(
@@ -714,6 +733,7 @@ function StorageCleanupPanel({
       tierEpoch: expectedTierEpoch,
       tier: expectedTier,
       runId: reviewRunId,
+      action: isSelectedSafeAssessment ? "selected-safe" : "review",
       cancelRequested: false
     };
     aiOperationRef.current = operation;
@@ -744,7 +764,9 @@ function StorageCleanupPanel({
       && aiOperationRef.current?.id === operation.id
       && runRef.current?.id === reviewRunId
       && runRef.current.revision >= reviewRunRevision;
-    const canceledStatus = () => replaceCopy("storageCleanupAIRecheckCanceledSummary", {
+    const canceledStatus = () => replaceCopy(isSelectedSafeAssessment
+      ? "storageCleanupAISelectedCanceledSummary"
+      : "storageCleanupAIRecheckCanceledSummary", {
       processed,
       total,
       skipped,
@@ -795,31 +817,33 @@ function StorageCleanupPanel({
       return true;
     };
     try {
-      const ids: string[] = [];
-      let cursor: string | null = null;
-      do {
-        if (operation.cancelRequested) {
-          setAiStatus(canceledStatus());
-          return;
-        }
-        if (!ownsOperation()) return;
-        setAiStatus(replaceCopy("storageCleanupAIRecheckCollecting", { count: ids.length }));
-        const page: AnalysisFindingPage | undefined = await api.listAnalysisFindings?.({
-          runId: reviewRunId,
-          tier: "review",
-          status: "active",
-          cursor,
-          limit: FINDING_PAGE_SIZE
-        });
-        if (!page) throw new Error("cleanup_findings_unavailable");
-        if (stopAfterCancellation()) return;
-        if (!ownsOperation()) return;
-        ids.push(...page.findings.filter((finding) => finding.tier === "review" && finding.status === "active").map((finding) => finding.id));
-        cursor = page.nextCursor;
-      } while (cursor);
+      const ids: string[] = [...targetFindingIds];
+      if (!isSelectedSafeAssessment) {
+        let cursor: string | null = null;
+        do {
+          if (operation.cancelRequested) {
+            setAiStatus(canceledStatus());
+            return;
+          }
+          if (!ownsOperation()) return;
+          setAiStatus(replaceCopy("storageCleanupAIRecheckCollecting", { count: ids.length }));
+          const page: AnalysisFindingPage | undefined = await api.listAnalysisFindings?.({
+            runId: reviewRunId,
+            tier: "review",
+            status: "active",
+            cursor,
+            limit: FINDING_PAGE_SIZE
+          });
+          if (!page) throw new Error("cleanup_findings_unavailable");
+          if (stopAfterCancellation()) return;
+          if (!ownsOperation()) return;
+          ids.push(...page.findings.filter((finding) => finding.tier === "review" && finding.status === "active").map((finding) => finding.id));
+          cursor = page.nextCursor;
+        } while (cursor);
+      }
       total = ids.length;
       if (!ids.length) {
-        setAiStatus(t("storageCleanupAINoTargets"));
+        setAiStatus(t(isSelectedSafeAssessment ? "storageCleanupAISelectedNoTargets" : "storageCleanupAINoTargets"));
         return;
       }
       for (let offset = 0; offset < ids.length; offset += AI_RECHECK_BATCH_SIZE) {
@@ -828,22 +852,50 @@ function StorageCleanupPanel({
           return;
         }
         if (!ownsOperation()) return;
-        const batch = ids.slice(offset, offset + AI_RECHECK_BATCH_SIZE);
-        setAiStatus(replaceCopy("storageCleanupAIRecheckWorkingProgress", { processed, total: ids.length }));
+        let batch = ids.slice(offset, offset + AI_RECHECK_BATCH_SIZE);
+        setAiStatus(replaceCopy(
+          isSelectedSafeAssessment ? "storageCleanupAISelectedWorkingProgress" : "storageCleanupAIRecheckWorkingProgress",
+          { processed, total: ids.length }
+        ));
+        if (isSelectedSafeAssessment) {
+          const beforeAnalysis = await Promise.allSettled(batch.map((id) => api.getAnalysisFinding!(id)));
+          if (stopAfterCancellation()) return;
+          if (!ownsOperation()) return;
+          const eligible: AnalysisFinding[] = [];
+          const rejectedIds: string[] = [];
+          beforeAnalysis.forEach((result, index) => {
+            const finding = result.status === "fulfilled" ? result.value : null;
+            if (finding && isAnalysisFinding(finding) && finding.runId === reviewRunId
+              && finding.tier === "safe" && isFindingSelectable(finding)) {
+              eligible.push(finding);
+            } else {
+              rejectedIds.push(batch[index]);
+            }
+          });
+          if (eligible.length) reconcileUpdatedFindings(eligible);
+          if (rejectedIds.length) {
+            skipped += rejectedIds.length;
+            invalidateReadbackFailures(rejectedIds);
+          }
+          batch = eligible.map((finding) => finding.id);
+          if (!batch.length) continue;
+        }
         let updatedIds: string[] = [];
         let mutationFailedForBatch = false;
         try {
           const updated = await api.analyzeCleanupCandidatesWithAI(reviewRunId, batch);
           const batchIds = new Set(batch);
-          updatedIds = [...new Set(updated.map((candidate) => candidate.id).filter((id) => batchIds.has(id)))];
-          processed += updatedIds.length;
-          skipped += Math.max(0, batch.length - updatedIds.length);
+          const returnedIds = new Set(updated.map((candidate) => candidate.id).filter((id) => batchIds.has(id)));
+          processed += returnedIds.size;
+          skipped += Math.max(0, batch.length - returnedIds.size);
+          // Re-read every requested item, including partial/no-op responses. The API response is not durable authority.
+          updatedIds = [...batch];
         } catch {
           mutationFailedForBatch = true;
           mutationFailed += batch.length;
           updatedIds = [...batch];
         }
-        if (!(await reconcileSettledBatch(updatedIds, { mutationFailed: mutationFailedForBatch }))) return;
+        if (!(await reconcileSettledBatch(updatedIds, { mutationFailed: mutationFailedForBatch && !isSelectedSafeAssessment }))) return;
         if (operation.cancelRequested) {
           await finalizeCanceledOperation();
           return;
@@ -855,7 +907,9 @@ function StorageCleanupPanel({
         }
       }
       if (!ownsOperation()) return;
-      setAiStatus(replaceCopy("storageCleanupAIRecheckDoneSummary", { total, processed, skipped, mutationFailed, readbackFailed }));
+      setAiStatus(replaceCopy(isSelectedSafeAssessment
+        ? "storageCleanupAISelectedDoneSummary"
+        : "storageCleanupAIRecheckDoneSummary", { total, processed, skipped, mutationFailed, readbackFailed }));
       await loadRunDetails(reviewRunId, true, expectedScopeEpoch);
       if (!ownsOperation()) return;
       const currentRun = runRef.current;
@@ -869,17 +923,20 @@ function StorageCleanupPanel({
         updateAiWorkState("idle");
       }
     }
-  }, [api, invalidateReadbackFailures, loadFindings, loadRunDetails, reconcileUpdatedFindings, refreshAIReadiness, removeSelectionsForIds, reportError, replaceCopy, run, t, updateAiWorkState]);
+  }, [api, invalidateReadbackFailures, loadFindings, loadRunDetails, reconcileUpdatedFindings, refreshAIReadiness, removeSelectionsForIds, reportError, replaceCopy, run, selectedFindingIds, selectionRevision, t, updateAiWorkState]);
 
   const cancelAiRecheck = useCallback(() => {
     const operation = aiOperationRef.current;
     if (!operation || aiWorkStateRef.current !== "running") return;
     operation.cancelRequested = true;
     aiOperationEpoch.current += 1;
-    setAiStatus(t("storageCleanupAIRecheckCanceling"));
+    setAiStatus(t(operation.action === "selected-safe"
+      ? "storageCleanupAISelectedCanceling"
+      : "storageCleanupAIRecheckCanceling"));
     updateAiWorkState("canceling");
   }, [t, updateAiWorkState]);
 
+  const virtualizeFindings = findings.length > FINDING_VIRTUALIZATION_THRESHOLD;
   const virtualizer = useVirtualizer({
     count: findings.length,
     getScrollElement: () => findingListRef.current,
@@ -888,16 +945,17 @@ function StorageCleanupPanel({
     getItemKey: (index) => findings[index]?.id ?? index
   });
   useEffect(() => {
+    if (!virtualizeFindings) return;
     const frame = requestAnimationFrame(() => {
       virtualizer.measure();
       findingListRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeTier, evidenceByFinding, expandedEvidence, findings, virtualizer]);
+  }, [activeTier, evidenceByFinding, expandedEvidence, findings, virtualizeFindings, virtualizer]);
   const virtualItems = virtualizer.getVirtualItems();
   const renderedVirtualItems = virtualItems.length
     ? virtualItems
-    : findings.slice(0, 20).map((_, index) => ({ index, start: index * FINDING_ROW_HEIGHT, size: FINDING_ROW_HEIGHT, key: findings[index]?.id ?? index }));
+    : findings.slice(0, FINDING_VIRTUALIZATION_THRESHOLD).map((_, index) => ({ index, start: index * FINDING_ROW_HEIGHT, size: FINDING_ROW_HEIGHT, key: findings[index]?.id ?? index }));
 
   const onFindingListKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
@@ -933,6 +991,26 @@ function StorageCleanupPanel({
         ? "current"
         : "pending";
   const cleanupRestoreWorkflowState: WorkflowStepState = cleanupWorkflowCurrent === 3 ? "current" : "pending";
+  const renderFindingRow = (finding: AnalysisFinding, index: number, start?: number) => (
+    <FindingRow
+      key={finding.id}
+      finding={finding}
+      selected={selectedFindingIds.has(finding.id)}
+      evidence={evidenceByFinding[finding.id]}
+      evidenceExpanded={expandedEvidence.has(finding.id)}
+      t={t}
+      index={index}
+      virtualized={virtualizeFindings}
+      measureElement={virtualizeFindings ? virtualizer.measureElement : undefined}
+      style={virtualizeFindings && start !== undefined ? { transform: `translateY(${start}px)` } : undefined}
+      onToggle={toggleFinding}
+      onReveal={revealFinding}
+      onToggleEvidence={toggleEvidence}
+      onRevalidate={revalidateFinding}
+      interactionLocked={isMutating || isAiWorking}
+      tierLabel={tierLabel}
+    />
+  );
 
   return (
     <>
@@ -1109,35 +1187,28 @@ function StorageCleanupPanel({
                 { value: "caution", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupCautionTier"), count: run.cautionCount }) }
               ]}
             />
-            <section className="min-h-0 overflow-hidden rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]" data-cleanup-findings>
+            <section className="min-w-0 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]" data-cleanup-findings data-cleanup-findings-virtualized={virtualizeFindings}>
               {loadingFindings && !findings.length ? <DurableTaskStatus state="running" title={t("storageCleanupFindingsLoading")} description={t("storageCleanupFindingsLoadingDesc")} density="compact" /> : null}
               {!loadingFindings && !findings.length ? <StateBlock tone={activeTier === "caution" ? "info" : "neutral"} title={t("storageCleanupNoFindingsTitle")} description={t("storageCleanupNoFindingsDesc")} density="compact" /> : null}
               {findings.length ? (
-                <div ref={findingListRef} className="max-h-[min(62vh,720px)] overflow-auto outline-none" role="list" aria-label={t("storageCleanupFindingsListLabel")} tabIndex={0} onKeyDown={onFindingListKeyDown}>
-                  <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
-                    {renderedVirtualItems.map((virtualItem) => {
-                      const finding = findings[virtualItem.index];
-                      return (
-                        <FindingRow
-                          key={finding.id}
-                          finding={finding}
-                          selected={selectedFindingIds.has(finding.id)}
-                          evidence={evidenceByFinding[finding.id]}
-                          evidenceExpanded={expandedEvidence.has(finding.id)}
-                          t={t}
-                          index={virtualItem.index}
-                          measureElement={virtualizer.measureElement}
-                          style={{ transform: `translateY(${virtualItem.start}px)` }}
-                          onToggle={toggleFinding}
-                          onReveal={revealFinding}
-                          onToggleEvidence={toggleEvidence}
-                          onRevalidate={revalidateFinding}
-                          interactionLocked={isMutating || isAiWorking}
-                          tierLabel={tierLabel}
-                        />
-                      );
-                    })}
-                  </div>
+                <div
+                  ref={findingListRef}
+                  className={cn("overflow-auto outline-none", virtualizeFindings ? "h-[min(62vh,720px)]" : "max-h-[min(62vh,720px)]")}
+                  data-cleanup-findings-scroll-owner={virtualizeFindings ? "virtualizer" : "normal-flow"}
+                  role="list"
+                  aria-label={t("storageCleanupFindingsListLabel")}
+                  tabIndex={0}
+                  onKeyDown={onFindingListKeyDown}
+                >
+                  {virtualizeFindings ? (
+                    <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+                      {renderedVirtualItems.map((virtualItem) => renderFindingRow(findings[virtualItem.index], virtualItem.index, virtualItem.start))}
+                    </div>
+                  ) : (
+                    <div className="min-w-0">
+                      {findings.map((finding, index) => renderFindingRow(finding, index))}
+                    </div>
+                  )}
                 </div>
               ) : null}
               {nextCursor ? <div className="flex justify-center border-t border-[var(--zc-divider)] p-3"><Button variant="secondary" size="compact" disabled={loadingFindings || isMutating || isAiWorking} onClick={() => void loadFindings(run.id, activeTierRef.current, nextCursor, true, run.revision).catch(() => undefined)}>{t("storageCleanupLoadMore")}</Button></div> : null}
@@ -1150,8 +1221,40 @@ function StorageCleanupPanel({
             <div className="min-w-0">
               <strong className="block text-sm text-[var(--zc-text-primary)]">{replaceCopy("storageCleanupSelectionSummary", { count: selectedFindingIds.size, size: formatBytes(selectedBytes) })}</strong>
               <span className={metadataText}>{t("storageCleanupSelectionSafety")}</span>
+              <span className={`${metadataText} block`} data-cleanup-current-assessment-guidance>
+                {selectedFindings.some((finding) => finding.tier === "safe")
+                  ? selectedFindings.some((finding) => finding.tier === "review")
+                    ? t("storageCleanupSelectionMixedAssessmentGuidance")
+                    : t("storageCleanupSelectionSafeAssessmentGuidance")
+                  : t("storageCleanupSelectionReviewAssessmentGuidance")}
+              </span>
             </div>
-            <Button variant="primary" disabled={isMutating || isAiWorking || Boolean(mutationUnavailable) || !api.previewCleanupOperations} onClick={() => void previewSelected().catch(() => undefined)}><Trash2 size={15} aria-hidden="true" />{t("storageCleanupMoveToSafeTrash")}</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {activeTier === "safe" && selectedFindings.some((finding) => finding.tier === "safe")
+                && api.analyzeCleanupCandidatesWithAI && api.getAnalysisFinding ? (
+                <Button
+                  variant="secondary"
+                  disabled={isMutating || isCheckingAIReadiness || (isAiWorking && aiOperationRef.current?.action !== "selected-safe")
+                    || (aiOperationRef.current?.action === "selected-safe" && aiWorkState === "canceling")
+                    || (!isAiWorking && aiReadiness?.cleanup.state !== "ready")}
+                  onClick={() => {
+                    if (aiOperationRef.current?.action === "selected-safe" && aiWorkState === "running") cancelAiRecheck();
+                    else if (!isAiWorking) {
+                      const safeIds = selectedFindings.filter((finding) => finding.tier === "safe").map((finding) => finding.id);
+                      void recheckReviewFindings(safeIds).catch(() => undefined);
+                    }
+                  }}
+                >
+                  {isCheckingAIReadiness || (isAiWorking && aiOperationRef.current?.action === "selected-safe")
+                    ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+                    : <Sparkles size={14} aria-hidden="true" />}
+                  {aiOperationRef.current?.action === "selected-safe"
+                    ? (aiWorkState === "canceling" ? t("storageCleanupAISelectedCanceling") : t("storageCleanupAISelectedCancel"))
+                    : t("storageCleanupAISelectedAnalyze")}
+                </Button>
+              ) : null}
+              <Button variant="primary" disabled={isMutating || isAiWorking || isCheckingAIReadiness || Boolean(mutationUnavailable) || !api.previewCleanupOperations} onClick={() => void previewSelected().catch(() => undefined)}><Trash2 size={15} aria-hidden="true" />{t("storageCleanupPreviewSelectedSafeTrash")}</Button>
+            </div>
           </footer>
         ) : null}
 

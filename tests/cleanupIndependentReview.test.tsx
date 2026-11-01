@@ -197,7 +197,11 @@ function scopeButton(): HTMLButtonElement {
 }
 
 function button(text: string): HTMLButtonElement {
-  const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes(text));
+  const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
+  const found = buttons.find((item) => item.textContent?.includes(text))
+    ?? (text === t("storageCleanupMoveToSafeTrash")
+      ? buttons.find((item) => item.textContent?.includes(t("storageCleanupPreviewSelectedSafeTrash")))
+      : undefined);
   if (!found) throw new Error(`button not found: ${text}`);
   return found;
 }
@@ -953,6 +957,78 @@ describe("Cleanup independent review behavior", () => {
     await flush(3);
     expect(container.querySelector("[data-finding-evidence]")?.textContent).toContain("cleanup_heuristic");
     expect(analyzeCleanupCandidatesWithAI).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit readiness-gated assessment for selected Safe items", async () => {
+    const run = makeRun("run-selected-safe-ai", "completed", 0, { safeCount: 1 });
+    const safe = makeSafeFinding(run, 0);
+    const analyzeCleanupCandidatesWithAI = vi.fn(async () => [{ id: safe.id }] as any);
+    const getAnalysisFinding = vi.fn(async () => safe);
+    const previewCleanupOperations = vi.fn();
+    const getAIFeatureReadiness = vi.fn(async () => readyAIReadiness());
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run,
+      getAIFeatureReadiness,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? [safe] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      getAnalysisFinding,
+      analyzeCleanupCandidatesWithAI,
+      previewCleanupOperations
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    expect(container.querySelector("[data-cleanup-current-assessment-guidance]")?.textContent).toContain("当前 AI 评估");
+    expect(button(t("storageCleanupAISelectedAnalyze")).disabled).toBe(false);
+    expect(analyzeCleanupCandidatesWithAI).not.toHaveBeenCalled();
+
+    await act(async () => button(t("storageCleanupAISelectedAnalyze")).click());
+    await vi.waitFor(() => expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce());
+    await flush(12);
+
+    expect(getAIFeatureReadiness).toHaveBeenCalledTimes(2);
+    expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledWith(run.id, [safe.id]);
+    expect(getAnalysisFinding).toHaveBeenCalledWith(safe.id);
+    expect(container.textContent).toContain("评估请求完成");
+    expect(container.textContent).toContain("预览时的后端复核");
+    expect(previewCleanupOperations).not.toHaveBeenCalled();
+    expect(button(t("storageCleanupPreviewSelectedSafeTrash")).disabled).toBe(false);
+  });
+
+  it("localizes the backend current-assessment gate and never exposes the finding id", async () => {
+    const run = makeRun("run-current-assessment-gate", "completed", 0, { safeCount: 1 });
+    const safe = makeSafeFinding(run, 0);
+    const previewCleanupOperations = vi.fn(async () => {
+      throw new Error(`Storage cleanup finding requires a current AI assessment: ${safe.id}`);
+    });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? [safe] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      previewCleanupOperations,
+      moveCleanupCandidatesToSafeTrash: vi.fn()
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    await act(async () => button(t("storageCleanupPreviewSelectedSafeTrash")).click());
+    await flush(6);
+
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(t("storageCleanupCurrentAssessmentRequired"));
+    expect(container.textContent).not.toContain(safe.id);
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(container.querySelector('[data-cleanup-preview-state="ready"]')).toBeNull();
   });
 
   it("reconciles the settled first batch and never starts a second batch after cancellation", async () => {
@@ -1936,7 +2012,8 @@ describe("Cleanup independent review behavior", () => {
   });
 
   it("remeasures an expanded virtual finding row before positioning the following row", async () => {
-    const run = makeRun("run-virtual-measure", "completed", 0, { safeCount: 2 });
+    const run = makeRun("run-virtual-measure", "completed", 0, { safeCount: 22 });
+    const findings = Array.from({ length: 22 }, (_, index) => makeSafeFinding(run, index));
     const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
@@ -1951,7 +2028,7 @@ describe("Cleanup independent review behavior", () => {
       listAnalysisRuns: async () => [run],
       getAnalysisRun: async () => run,
       listAnalysisFindings: async (request: { tier?: string }) => ({
-        findings: request.tier === "safe" ? [makeSafeFinding(run, 0), makeSafeFinding(run, 1)] : [],
+        findings: request.tier === "safe" ? findings : [],
         nextCursor: null,
         limit: 100
       }),

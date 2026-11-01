@@ -2686,10 +2686,17 @@ mod tests {
             "source cleanup occurs only after the verified target commit"
         );
         assert!(
+            claim.is_deleted(),
+            "the verified claim handle must be retired"
+        );
+        // Windows keeps a delete-pending directory visible while its claim
+        // handle remains open. Production drops this claim as the transfer
+        // returns; match that lifetime before asserting namespace removal.
+        drop(claim);
+        assert!(
             !claim_path.exists(),
             "the successful Move must retire its private source claim"
         );
-        drop(claim);
         let _ = fs::remove_dir_all(root);
     }
 }

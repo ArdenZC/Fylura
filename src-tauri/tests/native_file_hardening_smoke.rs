@@ -1401,8 +1401,15 @@ fn native_file_hardening_smoke() {
             "could not restore isolated target ACL: {}",
             String::from_utf8_lossy(&remove_deny.stderr).trim()
         );
-        let denied_result = denied_result.expect("execute cross-volume permission failure");
-        assert_eq!(denied_result.logs[0].status, "failed");
+        match denied_result {
+            Ok(denied_result) => assert_eq!(denied_result.logs[0].status, "failed"),
+            Err(error) => assert!(
+                error
+                    .to_string()
+                    .contains("transfer_destination_identity:io: Access is denied"),
+                "execution must report the revoked destination permission explicitly: {error}"
+            ),
+        }
         assert!(denied_source.join("nested").join("payload.bin").is_file());
         assert_eq!(
             sha256_file(&denied_source.join("nested").join("payload.bin")),

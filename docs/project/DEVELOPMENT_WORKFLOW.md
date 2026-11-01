@@ -2,6 +2,66 @@
 
 This workflow is the default engineering operating model for new work after G1. A narrower security/task contract may add stricter gates; it may not weaken these rules silently.
 
+## B-plan: proportional validation without weakening product safety (Owner decision 2026-11-01)
+
+This is a refinement of the existing delivery-first rule, **not** a new approval
+process or a license to bypass GitHub protected branches. Preserve the four
+existing required checks: Change scope / routing contract, Documentation-only
+validation, Quality (windows-latest), and Quality (macos-latest).
+
+- **Code merge:** relevant correctness, authorization, durable mutation,
+  recovery/migration, build, security, and applicable routed CI must pass. A
+  candidate compiled and launched only through *explicit* opt-in gates may be
+  merged default-OFF if shared/default production paths are safe. If any
+  required check fails, the PR is not mergeable until the check passes under
+  an approved correction or an independently reviewed rule change.
+- **Candidate activation:** in addition to safe merge, require evidence for the
+  actual enabled candidate, production-shaped performance and its supported
+  platform behavior; a writer confidence interval crossing the approved
+  regression limit is INCONCLUSIVE, not PASS or confirmed regression.
+- **Product release:** require installed-app native Windows and Apple Silicon
+  macOS user workflows, permission/restore safety, startup/shutdown, long-run
+  resident resources, packaging and upgrade behavior. A hosted native-fixture
+  capability gap is UNVERIFIED, never a surrogate native PASS.
+
+**Evidence classification:** `PASS` requires real measured success;
+`FAIL` requires a concrete violated contract; `UNVERIFIED` denotes absent
+source/OS capability or missing real test; `INCONCLUSIVE` denotes
+underpowered/variable measurement. Do not turn any of the latter three into a
+green product qualification merely by skipping or retagging a required job.
+This taxonomy is for reports and eventual *approved* CI aggregation changes.
+
+**CI routing:** a workflow/control-plane edit receives governance/frontend
+validation but does not by itself demand all six 100k performance domains.
+Changes to actual performance harnesses, database core, or unknown relevant
+production owners remain conservatively routed. Pure known Global Search
+query/relevance owners do not need the unrelated Windows native service
+Pause/recovery qualification; index owner, durable writes, permission and
+service lifecycle changes do. Mixed PRs always use the union of checks.
+
+**Resource testing:** retain current strict gates until a separate approved
+measurement change demonstrates stable unchanged-code noise, genuine resource
+caps, longer-term drift, and clean post-dispose ownership; monotonic 5-epoch
+RSS/PrivateUsage alone is evidence for investigation, not proof of a leak.
+The existing test must not silently be disabled or have its threshold raised.
+Windows service Pause failures require scoped event/owner-ID and durable-state
+analysis, not repeated unrestricted CI reruns.
+
+**Two-iteration review:** use existing `dev:ci-metrics` and actual GitHub PR
+events to compare first-pass meaningful failures, avoidable re-runs, lead time
+from first PR push to merge, and shipped user-visible capabilities. Roll back
+any route that causes a real missed safety regression. No extra approval
+queue, external analytics service, PR-number target or safety score.
+
+**Current implementation boundary:** the initial B-plan routing PR changes
+the classifier, its tests, and this contract only; the four required status
+names, protection rules, CI Quality aggregator implementation, resource and
+writer thresholds, and Smart Lean native/ingestion policy remain unchanged.
+Follow-up measurement and Quality changes require separate attributable
+evidence and existing mandatory CI. Review this policy against actual master
+when it is merged; do not mistake an open PR for an effective rule.
+
+
 ## Opt-in pre-push feedback and CI failure triage
 
 For Codex Cloud and local worktrees, these optional tools provide earlier feedback

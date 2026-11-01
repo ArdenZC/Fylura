@@ -205,7 +205,8 @@ describe("CI final performance remediation contract", () => {
       expect(apfsEnd).toBeGreaterThan(apfsStart);
       const apfsEvidenceStep = macosQuality.slice(apfsStart, apfsEnd);
       expect(apfsEvidenceStep).toContain("--exact --nocapture --test-threads=1");
-      expect(apfsEvidenceStep).toContain("FL23_APFS_NATIVE_PASS fs=[^ ]+ distinct_volume=true directory_move=true restore=true source_retired=true");
+      expect(apfsEvidenceStep).toContain("grep -Eq 'FL23_APFS_NATIVE_PASS fs=apfs distinct_volume=true directory_move=true restore=true source_retired=true$'");
+      expect(apfsEvidenceStep).not.toContain("^FL23_APFS_NATIVE_PASS");
       expect(macosQuality).toContain("- name: Upload APFS native directory Move evidence");
 
       expect(raceStep).toContain("        env:\n          ZEN_CANVAS_MACOS_RACE_ITERATIONS: \"" + iterations + "\"\n          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: \"" + iterations + "\"");

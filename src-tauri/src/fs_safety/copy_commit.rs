@@ -2010,14 +2010,28 @@ fn open_windows_child_for_tree(
     };
     let mut raw = std::ptr::null_mut();
     let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
-    let _privilege = delete_access
+    // Transaction tests can explicitly assume that the fixture SACL is
+    // absent, while still running under a hosted token that cannot enable
+    // SeSecurityPrivilege. In that test-only case the relative handle needs
+    // DELETE for retirement but does not need ACCESS_SYSTEM_SECURITY. The
+    // production path continues to require and hold the privilege whenever
+    // it opens a source entry for SACL verification and deletion.
+    #[cfg(test)]
+    let test_sacl_absence_verified =
+        super::atomic_move::test_faults::sacl_verified_absent_override_for_test();
+    #[cfg(not(test))]
+    let test_sacl_absence_verified = false;
+    let requires_sacl_access = delete_access && !test_sacl_absence_verified;
+    let _privilege = requires_sacl_access
         .then(WindowsSaclPrivilege::enable)
         .transpose()?;
-    let access = (if delete_access {
-        DELETE | ACCESS_SYSTEM_SECURITY
-    } else {
-        0
-    }) | FILE_READ_ATTRIBUTES
+    let access = (if delete_access { DELETE } else { 0 })
+        | (if requires_sacl_access {
+            ACCESS_SYSTEM_SECURITY
+        } else {
+            0
+        })
+        | FILE_READ_ATTRIBUTES
         | READ_CONTROL
         | SYNCHRONIZE
         | if is_directory {

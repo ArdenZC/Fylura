@@ -18,6 +18,12 @@ describe("Smart Lean expensive PR qualification routing", () => {
     expect(routes).toEqual([
       "src-tauri/src/global_index/index_scope/**",
       "src-tauri/src/db/schema_index_coverage.rs",
+      "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/coordinator.rs",
+      "src-tauri/src/global_index/models.rs",
+      "src-tauri/src/global_index/windows/mod.rs",
+      "src-tauri/src/global_index/windows/service.rs",
+      "src-tauri/src/global_index/macos/mod.rs",
       "src-tauri/src/global_index/windows/mft.rs",
       "src-tauri/src/global_index/windows/usn.rs",
       "src-tauri/src/global_index/windows/fallback.rs",
@@ -32,6 +38,12 @@ describe("Smart Lean expensive PR qualification routing", () => {
       "src-tauri/src/global_index/index_scope/repository.rs",
       "src-tauri/src/global_index/index_scope/tests.rs",
       "src-tauri/src/db/schema_index_coverage.rs",
+      "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/coordinator.rs",
+      "src-tauri/src/global_index/models.rs",
+      "src-tauri/src/global_index/windows/mod.rs",
+      "src-tauri/src/global_index/windows/service.rs",
+      "src-tauri/src/global_index/macos/mod.rs",
       "src-tauri/src/global_index/windows/mft.rs",
       "src-tauri/src/global_index/windows/smart_lean_qa.rs",
       "src-tauri/src/global_index/macos/spotlight.rs",
@@ -41,12 +53,10 @@ describe("Smart Lean expensive PR qualification routing", () => {
     }
   });
 
-  it("does not launch 100k ingestion for a search-only #518/#524-style PR", () => {
+  it("does not launch 100k ingestion for pure query, UI and activation edits", () => {
     for (const file of [
       "src-tauri/src/global_index/search.rs",
       "src-tauri/src/global_index/filename_search.rs",
-      "src-tauri/src/global_index/repository.rs",
-      "src-tauri/src/global_index/coordinator.rs",
       "src-tauri/src/global_index/commands.rs",
       "src-tauri/src/global_index/windows/volumes.rs",
       "src-tauri/src/global_index/tests/search_source_authorization.rs",
@@ -60,6 +70,19 @@ describe("Smart Lean expensive PR qualification routing", () => {
       expect(triggersFor(file), file).toBe(false);
     }
     expect(routes).not.toContain("src-tauri/src/global_index/**");
+  });
+
+  it("triggers the owner check when an ingestion edit is mixed with query changes", () => {
+    // A PR that also touches repository.rs or coordinator.rs is not query-only,
+    // even if many of its changes are to SQL ranking or Settings.
+    const mixedPaths = [
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/coordinator.rs",
+      "src/views/settings/SettingsView.tsx",
+    ];
+    expect(mixedPaths.some(triggersFor)).toBe(true);
+    expect(["src-tauri/src/global_index/search.rs", "src/views/settings/SettingsView.tsx"].some(triggersFor)).toBe(false);
   });
 
   it("keeps manual 1k/100k/200k dispatch and the full coverage policy gate", () => {

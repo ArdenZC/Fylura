@@ -361,6 +361,32 @@ fn execute_moves_core_with_identity(
                     ),
                 },
             );
+            // A post-commit failure is returned as a fresh operation log by
+            // `execute_preview_operation_with_app_data`. Preserve the
+            // identity proof written by the phase observer before the final
+            // batch save; otherwise that save can erase the target identity
+            // needed to distinguish a recoverable source-cleanup interruption
+            // from an ambiguous filesystem state after restart.
+            drop(phase_observer);
+            drop(actual_path_observer);
+            if let Some(journal_log) = phase_log.into_inner() {
+                log.source_claim_path = log.source_claim_path.or(journal_log.source_claim_path);
+                log.claim_created_at = log.claim_created_at.or(journal_log.claim_created_at);
+                log.claim_platform_file_id = log
+                    .claim_platform_file_id
+                    .or(journal_log.claim_platform_file_id);
+                log.claim_platform_volume_id = log
+                    .claim_platform_volume_id
+                    .or(journal_log.claim_platform_volume_id);
+                log.claim_full_hash = log.claim_full_hash.or(journal_log.claim_full_hash);
+                log.target_platform_file_id = log
+                    .target_platform_file_id
+                    .or(journal_log.target_platform_file_id);
+                log.target_platform_volume_id = log
+                    .target_platform_volume_id
+                    .or(journal_log.target_platform_volume_id);
+                log.target_full_hash = log.target_full_hash.or(journal_log.target_full_hash);
+            }
             if let Some(paths) = actual_paths.into_inner() {
                 if cfg!(target_os = "macos") {
                     update_operation_log_with_actual_paths(

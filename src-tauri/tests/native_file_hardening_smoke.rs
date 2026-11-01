@@ -1599,6 +1599,12 @@ fn native_file_hardening_smoke() {
         let pending_log = pending_result.logs.first().expect("cleanup-pending log");
         assert_eq!(pending_log.status, "manual_review");
         assert_eq!(pending_log.operation_phase, "source_cleanup_pending");
+        assert!(pending_log.target_platform_volume_id.is_some());
+        assert!(pending_log.target_platform_file_id.is_some());
+        assert!(pending_log
+            .target_full_hash
+            .as_deref()
+            .is_some_and(|fingerprint| fingerprint.starts_with("directory-tree-v1:")));
         assert!(pending_log
             .error_message
             .as_deref()

@@ -2629,7 +2629,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn source_dacl_change_that_blocks_cleanup_retains_claim_and_target() {
+    fn source_dacl_change_does_not_block_standard_move_cleanup() {
         let _serial = source_claim::lock_claim_test_hooks();
         let root = fixture("directory-dacl-mutation-after-commit");
         let source_parent = root.join("source");
@@ -2666,21 +2666,21 @@ mod tests {
         source_claim::set_claim_test_hook(None);
 
         assert!(
-            matches!(
-                result,
-                Err(AtomicMoveError::TargetCommittedSourceDeleteFailed(_))
-            ),
-            "{result:?}"
+            result.is_ok(),
+            "cross-volume Move uses destination inheritance and must not depend on copying or preserving the source DACL: {result:?}"
         );
         assert_eq!(
             fs::read(target.join("nested").join("file.txt")).expect("committed target"),
             b"stable source"
         );
-        assert_eq!(
-            fs::read(claim_path.join("nested").join("file.txt")).expect("retained claim"),
-            b"stable source"
+        assert!(
+            !source.exists(),
+            "source cleanup occurs only after the verified target commit"
         );
-        assert!(!source.exists());
+        assert!(
+            !claim_path.exists(),
+            "the successful Move must retire its private source claim"
+        );
         drop(claim);
         let _ = fs::remove_dir_all(root);
     }

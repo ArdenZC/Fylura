@@ -1318,11 +1318,14 @@ fn native_file_hardening_smoke() {
         )
         .expect("execute cross-volume no-overwrite Move");
         assert_eq!(conflict_result.logs[0].status, "failed");
-        assert!(conflict_result.logs[0]
+        let conflict_error = conflict_result.logs[0]
             .error_message
             .as_deref()
-            .unwrap_or_default()
-            .contains("target_exists"));
+            .unwrap_or_default();
+        assert!(
+            conflict_error.contains("already exists") || conflict_error.contains("target_exists"),
+            "a real target collision must be reported without replacement; got {conflict_error:?}"
+        );
         assert_eq!(sha256_file(&conflict_source), conflict_source_hash);
         assert_eq!(sha256_file(&conflict_target), conflict_target_hash);
 

@@ -29,7 +29,6 @@ const WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES = [
 ];
 
 const WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS = new Set([
-  ".github/workflows/ci.yml",
   "src-tauri/src/lib.rs",
   "src-tauri/src/main.rs",
   "src-tauri/cargo.toml",
@@ -141,9 +140,18 @@ function isWindowsNativePreviewHandlerPath(path) {
   return startsWithAny(path, WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES);
 }
 
+// A read-only query/sort/activation change must not run a privileged service
+// recovery fixture. Durable producer, source-owner, service and native paths do.
 function isWindowsGlobalIndexServiceQualificationPath(path) {
-  return path.startsWith("src-tauri/src/global_index/")
-    || WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS.has(path);
+  return WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS.has(path)
+    || path.startsWith("src-tauri/src/global_index/windows/")
+    || path.startsWith("src-tauri/src/global_index/index_scope/")
+    || [
+      "src-tauri/src/global_index/mod.rs",
+      "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/coordinator.rs",
+      "src-tauri/src/global_index/models.rs",
+    ].includes(path);
 }
 
 function isHighRiskPath(path) {
@@ -244,6 +252,24 @@ function isPreviewPerformancePath(path) {
 function isWorkflowPath(path) {
   return path.startsWith(".github/workflows/")
     || path === "scripts/classifycichanges.mjs"
+    || path === "scripts/civalidationplan.mjs"
+    || path.startsWith("scripts/performance")
+    || path.startsWith("scripts/runperformance")
+    || path.startsWith("scripts/prepareperformance")
+    || path.startsWith("scripts/checkperformance")
+    || path.startsWith("src-tauri/tests/performance_fixture")
+    || path.startsWith("src-tauri/tests/support/performance_fixture");
+}
+
+// Changes to these shared owners can change which performance suites execute,
+// their input identities, or their pass/fail aggregation. Preserve all-domain
+// validation. An independent workflow such as Smart Lean or Release should
+// instead use its own contract checks, not six unrelated 100k suites.
+function isSharedPerformanceRoutingPath(path) {
+  return path === ".github/workflows/ci.yml"
+    || path === ".github/workflows/ci-full.yml"
+    || path === "scripts/classifycichanges.mjs"
+    || path === "scripts/civalidationplan.mjs"
     || path.startsWith("scripts/performance")
     || path.startsWith("scripts/runperformance")
     || path.startsWith("scripts/prepareperformance")
@@ -265,8 +291,9 @@ export function classifyCiScope({
     || (event === "workflow_dispatch" && dispatchFull)
     || (event === "pull_request" && labels.has("full-validation"));
   const workflowChanged = hasAnyPath(normalizedPaths, isWorkflowPath);
+  const sharedPerformanceRoutingChanged = hasAnyPath(normalizedPaths, isSharedPerformanceRoutingPath);
   const dbCoreChanged = hasAnyPath(normalizedPaths, isDbCorePath);
-  const allDomains100k = requestedFull || baseMissing || workflowChanged || dbCoreChanged;
+  const allDomains100k = requestedFull || baseMissing || sharedPerformanceRoutingChanged || dbCoreChanged;
 
   const result = {
     docs_only: !requestedFull
@@ -285,7 +312,7 @@ export function classifyCiScope({
       || hasAnyPath(normalizedPaths, (path) => isMacosSensitivePath(path) || isRustPath(path)),
     performance_sensitive: requestedFull
       || baseMissing
-      || workflowChanged
+      || sharedPerformanceRoutingChanged
       || hasAnyPath(
         normalizedPaths,
         (path) => isNativePerformancePath(path) || isWorkspaceFoundationPath(path),

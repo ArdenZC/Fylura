@@ -138,6 +138,13 @@ jobs:
         run: node scripts/ciEvidence.mjs
       - name: Validate project governance
         run: npm run test:governance
+      # Keep the existing required Change scope check meaningful for workflow-
+      # only PRs without launching six unrelated performance benchmarks.
+      - name: Verify CI routing and workflow contract tests
+        if: ${{ steps.classify.outputs.workflow_changed == 'true' }}
+        run: |
+          npm ci --no-audit --no-fund
+          npx vitest run tests/ciRoutingContract.test.ts tests/ciFastPathContract.test.ts tests/smartLeanWorkflowRouting.test.ts
       - name: Upload merge-integration checkout evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

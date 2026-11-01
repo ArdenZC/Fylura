@@ -57,6 +57,24 @@ describe("CI change routing", () => {
     }
   });
 
+  it("keeps default Search authorization and query changes out of native service qualification", () => {
+    for (const file of [
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/filename_search.rs",
+      "src-tauri/src/global_index/tests/search_source_authorization.rs",
+    ]) {
+      const scope = route([file]);
+      expect(scope.perf_search, file).toBe(true);
+      expect(scope.windows_global_index_service_qualification_changed, file).toBe(false);
+      expect(scope.rust_changed, file).toBe(true);
+    }
+    const producer = route([
+      "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/search.rs",
+    ]);
+    expect(producer.windows_global_index_service_qualification_changed).toBe(true);
+  });
+
   it("routes Global Search changes to Search 100k only", () => {
     const scope = route(["src-tauri/src/global_index/query.rs"]);
     expect(performanceFlags(scope)).toEqual([true, false, false, false, false, false]);
@@ -138,9 +156,14 @@ describe("CI change routing", () => {
     for (const changedPath of [
       "src-tauri/src/global_index/windows/mft.rs",
       "src-tauri/src/global_index/windows/service_host.rs",
+      "src-tauri/src/global_index/index_scope/native.rs",
+      "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/coordinator.rs",
+      "src-tauri/src/global_index/models.rs",
+      "src-tauri/src/global_index/unfamiliar_new_owner.rs",
+      "src-tauri/src/global_index/wake.rs",
       "src-tauri/native-qa/global_index_probe.rs",
       "scripts/qualifyWindowsGlobalIndexService.ps1",
-      ".github/workflows/ci.yml",
     ]) {
       expect(
         route([changedPath]).windows_global_index_service_qualification_changed,
@@ -150,6 +173,14 @@ describe("CI change routing", () => {
 
     for (const changedPath of [
       "src-tauri/src/file_ops.rs",
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/filename_search.rs",
+      "src-tauri/src/global_index/tests/search_source_authorization.rs",
+      ".github/workflows/ci.yml",
+      ".github/workflows/smart-lean.yml",
+      "scripts/classifyCiChanges.mjs",
+      "scripts/ciValidationPlan.mjs",
+      "src-tauri/src/global_index/macos/spotlight.rs",
       "src/App.tsx",
       "docs/project/tasks/ZB-05-NATIVE-GLOBAL-SEARCH-RUNTIME-RESULT.md",
     ]) {
@@ -225,11 +256,35 @@ describe("CI change routing", () => {
     expect(scope.performance_any).toBe(false);
   });
 
-  it("routes workflow changes to every 100k suite but keeps Full explicit", () => {
-    const scope = route([".github/workflows/ci.yml"]);
-    expect(scope.workflow_changed).toBe(true);
-    expect(scope.full_validation).toBe(false);
-    expect(performanceFlags(scope)).toEqual([true, true, true, true, true, true]);
+  it("reserves all-domain checks for the shared CI/benchmark orchestrator", () => {
+    for (const file of [
+      ".github/workflows/ci.yml",
+      ".github/workflows/ci-full.yml",
+      "scripts/classifyCiChanges.mjs",
+      "scripts/ciValidationPlan.mjs",
+    ]) {
+      const scope = route([file]);
+      expect(scope.workflow_changed, file).toBe(true);
+      expect(scope.all_domains_100k, file).toBe(true);
+      expect(performanceFlags(scope), file).toEqual([true, true, true, true, true, true]);
+    }
+  });
+
+  it("keeps unrelated workflow YAML changes out of six 100k benchmarks", () => {
+    for (const file of [
+      ".github/workflows/smart-lean.yml",
+      ".github/workflows/release-build.yml",
+      ".github/workflows/global-search-benchmark.yml",
+      ".github/workflows/resident-interactive-qualification.yml",
+    ]) {
+      const scope = route([file]);
+      expect(scope.workflow_changed, file).toBe(true);
+      expect(scope.high_risk, file).toBe(true);
+      expect(scope.full_validation, file).toBe(false);
+      expect(scope.windows_global_index_service_qualification_changed, file).toBe(false);
+      expect(scope.performance_sensitive, file).toBe(false);
+      expect(performanceFlags(scope), file).toEqual([false, false, false, false, false, false]);
+    }
   });
 
   it("routes performance harness changes to every 100k suite", () => {

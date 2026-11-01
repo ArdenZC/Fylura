@@ -75,7 +75,9 @@ try {
 
     foreach ($path in @($sourceNamespaceRoot, $secondaryNamespaceRoot, $secondaryUserRoot)) {
         New-Item -ItemType Directory -Path $path -Force | Out-Null
-        $traverseGrant = "*${userSid}:(X)"
+        # Ancestors need only list/read metadata and traversal; never grant the
+        # disposable account create/modify rights outside its isolated roots.
+        $traverseGrant = "*${userSid}:(RX)"
         & icacls.exe $path /grant $traverseGrant | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "could not grant the ordinary QA account traversal through $path"

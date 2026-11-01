@@ -1741,6 +1741,7 @@ fn remove_owned_staging_tree(
 }
 
 #[cfg(windows)]
+#[allow(clippy::permissions_set_readonly_false)] // On Windows this toggles FILE_ATTRIBUTE_READONLY only.
 fn clear_staging_readonly(path: &std::path::Path, metadata: &std::fs::Metadata) -> io::Result<()> {
     if metadata.permissions().readonly() {
         let mut permissions = metadata.permissions();

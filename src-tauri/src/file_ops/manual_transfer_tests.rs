@@ -51,7 +51,6 @@ fn preview(
 }
 #[test]
 fn u1_batch_collects_managed_and_disposed_browse_sources_then_copies_with_journal() {
-    #[cfg(windows)]
     let f = Fixture::new();
     let runtime = runtime(&f);
     fs::create_dir(f.root.join("other")).unwrap();
@@ -390,7 +389,6 @@ fn u1_favorites_survive_runtime_recreation_and_unavailable_locations_are_hints_o
 
 #[test]
 fn u1_partial_batch_cancellation_preserves_unprocessed_sources_and_durable_results() {
-    #[cfg(windows)]
     struct CancelAtTen(Arc<AtomicBool>);
     impl OperationProgressEmitter for CancelAtTen {
         fn emit_progress(&self, payload: OperationProgressPayload) {
@@ -1165,7 +1163,6 @@ fn u1_skipped_same_name_does_not_reserve_a_batch_destination() {
 
 #[test]
 fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_preview() {
-    #[cfg(windows)]
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("drop-source");
@@ -1391,7 +1388,6 @@ fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with
 
 #[test]
 fn fl20_external_directory_conflict_requires_skip_or_keep_both_without_overwrite() {
-    #[cfg(windows)]
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("folder-conflict");
@@ -1492,7 +1488,6 @@ fn fl20_external_directory_conflict_requires_skip_or_keep_both_without_overwrite
 
 #[test]
 fn fl20_external_directory_copy_preserves_empty_directories_and_empty_roots() {
-    #[cfg(windows)]
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("empty-source");
@@ -1956,7 +1951,6 @@ fn fl23_native_cross_volume_directory_move_and_history_restore_use_one_journal()
     let fixture_root = f.root.clone();
     drop(f);
     let _ = fs::remove_dir_all(fixture_root);
-    let _ = fs::remove_dir_all(target_fixture);
 }
 
 #[test]
@@ -2006,7 +2000,6 @@ fn fl20_releasing_external_candidates_invalidates_unconfirmed_previews() {
 
 #[test]
 fn fl20_releasing_a_repeated_external_capture_preserves_the_basket_ticket() {
-    #[cfg(windows)]
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("shared-source.txt");

@@ -964,6 +964,7 @@ fn copy_windows_directory_metadata(
     source: &std::path::Path,
     target: &std::path::Path,
 ) -> Result<(), AtomicMoveError> {
+    use std::os::windows::fs::MetadataExt;
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::{
         Foundation::{GetLastError, INVALID_HANDLE_VALUE},

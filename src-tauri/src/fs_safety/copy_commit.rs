@@ -402,6 +402,24 @@ fn copy_commit_claim_with_source_retirement(
     result
 }
 
+fn rollback_before_publish(
+    claim: &mut SourceClaim,
+    error: AtomicMoveError,
+) -> Result<(), AtomicMoveError> {
+    // A failed macOS claim identity check means the private claim pathname may
+    // have been rebound. Leave it intact for recovery instead of attempting a
+    // second name-based mutation while handling the original error.
+    if error.is_mac_claim_safety_error() {
+        return Err(error);
+    }
+    match claim.rollback_to_original() {
+        Ok(()) => Err(error),
+        Err(rollback) => Err(AtomicMoveError::SourceClaimRollbackFailed(
+            rollback.to_string(),
+        )),
+    }
+}
+
 #[cfg(windows)]
 fn copy_directory_claim(
     claim: &mut SourceClaim,

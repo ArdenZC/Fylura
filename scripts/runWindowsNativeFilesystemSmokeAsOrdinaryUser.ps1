@@ -26,9 +26,28 @@ if ($Child) {
     $tokenOutput = (& whoami.exe /all 2>&1 | Out-String)
     Set-Content -LiteralPath (Join-Path $config.EvidenceRoot "native-file-hardening-whoami.txt") -Value $tokenOutput -Encoding utf8
     $testLog = Join-Path $config.EvidenceRoot "native-file-hardening-smoke.log"
-    & $config.TestExecutable --ignored --exact native_file_hardening_smoke --nocapture --test-threads=1 2>&1 |
-        Tee-Object -FilePath $testLog
-    $testExitCode = $LASTEXITCODE
+    $testStdout = Join-Path $config.EvidenceRoot "native-file-hardening-smoke.stdout.tmp"
+    $testStderr = Join-Path $config.EvidenceRoot "native-file-hardening-smoke.stderr.tmp"
+    $testProcess = Start-Process -FilePath $config.TestExecutable `
+        -ArgumentList @("--ignored", "--exact", "native_file_hardening_smoke", "--nocapture", "--test-threads=1") `
+        -WorkingDirectory $config.SourceTemp `
+        -NoNewWindow -Wait -PassThru `
+        -RedirectStandardOutput $testStdout `
+        -RedirectStandardError $testStderr
+    $stdoutText = if (Test-Path -LiteralPath $testStdout) { Get-Content -LiteralPath $testStdout -Raw } else { "" }
+    $stderrText = if (Test-Path -LiteralPath $testStderr) { Get-Content -LiteralPath $testStderr -Raw } else { "" }
+    [System.IO.File]::WriteAllText(
+        $testLog,
+        $stdoutText + [Environment]::NewLine + $stderrText,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    Remove-Item -LiteralPath $testStdout, $testStderr -Force -ErrorAction SilentlyContinue
+    $testExitCode = [int]$testProcess.ExitCode
+    Set-Content -LiteralPath (Join-Path $config.EvidenceRoot "native-file-hardening-process-exit.txt") `
+        -Value "process_exit_code=$testExitCode" -Encoding ascii
+    Write-Host "Native filesystem smoke process exit code: $testExitCode"
+    if ($stdoutText) { Write-Host $stdoutText.TrimEnd() }
+    if ($stderrText) { Write-Host $stderrText.TrimEnd() }
     exit $testExitCode
 }
 

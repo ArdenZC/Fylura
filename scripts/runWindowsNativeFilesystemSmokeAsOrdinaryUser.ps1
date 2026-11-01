@@ -58,6 +58,7 @@ $secondaryRoot = Join-Path (Join-Path "D:\fylura-native-qa" $qaName) "secondary"
 $evidenceRoot = Join-Path $env:RUNNER_TEMP "fylura-native-file-qa-evidence"
 $configPath = Join-Path $qaRoot "fylura-native-file-qa-config.json"
 $qaExecutable = Join-Path $qaRoot "bin\native_file_hardening_smoke.exe"
+$qaScript = Join-Path $qaRoot "run-native-file-smoke.ps1"
 
 try {
     New-LocalUser -Name $qaName -Password $password -PasswordNeverExpires -AccountNeverExpires -Description "Isolated standard-user Fylura filesystem QA" | Out-Null
@@ -79,6 +80,7 @@ try {
     }
     New-Item -ItemType Directory -Path (Split-Path -Parent $qaExecutable) -Force | Out-Null
     Copy-Item -LiteralPath $testExecutable.FullName -Destination $qaExecutable
+    Copy-Item -LiteralPath $PSCommandPath -Destination $qaScript
 
     $config = [ordered]@{
         TestExecutable = $qaExecutable
@@ -94,8 +96,8 @@ try {
 
     $credential = [Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$qaName", $password)
     $powershell = (Get-Process -Id $PID).Path
-    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Child -ConfigPath `"$configPath`""
-    $process = Start-Process -FilePath $powershell -Credential $credential -LoadUserProfile -ArgumentList $arguments -WorkingDirectory $repositoryRoot -Wait -PassThru
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$qaScript`" -Child -ConfigPath `"$configPath`""
+    $process = Start-Process -FilePath $powershell -Credential $credential -LoadUserProfile -ArgumentList $arguments -WorkingDirectory $qaRoot -Wait -PassThru
     if ($process.ExitCode -ne 0) {
         throw "ordinary-user native filesystem smoke failed (exit $($process.ExitCode)); see $evidenceRoot"
     }

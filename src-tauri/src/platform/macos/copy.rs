@@ -209,15 +209,18 @@ fn copy_commit_claim_with_source_retirement(
         directory_progress.reset("copying", None, None, &mut observer)?;
     }
 
+    let mut copy_progress = DirectoryCopyProgress {
+        progress: Some(&mut directory_progress),
+        observer: &mut observer,
+        root_path: claim.current_path(),
+    };
     let copy_proof = match copy_object(
         claim,
         target_parent.raw_fd(),
         &staging_name,
         cancel,
         Some(claim.expected_identity()),
-        Some(&mut directory_progress),
-        &mut observer,
-        claim.current_path(),
+        &mut copy_progress,
     ) {
         Ok(proof) => proof,
         Err(error) => {
@@ -652,18 +655,20 @@ pub(crate) fn copy_commit_source_stable(
                 use std::os::unix::fs::MetadataExt;
                 handle.metadata().map_err(AtomicMoveError::Io)?.dev()
             };
-            let mut state = DirectoryCopyState::new(source_root_device);
+            let mut state = DirectoryCopyState::new(source_root_device, destination.as_raw_fd());
+            let mut copy_progress = DirectoryCopyProgress {
+                progress: Some(&mut directory_progress),
+                observer: &mut observer,
+                root_path: source,
+            };
             copy_tree_from_fd(
                 handle.as_raw_fd(),
-                destination.as_raw_fd(),
                 destination.as_raw_fd(),
                 Path::new(""),
                 &mut state,
                 0,
                 cancel,
-                Some(&mut directory_progress),
-                &mut observer,
-                source,
+                &mut copy_progress,
             )?;
             directory_progress.finish(&mut observer)?;
             let total_items = directory_progress.processed_items();
@@ -928,9 +933,7 @@ fn copy_object(
     staging_name: &OsStr,
     cancel: Option<&AtomicBool>,
     expected: Option<&identity::ExpectedFileIdentity>,
-    mut progress: Option<&mut crate::fs_safety::DirectoryTransferProgress>,
-    observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    source_root_path: &Path,
+    copy_progress: &mut DirectoryCopyProgress<'_, '_, '_>,
 ) -> Result<CopyProof, AtomicMoveError> {
     match claim.kind() {
         ClaimedEntryKind::File => {
@@ -949,17 +952,17 @@ fn copy_object(
             }
             cleanup_staging_at(target_parent_fd, staging_name, None);
             let destination = create_staging_file(target_parent_fd, staging_name)?;
-            if let Some(progress) = progress.as_deref_mut() {
-                progress.reset("copying", None, None, observer)?;
+            if let Some(progress) = copy_progress.progress.as_deref_mut() {
+                progress.reset("copying", None, None, copy_progress.observer)?;
             }
-            let actual = if let Some(progress) = progress.as_deref_mut() {
+            let actual = if let Some(progress) = copy_progress.progress.as_deref_mut() {
                 copy_file_contents_and_hash_with_progress(
                     &source,
                     &destination,
                     cancel,
-                    source_root_path,
+                    copy_progress.root_path,
                     progress,
-                    observer,
+                    copy_progress.observer,
                 )?
             } else {
                 copy_file_contents_and_hash(&source, &destination, cancel)?
@@ -970,9 +973,9 @@ fn copy_object(
                     return Err(AtomicMoveError::SourceChanged);
                 }
             }
-            if let Some(progress) = progress.as_deref_mut() {
-                progress.record_item(source_root_path, observer)?;
-                progress.finish(observer)?;
+            if let Some(progress) = copy_progress.progress.as_deref_mut() {
+                progress.record_item(copy_progress.root_path, copy_progress.observer)?;
+                progress.finish(copy_progress.observer)?;
             }
             destination.sync_all().map_err(AtomicMoveError::Io)?;
             let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
@@ -992,18 +995,15 @@ fn copy_object(
                 use std::os::unix::fs::MetadataExt;
                 source.metadata().map_err(AtomicMoveError::Io)?.dev()
             };
-            let mut state = DirectoryCopyState::new(source_root_device);
+            let mut state = DirectoryCopyState::new(source_root_device, destination.as_raw_fd());
             copy_tree_from_fd(
                 source.as_raw_fd(),
-                destination.as_raw_fd(),
                 destination.as_raw_fd(),
                 Path::new(""),
                 &mut state,
                 0,
                 cancel,
-                progress,
-                observer,
-                source_root_path,
+                copy_progress,
             )?;
             let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
             copy_fd_metadata(&metadata, &destination)?;
@@ -1265,6 +1265,7 @@ where
     Ok(actual)
 }
 
+#[cfg(test)]
 fn stream_copy_with_hash<R: Read, W: Write>(
     source: &mut R,
     destination: &mut W,
@@ -1480,30 +1481,35 @@ fn open_file_at_directory(parent_fd: RawFd, name: &OsStr) -> Result<File, Atomic
 struct DirectoryCopyState {
     hardlinks: HashMap<(u64, u64), PathBuf>,
     source_root_device: u64,
+    destination_root_fd: RawFd,
     entry_count: usize,
 }
 
 impl DirectoryCopyState {
-    fn new(source_root_device: u64) -> Self {
+    fn new(source_root_device: u64, destination_root_fd: RawFd) -> Self {
         Self {
             hardlinks: HashMap::new(),
             source_root_device,
+            destination_root_fd,
             entry_count: 0,
         }
     }
 }
 
+struct DirectoryCopyProgress<'context, 'observer_ref, 'observer> {
+    progress: Option<&'context mut crate::fs_safety::DirectoryTransferProgress>,
+    observer: &'context mut Option<&'observer_ref mut crate::fs_safety::PhaseObserver<'observer>>,
+    root_path: &'context Path,
+}
+
 fn copy_tree_from_fd(
     source_fd: RawFd,
     destination_fd: RawFd,
-    destination_root_fd: RawFd,
     relative_prefix: &Path,
     state: &mut DirectoryCopyState,
     depth: usize,
     cancel: Option<&AtomicBool>,
-    mut progress: Option<&mut crate::fs_safety::DirectoryTransferProgress>,
-    observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    root_path: &Path,
+    copy_progress: &mut DirectoryCopyProgress<'_, '_, '_>,
 ) -> Result<(), AtomicMoveError> {
     if depth >= crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT {
         return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
@@ -1522,7 +1528,7 @@ fn copy_tree_from_fd(
             return Err(AtomicMoveError::DirectoryNestedVolumeUnsupported);
         }
         let relative_path = relative_prefix.join(&name);
-        let progress_path = root_path.join(&relative_path);
+        let progress_path = copy_progress.root_path.join(&relative_path);
         match source_identity.file_type {
             value if value == libc::S_IFLNK as u32 => return Err(AtomicMoveError::Symlink),
             value if value == libc::S_IFDIR as u32 => {
@@ -1531,14 +1537,11 @@ fn copy_tree_from_fd(
                 copy_tree_from_fd(
                     source_directory.as_raw_fd(),
                     destination_directory.as_raw_fd(),
-                    destination_root_fd,
                     &relative_path,
                     state,
                     depth + 1,
                     cancel,
-                    progress.as_deref_mut(),
-                    observer,
-                    root_path,
+                    copy_progress,
                 )?;
                 let metadata = source_directory.metadata().map_err(AtomicMoveError::Io)?;
                 copy_fd_metadata(&metadata, &destination_directory)?;
@@ -1552,12 +1555,12 @@ fn copy_tree_from_fd(
                 let key = (source_identity.dev, source_identity.ino);
                 if source_identity.nlink > 1 {
                     if let Some(first_path) = state.hardlinks.get(&key) {
-                        linkat(destination_root_fd, first_path, destination_fd, &name)?;
-                        if let Some(progress) = progress.as_deref_mut() {
+                        linkat(state.destination_root_fd, first_path, destination_fd, &name)?;
+                        if let Some(progress) = copy_progress.progress.as_deref_mut() {
                             progress.record_bytes(
                                 &progress_path,
                                 source_identity.size,
-                                observer,
+                                copy_progress.observer,
                             )?;
                         }
                     } else {
@@ -1568,8 +1571,8 @@ fn copy_tree_from_fd(
                             &destination_file,
                             cancel,
                             &progress_path,
-                            progress.as_deref_mut(),
-                            observer,
+                            copy_progress.progress.as_deref_mut(),
+                            copy_progress.observer,
                         )?;
                         let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
                         copy_fd_metadata(&metadata, &destination_file)?;
@@ -1584,8 +1587,8 @@ fn copy_tree_from_fd(
                         &destination_file,
                         cancel,
                         &progress_path,
-                        progress.as_deref_mut(),
-                        observer,
+                        copy_progress.progress.as_deref_mut(),
+                        copy_progress.observer,
                     )?;
                     let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
                     copy_fd_metadata(&metadata, &destination_file)?;
@@ -1595,8 +1598,8 @@ fn copy_tree_from_fd(
             _ => return Err(AtomicMoveError::UnsafePath),
         }
 
-        if let Some(progress) = progress.as_deref_mut() {
-            progress.record_item(&progress_path, observer)?;
+        if let Some(progress) = copy_progress.progress.as_deref_mut() {
+            progress.record_item(&progress_path, copy_progress.observer)?;
         }
 
         let current_identity =
@@ -1614,10 +1617,10 @@ fn copy_tree_file_contents_and_metadata(
     destination: &File,
     cancel: Option<&AtomicBool>,
     progress_path: &Path,
-    mut progress: Option<&mut crate::fs_safety::DirectoryTransferProgress>,
+    progress: Option<&mut crate::fs_safety::DirectoryTransferProgress>,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
-    let Some(progress) = progress.as_deref_mut() else {
+    let Some(progress) = progress else {
         return copy_file_contents_and_metadata(source, destination, cancel);
     };
     let mut source = source.try_clone().map_err(AtomicMoveError::Io)?;
@@ -1809,24 +1812,24 @@ mod tests {
         let source = root.join("source");
         let target = root.join("target");
         let mut observed = Vec::new();
-        let mut observer = |event: crate::fs_safety::FileOperationEvent| {
-            observed.push(event);
-            Ok(())
-        };
-
-        super::copy_commit_source_stable(
-            &source,
-            &target,
-            None,
-            None,
-            None,
-            Some(&mut observer),
-            false,
-            None,
-            None,
-        )
-        .expect("copy directory with progress");
-        drop(observer);
+        {
+            let mut observer = |event: crate::fs_safety::FileOperationEvent| {
+                observed.push(event);
+                Ok(())
+            };
+            super::copy_commit_source_stable(
+                &source,
+                &target,
+                None,
+                None,
+                None,
+                Some(&mut observer),
+                false,
+                None,
+                None,
+            )
+            .expect("copy directory with progress");
+        }
 
         let copying = observed
             .iter()
@@ -2254,19 +2257,21 @@ fn publish_directory_exclusive(
         use std::os::unix::fs::MetadataExt;
         source.metadata().map_err(AtomicMoveError::Io)?.dev()
     };
-    let mut state = DirectoryCopyState::new(source_root_device);
+    let mut state = DirectoryCopyState::new(source_root_device, destination.as_raw_fd());
     let mut no_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>> = None;
+    let mut copy_progress = DirectoryCopyProgress {
+        progress: None,
+        observer: &mut no_observer,
+        root_path: Path::new(""),
+    };
     if copy_tree_from_fd(
         source.as_raw_fd(),
-        destination.as_raw_fd(),
         destination.as_raw_fd(),
         Path::new(""),
         &mut state,
         0,
         cancel,
-        None,
-        &mut no_observer,
-        Path::new(""),
+        &mut copy_progress,
     )
     .is_err()
     {

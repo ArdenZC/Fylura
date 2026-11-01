@@ -8,6 +8,7 @@ use crate::file_workspace::integration::{
 };
 use crate::file_workspace::{EntryRef, WorkspacePlatform};
 use crate::platform::macos::quick_look::MacThumbnailService;
+
 fn runtime(f: &Fixture) -> FileWorkspaceRuntime {
     FileWorkspaceRuntime::new(
         f.db.clone(),
@@ -650,6 +651,421 @@ fn u1_macos_directory_copy_move_and_restore_reuse_the_existing_tree_transaction(
     runtime.dispose();
 }
 
+#[cfg(target_os = "macos")]
+struct IsolatedApfsVolume {
+    _root: TaskApfsDirectory,
+    mountpoint: PathBuf,
+    attached: bool,
+}
+
+#[cfg(target_os = "macos")]
+struct TaskApfsDirectory(PathBuf);
+
+#[cfg(target_os = "macos")]
+impl Drop for TaskApfsDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl IsolatedApfsVolume {
+    fn create() -> Self {
+        use std::process::Command;
+
+        let root_path = std::env::temp_dir().join(format!(
+            "fylura-fl23-apfs-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir(&root_path).expect("task-owned APFS image directory");
+        let root = TaskApfsDirectory(root_path);
+        let mountpoint = root.0.join("mount");
+        fs::create_dir(&mountpoint).expect("APFS mountpoint");
+        let image = root.0.join("fixture.sparseimage");
+        let name = format!("FyluraFL23-{}", uuid::Uuid::new_v4());
+        let created = Command::new("hdiutil")
+            .args([
+                "create", "-size", "128m", "-fs", "APFS", "-type", "SPARSE", "-volname",
+            ])
+            .arg(&name)
+            .arg(&image)
+            .output();
+        let created = created.expect("required APFS qualification needs hdiutil");
+        if !created.status.success() {
+            panic!(
+                "APFS-capable macOS host could not create isolated APFS image: {}",
+                String::from_utf8_lossy(&created.stderr).trim()
+            );
+        }
+        let attached = Command::new("hdiutil")
+            .args(["attach", "-quiet", "-nobrowse", "-mountpoint"])
+            .arg(&mountpoint)
+            .arg(&image)
+            .output();
+        let attached = attached.expect("required APFS qualification needs hdiutil attach");
+        if !attached.status.success() {
+            let _ = Command::new("hdiutil")
+                .args(["detach", "-quiet", "-force"])
+                .arg(&mountpoint)
+                .output();
+            panic!(
+                "APFS-capable macOS host could not attach isolated APFS image: {}",
+                String::from_utf8_lossy(&attached.stderr).trim()
+            );
+        }
+        let volume = Self {
+            _root: root,
+            mountpoint,
+            attached: true,
+        };
+        assert_eq!(
+            macos_filesystem_type(&volume.mountpoint),
+            "apfs",
+            "the isolated image must be mounted as APFS before the move test runs"
+        );
+        volume
+    }
+
+    fn detach(&mut self) -> Result<(), String> {
+        use std::process::Command;
+
+        if !self.attached {
+            return Ok(());
+        }
+        let mut last_error = String::new();
+        for force in [false, true] {
+            let mut command = Command::new("hdiutil");
+            command.args(["detach", "-quiet"]);
+            if force {
+                command.arg("-force");
+            }
+            let result = command.arg(&self.mountpoint).output();
+            match result {
+                Ok(output) if output.status.success() => {
+                    self.attached = false;
+                    return Ok(());
+                }
+                Ok(output) => {
+                    last_error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                }
+                Err(error) => last_error = error.to_string(),
+            }
+        }
+        Err(format!(
+            "could not detach task-owned APFS fixture: {last_error}"
+        ))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_filesystem_type(path: &Path) -> String {
+    use std::{ffi::CStr, os::unix::ffi::OsStrExt};
+
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .expect("APFS mountpoint contains no NUL");
+    let mut info = unsafe { std::mem::zeroed::<libc::statfs>() };
+    assert_eq!(
+        unsafe { libc::statfs(path.as_ptr(), &mut info) },
+        0,
+        "statfs must confirm the APFS fixture mount: {}",
+        std::io::Error::last_os_error()
+    );
+    unsafe { CStr::from_ptr(info.f_fstypename.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for IsolatedApfsVolume {
+    fn drop(&mut self) {
+        if let Err(error) = self.detach() {
+            eprintln!("{error}");
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_test_xattr(path: &Path, name: &str, value: &[u8]) {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let path = CString::new(path.as_os_str().as_bytes()).expect("fixture path has no NUL");
+    let name = CString::new(name).expect("xattr name has no NUL");
+    let result = unsafe {
+        libc::setxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_ptr().cast(),
+            value.len(),
+            0,
+            0,
+        )
+    };
+    assert_eq!(
+        result,
+        0,
+        "setxattr failed: {}",
+        std::io::Error::last_os_error()
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn read_test_xattr(path: &Path, name: &str) -> Vec<u8> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let path = CString::new(path.as_os_str().as_bytes()).expect("fixture path has no NUL");
+    let name = CString::new(name).expect("xattr name has no NUL");
+    let size =
+        unsafe { libc::getxattr(path.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0, 0, 0) };
+    assert!(
+        size >= 0,
+        "getxattr size failed for {} on {}: {}",
+        name.to_string_lossy(),
+        path.to_string_lossy(),
+        std::io::Error::last_os_error()
+    );
+    let mut value = vec![0; size as usize];
+    let read = unsafe {
+        libc::getxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_mut_ptr().cast(),
+            value.len(),
+            0,
+            0,
+        )
+    };
+    assert_eq!(
+        read,
+        size,
+        "getxattr failed for {} on {}: {}",
+        name.to_string_lossy(),
+        path.to_string_lossy(),
+        std::io::Error::last_os_error()
+    );
+    value
+}
+
+#[cfg(target_os = "macos")]
+fn add_test_acl(path: &Path) {
+    let output = std::process::Command::new("chmod")
+        .args(["+a", "everyone deny write"])
+        .arg(path)
+        .output()
+        .expect("macOS chmod supports ACL fixtures");
+    assert!(
+        output.status.success(),
+        "could not create ACL fixture: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn read_test_acl(path: &Path) -> Vec<String> {
+    let output = std::process::Command::new("ls")
+        .args(["-le"])
+        .arg(path)
+        .output()
+        .expect("macOS ls can inspect ACL fixtures");
+    assert!(
+        output.status.success(),
+        "could not inspect ACL fixture: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.split_once(": ")
+                .is_some_and(|(_, entry)| entry.contains(" allow ") || entry.contains(" deny "))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_forks() {
+    let mut volume = IsolatedApfsVolume::create();
+    use std::os::unix::fs::MetadataExt;
+
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("跨卷目录.app");
+    fs::create_dir_all(source.join("Contents").join("MacOS").join("空目录")).unwrap();
+    fs::write(
+        source.join("Contents").join("Info.plist"),
+        b"package fixture",
+    )
+    .unwrap();
+    let source_file = source.join("Contents").join("MacOS").join("内容.bin");
+    fs::write(&source_file, b"APFS cross-volume directory payload").unwrap();
+    set_test_xattr(&source, "com.fylura.fl23.directory", b"directory metadata");
+    set_test_xattr(
+        &source_file,
+        "com.apple.ResourceFork",
+        b"resource fork fixture",
+    );
+    set_test_xattr(
+        &source_file,
+        "com.fylura.fl23.user",
+        b"extended attribute fixture",
+    );
+    assert_eq!(
+        read_test_xattr(&source_file, "com.apple.ResourceFork"),
+        b"resource fork fixture",
+        "the APFS source fixture must contain its ResourceFork before transfer"
+    );
+    add_test_acl(&source_file);
+    let source_acl = read_test_acl(&source_file);
+    assert!(!source_acl.is_empty(), "ACL fixture was not created");
+    assert_ne!(
+        fs::metadata(&source).unwrap().dev(),
+        fs::metadata(&volume.mountpoint).unwrap().dev(),
+        "the APFS fixture must be a distinct filesystem volume"
+    );
+
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let destination = volume.mountpoint.join("destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let moved = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        moved.logs[0].status, "success",
+        "{:?}",
+        moved.logs[0].error_message
+    );
+    assert!(moved.logs[0].can_restore);
+    let target = destination.join("跨卷目录.app");
+    assert!(!source.exists());
+    assert!(target.join("Contents/MacOS/空目录").is_dir());
+    assert_eq!(
+        blake3::hash(&fs::read(target.join("Contents/MacOS/内容.bin")).unwrap()),
+        blake3::hash(b"APFS cross-volume directory payload")
+    );
+    assert_eq!(
+        read_test_xattr(&target, "com.fylura.fl23.directory"),
+        b"directory metadata"
+    );
+    assert_eq!(
+        read_test_xattr(
+            &target.join("Contents/MacOS/内容.bin"),
+            "com.apple.ResourceFork"
+        ),
+        b"resource fork fixture"
+    );
+    assert_eq!(
+        read_test_xattr(
+            &target.join("Contents/MacOS/内容.bin"),
+            "com.fylura.fl23.user"
+        ),
+        b"extended attribute fixture"
+    );
+    assert_eq!(
+        read_test_acl(&target.join("Contents/MacOS/内容.bin")),
+        source_acl
+    );
+
+    let restored =
+        restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: moved.logs }).unwrap();
+    assert_eq!(
+        restored.logs[0].restore_status, "restored",
+        "{:?}",
+        restored.logs[0].restore_error
+    );
+    assert_eq!(
+        read_test_xattr(&source, "com.fylura.fl23.directory"),
+        b"directory metadata"
+    );
+    assert_eq!(
+        read_test_xattr(
+            &source.join("Contents/MacOS/内容.bin"),
+            "com.apple.ResourceFork"
+        ),
+        b"resource fork fixture"
+    );
+    assert_eq!(
+        read_test_xattr(
+            &source.join("Contents/MacOS/内容.bin"),
+            "com.fylura.fl23.user"
+        ),
+        b"extended attribute fixture"
+    );
+    assert_eq!(
+        read_test_acl(&source.join("Contents/MacOS/内容.bin")),
+        source_acl
+    );
+    assert!(!target.exists());
+    eprintln!(
+        "FL23_APFS_NATIVE_PASS fs={} distinct_volume=true directory_move=true restore=true source_retired=true",
+        macos_filesystem_type(&volume.mountpoint)
+    );
+
+    let link_ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let link_path = source.join("Contents/MacOS/内容链接");
+    std::os::unix::fs::symlink("内容.bin", &link_path).expect("symlink fixture");
+    let link_plan = preview(
+        &runtime,
+        vec![link_ticket.id],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    assert!(
+        link_plan.rows[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error == "symlink_or_reparse_point"),
+        "an unpreserved link must be explicitly rejected: {:?}",
+        link_plan.rows[0].error
+    );
+    assert!(
+        source.exists(),
+        "rejected link operation must keep its source"
+    );
+    assert!(
+        !target.exists(),
+        "rejected link operation must not publish a target"
+    );
+    fs::remove_file(link_path).expect("remove symlink fixture");
+    runtime.dispose();
+    volume.detach().expect("detach task-owned APFS fixture");
+}
+
 #[test]
 fn u1_skipped_same_name_does_not_reserve_a_batch_destination() {
     let f = Fixture::new();
@@ -1175,7 +1591,7 @@ fn fl20_external_directory_copy_preserves_empty_directories_and_empty_roots() {
 
 #[cfg(windows)]
 #[test]
-fn fl20_windows_external_directory_move_is_explicitly_rejected_without_mutation() {
+fn fl23_windows_same_volume_directory_move_is_journaled_and_restorable() {
     let f = Fixture::new();
     let runtime = runtime(&f);
     let source = f.root.join("move-source");
@@ -1200,12 +1616,111 @@ fn fl20_windows_external_directory_move_is_explicitly_rejected_without_mutation(
         vec![],
         vec![],
     );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let executed = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
-        plan.rows[0].error.as_deref(),
-        Some("transfer_windows_directory_move_unsupported")
+        executed.logs[0].status, "success",
+        "{:?}",
+        executed.logs[0].error_message
     );
-    assert!(source.join("nested/content.txt").is_file());
-    assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
+    assert!(executed.logs[0].can_restore);
+    assert!(!source.exists());
+    let expected_hash = blake3::hash(b"source remains");
+    assert_eq!(
+        blake3::hash(&fs::read(destination.join("move-source/nested/content.txt")).unwrap()),
+        expected_hash
+    );
+    let restored = restore_moves_with_persistence(
+        &f.db,
+        RestoreMovesRequest {
+            logs: executed.logs,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        restored.logs[0].restore_status, "restored",
+        "{:?}",
+        restored.logs[0].restore_error
+    );
+    assert_eq!(
+        blake3::hash(&fs::read(source.join("nested/content.txt")).unwrap()),
+        expected_hash
+    );
+    assert!(!destination.join("move-source").exists());
+    runtime.dispose();
+}
+
+#[cfg(windows)]
+#[test]
+fn fl23_windows_same_volume_directory_restore_refuses_a_changed_tree() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("changed-tree-source");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("content.txt"), b"before move").unwrap();
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let destination = f.root.join("changed-tree-target");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    let executed = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(executed.logs[0].status, "success");
+    let moved = destination.join("changed-tree-source");
+    fs::write(moved.join("content.txt"), b"content changed after the move").unwrap();
+
+    let restored = restore_moves_with_persistence(
+        &f.db,
+        RestoreMovesRequest {
+            logs: executed.logs,
+        },
+    )
+    .unwrap();
+    assert_eq!(restored.logs[0].restore_status, "manual_review");
+    assert!(
+        restored.logs[0]
+            .restore_error
+            .as_deref()
+            .is_some_and(|error| error.contains("restore_directory_tree_changed")),
+        "{:?}",
+        restored.logs[0].restore_error
+    );
+    assert!(!source.exists());
+    assert_eq!(
+        fs::read(moved.join("content.txt")).unwrap(),
+        b"content changed after the move"
+    );
     runtime.dispose();
 }
 
@@ -1295,6 +1810,147 @@ fn fl20_external_file_move_is_previewed_journaled_and_restored_without_indexing(
     assert_eq!(fs::read(&source).unwrap(), b"external source bytes");
     assert!(!destination.join("external-move.txt").exists());
     runtime.dispose();
+}
+
+#[cfg(windows)]
+#[test]
+fn fl23_native_cross_volume_directory_move_and_history_restore_use_one_journal() {
+    use std::process::Command;
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+
+    struct TargetVolumeFixture(PathBuf);
+    impl Drop for TargetVolumeFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let f = Fixture::new();
+    let source_root_identity = crate::fs_safety::capture_namespace_identity_only(&f.root, None)
+        .expect("source volume identity");
+    let drive_mask = unsafe { GetLogicalDrives() };
+    let Some(target_fixture) = (b'A'..=b'Z').find_map(|letter| {
+        if drive_mask & (1 << (letter - b'A')) == 0 {
+            return None;
+        }
+        let drive_root = PathBuf::from(format!("{}:\\", letter as char));
+        let wide = crate::fs_safety::source_claim::windows_wide_path(&drive_root);
+        if !matches!(unsafe { GetDriveTypeW(wide.as_ptr()) }, 2 | 3) {
+            return None;
+        }
+        let identity = crate::fs_safety::capture_namespace_identity_only(&drive_root, None).ok()?;
+        if identity.platform_volume_id == source_root_identity.platform_volume_id {
+            return None;
+        }
+        let fixture = drive_root.join(format!("Fylura-QA-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&fixture).ok().map(|_| fixture)
+    }) else {
+        eprintln!("UNVERIFIED: no writable independent local volume was available for FL-23 History Restore");
+        let fixture_root = f.root.clone();
+        drop(f);
+        let _ = fs::remove_dir_all(fixture_root);
+        return;
+    };
+    let target_fixture = TargetVolumeFixture(target_fixture);
+
+    let source = f.root.join("external tree");
+    fs::create_dir_all(source.join("nested").join("empty")).expect("nested empty directory");
+    fs::write(source.join("根.txt"), b"cross-volume root payload").expect("root payload");
+    fs::write(
+        source.join("nested").join("內容.bin"),
+        b"cross-volume nested payload",
+    )
+    .expect("nested payload");
+    let inheritance = Command::new("icacls")
+        .arg(&source)
+        .args(["/inheritance:d"])
+        .output()
+        .expect("disable inherited ACLs on the isolated source fixture");
+    assert!(
+        inheritance.status.success(),
+        "could not make the source DACL fixture explicit: {}",
+        String::from_utf8_lossy(&inheritance.stderr).trim()
+    );
+    let explicit_acl = Command::new("icacls")
+        .arg(&source)
+        .args(["/grant", "*S-1-5-32-545:(OI)(CI)(RX)"])
+        .output()
+        .expect("add explicit source DACL fixture");
+    assert!(
+        explicit_acl.status.success(),
+        "could not add the explicit source DACL fixture: {}",
+        String::from_utf8_lossy(&explicit_acl.stderr).trim()
+    );
+    let expected_root_hash = fixture_file_hash(&source.join("根.txt"));
+    let expected_nested_hash = fixture_file_hash(&source.join("nested").join("內容.bin"));
+
+    let runtime = runtime(&f);
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .expect("capture external directory");
+    let destination = target_fixture.0.join("destination");
+    fs::create_dir(&destination).expect("destination directory");
+    let plan = preview(
+        &runtime,
+        vec![tickets[0].id.clone()],
+        &destination,
+        TransferAction::Move,
+        vec![],
+        vec![],
+    );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .expect("consume live transfer preview");
+    let moved = execute_moves_with_persistence(&f.db, request).expect("execute directory move");
+    assert_eq!(
+        moved.logs[0].status, "success",
+        "{:?}",
+        moved.logs[0].error_message
+    );
+    assert!(moved.logs[0]
+        .target_full_hash
+        .as_deref()
+        .is_some_and(|proof| proof.starts_with("directory-tree-v1:")));
+    let moved_target = destination.join("external tree");
+    assert!(!source.exists());
+    assert_eq!(
+        fixture_file_hash(&moved_target.join("根.txt")),
+        expected_root_hash
+    );
+    assert_eq!(
+        fixture_file_hash(&moved_target.join("nested").join("內容.bin")),
+        expected_nested_hash
+    );
+    assert!(moved_target.join("nested").join("empty").is_dir());
+
+    let restored = restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: moved.logs })
+        .expect("restore cross-volume directory move from History");
+    assert_eq!(restored.logs[0].restore_status, "restored");
+    assert_eq!(
+        fixture_file_hash(&source.join("根.txt")),
+        expected_root_hash
+    );
+    assert_eq!(
+        fixture_file_hash(&source.join("nested").join("內容.bin")),
+        expected_nested_hash
+    );
+    assert!(source.join("nested").join("empty").is_dir());
+    assert!(!moved_target.exists());
+
+    runtime.dispose();
+    drop(runtime);
+    let fixture_root = f.root.clone();
+    drop(f);
+    let _ = fs::remove_dir_all(fixture_root);
 }
 
 #[test]

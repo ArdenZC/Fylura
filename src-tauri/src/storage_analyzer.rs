@@ -1899,7 +1899,10 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                 };
                 let claim_path = item.source_claim_path.clone();
                 let actual_paths = std::cell::RefCell::new(None::<(PathBuf, PathBuf)>);
-                let mut phase_observer = |phase: &str| {
+                let mut phase_observer = |event: crate::fs_safety::FileOperationEvent| {
+                    let crate::fs_safety::FileOperationEvent::Phase(phase) = event else {
+                        return Ok(());
+                    };
                     if let Some((actual_source, actual_target)) = actual_paths.borrow().clone() {
                         item.original_path = normalize_path(&actual_source);
                         item.trash_path = normalize_path(&actual_target);
@@ -1909,7 +1912,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                     item.message = Some(format!("Safe Trash operation phase: {phase}."));
                     db.update_cleanup_trash_item_status(item).map_err(|error| {
                         if matches!(
-                            phase,
+                            phase.as_str(),
                             "target_committed" | "source_cleanup_pending" | "completed"
                         ) {
                             crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
@@ -2401,7 +2404,10 @@ fn restore_cleanup_trash_items_for_db_with_progress(
                 quick_hash: item.trash_quick_hash.clone(),
                 full_hash: item.trash_full_hash.clone(),
             };
-            let mut phase_observer = |phase: &str| {
+            let mut phase_observer = |event: crate::fs_safety::FileOperationEvent| {
+                let crate::fs_safety::FileOperationEvent::Phase(phase) = event else {
+                    return Ok(());
+                };
                 item.operation_phase = phase.to_string();
                 item.status = "pending".to_string();
                 item.identity_status = "restore_pending".to_string();
@@ -2409,7 +2415,7 @@ fn restore_cleanup_trash_items_for_db_with_progress(
                 db.finalize_cleanup_restore_outcome(&item)
                     .map_err(|error| {
                         if matches!(
-                            phase,
+                            phase.as_str(),
                             "target_committed" | "source_cleanup_pending" | "completed"
                         ) {
                             crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown

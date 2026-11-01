@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 import { createServer } from "vite";
 import { assertCheckoutEvidence } from "./ciEvidence.mjs";
 import { PREVIEW_PERFORMANCE_CONTRACT } from "./performanceManifest.mjs";
+import { resolveImageAsset } from "./w3PreviewBrowserHarness.mjs";
 
 const SOURCE_HEAD = process.env.W310_SOURCE_HEAD ?? process.env.GITHUB_SHA ?? "local";
 const EXPECTED_CHECKOUT_SHA = process.env.W310_EXPECTED_CHECKOUT_SHA ?? null;
@@ -26,6 +27,12 @@ const VIEWPORTS = Object.freeze([
   { width: 1600, height: 900 },
   { width: 980, height: 680 },
 ]);
+const TRACE_STARTED_AT = Date.now();
+
+function traceW310(stage, details = "") {
+  const suffix = details ? ` ${details}` : "";
+  console.log(`[w3-10-phase-a] elapsed_ms=${Date.now() - TRACE_STARTED_AT} stage=${stage}${suffix}`);
+}
 
 process.env.TEMP = TASK_TEMP_DIR;
 process.env.TMP = TASK_TEMP_DIR;
@@ -41,13 +48,16 @@ const server = await createServer({
   configFile: path.resolve("vite.config.ts"),
   server: { host: "127.0.0.1", port: 0, strictPort: false },
 });
+traceW310("vite-start");
 await server.listen();
 const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
 if (!baseUrl) throw new Error("Vite did not expose a local browser URL.");
+traceW310("vite-ready", baseUrl);
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.W310_CHROMIUM_EXECUTABLE ? { executablePath: process.env.W310_CHROMIUM_EXECUTABLE } : {}),
 });
+traceW310("chromium-ready");
 
 async function installMeasurementObserver(context) {
   await context.addInitScript(() => {
@@ -158,7 +168,9 @@ async function waitForLibrary(page) {
 }
 
 async function chooseLibraryFile(page, name) {
+  traceW310("library-selection-start", name);
   const list = await waitForLibrary(page);
+  traceW310("library-mounted", name);
   const search = page.locator('[data-file-library-local-search="true"]');
   await search.fill(name);
   await page.waitForFunction((expected) => {
@@ -166,6 +178,7 @@ async function chooseLibraryFile(page, name) {
     return input?.value === expected
       && document.querySelector('[data-library-source-owner="query-v2"]')?.getAttribute("data-library-provenance") === "query-v2-snapshot";
   }, name);
+  traceW310("library-query-settled", name);
   const item = list.locator('[role="option"]').filter({ hasText: name }).first();
   await item.waitFor({ state: "visible" });
   await page.waitForFunction(() => {
@@ -189,10 +202,12 @@ async function chooseLibraryFile(page, name) {
     return row?.getAttribute("aria-selected") === "true"
       && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
   }, itemId);
+  traceW310("library-selection-ready", name);
   return list;
 }
 
 async function chooseBrowseFile(page, name) {
+  traceW310("browse-selection-start", name);
   const browseTab = page.getByRole("tab", { name: "Browse Folder", exact: true });
   if (await browseTab.count() === 0) await waitForLibrary(page);
   const browseWorkspace = page.locator('.file-library-workspace[data-mode="browse"]');
@@ -225,6 +240,7 @@ async function chooseBrowseFile(page, name) {
     return row?.getAttribute("aria-selected") === "true"
       && row.closest('[role="listbox"]')?.getAttribute("aria-activedescendant") === id;
   }, itemId);
+  traceW310("browse-selection-ready", name);
   return list;
 }
 
@@ -258,6 +274,7 @@ async function resolveDeferredPreview(page, label) {
 }
 
 async function openPreview(page, list, label) {
+  traceW310("preview-open-start", label);
   await page.evaluate((value) => window.__zcW310MarkPreviewTrigger?.(value), label);
   await list.focus();
   if (await list.getAttribute("aria-activedescendant") === null) await page.keyboard.press("ArrowDown");
@@ -275,6 +292,7 @@ async function openPreview(page, list, label) {
     }
   }
   await list.press("Space");
+  traceW310("preview-command-accepted", label);
   await page.waitForSelector('[data-preview-host="zen-floating"]', { timeout: 5_000 }).catch(async (error) => {
     const diagnostics = await page.evaluate(() => ({
       activeDescendant: document.querySelector('[data-shared-file-list-source="library"], [data-shared-file-list-source="browse"]')?.getAttribute("aria-activedescendant") ?? null,
@@ -285,12 +303,15 @@ async function openPreview(page, list, label) {
     throw new Error(`${label}: Floating Preview did not open ${JSON.stringify(diagnostics)} (${String(error)})`);
   });
   await page.waitForSelector('[data-preview-shell="true"]');
+  traceW310("preview-shell-mounted", label);
   if (await page.evaluate(() => new URLSearchParams(window.location.search).get("w3-02-browser-fixture") === "preview")) {
     await resolveDeferredPreview(page, label);
   }
+  traceW310("preview-content-settled", label);
 }
 
 async function closePreview(page, label) {
+  traceW310("preview-close-start", label);
   await page.locator('[data-preview-host="zen-floating"] [aria-label="Close preview"]').click();
   await page.waitForSelector('[data-preview-shell="true"]', { state: "detached" });
   assert(await page.locator('[data-preview-shell="true"]').count() === 0, `${label}: Preview remained mounted`);
@@ -300,6 +321,7 @@ async function closePreview(page, label) {
       || ((state.pendingStartCount ?? 0) === 0
         && Object.keys(state.activeBackendHostKinds ?? {}).length === 0);
   }, undefined, { timeout: 5_000 });
+  traceW310("preview-closed", label);
 }
 
 function summarizeBrowserTiming(samples, targetP95Ms) {
@@ -329,6 +351,7 @@ async function collectScenario(page, name, fileName, representation, chooseFile 
   const totalSamples = PREVIEW_PERFORMANCE_CONTRACT.warmupSamples + PREVIEW_PERFORMANCE_CONTRACT.timingSamples;
   for (let index = 0; index < totalSamples; index += 1) {
     const sampleLabel = `${name}-${index.toString().padStart(2, "0")}`;
+    traceW310("sample-start", sampleLabel);
     const list = await chooseFile(page, fileName);
     await openPreview(page, list, sampleLabel);
     try {
@@ -344,15 +367,17 @@ async function collectScenario(page, name, fileName, representation, chooseFile 
       }));
       throw new Error(`${sampleLabel}: expected ${representation} did not mount ${JSON.stringify(diagnostics)} (${error.message})`);
     }
+    traceW310("representation-mounted", `${sampleLabel} family=${representation}`);
     if (representation === "image") {
-      await page.waitForFunction(() => (window.__zcW306?.pendingAssetCount ?? 0) > 0);
-      await page.evaluate(() => window.__zcW306?.resolveAllAssets());
-      await page.waitForFunction(() => document.querySelector('[data-preview-representation="image"]')?.getAttribute("data-preview-image-status") !== "loading");
+      traceW310("image-asset-settle-start", sampleLabel);
+      await resolveImageAsset(page, sampleLabel);
+      traceW310("image-asset-settle-complete", sampleLabel);
     }
     const evidence = await page.evaluate((label) => ({
       shell: window.__zcW310?.shellSamples?.find((sample) => sample.label === label) ?? null,
       useful: window.__zcW310?.usefulSamples?.find((sample) => sample.label === label) ?? null,
     }), sampleLabel);
+    traceW310("dom-metrics-collected", sampleLabel);
     assert(evidence.shell?.actualDomVisibilityMeasured === true, `${sampleLabel}: shell visibility was not measured from the DOM ${JSON.stringify(evidence)}`);
     assert(evidence.useful?.actualDomVisibilityMeasured === true, `${sampleLabel}: useful representation was not measured from the DOM ${JSON.stringify(evidence)}`);
     if (index >= PREVIEW_PERFORMANCE_CONTRACT.warmupSamples) {
@@ -361,6 +386,7 @@ async function collectScenario(page, name, fileName, representation, chooseFile 
     }
     await closePreview(page, sampleLabel);
   }
+  traceW310("scenario-complete", name);
   return {
     label: name,
     shell: summarizeBrowserTiming(shellSamples, PREVIEW_PERFORMANCE_CONTRACT.shellFirstVisibleTargetP95Ms),
@@ -388,6 +414,7 @@ const SCENARIOS = Object.freeze([
 ]);
 
 async function runViewport(viewport) {
+  traceW310("viewport-start", `${viewport.width}x${viewport.height}`);
   const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
   await installMeasurementObserver(context);
   const page = await context.newPage();
@@ -400,11 +427,14 @@ async function runViewport(viewport) {
 
   try {
     for (const [name, fileName, representation, fixtureQuery, chooseFile] of SCENARIOS) {
+      traceW310("scenario-start", `${viewport.width}x${viewport.height} ${name}`);
       await navigateToFixture(page, fixtureQuery);
+      traceW310("fixture-ready", `${viewport.width}x${viewport.height} ${name}`);
       const scenarioEvidence = await collectScenario(page, name, fileName, representation, chooseFile);
       evidence.push({ ...scenarioEvidence, viewport });
     }
     assert(errors.length === 0, `W3-10 browser timing matrix ${viewport.width}x${viewport.height} reported console/page errors: ${JSON.stringify(errors)}`);
+    traceW310("viewport-complete", `${viewport.width}x${viewport.height}`);
     return { viewport, evidence, errors };
   } finally {
     await page.close();

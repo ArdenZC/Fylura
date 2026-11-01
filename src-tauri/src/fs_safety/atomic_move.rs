@@ -87,6 +87,12 @@ pub enum AtomicMoveError {
     TargetCommittedSourceCleanupPending,
     #[error("unsafe_path")]
     UnsafePath,
+    #[error("directory_tree_limit_exceeded")]
+    DirectoryTreeLimitExceeded,
+    #[error("directory_nested_volume_unsupported")]
+    DirectoryNestedVolumeUnsupported,
+    #[error("windows_special_metadata_unsupported:{0}")]
+    WindowsSpecialMetadataUnsupported(&'static str),
     #[error("reparse_point")]
     ReparsePoint,
     #[error("symlink")]
@@ -554,7 +560,10 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     identity::ensure_supported_entry(source).map_err(map_identity_error)?;
     let namespace_directory_operation = matches!(
         operation,
-        AtomicMoveOperation::Rename | AtomicMoveOperation::Trash | AtomicMoveOperation::Restore
+        AtomicMoveOperation::Rename
+            | AtomicMoveOperation::Move
+            | AtomicMoveOperation::Trash
+            | AtomicMoveOperation::Restore
     ) && std::fs::symlink_metadata(source)
         .map(|metadata| metadata.is_dir())
         .unwrap_or(false)
@@ -779,10 +788,6 @@ fn atomic_move_noreplace_with_claim_path_and_observer_uncoordinated(
     }
     #[cfg(windows)]
     {
-        if matches!(claim.kind(), source_claim::ClaimedEntryKind::Directory) {
-            let _ = claim.rollback_to_original();
-            return Err(AtomicMoveError::CrossVolumeDirectoryMoveUnsupported);
-        }
         copy_commit::copy_commit_claim(&mut claim, target_parent, target_name, cancel, observer)
             .map(|_| AtomicMoveOutcome {
                 method: AtomicMoveMethod::CrossVolumeCopyCommit,
@@ -814,7 +819,9 @@ fn notify_phase(
     phase: &str,
 ) -> Result<(), AtomicMoveError> {
     if let Some(observer) = observer.as_deref_mut() {
-        observer(phase)?;
+        observer(crate::fs_safety::FileOperationEvent::Phase(
+            phase.to_string(),
+        ))?;
     }
     Ok(())
 }
@@ -1301,17 +1308,13 @@ fn atomic_replace_uncoordinated(
                 .map(|_| ())
                 .map_err(map_claim_error)
         } else {
-            if source_claim.kind() != source_claim::ClaimedEntryKind::File {
-                Err(AtomicMoveError::CrossVolumeDirectoryMoveUnsupported)
-            } else {
-                copy_commit::copy_commit_claim(
-                    &mut source_claim,
-                    target_parent,
-                    target_name,
-                    cancel,
-                    None,
-                )
-            }
+            copy_commit::copy_commit_claim(
+                &mut source_claim,
+                target_parent,
+                target_name,
+                cancel,
+                None,
+            )
         }
     };
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -1447,6 +1450,9 @@ fn atomic_copy_noreplace_uncoordinated(
                 identity::capture_namespace_identity(source, cancel).map_err(map_identity_error)?
             }
         };
+        // Source-preserving Copy leaves the source untouched. Windows creates
+        // a new target with destination-directory inheritance; this ordinary
+        // data path never inspects source SACLs or needs SeSecurityPrivilege.
         let claim_path = match planned_claim_path {
             Some(path) => source_claim::rebind_claim_path(source, path).map_err(map_claim_error)?,
             None => source_claim::planned_claim_path(source, "copy").map_err(map_claim_error)?,
@@ -1500,6 +1506,7 @@ pub mod test_faults {
         TargetIdentity,
         SourceCleanup,
         CancelDirectoryCopyAfterEntry,
+        OutOfSpaceDuringCopy,
     }
 
     thread_local! {
@@ -1637,6 +1644,15 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
 }
 
 fn map_content_read_rejected(reason: &'static str) -> AtomicMoveError {
+    match reason {
+        "directory_entry_limit_exceeded" | "directory_depth_limit_exceeded" => {
+            return AtomicMoveError::DirectoryTreeLimitExceeded;
+        }
+        "nested_volume_entry_unsupported" => {
+            return AtomicMoveError::DirectoryNestedVolumeUnsupported;
+        }
+        _ => {}
+    }
     #[cfg(target_os = "macos")]
     {
         AtomicMoveError::MacMutationNotSupported(reason)

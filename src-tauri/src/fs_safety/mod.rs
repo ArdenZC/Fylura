@@ -8,6 +8,8 @@ pub mod platform_support;
 pub mod source_claim;
 pub mod verified_directory;
 
+use std::time::{Duration, Instant};
+
 pub use atomic_move::{
     atomic_move_noreplace, atomic_move_noreplace_with_claim_path, AtomicMoveCommitState,
     AtomicMoveError, AtomicMoveMethod, AtomicMoveOutcome,
@@ -39,7 +41,149 @@ pub use source_claim::{
 };
 pub use verified_directory::{DirectoryIdentity, VerifiedDirectory};
 
-pub(crate) type PhaseObserver<'a> = dyn FnMut(&str) -> Result<(), AtomicMoveError> + 'a;
+#[derive(Debug, Clone)]
+pub(crate) enum FileOperationEvent {
+    Phase(String),
+    Progress(FileOperationProgress),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FileOperationProgress {
+    pub(crate) stage: String,
+    pub(crate) current_path: String,
+    pub(crate) processed_items: u64,
+    pub(crate) total_items: Option<u64>,
+    pub(crate) processed_bytes: u64,
+    pub(crate) total_bytes: Option<u64>,
+}
+
+pub(crate) type PhaseObserver<'a> =
+    dyn FnMut(FileOperationEvent) -> Result<(), AtomicMoveError> + 'a;
+
+/// Throttled counters for the active phase of a recursive transfer. A total
+/// stays absent until a bounded source pass has actually established it.
+pub(crate) struct DirectoryTransferProgress {
+    stage: String,
+    processed_items: u64,
+    total_items: Option<u64>,
+    processed_bytes: u64,
+    total_bytes: Option<u64>,
+    current_path: String,
+    last_emit_at: Instant,
+    last_emitted_items: u64,
+    last_emitted_bytes: u64,
+}
+
+impl DirectoryTransferProgress {
+    pub(crate) fn new(stage: &str) -> Self {
+        Self {
+            stage: stage.to_string(),
+            processed_items: 0,
+            total_items: None,
+            processed_bytes: 0,
+            total_bytes: None,
+            current_path: String::new(),
+            last_emit_at: Instant::now(),
+            last_emitted_items: 0,
+            last_emitted_bytes: 0,
+        }
+    }
+
+    pub(crate) fn reset(
+        &mut self,
+        stage: &str,
+        total_items: Option<u64>,
+        total_bytes: Option<u64>,
+        observer: &mut Option<&mut PhaseObserver<'_>>,
+    ) -> Result<(), AtomicMoveError> {
+        self.stage = stage.to_string();
+        self.processed_items = 0;
+        self.total_items = total_items;
+        self.processed_bytes = 0;
+        self.total_bytes = total_bytes;
+        self.current_path.clear();
+        self.last_emitted_items = 0;
+        self.last_emitted_bytes = 0;
+        self.last_emit_at = Instant::now();
+        self.emit(observer)
+    }
+
+    pub(crate) fn record_item(
+        &mut self,
+        path: &std::path::Path,
+        observer: &mut Option<&mut PhaseObserver<'_>>,
+    ) -> Result<(), AtomicMoveError> {
+        self.processed_items = self.processed_items.saturating_add(1);
+        self.current_path = path.to_string_lossy().into_owned();
+        self.emit_if_due(observer)
+    }
+
+    pub(crate) fn record_bytes(
+        &mut self,
+        path: &std::path::Path,
+        bytes: u64,
+        observer: &mut Option<&mut PhaseObserver<'_>>,
+    ) -> Result<(), AtomicMoveError> {
+        self.processed_bytes = self.processed_bytes.saturating_add(bytes);
+        self.current_path = path.to_string_lossy().into_owned();
+        self.emit_if_due(observer)
+    }
+
+    pub(crate) fn finish(
+        &mut self,
+        observer: &mut Option<&mut PhaseObserver<'_>>,
+    ) -> Result<(), AtomicMoveError> {
+        self.emit(observer)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn set_total_items(&mut self, total_items: Option<u64>) {
+        self.total_items = total_items;
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn total_items(&self) -> Option<u64> {
+        self.total_items
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn processed_items(&self) -> u64 {
+        self.processed_items
+    }
+
+    fn emit_if_due(
+        &mut self,
+        observer: &mut Option<&mut PhaseObserver<'_>>,
+    ) -> Result<(), AtomicMoveError> {
+        if self.processed_items.saturating_sub(self.last_emitted_items) >= 10
+            || self.processed_bytes.saturating_sub(self.last_emitted_bytes) >= 8 * 1024 * 1024
+            || self.last_emit_at.elapsed() >= Duration::from_millis(200)
+        {
+            self.emit(observer)?;
+        }
+        Ok(())
+    }
+
+    fn emit(
+        &mut self,
+        observer: &mut Option<&mut PhaseObserver<'_>>,
+    ) -> Result<(), AtomicMoveError> {
+        if let Some(observer) = observer.as_deref_mut() {
+            observer(FileOperationEvent::Progress(FileOperationProgress {
+                stage: self.stage.clone(),
+                current_path: self.current_path.clone(),
+                processed_items: self.processed_items,
+                total_items: self.total_items,
+                processed_bytes: self.processed_bytes,
+                total_bytes: self.total_bytes,
+            }))?;
+        }
+        self.last_emit_at = Instant::now();
+        self.last_emitted_items = self.processed_items;
+        self.last_emitted_bytes = self.processed_bytes;
+        Ok(())
+    }
+}
 
 /// Receives the URLs selected by a native coordination accessor before the
 /// filesystem claim starts.  The optional claim path is the path that the

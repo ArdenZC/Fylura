@@ -32,6 +32,9 @@ describe("stable error codes", () => {
       .toContain("does not identify the cause");
     expect(localizedStableError("windows_global_index_unstable_volume_identity", zh))
       .toContain("稳定卷标识");
+    expect(localizedStableError("directory_tree_limit_exceeded", en)).toContain("5,000 descendant entries or 64 directory levels");
+    expect(localizedStableError("transfer_nested_volume_unsupported", zh)).toContain("挂载卷");
+    expect(localizedStableError("symlink_or_reparse_point", en)).toContain("symlink or reparse point");
   });
 
   it("preserves unknown technical details for diagnostics", () => {

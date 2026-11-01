@@ -7,9 +7,14 @@ fn database() -> Connection {
     conn.execute_batch(
         r#"
         CREATE TABLE global_volumes (
-            id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, coverage_pending INTEGER NOT NULL DEFAULT 0
+            id TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL,
+            coverage_pending INTEGER NOT NULL DEFAULT 0,
+            platform TEXT NOT NULL DEFAULT 'windows',
+            scope_authorization_state TEXT NOT NULL DEFAULT 'authorized'
         );
-        INSERT INTO global_volumes(id,enabled) VALUES ('on', 1), ('off', 0);
+        INSERT INTO global_volumes(id,enabled,platform,scope_authorization_state)
+            VALUES ('on', 1, 'windows', 'authorized'), ('off', 0, 'windows', 'authorized');
         CREATE TABLE global_entries (
             id TEXT PRIMARY KEY, volume_id TEXT, platform_file_id TEXT,
             name TEXT, path TEXT, extension TEXT, is_directory INTEGER,

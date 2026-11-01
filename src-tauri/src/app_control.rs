@@ -1266,6 +1266,13 @@ pub async fn activate_search_result<R: Runtime>(
         {
             return Err("search_navigation_global_entry_invalid".to_string());
         }
+        // Search Window results can outlive a source authorization change in
+        // renderer state. Revalidate the ID before handing navigation to the
+        // main window; the browse backend repeats this check at admission.
+        crate::global_index::commands::revalidated_global_entry(
+            app.state::<crate::db::Database>().inner(),
+            entry_id,
+        )?;
     }
     let mut payload = SearchNavigatePayload::new(request.view, request.file_id)
         .with_window_context(

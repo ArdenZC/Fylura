@@ -417,6 +417,15 @@ impl GlobalIndexCoordinator {
             .into_iter()
             .find(|source| source.volume.id == source_id)
             .ok_or_else(|| GlobalIndexError::Provider("global_index_source_unavailable".into()))?;
+        if discovered.volume.provider == PROVIDER_WINDOWS_UNSUPPORTED {
+            return Err(GlobalIndexError::Provider(
+                discovered
+                    .volume
+                    .last_error
+                    .clone()
+                    .unwrap_or_else(|| "windows_global_index_native_provider_unsupported".into()),
+            ));
+        }
         self.provider.update_source_lifecycle(source_id, &mut || {
             self.db
                 .authorize_global_volume(source_id, true, &discovered.volume)?;
@@ -1798,11 +1807,19 @@ mod tests {
         );
 
         probe.source.lock().unwrap().volume.stable_volume_id = legacy.stable_volume_id.clone();
-        probe.source.lock().unwrap().volume.filesystem_type = "ReFS".into();
-        probe.source.lock().unwrap().volume.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
-        coordinator
+        {
+            let mut unsupported = probe.source.lock().unwrap();
+            unsupported.volume.filesystem_type = "ReFS".into();
+            unsupported.volume.provider = PROVIDER_WINDOWS_UNSUPPORTED.into();
+            unsupported.volume.last_error =
+                Some("windows_global_index_unsupported_virtual_volume".into());
+        }
+        let unsupported_error = coordinator
             .authorize_source(&legacy.id, true)
             .expect_err("a source without current NTFS MFT capability cannot be confirmed");
+        assert!(unsupported_error
+            .to_string()
+            .contains("windows_global_index_unsupported_virtual_volume"));
         assert_eq!(probe.scan_calls.load(Ordering::Acquire), 0);
         assert_eq!(
             db.get_global_volume(&legacy.id)

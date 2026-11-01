@@ -189,6 +189,21 @@ function globalIndexErrorText(error: string | null | undefined, t: Translator) {
   if (message.startsWith("macos_fsevents")) {
     return t("globalIndexErrorRealtimeUnavailable");
   }
+  if (message === "windows_global_index_unstable_volume_identity") {
+    return t("globalIndexErrorWindowsStableIdentity");
+  }
+  if (message === "windows_global_index_unsupported_virtual_volume") {
+    return t("globalIndexErrorWindowsUsnJournalUnavailable");
+  }
+  if (message.startsWith("windows_global_index_unsupported_filesystem:")) {
+    return t("globalIndexErrorWindowsUnsupportedFilesystem");
+  }
+  if (message.startsWith("windows_global_index_unsupported_drive_kind:")) {
+    return t("globalIndexErrorWindowsUnsupportedDriveKind");
+  }
+  if (message === "windows_global_index_native_provider_unsupported" || message === "global_index_source_not_authorizable") {
+    return t("globalIndexErrorWindowsVolumeUnsupported");
+  }
   if (message.startsWith("global_index_source_unavailable")) {
     return t("globalIndexErrorSourceUnavailable");
   }

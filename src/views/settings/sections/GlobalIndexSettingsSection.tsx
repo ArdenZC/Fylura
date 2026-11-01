@@ -54,15 +54,27 @@ export function GlobalIndexSettingsSection({
 }: GlobalIndexSettingsSectionProps) {
   const [authorizationSourceId, setAuthorizationSourceId] = useState<string | null>(null);
   const hasSources = sources.length > 0;
-  const isFullVolumeAuthorizationTarget = (source: GlobalIndexSource) =>
+  const isWindowsFixedNtfsVolume = (source: GlobalIndexSource) =>
     source.volume.platform === "windows"
       && source.volume.driveKind === "fixed"
       && source.volume.filesystemType.trim().toLowerCase() === "ntfs";
+  const hasWindowsUnsupportedCapabilityError = (source: GlobalIndexSource) =>
+    source.volume.lastError === "windows_global_index_unstable_volume_identity"
+      || source.volume.lastError?.startsWith("windows_global_index_unsupported_") === true;
+  const isUnsupportedWindowsSource = (source: GlobalIndexSource) =>
+    source.volume.platform === "windows"
+      && (source.volume.provider === "windows_unsupported"
+        || (source.volume.provider === "windows_recursive_fallback" && hasWindowsUnsupportedCapabilityError(source)));
+  const canRequestWindowsAuthorization = (source: GlobalIndexSource) =>
+    isWindowsFixedNtfsVolume(source)
+      && !isUnsupportedWindowsSource(source)
+      && ["windows_mft_usn", "windows_recursive_fallback"].includes(source.volume.provider);
   const sourceAuthorized = (source: GlobalIndexSource) =>
-    source.volume.platform !== "windows" || source.volume.scopeAuthorizationState === "authorized";
+    source.volume.platform !== "windows"
+      || (source.volume.scopeAuthorizationState === "authorized" && !isUnsupportedWindowsSource(source));
   const hasEnabledSource = sources.some((source) => source.volume.enabled && sourceAuthorized(source));
   const hasUnconfirmedWindowsSource = sources.some((source) =>
-    isFullVolumeAuthorizationTarget(source) && source.volume.scopeAuthorizationState !== "authorized"
+    canRequestWindowsAuthorization(source) && source.volume.scopeAuthorizationState !== "authorized"
   );
   const showLoading = isLoading || loadState === "loading";
   const sourceState = !hasSources
@@ -77,7 +89,8 @@ export function GlobalIndexSettingsSection({
       || (status && status.pendingVolumes > 0)
   );
   const sourceStatusText = (source: GlobalIndexSource) => {
-    if (isFullVolumeAuthorizationTarget(source)) {
+    if (isUnsupportedWindowsSource(source)) return t("globalIndexSourceUnsupported");
+    if (canRequestWindowsAuthorization(source)) {
       if (source.volume.scopeAuthorizationState === "not_authorized") return t("globalIndexSourceDiscoveredNotEnabled");
       if (source.volume.scopeAuthorizationState === "legacy_confirmation_required") return t("globalIndexSourceLegacyConfirmationRequired");
       if (source.volume.scopeAuthorizationState === "authorized" && source.volume.enabled && source.volume.indexStatus === "discovered") {
@@ -87,7 +100,7 @@ export function GlobalIndexSettingsSection({
     return statusText(source.volume.indexStatus);
   };
   const setSourceEnabled = (source: GlobalIndexSource, enabled: boolean) => {
-    const needsAuthorization = isFullVolumeAuthorizationTarget(source)
+    const needsAuthorization = canRequestWindowsAuthorization(source)
       && source.volume.scopeAuthorizationState !== "authorized";
     if (enabled && needsAuthorization) {
       setAuthorizationSourceId(source.volume.id);
@@ -207,14 +220,30 @@ export function GlobalIndexSettingsSection({
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={source.volume.mountPath}>
                       {compactPath(source.volume.mountPath, 72)} · {sourceStatusText(source)} · {source.volume.entryCount.toLocaleString()}
                     </span>
+                    {isUnsupportedWindowsSource(source) ? (
+                      <span
+                        className="block whitespace-normal text-xs leading-5 text-[var(--zc-warning-text)]"
+                        data-global-index-source-capability-error={source.volume.lastError ?? "windows_global_index_native_provider_unsupported"}
+                      >
+                        {errorText(source.volume.lastError) ?? t("globalIndexErrorWindowsVolumeUnsupported")}
+                      </span>
+                    ) : null}
                   </div>
                   {loadState === "loaded" ? (
                     <div className="flex flex-wrap items-center justify-start gap-2 min-[841px]:justify-end">
                       <SettingsSwitchControl
                         id={`global-index-source-${source.volume.id}`}
-                        checked={source.volume.enabled && (sourceAuthorized(source) || !isFullVolumeAuthorizationTarget(source))}
-                        label={source.volume.enabled && (sourceAuthorized(source) || !isFullVolumeAuthorizationTarget(source)) ? t("globalIndexEnabled") : isFullVolumeAuthorizationTarget(source) && source.volume.scopeAuthorizationState !== "authorized" ? t("globalIndexAuthorizationRequiredDesc") : t("globalIndexDisabled")}
-                        disabled={isUpdating || (source.volume.platform === "windows" && !isFullVolumeAuthorizationTarget(source) && !source.volume.enabled)}
+                        checked={source.volume.enabled && sourceAuthorized(source)}
+                        label={isUnsupportedWindowsSource(source)
+                          ? t("globalIndexSourceUnsupported")
+                          : source.volume.enabled && (sourceAuthorized(source) || !isWindowsFixedNtfsVolume(source))
+                            ? t("globalIndexEnabled")
+                            : canRequestWindowsAuthorization(source) && source.volume.scopeAuthorizationState !== "authorized"
+                              ? t("globalIndexAuthorizationRequiredDesc")
+                              : t("globalIndexDisabled")}
+                        disabled={isUpdating
+                          || isUnsupportedWindowsSource(source)
+                          || (source.volume.platform === "windows" && !canRequestWindowsAuthorization(source) && !source.volume.enabled)}
                         onChange={(enabled) => setSourceEnabled(source, enabled)}
                       />
                       <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => onAction(() => import("../../../api/tauriApi").then(({ tauriApi }) => tauriApi.rebuildGlobalIndexSource(source.volume.id)), t("globalIndexRebuild"))} disabled={isUpdating || !source.canRebuild || !sourceAuthorized(source)}>

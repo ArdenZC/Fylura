@@ -461,6 +461,137 @@ describe("settings component system", () => {
     expect(globalIndexApiMocks.authorizeGlobalIndexSource).toHaveBeenCalledWith("volume-ntfs", true);
   });
 
+  it("does not offer authorization for an unsupported Windows volume and shows the capability reason", async () => {
+    const onAction = vi.fn();
+    const unsupportedProvider = unconfirmedWindowsGlobalIndexSource();
+    unsupportedProvider.volume.id = "unsupported-provider";
+    unsupportedProvider.volume.provider = "windows_unsupported";
+    unsupportedProvider.volume.indexStatus = "unavailable";
+    unsupportedProvider.volume.lastError = "windows_global_index_unsupported_virtual_volume";
+    const unsupportedLegacy = unconfirmedWindowsGlobalIndexSource();
+    unsupportedLegacy.volume.id = "unsupported-legacy";
+    unsupportedLegacy.volume.provider = "windows_recursive_fallback";
+    unsupportedLegacy.volume.scopeAuthorizationState = "legacy_confirmation_required";
+    unsupportedLegacy.volume.indexStatus = "unavailable";
+    unsupportedLegacy.volume.lastError = "windows_global_index_unsupported_virtual_volume";
+    await act(async () => root.render(
+      <GlobalIndexSettingsSection
+        t={makeTranslator("en")}
+        status={globalIndexStatus({ platform: "windows", indexedVolumes: 0, readyVolumes: 0 })}
+        sources={[unsupportedProvider, unsupportedLegacy]}
+        loadState="loaded"
+        loadError={null}
+        isLoading={false}
+        isUpdating={false}
+        statusText={(status) => status}
+        providerStatusText={() => null}
+        errorText={(error) => error === unsupportedProvider.volume.lastError ? "This volume does not report USN journal support." : null}
+        onAction={onAction}
+      />
+    ));
+
+    expect(container.querySelector('[data-settings-status="authorization_required"]')).toBeNull();
+    expect(container.querySelector('[data-settings-status="unavailable"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-global-index-source-capability-error="windows_global_index_unsupported_virtual_volume"]')).toHaveLength(2);
+    expect(container.textContent).toContain("USN journal support");
+    const sourceSwitches = [...container.querySelectorAll<HTMLInputElement>('[role="switch"]')];
+    expect(sourceSwitches).toHaveLength(2);
+    expect(sourceSwitches.every((sourceSwitch) => sourceSwitch.disabled)).toBe(true);
+    await act(async () => sourceSwitches.forEach((sourceSwitch) => sourceSwitch.click()));
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy Windows fallback rows available for explicit reconfirmation", async () => {
+    const onAction = vi.fn();
+    const legacy = unconfirmedWindowsGlobalIndexSource();
+    legacy.volume.scopeAuthorizationState = "legacy_confirmation_required";
+    legacy.volume.provider = "windows_recursive_fallback";
+    await act(async () => root.render(
+      <GlobalIndexSettingsSection
+        t={makeTranslator("en")}
+        status={globalIndexStatus({ platform: "windows", indexedVolumes: 0, readyVolumes: 0 })}
+        sources={[legacy]}
+        loadState="loaded"
+        loadError={null}
+        isLoading={false}
+        isUpdating={false}
+        statusText={(status) => status}
+        providerStatusText={() => null}
+        errorText={() => null}
+        onAction={onAction}
+      />
+    ));
+
+    expect(container.textContent).toContain("Legacy source needs confirmation before indexing");
+    const sourceSwitch = container.querySelector<HTMLInputElement>('[role="switch"]')!;
+    expect(sourceSwitch.disabled).toBe(false);
+    await act(async () => sourceSwitch.click());
+    expect(container.querySelector('[role="alertdialog"]')).not.toBeNull();
+    const authorize = [...document.querySelectorAll("button")].find((button) => button.textContent === "Authorize this disk")!;
+    await act(async () => authorize.click());
+    expect(onAction).toHaveBeenCalledOnce();
+  });
+
+  it("reloads the persisted source state after Windows authorization succeeds", async () => {
+    const showStatus = vi.fn();
+    const latest: { current: ReturnType<typeof useSettingsGlobalIndexController> | null } = { current: null };
+    const discovered = unconfirmedWindowsGlobalIndexSource();
+    const authorized: GlobalIndexSource = {
+      ...discovered,
+      volume: {
+        ...discovered.volume,
+        enabled: true,
+        scopeAuthorizationState: "authorized",
+        indexStatus: "indexing"
+      }
+    };
+    globalIndexApiMocks.getGlobalIndexStatus.mockResolvedValue(globalIndexStatus({ platform: "windows", status: "indexing" }));
+    globalIndexApiMocks.listGlobalIndexSources
+      .mockResolvedValueOnce([discovered])
+      .mockResolvedValueOnce([authorized]);
+    globalIndexApiMocks.listManagedScopes.mockResolvedValue([]);
+    globalIndexApiMocks.getAiManagementStatus.mockResolvedValue(null);
+    globalIndexApiMocks.authorizeGlobalIndexSource.mockResolvedValue(undefined);
+
+    function Harness() {
+      const controller = useSettingsGlobalIndexController({ t: makeTranslator("en"), showStatus });
+      latest.current = controller;
+      return (
+        <GlobalIndexSettingsSection
+          t={makeTranslator("en")}
+          status={controller.globalIndexStatus}
+          sources={controller.globalIndexSources}
+          loadState={controller.globalIndexLoadState}
+          loadError={controller.globalIndexLoadError}
+          isLoading={controller.isLoadingGlobalIndex}
+          isUpdating={controller.isUpdatingGlobalIndex}
+          statusText={(status) => status}
+          providerStatusText={() => null}
+          errorText={() => null}
+          onAction={controller.runGlobalIndexAction}
+        />
+      );
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(latest.current?.globalIndexLoadState).toBe("loaded");
+    await act(async () => container.querySelector<HTMLInputElement>('[role="switch"]')!.click());
+    const authorize = [...document.querySelectorAll("button")].find((button) => button.textContent === "Authorize this disk")!;
+    await act(async () => {
+      authorize.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(globalIndexApiMocks.authorizeGlobalIndexSource).toHaveBeenCalledWith("volume-ntfs", true);
+    expect(globalIndexApiMocks.listGlobalIndexSources).toHaveBeenCalledTimes(2);
+    expect(latest.current?.globalIndexSources[0]?.volume.scopeAuthorizationState).toBe("authorized");
+    expect(container.querySelector<HTMLInputElement>('[role="switch"]')?.checked).toBe(true);
+  });
+
   it("uses the backend status and actions when an enabled source is known", async () => {
     const onAction = vi.fn();
     await act(async () => root.render(

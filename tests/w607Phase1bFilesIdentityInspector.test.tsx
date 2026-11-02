@@ -92,7 +92,8 @@ describe("W6-07 Phase 1B Files identity and continuity", () => {
     expect(workspace).toContain('state.mode === "library"');
     expect(workspace).toContain('import("./library/LibraryMode")');
     expect(workspace).toContain('<BrowseMode />');
-    expect(workspace).not.toContain("file-library-mode-switch");
+    expect(workspace).toContain("fixtureControls={isManagedLibraryBrowserFixture() &&");
+    expect(english).not.toContain("file-library-mode-switch");
     expect(workspace).not.toContain('import("./browse/BrowseMode")\nconst LibraryMode');
   });
 

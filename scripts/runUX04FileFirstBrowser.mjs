@@ -33,7 +33,12 @@ async function openApp({ width = 1440, height = 900, language = "zh", theme = "l
   const page = watch(await browser.newPage({ viewport: { width, height } }));
   await page.addInitScript(({ language, theme }) => {
     Object.defineProperty(navigator, "platform", { get: () => "Win32" });
-    localStorage.removeItem("zc-onboarding-complete");
+    // Only the first navigation is a clean profile; a reload must observe the
+    // durable completion flag exactly like a restart would.
+    if (!sessionStorage.getItem("ux04-clean-profile")) {
+      sessionStorage.setItem("ux04-clean-profile", "1");
+      localStorage.removeItem("zc-onboarding-complete");
+    }
     localStorage.setItem("zc-language", language);
     localStorage.setItem("zc-theme", theme);
   }, { language, theme });

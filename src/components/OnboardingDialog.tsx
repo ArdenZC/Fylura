@@ -31,14 +31,6 @@ function completeOnboarding() {
   }
 }
 
-export function resetOnboardingCompletion() {
-  try {
-    window.localStorage.removeItem(ONBOARDING_STORAGE_KEY);
-  } catch {
-    // A blocked storage write only means the intro reappears on next launch.
-  }
-}
-
 type SearchSourcesState = "idle" | "loading" | "ready" | "failed";
 
 /**
@@ -126,8 +118,12 @@ export function OnboardingDialog() {
   useEffect(() => {
     if (!openDialog || step !== SEARCH_STEP) return undefined;
     if (searchSourcesState === "idle") void loadSearchSources();
-    return () => { sourcesEpoch.current += 1; };
+    return undefined;
   }, [loadSearchSources, openDialog, searchSourcesState, step]);
+
+  // Only unmount invalidates an in-flight source projection. Invalidating on
+  // every dependency change would discard the request the effect just started.
+  useEffect(() => () => { sourcesEpoch.current += 1; }, []);
 
   /**
    * Every exit is durable. The intro is never a gate: leaving it always lands
@@ -346,28 +342,28 @@ function ScenePoints({ points }: { points: readonly string[] }) {
  * Representative Files composition. It is decorative (`aria-hidden`) and is
  * always paired with a text summary so the intro never depends on the mock.
  */
-function FilesShowcase({ label }: { label: string }) {
+function FilesShowcase({ t }: { t: Translator }) {
   return (
     <div className="grid gap-1" data-onboarding-showcase="files">
       <div className="overflow-hidden rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface)] shadow-[var(--zc-shadow-raised)]" aria-hidden="true">
         <div className="flex items-center gap-1.5 border-b border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-2.5 py-1.5">
-          <span className="flex items-center gap-1 rounded-t-md border border-[var(--zc-border)] border-b-transparent bg-[var(--zc-surface)] px-2 py-1 text-[11px] font-medium text-[var(--zc-text-primary)]"><FolderOpen size={11} aria-hidden="true" />{label}</span>
-          <span className="rounded-md px-2 py-1 text-[11px] text-[var(--zc-text-tertiary)]">{label}</span>
+          <span className="flex items-center gap-1 rounded-t-md border border-[var(--zc-border)] border-b-transparent bg-[var(--zc-surface)] px-2 py-1 text-[11px] font-medium text-[var(--zc-text-primary)]"><FolderOpen size={11} aria-hidden="true" />{t("onboardingFilesShowcaseTabA")}</span>
+          <span className="rounded-md px-2 py-1 text-[11px] text-[var(--zc-text-tertiary)]">{t("onboardingFilesShowcaseTabB")}</span>
           <span className="rounded-md px-1.5 py-1 text-[11px] text-[var(--zc-text-tertiary)]">+</span>
-          <span className="ml-auto rounded-md border border-[var(--zc-border)] px-1.5 py-0.5 text-[10px] text-[var(--zc-text-tertiary)]">双栏</span>
+          <span className="ml-auto rounded-md border border-[var(--zc-border)] px-1.5 py-0.5 text-[10px] text-[var(--zc-text-tertiary)]">{t("onboardingFilesShowcaseDual")}</span>
         </div>
         <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-2 p-2.5">
           <ShowcasePane rows={3} accent />
           <ShowcasePane rows={3} />
         </div>
         <div className="flex items-center gap-2 border-t border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-2.5 py-1.5 text-[10px] text-[var(--zc-text-tertiary)]">
-          <span className="rounded border border-[var(--zc-border)] px-1.5 py-0.5">文件篮 · 3</span>
-          <span className="rounded border border-[var(--zc-border)] px-1.5 py-0.5">预览</span>
-          <span className="rounded border border-[var(--zc-border)] px-1.5 py-0.5">历史</span>
-          <span className="ml-auto">Ctrl+C · Ctrl+V</span>
+          <span className="rounded border border-[var(--zc-border)] px-1.5 py-0.5">{t("fmBasket")} · 3</span>
+          <span className="rounded border border-[var(--zc-border)] px-1.5 py-0.5">{t("fileLibraryViewList")}</span>
+          <span className="rounded border border-[var(--zc-border)] px-1.5 py-0.5">{t("fileLibraryViewGrid")}</span>
+          <span className="ml-auto">Ctrl+F</span>
         </div>
       </div>
-      <p className="sr-only">{label}</p>
+      <p className="sr-only">{t("onboardingFilesShowcaseLabel")}</p>
     </div>
   );
 }
@@ -389,7 +385,7 @@ function FilesScene({ t }: { t: Translator }) {
   return (
     <div className="grid gap-4">
       <SceneHeading icon={<Layers size={19} aria-hidden="true" />} title={t("onboardingFilesTitle")} lead={t("onboardingFilesLead")} />
-      <FilesShowcase label={t("onboardingFilesShowcaseLabel")} />
+      <FilesShowcase t={t} />
       <ScenePoints points={[
         t("onboardingFilesPointBrowse"),
         t("onboardingFilesPointPanes"),

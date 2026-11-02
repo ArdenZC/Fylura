@@ -238,7 +238,7 @@ type WorkspaceCommandBarProps = {
  * ADR-0016: the ordinary Files workspace exposes one user-visible mode.
  * Browse is the only presented content surface, so the previous Library /
  * Browse Folder tablist is intentionally absent. Managed Library keeps its
- * components, Query V2 authority, selection, tags and Saved Views; it is
+ * components, backend query authority, selection, tags and Saved Views; it is
  * simply no longer a first-class switch in the normal file manager chrome.
  */
 export function WorkspaceCommandBar({

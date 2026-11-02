@@ -413,3 +413,15 @@
   text-transform: uppercase;
   color: var(--zc-text-tertiary);
 }
+
+/* The no-folder picker is one scroll surface: at small window heights the
+   places grid and the library locations stay reachable with a single scroll. */
+.browse-mode[data-browse-state="locations"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.browse-mode[data-browse-state="locations"] .browse-location-panel {
+  flex: 0 0 auto;
+  overflow: visible;
+}

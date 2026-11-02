@@ -36,8 +36,12 @@ native-qa = []
 # default-on features target-specific so native qualification can promote each
 # platform separately.
 global-search-filename-relevance-candidate = []
-global-search-filename-relevance-windows-default-on = ["global-search-filename-relevance-candidate"]
-global-search-filename-relevance-macos-default-on = ["global-search-filename-relevance-candidate"]
+global-search-filename-relevance-windows-default-on = [
+    "global-search-filename-relevance-candidate",
+]
+global-search-filename-relevance-macos-default-on = [
+    "global-search-filename-relevance-candidate",
+]
 desktop-runtime = [
     "tauri/wry",
     "tauri/compression",

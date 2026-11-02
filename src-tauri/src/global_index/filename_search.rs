@@ -1,4 +1,5 @@
-//! In-process filename candidate projection for Global Search.
+//! In-process filename candidate projection for Global Search. Build inclusion
+//! is independent from each platform's default activation policy.
 //!
 //! SQLite remains authoritative. This module never installs persistent
 //! triggers or writes an index/feed. Pool connections report commits through

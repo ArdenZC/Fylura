@@ -75,6 +75,45 @@ function png(s,raw){
  const h=Buffer.alloc(13);h.writeUInt32BE(s,0);h.writeUInt32BE(s,4);h[8]=8;h[9]=6;
  return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',h),chunk('IDAT',zlib.deflateSync(raw,{level:9})),chunk('IEND',Buffer.alloc(0))]);
 }
+// Preserve the approved high-resolution icon; only optical small-frame work
+// is redrawn. The tracked 1024px master remains untouched.
+function decodeMasterPng(data){
+ if(data.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw Error('Invalid PNG master');
+ const w=data.readUInt32BE(16),h=data.readUInt32BE(20),depth=data[24],type=data[25],interlace=data[28];
+ if(w!==1024||h!==1024||depth!==8||type!==6||interlace!==0)throw Error('Expected 1024px RGBA PNG master');
+ let i=8;const parts=[];
+ while(i<data.length){const n=data.readUInt32BE(i),tag=data.toString('ascii',i+4,i+8);if(tag==='IDAT')parts.push(data.subarray(i+8,i+8+n));i+=n+12;if(tag==='IEND')break;}
+ const raw=zlib.inflateSync(Buffer.concat(parts)),pixels=Buffer.alloc(w*h*4),stride=w*4;let offset=0;
+ for(let row=0;row<h;row++){
+  const filter=raw[offset++];if(filter>4)throw Error('Unsupported PNG filter');
+  const dst=row*stride;
+  for(let x=0;x<stride;x++){
+   const c=raw[offset++],a=x>=4?pixels[dst+x-4]:0,b=row?pixels[dst-stride+x]:0,ul=row&&x>=4?pixels[dst-stride+x-4]:0;
+   let pred=0;
+   if(filter===1)pred=a;else if(filter===2)pred=b;else if(filter===3)pred=Math.floor((a+b)/2);
+   else if(filter===4){const p=a+b-ul,da=Math.abs(p-a),db=Math.abs(p-b),dc=Math.abs(p-ul);pred=da<=db&&da<=dc?a:db<=dc?b:ul;}
+   pixels[dst+x]=(c+pred)&255;
+  }
+ }
+ return pixels;
+}
+function downsampleMaster(pixels,size){
+ if(1024%size)throw Error('Expected integral icon scale');
+ const f=1024/size,out=Buffer.alloc((size*4+1)*size);let at=0;
+ for(let y=0;y<size;y++){
+  out[at++]=0;
+  for(let x=0;x<size;x++){
+   let r=0,g=0,b=0,a=0;
+   for(let dy=0;dy<f;dy++)for(let dx=0;dx<f;dx++){
+    const p=((y*f+dy)*1024+x*f+dx)*4,al=pixels[p+3];
+    r+=pixels[p]*al;g+=pixels[p+1]*al;b+=pixels[p+2]*al;a+=al;
+   }
+   out[at++]=a?Math.round(r/a):0;out[at++]=a?Math.round(g/a):0;out[at++]=a?Math.round(b/a):0;
+   out[at++]=Math.round(a/(f*f));
+  }
+ }
+ return png(size,out);
+}
 function ico(m){
  const h=Buffer.alloc(6+16*icoSizes.length);h.writeUInt16LE(1,2);h.writeUInt16LE(icoSizes.length,4);
  let off=h.length;const payload=[];
@@ -93,7 +132,9 @@ function icns(m){
  return Buffer.concat([h,...blocks]);
 }
 fs.mkdirSync(build,{recursive:true});
-const frames=new Map(sizes.map(s=>[s,render(s)]));
+const approvedMaster=fs.readFileSync(path.join(build,'icon.png'));
+const sourcePixels=decodeMasterPng(approvedMaster);
+const frames=new Map(sizes.map(s=>[s,s===1024?approvedMaster:s<=64?render(s):downsampleMaster(sourcePixels,s)]));
 fs.writeFileSync(path.join(build,'icon.png'),frames.get(1024));
 const icoData=ico(frames);
 for(const name of ['icon.ico','installerIcon.ico','uninstallerIcon.ico','installerHeaderIcon.ico'])fs.writeFileSync(path.join(build,name),icoData);

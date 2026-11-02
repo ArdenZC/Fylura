@@ -9,6 +9,6 @@ The user-approved icon has the cyan/blue sphere in the upper left and a transluc
 
 `npm run assets:icons` renders and verifies the icons. `npm run build` and Tauri `beforeBuildCommand` invoke it before bundling. On Windows, `npm run assets:brand` also generates NSIS sidebar/header bitmap and DMG background, after regenerating icons using the new source.
 
-Existing committed binary files under `build/` can be stale until `npm run assets:icons` has run. Build outputs use the newly generated resources, **not** the temporary-brand-source fixture. Do not manually overwrite these icon assets with images extracted from brand presentation boards.
+The ICO/ICNS binary files are committed with the optical small-size frames. The tracked 1024px PNG is the approved high-resolution source and is never regenerated. Build outputs use the newly generated resources, **not** the temporary-brand-source fixture. Do not manually overwrite these icon assets with images extracted from brand presentation boards.
 
 The `.icns` is a normal macOS 13+ bundle icon; true macOS 26 native Icon Composer materials need a separate Mac-native pipeline. Windows NSIS and macOS DMG install/Dock/Taskbar visual acceptance still require native verification.

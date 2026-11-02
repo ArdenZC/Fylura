@@ -268,6 +268,17 @@ pub async fn file_workspace_location_list<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn file_workspace_known_locations<R: Runtime>(
+    window: WebviewWindow<R>,
+) -> Result<Vec<super::KnownLocation>, String> {
+    require_main_window(&window)?;
+    // Read-only projection of well-known folders and mounted volumes. It
+    // creates no Browse session, scan root, index source or stored preference;
+    // opening any of these paths still requires user-intent Browse admission.
+    Ok(super::known_locations::list_known_locations())
+}
+
+#[tauri::command]
 pub async fn file_workspace_change_start<R: Runtime>(
     window: WebviewWindow<R>,
     runtime: State<'_, FileWorkspaceRuntimeOwner>,

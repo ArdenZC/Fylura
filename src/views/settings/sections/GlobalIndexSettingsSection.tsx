@@ -4,6 +4,7 @@ import { Play } from "lucide-react";
 import type { GlobalIndexSource, GlobalIndexStatus } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { buttonSecondary, cn } from "../../../utils/tw";
+import { isFullVolumeAuthorizationTarget } from "../../../utils/globalIndexSources";
 import { compactPath } from "../../../utils/viewHelpers";
 import { compactInteractiveRow, ConfirmDialog, quietText } from "../../shared/ui";
 import type { GlobalIndexLoadState } from "../controllers/useSettingsGlobalIndexController";
@@ -54,10 +55,6 @@ export function GlobalIndexSettingsSection({
 }: GlobalIndexSettingsSectionProps) {
   const [authorizationSourceId, setAuthorizationSourceId] = useState<string | null>(null);
   const hasSources = sources.length > 0;
-  const isFullVolumeAuthorizationTarget = (source: GlobalIndexSource) =>
-    source.volume.platform === "windows"
-      && source.volume.driveKind === "fixed"
-      && source.volume.filesystemType.trim().toLowerCase() === "ntfs";
   const sourceAuthorized = (source: GlobalIndexSource) =>
     source.volume.platform !== "windows" || source.volume.scopeAuthorizationState === "authorized";
   const hasEnabledSource = sources.some((source) => source.volume.enabled && sourceAuthorized(source));

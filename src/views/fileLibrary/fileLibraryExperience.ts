@@ -18,6 +18,12 @@ export type FileLibraryMode = "library" | "browse";
 /**
  * Internal W2 migration target only. The user-facing shell always localizes
  * Library from the product label and must never display this key.
+ *
+ * ADR-0016 keeps the Managed Library implementation, Query V2 authority,
+ * LibrarySelectionV1, tags and Saved Views, but the ordinary user-visible
+ * Files workspace starts in Browse. This target therefore stays available for
+ * explicit compatibility callers and tests; it is no longer the default
+ * workspace entry.
  */
 export const LEGACY_LIBRARY_MIGRATION_TARGET: NavigationTarget = {
   kind: "library",
@@ -36,8 +42,8 @@ export class FileLibraryExperienceController {
 
   private readonly listeners = new Set<(state: FileLibraryExperienceState) => void>();
   private readonly unsubscribeWorkspace: () => boolean;
-  private modeValue: FileLibraryMode = "library";
-  private detachedBrowseValue = false;
+  private modeValue: FileLibraryMode = "browse";
+  private detachedBrowseValue = true;
   private disposedValue = false;
   private authoritativeTargetSignature: string;
   private stateValue: FileLibraryExperienceState;
@@ -255,10 +261,10 @@ export class FileLibraryExperienceController {
 }
 
 function createDefaultWorkspaceController() {
-  return new FileWorkspaceController(
-    undefined,
-    new WorkspaceSession({ initialTarget: LEGACY_LIBRARY_MIGRATION_TARGET })
-  );
+  // ADR-0016: the ordinary Files workspace opens in Browse with no folder
+  // open. No Managed Library target is fabricated on first entry, so nothing
+  // is adopted, scanned or authorized merely by visiting Files.
+  return new FileWorkspaceController(undefined, new WorkspaceSession());
 }
 
 function navigationTargetSignature(target: NavigationTarget | null) {

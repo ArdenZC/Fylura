@@ -861,13 +861,13 @@ export function isActivatableLocation(location: LocationDescriptor) {
   return location.availability === "available" && location.capabilities.canBrowse;
 }
 
-function workspacePlatformForRuntime(platform: NodeJS.Platform | "browser"): WorkspacePlatform | null {
+export function workspacePlatformForRuntime(platform: NodeJS.Platform | "browser"): WorkspacePlatform | null {
   if (platform === "win32") return "windows";
   if (platform === "darwin") return "macos";
   return null;
 }
 
-function displayNameFromRoutingHint(routingHint: string) {
+export function displayNameFromRoutingHint(routingHint: string) {
   const normalized = routingHint.replace(/[\\/]+$/, "");
   const segments = normalized.split(/[\\/]/).filter(Boolean);
   return segments.at(-1) ?? normalized;

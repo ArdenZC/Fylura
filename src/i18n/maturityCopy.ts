@@ -1,11 +1,6 @@
 import type { Language } from "./types";
 
 export type MaturityCopy = {
-  onboardingTitle: string;
-  onboardingStep: (step: number, total: number) => string;
-  onboardingFinish: string;
-  onboardingRestart: string;
-  onboardingNeedsFolder: string;
   startupLoadingTitle: string;
   startupLoadingDescription: string;
   databaseDescription: string;
@@ -20,11 +15,6 @@ export type MaturityCopy = {
 };
 
 const zh: MaturityCopy = {
-  onboardingTitle: "设置你的 AI 文件工作空间",
-  onboardingStep: (step, total) => `第 ${step} 步，共 ${total} 步`,
-  onboardingFinish: "完成设置",
-  onboardingRestart: "开始使用",
-  onboardingNeedsFolder: "请先添加一个有用的文件夹，再完成首次设置；你也可以稍后从“开始使用”继续。",
   startupLoadingTitle: "正在准备 Fylura",
   startupLoadingDescription: "正在打开本地数据与文件空间。",
   databaseDescription: "Fylura 暂时无法打开本地数据。你可以重试；如果问题持续，请展开故障排查信息。",
@@ -39,11 +29,6 @@ const zh: MaturityCopy = {
 };
 
 const en: MaturityCopy = {
-  onboardingTitle: "Set up your AI file workspace",
-  onboardingStep: (step, total) => `Step ${step} of ${total}`,
-  onboardingFinish: "Finish setup",
-  onboardingRestart: "Getting Started",
-  onboardingNeedsFolder: "Add a useful folder before finishing first-run setup, or continue later from Getting Started.",
   startupLoadingTitle: "Preparing Fylura",
   startupLoadingDescription: "Opening your local data and file workspace.",
   databaseDescription: "Fylura cannot open its local data right now. Retry, or open troubleshooting details if the problem continues.",

@@ -9,6 +9,7 @@ mod browse;
 mod change;
 pub mod commands;
 mod folder;
+mod known_locations;
 mod location;
 pub(crate) mod places;
 mod preview;
@@ -17,6 +18,7 @@ mod runtime_owner;
 mod thumbnail;
 pub mod types;
 
+pub use known_locations::{KnownLocation, KnownLocationKind};
 pub use runtime::FileWorkspaceRuntime;
 pub use runtime_owner::{main_generation_from_window, FileWorkspaceRuntimeOwner};
 

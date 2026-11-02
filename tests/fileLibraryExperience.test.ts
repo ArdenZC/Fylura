@@ -110,6 +110,16 @@ function experienceWithApi(overrides: Partial<FileWorkspaceApi> = {}) {
 }
 
 describe("W2-01 File Library Experience Controller", () => {
+  it("starts the ordinary Files workspace in Browse without a Managed Library target", async () => {
+    const experience = new FileLibraryExperienceController(new FileWorkspaceController(fakeApi()));
+
+    expect(experience.getState().mode).toBe("browse");
+    expect(experience.getState().detachedBrowse).toBe(true);
+    expect(experience.getState().workspace.session.currentTarget).toBeNull();
+    expect(experience.getState().workspace.session.history).toHaveLength(0);
+    await experience.dispose();
+  });
+
   it("keeps first-entry Browse detached and non-authoritative", async () => {
     const browseOpen = vi.fn(async () => fakeResponse());
     const { experience, session } = experienceWithApi({ browseOpen });
@@ -226,25 +236,26 @@ describe("W2-01 File Library Experience Controller", () => {
 });
 
 describe("W2-01 File Library Workspace shell contract", () => {
-  it("keeps the command bar localized and hides the migration key", () => {
+  it("presents one Files mode and hides the migration key", () => {
     const html = renderToStaticMarkup(createElement(WorkspaceCommandBar, {
-      mode: "library",
-      targetLabel: t("fileLibrary"),
+      mode: "browse",
+      targetLabel: t("fileLibraryNoFolderOpen"),
       canGoBack: false,
       canGoForward: false,
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onModeChange: vi.fn(),
       t
     }));
 
-    expect(html).toContain("文件库");
-    expect(html).toContain("浏览");
+    expect(html).toContain("未打开文件夹");
     expect(html).not.toContain("legacy_library");
     expect(html).toContain('data-file-library-nav-toggle="true"');
     expect(html).toContain('aria-controls="file-library-navigation-slot"');
-    expect(html).toContain('data-file-library-mode="library"');
-    expect(html).toContain('data-file-library-mode="browse"');
+    // ADR-0016: no user-visible Library/Browse tablist in ordinary Files.
+    expect(html).not.toContain("file-library-mode-switch");
+    expect(html).not.toContain('role="tablist"');
+    expect(html).not.toContain('data-file-library-mode="library"');
+    expect(html).toContain('data-file-library-presented-mode="browse"');
   });
 
   it("wires Library through the W2-03 source owner and preserves the standalone Vault seam", () => {

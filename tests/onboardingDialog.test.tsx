@@ -3,38 +3,28 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ChromeProvider, SettingsProvider, type ChromeContextValue, type SettingsContextValue } from "../src/contexts/AppContexts";
+import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
 import { makeTranslator } from "../src/i18n";
 import { OnboardingDialog, ONBOARDING_STORAGE_KEY } from "../src/components/OnboardingDialog";
-import type { AIProductFeatureReadiness, AppSettings } from "../src/types/domain";
-import { SETTINGS_SECTION_EVENT } from "../src/components/spotlight/commandRegistry";
-import { AI_SETTINGS_MODE_REQUEST_KEY } from "../src/views/settings/settingsNavigation";
+import { ONBOARDING_REOPEN_EVENT } from "../src/components/onboardingReopen";
+import type { AIProductFeatureReadiness, GlobalIndexSource } from "../src/types/domain";
 
 const apiMocks = vi.hoisted(() => ({
   getAIFeatureReadiness: vi.fn(),
-  addManagedScope: vi.fn()
+  listGlobalIndexSources: vi.fn(),
+  authorizeGlobalIndexSource: vi.fn(),
+  setGlobalIndexSourceEnabled: vi.fn(),
+  startGlobalIndex: vi.fn(),
+  addManagedScope: vi.fn(),
+  saveSettings: vi.fn(),
+  getSettings: vi.fn(),
+  startManagedScan: vi.fn()
 }));
-const dialogMocks = vi.hoisted(() => ({ open: vi.fn() }));
 
 vi.mock("../src/api/tauriApi", () => ({ tauriApi: apiMocks }));
-vi.mock("@tauri-apps/plugin-dialog", () => dialogMocks);
 
 const t = makeTranslator("zh");
-const settings: AppSettings = {
-  closeBehavior: "ask",
-  folderNamingLanguage: "zh",
-  defaultScanFolders: [],
-  restoreRetentionDays: 30,
-  launchAtLogin: false,
-  backgroundIndexOnStartup: false,
-  searchHotkey: "Ctrl+Shift+Space",
-  searchScopeMode: "all",
-  customSearchRoots: [],
-  organizeRootMode: "current_folder",
-  organizeRootPath: undefined,
-  useLegacyBuiltinClassificationRules: false,
-  useLearnedRulesAsAutoRules: false
-};
+
 const readiness: AIProductFeatureReadiness = {
   provider: {
     state: "disabled",
@@ -78,42 +68,49 @@ const readiness: AIProductFeatureReadiness = {
   }
 };
 
-function makeSettingsContext(overrides: Partial<SettingsContextValue> = {}) {
+function source(overrides: Partial<GlobalIndexSource["volume"]> = {}): GlobalIndexSource {
   return {
-    settings,
-    isLoadingSettings: false,
-    settingsError: "",
-    updateSettings: vi.fn().mockResolvedValue(true),
-    setFolderNamingLanguage: vi.fn().mockResolvedValue(true),
-    setDefaultScanFolders: vi.fn().mockResolvedValue(true),
-    setRestoreRetentionDays: vi.fn().mockResolvedValue(true),
-    setLaunchAtLogin: vi.fn().mockResolvedValue(true),
-    setBackgroundIndexOnStartup: vi.fn().mockResolvedValue(true),
-    setSearchHotkey: vi.fn().mockResolvedValue(true),
-    setSearchScopeMode: vi.fn().mockResolvedValue(true),
-    setCustomSearchRoots: vi.fn().mockResolvedValue(true),
-    setOrganizeRootMode: vi.fn().mockResolvedValue(true),
-    setOrganizeRootPath: vi.fn().mockResolvedValue(true),
-    ...overrides
-  } as unknown as SettingsContextValue;
+    volume: {
+      id: "vol-c",
+      platform: "windows",
+      stableVolumeId: "stable-c",
+      displayName: "Windows (C:)",
+      mountPath: "C:\\",
+      filesystemType: "NTFS",
+      driveKind: "fixed",
+      enabled: false,
+      scopeAuthorizationState: "not_authorized",
+      provider: "windows_mft_usn",
+      indexStatus: "discovered",
+      lastError: null,
+      journalId: null,
+      journalCursor: null,
+      lastFullIndexAt: null,
+      lastIncrementalSyncAt: null,
+      entryCount: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      ...overrides
+    },
+    canPause: false,
+    canRebuild: false,
+    technicalDetail: null
+  };
 }
 
 function makeChrome(setView = vi.fn()) {
-  return { t, setView, view: "scanner", language: "zh", theme: "light", onError: vi.fn() } as unknown as ChromeContextValue;
-}
-
-function flushFrame() {
-  return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  return { t, setView, view: "library", language: "zh", theme: "light", onError: vi.fn() } as unknown as ChromeContextValue;
 }
 
 function flushAsync() {
   return act(async () => {
     await Promise.resolve();
-    await flushFrame();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await Promise.resolve();
   });
 }
 
-describe("first-run onboarding", () => {
+describe("first-run product intro", () => {
   let root: Root;
   let setView: ReturnType<typeof vi.fn<(view: string) => void>>;
   const nativeGetClientRects = HTMLElement.prototype.getClientRects;
@@ -121,13 +118,19 @@ describe("first-run onboarding", () => {
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     localStorage.clear();
+    sessionStorage.clear();
     document.body.innerHTML = '<div id="app-shell-content"><button id="background">Background</button></div><div id="test-root"></div>';
     HTMLElement.prototype.getClientRects = () => [{ width: 120, height: 40, top: 0, left: 0, right: 120, bottom: 40, x: 0, y: 0, toJSON() { return {}; } }] as unknown as DOMRectList;
     setView = vi.fn();
-    sessionStorage.clear();
     apiMocks.getAIFeatureReadiness.mockReset().mockResolvedValue(readiness);
+    apiMocks.listGlobalIndexSources.mockReset().mockResolvedValue([source()]);
+    apiMocks.authorizeGlobalIndexSource.mockReset().mockResolvedValue(undefined);
+    apiMocks.setGlobalIndexSourceEnabled.mockReset().mockResolvedValue(undefined);
+    apiMocks.startGlobalIndex.mockReset().mockResolvedValue(undefined);
     apiMocks.addManagedScope.mockReset().mockResolvedValue({ id: "managed-scope" });
-    dialogMocks.open.mockReset().mockResolvedValue("D:/Documents");
+    apiMocks.saveSettings.mockReset().mockResolvedValue({ settings: {}, revision: 1 });
+    apiMocks.getSettings.mockReset().mockResolvedValue({ settings: {}, revision: 0 });
+    apiMocks.startManagedScan.mockReset().mockResolvedValue(undefined);
     root = createRoot(document.getElementById("test-root")!);
   });
 
@@ -138,212 +141,210 @@ describe("first-run onboarding", () => {
     localStorage.clear();
   });
 
-  function renderOnboarding(overrides: Partial<SettingsContextValue> = {}) {
-    act(() => root.render(createElement(
-      ChromeProvider,
-      { value: makeChrome(setView), children: createElement(SettingsProvider, { value: makeSettingsContext(overrides), children: createElement(OnboardingDialog) }) }
-    )));
+  function renderIntro() {
+    act(() => root.render(createElement(ChromeProvider, { value: makeChrome(setView), children: createElement(OnboardingDialog) })));
   }
 
-  async function clickNext() {
-    const next = document.querySelector<HTMLButtonElement>("[data-onboarding-next]");
-    expect(next).toBeTruthy();
-    await act(async () => next?.click());
+  async function click(selector: string) {
+    const button = document.querySelector<HTMLButtonElement>(selector);
+    expect(button, selector).toBeTruthy();
+    await act(async () => button?.click());
     await flushAsync();
   }
 
-  async function reachConnectStep() {
-    await clickNext();
-    expect(document.querySelector('[data-onboarding-step="2"]')).toBeTruthy();
+  function step() {
+    return document.querySelector<HTMLElement>("[data-onboarding-step]")?.getAttribute("data-onboarding-step");
   }
 
-  async function reachFolderStep() {
-    await reachConnectStep();
-    await clickNext();
-    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
+  function expectNoIndexOrScopeSideEffects() {
+    expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
+    expect(apiMocks.saveSettings).not.toHaveBeenCalled();
+    expect(apiMocks.authorizeGlobalIndexSource).not.toHaveBeenCalled();
+    expect(apiMocks.setGlobalIndexSourceEnabled).not.toHaveBeenCalled();
+    expect(apiMocks.startGlobalIndex).not.toHaveBeenCalled();
+    expect(apiMocks.startManagedScan).not.toHaveBeenCalled();
   }
 
-  async function chooseFolder() {
-    const chooseFolderButton = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("选择文件夹"));
-    expect(chooseFolderButton).toBeTruthy();
-    await act(async () => chooseFolderButton?.click());
-    await flushAsync();
-    expect(dialogMocks.open).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: false }));
-  }
-
-  it.each([
-    { backgroundIndexOnStartup: true, destination: "library" },
-    { backgroundIndexOnStartup: false, destination: "scanner" }
-  ])("completes the five-step first-run flow with separate permissions and routes to $destination", async ({ backgroundIndexOnStartup, destination }) => {
-    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
-    renderOnboarding({
-      settings: { ...settings, backgroundIndexOnStartup },
-      setDefaultScanFolders
-    });
+  it("opens a four-scene intro on a clean profile and starts Files from page one", async () => {
+    renderIntro();
     await flushAsync();
 
-    expect(document.querySelector('[data-onboarding-step="1"]')).toBeTruthy();
-    await reachFolderStep();
-    await chooseFolder();
-    const managedConsents = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
-    expect(managedConsents).toHaveLength(2);
-    await act(async () => {
-      managedConsents[0].click();
-      managedConsents[1].click();
-    });
-    await clickNext();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(step()).toBe("1");
+    expect(document.body.textContent).toContain("文件管理");
+    // A representative Files composition is shown, not only bullet copy.
+    expect(document.querySelector('[data-onboarding-showcase="files"]')).toBeTruthy();
+    expect(document.body.textContent).toContain("不需要任何前置配置");
 
-    expect(setDefaultScanFolders).toHaveBeenCalledOnce();
-    expect(apiMocks.addManagedScope).toHaveBeenCalledWith({
-      path: "D:/Documents",
-      enabled: true,
-      allowLocalAi: true,
-      allowCloudAi: true
-    });
-    expect(document.querySelector('[data-onboarding-step="4"]')).toBeTruthy();
-    expect(document.body.textContent).toContain("Cleanup 授权与 Organize 授权互相独立");
-    await clickNext();
-
-    expect(document.querySelector('[data-onboarding-step="5"]')).toBeTruthy();
-    expect(document.querySelectorAll('[data-onboarding-step="5"] ol li')).toHaveLength(6);
-    expect(document.body.textContent).toContain("AI 整理");
-    expect(document.body.textContent).toContain("AI 清理");
-    await clickNext();
+    await click("[data-onboarding-start]");
 
     expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
-    expect(setView).toHaveBeenCalledWith(destination);
+    expect(setView).toHaveBeenCalledWith("library");
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(apiMocks.getAIFeatureReadiness).toHaveBeenCalled();
+    expectNoIndexOrScopeSideEffects();
   });
 
-  it.each(["local", "cloud"] as const)("routes the %s AI choice through existing AI Settings", async (mode) => {
-    renderOnboarding();
+  it("walks all four scenes and finishes into Files", async () => {
+    renderIntro();
     await flushAsync();
-    await reachConnectStep();
-    const choice = document.querySelector<HTMLButtonElement>(`[data-onboarding-provider-mode="${mode}"]`);
-    expect(choice).toBeTruthy();
-    await act(async () => choice?.click());
-    expect(choice?.getAttribute("aria-pressed")).toBe("true");
-    const configure = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("在 AI 设置中继续"));
-    await act(async () => configure?.click());
-    expect(sessionStorage.getItem(AI_SETTINGS_MODE_REQUEST_KEY)).toBe(mode);
-    expect(setView).toHaveBeenCalledWith("settings");
-    expect(document.querySelector('[data-onboarding-step="2"]')).toBeNull();
+
+    await click("[data-onboarding-next]");
+    expect(step()).toBe("2");
+    expect(document.body.textContent).toContain("AI 智能整理");
+    expect(document.body.textContent).toContain("处理少量例外");
+
+    await click("[data-onboarding-next]");
+    expect(step()).toBe("3");
+    expect(document.body.textContent).toContain("AI 垃圾清理");
+    expect(document.body.textContent).toContain("Safe Trash");
+
+    await click("[data-onboarding-next]");
+    expect(step()).toBe("4");
+    expect(document.body.textContent).toContain("全局搜索");
+    expect(document.body.textContent).toContain("智能精简");
+    // The volume list is a real read-only projection, not a promise.
+    expect(apiMocks.listGlobalIndexSources).toHaveBeenCalled();
+    expect(document.querySelector('[data-onboarding-search-source="vol-c"]')).toBeTruthy();
+
+    await click("[data-onboarding-finish]");
+
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(setView).toHaveBeenCalledWith("library");
+    expectNoIndexOrScopeSideEffects();
   });
 
-  it("routes Cleanup permission to its separate existing Settings controls", async () => {
-    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
-    dialogMocks.open.mockResolvedValue("D:/Documents");
-    renderOnboarding({ setDefaultScanFolders });
+  it("lets every scene be skipped durably without configuring anything", async () => {
+    renderIntro();
     await flushAsync();
-    await reachFolderStep();
-    await chooseFolder();
-    await clickNext();
-    expect(setDefaultScanFolders).toHaveBeenCalledOnce();
-    expect(document.querySelector('[data-onboarding-step="4"]')).toBeTruthy();
-    const cleanupSettings = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("打开 Cleanup AI 设置"));
-    await act(async () => cleanupSettings?.click());
-    expect(sessionStorage.getItem(SETTINGS_SECTION_EVENT)).toBe("settings-ai-cleanup");
-    expect(setView).toHaveBeenCalledWith("settings");
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
-  });
+    await click("[data-onboarding-skip]");
 
-  it("lets Skip AI bypass AI setup but continue to the required folder first value", async () => {
-    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
-    renderOnboarding({ setDefaultScanFolders });
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(setView).toHaveBeenCalledWith("library");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expectNoIndexOrScopeSideEffects();
+
+    // A restart keeps the intro closed: completion is durable.
+    act(() => root.unmount());
+    document.body.innerHTML = '<div id="app-shell-content"></div><div id="test-root"></div>';
+    root = createRoot(document.getElementById("test-root")!);
+    renderIntro();
     await flushAsync();
-    await reachConnectStep();
-    await act(async () => document.querySelector<HTMLButtonElement>("[data-onboarding-skip-ai]")?.click());
-
-    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
-    expect(document.body.textContent).toContain("选择要建立索引的范围");
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
-    expect(setDefaultScanFolders).not.toHaveBeenCalled();
-    expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
-    expect(setView).not.toHaveBeenCalledWith("library");
-    expect(t("modeAIDisabledDesc")).toContain("文件、搜索、预览和历史恢复仍可使用");
-    expect(t("modeAIDisabledDesc")).toContain("AI 整理与 AI 清理需要连接提供商");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it("dismisses a no-folder first run without completing it and reopens from Getting Started", async () => {
-    renderOnboarding();
+  it("treats Escape as a durable skip instead of a reopening loop", async () => {
+    renderIntro();
     await flushAsync();
     expect(document.activeElement?.closest('[role="dialog"]')).toBeTruthy();
-    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    const gettingStarted = document.querySelector<HTMLButtonElement>("[data-getting-started]");
-    expect(gettingStarted).toBeTruthy();
-    await act(async () => gettingStarted?.click());
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    expect(document.querySelector('[data-onboarding-step="1"]')).toBeTruthy();
-  });
 
-  it("retains a selected unsaved folder across Skip AI, Escape, and Getting Started re-entry", async () => {
-    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
-    renderOnboarding({ setDefaultScanFolders });
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     await flushAsync();
-    await reachFolderStep();
-    await chooseFolder();
 
-    await act(async () => document.querySelector<HTMLButtonElement>("[data-onboarding-skip-ai]")?.click());
-    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
-    expect(document.body.textContent).toContain("所选文件夹：D:/Documents");
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
-    expect(setDefaultScanFolders).not.toHaveBeenCalled();
-
-    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
-    const gettingStarted = document.querySelector<HTMLButtonElement>("[data-getting-started]");
-    expect(gettingStarted).toBeTruthy();
-    await act(async () => gettingStarted?.click());
-    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
-    expect(document.body.textContent).toContain("所选文件夹：D:/Documents");
-
-    await clickNext();
-    expect(setDefaultScanFolders).toHaveBeenCalledOnce();
-    expect(document.querySelector('[data-onboarding-step="5"]')).toBeTruthy();
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
-    await clickNext();
     expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(setView).toHaveBeenCalledWith("library");
+    expectNoIndexOrScopeSideEffects();
   });
 
-  it("requires a saved useful folder before leaving the folder step", async () => {
-    const setDefaultScanFolders = vi.fn().mockResolvedValue(true);
-    renderOnboarding({ setDefaultScanFolders });
+  it("requires an explicit volume selection before enabling Global Search", async () => {
+    renderIntro();
     await flushAsync();
-    await reachFolderStep();
-    await clickNext();
+    await click("[data-onboarding-next]");
+    await click("[data-onboarding-next]");
+    await click("[data-onboarding-next]");
+    expect(step()).toBe("4");
 
-    expect(document.querySelector('[data-onboarding-step="3"]')).toBeTruthy();
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain("请先选择并保存一个有用的文件夹");
-    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
-    expect(setDefaultScanFolders).not.toHaveBeenCalled();
+    const enable = document.querySelector<HTMLButtonElement>("[data-onboarding-enable-search]");
+    expect(enable?.disabled).toBe(true);
+
+    const checkbox = document.querySelector<HTMLInputElement>('[data-onboarding-search-source="vol-c"]');
+    expect(checkbox).toBeTruthy();
+    await act(async () => checkbox?.click());
+    expect(document.querySelector<HTMLButtonElement>("[data-onboarding-enable-search]")?.disabled).toBe(false);
+    // Selecting a volume alone must not authorize or index it.
+    expect(apiMocks.authorizeGlobalIndexSource).not.toHaveBeenCalled();
+    expect(apiMocks.setGlobalIndexSourceEnabled).not.toHaveBeenCalled();
+
+    await click("[data-onboarding-enable-search]");
+
+    expect(apiMocks.authorizeGlobalIndexSource).toHaveBeenCalledWith("vol-c", true);
+    expect(apiMocks.setGlobalIndexSourceEnabled).toHaveBeenCalledWith("vol-c", true);
+    expect(apiMocks.startGlobalIndex).toHaveBeenCalledOnce();
+    expect(document.querySelector("[data-onboarding-search-enabled]")).toBeTruthy();
+    // Global Search consent never adds a Managed Library scope or a scan.
     expect(apiMocks.addManagedScope).not.toHaveBeenCalled();
+    expect(apiMocks.saveSettings).not.toHaveBeenCalled();
+    expect(apiMocks.startManagedScan).not.toHaveBeenCalled();
   });
 
-  it("keeps the default and narrow layout scrollable with reachable keyboard controls", async () => {
-    renderOnboarding();
+  it("skips Global Search without authorizing any volume", async () => {
+    renderIntro();
+    await flushAsync();
+    await click("[data-onboarding-next]");
+    await click("[data-onboarding-next]");
+    await click("[data-onboarding-next]");
+
+    await click("[data-onboarding-finish]");
+
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(setView).toHaveBeenCalledWith("library");
+    expectNoIndexOrScopeSideEffects();
+  });
+
+  it("keeps the volume step usable when the source projection fails", async () => {
+    apiMocks.listGlobalIndexSources.mockRejectedValue(new Error("global_index_unavailable"));
+    renderIntro();
+    await flushAsync();
+    await click("[data-onboarding-next]");
+    await click("[data-onboarding-next]");
+    await click("[data-onboarding-next]");
+
+    expect(document.querySelector('[data-onboarding-search-state="failed"]')).toBeTruthy();
+    expect(document.body.textContent).toContain("无法读取可用磁盘");
+    expect(document.querySelector<HTMLButtonElement>("[data-onboarding-enable-search]")?.disabled).toBe(true);
+
+    await click("[data-onboarding-finish]");
+    expect(setView).toHaveBeenCalledWith("library");
+    expectNoIndexOrScopeSideEffects();
+  });
+
+  it("routes the AI configuration entry to existing AI Settings and completes the intro", async () => {
+    renderIntro();
+    await flushAsync();
+    await click("[data-onboarding-next]");
+
+    await click("[data-onboarding-configure-ai]");
+
+    expect(setView).toHaveBeenCalledWith("settings");
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe("true");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expectNoIndexOrScopeSideEffects();
+  });
+
+  it("reopens the intro from the voluntary About entry", async () => {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
+    renderIntro();
+    await flushAsync();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    await act(async () => window.dispatchEvent(new CustomEvent(ONBOARDING_REOPEN_EVENT)));
+    await flushAsync();
+
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(step()).toBe("1");
+  });
+
+  it("keeps the dialog scrollable with reachable controls at narrow sizes", async () => {
+    renderIntro();
     await flushAsync();
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     const description = document.querySelector<HTMLElement>("#onboarding-description");
     const footer = dialog?.querySelector("footer");
-    expect(dialog?.className).toContain("w-full max-w-3xl");
-    expect(dialog?.className).toContain("max-h-[calc(100dvh-2rem)]");
+    expect(dialog?.className).toContain("w-full max-w-4xl");
+    expect(dialog?.className).toContain("max-h-[calc(100dvh-1.5rem)]");
     expect(description?.className).toContain("overflow-y-auto");
     expect(description?.className).toContain("overscroll-contain");
     expect(footer?.className).toContain("flex-wrap");
-    expect(document.querySelector<HTMLButtonElement>("[data-onboarding-next]")?.disabled).toBe(false);
-  });
-
-  it("keeps Getting Started discoverable after onboarding was completed", async () => {
-    localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
-    renderOnboarding();
-    await flushAsync();
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    const restart = document.querySelector<HTMLButtonElement>("[data-getting-started]");
-    expect(restart).toBeTruthy();
-    await act(async () => restart?.click());
-    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(document.querySelector<HTMLButtonElement>("[data-onboarding-start]")?.disabled).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { usePaneQuerySelector, usePane } from "../workbench/PaneContext";
-import { ChevronRight, Folder, FolderOpen, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
+import { ChevronRight, Clock3, Folder, FolderOpen, LoaderCircle, MapPin, RefreshCw, Star } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useLayoutEffect, useState } from "react";
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
@@ -13,6 +13,7 @@ import {
   locationAvailabilityLabel,
   useBrowseSourceOwner
 } from "./browseSourceOwner";
+import { useBrowsePlaces, type BrowsePlaceEntry } from "./useBrowsePlaces";
 import { createBrowseInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
@@ -496,6 +497,7 @@ export function BrowseLocationPicker({
   const showLoading = source.locationState === "loading" && source.locations.length === 0;
   const showFailed = source.locationState === "failed" && source.locations.length === 0;
   const showEmpty = source.locationState === "ready" && source.locations.length === 0;
+  const places = useBrowsePlaces({ enabled: true });
 
   return (
     <div className="browse-mode" data-browse-source-owner="browse" data-browse-state="locations">
@@ -521,7 +523,7 @@ export function BrowseLocationPicker({
             className="browse-action"
             type="button"
             disabled={source.locationState === "loading" || source.admissionLoading}
-            onClick={() => void source.loadLocations()}
+            onClick={() => { void source.loadLocations(); void places.reload(); }}
           >
             <RefreshCw size={15} aria-hidden="true" />
             {t("browseLocationsRetry")}
@@ -539,8 +541,16 @@ export function BrowseLocationPicker({
           {t("browseChooseFolderErrorDesc")}
         </NoticeBanner>
       ) : null}
+      {places.openFailed ? (
+        <NoticeBanner tone="warning" title={t("browsePlaceOpenFailedTitle")}>
+          {t("browsePlaceOpenFailedDesc")}
+        </NoticeBanner>
+      ) : null}
+
+      <BrowsePlacesSection places={places} t={t} />
 
       <div className="browse-location-panel">
+        <h3 className="browse-location-section-title">{t("browseLocationsLibraryTitle")}</h3>
         {showLoading ? (
           <StateBlock
             tone="info"
@@ -573,6 +583,88 @@ export function BrowseLocationPicker({
         )}
       </div>
     </div>
+  );
+}
+
+function BrowsePlacesSection({
+  places,
+  t
+}: {
+  places: ReturnType<typeof useBrowsePlaces>;
+  t: ReturnType<typeof useI18nContext>["t"];
+}) {
+  if (places.state === "loading" && places.entries.length === 0) {
+    return (
+      <section className="browse-places" data-browse-places-state="loading" aria-busy="true">
+        <h3 className="browse-location-section-title">{t("browsePlacesTitle")}</h3>
+        <p className="browse-mode-description">{t("browsePlacesLoading")}</p>
+      </section>
+    );
+  }
+  if (places.entries.length === 0) {
+    return (
+      <section className="browse-places" data-browse-places-state={places.state}>
+        <h3 className="browse-location-section-title">{t("browsePlacesTitle")}</h3>
+        <p className="browse-mode-description">{places.state === "failed" ? t("browsePlacesUnavailable") : t("browsePlacesEmpty")}</p>
+      </section>
+    );
+  }
+  return (
+    <section className="browse-places" data-browse-places-state={places.state} aria-label={t("browsePlacesTitle")}>
+      <h3 className="browse-location-section-title">{t("browsePlacesTitle")}</h3>
+      <div className="browse-location-grid" data-browse-places="true">
+        {places.entries.map((entry) => (
+          <BrowsePlaceCard key={entry.key} entry={entry} places={places} t={t} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function BrowsePlaceCard({
+  entry,
+  places,
+  t
+}: {
+  entry: BrowsePlaceEntry;
+  places: ReturnType<typeof useBrowsePlaces>;
+  t: ReturnType<typeof useI18nContext>["t"];
+}) {
+  const opening = places.openingKey === entry.key;
+  const icon = entry.kind === "favorite"
+    ? <Star size={17} aria-hidden="true" />
+    : entry.kind === "recent"
+      ? <Clock3 size={17} aria-hidden="true" />
+      : <Folder size={17} aria-hidden="true" />;
+  return (
+    <article
+      className={`browse-location-card${entry.available ? "" : " is-unavailable"}`}
+      data-browse-place={entry.kind}
+      data-browse-place-available={entry.available ? "true" : "false"}
+    >
+      <div className="browse-location-card-header">
+        <span className="browse-location-card-icon" aria-hidden="true">{icon}</span>
+        <div className="min-w-0">
+          <strong className="browse-location-title">{entry.label}</strong>
+          <span className={`browse-location-status${entry.available ? " is-ready" : " is-unavailable"}`}>
+            <span aria-hidden="true">•</span>
+            {entry.available ? t("browsePlaceAvailable") : t("browsePlaceUnavailable")}
+          </span>
+        </div>
+      </div>
+      <div className="browse-location-actions">
+        <button
+          className="browse-location-open"
+          type="button"
+          disabled={!entry.available || places.openingKey !== null}
+          data-browse-place-action="open"
+          onClick={() => void places.openPlace(entry)}
+        >
+          {opening ? <LoaderCircle className="animate-spin" size={15} aria-hidden="true" /> : null}
+          {opening ? t("browseLocationOpening") : t("browseLocationOpen")}
+        </button>
+      </div>
+    </article>
   );
 }
 

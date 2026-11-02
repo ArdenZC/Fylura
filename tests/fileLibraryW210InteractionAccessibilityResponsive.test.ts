@@ -46,7 +46,6 @@ describe("W2-10 interaction/accessibility/responsive integration contracts", () 
       canGoForward: false,
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onModeChange: vi.fn(),
       navigationOpen: false,
       onNavigationToggle: vi.fn(),
       contextOpen: true,

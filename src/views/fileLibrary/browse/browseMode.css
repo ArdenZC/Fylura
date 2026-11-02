@@ -397,3 +397,19 @@
 .browse-mode-help { font-size: 11px; color: var(--zc-text-secondary); }
 .browse-mode-help summary { cursor: pointer; }
 .browse-mode-help summary:focus-visible { outline: 2px solid var(--zc-primary); outline-offset: 2px; }
+
+.browse-places {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.browse-location-section-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--zc-text-tertiary);
+}

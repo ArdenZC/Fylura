@@ -153,6 +153,7 @@ async function waitForLibrary(page) {
       }
     }
   }
+  await page.locator('[data-workbench-ready="true"]').waitFor({ state: "visible" });
   const libraryTab = page.locator('[role="tab"][data-file-library-mode="library"]');
   await libraryTab.waitFor({ state: "visible" });
   if (await page.locator('.file-library-workspace[data-mode="library"]').count() === 0) {

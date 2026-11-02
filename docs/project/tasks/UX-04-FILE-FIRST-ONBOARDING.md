@@ -112,12 +112,12 @@ The retained Managed Library browser regressions now opt into
 controller and Query V2; it is rejected inside Tauri and does not restore a
 Library/Browse switch in the ordinary Files UI. U4 retains Inspector, notes,
 favorites, reload, dual-pane and narrow-layout coverage. W2-10/W2-11/W3-10
-compatibility harnesses use the same explicit fixture.
+compatibility harnesses use the same explicit fixture, including the nested W3-09 gate. Preview harnesses wait for the existing workbench restore to finish before choosing Library, avoiding a reload race with persisted Browse state.
 
 Files AI actions say Open AI Organize / Open AI Cleanup: navigation does not yet
 transfer the current folder. One-off scope admission remains M2/M3.
 
 Local validation on the M0-A working changes: U4, UX-04, W2-10 (six viewport/DPR
 combinations), typecheck, frontend build and focused onboarding/permissions tests
-passed. Browser evidence is mock evidence; installed Windows/macOS GUI stays
+passed. W2-01 layout and W2-11 integrated browser gates also passed, as did W3-09 at 1600×900 and 980×680 after the restore-wait fix. The local full Vitest run encountered syntax-loading errors in five unchanged research/calibration suites; the affected focused suites passed. Browser evidence is mock evidence; installed Windows/macOS GUI stays
 UNVERIFIED under #487. Required exact-head CI must pass before merge.

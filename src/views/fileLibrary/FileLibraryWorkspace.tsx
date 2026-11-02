@@ -134,8 +134,8 @@ function FileLibraryPane() {
           >
             <PathBar />
             <WorkspaceCommandBar
-              fixtureControls={isManagedLibraryBrowserFixture() && <div role="tablist" aria-label="Managed Library compatibility fixture">
-              {(["library", "browse"] as const).map((mode) => <button key={mode} role="tab" aria-selected={state.mode === mode} data-file-library-mode={mode} onClick={() => void controller.switchMode(mode)}>{mode === "library" ? t("fileLibraryModeLibrary") : t("fileLibraryModeBrowse")}</button>)}
+              fixtureControls={isManagedLibraryBrowserFixture() && <div className="file-library-mode-switch" role="tablist" aria-label="Managed Library compatibility fixture">
+              {(["library", "browse"] as const).map((mode) => <button className="file-library-mode-button" key={mode} role="tab" aria-selected={state.mode === mode} data-file-library-mode={mode} onClick={() => void controller.switchMode(mode)}>{mode === "library" ? t("fileLibraryModeLibrary") : t("fileLibraryModeBrowse")}</button>)}
             </div>}
               mode={state.mode}
               targetLabel={targetLabel}

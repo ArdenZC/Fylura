@@ -39,7 +39,13 @@ pub(crate) fn list_known_locations() -> Vec<KnownLocation> {
     let mut seen: Vec<String> = Vec::new();
 
     for (id, path) in user_folders() {
-        push_unique(&mut locations, &mut seen, id, KnownLocationKind::Folder, path);
+        push_unique(
+            &mut locations,
+            &mut seen,
+            id,
+            KnownLocationKind::Folder,
+            path,
+        );
     }
     for path in mounted_volumes() {
         let label = volume_label(&path);
@@ -79,7 +85,9 @@ fn push_unique(
 }
 
 fn path_key(path: &Path) -> String {
-    path.to_string_lossy().trim_end_matches(['/', '\\']).to_lowercase()
+    path.to_string_lossy()
+        .trim_end_matches(['/', '\\'])
+        .to_lowercase()
 }
 
 fn user_folders() -> Vec<(&'static str, Option<(PathBuf, String)>)> {
@@ -144,7 +152,10 @@ mod tests {
         let mut paths = std::collections::HashSet::new();
         for location in &locations {
             assert!(ids.insert(location.id.clone()), "duplicate id");
-            assert!(paths.insert(path_key(Path::new(&location.path))), "duplicate path");
+            assert!(
+                paths.insert(path_key(Path::new(&location.path))),
+                "duplicate path"
+            );
             assert!(
                 Path::new(&location.path).is_absolute(),
                 "known location must be absolute: {}",
@@ -173,7 +184,10 @@ mod tests {
             &mut seen,
             "missing",
             KnownLocationKind::Folder,
-            Some((PathBuf::from("/nonexistent-fylura-known-location"), "Missing".into())),
+            Some((
+                PathBuf::from("/nonexistent-fylura-known-location"),
+                "Missing".into(),
+            )),
         );
         assert_eq!(locations.len(), 1);
         assert!(!locations[0].available);

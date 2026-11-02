@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fileManagementApi, type KnownLocation, type SavedPlace } from "../../../api/fileManagementApi";
-import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
 import type { Translator } from "../../../types/ui";
-import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
-import { displayNameFromRoutingHint, workspacePlatformForRuntime } from "./browseSourceOwner";
+import { displayNameFromRoutingHint } from "./browseSourceOwner";
 
 export type BrowsePlaceEntryKind = "system" | "favorite" | "recent";
 
@@ -35,14 +33,15 @@ type SystemLocationId = keyof typeof SYSTEM_LABEL_KEYS;
  * - `file_workspace_places` (existing favorites and recent Browse locations).
  *
  * Nothing here creates a Managed Library root, authorizes a Global Index
- * source, starts a scan or reads file content. Choosing an entry re-admits the
- * path through the existing user-intent Browse admission, exactly like the
- * folder picker.
+ * source, starts a scan or reads file content. Choosing an entry is handed to
+ * the Browse source owner, which re-admits the path through the same
+ * user-intent admission as the OS folder picker.
  */
-export function useBrowsePlaces({ enabled }: { enabled: boolean }) {
-  const { controller } = useFileLibraryExperience();
-  const { t } = useI18nContext();
-  const { platform } = useCommandContext();
+export function useBrowsePlaces({ enabled, openPath, t }: {
+  enabled: boolean;
+  openPath: (path: string, displayName: string) => Promise<boolean>;
+  t: Translator;
+}) {
   const [entries, setEntries] = useState<BrowsePlaceEntry[]>([]);
   const [state, setState] = useState<BrowsePlacesState>("idle");
   const [openingKey, setOpeningKey] = useState<string | null>(null);
@@ -57,47 +56,31 @@ export function useBrowsePlaces({ enabled }: { enabled: boolean }) {
       fileManagementApi.fileLibraryPlaces().catch(() => null)
     ]);
     if (epoch !== requestEpoch.current) return;
-    const next = [
+    setEntries([
       ...projectKnownLocations(known ?? [], t),
       ...projectSavedPlaces(saved ?? [], t)
-    ];
-    setEntries(next);
+    ]);
     setState(known === null && saved === null ? "failed" : "ready");
   }, [t]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) return undefined;
     void load();
     return () => { requestEpoch.current += 1; };
   }, [enabled, load]);
 
   const openPlace = useCallback(async (entry: BrowsePlaceEntry) => {
     if (openingKey !== null || !entry.available) return false;
-    const workspacePlatform = workspacePlatformForRuntime(platform);
-    if (workspacePlatform === null) {
-      setOpenFailed(true);
-      return false;
-    }
     setOpeningKey(entry.key);
     setOpenFailed(false);
     try {
-      const response = await controller.openBrowse({
-        platform: workspacePlatform,
-        routingHint: entry.path,
-        displayHint: entry.label
-      });
-      if (response === null) {
-        setOpenFailed(true);
-        return false;
-      }
-      return true;
-    } catch {
-      setOpenFailed(true);
-      return false;
+      const opened = await openPath(entry.path, entry.label);
+      if (!opened) setOpenFailed(true);
+      return opened;
     } finally {
       setOpeningKey(null);
     }
-  }, [controller, openingKey, platform]);
+  }, [openPath, openingKey]);
 
   return {
     entries,
@@ -105,8 +88,7 @@ export function useBrowsePlaces({ enabled }: { enabled: boolean }) {
     openingKey,
     openFailed,
     reload: load,
-    openPlace,
-    dismissOpenFailed: () => setOpenFailed(false)
+    openPlace
   };
 }
 

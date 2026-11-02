@@ -162,12 +162,9 @@ export function OnboardingDialog() {
 
   function toggleSource(source: GlobalIndexSource, checked: boolean) {
     setSearchError("");
-    setSelectedSourceIds((current) => {
-      const next = new Set(current);
-      if (checked) next.add(source.volume.id);
-      else next.delete(source.volume.id);
-      return next;
-    });
+    setSelectedSourceIds((current) => checked
+      ? new Set([...current, source.volume.id])
+      : new Set([...current].filter((id) => id !== source.volume.id)));
   }
 
   async function enableSearch() {

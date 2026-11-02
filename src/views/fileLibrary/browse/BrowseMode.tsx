@@ -497,7 +497,11 @@ export function BrowseLocationPicker({
   const showLoading = source.locationState === "loading" && source.locations.length === 0;
   const showFailed = source.locationState === "failed" && source.locations.length === 0;
   const showEmpty = source.locationState === "ready" && source.locations.length === 0;
-  const places = useBrowsePlaces({ enabled: true });
+  const places = useBrowsePlaces({
+    enabled: true,
+    openPath: (path, displayName) => source.openKnownLocation(path, displayName),
+    t
+  });
 
   return (
     <div className="browse-mode" data-browse-source-owner="browse" data-browse-state="locations">

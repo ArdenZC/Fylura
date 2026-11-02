@@ -33,9 +33,15 @@ describe("phase 8 release safety and polish contracts", () => {
     expect(settings).toContain('t("developerModeDesc")');
     expect(settings).toContain("tauriApi.saveAISettings");
     expect(onboarding).toContain("ModalPortal");
-    expect(onboarding).toContain("setDefaultScanFolders");
     expect(onboarding).toContain("getAIFeatureReadiness");
-    expect(onboarding).toContain("addManagedScope");
+    // ADR-0016: the intro never configures a scan root, managed scope, saved
+    // settings or a scan; Global Search consent goes through the dedicated
+    // explicit-consent module instead.
+    expect(onboarding).not.toContain("setDefaultScanFolders");
+    expect(onboarding).not.toContain("addManagedScope");
+    expect(onboarding).not.toContain("saveSettings");
+    expect(onboarding).not.toContain("startManagedScan");
+    expect(read("src/components/onboardingGlobalSearch.ts")).toContain("authorizeGlobalIndexSource");
     expect(onboarding).not.toContain("saveAISettings");
     expect(onboarding).not.toContain("getAISettings");
     expect(onboarding).not.toContain("listAIProviderPresets");

@@ -321,7 +321,7 @@ describe("first-run product intro", () => {
     expectNoIndexOrScopeSideEffects();
   });
 
-  it("reopens the intro from the voluntary About entry", async () => {
+  it("reopens the intro from the voluntary About entry without leaving the current page", async () => {
     localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     renderIntro();
     await flushAsync();
@@ -332,6 +332,12 @@ describe("first-run product intro", () => {
 
     expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     expect(step()).toBe("1");
+
+    await click("[data-onboarding-skip]");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    // A voluntary re-read never bounces the user away from Settings.
+    expect(setView).not.toHaveBeenCalled();
+    expectNoIndexOrScopeSideEffects();
   });
 
   it("keeps the dialog scrollable with reachable controls at narrow sizes", async () => {

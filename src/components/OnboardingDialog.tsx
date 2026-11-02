@@ -61,6 +61,7 @@ export function OnboardingDialog() {
   const [isEnablingSearch, setIsEnablingSearch] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [searchEnabled, setSearchEnabled] = useState(false);
+  const [reopenedFromAbout, setReopenedFromAbout] = useState(false);
   const primaryRef = useRef<HTMLButtonElement | null>(null);
   const readinessEpoch = useRef(0);
   const sourcesEpoch = useRef(0);
@@ -68,13 +69,17 @@ export function OnboardingDialog() {
   useEffect(() => {
     if (dismissedForSession) return undefined;
     if (hasCompletedOnboarding()) return undefined;
-    const frame = window.requestAnimationFrame(() => setOpenDialog(true));
+    const frame = window.requestAnimationFrame(() => {
+      setReopenedFromAbout(false);
+      setOpenDialog(true);
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [dismissedForSession]);
 
   useEffect(() => {
     const reopen = () => {
       setDismissedForSession(false);
+      setReopenedFromAbout(true);
       setStep(0);
       setSearchError("");
       setOpenDialog(true);
@@ -134,7 +139,10 @@ export function OnboardingDialog() {
     setDismissedForSession(true);
     setStep(0);
     setSearchError("");
-    setView("library");
+    // A voluntary re-read from Help / About must not move the user out of
+    // Settings; only the first-run flow lands on the Files workspace.
+    if (!reopenedFromAbout) setView("library");
+    setReopenedFromAbout(false);
   }
 
   function openProviderSettings(mode: "local" | "cloud") {

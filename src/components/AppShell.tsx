@@ -143,8 +143,8 @@ export function AppShell() {
                     {sidebarHidden ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
                   </button>
                   <strong className="truncate text-[13px]">{activeLabel}</strong>
-                  <span aria-hidden="true" className="text-[var(--zc-text-tertiary)]">/</span>
-                  <span className="truncate text-[11px] text-[var(--zc-text-tertiary)]">{topbarContext(view, t)}</span>
+                  {view !== "library" && <><span aria-hidden="true" className="text-[var(--zc-text-tertiary)]">/</span>
+                  <span className="truncate text-[11px] text-[var(--zc-text-tertiary)]">{topbarContext(view, t)}</span></>}
                 </div>
                 <div className="flex items-center justify-center">
                   <button ref={spotlightTriggerRef} className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
@@ -531,10 +531,9 @@ export function navGroups(t: Translator): NavGroup[] {
       id: "primary",
       label: "",
       items: [
-        // ADR-0016 four core jobs. Files is the default destination and opens
+        // Files is the default destination; Global Search uses the top search bar. Files opens
         // in Browse without any Managed Library scope or index authorization.
         { id: "library", label: t("filesWorkspace"), icon: Library },
-        { id: "global-search", label: t("navGlobalSearch"), icon: Search, action: "open_search" },
         { id: "organize", label: t("organizeFiles"), icon: Sparkles },
         { id: "cleanup", label: t("storageCleanup"), icon: Brush }
       ]

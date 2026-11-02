@@ -107,7 +107,7 @@ export function BrowseMode() {
   ), [source.enumerationState, source.isQueryActive, source.queryText, source.setQueryText, t]);
 
   const browseActions = useMemo(() => (
-    <div className="flex min-h-0 flex-wrap items-center gap-1.5" data-browse-query-controls="true">
+    <div className="flex min-h-0 flex-wrap items-center gap-1.5" data-browse-query-controls="true" data-browse-query-active={source.queryEntryKind !== "all" || !!source.query.sort}>
       <label className="sr-only" htmlFor="browse-query-kind">{t("browseFilterLabel")}</label>
       <select
         id="browse-query-kind"

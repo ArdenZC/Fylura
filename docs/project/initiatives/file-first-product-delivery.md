@@ -4,9 +4,9 @@ Status: **ACTIVE — IMPLEMENTATION**
 
 Authority: [ADR-0016](../DECISIONS/0016-file-first-four-core-jobs.md) and the Owner's 2026-11-02 M0-B/C → M1 → M2 instruction. This short record satisfies the existing project-state contract; it adds no review or management system.
 
-- M0-A is merged in #534. M0-B removes automatic legacy Managed Scan submission from app startup; UI dormancy already uses the browser-only compatibility fixture. Preserve data, roots, settings, Query V2, Saved Views, tags, APIs and shared services. Review dormancy on 2027-01-04.
+- M0-A is merged in #534; M0-B/C merged in #535 as `6392e66` with required CI success. M0-B removes automatic legacy Managed Scan submission from app startup; UI dormancy already uses the browser-only compatibility fixture. Preserve data, roots, settings, Query V2, Saved Views, tags, APIs and shared services. Review dormancy on 2027-01-04.
 - M0-C archives contradictory STATUS history, aligns M0–M5 and makes startup reading AGENTS → STATUS → ROADMAP → corresponding Issue/code.
-- After M0 merge, M1 fixes an observed multi-select cross-folder Copy/Move → task results → History/Restore workflow on the existing engine. Then begin M2 one-off AI Organize.
+- M1 now simplifies Files (one location/search row, on-demand tools/comparison, no duplicate Global Search sidebar entry) and fixes multi-select cross-folder Copy/Move result navigation (Windows/macOS roots, partial/all failures) on existing Browse/History/Restore owners. Then begin M2 one-off AI Organize; it must admit a one-off Browse source rather than require managed selection.
 - Run focused checks and existing routed CI. File authorization, mutation, Journal/Restore and branch protection stay binding. Owner has authorized safe merge after required checks; no additional Owner gate or Release.
 - #512 tracks features; #487 owns unverified native GUI; independent Search and historical investigations keep their existing owners. Browser tests are not native qualification.
 

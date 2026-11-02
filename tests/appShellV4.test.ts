@@ -18,7 +18,7 @@ describe("App Shell v4", () => {
     for (const id of ["library", "organize", "cleanup", "restore", "scanner", "settings"]) {
       expect(nav).toContain(`id: "${id}"`);
     }
-    expect(nav).toContain('id: "global-search"');
+    expect(nav).not.toContain('id: "global-search"');
     expect(nav).not.toContain('id: "rules"');
     expect(nav).not.toContain('id: "preview"');
     expect(appShell).toContain('view === "cleanup"');

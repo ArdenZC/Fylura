@@ -628,3 +628,28 @@
     transition: none;
   }
 }
+
+/* Files first: one location row; detailed sorting stays on demand. */
+.wb-pane .file-library-workspace .file-library-location-row { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 0 0 auto; border-bottom: 1px solid var(--zc-divider); }
+.wb-pane .file-library-workspace .file-library-location-row > .wb-path-section { flex: 1; min-width: 100px; }
+.wb-pane .file-library-workspace .file-library-location-row .file-library-command-bar { flex: 0 1 auto; min-height: 34px; flex-wrap: nowrap; gap: 2px; padding: 0; border: 0; }
+.wb-pane .file-library-workspace .file-library-location-row .file-library-command-target { display: none; }
+.wb-pane .file-library-workspace .file-library-location-row .file-library-command-button { padding: 4px 6px; min-width: 28px; min-height: 28px; }
+.wb-pane .file-library-workspace .file-library-location-row :is(.file-library-nav-toggle, .file-library-context-toggle, .file-library-view-switch button) > span { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.wb-pane .file-library-workspace .file-library-location-row .file-library-view-switch { border: 0; background: transparent; padding: 0; gap: 0; }
+.wb-pane .file-library-workspace .file-library-location-row .file-library-command-search { order: 0; flex: 0 1 160px; min-width: 100px; max-width: 180px; width: clamp(100px, 12vw, 180px); }
+.wb-pane .file-library-workspace .file-library-location-row .file-library-command-search-field { min-height: 28px; }
+.file-library-query-menu { position: relative; }
+.file-library-query-menu > summary { list-style: none; cursor: pointer; }
+.file-library-query-menu > summary::-webkit-details-marker { display: none; }
+.file-library-query-menu[open] > summary { background: var(--zc-surface-selected); }
+.file-library-query-menu > .file-library-command-actions { position: absolute; z-index: 55; right: 0; top: calc(100% + 5px); width: 250px; padding: 12px; border: 1px solid var(--zc-border-strong); border-radius: var(--zc-radius-floating); background: var(--zc-surface-overlay); box-shadow: var(--zc-shadow-menu); }
+.file-library-query-menu [data-browse-query-controls] { display: grid; width: 100%; gap: 8px; }
+.file-library-query-menu [data-browse-query-controls] select { width: 100%; }
+.file-library-query-menu summary:focus-visible { outline: 2px solid var(--zc-focus-ring); outline-offset: 2px; }
+
+.file-library-query-menu:has([data-browse-query-active="true"]) > summary { color: var(--zc-primary); background: var(--zc-surface-selected); }
+
+/* The dormant compatibility fixture retains its existing managed controls. */
+.file-library-workspace[data-mode="library"] .file-library-location-row { display: block; }
+.wb-pane .file-library-workspace[data-mode="library"] .file-library-location-row .file-library-command-bar { flex-wrap: wrap; }

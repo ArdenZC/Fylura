@@ -540,7 +540,6 @@ export function FileLibraryWorkbench({
           <Columns2 size={16} />
           <span>{t(active.dual ? "wbSinglePane" : "wbDualPane")}</span>
         </button>
-      </header>
       {active.dual && (
         <div className="wb-pane-actions">
           {active.panes.map((pane, index) => (
@@ -559,27 +558,30 @@ export function FileLibraryWorkbench({
           </span>
           <button
             className="wb-cross-button"
+            aria-label={t("wbCopyOther")} title={t("wbCopyOther")}
             disabled={!canTransfer}
             onClick={() =>
               useFileManagementStore.getState().requestAction("copy_other")
             }
           >
             <Copy size={14} />
-            {t("wbCopyOther")}
+            <span className="wb-cross-label">{t("wbCopyOther")}</span>
           </button>
           <button
             className="wb-cross-button"
+            aria-label={t("wbMoveOther")} title={t("wbMoveOther")}
             disabled={!canTransfer}
             onClick={() =>
               useFileManagementStore.getState().requestAction("move_other")
             }
           >
             <FolderInput size={14} />
-            {t("wbMoveOther")}
+            <span className="wb-cross-label">{t("wbMoveOther")}</span>
           </button>
+          <FolderComparison key={active.id} compact={!wide} paneIds={active.panes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} />
         </div>
       )}
-      {active.dual && <FolderComparison key={active.id} compact={!wide} paneIds={active.panes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} />}
+      </header>
       {state.tabs.map((tab) => (
         <div
           key={tab.id}

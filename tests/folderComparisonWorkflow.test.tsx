@@ -98,8 +98,10 @@ describe("comparison source-owned workflow",()=>{
     expect(buttons.find((button) => button.textContent === "Move to other pane")?.disabled).toBe(false);
     await act(async()=>buttons.find((button) => button.textContent === "Move to other pane")!.click());
     expect(useFileManagementStore.getState().pendingAction).toBe("move_other");
+    expect(host.querySelector(".u3-comparison-panel")).toBeNull();
     useFileManagementStore.setState({ pendingAction: null });
-    await act(async()=>buttons.find((button) => button.textContent === "Copy to other pane")!.click());
+    await click("Compare folders");
+    await act(async()=>[...host.querySelectorAll<HTMLButtonElement>(".u3-batch-actions > div:first-child button")].find((button) => button.textContent === "Copy to other pane")!.click());
     expect(useFileManagementStore.getState().pendingAction).toBe("copy_other");
   });
 });

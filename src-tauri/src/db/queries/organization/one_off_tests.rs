@@ -178,7 +178,10 @@ fn one_off_metadata_analysis_groups_direct_files_and_keeps_subfolders_blocked() 
         group.sample_items[0].reason.as_deref(),
         Some("Related work documents belong together.")
     );
-    assert!(Path::new(group.target_directory.as_ref().unwrap()).starts_with(&f.source));
+    let target =
+        crate::path_identity::normalize_text_for_compare(group.target_directory.as_ref().unwrap());
+    let root = crate::path_identity::normalize_for_compare(&f.source.canonicalize().unwrap());
+    assert!(target.starts_with(&(root + "/")));
     assert!(f.source.join("invoice.txt").exists()); // Analysis never mutates.
 }
 
@@ -305,7 +308,11 @@ fn one_off_native_filesystem_analysis_group_execute_journal_and_restore() {
         Some(dispatch.operation_batch_id.clone()),
     )
     .unwrap();
-    assert!(result.logs.iter().all(|l| l.status == "success"));
+    assert!(
+        result.logs.iter().all(|l| l.status == "success"),
+        "one-off outcomes: {:?}",
+        result.logs
+    );
     let outcome =
         f.db.finalize_organization_plan_execution(&plan.id, &dispatch, &result.logs)
             .unwrap();
@@ -640,4 +647,47 @@ fn one_off_uncertain_and_unanalyzable_items_are_not_approved_or_reported_as_anal
         }
         assert!(f.source.join("invoice.txt").exists());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn one_off_parent_alias_is_resolved_before_group_target_and_journal_derivation() {
+    let f = Fixture::new();
+    let alias = f.root.join("selected-parent-alias");
+    std::os::unix::fs::symlink(&f.root, &alias).unwrap();
+    let selected = alias.join("Downloads");
+    let paths = std::fs::read_dir(&selected)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    let captured = capture_folder(selected, paths).unwrap();
+    let plan =
+        f.db.materialize_one_off_folder("alias".into(), None, captured)
+            .unwrap();
+    let page =
+        f.db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+            plan_id: plan.id.clone(),
+            cursor: None,
+            page_size: 100,
+        })
+        .unwrap();
+    let root = f.source.canonicalize().unwrap();
+    for item in page.items {
+        assert_eq!(
+            Path::new(&item.source_path_snapshot).parent(),
+            Some(root.as_path())
+        );
+    }
+    let plan = f.analyze(&plan);
+    let groups =
+        f.db.query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+            plan_id: plan.id,
+            cursor: None,
+            page_size: 100,
+        })
+        .unwrap();
+    assert!(groups.groups.iter().any(|g| g
+        .target_directory
+        .as_ref()
+        .is_some_and(|path| Path::new(path) == root.join("Documents"))));
 }

@@ -105,6 +105,17 @@ pub(super) fn capture_folder(
     if paths.len() > MAX_ITEMS {
         return Err(validation("one_off_folder_too_large"));
     }
+    // Match the existing transfer admission: capture through the selected
+    // namespace, then use canonical backend paths. In particular macOS /var
+    // and /tmp aliases must not leak into missing-parent creation proofs.
+    let path = path.canonicalize()?;
+    let paths = paths
+        .into_iter()
+        .map(|source| {
+            file_namespace_fingerprint(&source).map_err(DbError::Validation)?;
+            source.canonicalize().map_err(DbError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let expected = paths.iter().cloned().collect::<HashSet<_>>();
     if expected.len() != paths.len() || paths.iter().any(|p| p.parent() != Some(path.as_path())) {
         return Err(validation("one_off_folder_source_invalid"));
@@ -134,9 +145,17 @@ pub(super) fn capture_folder(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
+        let spelling = crate::path_identity::normalize_path(&path);
+        let spelling = if cfg!(windows) {
+            crate::path_identity::normalize_extended_windows_path_text(&spelling)
+                .map_err(validation)?
+                .unwrap_or(spelling)
+        } else {
+            spelling
+        };
         let row = source_row(
             &id,
-            &path.to_string_lossy(),
+            &spelling,
             &name,
             metadata.len() as i64,
             mtime,

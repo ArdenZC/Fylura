@@ -471,32 +471,16 @@ function Draw-DmgBackground {
   $bitmap.Dispose()
 }
 
-$logoSource = Test-LogoSource -Path $LogoHtmlPath
-$iconHtml = Join-Path $buildDir "brand-icon.html"
-$darkIconHtml = Join-Path $buildDir "brand-icon-dark.html"
-$iconPng = Join-Path $buildDir "icon.png"
-$darkIconPng = Join-Path $buildDir "icon-dark.png"
-Write-BrandIconHtml -Path $iconHtml -SourcePath $LogoHtmlPath -Mode "light"
-Write-BrandIconHtml -Path $darkIconHtml -SourcePath $LogoHtmlPath -Mode "dark"
-Invoke-ChromeScreenshot -HtmlPath $iconHtml -OutputPath $iconPng -Width 1024 -Height 1024
-Invoke-ChromeScreenshot -HtmlPath $darkIconHtml -OutputPath $darkIconPng -Width 1024 -Height 1024
-
-$source = [System.Drawing.Bitmap]::FromFile($iconPng)
-$darkSource = [System.Drawing.Bitmap]::FromFile($darkIconPng)
-Write-Ico -Source $source -Path (Join-Path $buildDir "icon.ico")
-Write-Ico -Source $darkSource -Path (Join-Path $buildDir "icon-dark.ico")
-Write-Ico -Source $source -Path (Join-Path $buildDir "installerIcon.ico")
-Write-Ico -Source $source -Path (Join-Path $buildDir "uninstallerIcon.ico")
-Write-Ico -Source $source -Path (Join-Path $buildDir "installerHeaderIcon.ico")
-Write-Icns -Source $source -Path (Join-Path $buildDir "icon.icns")
-Write-Icns -Source $darkSource -Path (Join-Path $buildDir "icon-dark.icns")
-Draw-BrandSidebar -Logo $source -Path (Join-Path $buildDir "installerSidebar.bmp")
-Draw-BrandSidebar -Logo $source -Path (Join-Path $buildDir "uninstallerSidebar.bmp")
-Draw-InstallerHeader -Logo $source -Path (Join-Path $buildDir "installerHeader.bmp")
-Draw-DmgBackground -Logo $source -Path (Join-Path $buildDir "dmg-background.png")
-$source.Dispose()
-$darkSource.Dispose()
-
-Get-ChildItem -LiteralPath $buildDir |
-  Sort-Object Name |
-  Select-Object Name, Length
+# Approved Fylura icons. The temporary HTML fixture must not overwrite them.
+& node (Join-Path $ProjectRoot "scripts/generateFyluraIcons.mjs")
+if ($LASTEXITCODE -ne 0) { throw "Fylura icon generation failed" }
+& node (Join-Path $ProjectRoot "scripts/verifyFyluraIcons.mjs")
+if ($LASTEXITCODE -ne 0) { throw "Fylura icon validation failed" }
+$source = [System.Drawing.Bitmap]::FromFile((Join-Path $buildDir "icon.png"))
+try {
+  Draw-BrandSidebar -Logo $source -Path (Join-Path $buildDir "installerSidebar.bmp")
+  Draw-BrandSidebar -Logo $source -Path (Join-Path $buildDir "uninstallerSidebar.bmp")
+  Draw-InstallerHeader -Logo $source -Path (Join-Path $buildDir "installerHeader.bmp")
+  Draw-DmgBackground -Logo $source -Path (Join-Path $buildDir "dmg-background.png")
+} finally { $source.Dispose() }
+Get-ChildItem -LiteralPath $buildDir | Sort-Object Name | Select-Object Name, Length

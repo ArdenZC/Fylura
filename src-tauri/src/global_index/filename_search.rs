@@ -1,4 +1,4 @@
-//! Default-off, in-process filename candidate projection for Global Search.
+//! In-process filename candidate projection for Global Search.
 //!
 //! SQLite remains authoritative. This module never installs persistent
 //! triggers or writes an index/feed. Pool connections report commits through
@@ -758,14 +758,67 @@ impl FilenameSearchManager {
 }
 
 fn candidate_enabled_from_environment() -> bool {
-    #[cfg(feature = "global-search-filename-relevance-candidate")]
-    {
-        std::env::var("ZC_GLOBAL_SEARCH_FILENAME_RELEVANCE_CANDIDATE")
-            .is_ok_and(|value| value == "1")
+    let override_value = std::env::var("ZC_GLOBAL_SEARCH_FILENAME_RELEVANCE_CANDIDATE").ok();
+    candidate_enabled_with_override(override_value.as_deref())
+}
+
+fn candidate_enabled_with_override(override_value: Option<&str>) -> bool {
+    if !cfg!(feature = "global-search-filename-relevance-candidate") {
+        return false;
     }
-    #[cfg(not(feature = "global-search-filename-relevance-candidate"))]
-    {
-        false
+
+    match override_value {
+        Some("0") => false,
+        Some("1") => true,
+        _ => candidate_enabled_by_default(),
+    }
+}
+
+fn candidate_enabled_by_default() -> bool {
+    cfg!(all(
+        feature = "global-search-filename-relevance-windows-default-on",
+        target_os = "windows",
+        not(debug_assertions)
+    )) || cfg!(all(
+        feature = "global-search-filename-relevance-macos-default-on",
+        target_os = "macos",
+        not(debug_assertions)
+    ))
+}
+
+#[cfg(test)]
+mod activation_tests {
+    use super::{candidate_enabled_by_default, candidate_enabled_with_override};
+
+    #[test]
+    fn candidate_defaults_on_only_for_explicit_platform_release_feature() {
+        assert_eq!(
+            candidate_enabled_by_default(),
+            cfg!(all(
+                feature = "global-search-filename-relevance-windows-default-on",
+                target_os = "windows",
+                not(debug_assertions)
+            )) || cfg!(all(
+                feature = "global-search-filename-relevance-macos-default-on",
+                target_os = "macos",
+                not(debug_assertions)
+            ))
+        );
+    }
+
+    #[test]
+    fn environment_override_can_disable_or_diagnostically_enable_candidate() {
+        let compiled = cfg!(feature = "global-search-filename-relevance-candidate");
+        assert!(!candidate_enabled_with_override(Some("0")));
+        assert_eq!(candidate_enabled_with_override(Some("1")), compiled);
+        assert_eq!(
+            candidate_enabled_with_override(None),
+            candidate_enabled_by_default()
+        );
+        assert_eq!(
+            candidate_enabled_with_override(Some("invalid")),
+            candidate_enabled_by_default()
+        );
     }
 }
 

@@ -8,11 +8,11 @@
   "copyright": "Copyright © 2026 Startlan",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev --features desktop-runtime",
+    "dev": "tauri dev --features desktop-runtime,global-search-filename-relevance-candidate",
     "build": "node scripts/buildWindowsPackage.mjs",
     "build:frontend": "vite build",
     "build:native-preview-handler": "node scripts/buildWindowsPreviewHandler.mjs",
-    "check:rust:release": "cargo check --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime",
+    "check:rust:release": "cargo check --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime,global-search-filename-relevance-candidate",
     "build:check": "npm run build:frontend && npm run check:rust:release",
     "test": "vitest run",
     "test:browser:w2-01:contract": "vitest run tests/w2-01BrowserGateContract.test.ts",

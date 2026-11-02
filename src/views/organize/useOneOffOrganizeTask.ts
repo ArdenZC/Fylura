@@ -7,9 +7,9 @@ import { readableError } from "../../utils/viewHelpers";
 import { withOneOffOrganizeSource } from "./oneOffOrganizeSource";
 
 export function useOneOffOrganizeTask(t: Translator, platform: string) {
-  function taskError(error: unknown) {
+  function taskError(error: unknown, source = false) {
     const code = readableError(error);
-    return t(code.includes("too_large") ? "organizeOneOffTooLarge" : /incomplete|folder_changed/.test(code) ? "organizeOneOffIncomplete" : /source_changed|source_identity/.test(code) ? "organizeOneOffSourceChanged" : "organizeOneOffProviderError");
+    return t(code.includes("too_large") ? "organizeOneOffTooLarge" : /incomplete|folder_changed/.test(code) ? "organizeOneOffIncomplete" : /source_changed|source_identity/.test(code) ? "organizeOneOffSourceChanged" : source ? "organizeOneOffFolderUnavailable" : "organizeOneOffProviderError");
   }
   const [folderPath, setFolderPath] = useState("");
   const [reading, setReading] = useState(false);
@@ -29,7 +29,7 @@ export function useOneOffOrganizeTask(t: Translator, platform: string) {
       const selection = await open({ directory: true, multiple: false, title: t("browseChooseFolderTitle") });
       const path = Array.isArray(selection) ? selection[0] : selection;
       if (path) setFolderPath(path);
-    } catch (error) { setError(taskError(error)); }
+    } catch (error) { setError(taskError(error, true)); }
   }
 
   async function create(title: string) {
@@ -43,7 +43,7 @@ export function useOneOffOrganizeTask(t: Translator, platform: string) {
           kind: "one_off", version: 1, sessionId: folder.sessionId, pathRef: folder.rootPathRef, entries: entries.map((entry) => entry.ref)
         }, entries.length, title || folderName), { maxItems: 100, signal: abort.signal });
     } catch (error) {
-      if (!abort.signal.aborted) setError(taskError(error));
+      if (!abort.signal.aborted) setError(taskError(error, true));
     } finally { sourceAbort.current = null; setReading(false); }
   }
 

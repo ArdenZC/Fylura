@@ -1,4 +1,5 @@
-import { useOperationQueueStore } from "../../store/useOperationQueueStore";
+import { requestOrganizationHistoryBatch, useOrganizationOperationProgress } from "./organizationOperationFeedback";
+import { OneOffOrganizeConsent } from "./OneOffOrganizeConsent";
 import { useOneOffOrganizeTask } from "./useOneOffOrganizeTask";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ChevronRight, CircleMinus, Edit3, History, ListRestart, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, X } from "lucide-react";
@@ -94,7 +95,7 @@ export function OrganizeSuggestionsView() {
   const storeIsMutating = useOrganizationPlanStore((state) => state.isMutating);
   const isMutating = storeIsMutating || oneOff.reading || Boolean(oneOff.progress);
   const isExecutionInFlight = useOrganizationPlanStore((state) => state.isExecutionInFlight);
-  const operationProgress = useOperationQueueStore((state) => state.operationProgress);
+  const operationProgress = useOrganizationOperationProgress();
   const error = useOrganizationPlanStore((state) => state.error);
   const loadPlans = useOrganizationPlanStore((state) => state.loadPlans);
   const createPlan = useOrganizationPlanStore((state) => state.createPlan);
@@ -595,7 +596,7 @@ export function OrganizeSuggestionsView() {
   }
 
   function openHistory() {
-    useOperationQueueStore.setState({ requestedHistoryBatchId: executionResult?.operationBatchId ?? plan?.activeOperationBatchId ?? null });
+    requestOrganizationHistoryBatch(executionResult?.operationBatchId ?? plan?.activeOperationBatchId ?? null);
     setView("restore");
   }
 
@@ -614,10 +615,7 @@ export function OrganizeSuggestionsView() {
       />
       {oneOff.error ? <NoticeBanner tone="error" title={t("organizeOneOffFailed")}>{oneOff.error}</NoticeBanner> : null}
       {oneOff.reading ? <div role="status">{t("organizeOneOffReading")} <Button variant="ghost" onClick={oneOff.cancel}>{t("fmCancel")}</Button></div> : null}
-      {plan?.sourceKind === "one_off" && needsAnalysisCount > 0 ? <div className="flex flex-wrap items-center gap-3 text-sm">
-        <label className="flex items-center gap-2"><input type="checkbox" checked={oneOff.consent} disabled={isMutating} onChange={(event) => oneOff.setConsent(event.target.checked)} />{t("organizeOneOffConsent")}</label>
-        <Button variant="primary" disabled={isMutating || !oneOff.consent || !canGenerateSemanticProposals} onClick={() => void handleAnalyzeMissing()}>{t("organizePlanAnalyze")}</Button>
-      </div> : null}
+      {plan?.sourceKind === "one_off" && needsAnalysisCount > 0 ? <OneOffOrganizeConsent consent={oneOff.consent} busy={isMutating} providerReady={canGenerateSemanticProposals} onConsent={oneOff.setConsent} onAnalyze={() => void handleAnalyzeMissing()} t={t} /> : null}
       {oneOff.progress ? <div role="status" className="flex items-center gap-3"><span>{t("organizeOneOffProgress").replace("{done}", String(oneOff.progress.done)).replace("{total}", String(oneOff.progress.total))}</span><Button variant="secondary" onClick={oneOff.cancel}>{t("organizeOneOffStop")}</Button></div> : null}
       {isExecutionInFlight ? <div role="status">{t("organizeOneOffExecuting")} {operationProgress ? `${operationProgress.processed} / ${operationProgress.total}` : ""} <Button variant="secondary" onClick={() => void tauriApi.cancelOperations().catch(() => undefined)}>{t("fmCancel")}</Button></div> : null}
       {!plan && (planListState === "idle" || planListState === "loading") ? (
@@ -705,7 +703,7 @@ export function OrganizeSuggestionsView() {
                   <summary className={cn(buttonGhost, "cursor-pointer list-none")}>{t("organizePlanActions")} <MoreHorizontal size={14} aria-hidden="true" /></summary>
                   <div className="absolute right-0 z-20 mt-1 grid min-w-52 gap-1 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1 shadow-[var(--zc-shadow-menu)]" role="menu">
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !["stale", "ready", "partially_completed"].includes(plan.status)} onClick={() => void handleRefreshPlan().catch(() => undefined)}><RefreshCw size={14} aria-hidden="true" />{t("organizePlanRefresh")}</Button>
-                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount || !canGenerateSemanticProposals || (plan?.sourceKind === "one_off" && !oneOff.consent)} title={needsAnalysisCount && !canGenerateSemanticProposals ? t("organizeReadinessAnalyzeBlocked") : undefined} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
+                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount || !canGenerateSemanticProposals || (plan?.sourceKind === "one_off" && !oneOff.consent)} title={needsAnalysisCount && !canGenerateSemanticProposals ? t(plan?.sourceKind === "one_off" ? "organizeOneOffProviderError" : "organizeReadinessAnalyzeBlocked") : undefined} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !canCancel} onClick={() => void handleCancelPlan().catch(() => undefined)}><X size={14} aria-hidden="true" />{t("organizePlanCancel")}</Button>
                   </div>
                 </details>

@@ -6,7 +6,8 @@ import { makeTranslator } from "../src/i18n";
 import { useOrganizationPlanStore } from "../src/store/useOrganizationPlanStore";
 import type { OrganizationPlan } from "../src/types/domain";
 import { useOneOffOrganizeTask } from "../src/views/organize/useOneOffOrganizeTask";
-const api = vi.hoisted(() => ({ queryOrganizationPlanItems: vi.fn() }));
+const api = vi.hoisted(() => ({ queryOrganizationPlanItems: vi.fn(), withSource: vi.fn() }));
+vi.mock("../src/views/organize/oneOffOrganizeSource", () => ({ withOneOffOrganizeSource: api.withSource }));
 vi.mock("../src/api/tauriApi", () => ({ tauriApi: api }));
 const initial = useOrganizationPlanStore.getState();
 const plan = { id: "one-off-a", sourceKind: "one_off", revision: 1 } as OrganizationPlan;
@@ -23,6 +24,14 @@ beforeEach(async () => {
 });
 afterEach(async () => { await act(async () => root.unmount()); useOrganizationPlanStore.setState(initial); });
 describe("one-off task authorization and lifecycle", () => {
+  it("reports folder permission/admission failures as source errors", async () => {
+    api.withSource.mockRejectedValueOnce(new Error("workspace_browse_directory_unavailable"));
+    await act(async () => { task.setFolderPath("C:/missing"); });
+    await act(async () => { await task.create(""); });
+    expect(task.error).toContain("Check its path and access permissions");
+    expect(task.reading).toBe(false);
+    expect(useOrganizationPlanStore.getState().analyzeMissing).not.toHaveBeenCalled();
+  });
   it("does not analyze before task consent and does not reuse consent for another Plan", async () => {
     await act(async () => { await task.analyze(); });
     expect(api.queryOrganizationPlanItems).not.toHaveBeenCalled();

@@ -261,7 +261,7 @@ async function runScene(browser, baseUrl, scene, viewport, action) {
   };
 
   try {
-    await page.goto(`${baseUrl}?w2-01-browser-fixture=virtualized`, { waitUntil: "commit", timeout: 60_000 });
+    await page.goto(`${baseUrl}?w2-01-browser-fixture=virtualized&managed-library-test=1`, { waitUntil: "commit", timeout: 60_000 });
     await waitForApp(page);
     const result = await action(page, viewport, state);
     if (pageErrors.length || consoleErrors.length) {

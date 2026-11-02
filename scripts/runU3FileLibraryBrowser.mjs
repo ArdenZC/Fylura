@@ -168,8 +168,10 @@ try {
     await chinesePane.getByRole("textbox", { name: "文件夹路径", exact: true }).fill("C:/U3/Left");
     await chinesePane.getByRole("textbox", { name: "文件夹路径", exact: true }).press("Enter");
     await chinesePane.locator('[data-browse-state="current-folder"]').waitFor({ state: "visible" });
-    // Validate initial directory enumeration, then verify it survives sorting.
-    await chinesePane.locator('[data-browse-entry-kind="directory"]').first().waitFor({ state: "visible" });
+    // The native-order mock first page contains 32 files and no directories.
+    // Prove initial enumeration has published, then apply the backend snapshot
+    // name sort (foldersFirst=true) before asserting a directory is visible.
+    await chinesePane.locator('[data-browse-entry-kind="file"]').first().waitFor({ state: "visible" });
     await chinesePane.locator("[data-browse-sort]").selectOption("name");
     await chinesePane.locator('[data-browse-entry-kind="directory"]').first().waitFor({ state: "visible" });
   } catch (error) {

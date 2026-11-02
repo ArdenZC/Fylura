@@ -16,7 +16,8 @@ import { WorkspaceCommandBar } from "../src/views/fileLibrary/FileLibraryWorkspa
 import { FileLibraryExperienceProvider, useFileLibraryExperience } from "../src/views/fileLibrary/FileLibraryExperienceProvider";
 import {
   FileLibraryExperienceController,
-  LEGACY_LIBRARY_MIGRATION_TARGET
+  LEGACY_LIBRARY_MIGRATION_TARGET,
+  isManagedLibraryBrowserFixture
 } from "../src/views/fileLibrary/fileLibraryExperience";
 import type { FileLibraryExperienceState } from "../src/views/fileLibrary/fileLibraryExperience";
 import type { BrowseOpenResponse, BrowsePage, LocationRef } from "../src/types/fileWorkspace";
@@ -534,5 +535,31 @@ describe("W2-01 AppShell-lifetime provider", () => {
 
     await experience.dispose();
     expect(browseDispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("Managed Library browser compatibility boundary", () => {
+  it("requires explicit fixture opt-in and rejects a native Tauri runtime", () => {
+    const original = window.location.href;
+    try {
+      window.history.replaceState(null, "", "/");
+      expect(isManagedLibraryBrowserFixture()).toBe(false);
+      window.history.replaceState(null, "", "/?managed-library-test=1");
+      expect(isManagedLibraryBrowserFixture()).toBe(true);
+      const controller = new FileLibraryExperienceController();
+      expect(controller.getState().mode).toBe("library");
+      expect(controller.getState().workspace.session.currentTarget).toEqual(LEGACY_LIBRARY_MIGRATION_TARGET);
+      void controller.dispose();
+      vi.stubGlobal("__TAURI__", {});
+      expect(isManagedLibraryBrowserFixture()).toBe(false);
+      const native = new FileLibraryExperienceController();
+      expect(native.getState().mode).toBe("browse");
+      expect(native.getState().workspace.session.currentTarget).toBeNull();
+      void native.dispose();
+    } finally {
+      vi.unstubAllGlobals();
+      window.history.replaceState(null, "", original);
+    }
   });
 });

@@ -12,7 +12,7 @@ const ACTUAL_CHECKOUT_SHA = execFileSync("git", ["rev-parse", "HEAD"], { encodin
 const ACTUAL_CHECKOUT_TREE = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
 if (EXPECTED_CHECKOUT_SHA) assertCheckoutEvidence(EXPECTED_CHECKOUT_SHA, ACTUAL_CHECKOUT_SHA);
 
-const FIXTURE_QUERY = "w2-11-browser-fixture=integrated";
+const FIXTURE_QUERY = "managed-library-test=1&w2-11-browser-fixture=integrated";
 const LIBRARY_TOTAL = 100_000;
 const BROWSE_TOTAL = 100_000;
 const BROWSE_SCAN_BUDGET = 1_024;

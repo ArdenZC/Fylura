@@ -81,6 +81,7 @@ try {
   const placeCount = await page.locator("[data-browse-place]").count();
   assert.ok(placeCount >= 4, `expected at least four places, saw ${placeCount}`);
   await page.screenshot({ path: path.join(output, "05-files-no-folder-zh-light.png") });
+  assert.equal(await page.locator("[data-file-library-mode]").count(), 0);
   checks.push("finishing the intro lands on Files with places and no folder open");
 
   // ---- Durable skip across a restart ----
@@ -95,14 +96,15 @@ try {
   checks.push("a place opens a real Browse session through user-intent admission");
   await page.screenshot({ path: path.join(output, "06-files-place-open-zh-light.png") });
 
-  // ---- The two AI jobs are discoverable from the current folder ----
+  // AI entries navigate to their workspaces; they do not transfer folder scope.
   await page.locator(".fm-more-trigger").click();
-  await page.locator("[data-fm-open-organize]").waitFor();
+  await page.getByRole("button", { name: "打开 AI 整理", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "打开 AI 清理", exact: true }).count(), 1);
   assert.equal(await page.locator("[data-fm-open-cleanup]").count(), 1);
   await page.screenshot({ path: path.join(output, "07-files-ai-entries-zh-light.png") });
   await page.locator("[data-fm-open-organize]").click();
   await page.waitForTimeout(300);
-  checks.push("the Files more panel exposes organize and cleanup for the current folder");
+  checks.push("the Files more panel truthfully opens AI workspaces without promising folder scope");
 
   // ---- English dark and narrow layouts ----
   const dark = await openApp({ language: "en", theme: "dark" });

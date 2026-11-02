@@ -7,7 +7,7 @@ import { lazy, useCallback, useEffect, useRef, useState, type ReactNode, type Re
 import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
-import type { FileLibraryMode } from "./fileLibraryExperience";
+import { isManagedLibraryBrowserFixture, type FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
 import { LibraryNavigationSurfaceProvider } from "./library/libraryNavigationSurface";
 import { FileLibraryNavigation } from "./navigation/FileLibraryNavigation";
@@ -132,6 +132,9 @@ function FileLibraryPane() {
             data-context-open={contextOpen ? "true" : "false"}
             data-file-library-navigation-open={navigationOpen ? "true" : "false"}
           >
+            {isManagedLibraryBrowserFixture() && <div role="tablist" aria-label="Managed Library compatibility fixture">
+              {(["library", "browse"] as const).map((mode) => <button key={mode} role="tab" aria-selected={state.mode === mode} data-file-library-mode={mode} onClick={() => void controller.switchMode(mode)}>{mode === "library" ? t("fileLibraryModeLibrary") : t("fileLibraryModeBrowse")}</button>)}
+            </div>}
             <PathBar />
             <WorkspaceCommandBar
               mode={state.mode}

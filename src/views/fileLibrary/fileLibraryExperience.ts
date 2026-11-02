@@ -1,3 +1,4 @@
+import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
@@ -12,6 +13,12 @@ import {
   type FileWorkspaceControllerState
 } from "../../fileWorkspace";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
+
+/** Explicit compatibility fixture; never available inside the Tauri runtime. */
+export function isManagedLibraryBrowserFixture() {
+  return isBrowserMockEnabled()
+    && new URLSearchParams(globalThis.location?.search ?? "").get("managed-library-test") === "1";
+}
 
 export type FileLibraryMode = "library" | "browse";
 
@@ -50,6 +57,11 @@ export class FileLibraryExperienceController {
 
   constructor(workspace = createDefaultWorkspaceController()) {
     this.workspace = workspace;
+    if (isManagedLibraryBrowserFixture()) {
+      workspace.navigate(LEGACY_LIBRARY_MIGRATION_TARGET);
+      this.modeValue = "library";
+      this.detachedBrowseValue = false;
+    }
     this.authoritativeTargetSignature = navigationTargetSignature(workspace.getState().session.currentTarget);
     this.stateValue = this.composeState(workspace.getState());
     this.unsubscribeWorkspace = workspace.subscribe((state) => this.syncFromWorkspace(state));

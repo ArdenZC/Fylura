@@ -396,7 +396,7 @@ async function collectScenario(page, name, fileName, representation, chooseFile 
 }
 
 async function navigateToFixture(page, query) {
-  await page.goto(`${baseUrl}?${query}`, { waitUntil: "commit" });
+  await page.goto(`${baseUrl}?managed-library-test=1&${query}`, { waitUntil: "commit" });
   await page.waitForSelector("#root", { state: "attached" });
   await page.getByRole("button", { name: "Files", exact: true }).waitFor({ state: "visible" });
 }

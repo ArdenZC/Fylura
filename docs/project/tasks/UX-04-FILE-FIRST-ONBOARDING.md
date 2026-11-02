@@ -80,8 +80,8 @@ existing command launcher), AI organize, AI cleanup — then History/Restore, th
 Overview (Managed Library setup) and Settings. `initialViewFromSearch` defaults
 to `library`; `?view=scanner` and every other canonical route still resolve.
 
-The Files toolbar "More" panel exposes **Organize this folder** and
-**Clean up this folder**; both use the existing views, whose AI readiness notices
+The Files toolbar "More" panel exposes **Open AI Organize** and
+**Open AI Cleanup**; both use the existing views, whose AI readiness notices
 already explain how to configure a provider instead of reporting a technical
 error.
 
@@ -103,3 +103,21 @@ error.
   currently implemented plan/review/execute and Safe Trash flows.
 - Managed Library remains reachable through internal navigation and Settings, but
   has no first-class user-visible switch until a future ADR reopens it.
+
+
+## M0-A correction — 2026-11-02
+
+The retained Managed Library browser regressions now opt into
+`managed-library-test=1`. This mock-only compatibility fixture uses the existing
+controller and Query V2; it is rejected inside Tauri and does not restore a
+Library/Browse switch in the ordinary Files UI. U4 retains Inspector, notes,
+favorites, reload, dual-pane and narrow-layout coverage. W2-10/W2-11/W3-10
+compatibility harnesses use the same explicit fixture.
+
+Files AI actions say Open AI Organize / Open AI Cleanup: navigation does not yet
+transfer the current folder. One-off scope admission remains M2/M3.
+
+Local validation on the M0-A working changes: U4, UX-04, W2-10 (six viewport/DPR
+combinations), typecheck, frontend build and focused onboarding/permissions tests
+passed. Browser evidence is mock evidence; installed Windows/macOS GUI stays
+UNVERIFIED under #487. Required exact-head CI must pass before merge.

@@ -327,6 +327,24 @@ export function committedLifecycleRecoveryFailure(error: unknown): string | null
 
 export function localizedStableError(error: unknown, t: Translator): string {
   const message = readableError(error);
+  const windowsGlobalIndexError = message.replace(/^provider error:\s*/i, "");
+  if (windowsGlobalIndexError === "windows_global_index_unstable_volume_identity") {
+    return t("globalIndexErrorWindowsStableIdentity");
+  }
+  if (windowsGlobalIndexError === "windows_global_index_unsupported_virtual_volume"
+    || windowsGlobalIndexError === "windows_global_index_usn_journal_support_not_advertised") {
+    return t("globalIndexErrorWindowsUsnJournalUnavailable");
+  }
+  if (windowsGlobalIndexError.startsWith("windows_global_index_unsupported_filesystem:")) {
+    return t("globalIndexErrorWindowsUnsupportedFilesystem");
+  }
+  if (windowsGlobalIndexError.startsWith("windows_global_index_unsupported_drive_kind:")) {
+    return t("globalIndexErrorWindowsUnsupportedDriveKind");
+  }
+  if (windowsGlobalIndexError === "windows_global_index_native_provider_unsupported"
+    || windowsGlobalIndexError === "global_index_source_not_authorizable") {
+    return t("globalIndexErrorWindowsVolumeUnsupported");
+  }
   if (message.startsWith("Storage cleanup finding requires a current AI assessment:")) {
     return t("storageCleanupCurrentAssessmentRequired");
   }

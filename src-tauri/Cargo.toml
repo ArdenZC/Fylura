@@ -32,6 +32,7 @@ required-features = ["native-qa"]
 default = []
 ai-debug = []
 native-qa = []
+global-search-filename-relevance-candidate = []
 desktop-runtime = [
     "tauri/wry",
     "tauri/compression",
@@ -50,10 +51,11 @@ flate2 = "1"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 jwalk = "0.8.1"
 jiff = { version = "=0.2.37", default-features = false, features = ["std", "tz-fat", "tzdb-bundle-always"] }
+log = "0.4"
 notify = "8"
 r2d2 = "0.8"
 r2d2_sqlite = { version = "0.34.0", features = ["bundled"] }
-rusqlite = { version = "0.39", features = ["backup", "bundled"] }
+rusqlite = { version = "0.39", features = ["backup", "bundled", "hooks"] }
 plist = "1.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

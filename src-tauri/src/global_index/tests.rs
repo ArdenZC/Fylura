@@ -1,3 +1,6 @@
+#[path = "tests/filename_search_candidate.rs"]
+mod filename_search_candidate;
+
 use super::*;
 use crate::db::Database;
 use crate::global_index::repository::{SourceOperationKind, SourceOperationRoute};

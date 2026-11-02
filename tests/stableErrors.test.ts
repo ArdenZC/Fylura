@@ -26,6 +26,12 @@ describe("stable error codes", () => {
     expect(localizedStableError("claim_identity_mismatch", zh)).toContain("身份不一致");
     expect(localizedStableError("manual_review_required", en)).toContain("manual review");
     expect(localizedStableError("system_trash_source_binding_unsupported", zh)).toContain("系统回收站");
+    expect(localizedStableError("provider error: windows_global_index_unsupported_virtual_volume", en))
+      .toContain("USN journal support");
+    expect(localizedStableError("provider error: windows_global_index_usn_journal_support_not_advertised", en))
+      .toContain("does not identify the cause");
+    expect(localizedStableError("windows_global_index_unstable_volume_identity", zh))
+      .toContain("稳定卷标识");
     expect(localizedStableError("directory_tree_limit_exceeded", en)).toContain("5,000 descendant entries or 64 directory levels");
     expect(localizedStableError("transfer_nested_volume_unsupported", zh)).toContain("挂载卷");
     expect(localizedStableError("symlink_or_reparse_point", en)).toContain("symlink or reparse point");

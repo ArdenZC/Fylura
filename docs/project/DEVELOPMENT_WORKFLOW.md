@@ -2,6 +2,17 @@
 
 This workflow is the default engineering operating model for new work after G1. A narrower security/task contract may add stricter gates; it may not weaken these rules silently.
 
+
+### Engineering B-plan acceptance layers — Owner approved 2026-11-01
+
+One existing CI system, three distinct product claims; **no additional sign-off bureaucracy**:
+
+1. **Code merge:** exact-head required CI + security/correctness tests in the changed authority. Schema, mutation, authorization, durable service state and journaling remain hard gates. The four `Protect master` check names are unchanged.
+2. **Hidden feature activation:** separate statistical performance and supported native GUI evidence; an experimental default-off merge is not activation approval. Keep negative evidence and `POINT_PASS_INCONCLUSIVE` explicit.
+3. **Public release:** installed native Windows and Apple Silicon macOS product QA, long-duration resource qualifications and migration/rollback evidence. Mark hosted capability failures `ENVIRONMENT_UNVERIFIED`, never `PASS`.
+
+Relevant code failures block the current PR. Tests outside the changed authority still run in scheduled/full/release lanes; do not allow environment noise or historical unrelated candidates to redefine the current merge decision. **These are routing intentions until the corresponding required CI check implementations pass and merge under existing branch protection.** A resource threshold change needs a calibrated unchanged-master baseline and separate Owner review; no automatic change to the five-epoch growth rule or writer +10% target is authorized by this section.
+
 ## Opt-in pre-push feedback and CI failure triage
 
 For Codex Cloud and local worktrees, these optional tools provide earlier feedback

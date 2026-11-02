@@ -1,8 +1,24 @@
 # Fylura Project Status
 
-Last verified: 2026-10-29 (active snapshot; dated records below retained)
+Last verified: 2026-11-01 (current engineering checkpoint; earlier snapshots below are historical)
 
-## Active execution snapshot — 2026-10-29
+## Owner product-direction addendum — 2026-11-01
+
+**Product decision, not implementation/CI status:** [ADR-0016](DECISIONS/0016-file-first-four-core-jobs.md) / [#527](https://github.com/ArdenZC/Fylura/issues/527) approves one visible Files/Browse mode (retain existing Managed Library code and durable data), skippable first-launch capability tour, optional explicit Global Search disk indexing, and two independent AI product jobs: one-off grouped Organize and AI-explained grouped Cleanup. No default background AI, no forced first-run folder selection, and no per-file confirmation for ordinary safe grouped plans. The target task order and implementation gaps are recorded in [ROADMAP.md](ROADMAP.md). **These behavior changes are not yet implemented or qualified merely by this ADR.** The 2026-10-29 snapshot and earlier entries below are dated implementation evidence, not a newer product-direction override. Follow current #512/PR/master for changing delivery state.
+
+## Current engineering and delivery checkpoint — 2026-11-01
+
+**Verified GitHub baseline:** `master@c2e26672923526e6a29da3ea3b5fd317301e125a` after [product direction #528](https://github.com/ArdenZC/Fylura/pull/528). Check live `master` before implementation; this SHA is a dated reference, not a pinned task base.
+
+- **Engineering decision:** Owner approved the medium-scope B plan (risk-proportional CI and merge/activation/release separation). This decision changes no required GitHub status name, user-data safety invariant, resource threshold, macOS release acceptance or product-default feature flag by itself. See [B plan first-batch implementation](../research/CI_RISK_PROPORTIONAL_B_PLAN_2026-11-01.md) once merged.
+- **Active code candidate:** [#518](https://github.com/ArdenZC/Fylura/pull/518) at `fb00cc435942cdc6bfce392eaba2538e83bd9e85`, OPEN/DRAFT/default-OFF, real Windows GUI Search/source-revocation PASS; main exact-head CI #41313526841 FAIL (Windows service Pause/durable-state and macOS small RSS trend). Do not label it merged or default-on.
+- **Integrated:** #524 default Search source authorization, #525/#526 Smart Lean CI trigger refinement, #521 File Task Center. Existing product-direction [ADR-0016](DECISIONS/0016-file-first-four-core-jobs.md) is approved specification, **not implementation**.
+- **Next product evidence:** [#487](https://github.com/ArdenZC/Fylura/issues/487) owns full native Windows/macOS coverage; [#512](https://github.com/ArdenZC/Fylura/issues/512) owns product inventory. Apple Silicon installed GUI acceptance and historical >4 GiB/exit are UNVERIFIED.
+- **Operating rule:** implement bounded feature/fix in one ordinary PR with focused relevant tests; core files/authorization/Journal/Restore safety stay hard-gated. A hidden candidate's code merge does not authorize activation or a cross-platform public release.
+
+**The older October snapshot immediately below is retained as historical evidence, not the current baseline.** Avoid treating its PR states or URLs as live facts.
+
+## Historical execution snapshot — 2026-10-29
 
 This short section supersedes dated status claims below. For changing facts, check
 the linked PR/Issue and the current remote `master`; do not treat historical

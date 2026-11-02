@@ -29,15 +29,12 @@ const WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES = [
 ];
 
 const WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS = new Set([
-  ".github/workflows/ci.yml",
   "src-tauri/src/lib.rs",
   "src-tauri/src/main.rs",
   "src-tauri/cargo.toml",
   "src-tauri/cargo.lock",
   "src-tauri/native-qa/global_index_probe.rs",
-  "scripts/classifycichanges.mjs",
-  "scripts/classifycichanges.d.mts",
-  "scripts/qualifywindowsglobalindexservice.ps1",
+   "scripts/qualifywindowsglobalindexservice.ps1",
 ]);
 
 const HIGH_RISK_PREFIXES = [
@@ -141,9 +138,24 @@ function isWindowsNativePreviewHandlerPath(path) {
   return startsWithAny(path, WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES);
 }
 
+// Only proven query/relevance owners can skip the Windows native service
+// recovery test. Unknown production owners fail closed, including future new
+// Index Scope / source-writer modules; macOS-only native code is separate.
+const GLOBAL_INDEX_SERVICE_QUERY_ONLY_PATHS = new Set([
+  "src-tauri/src/global_index/search.rs",
+  "src-tauri/src/global_index/query.rs",
+  "src-tauri/src/global_index/filename_search.rs",
+  "src-tauri/src/global_index/tests/search_source_authorization.rs",
+  "src-tauri/src/global_index/tests/filename_search_candidate.rs",
+  "src-tauri/src/global_index/tests/filename_first_candidate_benchmark.rs",
+  "src-tauri/src/global_index/tests/extension_single_key_tests.rs",
+]);
+
 function isWindowsGlobalIndexServiceQualificationPath(path) {
-  return path.startsWith("src-tauri/src/global_index/")
-    || WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS.has(path);
+  return WINDOWS_GLOBAL_INDEX_SERVICE_QUALIFICATION_PATHS.has(path)
+    || (path.startsWith("src-tauri/src/global_index/")
+      && !path.startsWith("src-tauri/src/global_index/macos/")
+      && !GLOBAL_INDEX_SERVICE_QUERY_ONLY_PATHS.has(path));
 }
 
 function isHighRiskPath(path) {
@@ -177,6 +189,9 @@ function isDbCorePath(path) {
 }
 
 function isSearchPath(path) {
+  // Workflows are orchestration, not product Search source files. In particular
+  // global-search-benchmark.yml must not select product Search just by name.
+  if (path.startsWith(".github/workflows/")) return false;
   // "research" contains the substring "search". Strip that lexical container
   // before the legacy broad Search-name check so research-only paths do not
   // accidentally trigger the product Search performance suite.
@@ -244,6 +259,24 @@ function isPreviewPerformancePath(path) {
 function isWorkflowPath(path) {
   return path.startsWith(".github/workflows/")
     || path === "scripts/classifycichanges.mjs"
+    || path === "scripts/civalidationplan.mjs"
+    || path.startsWith("scripts/performance")
+    || path.startsWith("scripts/runperformance")
+    || path.startsWith("scripts/prepareperformance")
+    || path.startsWith("scripts/checkperformance")
+    || path.startsWith("src-tauri/tests/performance_fixture")
+    || path.startsWith("src-tauri/tests/support/performance_fixture");
+}
+
+// Changes to these shared owners can change which performance suites execute,
+// their input identities, or their pass/fail aggregation. Preserve all-domain
+// validation. An independent workflow such as Smart Lean or Release should
+// instead use its own contract checks, not six unrelated 100k suites.
+function isSharedPerformanceRoutingPath(path) {
+  return path === ".github/workflows/ci.yml"
+    || path === ".github/workflows/ci-full.yml"
+    || path === "scripts/classifycichanges.mjs"
+    || path === "scripts/civalidationplan.mjs"
     || path.startsWith("scripts/performance")
     || path.startsWith("scripts/runperformance")
     || path.startsWith("scripts/prepareperformance")
@@ -265,8 +298,9 @@ export function classifyCiScope({
     || (event === "workflow_dispatch" && dispatchFull)
     || (event === "pull_request" && labels.has("full-validation"));
   const workflowChanged = hasAnyPath(normalizedPaths, isWorkflowPath);
+  const sharedPerformanceRoutingChanged = hasAnyPath(normalizedPaths, isSharedPerformanceRoutingPath);
   const dbCoreChanged = hasAnyPath(normalizedPaths, isDbCorePath);
-  const allDomains100k = requestedFull || baseMissing || workflowChanged || dbCoreChanged;
+  const allDomains100k = requestedFull || baseMissing || sharedPerformanceRoutingChanged || dbCoreChanged;
 
   const result = {
     docs_only: !requestedFull
@@ -285,7 +319,7 @@ export function classifyCiScope({
       || hasAnyPath(normalizedPaths, (path) => isMacosSensitivePath(path) || isRustPath(path)),
     performance_sensitive: requestedFull
       || baseMissing
-      || workflowChanged
+      || sharedPerformanceRoutingChanged
       || hasAnyPath(
         normalizedPaths,
         (path) => isNativePerformancePath(path) || isWorkspaceFoundationPath(path),

@@ -14,7 +14,12 @@ export function collectW201BrowserMeasurement(sourceHead = null, requestedViewpo
   if (Array.isArray(sourceHead) && requestedViewport === null) {
     [sourceHead, requestedViewport] = sourceHead;
   }
-  const select = (selector, root = document) => root.querySelector(selector);
+  // The workbench remains mounted but is hidden when the user visits another
+  // view. Only visible scene elements participate in layout measurements.
+  const select = (selector, root = document) => {
+    const element = root.querySelector(selector);
+    return element?.closest("[hidden]") ? null : element;
+  };
   const rect = (element) => {
     if (!element) return null;
     const box = element.getBoundingClientRect();

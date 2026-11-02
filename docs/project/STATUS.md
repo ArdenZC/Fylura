@@ -1,6 +1,6 @@
 # Fylura Project Status
 
-Last verified: 2026-11-02 against GitHub and remote master. Dated baseline: `6392e66` ([#535](https://github.com/ArdenZC/Fylura/pull/535)); always fetch latest master before work.
+Last verified: 2026-11-02 against GitHub and remote master. Dated baseline: `8a6a87f` ([#537](https://github.com/ArdenZC/Fylura/pull/537)); always fetch latest master before work.
 
 ## Current product goal
 
@@ -20,8 +20,9 @@ Scope: [delivery record](initiatives/file-first-product-delivery.md), [ADR-0016]
 
 ## Work in progress
 
-- The sole mainline task is M1 Files simplification (one location/search row, on-demand tools/comparison, file rows first; Global Search only through the top search bar/shortcut) and transfer-result navigation: root paths were truncated, partial failures opened the failed item's directory, and all-failed batches still offered destination navigation. Fix the renderer on existing transfer/Browse/History owners; no engine or recovery changes.
+- The sole mainline task is [M1 #536](https://github.com/ArdenZC/Fylura/pull/536): Files simplification (one location/search row, on-demand tools/comparison, file rows first; Global Search only through the top search bar/shortcut) and transfer-result navigation: root paths were truncated, partial failures opened the failed item's directory, and all-failed batches still offered destination navigation. Fix the renderer on existing transfer/Browse/History owners; no engine or recovery changes.
 - [#512](https://github.com/ArdenZC/Fylura/issues/512) is the open product inventory; [#487](https://github.com/ArdenZC/Fylura/issues/487) owns remaining real Windows/macOS GUI acceptance.
+- Search activation: **CODE_MERGED** for #518/#533; **WINDOWS_DEFAULT_ON=false**, **MACOS_DEFAULT_ON=false**, **RELEASE_READY=false**. Windows activation awaits representative installed-app resource/exit qualification; macOS GUI remains **UNVERIFIED**. #404 SQLite writer competition and #353 macOS resource evidence stay separate. This does not block M1. Merged delivery: [#537](https://github.com/ArdenZC/Fylura/pull/537).
 - Independent Search work remains open in [#494](https://github.com/ArdenZC/Fylura/issues/494), PRs [#495](https://github.com/ArdenZC/Fylura/pull/495), [#497](https://github.com/ArdenZC/Fylura/pull/497), [#510](https://github.com/ArdenZC/Fylura/pull/510). These candidates are not the Files mainline. #518, #519, #521, #529 and #534 are merged, not active Drafts.
 
 ## Real blockers

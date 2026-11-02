@@ -310,7 +310,7 @@ const SharedFileRow = memo(function SharedFileRow({
   const details = [
     missingLabel,
     entry.typeHint,
-    entry.materialization === undefined ? undefined : materializationLabel(entry.materialization, t)
+    entry.materialization === undefined || entry.source === "browse" && entry.materialization === "unknown" ? undefined : materializationLabel(entry.materialization, t)
   ].filter(Boolean).join(" · ");
 
   return (

@@ -39,22 +39,34 @@ try {
   await left.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
   await left.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Left");
   await left.getByRole("textbox", { name: "Folder path", exact: true }).press("Enter");
+  await left.locator("[data-file-library-query-menu] > summary").click();
   await left.locator("[data-browse-sort]").selectOption("size");
   await left.locator('[data-browse-entry-kind="directory"]').first().waitFor();
+  const firstFileTop = (await left.locator("[data-browse-entry]").first().boundingBox()).y;
+  assert.ok(firstFileTop < 300, `Files must appear in the first viewport: ${firstFileTop}px`);
   await screenshot("01-sorting-light.png");
   await page.getByRole("button", { name: "New tab", exact: true }).click();
   await page.getByRole("tab", { name: "Tab: Left", exact: true }).click();
   assert.equal(await left.locator("[data-browse-sort]").inputValue(), "size");
+  await left.locator("[data-file-library-query-menu] > summary").click();
   checks.push("Sort remains pane/tab-local across tab activation");
   await page.getByRole("button", { name: "Dual pane", exact: true }).click();
   const right = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').nth(1);
   await right.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
   await right.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Right");
   await right.getByRole("textbox", { name: "Folder path", exact: true }).press("Enter");
+  await right.locator("[data-file-library-query-menu] > summary").click();
   await right.locator("[data-browse-sort]").waitFor();
   assert.equal(await right.locator("[data-browse-sort]").inputValue(), "native");
+  await right.locator("[data-file-library-query-menu] > summary").click();
+  const beforeCompareTop = (await left.locator("[data-browse-entry]").first().boundingBox()).y;
   await page.getByRole("button", { name: "Compare folders", exact: true }).click();
   const compare = page.locator(".u3-comparison");
+  async function openComparison() {
+    const trigger = compare.locator(".u3-compare-trigger > button");
+    if (await trigger.getAttribute("aria-expanded") === "false") await trigger.click();
+  }
+  await openComparison();
   await compare.getByRole("table").waitFor();
   for (const name of ["All 141", "Visible only on left 3", "Visible only on right 2", "Metadata differs 2", "Selected metadata matches 133", "Subfolder · not compared 1"]) {
     assert.equal(await compare.getByRole("button", { name, exact: true }).count(), 1);
@@ -70,6 +82,9 @@ try {
   assert.ok(visibleCompareRows >= 4, `expected a useful comparison viewport, saw ${visibleCompareRows} rows`);
   checks.push("138 file entries per side and one left-only directory complete across multiple pages; six comparison statuses and exact case policy");
   checks.push("Batch controls start collapsed; comparison results show at least four rows without scrolling at 1600x1000");
+  const afterCompareTop = (await left.locator("[data-browse-entry]").first().boundingBox()).y;
+  assert.ok(Math.abs(beforeCompareTop - afterCompareTop) <= 1, "Comparison must not push the file list down");
+  checks.push(`Files-first layout: first file at ${firstFileTop}px; comparison does not displace file rows`);
   await screenshot("02-compare-light.png");
   await compare.getByRole("button", { name: "Metadata differs 2", exact: true }).click();
   await compare.locator(".u3-batch-details > summary").click();
@@ -91,6 +106,7 @@ try {
   assert.equal(await dialog.getByRole("button", { name: "Apply choices and continue", exact: true }).isEnabled(), true);
   await dialog.getByRole("button", { name: "Apply choices and continue", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
+  await openComparison();
   await compare.getByRole("table").waitFor();
   await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).click();
   const results = right.locator(".fm-panel");
@@ -100,16 +116,19 @@ try {
   await results.getByRole("button", { name: "Dismiss", exact: true }).first().click();
   checks.push("Filtered selection → Basket → conflict-only dialog blocks execution → Keep both + Skip → fresh preview auto-executes → result");
   // A deliberate one-sided Move has no conflict and should execute without confirmation.
+  await openComparison();
   await compare.getByRole("button", { name: /Visible only on left/u }).click();
   await compare.getByRole("checkbox", { name: "Left pane: Document-001.txt", exact: true }).check();
   await actions.first().getByRole("button", { name: "Move to other pane", exact: true }).click();
   await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog").count(), 0);
+  await openComparison();
   await compare.getByRole("button", { name: "Visible only on left 2", exact: true }).waitFor();
   checks.push("Explicit no-conflict Move auto-executes without a confirmation dialog and refreshes comparison");
   await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).click();
   await right.locator(".fm-panel").getByRole("button", { name: "Dismiss", exact: true }).last().click();
   // Directory eligibility remains a backend-preview decision.
+  await openComparison();
   await compare.getByRole("button", { name: "Subfolder · not compared 1", exact: true }).click();
   await actions.first().getByRole("button", { name: "Select filtered side", exact: true }).click();
   await actions.first().getByRole("button", { name: "Copy to other pane", exact: true }).click();
@@ -119,6 +138,7 @@ try {
   assert.equal(await page.getByRole("dialog").count(), 0);
   await errorNotice.getByRole("button", { name: "Dismiss", exact: true }).click();
   checks.push("Unsupported directory operation reports a nonmodal error and cannot execute");
+  await openComparison();
   await compare.getByRole("button", { name: /Visible only on right/ }).click();
   await page.evaluate(() => document.documentElement.classList.add("dark"));
   await screenshot("07-filter-dark.png");
@@ -132,6 +152,7 @@ try {
     assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);
   }
   await page.setViewportSize({ width: 1600, height: 1000 });
+  await openComparison();
   await compare.getByRole("button", { name: /Visible only on left/u }).click();
   const batchDetails = compare.locator(".u3-batch-details").first();
   if (!(await batchDetails.evaluate((details) => details.open))) await batchDetails.locator("summary").first().click();
@@ -172,7 +193,9 @@ try {
     // Prove initial enumeration has published, then apply the backend snapshot
     // name sort (foldersFirst=true) before asserting a directory is visible.
     await chinesePane.locator('[data-browse-entry-kind="file"]').first().waitFor({ state: "visible" });
+    await chinesePane.locator("[data-file-library-query-menu] > summary").click();
     await chinesePane.locator("[data-browse-sort]").selectOption("name");
+    await chinesePane.locator("[data-file-library-query-menu] > summary").click();
     await chinesePane.locator('[data-browse-entry-kind="directory"]').first().waitFor({ state: "visible" });
   } catch (error) {
     await chinese.screenshot({ path: path.join(output, "failure-chinese.png"), fullPage: false }).catch(() => undefined);

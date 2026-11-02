@@ -356,6 +356,7 @@ describe("File Library manual management workflow", () => {
     vi.mocked(api.previewTransfer).mockReset().mockResolvedValueOnce(conflict).mockResolvedValueOnce(actionPlan(tickets[0]!, "rename", "C:/Source", "renamed-again.txt"));
 
     await render();
+    await click(t("fmMore"));
     await click(t("fmRename"));
     const entryDialog = document.querySelector<HTMLElement>("[aria-modal=true]")!;
     await fill(entryDialog.querySelector("input")!, "renamed.txt");
@@ -384,6 +385,7 @@ describe("File Library manual management workflow", () => {
     vi.mocked(api.captureTransfer).mockResolvedValueOnce([tickets[0]!]);
     vi.mocked(api.previewTransfer).mockResolvedValueOnce(actionPlan(tickets[0]!, "trash", "C:/Source", tickets[0]!.name));
     await render();
+    await click(t("fmMore"));
     await click(t("fmSafeDelete"));
 
     expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({

@@ -2,7 +2,7 @@ import { FileLibraryWorkbench } from "./workbench/FileLibraryWorkbench";
 import { PathBar } from "./workbench/PathBar";
 import { usePane, usePaneQuerySelector } from "./workbench/PaneContext";
 import { usePreviewExperience } from "./preview/PreviewExperienceProvider";
-import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, SlidersHorizontal } from "lucide-react";
 import { lazy, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
@@ -132,6 +132,7 @@ function FileLibraryPane() {
             data-context-open={contextOpen ? "true" : "false"}
             data-file-library-navigation-open={navigationOpen ? "true" : "false"}
           >
+            <div className="file-library-location-row">
             <PathBar />
             <WorkspaceCommandBar
               fixtureControls={isManagedLibraryBrowserFixture() && <div className="file-library-mode-switch" role="tablist" aria-label="Managed Library compatibility fixture">
@@ -154,6 +155,7 @@ function FileLibraryPane() {
               onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
               t={t}
             />
+            </div>
 
             <FileManagementToolbar />
             <ContextPanelPresentationProvider
@@ -310,7 +312,17 @@ export function WorkspaceCommandBar({
       </div>
 
       {localSearch ? <div className="file-library-command-search" data-file-library-command-search="true">{localSearch}</div> : null}
-      {sourceActions ? <div className="file-library-command-actions" data-file-library-source-actions="true">{sourceActions}</div> : null}
+      {sourceActions ? mode === "library" ? <div className="file-library-command-actions" data-file-library-source-actions="true">{sourceActions}</div> : <details className="file-library-query-menu" data-file-library-query-menu onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+      }} onKeyDown={(event) => {
+        if (event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault(); event.currentTarget.open = false;
+          event.currentTarget.querySelector("summary")?.focus();
+        }
+      }}>
+        <summary className="file-library-command-button" aria-label={t("fileLibrarySortFilter")} title={t("fileLibrarySortFilter")}><SlidersHorizontal size={15} aria-hidden="true" /></summary>
+        <div className="file-library-command-actions" data-file-library-source-actions="true">{sourceActions}</div>
+      </details> : null}
 
       <div className="file-library-view-switch" role="group" aria-label={t("fileLibraryViewModeLabel")} data-file-library-view-mode={viewMode}>
         <button

@@ -31,6 +31,7 @@ describe("W6-07 Phase 1B Files identity and continuity", () => {
       expect(filesItems).toHaveLength(1);
       expect(filesItems[0]?.label).toBe(label);
       expect(items.some((item) => String(item.id) === "browse")).toBe(false);
+      expect(items.some((item) => String(item.id) === "global-search")).toBe(false);
 
       const command = createCommandRegistry(t).find((item) => item.id === "library");
       expect(command?.label).toBe(label);

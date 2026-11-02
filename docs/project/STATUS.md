@@ -16,11 +16,11 @@ Scope: [delivery record](initiatives/file-first-product-delivery.md), [ADR-0016]
 
 - **M0-A complete:** #534 merged; [#527](https://github.com/ArdenZC/Fylura/issues/527) closed. Skippable onboarding, immediate Browse, no ordinary Library/Browse switch.
 - **M0-B/C complete:** [#535](https://github.com/ArdenZC/Fylura/pull/535) merged as `6392e66`, required CI passed; stop legacy startup Managed Scan submissions, preserve all managed data/services, archive old status and align milestones. Dormancy review: **2027-01-04**.
-- **M1 active:** multi-select Copy/Move → results → destination → History/Restore; then **M2** AI Organize, **M3** AI Cleanup, **M4** Search/Zen Zero/real quality, **M5** Windows/macOS Beta acceptance.
+- **M1 active:** a file-first compact workspace and multi-select Copy/Move → results → destination → History/Restore; then **M2** AI Organize, **M3** AI Cleanup, **M4** Search/Zen Zero/real quality, **M5** Windows/macOS Beta acceptance.
 
 ## Work in progress
 
-- The sole mainline task is M1 transfer-result navigation: root paths were truncated, partial failures opened the failed item's directory, and all-failed batches still offered destination navigation. Fix the renderer on existing transfer/Browse/History owners; no engine or recovery changes.
+- The sole mainline task is M1 Files simplification (one location/search row, on-demand tools/comparison, file rows first; Global Search only through the top search bar/shortcut) and transfer-result navigation: root paths were truncated, partial failures opened the failed item's directory, and all-failed batches still offered destination navigation. Fix the renderer on existing transfer/Browse/History owners; no engine or recovery changes.
 - [#512](https://github.com/ArdenZC/Fylura/issues/512) is the open product inventory; [#487](https://github.com/ArdenZC/Fylura/issues/487) owns remaining real Windows/macOS GUI acceptance.
 - Independent Search work remains open in [#494](https://github.com/ArdenZC/Fylura/issues/494), PRs [#495](https://github.com/ArdenZC/Fylura/pull/495), [#497](https://github.com/ArdenZC/Fylura/pull/497), [#510](https://github.com/ArdenZC/Fylura/pull/510). These candidates are not the Files mainline. #518, #519, #521, #529 and #534 are merged, not active Drafts.
 

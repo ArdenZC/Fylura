@@ -52,6 +52,10 @@ Managed Library Query V2 / LibrarySelectionV1 / tags / Saved Views
 | Operation Preview & Execute | Review exact filesystem operations before execution | Contextual workflow/view over server-authoritative Operation Preview and revalidation; separate from content Quick Preview |
 | Content Understanding | Extract/understand managed content under explicit policy and consent | Dedicated/contextual surface over Content Policy/Run/Artifact; not a sidebar primary workspace and not Global Search or filesystem mutation authority |
 
+### Search entry points
+
+Global Search uses the top search bar and existing shortcut; it has no duplicate sidebar destination. Files keeps a bounded current-folder search beside its path. Index authorization/settings and the separate result window remain on existing authorities. Files places file rows before optional tools and comparison panels.
+
 ### Global Search versus Files local search
 
 They are separate products over separate authorities:

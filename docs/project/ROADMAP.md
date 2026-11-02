@@ -19,7 +19,7 @@ Verified 2026-11-02. Current delivery truth: [STATUS](STATUS.md); product decisi
 
 Status: **ACTIVE — IMPLEMENTATION**
 
-Use the [delivery record](initiatives/file-first-product-delivery.md). M0 is merged. Current M1 work fixes multi-select Copy/Move result navigation to drive/volume roots and after partial/all failures, preserves task feedback and History/Restore, then proceeds to M2. No new route study or audit program is required. Ordinary unambiguous no-conflict Copy/Move takes one intent; retain authoritative Preview, revalidation, Journal and Restore, with extra decisions only for conflicts, permissions or destructive actions.
+Use the [delivery record](initiatives/file-first-product-delivery.md). M0 is merged. Current M1 work puts files before toolbars, removes the redundant Global Search sidebar entry (top search/shortcut remain), and fixes multi-select Copy/Move result navigation to drive/volume roots and after partial/all failures, preserves task feedback and History/Restore, then proceeds to M2. No new route study or audit program is required. Ordinary unambiguous no-conflict Copy/Move takes one intent; retain authoritative Preview, revalidation, Journal and Restore, with extra decisions only for conflicts, permissions or destructive actions.
 
 Managed Library stays dormant: #534 already restricts its UI fixture to non-Tauri browser tests with `managed-library-test=1`; no new flag is needed. Startup no longer submits saved scan/search roots to Managed Scan. Preserve databases, roots, Query V2, Saved Views, tags, settings, existing APIs and shared file services. Already-authorized Global Index/Managed AI policy remains separate from opening Files; no new indexing or AI consent is inferred. Re-evaluate dormancy on **2027-01-04**.
 

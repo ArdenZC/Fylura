@@ -1058,7 +1058,7 @@ export interface OrganizationPlan {
   id: string;
   title: string;
   status: OrganizationPlanStatus;
-  sourceKind: "explicit" | "all_matching";
+  sourceKind: "explicit" | "all_matching" | "one_off";
   sourceQueryFingerprint: string | null;
   sourceSnapshotRevision: number;
   requestedCount: number;
@@ -1160,6 +1160,7 @@ export interface OrganizationReviewReasonCount {
 }
 
 export interface OrganizationPlanGroupSample {
+  reason?: string | null;
   itemId: string;
   sourceName: string;
   sourcePath: string;

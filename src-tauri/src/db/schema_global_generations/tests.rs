@@ -206,7 +206,11 @@ fn schema42_fresh_reopen_signature_drift_and_future_version_fail_closed() {
         "do not repair away signature drift"
     );
     let conn = Connection::open(&path.0).unwrap();
-    conn.execute_batch("PRAGMA user_version=47").unwrap();
+    conn.execute_batch(&format!(
+        "PRAGMA user_version={}",
+        crate::db::SUPPORTED_SCHEMA_VERSION + 1
+    ))
+    .unwrap();
     drop(conn);
     let error = Database::open(&path.0).err().unwrap();
     assert!(error.to_string().contains("newer than this app supports"));
@@ -214,6 +218,6 @@ fn schema42_fresh_reopen_signature_drift_and_future_version_fail_closed() {
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        47
+        i64::from(crate::db::SUPPORTED_SCHEMA_VERSION + 1)
     );
 }

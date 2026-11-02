@@ -1,9 +1,9 @@
-//! Canonical, advisory file semantics returned by the Managed AI worker.
+//! Canonical, advisory file semantics for Managed AI and explicit one-off tasks.
 //!
 //! The provider response deliberately contains no durable IDs, filesystem
 //! destinations, operation IDs, or permission claims. The worker adds the
-//! source binding after validating the response and persists this envelope in
-//! the existing Managed AI analysis-state row.
+//! source binding after validating the response. Managed AI persists the envelope
+//! in its analysis-state row; one-off tasks bind it to an existing Plan source.
 
 use crate::{
     db::{Lifecycle, Purpose, RiskLevel, SuggestedAction},
@@ -28,10 +28,31 @@ const MAX_SEMANTIC_JSON_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct SemanticSourceBinding {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub(crate) global_entry_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub(crate) managed_scope_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) one_off: Option<OneOffSemanticBinding>,
     pub(crate) input_fingerprint: String,
     pub(crate) provider: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct OneOffSemanticBinding {
+    pub(crate) version: u32,
+    pub(crate) plan_id: String,
+    pub(crate) source_id: String,
+}
+
+impl SemanticSourceBinding {
+    pub(crate) fn ref_id(&self) -> String {
+        match &self.one_off {
+            Some(source) => format!("one-off:{}", source.source_id),
+            None => format!("managed:{}", self.global_entry_id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -108,7 +129,7 @@ impl SemanticAssessmentV1 {
         let value: serde_json::Value = serde_json::from_str(response)
             .map_err(|error| format!("managed_ai_invalid_json: {error}"))?;
         let version = read_semantic_version(&value)?;
-        let expected_ref = format!("managed:{}", source_binding.global_entry_id);
+        let expected_ref = source_binding.ref_id();
 
         let (
             ref_id,
@@ -295,7 +316,7 @@ impl SemanticAssessmentV1 {
                 let assessment: Self = serde_json::from_value(value)
                     .map_err(|error| format!("managed_ai_stored_v1_invalid: {error}"))?;
                 if assessment.source_binding != expected_binding
-                    || assessment.ref_id != format!("managed:{}", expected_binding.global_entry_id)
+                    || assessment.ref_id != expected_binding.ref_id()
                     || !assessment.confidence.is_finite()
                     || !(0.0..=1.0).contains(&assessment.confidence)
                     || !valid_target_template_option(assessment.target_template.as_deref())
@@ -535,6 +556,7 @@ mod tests {
 
     fn binding() -> SemanticSourceBinding {
         SemanticSourceBinding {
+            one_off: None,
             global_entry_id: "entry-1".to_string(),
             managed_scope_id: "scope-1".to_string(),
             input_fingerprint: "fingerprint-1".to_string(),

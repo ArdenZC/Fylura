@@ -34,6 +34,24 @@ pub(crate) fn materialize_organization_plan(
         let rows = stmt.query_map(params_from_iter(query_params.iter()), indexed_file_from_row)?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
+    materialize_rows(
+        tx,
+        request,
+        source_rows,
+        library_revision,
+        source_fingerprint,
+        None,
+    )
+}
+
+pub(super) fn materialize_rows(
+    tx: &Connection,
+    request: CreateOrganizationPlanRequestV1,
+    source_rows: Vec<IndexedFileRow>,
+    library_revision: i64,
+    source_fingerprint: Option<String>,
+    one_off: Option<&super::one_off::CapturedFolder>,
+) -> Result<OrganizationPlanDto, DbError> {
     if source_rows.len() > ORGANIZATION_PLAN_MAX_ITEMS {
         return Err(DbError::Validation(
             "organization_plan_too_large".to_string(),
@@ -88,6 +106,9 @@ pub(crate) fn materialize_organization_plan(
         ],
     )?;
 
+    if let Some(source) = one_off {
+        super::one_off::persist_sources(tx, &plan_id, source)?;
+    }
     for (ordinal, row) in source_rows.into_iter().enumerate() {
         let source_id = row.id.clone();
         let source_path = row.path.clone();

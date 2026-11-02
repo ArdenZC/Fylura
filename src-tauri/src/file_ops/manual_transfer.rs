@@ -766,7 +766,13 @@ fn snapshot(
                 .map_err(|error| format!("transfer_target_parent_identity:{error}"))?;
         nearest_identity
     };
-    if action == TransferAction::Move && source.parent() == Some(canonical_root.as_path()) {
+    // A bounded plan may use the selected folder as the verified root while
+    // moving a regular file into a child folder. Keep actual same-directory
+    // moves and directory self-moves rejected.
+    if action == TransferAction::Move
+        && source.parent() == Some(canonical_root.as_path())
+        && (source_is_directory || target.parent() == Some(destination_root))
+    {
         return Err("transfer_move_same_directory".into());
     }
     let target_identity = if action == TransferAction::Trash {
@@ -801,7 +807,7 @@ fn snapshot(
         nearest_identity,
     ))
 }
-pub(super) fn make_operation(
+pub(crate) fn make_operation(
     file_id: &str,
     source: &Path,
     directory: &Path,

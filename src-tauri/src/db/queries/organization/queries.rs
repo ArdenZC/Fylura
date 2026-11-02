@@ -26,6 +26,9 @@ impl Database {
             rows.collect::<Result<Vec<_>, _>>()?
         };
         for plan in &mut plans {
+            if one_off::is_plan(&conn, &plan.id)? {
+                plan.source_kind = "one_off".into();
+            }
             plan.summary = load_plan_summary(&conn, &plan.id)?;
         }
         Ok(plans)

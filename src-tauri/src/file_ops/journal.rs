@@ -115,6 +115,7 @@ pub(crate) fn persist_pending_operation_journal(
                 file_identity_fingerprint(Path::new(&operation.source_path))
             }
             .map_err(|error| format!("cannot journal source identity: {error}"))?;
+            db.validate_one_off_operation_identity(operation, &fingerprint)?;
             let claim_path = crate::fs_safety::source_claim::planned_claim_path(
                 Path::new(&operation.source_path),
                 &operation.id,

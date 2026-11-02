@@ -40,7 +40,7 @@ The normal direction is **durable backend authority → API → replaceable fron
 | Watcher health | backend watcher reconciliation and root revisions | Health projection and refresh coordination |
 | Duplicate detection | durable Dedupe runs/groups/members | Run/group projection |
 | Storage analysis | durable Analysis Run/Finding/Evidence/Decision | Review, local selection interaction and preview requests |
-| Organization | durable Organization Plan/Plan Item ledger; current Managed AI semantics enter only through a backend resolver as proposal inputs | Review projection, pagination and revision-aware interaction |
+| Organization | durable Organization Plan/Plan Item ledger; V1 managed selection or V2 one-off source snapshots with bound SemanticAssessmentV1 proposal inputs | Review projection, pagination and revision-aware interaction |
 | Rules | Rule Repository V2 and catalog revision | Replaceable rule-library projection |
 | Natural-language rules | durable Rule Proposal | Proposal/review projection |
 | Content | Content Scope Policy, Content Run and Content Artifact | Policy/run/artifact projection and interaction |
@@ -53,6 +53,8 @@ The normal direction is **durable backend authority → API → replaceable fron
 | Managed AI | existing durable managed-AI queue and provider policy; canonical per-file `SemanticAssessmentV1` lives in `ai_analysis_state.classification_json` | Configuration/progress projection |
 
 Preview in the table means **content Quick Preview**, not Operation Preview. File-operation planning remains owned by the existing mutation/operation authorities and is not merged into W3 Preview Platform.
+
+One-off Organize extends the existing Plan in Schema 47 with an optional folder binding and identity/semantic source snapshots; it does not insert `files`, scan roots or Global Index sources. Window-owned Browse refs are consumed only during capture, then released. Backend projections and execution revalidate physical namespace/type/size/mtime; journal preparation checks the captured identity again. Explicit task consent authorizes metadata only (names, extensions, sizes, modification times), using current provider/credential policy and the existing direct-AI concurrency guard. Model hints and user group folder edits remain inside the selected folder. The ordinary preview/journal/History/Restore chain owns mutation and recovery. V1 managed policy is retained. Older binaries reject Schema 47; rollback uses the existing upgrade backup rather than a destructive downgrade.
 
 AI readiness is a derived backend projection, not a new durable authority. `crate::ai::readiness` composes current AI settings and keyring credential truth with backend-owned scope/policy identity. Provider readiness distinguishes disabled, invalid provider/model configuration and missing cloud credential without fabricating live-connectivity status. Provider blockers are evaluated before feature-specific consent. Managed metadata AI applies the current Managed Scope `allow_local_ai` / `allow_cloud_ai` policy; Content Understanding separately applies Content Scope Policy `enabled/local_allowed/cloud_allowed` and still requires the existing per-run confirmation; Cleanup AI separately applies `cleanup_local_ai_allowed` / `cleanup_cloud_ai_allowed` from the existing versioned AI settings. These three consent domains are not merged or interchangeable.
 

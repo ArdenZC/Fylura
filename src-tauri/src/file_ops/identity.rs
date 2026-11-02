@@ -1,6 +1,6 @@
 use std::path::Path;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FileIdentityFingerprint {
     pub(crate) size: u64,
     pub(crate) modified_ns: Option<i128>,

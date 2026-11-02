@@ -38,7 +38,7 @@ Managed Library Query V2 / LibrarySelectionV1 / tags / Saved Views
 
 - **Browse** uses existing Browse/WorkspaceSession authority for real folder navigation and progressive enumeration, with no implicit managed-scan or AI admission.
 - **Managed Library** retains Query V2, LibrarySelectionV1 and existing durable metadata, records and compatibility. Hiding its ordinary mode switch **does not authorize removing or rewriting those authorities or user data**.
-- The user can run one-off AI Organize and AI Cleanup directly against a selected folder/file set; the current Organize selection-to-Plan coupling is an implementation gap, not a reason to force Managed admission.
+- The user can run one-off AI Organize and AI Cleanup directly against a selected folder/file set; Organize accepts a selected folder’s direct contents (up to 100 entries) through versioned Plan snapshots and explicit metadata AI consent; subfolders stay in place. Cleanup’s ordinary-folder workflow is the next milestone. Neither requires Managed admission.
 - Window/shell presentation can be shared, but durable Managed identity and session Browse identity remain separate.
 
 ## Cross-cutting and contextual surfaces

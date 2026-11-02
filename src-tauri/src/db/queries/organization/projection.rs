@@ -183,6 +183,14 @@ pub(super) fn load_indexed_files_for_projection(
             files.insert(file.id.clone(), file);
         }
     }
+    for id in file_ids
+        .iter()
+        .filter(|id| super::one_off::is_source_id(id))
+    {
+        if let Some(row) = super::one_off::load_source(conn, id)? {
+            files.insert(id.clone(), row);
+        }
+    }
     Ok(files)
 }
 
@@ -338,6 +346,7 @@ fn build_organization_plan_group_summaries(
             entry.sample_items.push(OrganizationPlanGroupSampleDto {
                 item_id: item.id.clone(),
                 source_name: item.source_name_snapshot.clone(),
+                reason: item.semantic_explanation.as_ref().map(|s| s.reason.clone()),
                 source_path: item.source_path_snapshot.clone(),
                 proposed_name: item.proposed_name.clone(),
                 decision: item.decision.clone(),

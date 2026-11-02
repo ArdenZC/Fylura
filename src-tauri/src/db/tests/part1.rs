@@ -466,12 +466,12 @@
     }
 
     #[test]
-    fn database_rejects_schema_45_as_a_future_version() {
+    fn database_rejects_a_future_schema_version() {
         let path = test_db_path();
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 47;")
+        conn.execute_batch(&format!("PRAGMA user_version = {};", crate::db::SUPPORTED_SCHEMA_VERSION + 1))
             .expect("set future version");
         drop(conn);
 
@@ -604,6 +604,7 @@
         crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
+            DROP TABLE organization_plan_sources;
             DROP TABLE organization_plan_items;
             DROP TABLE organization_plans;
             ALTER TABLE user_tags DROP COLUMN revision;
@@ -663,6 +664,7 @@
         crate::db::drop_source_writer_schema_for_test(&conn);
         conn.execute_batch(
             r#"
+            DROP TABLE organization_plan_sources;
             DROP TABLE organization_plan_items;
             DROP TABLE organization_plans;
             CREATE TABLE idx_organization_plans_status_updated (conflict TEXT);

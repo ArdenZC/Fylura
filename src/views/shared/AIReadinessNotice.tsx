@@ -28,8 +28,10 @@ export function AIReadinessNotice({
   planReadiness,
   t,
   setView,
-  onRetry
+  onRetry,
+  sourceMode = "managed"
 }: {
+  sourceMode?: "managed" | "one_off";
   feature: Feature;
   readiness: AIProductFeatureReadiness | null;
   loading: boolean;
@@ -53,12 +55,20 @@ export function AIReadinessNotice({
     </div>;
   }
 
+  if (feature === "organize" && sourceMode === "one_off") {
+    const ready = readiness.provider.state === "ready";
+    return <div data-ai-readiness-feature="organize" data-ai-organize-source="one_off" data-ai-managed-ready={readiness.managedScopes.some((scope) => scope.state === "ready") ? "true" : "false"} data-ai-readiness-source={isBrowserMockEnabled() ? "presentation-fixture" : "backend-authority"}>
+      {ready ? <p className="text-xs text-[var(--zc-text-secondary)]">{t("organizeOneOffDisclosure")}</p> : <NoticeBanner tone="warning" title={providerReadinessText(readiness.provider.state, readiness.provider.reason, t)} action={<Button variant="secondary" size="compact" onClick={() => openSettingsSection(setView, "settings-ai-provider")}>{t("aiReadinessOpenSettings")}</Button>}>{t("organizeOneOffDisclosure")}</NoticeBanner>}
+      <BrowserMockNote t={t} />
+    </div>;
+  }
+
   const providerText = providerReadinessText(readiness.provider.state, readiness.provider.reason, t);
   const readyScopeCount = readiness.managedScopes.filter((scope) => scope.state === "ready").length;
   if (feature === "organize") {
     const managedText = managedReadinessText(readiness.managedScopes, t);
     const providerReady = readiness.provider.state === "ready";
-    const managedReady = readyScopeCount > 0;
+    const managedReady = sourceMode === "one_off" || readyScopeCount > 0;
     const sectionId = !providerReady ? "settings-ai-provider" : !managedReady ? "settings-managed-scopes" : null;
     const planText = planReadiness ? organizationPlanReadinessText(planReadiness, t) : "";
     const tone = !providerReady || !managedReady || planReadiness === "blocked" || planReadiness === "needs_analysis" ? "warning" : "info";
@@ -66,7 +76,8 @@ export function AIReadinessNotice({
       data-ai-readiness-feature="organize"
       data-ai-readiness-source={isBrowserMockEnabled() ? "presentation-fixture" : "backend-authority"}
       data-ai-provider-state={readiness.provider.state}
-      data-ai-managed-ready={managedReady ? "true" : "false"}
+      data-ai-managed-ready={readyScopeCount > 0 ? "true" : "false"}
+      data-ai-organize-source={sourceMode}
       data-ai-plan-readiness={planReadiness}
     >
       <NoticeBanner
@@ -75,9 +86,9 @@ export function AIReadinessNotice({
         action={sectionId ? <Button variant="secondary" size="compact" onClick={() => openSettingsSection(setView, sectionId)}>{t("aiReadinessOpenSettings")}</Button> : undefined}
       >
         <p>{t("organizeReadinessProvider").replace("{status}", providerText)}</p>
-        <p className="mt-1">{t("organizeReadinessManaged").replace("{status}", managedText)}</p>
+        <p className="mt-1">{sourceMode === "one_off" ? t("organizeOneOffBoundary") : t("organizeReadinessManaged").replace("{status}", managedText)}</p>
         {planReadiness ? <p className="mt-1">{t("organizeReadinessPlan").replace("{status}", planText)}</p> : null}
-        <p className="mt-1">{t("organizeReadinessBoundary")}</p>
+        <p className="mt-1">{sourceMode === "one_off" ? t("organizeOneOffDisclosure") : t("organizeReadinessBoundary")}</p>
       </NoticeBanner>
       <BrowserMockNote t={t} />
     </div>;

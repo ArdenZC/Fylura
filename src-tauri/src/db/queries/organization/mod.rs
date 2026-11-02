@@ -21,7 +21,13 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 mod materialize;
+mod one_off;
+#[cfg(test)]
+mod one_off_tests;
 pub(crate) use materialize::materialize_organization_plan;
+pub(crate) use one_off::{
+    install_one_off_sources, validate_one_off_sources, CreateOrganizationPlanCommand,
+};
 mod cursor;
 mod projection;
 mod queries;
@@ -293,6 +299,8 @@ pub struct QueryOrganizationPlanGroupsRequest {
 pub struct OrganizationPlanGroupSampleDto {
     pub item_id: String,
     pub source_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub source_path: String,
     pub proposed_name: String,
     pub decision: String,
@@ -385,6 +393,8 @@ pub struct UpdateOrganizationPlanGroupDecisionRequest {
     pub expected_projection_fingerprint: String,
     pub expected_item_count: i64,
     pub decision: String,
+    #[serde(default)]
+    pub edited_target_template: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -441,6 +451,8 @@ pub struct AnalyzeOrganizationPlanItemsRequest {
     pub expected_plan_revision: i64,
     #[serde(default)]
     pub item_ids: Vec<String>,
+    #[serde(default)]
+    pub one_off_consent: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -791,14 +803,18 @@ impl Database {
                 "organization_group_changed".to_string(),
             ));
         }
-        let action_available = match decision {
-            "accepted" => current_group.group_actions.can_accept_all,
-            "kept" => current_group.group_actions.can_keep_all,
-            "undecided" => current_group.group_actions.can_clear_all,
-            _ => {
-                return Err(DbError::Validation(
-                    "organization_group_decision_invalid".to_string(),
-                ));
+        let action_available = if request.edited_target_template.is_some() {
+            decision == "undecided"
+        } else {
+            match decision {
+                "accepted" => current_group.group_actions.can_accept_all,
+                "kept" => current_group.group_actions.can_keep_all,
+                "undecided" => current_group.group_actions.can_clear_all,
+                _ => {
+                    return Err(DbError::Validation(
+                        "organization_group_decision_invalid".to_string(),
+                    ));
+                }
             }
         };
         if !action_available {
@@ -807,18 +823,22 @@ impl Database {
             ));
         }
         let now = current_unix_seconds();
-        for item in members {
-            let updated = tx.execute(
-                "UPDATE organization_plan_items SET decision = ?1, edited_name = NULL,
+        if let Some(template) = request.edited_target_template.as_deref() {
+            one_off::edit_group_target(&tx, &plan_id, &members, template)?;
+        } else {
+            for item in members {
+                let updated = tx.execute(
+                    "UPDATE organization_plan_items SET decision = ?1, edited_name = NULL,
                         revision = revision + 1, updated_at = ?2
                  WHERE id = ?3 AND plan_id = ?4 AND revision = ?5
                    AND validity NOT IN ('executing', 'executed')",
-                params![decision, now, item.id, plan_id, item.revision],
-            )?;
-            if updated != 1 {
-                return Err(DbError::Validation(
-                    "organization_group_changed".to_string(),
-                ));
+                    params![decision, now, item.id, plan_id, item.revision],
+                )?;
+                if updated != 1 {
+                    return Err(DbError::Validation(
+                        "organization_group_changed".to_string(),
+                    ));
+                }
             }
         }
         let updated_plan = tx.execute(
@@ -1067,7 +1087,11 @@ impl Database {
                 )?;
                 continue;
             };
-            match file_matches_authoritative_query_scope(&tx, &source_query, &file_id) {
+            match if one_off::is_source_id(&file_id) {
+                Ok(true)
+            } else {
+                file_matches_authoritative_query_scope(&tx, &source_query, &file_id)
+            } {
                 Ok(true) => {}
                 Ok(false) | Err(_) => {
                     any_stale = true;
@@ -1188,6 +1212,11 @@ impl Database {
         if request.item_ids.len() > 100 {
             return Err(DbError::Validation(
                 "organization_ai_batch_too_large".to_string(),
+            ));
+        }
+        if self.is_one_off_organization_plan(&request.plan_id)? {
+            return Err(DbError::Validation(
+                "one_off_ai_requires_explicit_task".into(),
             ));
         }
         let plan_id = validate_id(&request.plan_id, "organization_plan_id_invalid")?;
@@ -1891,6 +1920,9 @@ fn load_plan(conn: &rusqlite::Connection, plan_id: &str) -> Result<OrganizationP
         )
         .optional()?
         .ok_or_else(|| DbError::Validation("organization_plan_not_found".to_string()))?;
+    if one_off::is_plan(conn, plan_id)? {
+        plan.source_kind = "one_off".into();
+    }
     plan.summary = load_plan_summary(conn, plan_id)?;
     Ok(plan)
 }
@@ -2016,6 +2048,9 @@ fn organization_scope_memberships(
                 memberships.insert(file_id.clone(), Some(false));
             }
         }
+    }
+    for file_id in file_ids.iter().filter(|id| one_off::is_source_id(id)) {
+        memberships.insert(file_id.clone(), None);
     }
     memberships
 }
@@ -2411,6 +2446,9 @@ fn load_indexed_file_by_id(
     conn: &rusqlite::Connection,
     file_id: &str,
 ) -> Result<Option<IndexedFileRow>, DbError> {
+    if one_off::is_source_id(file_id) {
+        return one_off::load_source(conn, file_id);
+    }
     conn.query_row(
         "SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
                 f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
@@ -2561,6 +2599,10 @@ fn build_organization_dry_run(
         }
         memberships
     };
+    let mut scope_memberships = scope_memberships;
+    for file_id in file_ids.iter().filter(|id| one_off::is_source_id(id)) {
+        scope_memberships.insert(file_id.clone(), Ok(true));
+    }
     let mut items = Vec::with_capacity(selected.len());
     let mut kinds = HashSet::new();
     let mut total_bytes = 0_i64;
@@ -2918,6 +2960,7 @@ pub(crate) mod tests {
             row.is_dir,
         );
         let binding = crate::ai::semantic::SemanticSourceBinding {
+            one_off: None,
             global_entry_id: entry_id.clone(),
             managed_scope_id: "organization-test-semantic-scope".to_string(),
             input_fingerprint: input_fingerprint.clone(),
@@ -3089,6 +3132,7 @@ pub(crate) mod tests {
             row.is_dir,
         );
         let binding = crate::ai::semantic::SemanticSourceBinding {
+            one_off: None,
             global_entry_id: entry_id.clone(),
             managed_scope_id: "organization-test-semantic-scope".to_string(),
             input_fingerprint,
@@ -3752,6 +3796,7 @@ pub(crate) mod tests {
         }
         let error = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: group.group_id,
                 expected_plan_revision: 1,
@@ -3824,6 +3869,7 @@ pub(crate) mod tests {
         );
         let error = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: group.group_id,
                 expected_plan_revision: 1,
@@ -3891,6 +3937,7 @@ pub(crate) mod tests {
         );
         let error = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: group.group_id,
                 expected_plan_revision: 1,
@@ -3941,6 +3988,7 @@ pub(crate) mod tests {
         }
         let error = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: group.group_id,
                 expected_plan_revision: 1,
@@ -4088,6 +4136,7 @@ pub(crate) mod tests {
         let start = Instant::now();
         let updated = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: group.group_id,
                 expected_plan_revision: 1,
@@ -4399,6 +4448,7 @@ pub(crate) mod tests {
         assert!(unavailable_group.group_actions.can_keep_all);
         let error = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: unavailable_group.group_id.clone(),
                 expected_plan_revision: 1,
@@ -4456,6 +4506,7 @@ pub(crate) mod tests {
         assert!(refreshed_group.group_actions.can_accept_all);
         let updated = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: refreshed_group.group_id.clone(),
                 expected_plan_revision: 1,
@@ -4482,6 +4533,7 @@ pub(crate) mod tests {
         assert!(accepted_group.group_actions.can_clear_all);
         assert!(db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: refreshed_group.group_id,
                 expected_plan_revision: 1,
@@ -4518,6 +4570,7 @@ pub(crate) mod tests {
             let error = db
                 .update_organization_plan_group_decision(
                     UpdateOrganizationPlanGroupDecisionRequest {
+                        edited_target_template: None,
                         plan_id: "plan-test".into(),
                         group_id: group.group_id.clone(),
                         expected_plan_revision: 1,
@@ -4552,6 +4605,7 @@ pub(crate) mod tests {
 
         let accepted = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: group.group_id.clone(),
                 expected_plan_revision: 1,
@@ -4576,6 +4630,7 @@ pub(crate) mod tests {
         assert!(accepted_group.group_actions.can_clear_all);
         let cleared = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: accepted_group.group_id.clone(),
                 expected_plan_revision: 2,
@@ -4599,6 +4654,7 @@ pub(crate) mod tests {
             .expect("cleared group remains addressable");
         let kept = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                edited_target_template: None,
                 plan_id: "plan-test".into(),
                 group_id: cleared_group.group_id,
                 expected_plan_revision: 3,
@@ -6145,6 +6201,7 @@ pub(crate) mod tests {
                 false,
             );
             let binding = crate::ai::semantic::SemanticSourceBinding {
+                one_off: None,
                 global_entry_id: entry_id.clone(),
                 managed_scope_id: "organization-benchmark-scope".to_string(),
                 input_fingerprint: input_fingerprint.clone(),

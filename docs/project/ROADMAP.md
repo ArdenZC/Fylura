@@ -1,25 +1,34 @@
-# Zen Canvas Roadmap
+# Fylura Roadmap
 
-The roadmap records authorized sequencing and current execution truth. Long-horizon direction remains owned by [`MASTER_DEVELOPMENT_PLAN.md`](MASTER_DEVELOPMENT_PLAN.md).
+Verified 2026-11-02. Current delivery truth: [STATUS](STATUS.md); product decision: [ADR-0016](DECISIONS/0016-file-first-four-core-jobs.md); stable architecture: [Master Plan](MASTER_DEVELOPMENT_PLAN.md). [#512](https://github.com/ArdenZC/Fylura/issues/512) tracks product delivery; [#487](https://github.com/ArdenZC/Fylura/issues/487) owns native QA.
 
-Historical sequencing verification: 2026-10-05. Later dated W6/Track status sections below remain historical until reconciled against live #512, #527, PRs and actual master; do not infer current activation or CI from an old 'Current' heading.
+## Product milestones
 
-## Owner-approved product UX rebaseline — 2026-11-01
+| Milestone | User outcome and next work | State / preserved boundaries |
+| --- | --- | --- |
+| **M0 — First use and engineering convergence** | Zero-configuration Files, dormant Managed Library, concise project truth, risk-proportional delivery | M0-A merged #534, #527 closed; M0-B/C closes in this change. #529 risk routing already merged; no CI redesign |
+| **M1 — Complete everyday Files** | Browse → select multiple files → Copy/Move across folders → progress/cancel/errors → view results → History/Restore | Drag/clipboard, tabs/dual panes, Basket, rename, task center and conflicts already have merged implementations (#475/#481/#514/#517/#519/#521). Fix actual integrated workflow friction; do not rewrite the engine |
+| **M2 — AI Organize** | One-off supported folder/selection/Basket → bounded authorized AI analysis → grouped plan → exceptions → one approval → execution/recovery | Extend existing Plan source admission beyond managed selection; no permanent managed-root prerequisite or second executor |
+| **M3 — AI Cleanup** | Deterministic findings + AI explanations → grouped risk-aware proposal → Safe Trash → Restore | Keep eligibility, independent AI consent, journals and high-risk decisions; AI cannot authorize deletion |
+| **M4 — Search, Zen Zero and real quality** | Explicit Smart Lean authorization, truthful coverage, bounded idle/active resources, realistic long-running workflows | Search candidates #495/#497/#510 and #494 remain independently owned; preserve performance budgets and safety gates |
+| **M5 — Beta acceptance** | Supported Windows and Apple Silicon macOS native tasks, packaging/upgrade/recovery acceptance | #487 owns consolidated native GUI gaps; #270/#446 remain separately scoped. No Release is created by M0/M1 |
 
-**Decision:** [ADR-0016 — File-first four core jobs](DECISIONS/0016-file-first-four-core-jobs.md). **Tracking:** [#527](https://github.com/ArdenZC/Fylura/issues/527) for first-use/Files UX; [#512](https://github.com/ArdenZC/Fylura/issues/512) for feature delivery; [#487](https://github.com/ArdenZC/Fylura/issues/487) for whole-product cross-platform QA. This section is a **product direction and proposed dependency ordering**, not a report of new implementation, a broad Track activation, or release authorization.
+## Current
 
-| Delivery priority | User-facing outcome | Technical dependencies / what changes | What is preserved |
-| --- | --- | --- | --- |
-| **P0 — Files-first onboarding & surface** | A short skippable visual introduction to Files, AI Organize, AI Cleanup and Global Search; immediate Files Browse without selected root; optional volume-indexing consent; one visible Files mode | Change Onboarding/initial routing, navigation/mode presentation, Settings scope UX; include clean/upgrade profile and permission tests | Managed Library mode code, Query V2, tags/Saved Views, databases, existing managed roots and AI/volume permissions |
-| **P1 — Finish everyday file management** | Tabs, dual panes, Basket, native drag/clipboard, directory tasks, progress/cancel/recovery work together with minimal interruption | Reconcile FL-19/20/21/22/23/24 against actual merged code and #512; Windows and Apple Silicon macOS use the same user semantics | Single Preview/Revalidation/Journal/Restore chain; no unnecessary no-conflict modal |
-| **P2 — AI Organize task completion** | Choose **any** supported folder/selected files; AI creates grouped plan; exception-first review; single coherent approval and recovery | Extend one-off source admission beyond LibrarySelectionV1 and adapt plan UI; reuse Managed AI/SemanticAssessmentV1 and existing Plan executor | No requirement to persist Managed root; no duplicate mutation engine |
-| **P2 — AI Cleanup task completion** | Deterministic findings + AI analyses form an **overall grouped cleanup proposal**; user approves eligible Safe Trash batch, risky items are exceptions | Upgrade old contextual AI-recheck presentation while honoring existing AI-only Cleanup currentness, independent consent and conservative eligibility | Detector/Analysis Finding truth, Preview, Safe Trash, Cleanup journal, Restore; AI cannot authorize deletion |
-| **P3 — Search, resource & native qualification** | Reliable explicitly authorized Smart Lean sources, truthful indexing coverage and Zen Zero under long-running real workloads; both platforms pass real user tasks | Smart Lean system-file high-volume evidence, source/permission/migration diagnostics, #487 native matrix | Global Search FTS/1M ranking/performance remains a **separate owner/workstream**, with existing correctness and performance gates |
-| **P4 — Only after measured value** | Decide whether a separate Managed Library/long-term AI mode is worth re-exposing | Usability evidence, model cost/latency, indexing and resident power measurements | Existing dormant implementation intact; Preference Memory, whole-disk embeddings and System One remain paused/research |
+### File-first product delivery
 
-**Delivery gates:** group-first/exception-first interaction, one-off AI Organize without durable Library admission, AI-proposed Cleanup without relaxing safe eligibility, no initial scan/index without consent, no silent upgrade-data loss, restart and no-AI behavior, real Win/macOS GUI evidence, bounded AI/token/resource cost. A model's confidence never substitutes for backend safe-batch or cleanup eligibility.
+Status: **ACTIVE — IMPLEMENTATION**
 
-**Change management:** This direction supersedes historical *user-visible* dual-mode and compulsory managed-folder onboarding assumptions; it does **not** erase completed W0–W6 work, rewrite previous QA evidence, merge outstanding PRs, or authorize public release. Implement in coherent feature packages; don't create a fresh framework, second scan/indexer or mutation/recovery owner.
+Use the [delivery record](initiatives/file-first-product-delivery.md). Complete M0-B/C, merge with existing required checks, then directly repair one full M1 user workflow and proceed to M2. No new route study or audit program is required. Ordinary unambiguous no-conflict Copy/Move takes one intent; retain authoritative Preview, revalidation, Journal and Restore, with extra decisions only for conflicts, permissions or destructive actions.
+
+Managed Library stays dormant: #534 already restricts its UI fixture to non-Tauri browser tests with `managed-library-test=1`; no new flag is needed. Startup no longer submits saved scan/search roots to Managed Scan. Preserve databases, roots, Query V2, Saved Views, tags, settings, existing APIs and shared file services. Already-authorized Global Index/Managed AI policy remains separate from opening Files; no new indexing or AI consent is inferred. Re-evaluate dormancy on **2027-01-04**.
+
+## Historical W0–W6 implementation record
+
+The following is retained technical history, including original evidence and links. **Every Current/Open/Draft/blocked statement inside this record is historical, not a current task or ordering gate.** The current M0–M5 milestones above supersede the old sequencing; consult live GitHub for old PR/Issue state. Legacy M1/M1.1 below means historical mutation work, not the current Files milestone. Old product name citations remain historical.
+
+<details>
+<summary>Historical implementation and qualification evidence (optional)</summary>
 
 ## Completed
 
@@ -102,7 +111,7 @@ Final authority:
 - [V26 Freeze Manifest](../design/w6-06/07-V26-FREEZE-MANIFEST.md)
 - [W6-07 Implementation Handoff](../design/w6-06/07-W6-07-IMPLEMENTATION-HANDOFF.md)
 
-## Current
+## Historical current (as recorded)
 
 ### Post-#323 Historical Audit Residual & Technical Debt Reconciliation — Owner Gate
 
@@ -151,7 +160,7 @@ Qualification established attributable Windows resident-process evidence and cre
 
 W6-10A / RC1 remains **COMPLETE / FROZEN**. W6-10B remains **BLOCKED** because B02 SmartScreen and B03 Unknown Publisher/UAC evidence require a valid evidence host. W6-10C remains **DEFERRED / UNVERIFIED — OWNER SKIPPED** without a supported Apple Silicon Mac. Full supported-platform release PASS is **NOT CLAIMED**; RC2 is not authorized; publication remains deferred. See the [W6-10C disposition](tasks/W6-10C-MACOS-RELEASE-QUALIFICATION-DISPOSITION.md) and [W6-10B result](tasks/W6-10B-R2-WINDOWS-RC1-CLEAN-PROFILE-REQUALIFICATION-RESULT.md).
 
-## Current visual authority — Solid / Calm Demo V2
+## Historical visual authority — Solid / Calm Demo V2
 
 The owner-approved [Solid / Calm Demo V2 freeze](../design/w6-09/SOLID-CALM-V2-FREEZE-MANIFEST.md) remains canonical for material and presentation. V26 remains a structural, navigation, information-architecture and unsuperseded-interaction reference. Liquid Glass is revoked. This visual authority is independent of the current engineering initiative.
 
@@ -221,3 +230,5 @@ The objective is to make the existing product coherent, attractive, understandab
 ## W6 execution principle
 
 > **Product reconstruction is the mainline. Technical debt blocks W6 only when it threatens correctness, authority, supported-platform evidence, or release gates.**
+
+</details>

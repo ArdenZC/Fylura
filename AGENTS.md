@@ -12,7 +12,8 @@ For an ordinary bounded task, use this context sequence:
 ```text
 AGENTS.md
 → docs/project/STATUS.md
-→ the current task brief linked from STATUS
+→ docs/project/ROADMAP.md
+→ the corresponding Issue / current task brief
 → inspect relevant production owners / callers / tests
 ```
 

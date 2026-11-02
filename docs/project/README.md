@@ -1,6 +1,6 @@
-# Zen Canvas Project Operating System
+# Fylura Project Operating System
 
-`docs/project/` is the current-truth and long-horizon planning layer for Zen Canvas. It answers what the product is, which architecture is authoritative, what is active now, what is planned next, and how work is allowed to move from idea to production.
+`docs/project/` is the current-truth and long-horizon planning layer for Fylura. It answers what the product is, which architecture is authoritative, what is active now, what is planned next, and how work is allowed to move from idea to production.
 
 This directory does not replace production code, security contracts, historical taskbooks, or closeout evidence. It provides the stable index that tells contributors which of those sources are current and how they relate.
 
@@ -15,7 +15,8 @@ For an ordinary bounded task, use this sequence:
 ```text
 AGENTS.md
 → docs/project/STATUS.md
-→ the current task brief linked from STATUS
+→ docs/project/ROADMAP.md
+→ the corresponding Issue / current task brief
 → inspect relevant production owners / callers / tests
 ```
 
@@ -73,7 +74,7 @@ If normative safety authority and descriptive implementation truth disagree, tre
 ### Project and historical context
 
 Use the current task brief and `STATUS.md` as the bounded context. Load the
-Master Plan, Roadmap, initiative record, architecture/product maps,
+Master Plan, initiative record, architecture/product maps,
 maintainability guidance or domain contracts only through the conditional
 routing above. Research, historical taskbooks, audits, QA closeouts, archived
 prompts and old PR records are evidence, not ordinary startup context.

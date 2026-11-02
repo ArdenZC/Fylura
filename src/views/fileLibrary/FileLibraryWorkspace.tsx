@@ -132,11 +132,11 @@ function FileLibraryPane() {
             data-context-open={contextOpen ? "true" : "false"}
             data-file-library-navigation-open={navigationOpen ? "true" : "false"}
           >
-            {isManagedLibraryBrowserFixture() && <div role="tablist" aria-label="Managed Library compatibility fixture">
-              {(["library", "browse"] as const).map((mode) => <button key={mode} role="tab" aria-selected={state.mode === mode} data-file-library-mode={mode} onClick={() => void controller.switchMode(mode)}>{mode === "library" ? t("fileLibraryModeLibrary") : t("fileLibraryModeBrowse")}</button>)}
-            </div>}
             <PathBar />
             <WorkspaceCommandBar
+              fixtureControls={isManagedLibraryBrowserFixture() && <div role="tablist" aria-label="Managed Library compatibility fixture">
+              {(["library", "browse"] as const).map((mode) => <button key={mode} role="tab" aria-selected={state.mode === mode} data-file-library-mode={mode} onClick={() => void controller.switchMode(mode)}>{mode === "library" ? t("fileLibraryModeLibrary") : t("fileLibraryModeBrowse")}</button>)}
+            </div>}
               mode={state.mode}
               targetLabel={targetLabel}
               canGoBack={history.historyIndex > 0}
@@ -218,6 +218,7 @@ export function focusLocalFileLibrarySearch(
 }
 
 type WorkspaceCommandBarProps = {
+  fixtureControls?: ReactNode;
   /** Kept for the internal Library/Browse projection; no user-visible switch. */
   mode: FileLibraryMode;
   targetLabel: string;
@@ -245,6 +246,7 @@ type WorkspaceCommandBarProps = {
  * simply no longer a first-class switch in the normal file manager chrome.
  */
 export function WorkspaceCommandBar({
+  fixtureControls,
   mode,
   targetLabel,
   canGoBack,
@@ -266,6 +268,7 @@ export function WorkspaceCommandBar({
 
   return (
     <div className="file-library-command-bar" role="toolbar" aria-label={t("fileLibraryToolbarLabel")} data-file-library-presented-mode={mode}>
+      {fixtureControls}
       <div className="file-library-command-group file-library-history-controls">
         <button
           className="file-library-command-button"

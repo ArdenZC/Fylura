@@ -1,0 +1,461 @@
+name: Issue 494 rowid boundary native qualification
+
+on:
+  pull_request:
+    paths:
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/src/db/connection.rs"
+      - "src-tauri/src/global_index/**"
+      - "scripts/validate_issue494_1m_evidence.py"
+      - ".github/workflows/issue-494-rowid-boundary-qualification.yml"
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact Owner-authorized Issue 494 candidate source SHA
+        required: true
+        type: string
+        default: 0251f3c1cbaa2f82703fffa3470153381f25c46f
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-494-rowid-boundary-${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  classify-latest-commit:
+    if: >-
+      ${{
+        (github.event_name == 'pull_request' &&
+         github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
+         github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'workflow_dispatch' &&
+         github.ref == 'refs/heads/codex/issue-494-fts-rowid-boundary')
+      }}
+    runs-on: ubuntu-latest
+    outputs:
+      run_search: ${{ steps.scope.outputs.run_search }}
+      run_writer: ${{ steps.scope.outputs.run_writer }}
+      run_million: ${{ steps.scope.outputs.run_million }}
+    steps:
+      - name: Checkout exact PR head and parent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Classify the latest commit's qualification scope
+        id: scope
+        shell: pwsh
+        env:
+          ISSUE494_EVENT_NAME: ${{ github.event_name }}
+          ISSUE494_REF: ${{ github.ref }}
+          ISSUE494_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          $changed = @(git diff --name-only HEAD^ HEAD)
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the exact PR-head commit.' }
+          $writerTest = 'src-tauri/src/global_index/tests/issue494_writer_qualification.rs'
+          $candidateHarness = 'src-tauri/src/global_index/tests/filename_first_candidate_benchmark.rs'
+          $millionHelper = 'src-tauri/src/global_index/tests/issue494_1m_qualification.rs'
+          $evidenceValidator = 'scripts/validate_issue494_1m_evidence.py'
+          $workflow = '.github/workflows/issue-494-rowid-boundary-qualification.yml'
+          $authorizedMillionSha = '0251f3c1cbaa2f82703fffa3470153381f25c46f'
+          $manualMillion = (
+            $env:ISSUE494_EVENT_NAME -eq 'workflow_dispatch' -and
+            $env:ISSUE494_REF -eq 'refs/heads/codex/issue-494-fts-rowid-boundary' -and
+            $env:ISSUE494_CANDIDATE_SHA -eq $authorizedMillionSha
+          )
+          if ($env:ISSUE494_EVENT_NAME -eq 'workflow_dispatch' -and -not $manualMillion) {
+            throw 'Manual Issue 494 qualification is limited to the Owner-authorized 0251f3c source SHA on the PR branch.'
+          }
+          # Keep the expensive 1M qualification behind changes to its dedicated
+          # helper for PR events. The separately authorized manual dispatch
+          # pins the candidate checkout to the exact approved SHA.
+          $runMillion = ($changed -contains $millionHelper) -or $manualMillion
+          $runWriter = ($changed -contains $writerTest) -and -not $runMillion
+          # A workflow-only dispatch-plumbing commit must not repeat the
+          # previously completed 100k/200k or writer-only matrices.
+          $runSearch = ($changed -contains $candidateHarness)
+          foreach ($path in $changed) {
+            if ($path -eq $writerTest -or $path -eq $candidateHarness -or
+                $path -eq $millionHelper -or $path -eq $evidenceValidator -or $path -eq $workflow) { continue }
+            # The writer-only case changes connection.rs solely to expose the
+            # production pool builder to its baseline/candidate test arms. Its
+            # dedicated dual-platform writer job exercises that seam; avoid a
+            # separate 100k/200k search performance matrix for the same commit.
+            if ($path -eq 'src-tauri/src/db/connection.rs' -and $changed -contains $writerTest) { continue }
+            if (
+              $path -eq 'src-tauri/Cargo.toml' -or
+              $path -eq 'src-tauri/Cargo.lock' -or
+              $path -eq 'src-tauri/src/db/connection.rs' -or
+              ($path.StartsWith('src-tauri/src/global_index/') -and $path -ne $writerTest)
+            ) {
+              $runSearch = $true
+            }
+          }
+          "run_search=$($runSearch.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "run_writer=$($runWriter.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "run_million=$($runMillion.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  qualify-native:
+    needs: classify-latest-commit
+    if: >-
+      ${{
+        needs.classify-latest-commit.outputs.run_search == 'true' &&
+        needs.classify-latest-commit.outputs.run_million != 'true' &&
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    name: ${{ matrix.label }} 100k + 200k Release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x86_64
+            os: windows-2025
+          - label: Apple Silicon macOS
+            os: macos-26
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - name: Checkout exact PR head without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify native architecture and record exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            test "$(rustc -vV | sed -n 's/^host: //p')" = "x86_64-pc-windows-msvc"
+          else
+            test "$(uname -m)" = "arm64"
+            test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          fi
+          mkdir -p ci-evidence
+          {
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "candidate_tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "runner_os=${{ runner.os }}"
+            echo "runner_arch=$(uname -m)"
+            rustc -vV
+          } | tee "ci-evidence/issue494-rowid-${{ runner.os }}-source.txt"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-issue-494-rowid-boundary-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Run 100k full-route native Release qualification
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "100000"
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/issue494-rowid-${{ runner.os }}-100000.jsonl
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features "desktop-runtime global-search-filename-relevance-candidate"
+          --lib
+          global_index::tests::global_search_benchmark::filename_first_candidate_benchmark::issue494_filename_first_native_preflight
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Run 200k full-route native Release qualification
+        env:
+          ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "200000"
+          ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/issue494-rowid-${{ runner.os }}-200000.jsonl
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features "desktop-runtime global-search-filename-relevance-candidate"
+          --lib
+          global_index::tests::global_search_benchmark::filename_first_candidate_benchmark::issue494_filename_first_native_preflight
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Record evidence SHA-256
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $paths = @(
+            'ci-evidence/issue494-rowid-${{ runner.os }}-source.txt',
+            'ci-evidence/issue494-rowid-${{ runner.os }}-100000.jsonl',
+            'ci-evidence/issue494-rowid-${{ runner.os }}-200000.jsonl'
+          )
+          $manifest = 'ci-evidence/issue494-rowid-${{ runner.os }}-sha256.txt'
+          $null = New-Item -ItemType Directory -Path 'ci-evidence' -Force
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $missing = @()
+          foreach ($path in $paths) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+              $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              $lines.Add("$hash  $path")
+            } else {
+              $missing += $path
+              $lines.Add("NOT_PRODUCED  $path")
+            }
+          }
+          [System.IO.File]::WriteAllLines($manifest, $lines, [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::AppendAllLines($env:GITHUB_STEP_SUMMARY, $lines, [System.Text.UTF8Encoding]::new($false))
+          if ($missing.Count -gt 0) { Write-Error "Missing expected source or JSONL evidence: $($missing -join ', ')" }
+
+      - name: Upload native qualification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue494-rowid-${{ runner.os }}-${{ github.run_id }}
+          path: ci-evidence/issue494-rowid-${{ runner.os }}-*
+          if-no-files-found: warn
+          retention-days: 90
+
+  qualify-million:
+    needs: classify-latest-commit
+    if: >-
+      ${{
+        needs.classify-latest-commit.outputs.run_million == 'true' &&
+        ((github.event_name == 'pull_request' &&
+          github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
+          github.event.pull_request.head.repo.full_name == github.repository) ||
+         (github.event_name == 'workflow_dispatch' &&
+          github.ref == 'refs/heads/codex/issue-494-fts-rowid-boundary' &&
+          inputs.candidate_sha == '0251f3c1cbaa2f82703fffa3470153381f25c46f'))
+      }}
+    name: ${{ matrix.label }} 1M native Release qualification
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x86_64
+            os: windows-2025
+            runner_key: windows
+          - label: Apple Silicon macOS
+            os: macos-26
+            runner_key: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    env:
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
+      CARGO_BUILD_JOBS: 2
+      ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES: "1000000"
+      ZC_GLOBAL_SEARCH_BENCHMARK_IDLE_SECONDS: "1800"
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/issue494-1m-${{ matrix.runner_key }}-1000000.jsonl
+    steps:
+      - name: Checkout exact PR head without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify native architecture and record exact environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            test "$(rustc -vV | sed -n 's/^host: //p')" = "x86_64-pc-windows-msvc"
+          else
+            test "$(uname -m)" = "arm64"
+            test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          fi
+          mkdir -p ci-evidence
+          {
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "candidate_tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "runner_os=${{ runner.os }}"
+            echo "runner_arch=$(uname -m)"
+            echo "runner_image=${{ matrix.os }}"
+            rustc -vV
+            cargo -V
+            if [[ "${{ runner.os }}" == "Windows" ]]; then
+              pwsh -NoProfile -Command '
+                $os = Get-CimInstance Win32_OperatingSystem
+                $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
+                $drive = (Split-Path -Qualifier $env:GITHUB_WORKSPACE).TrimEnd(":")
+                "hardware_cpu=$cpu"
+                "physical_memory_bytes=$($os.TotalVisibleMemorySize * 1024)"
+                "workspace_volume_free_bytes=$((Get-PSDrive -Name $drive).Free)"
+                "os_version=$([System.Runtime.InteropServices.RuntimeInformation]::OSDescription)"
+              '
+            else
+              echo "hardware_cpu=$(sysctl -n machdep.cpu.brand_string)"
+              echo "hardware_model=$(sysctl -n hw.model)"
+              echo "physical_memory_bytes=$(sysctl -n hw.memsize)"
+              echo "workspace_volume_free_bytes=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4 * 1024}')"
+              echo "os_version=$(sw_vers -productVersion)"
+            fi
+          } | tee "ci-evidence/issue494-1m-${{ matrix.runner_key }}-source.txt"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-issue-494-1m-native-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Run the single 1M full-route native Release qualification
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features "desktop-runtime global-search-filename-relevance-candidate"
+          --lib
+          global_index::tests::global_search_benchmark::filename_first_candidate_benchmark::issue494_filename_first_native_preflight
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Validate 1M performance, correctness, and resource gates
+        if: ${{ always() }}
+        run: >-
+          python scripts/validate_issue494_1m_evidence.py
+          ci-evidence/issue494-1m-${{ matrix.runner_key }}-1000000.jsonl
+          ci-evidence/issue494-1m-${{ matrix.runner_key }}-source.txt
+
+      - name: Record independent SHA-256 for native source and raw JSONL
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $paths = @(
+            'ci-evidence/issue494-1m-${{ matrix.runner_key }}-source.txt',
+            'ci-evidence/issue494-1m-${{ matrix.runner_key }}-1000000.jsonl'
+          )
+          $manifest = 'ci-evidence/issue494-1m-${{ matrix.runner_key }}-sha256.txt'
+          $null = New-Item -ItemType Directory -Path 'ci-evidence' -Force
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $missing = @()
+          foreach ($path in $paths) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+              $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              $lines.Add("$hash  $path")
+            } else {
+              $missing += $path
+              $lines.Add("NOT_PRODUCED  $path")
+            }
+          }
+          [System.IO.File]::WriteAllLines($manifest, $lines, [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::AppendAllLines($env:GITHUB_STEP_SUMMARY, $lines, [System.Text.UTF8Encoding]::new($false))
+          if ($missing.Count -gt 0) { Write-Error "Missing expected native source or raw JSONL evidence: $($missing -join ', ')" }
+
+      - name: Upload raw 1M native qualification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue494-1m-${{ matrix.runner_key }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ci-evidence/issue494-1m-${{ matrix.runner_key }}-*
+          if-no-files-found: warn
+          retention-days: 90
+
+  qualify-writer-only:
+    needs: classify-latest-commit
+    if: >-
+      ${{
+        needs.classify-latest-commit.outputs.run_writer == 'true' &&
+        needs.classify-latest-commit.outputs.run_million != 'true' &&
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.ref == 'codex/issue-494-fts-rowid-boundary' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    name: ${{ matrix.label }} writer-only 200k Release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x86_64
+            os: windows-2025
+            runner_key: windows
+          - label: Apple Silicon macOS
+            os: macos-26
+            runner_key: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      ZEN_CANVAS_BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT: ${{ github.workspace }}/ci-evidence/issue494-writer-${{ matrix.runner_key }}-200000.jsonl
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - name: Checkout exact PR head without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify native architecture and record exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            test "$(rustc -vV | sed -n 's/^host: //p')" = "x86_64-pc-windows-msvc"
+          else
+            test "$(uname -m)" = "arm64"
+            test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
+          fi
+          mkdir -p ci-evidence
+          {
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "candidate_tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "runner_os=${{ runner.os }}"
+            echo "runner_arch=$(uname -m)"
+            rustc -vV
+          } | tee "ci-evidence/issue494-writer-${{ matrix.runner_key }}-source.txt"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: zen-canvas-issue-494-writer-only-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Run controlled writer-only native Release qualification
+        run: >-
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          --features "desktop-runtime global-search-filename-relevance-candidate"
+          --lib
+          global_index::tests::global_search_benchmark::filename_first_candidate_benchmark::writer_qualification::issue494_writer_only_native_qualification
+          -- --ignored --exact --nocapture --test-threads=1
+
+      - name: Record independent SHA-256 for source and raw JSONL
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $paths = @(
+            'ci-evidence/issue494-writer-${{ matrix.runner_key }}-source.txt',
+            'ci-evidence/issue494-writer-${{ matrix.runner_key }}-200000.jsonl'
+          )
+          $manifest = 'ci-evidence/issue494-writer-${{ matrix.runner_key }}-sha256.txt'
+          $null = New-Item -ItemType Directory -Path 'ci-evidence' -Force
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $missing = @()
+          foreach ($path in $paths) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+              $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              $lines.Add("$hash  $path")
+            } else {
+              $missing += $path
+              $lines.Add("NOT_PRODUCED  $path")
+            }
+          }
+          [System.IO.File]::WriteAllLines($manifest, $lines, [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::AppendAllLines($env:GITHUB_STEP_SUMMARY, $lines, [System.Text.UTF8Encoding]::new($false))
+          if ($missing.Count -gt 0) { Write-Error "Missing expected writer evidence: $($missing -join ', ')" }
+
+      - name: Upload raw writer-only qualification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue494-writer-${{ matrix.runner_key }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ci-evidence/issue494-writer-${{ matrix.runner_key }}-*
+          if-no-files-found: warn
+          retention-days: 90

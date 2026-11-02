@@ -1,5 +1,6 @@
 use super::schema::migrate;
 use super::*;
+use crate::global_index::filename_search::FilenameSearchManager;
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
@@ -70,6 +71,7 @@ impl ManagedAiWakeSlot {
 pub struct Database {
     path: PathBuf,
     pool: Pool<SqliteConnectionManager>,
+    pub(crate) filename_search: Arc<FilenameSearchManager>,
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
     pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
@@ -84,13 +86,50 @@ impl Database {
         path: impl AsRef<Path>,
         cancel: super::upgrade::UpgradeCancellation,
     ) -> Result<Self, DbError> {
+        Self::open_with_connection_hook_policy(path, cancel, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_for_writer_qualification(
+        path: impl AsRef<Path>,
+        install_candidate_hooks: bool,
+    ) -> Result<Self, DbError> {
+        Self::open_with_connection_hook_policy(
+            path,
+            Arc::new(AtomicBool::new(false)),
+            Some(install_candidate_hooks),
+        )
+    }
+
+    fn open_with_connection_hook_policy(
+        path: impl AsRef<Path>,
+        cancel: super::upgrade::UpgradeCancellation,
+        _test_hook_policy: Option<bool>,
+    ) -> Result<Self, DbError> {
         super::upgrade::check_cancelled(&cancel)?;
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let manager = SqliteConnectionManager::file(&path).with_init(configure_connection);
+        let filename_search = Arc::new(FilenameSearchManager::new(&path));
+        #[cfg(test)]
+        if let Some(enabled) = _test_hook_policy {
+            filename_search.set_enabled_for_test(enabled);
+        }
+        let hook_manager = Arc::clone(&filename_search);
+        let manager = SqliteConnectionManager::file(&path).with_init(move |connection| {
+            configure_connection(connection)?;
+            #[cfg(test)]
+            let install_hooks =
+                _test_hook_policy.unwrap_or_else(|| hook_manager.should_install_mutation_hooks());
+            #[cfg(not(test))]
+            let install_hooks = hook_manager.should_install_mutation_hooks();
+            if install_hooks {
+                hook_manager.install_mutation_hooks(connection)?;
+            }
+            Ok(())
+        });
         let pool = Pool::builder()
             .max_size(8)
             .min_idle(Some(1))
@@ -103,6 +142,7 @@ impl Database {
         Ok(Self {
             path,
             pool,
+            filename_search,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),

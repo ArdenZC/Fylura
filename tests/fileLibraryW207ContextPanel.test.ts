@@ -228,7 +228,6 @@ describe("W2-07 Context Panel projection and visibility contracts", () => {
       canGoForward: false,
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onModeChange: vi.fn(),
       viewMode: "grid",
       onViewModeChange: vi.fn(),
       contextOpen: true,

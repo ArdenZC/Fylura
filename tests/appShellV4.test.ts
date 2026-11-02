@@ -15,9 +15,10 @@ describe("App Shell v4", () => {
   it("uses the final primary and advanced navigation without removing routed views", () => {
     const nav = appShell.slice(appShell.indexOf("function navGroups"));
 
-    for (const id of ["scanner", "library", "organize", "cleanup", "restore", "settings"]) {
+    for (const id of ["library", "organize", "cleanup", "restore", "scanner", "settings"]) {
       expect(nav).toContain(`id: "${id}"`);
     }
+    expect(nav).toContain('id: "global-search"');
     expect(nav).not.toContain('id: "rules"');
     expect(nav).not.toContain('id: "preview"');
     expect(appShell).toContain('view === "cleanup"');

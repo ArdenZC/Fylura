@@ -3,11 +3,11 @@ import { PathBar } from "./workbench/PathBar";
 import { usePane, usePaneQuerySelector } from "./workbench/PaneContext";
 import { usePreviewExperience } from "./preview/PreviewExperienceProvider";
 import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { lazy, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { lazy, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
-import type { FileLibraryMode } from "./fileLibraryExperience";
+import { isManagedLibraryBrowserFixture, type FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
 import { LibraryNavigationSurfaceProvider } from "./library/libraryNavigationSurface";
 import { FileLibraryNavigation } from "./navigation/FileLibraryNavigation";
@@ -78,7 +78,7 @@ function FileLibraryPane() {
   const viewMode = history.presentation.viewMode ?? "list";
   const targetLabel = state.mode === "library"
     ? t("fileLibraryModeLibrary")
-    : state.workspace.browse?.location.displayName ?? t("fileLibraryModeBrowse");
+    : state.workspace.browse?.location.displayName ?? t("fileLibraryNoFolderOpen");
 
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
   const toggleNavigation = useCallback(() => {
@@ -134,13 +134,15 @@ function FileLibraryPane() {
           >
             <PathBar />
             <WorkspaceCommandBar
+              fixtureControls={isManagedLibraryBrowserFixture() && <div className="file-library-mode-switch" role="tablist" aria-label="Managed Library compatibility fixture">
+              {(["library", "browse"] as const).map((mode) => <button className="file-library-mode-button" key={mode} role="tab" aria-selected={state.mode === mode} data-file-library-mode={mode} onClick={() => void controller.switchMode(mode)}>{mode === "library" ? t("fileLibraryModeLibrary") : t("fileLibraryModeBrowse")}</button>)}
+            </div>}
               mode={state.mode}
               targetLabel={targetLabel}
               canGoBack={history.historyIndex > 0}
               canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
               onBack={() => void controller.back()}
               onForward={() => void controller.forward()}
-              onModeChange={(mode) => void controller.switchMode(mode)}
               navigationOpen={navigationOpen}
               onNavigationToggle={toggleNavigation}
               navigationToggleRef={navigationToggleRef}
@@ -216,13 +218,14 @@ export function focusLocalFileLibrarySearch(
 }
 
 type WorkspaceCommandBarProps = {
+  fixtureControls?: ReactNode;
+  /** Kept for the internal Library/Browse projection; no user-visible switch. */
   mode: FileLibraryMode;
   targetLabel: string;
   canGoBack: boolean;
   canGoForward: boolean;
   onBack: () => void;
   onForward: () => void;
-  onModeChange: (mode: FileLibraryMode) => void;
   navigationOpen?: boolean;
   onNavigationToggle?: () => void;
   navigationToggleRef?: RefObject<HTMLButtonElement | null>;
@@ -235,14 +238,21 @@ type WorkspaceCommandBarProps = {
   t: ReturnType<typeof useI18nContext>["t"];
 };
 
+/**
+ * ADR-0016: the ordinary Files workspace exposes one user-visible mode.
+ * Browse is the only presented content surface, so the previous Library /
+ * Browse Folder tablist is intentionally absent. Managed Library keeps its
+ * components, backend query authority, selection, tags and Saved Views; it is
+ * simply no longer a first-class switch in the normal file manager chrome.
+ */
 export function WorkspaceCommandBar({
+  fixtureControls,
   mode,
   targetLabel,
   canGoBack,
   canGoForward,
   onBack,
   onForward,
-  onModeChange,
   navigationOpen = false,
   onNavigationToggle = () => undefined,
   navigationToggleRef,
@@ -255,17 +265,10 @@ export function WorkspaceCommandBar({
   t
 }: WorkspaceCommandBarProps) {
   const pane = usePane();
-  const query = usePaneQuerySelector();
-  const handleModeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const nextMode = nextFileLibraryModeForKey(event.key);
-    if (nextMode === null) return;
-    event.preventDefault();
-    onModeChange(nextMode);
-    query(`[data-file-library-mode="${nextMode}"]`)?.focus();
-  };
 
   return (
-    <div className="file-library-command-bar" role="toolbar" aria-label={t("fileLibraryModeLabel")}>
+    <div className="file-library-command-bar" role="toolbar" aria-label={t("fileLibraryToolbarLabel")} data-file-library-presented-mode={mode}>
+      {fixtureControls}
       <div className="file-library-command-group file-library-history-controls">
         <button
           className="file-library-command-button"
@@ -286,33 +289,6 @@ export function WorkspaceCommandBar({
         >
           <ArrowRight size={15} aria-hidden="true" />
           <span>{t("fileLibraryForward")}</span>
-        </button>
-      </div>
-
-      <div className="file-library-mode-switch" role="tablist" aria-label={t("fileLibraryModeLabel")}>
-        <button
-          className="file-library-mode-button"
-          type="button"
-          role="tab"
-          aria-selected={mode === "library"}
-          tabIndex={mode === "library" ? 0 : -1}
-          data-file-library-mode="library"
-          onClick={() => onModeChange("library")}
-          onKeyDown={handleModeKeyDown}
-        >
-          {t("fileLibraryModeLibrary")}
-        </button>
-        <button
-          className="file-library-mode-button"
-          type="button"
-          role="tab"
-          aria-selected={mode === "browse"}
-          tabIndex={mode === "browse" ? 0 : -1}
-          data-file-library-mode="browse"
-          onClick={() => onModeChange("browse")}
-          onKeyDown={handleModeKeyDown}
-        >
-          {t("fileLibraryModeBrowse")}
         </button>
       </div>
 
@@ -375,11 +351,6 @@ export function WorkspaceCommandBar({
       </button>
     </div>
   );
-}
-
-export function nextFileLibraryModeForKey(key: string): FileLibraryMode | null {
-  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(key)) return null;
-  return key === "Home" || key === "ArrowLeft" ? "library" : "browse";
 }
 
 function LibrarySourceSlot() {

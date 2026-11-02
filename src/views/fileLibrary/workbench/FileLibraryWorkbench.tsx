@@ -459,6 +459,7 @@ export function FileLibraryWorkbench({
       ref={root}
       className="wb-workbench"
       data-workbench
+      data-workbench-ready={workspaceReady ? "true" : "false"}
       data-dual={active.dual}
       data-wide={wide}
     >

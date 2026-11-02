@@ -26,7 +26,7 @@ const VIEWPORTS = Object.freeze([
   { width: 1600, height: 900 },
   { width: 980, height: 680 },
 ]);
-const FIXTURE_QUERY = "w3-09-browser-fixture=integration&w3-02-browser-fixture=preview&w3-03-browser-fixture=pinned&w3-04-browser-fixture=providers&w3-05-browser-fixture=providers&w3-06-browser-fixture=images&w3-07-browser-fixture=folders&w3-08-browser-fixture=archives";
+const FIXTURE_QUERY = "managed-library-test=1&w3-09-browser-fixture=integration&w3-02-browser-fixture=preview&w3-03-browser-fixture=pinned&w3-04-browser-fixture=providers&w3-05-browser-fixture=providers&w3-06-browser-fixture=images&w3-07-browser-fixture=folders&w3-08-browser-fixture=archives";
 const TASK_TEMP_DIR = path.resolve(`.tmp-tests/w3-10-browser-runtime-${process.pid}`);
 const ARTIFACT_DIR = path.resolve(`.tmp-tests/w3-10-browser-gate-${process.pid}`);
 const TRACE_STARTED_AT = Date.now();

@@ -57,7 +57,7 @@ export const useAppStore = create<AppStore>((set) => ({
     try { window.localStorage.setItem("zc-sidebar-hidden", String(sidebarHidden)); } catch { /* optional preference */ }
   },
   setView: (view) => set((state) => {
-    const canonicalView = normalizeViewInput(view) ?? "scanner";
+    const canonicalView = normalizeViewInput(view) ?? "library";
     return canonicalView === "automation"
       ? { view: canonicalView, automationSurface: "intents" }
       : { view: canonicalView, automationSurface: state.automationSurface };

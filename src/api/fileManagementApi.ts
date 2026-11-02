@@ -6,6 +6,8 @@ export interface TransferTicket { id: string; name: string; path: string; isDire
 export interface TransferPreviewRow { ticketId: string; preview: OperationPreview | null; error: string | null; skipped: boolean }
 export interface TransferPreview { id: string; destinationDirectory: string; rows: TransferPreviewRow[] }
 export interface SavedPlace { id: string; name: string; routingHint: string; favorite: boolean; visitedAt: number; unavailable: boolean; current?: boolean }
+export type KnownLocationKind = "folder" | "volume";
+export interface KnownLocation { id: string; kind: KnownLocationKind; displayName: string; path: string; available: boolean }
 export const fileManagementApi = {
   captureTransfer(request: { refs?: EntryRef[]; selection?: LibrarySelectionV1; releaseIds?: string[]; externalPaths?: string[] }): Promise<TransferTicket[]> {
     return invokeCommand("file_workspace_transfer_capture", { request });
@@ -18,5 +20,13 @@ export const fileManagementApi = {
   },
   fileLibraryPlaces(request: { sessionId?: string; pathRef?: BrowsePathRef; favorite?: boolean; removeId?: string } = {}): Promise<SavedPlace[]> {
     return invokeCommand("file_workspace_places", { request });
+  },
+  /**
+   * Read-only projection of well-known folders and mounted volumes. It is not a
+   * place, a scan root or an index authorization; opening one still uses the
+   * existing user-intent Browse admission.
+   */
+  fileLibraryKnownLocations(): Promise<KnownLocation[]> {
+    return invokeCommand("file_workspace_known_locations");
   }
 };

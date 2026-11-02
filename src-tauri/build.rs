@@ -187,6 +187,7 @@ const COMMANDS: &[&str] = &[
     "file_workspace_browse_retain_path",
     "file_workspace_browse_dispose",
     "file_workspace_location_list",
+    "file_workspace_known_locations",
     "file_workspace_change_start",
     "file_workspace_change_pending",
     "file_workspace_change_refresh",

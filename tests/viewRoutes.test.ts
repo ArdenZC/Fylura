@@ -4,7 +4,7 @@ import { useAppStore } from "../src/store/useAppStore";
 import { initialViewFromSearch, normalizeViewInput } from "../src/utils/viewRoutes";
 
 describe("canonical product view routes", () => {
-  afterEach(() => useAppStore.setState({ view: "scanner", automationSurface: "intents" }));
+  afterEach(() => useAppStore.setState({ view: "library", automationSurface: "intents" }));
 
   it("accepts canonical Automation and normalizes only the legacy Rules route", () => {
     expect(normalizeViewInput("automation")).toBe("automation");
@@ -16,8 +16,8 @@ describe("canonical product view routes", () => {
   it("keeps legacy and canonical deep links on the Intents default and falls back safely", () => {
     expect(initialViewFromSearch("?view=automation")).toBe("automation");
     expect(initialViewFromSearch("?view=rules")).toBe("automation");
-    expect(initialViewFromSearch("?view=unknown-view")).toBe("scanner");
-    expect(initialViewFromSearch("")).toBe("scanner");
+    expect(initialViewFromSearch("?view=unknown-view")).toBe("library");
+    expect(initialViewFromSearch("")).toBe("library");
   });
 
   it("stores only canonical routes and resets Advanced Policies on every ordinary Automation entry", () => {
@@ -32,6 +32,6 @@ describe("canonical product view routes", () => {
     expect(useAppStore.getState().automationSurface).toBe("intents");
 
     useAppStore.getState().setView("unknown-view" as View);
-    expect(useAppStore.getState().view).toBe("scanner");
+    expect(useAppStore.getState().view).toBe("library");
   });
 });

@@ -38,8 +38,6 @@ export function GeneralSettingsSection({
   t,
   closeBehavior,
   onCloseBehavior,
-  backgroundIndexOnStartup,
-  onBackgroundIndexOnStartup,
   launchAtLogin,
   onLaunchAtLogin,
   language,
@@ -98,13 +96,6 @@ export function GeneralSettingsSection({
 
       <SettingsControlGroup className="zc-settings-workspace-group" title={t("settingsFilesWorkspace")} description={t("settingsScanRootsDesc")}>
         <span className="sr-only">{t("settingsStartup")}</span>
-        <SettingsSwitch
-          id="settings-background-index-startup"
-          label={t("backgroundIndexOnStartup")}
-          description={t("backgroundIndexOnStartupDesc")}
-          checked={backgroundIndexOnStartup}
-          onChange={onBackgroundIndexOnStartup}
-        />
         <SettingsRow label={t("quickPreviewSetting")} description={t("quickPreviewSettingDesc")}>
           <span data-settings-capability-status className={quietText}>{t("quickPreviewSettingStatus")}</span>
         </SettingsRow>

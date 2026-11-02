@@ -8,20 +8,14 @@ function read(relativePath: string) {
 }
 
 describe("background indexer", () => {
-  it("queues enabled scan and search roots without taking over the foreground scanner", () => {
+  it("keeps the explicit managed queue without submitting saved roots on Files startup", () => {
     const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");
     const indexerStore = read("src/store/useBackgroundIndexerStore.ts");
 
-    expect(runtimeProviders).toContain("useBackgroundIndexerStore");
-    expect(runtimeProviders).toContain("enqueueBackgroundIndexRoots");
-    expect(runtimeProviders).toContain("enabledScanRootPaths(persistedSettings.defaultScanFolders)");
-    expect(runtimeProviders).toContain("enabledSearchRootPaths(persistedSettings.customSearchRoots)");
-    expect(runtimeProviders).toContain("if (isSearchMode || isLoadingSettings) return");
-    expect(runtimeProviders).toContain("persistedSettings.backgroundIndexOnStartup === false");
-    expect(runtimeProviders).toContain("const backgroundIndexRoots = useMemo");
-    expect(runtimeProviders).toContain("const backgroundIndexRootSignature = useMemo");
-    expect(runtimeProviders).toContain("backgroundIndexRootSignature");
-    expect(runtimeProviders).not.toContain("appSettings.searchHotkey,\n    appSettings.customSearchRoots");
+    expect(runtimeProviders).not.toContain("enqueueBackgroundIndexRoots");
+    expect(runtimeProviders).not.toContain("useBackgroundIndexerStore");
+    expect(runtimeProviders).not.toContain("enabledScanRootPaths(persistedSettings.defaultScanFolders)");
+    expect(runtimeProviders).not.toContain("enabledSearchRootPaths(persistedSettings.customSearchRoots)");
     expect(indexerStore).toContain("pendingRoots: string[]");
     expect(indexerStore).toContain("currentRoot: string | null");
     expect(indexerStore).toContain("isBackgroundIndexing: boolean");
@@ -69,7 +63,7 @@ describe("background indexer", () => {
     expect(settingsSurface).toContain("isBackgroundIndexing");
     expect(settingsSurface).toContain('t("backgroundIndexingTitle")');
     expect(settingsSurface).toContain('t("backgroundIndexingQueue")');
-    expect(settingsSurface).toContain('t("backgroundIndexOnStartup")');
+    expect(settingsSurface).not.toContain('id="settings-background-index-startup"');
     expect(settingsSurface).toContain('t("searchLocalIndexBoundary")');
     expect(settingsSurface).toContain("enqueueBackgroundIndexRoot(path)");
     expect(settingsSurface).toContain("if (enabled) enqueueBackgroundIndexRoot(root.path, { force: true })");

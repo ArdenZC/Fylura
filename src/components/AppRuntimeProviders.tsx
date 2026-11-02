@@ -2,13 +2,12 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { tauriApi } from "../api/tauriApi";
 import { ChromeProvider, RulesProvider, RuntimeCapabilitiesProvider, SettingsProvider } from "../contexts/AppContexts";
 import { useAppChrome } from "../hooks/useAppChrome";
-import { defaultScanRootSettingsEqual, enabledScanRootPaths, enabledSearchRootPaths, useAppSettings } from "../hooks/useAppSettings";
+import { defaultScanRootSettingsEqual, useAppSettings } from "../hooks/useAppSettings";
 import { useFsWatcher } from "../hooks/useFsWatcher";
 import { useRulePersistence } from "../hooks/useRulePersistence";
 import { useWindowBehavior } from "../hooks/useWindowBehavior";
 import { makeTranslator } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
-import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { useRulesStore } from "../store/useRulesStore";
@@ -26,7 +25,7 @@ import type {
   RuleDraftV2,
   RuntimeCapabilities
 } from "../types/domain";
-import { localizedStableError, normalizePathLike, readableError } from "../utils/viewHelpers";
+import { localizedStableError, readableError } from "../utils/viewHelpers";
 
 export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const language = useAppStore((state) => state.language);
@@ -36,7 +35,6 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const view = useAppStore((state) => state.view);
   const setView = useAppStore((state) => state.setView);
   const showError = useAppStore((state) => state.showError);
-  const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
   const rules = useRulesStore((state) => state.rules);
   const upsertRule = useRulesStore((state) => state.upsertRule);
   const removeUserRule = useRulesStore((state) => state.removeUserRule);
@@ -144,29 +142,9 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     }
   }, [isLoadingSettings, isSearchMode, persistedSettings.defaultScanFolders]);
 
-  const backgroundIndexRoots = useMemo(
-    () => [
-      ...enabledScanRootPaths(persistedSettings.defaultScanFolders),
-      ...enabledSearchRootPaths(persistedSettings.customSearchRoots)
-    ],
-    [persistedSettings.defaultScanFolders, persistedSettings.customSearchRoots]
-  );
-  const backgroundIndexRootSignature = useMemo(
-    () => backgroundIndexRoots.map(backgroundIndexRootKey).sort().join("\n"),
-    [backgroundIndexRoots]
-  );
-
-  useEffect(() => {
-    if (isSearchMode || isLoadingSettings) return;
-    if (persistedSettings.backgroundIndexOnStartup === false) return;
-    enqueueBackgroundIndexRoots(backgroundIndexRoots);
-  }, [
-    backgroundIndexRootSignature,
-    enqueueBackgroundIndexRoots,
-    isLoadingSettings,
-    isSearchMode,
-    persistedSettings.backgroundIndexOnStartup
-  ]);
+  // ADR-0016 / M0-B: retained roots and backgroundIndexOnStartup are
+  // compatibility data, not an instruction to start Managed Scan when Files
+  // opens. Explicit Settings/Scanner actions retain the existing queue/API.
 
   useEffect(() => {
     if (isSearchMode) return;
@@ -475,10 +453,6 @@ function StoreRuntimeBootstrapper({ enabled }: { enabled: boolean }) {
 
 function arraysEqual<T>(left: readonly T[], right: readonly T[]) {
   return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function backgroundIndexRootKey(path: string) {
-  return normalizePathLike(path.trim());
 }
 
 function normalizeOptionalPath(path?: string | null) {

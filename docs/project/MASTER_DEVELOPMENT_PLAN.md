@@ -1,4 +1,4 @@
-# Zen Canvas — Master Development Plan
+# Fylura — Master Development Plan
 
 Status: canonical long-horizon development plan
 
@@ -10,7 +10,7 @@ The external-project evidence and reconstructed Round 1–4 synthesis behind thi
 
 ## 1. Product north star
 
-Zen Canvas is a calm, local-first, safety-oriented **file lifecycle / file-governance workspace**.
+Fylura is a calm, local-first, safety-oriented **file lifecycle / file-governance workspace**.
 
 Its job is to help users:
 
@@ -21,7 +21,7 @@ Its job is to help users:
 - organize, deduplicate, clean up and recover files with explicit user control;
 - preserve platform-native expectations on macOS and Windows.
 
-Zen Canvas is **not** intended to become:
+Fylura is **not** intended to become:
 
 - a Finder/Explorer replacement that forces a new filesystem interaction model;
 - a cloud drive;
@@ -33,13 +33,13 @@ Zen Canvas is **not** intended to become:
 - a second operating-system search engine;
 - a feature bundle that hides platform limitations behind false parity.
 
-The product should add value around the user's existing filesystem rather than demand that users migrate all habits into Zen.
+The product should add value around the user's existing filesystem rather than demand that users migrate all habits into Fylura.
 
 ### 1.1 2026 product-direction refinement
 
 The owner direction now refines that north star further:
 
-> **Zen Canvas is an AI-native safe file workspace that stays nearly invisible when idle.**
+> **Fylura is an AI-native safe file workspace that stays nearly invisible when idle.**
 
 “AI-native” means AI is the preferred semantic reasoning layer where human-like judgment is actually needed. It does **not** mean an always-on Agent, default whole-machine content ingestion, autonomous filesystem mutation, or a requirement that ordinary search/browse/filter/tag workflows invoke AI.
 
@@ -296,7 +296,9 @@ Binding principles:
 - ephemeral/session-only sources use bounded session/memory caching rather than guessed cross-session identity;
 - existing `MacThumbnailService` is preserved/adapted rather than replaced.
 
-## 6. Long-horizon Wave plan
+## 6. Historical technical Wave plan
+
+Current product delivery uses M0–M5 in [ROADMAP.md](ROADMAP.md). W0–W6 below preserves technical scope and dependencies, not an additional default startup or approval sequence. Managed Library dormancy is reviewed on 2027-01-04; no code/data retirement is implied.
 
 ### W-1 — Research / reference discovery
 

@@ -6,7 +6,7 @@ Verified 2026-11-02. Current delivery truth: [STATUS](STATUS.md); product decisi
 
 | Milestone | User outcome and next work | State / preserved boundaries |
 | --- | --- | --- |
-| **M0 — First use and engineering convergence** | Zero-configuration Files, dormant Managed Library, concise project truth, risk-proportional delivery | M0-A merged #534, #527 closed; M0-B/C closes in this change. #529 risk routing already merged; no CI redesign |
+| **M0 — First use and engineering convergence** | Zero-configuration Files, dormant Managed Library, concise project truth, risk-proportional delivery | M0-A merged #534, #527 closed; M0-B/C merged #535 (`6392e66`), required CI passed. #529 risk routing already merged; no CI redesign |
 | **M1 — Complete everyday Files** | Browse → select multiple files → Copy/Move across folders → progress/cancel/errors → view results → History/Restore | Drag/clipboard, tabs/dual panes, Basket, rename, task center and conflicts already have merged implementations (#475/#481/#514/#517/#519/#521). Fix actual integrated workflow friction; do not rewrite the engine |
 | **M2 — AI Organize** | One-off supported folder/selection/Basket → bounded authorized AI analysis → grouped plan → exceptions → one approval → execution/recovery | Extend existing Plan source admission beyond managed selection; no permanent managed-root prerequisite or second executor |
 | **M3 — AI Cleanup** | Deterministic findings + AI explanations → grouped risk-aware proposal → Safe Trash → Restore | Keep eligibility, independent AI consent, journals and high-risk decisions; AI cannot authorize deletion |
@@ -19,7 +19,7 @@ Verified 2026-11-02. Current delivery truth: [STATUS](STATUS.md); product decisi
 
 Status: **ACTIVE — IMPLEMENTATION**
 
-Use the [delivery record](initiatives/file-first-product-delivery.md). Complete M0-B/C, merge with existing required checks, then directly repair one full M1 user workflow and proceed to M2. No new route study or audit program is required. Ordinary unambiguous no-conflict Copy/Move takes one intent; retain authoritative Preview, revalidation, Journal and Restore, with extra decisions only for conflicts, permissions or destructive actions.
+Use the [delivery record](initiatives/file-first-product-delivery.md). M0 is merged. Current M1 work fixes multi-select Copy/Move result navigation to drive/volume roots and after partial/all failures, preserves task feedback and History/Restore, then proceeds to M2. No new route study or audit program is required. Ordinary unambiguous no-conflict Copy/Move takes one intent; retain authoritative Preview, revalidation, Journal and Restore, with extra decisions only for conflicts, permissions or destructive actions.
 
 Managed Library stays dormant: #534 already restricts its UI fixture to non-Tauri browser tests with `managed-library-test=1`; no new flag is needed. Startup no longer submits saved scan/search roots to Managed Scan. Preserve databases, roots, Query V2, Saved Views, tags, settings, existing APIs and shared file services. Already-authorized Global Index/Managed AI policy remains separate from opening Files; no new indexing or AI consent is inferred. Re-evaluate dormancy on **2027-01-04**.
 

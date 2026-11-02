@@ -617,6 +617,7 @@ export function FileManagementToolbar() {
   const nameConflict = transfer?.action === "rename" || transfer?.action === "create_directory";
   const conflictsResolved = conflictTicketIds.length > 0 && conflictTicketIds.every((id) => skip.includes(id) || keepBoth.includes(id));
   const panelTitle = t(state.basketOpen ? "fmBasket" : panel === "places" ? "fmPlaces" : panel === "results" ? "fmResultsSummary" : panel === "tasks" ? "fmTasks" : "fmMore");
+  const resultDestination = parentPath(state.results.find((log) => log.status === "success" && log.path_after)?.path_after ?? "");
   const resultsSummary = `${t("fmResults")} · ${state.results.filter((log) => log.status === "success").length}/${state.results.length}`;
   const taskAttentionCount = operationTaskBatches.reduce((count, batch) => count + batch.pending + batch.failed, 0)
     + operationTaskBatches.filter((batch) => batch.logs.some((log) => log.status === "manual_review")).length;
@@ -789,7 +790,7 @@ export function FileManagementToolbar() {
         <p className="fm-muted">{resultsSummary}</p>
         <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{log.status === "success" ? t("fmSucceeded") : log.status === "skipped" ? t("fmSkipped") : t("fmFailed")}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{localizedStableError(log.error_message, t)}</p>}</li>)}</ul>
         {pageControls(state.results.length, resultPage, setResultPage)}
-        <div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} onClick={() => void go(state.results[0]!.path_after.replace(/[/\\][^/\\]+$/, ""))}>{t("fmOpenDestination")}</button><button className={buttonGhost} onClick={() => { useFileManagementStore.setState({ results: [] }); closePanel(); }}>{t("fmDismiss")}</button></div>
+        <div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} disabled={!resultDestination} onClick={() => void go(resultDestination)}>{t("fmOpenDestination")}</button><button className={buttonGhost} onClick={() => { useFileManagementStore.setState({ results: [] }); closePanel(); }}>{t("fmDismiss")}</button></div>
         <p className="fm-muted">{t("fmRestoreHelp")}</p>
       </>}
       </div>

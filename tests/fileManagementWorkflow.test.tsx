@@ -11,10 +11,10 @@ import { useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { fileManagementApi as api, type TransferTicket, type TransferPreview } from "../src/api/fileManagementApi";
 import { tauriApi } from "../src/api/tauriApi";
 import type { OperationLog, OperationPreview } from "../src/types/domain";
-const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), refreshHistory: vi.fn(async () => []), cancelOperations: vi.fn(async () => undefined) }));
+const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), setView: vi.fn(), platform: "win32", refreshHistory: vi.fn(async () => []), cancelOperations: vi.fn(async () => undefined) }));
 vi.mock("../src/contexts/AppContexts", async () => {
   const { makeTranslator } = await import("../src/i18n"); const t = makeTranslator("en");
-  return { useI18nContext: () => ({ t, language: "en" }), useChromeContext: () => ({ platform: "win32" }), useNavigationContext: () => ({ setView: vi.fn() }) };
+  return { useI18nContext: () => ({ t, language: "en" }), useChromeContext: () => ({ platform: mocks.platform }), useNavigationContext: () => ({ setView: mocks.setView }) };
 });
 vi.mock("../src/views/fileLibrary/FileLibraryExperienceProvider", () => ({ useFileLibraryExperience: () => ({ controller: { openBrowse: mocks.navigate } }) }));
 vi.mock("../src/views/fileLibrary/preview/PreviewExperienceProvider", () => ({ usePreviewExperience: () => ({ controller: { close: mocks.close, closeForFileOperation: mocks.close } }) }));
@@ -74,6 +74,7 @@ beforeEach(() => {
   vi.spyOn(tauriApi,"cancelOperations").mockResolvedValue();
   useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},refresh,clear}),basket:[],clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null,surfaces:{},activePaneId:null,pendingTransfer:null,transferOpen:false,transferActive:false,transferRunning:false,activeTransferId:null,activeTransferTask:null,transferTicketIds:[],externalDropAction:"copy"});
   useOperationQueueStore.setState({ operationLogs: [], operationProgress: null, activeOperationKind: null, isOperationCanceling: false });
+  mocks.platform = "win32"; mocks.navigate.mockReset().mockResolvedValue({}); mocks.setView.mockClear();
   refresh.mockClear();clear.mockClear();mocks.close.mockClear();mocks.refreshHistory.mockClear();mocks.cancelOperations.mockClear();
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
@@ -92,6 +93,56 @@ describe("File Library manual management workflow", () => {
     expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(refresh).toHaveBeenCalledOnce();expect(clear).toHaveBeenCalledOnce();expect(mocks.close).toHaveBeenCalled();
+  });
+  it.each([
+    ["win32", "windows", "copy", "D:/"],
+    ["win32", "windows", "move", "D:\\"],
+    ["darwin", "macos", "copy", "/"],
+    ["darwin", "macos", "move", "/Volumes/USB/"],
+  ])("finishes a multi-select %s %s %s workflow and opens %s before History", async (platform, wirePlatform, action, destination) => {
+    mocks.platform = platform;
+    const refs = tickets.map((ticket) => ({ kind: "ephemeral" as const, browseSessionId: "source-session", entryId: ticket.id }));
+    const source = { signature: "browse-multi-selection", count: 2, refs, browse: { sessionId: "source-session", pathRef: { id: "source" } }, routingHint: platform === "darwin" ? "/Source" : "C:/Source", refresh, clear };
+    useFileManagementStore.setState({ surface: () => source });
+    const preview = plan();
+    preview.destinationDirectory = destination;
+    preview.rows.forEach((row) => { row.preview!.target_path = `${destination}${row.ticketId}.txt`; row.preview!.operation_type = action as "copy" | "move"; });
+    vi.mocked(api.previewTransfer).mockResolvedValueOnce(preview);
+    vi.mocked(api.executeTransfer).mockResolvedValueOnce({ batch_id: "batch", logs: result(["success", "success"]).map((log, index) => ({ ...log, operation_type: action, path_after: `${destination}${tickets[index]!.name}` })) });
+    await render();
+    await click(t(action === "move" ? "fmCut" : "fmCopy"));
+    expect(api.captureTransfer).toHaveBeenCalledWith({ refs });
+    useFileManagementStore.setState({ surface: () => ({ signature: "empty-destination", count: 0, browse: { sessionId: "target", pathRef: { id: "target" } }, routingHint: destination, refresh, clear }) });
+    await render();
+    await click(t("fmPaste"));
+    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({ action, destinationDirectory: destination, ticketIds: ["one", "two"] }));
+    expect(api.executeTransfer).toHaveBeenCalledOnce();
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    expect(mocks.refreshHistory).toHaveBeenCalled();
+    expect(useFileManagementStore.getState().clipboard?.tickets).toHaveLength(action === "move" ? 0 : 2);
+    await click(t("fmResults"));
+    await click(t("fmOpenDestination"));
+    const expectedDirectory = destination === "D:/" || destination === "/" ? destination : destination.replace(/\/$/, "");
+    expect(mocks.navigate).toHaveBeenCalledWith({ platform: wirePlatform, routingHint: expectedDirectory, displayHint: expectedDirectory });
+    await click(t("fmResults"));
+    await click(t("fmHistory"));
+    expect(mocks.setView).toHaveBeenCalledWith("restore");
+  });
+  it("opens the successful result directory after a partial failure", async () => {
+    const logs = result(["failed", "success"]);
+    logs[0]!.path_after = "C:/Missing/one.txt";
+    logs[1]!.path_after = "C:/Completed/two.txt";
+    useFileManagementStore.setState({ results: logs });
+    await render(); await click(t("fmResults")); await click(t("fmOpenDestination"));
+    expect(mocks.navigate).toHaveBeenCalledWith(expect.objectContaining({ routingHint: "C:/Completed" }));
+  });
+  it("keeps History reachable and disables destination navigation when every item failed", async () => {
+    useFileManagementStore.setState({ results: result(["failed", "failed"]) });
+    await render(); await click(t("fmResults"));
+    expect(button(t("fmOpenDestination")).disabled).toBe(true);
+    await click(t("fmHistory"));
+    expect(mocks.setView).toHaveBeenCalledWith("restore");
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
   it("waits for preview handle release before invoking a mutation", async () => {
     useFileManagementStore.setState({clipboard:{action:"copy",tickets}});

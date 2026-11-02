@@ -1,5 +1,6 @@
+import type { OrganizationPlanSource } from "./organizationApi";
 import { mockIndexCoverage } from "./mockIndexCoverage";
-import { isManagementCommand, managementMock, managementHistory } from "./fileManagementMock";
+import { isManagementCommand, managementMock, managementHistory, executeManagementMockOperations, restoreManagementMock } from "./fileManagementMock";
 import { resolveManagementMockEntry, resolveManagementMockLocation } from "./fileWorkspaceMockApi";
 import { createAutomationMock } from "./automationMock";
 import type {
@@ -1097,7 +1098,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "delete_library_saved_view":
       return deleteMockLibrarySavedView(args?.request as DeleteLibrarySavedViewRequest | undefined) as T;
     case "create_organization_plan":
-      return createMockOrganizationPlan(args?.request as { title?: string; source?: LibrarySelectionV1; expectedCount?: number } | undefined) as T;
+      return createMockOrganizationPlan(args?.request as { title?: string; source?: OrganizationPlanSource; expectedCount?: number } | undefined) as T;
     case "list_organization_plans":
       return listMockOrganizationPlans() as T;
     case "get_organization_plan": {
@@ -1121,6 +1122,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         expectedProjectionFingerprint?: string;
         expectedItemCount?: number;
         decision?: OrganizationPlanItem["decision"];
+    editedTargetTemplate?: string;
       } | undefined) as T;
     case "refresh_organization_plan":
       return refreshMockOrganizationPlan(args?.request as { planId?: string; expectedPlanRevision?: number } | undefined) as T;
@@ -1129,11 +1131,11 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "delete_organization_plan":
       return deleteMockOrganizationPlan(args?.request as { planId?: string; expectedPlanRevision?: number; confirmed?: boolean } | undefined) as T;
     case "analyze_organization_plan_items":
-      return { planId: String((args?.request as { planId?: string } | undefined)?.planId ?? ""), queuedCount: 0, requiresRefresh: true } as T;
+      return analyzeMockOneOffOrganization(args?.request as { planId: string; expectedPlanRevision: number; itemIds: string[]; oneOffConsent?: boolean }) as T;
     case "get_organization_plan_dry_run":
       return getMockOrganizationDryRun(args?.request as { planId?: string; expectedPlanRevision?: number; itemIds?: string[]; allAccepted?: boolean } | undefined) as T;
     case "execute_organization_plan":
-      throw new Error("browser_mock_native_execution_unavailable");
+      return executeMockOneOffOrganization(args?.request as { planId: string; expectedPlanRevision: number; dryRunFingerprint: string; confirmed: boolean; allAccepted?: boolean; itemIds?: string[] }) as T;
     case "get_stats_summary":
       return mockStats() as T;
     case "search_files":
@@ -2749,12 +2751,12 @@ interface MockOrganizationDecisionRequest {
   }>;
 }
 
-function createMockOrganizationPlan(request?: { title?: string; source?: LibrarySelectionV1; expectedCount?: number }, automationRunId?: string): OrganizationPlan {
+function createMockOrganizationPlan(request?: { title?: string; source?: OrganizationPlanSource; expectedCount?: number }, automationRunId?: string): OrganizationPlan {
   if (!request?.source) throw new Error("organization_plan_request_invalid");
   const source = request.source;
-  const summary = getMockFileLibrarySelectionSummary(source);
+  const summary = source.kind === "one_off" ? { count: source.entries.length } : getMockFileLibrarySelectionSummary(source);
   if (request.expectedCount !== undefined && request.expectedCount !== summary.count) throw new Error("organization_plan_expected_count_mismatch");
-  if (summary.count > 10_000) throw new Error("organization_plan_too_large");
+  if (summary.count > (source.kind === "one_off" ? 100 : 10_000)) throw new Error("organization_plan_too_large");
   const timestamp = Math.floor(Date.now() / 1000);
   const presentationOnly = new URLSearchParams(globalThis.location?.search ?? "").has("pm01-organize");
   const id = `${presentationOnly ? "browser-presentation-organization-plan" : "browser-organization-plan"}-${automationRunId ?? Date.now()}`;
@@ -2780,13 +2782,16 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
     summary: emptyMockOrganizationSummary(),
     effectiveSummary: null
   };
-  const sourceFiles = source.kind === "explicit"
+  const sourceFiles = source.kind === "one_off" ? source.entries.map((ref, index) => {
+    const entry = resolveManagementMockEntry(ref);
+    return { ...mockFiles[0], id: `browser-one-off-source-${id}-${index}`, name: entry.name, path: entry.path, directory: entry.path.slice(0, entry.path.lastIndexOf("/")), size: 64, is_dir: entry.isDirectory };
+  }) : source.kind === "explicit"
     ? mockFiles.filter((file) => source.fileIds.includes(file.id) && !file.is_stale)
     : filterMockLibraryFiles(source.query).filter((file) => !source.excludedFileIds.includes(file.id));
   mockOrganizationItems.set(id, sourceFiles.sort((left, right) => left.id.localeCompare(right.id)).map((file, ordinal) => {
     // This is a deterministic display fixture selected by the browser URL. It
     // intentionally never reads files.suggested_* or claims AI authority.
-    const state = presentationOnly ? mockOrganizationPresentationState() : "needs-analysis";
+    const state = "is_dir" in file && file.is_dir ? "blocked" : presentationOnly ? mockOrganizationPresentationState() : "needs-analysis";
     const actionable = state === "ready" || state === "review";
     const blocked = state === "blocked";
     const validity: OrganizationPlanItem["validity"] = blocked ? "blocked" : state === "needs-analysis" ? "needs_analysis" : state === "review" ? "needs_review" : "ready";
@@ -2810,7 +2815,7 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
       sourceNameSnapshot: file.name,
       sourceSizeSnapshot: file.size,
       sourceMtimeSnapshot: mockFileTimestamp(file.modified_at),
-      sourceIsDirSnapshot: false,
+      sourceIsDirSnapshot: "is_dir" in file && Boolean(file.is_dir),
       proposalFingerprint: mockLibraryFingerprint(defaultFileLibraryQueryForMock(file.id)),
       semanticExplanation,
       proposalKind,
@@ -3024,6 +3029,7 @@ function mockOrganizationGroupSummaries(plan: OrganizationPlan): OrganizationPla
       sampleItems: members.slice(0, 3).map((item) => ({
         itemId: item.id,
         sourceName: item.sourceNameSnapshot,
+        reason: item.semanticExplanation?.reason,
         sourcePath: item.sourcePathSnapshot,
         proposedName: item.proposedName,
         decision: item.decision,
@@ -3105,6 +3111,7 @@ function updateMockOrganizationGroupDecision(request?: {
   expectedProjectionFingerprint?: string;
   expectedItemCount?: number;
   decision?: OrganizationPlanItem["decision"];
+  editedTargetTemplate?: string;
 }) {
   const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
   if (!plan || plan.revision !== request?.expectedPlanRevision) throw new Error("organization_plan_revision_conflict");
@@ -3122,7 +3129,14 @@ function updateMockOrganizationGroupDecision(request?: {
     : decision === "kept"
       ? currentGroup.groupActions.canKeepAll
       : currentGroup.groupActions.canClearAll;
-  if (!actionAvailable) throw new Error("organization_group_action_not_available");
+  if (!actionAvailable && !request.editedTargetTemplate) throw new Error("organization_group_action_not_available");
+  if (request.editedTargetTemplate) {
+    if (plan.sourceKind !== "one_off" || /[\\/:]|^\.\.?$/.test(request.editedTargetTemplate)) throw Error("one_off_group_folder_invalid");
+    for (const item of members) {
+      item.proposedTargetDirectory = `${item.sourcePathSnapshot.slice(0,item.sourcePathSnapshot.lastIndexOf("/"))}/${request.editedTargetTemplate}`;
+      item.proposedTargetPath = `${item.proposedTargetDirectory}/${item.proposedName}`;
+    }
+  }
   const updated = updateMockOrganizationDecisions({
     planId: plan.id,
     expectedPlanRevision: plan.revision,
@@ -3199,7 +3213,7 @@ function updateMockOrganizationDecisions(request?: MockOrganizationDecisionReque
 function refreshMockOrganizationPlan(request?: { planId?: string; expectedPlanRevision?: number }): OrganizationPlan {
   const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
   if (!plan || plan.revision !== request?.expectedPlanRevision) throw new Error("organization_plan_revision_conflict");
-  const updated = { ...plan, status: "ready" as const, revision: plan.revision + 1, updatedAt: Math.floor(Date.now() / 1000) };
+  const updated = { ...plan, status: "ready" as const, revision: plan.revision + 1, updatedAt: Math.floor(Date.now() / 1000), summary: mockOrganizationSummary(mockOrganizationItems.get(plan.id) ?? []) };
   mockOrganizationPlans = mockOrganizationPlans.map((item) => item.id === plan.id ? updated : item);
   return updated;
 }
@@ -3835,11 +3849,12 @@ function mockRestoreMoves(args?: Record<string, unknown>): RestoreMovesResult {
   const ids = Array.isArray((args?.request as Record<string, unknown> | undefined)?.logIds)
     ? ((args?.request as Record<string, unknown>).logIds as unknown[]).map(String)
     : [];
-  const source = mockOperationLogs();
+  const source = [...managementHistory, ...mockOperationLogs()];
   const logs = ids
     .map((id) => source.find((log) => log.id === id))
     .filter((log): log is OperationLog => Boolean(log))
     .map((log) => {
+      if (managementHistory.some((item) => item.id === log.id)) return restoreManagementMock(log);
       const outcome: OperationLog["restore_status"] = log.id === "history-a-restorable"
         ? "restored"
         : log.id === "history-b-restorable"
@@ -3853,7 +3868,7 @@ function mockRestoreMoves(args?: Record<string, unknown>): RestoreMovesResult {
         restore_error: outcome === "failed" ? "The destination path is occupied by another file." : outcome === "canceled" ? "Restore was canceled before this item was processed." : null
       };
     });
-  mockOperationLogState = source.map((log) => logs.find((updated) => updated.id === log.id) ?? log);
+  mockOperationLogState = source.filter((log) => !managementHistory.some((item) => item.id === log.id)).map((log) => logs.find((updated) => updated.id === log.id) ?? log);
   return {
     logs,
     restored: logs.filter((log) => log.restore_status === "restored").length,
@@ -4707,3 +4722,49 @@ const automationMock = createAutomationMock({
   snapshotRevision: () => mockLibraryRevision,
   createPlan: (intent, revision, runId) => createMockOrganizationPlan({ title: intent.title, source: { kind: "all_matching", query: intent.scopeQuery, queryFingerprint: intent.scopeFingerprint, snapshotRevision: revision, excludedFileIds: [] } }, runId)
 });
+
+// One-off UI regression fixtures. These never invoke a model or mutate native files.
+function analyzeMockOneOffOrganization(request: { planId: string; expectedPlanRevision: number; itemIds: string[]; oneOffConsent?: boolean }) {
+  const plan = mockOrganizationPlans.find((plan) => plan.id === request.planId);
+  if (!plan) throw Error("organization_plan_not_found");
+  if (plan.sourceKind !== "one_off") return { planId: plan.id, queuedCount: 0, requiresRefresh: true };
+  if (!request.oneOffConsent) throw Error("one_off_ai_metadata_consent_required");
+  if (browserPresentationFeatureReadinessFixture().provider.state !== "ready") throw Error("one_off_ai_provider_not_ready");
+  if (plan.revision !== request.expectedPlanRevision) throw Error("organization_plan_revision_conflict");
+  const item = (mockOrganizationItems.get(plan.id) ?? []).find((item) => request.itemIds.includes(item.id) && item.validity === "needs_analysis" && !item.sourceIsDirSnapshot);
+  if (!item) return { planId: plan.id, queuedCount: 0, requiresRefresh: true };
+  const label = /\.(jpg|png)$/i.test(item.sourceNameSnapshot) ? "Images" : "Documents";
+  item.proposalKind = "move";
+  item.proposedTargetDirectory = `${item.sourcePathSnapshot.slice(0, item.sourcePathSnapshot.lastIndexOf("/"))}/${label}`;
+  item.proposedTargetPath = `${item.proposedTargetDirectory}/${item.proposedName}`;
+  item.confidence = 0.94; item.riskLevel = "Normal"; item.requiresConfirmation = true;
+  item.validity = "needs_review"; item.reviewState = "needs_review"; item.effectiveReadiness = "requires-decision";
+  item.authoritativePreviewId = `browser-one-off-preview-${item.id}`;
+  item.semanticExplanation = { assessmentFingerprint: `browser-only-${item.id}`, reason: `Browser fixture: related ${label.toLowerCase()} are grouped together.` };
+  item.reviewReasons = ["target_directory_creation"];
+  item.availableActions = ["accept_suggestion", "edit_name", "keep"];
+  return { planId: plan.id, queuedCount: 1, requiresRefresh: true };
+}
+
+function executeMockOneOffOrganization(request: { planId: string; expectedPlanRevision: number; dryRunFingerprint: string; confirmed: boolean; allAccepted?: boolean; itemIds?: string[] }) {
+  const plan = mockOrganizationPlans.find((plan) => plan.id === request.planId);
+  if (!plan || plan.sourceKind !== "one_off") throw Error("browser_mock_native_execution_unavailable");
+  const dry = getMockOrganizationDryRun(request);
+  if (!request.confirmed || dry.dryRunFingerprint !== request.dryRunFingerprint) throw Error("organization_dry_run_expired");
+  const items = mockOrganizationItems.get(plan.id) ?? [];
+  const selected = items.filter((item) => dry.items.some((row) => row.itemId === item.id && row.executable));
+  const result = executeManagementMockOperations(selected.map((item): OperationPreview => {
+    if (item.proposalKind === "keep" || item.proposalKind === "blocked") throw Error("organization_item_not_executable");
+    return ({
+    id: item.authoritativePreviewId!, fileId: item.fileIdSnapshot, operation_type: item.proposalKind,
+    source_path: item.sourcePathSnapshot, target_path: item.editedName ? `${item.proposedTargetDirectory}/${item.editedName}` : item.proposedTargetPath,
+    old_name: item.sourceNameSnapshot, new_name: item.editedName ?? item.proposedName,
+    reason: "One-off browser fixture", status: "pending", risk_level: item.riskLevel === "Sensitive" ? "Sensitive" : item.riskLevel === "Caution" ? "Caution" : "Normal", confidence: item.confidence,
+    requires_confirmation: item.requiresConfirmation, suggested_action: "Move", is_executable: true
+  }); }));
+  selected.forEach((item, index) => { item.validity = "executed"; item.operationLogId = result.logs[index].id; item.availableActions = []; });
+  plan.revision++; plan.activeOperationBatchId = result.batch_id;
+  plan.status = items.some((item) => item.validity !== "executed" && item.decision !== "kept") ? "partially_completed" : "completed";
+  plan.summary = mockOrganizationSummary(items); plan.effectiveSummary = mockOrganizationEffectiveSummary(items);
+  return { plan, executionId: `browser-execution-${result.batch_id}`, operationBatchId: result.batch_id, attemptedCount: selected.length, succeededCount: selected.length, failedCount: 0, skippedCount: 0 };
+}

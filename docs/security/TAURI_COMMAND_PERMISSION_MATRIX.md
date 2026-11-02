@@ -90,18 +90,18 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `create_library_saved_view` | `main_state_mutation` | main | Create a canonical durable File Library Saved View | default | yes | File Library V2 Saved View tests |
 | `update_library_saved_view` | `main_state_mutation` | main | Update a canonical durable File Library Saved View with CAS | default | yes | File Library V2 Saved View tests |
 | `delete_library_saved_view` | `main_state_mutation` | main | Delete a durable File Library Saved View with CAS | default | yes | File Library V2 Saved View tests |
-| `create_organization_plan` | `main_state_mutation` | main | Atomically materialize an ID-only File Library selection into a durable review plan | default | yes | organization plan materialization tests |
+| `create_organization_plan` | `main_state_mutation` | main | Atomically materialize a V1 File Library selection or V2 one-off folder source from live window-owned Browse refs into the existing Plan; backend captures identity snapshots without adding Managed/Global sources | default | yes | organization plan materialization tests |
 | `list_organization_plans` | `read_only` | main | List durable organization plan summaries | default | no | organization plan query tests |
 | `get_organization_plan` | `read_only` | main | Read one durable organization plan summary by ID | default | no | organization plan query tests |
 | `query_organization_plan_items` | `read_only` | main | Read organization plan items with a keyset cursor | default | no | organization plan cursor tests |
 | `query_organization_plan_groups` | `read_only` | main | Read complete backend-derived organization plan group summaries with a keyset cursor | default | no | organization group projection tests |
 | `query_organization_plan_group_items` | `read_only` | main | Read one backend-derived organization plan group with a keyset cursor | default | no | organization group cursor tests |
 | `update_organization_plan_decisions` | `main_state_mutation` | main | Persist review decisions with plan and item revision CAS | default | yes | organization plan decision tests |
-| `update_organization_plan_group_decision` | `main_state_mutation` | main | Resolve a backend-derived group decision with plan revision CAS and existing safe-batch checks | default | yes | organization group decision tests |
+| `update_organization_plan_group_decision` | `main_state_mutation` | main | Resolve a backend-derived group decision with revision/projection CAS; one-off group folder edits stay within the selected folder and require fresh review | default | yes | organization group decision tests |
 | `refresh_organization_plan` | `main_state_mutation` | main | Revalidate plan items against current indexed metadata and previews | default | yes | organization plan refresh tests |
 | `cancel_organization_plan` | `main_state_mutation` | main | Cancel a non-terminal plan with revision CAS | default | yes | organization plan state tests |
 | `delete_organization_plan` | `main_state_mutation` | main | Delete a confirmed terminal plan with revision CAS | default | yes | organization plan retention tests |
-| `analyze_organization_plan_items` | `main_state_mutation` | main | Enqueue bounded managed-scope items on the existing AI queue | default | yes | organization managed-AI adapter tests |
+| `analyze_organization_plan_items` | `main_state_mutation` | main | Enqueue legacy managed-scope items, or analyze one explicitly consented one-off Plan source through the configured provider with identity/policy revalidation; metadata only, no automatic root/index registration | default | yes | organization managed-AI adapter tests |
 | `get_organization_plan_dry_run` | `read_only` | main | Build a live metadata-only authoritative dry run by plan and item IDs | default | no | organization dry-run tests |
 | `execute_organization_plan` | `filesystem_mutation` | main | Execute a confirmed non-stale dry run through the existing operation journal | default | yes | organization execution and recovery tests |
 | `get_operation_previews_for_scope` | `read_only` | main | Read preview data | default | no | capability allow-list |

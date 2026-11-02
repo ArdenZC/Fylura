@@ -25,6 +25,9 @@ if (includeFolderMoveFixture) {
 }
 files.set("C:/U3/Left/Case.txt", { id: "case-left", version: 1, size: 1, modified: 1 });
 files.set("C:/U3/Right/case.txt", { id: "case-right", version: 1, size: 1, modified: 1 });
+for (const [name, directory] of [["invoice.txt", false], ["notes.txt", false], ["holiday.jpg", false], ["Subfolder", true]] as const) {
+  files.set(`C:/U1/Organize/${name}`, { id: `organize-${name}`, version: 1, directory, size: 64, modified: 1700000000 });
+}
 const tickets = new Map<string, TransferTicket>();
 const previews = new Map<string, TransferPreview>();
 const places: SavedPlace[] = [];
@@ -99,27 +102,7 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
   if (command.endsWith("_execute")) {
     const preview = previews.get(request.previewId); previews.delete(request.previewId);
     if (!request.confirmed || !preview || preview.rows.some((row) => !row.skipped && row.error)) throw Error("operation_preview_stale");
-    const batchId = `batch-${++serial}`;
-    const result = { batch_id: batchId, logs: preview.rows.filter((row) => !row.skipped).map((row) => {
-      const op = row.preview!; const source = files.get(op.source_path) ?? { id: `created-${++serial}`, version: 1 };
-      if (op.operation_type === "create_directory") files.set(op.target_path, { ...source, id: `published-${++serial}`, directory: true });
-      else {
-        if (source.directory && op.operation_type === "move") {
-          const moved = [...files.entries()].filter(([path]) => path === op.source_path || path.startsWith(`${op.source_path}/`));
-          for (const [path, file] of moved) {
-            files.set(`${op.target_path}${path.slice(op.source_path.length)}`, { ...file, id: `published-${++serial}` });
-            files.delete(path);
-          }
-        } else {
-          files.set(op.target_path, { ...source, id: `published-${++serial}` });
-          if (["move", "move_to_trash", "rename"].includes(op.operation_type)) files.delete(op.source_path);
-        }
-      }
-      const canRestore = ["move", "move_to_trash", "rename"].includes(op.operation_type);
-      return { id: `log-${++serial}`, batch_id: batchId, operation_type: op.operation_type, source_path: op.source_path, target_path: op.target_path, path_before: op.source_path, path_after: op.target_path, name_before: op.old_name, name_after: op.new_name, old_name: op.old_name, new_name: op.new_name, error_message: null, restored_at: null, restore_error: null, status: "success", can_restore: canRestore, can_undo: canRestore, restore_status: "not_restored", operation_phase: "completed", created_at: new Date().toISOString() } as OperationLog;
-    }) };
-    managementHistory.unshift(...result.logs);
-    return result;
+    return executeManagementMockOperations(preview.rows.filter((row) => !row.skipped).map((row) => row.preview!));
   }
   if (request.sessionId) {
     const path = resolveLocation(request.sessionId);
@@ -130,4 +113,38 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
   }
   if (request.removeId) places.splice(0, places.length, ...places.filter((place) => place.id !== request.removeId));
   return places.map((place) => ({ ...place }));
+}
+
+/** Same deterministic browser executor used by Files and one-off Organize. */
+export function executeManagementMockOperations(operations: OperationPreview[]) {
+    const batchId = `batch-${++serial}`;
+    const result = { batch_id: batchId, logs: operations.map((op) => { const source = files.get(op.source_path) ?? { id: `created-${++serial}`, version: 1 };
+      if (op.operation_type === "create_directory") files.set(op.target_path, { ...source, id: `published-${++serial}`, directory: true });
+      else {
+        if (source.directory && op.operation_type === "move") {
+          const moved = [...files.entries()].filter(([path]) => path === op.source_path || path.startsWith(`${op.source_path}/`));
+          for (const [path, file] of moved) {
+            files.set(`${op.target_path}${path.slice(op.source_path.length)}`, { ...file, id: `published-${++serial}` });
+            files.delete(path);
+          }
+        } else {
+          files.set(op.target_path, { ...source, id: `published-${++serial}` });
+          if (["move", "move_to_trash", "rename", "move_rename"].includes(op.operation_type)) files.delete(op.source_path);
+        }
+      }
+      const canRestore = ["move", "move_to_trash", "rename", "move_rename"].includes(op.operation_type);
+      return { id: `log-${++serial}`, batch_id: batchId, operation_type: op.operation_type, source_path: op.source_path, target_path: op.target_path, path_before: op.source_path, path_after: op.target_path, name_before: op.old_name, name_after: op.new_name, old_name: op.old_name, new_name: op.new_name, error_message: null, restored_at: null, restore_error: null, status: "success", can_restore: canRestore, can_undo: canRestore, restore_status: "not_restored", operation_phase: "completed", created_at: new Date().toISOString() } as OperationLog;
+    }) };
+    managementHistory.unshift(...result.logs);
+    return result;
+}
+
+export function restoreManagementMock(log: OperationLog): OperationLog {
+  const current = files.get(log.path_after);
+  const valid = log.can_restore && current && !files.has(log.path_before);
+  if (valid) { files.set(log.path_before, current); files.delete(log.path_after); }
+  const restored: OperationLog = { ...log, can_restore: !valid, restore_status: valid ? "restored" : "failed", restored_at: valid ? new Date().toISOString() : null, restore_error: valid ? null : "Browser fixture source/target changed" };
+  const index = managementHistory.findIndex((item) => item.id === log.id);
+  if (index >= 0) managementHistory[index] = restored;
+  return restored;
 }

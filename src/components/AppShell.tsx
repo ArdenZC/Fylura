@@ -509,7 +509,7 @@ function viewDescription(
     case "cleanup":
       return t("viewDescCleanup");
     case "organize":
-      return `${t("currentOrganizeScope")}: ${scopeText} · ${t("viewDescOrganize")}`;
+      return t("viewDescOrganize");
     case "library":
       return fileLibraryHeadingDescription(scope, stats.totalFiles, scopeText, t);
     case "preview":

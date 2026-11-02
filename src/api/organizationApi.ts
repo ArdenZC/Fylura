@@ -1,3 +1,4 @@
+import type { BrowseEntryRef, BrowsePathRef } from "../types/fileWorkspace";
 import { invokeCommand } from "./core";
 import type {
   ExecuteOrganizationPlanResult,
@@ -10,8 +11,20 @@ import type {
   LibrarySelectionV1
 } from "../types/domain";
 
+export interface OneOffOrganizationSourceV1 {
+  kind: "one_off";
+  version: 1;
+  sessionId: string;
+  pathRef: BrowsePathRef;
+  entries: BrowseEntryRef[];
+}
+export type OrganizationPlanSource = LibrarySelectionV1 | OneOffOrganizationSourceV1;
+export type CreateOrganizationPlanRequest =
+  | { version: 1; requestId: string; title?: string | null; source: LibrarySelectionV1; expectedCount?: number | null }
+  | { version: 2; requestId: string; title?: string | null; source: OneOffOrganizationSourceV1; expectedCount: number };
+
 export const organizationApi = {
-  createOrganizationPlan(request: { version: 1; requestId: string; title?: string | null; source: LibrarySelectionV1; expectedCount?: number | null }): Promise<OrganizationPlan> {
+  createOrganizationPlan(request: CreateOrganizationPlanRequest): Promise<OrganizationPlan> {
     return invokeCommand<OrganizationPlan>("create_organization_plan", { request });
   },
   listOrganizationPlans(): Promise<OrganizationPlan[]> {
@@ -32,7 +45,7 @@ export const organizationApi = {
   updateOrganizationPlanDecisions(request: { planId: string; expectedPlanRevision: number; safeBatch?: boolean; mutations: Array<{ itemId: string; expectedItemRevision: number; decision: "accepted" | "kept" | "edited" | "undecided"; editedFilename?: string | null }> }): Promise<OrganizationPlan> {
     return invokeCommand<OrganizationPlan>("update_organization_plan_decisions", { request });
   },
-  updateOrganizationPlanGroupDecision(request: { planId: string; groupId: string; expectedPlanRevision: number; expectedProjectionFingerprint: string; expectedItemCount: number; decision: "accepted" | "kept" | "undecided" }): Promise<UpdateOrganizationPlanGroupDecisionResult> {
+  updateOrganizationPlanGroupDecision(request: { planId: string; groupId: string; expectedPlanRevision: number; expectedProjectionFingerprint: string; expectedItemCount: number; decision: "accepted" | "kept" | "undecided"; editedTargetTemplate?: string }): Promise<UpdateOrganizationPlanGroupDecisionResult> {
     return invokeCommand<UpdateOrganizationPlanGroupDecisionResult>("update_organization_plan_group_decision", { request });
   },
   refreshOrganizationPlan(request: { planId: string; expectedPlanRevision: number }): Promise<OrganizationPlan> {
@@ -44,7 +57,7 @@ export const organizationApi = {
   deleteOrganizationPlan(request: { planId: string; expectedPlanRevision: number; confirmed: boolean }): Promise<boolean> {
     return invokeCommand<boolean>("delete_organization_plan", { request });
   },
-  analyzeOrganizationPlanItems(request: { planId: string; expectedPlanRevision: number; itemIds?: string[] }): Promise<{ planId: string; queuedCount: number; requiresRefresh: boolean }> {
+  analyzeOrganizationPlanItems(request: { planId: string; expectedPlanRevision: number; itemIds?: string[]; oneOffConsent?: boolean }): Promise<{ planId: string; queuedCount: number; requiresRefresh: boolean }> {
     return invokeCommand("analyze_organization_plan_items", { request });
   },
   getOrganizationPlanDryRun(request: { planId: string; expectedPlanRevision: number; itemIds?: string[]; allAccepted: boolean }): Promise<OrganizationPlanDryRun> {

@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 46;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 47;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -288,6 +288,7 @@ pub(crate) fn migrate_with_cancellation(
             validate_global_search_covering_indexes(conn)?;
         }
         if version == CURRENT_SCHEMA_VERSION {
+            super::queries::organization::validate_one_off_sources(conn)?;
             super::schema_global_source_facts::validate(conn)?;
             super::schema_global_generations::validate(conn)?;
             validate_library_identity_schema(conn)?;
@@ -1049,6 +1050,11 @@ pub(crate) fn migrate_with_cancellation(
             guard.check_cancelled()?;
             super::schema_index_coverage::install(conn)?;
             set_schema_version(conn, 46)?;
+        }
+        if version < 47 {
+            guard.check_cancelled()?;
+            super::queries::organization::install_one_off_sources(conn)?;
+            set_schema_version(conn, 47)?;
         }
         guard.check_cancelled()?;
         Ok(())
@@ -3484,7 +3490,11 @@ mod issue381_b4_p0_tests {
         assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
         migrate(&conn).unwrap();
         assert_eq!(schema43_index_sql(&conn), upgraded);
-        conn.execute_batch("PRAGMA user_version = 47").unwrap();
+        conn.execute_batch(&format!(
+            "PRAGMA user_version = {}",
+            CURRENT_SCHEMA_VERSION + 1
+        ))
+        .unwrap();
         assert!(migrate(&conn).is_err());
         assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION + 1);
     }
@@ -4162,7 +4172,7 @@ mod issue381_b4_p0_tests {
         for (label, mutation, expected_error) in [
             (
                 "issue441-future",
-                "PRAGMA user_version=47",
+                "PRAGMA user_version=2147483647",
                 "newer than this app supports",
             ),
             (

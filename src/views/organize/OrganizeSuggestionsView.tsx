@@ -1,8 +1,10 @@
+import { useOperationQueueStore } from "../../store/useOperationQueueStore";
+import { useOneOffOrganizeTask } from "./useOneOffOrganizeTask";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ChevronRight, CircleMinus, Edit3, History, ListRestart, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { tauriApi } from "../../api/tauriApi";
-import { useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
+import { useCommandContext, useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
 import { useFileLibraryQueryStore, useFileLibraryResultStore, useFileLibrarySelectionStore } from "../../store/useFileLibraryV2Store";
 import { isHistoricalOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import type { AIProductFeatureReadiness, OrganizationPlanGroupSummary, OrganizationPlanItem, OrganizationPlanStatus, LibrarySelectionV1 } from "../../types/domain";
@@ -27,7 +29,7 @@ import {
 } from "../shared/ui";
 import { AIReadinessNotice, organizationPlanReadiness } from "../shared/AIReadinessNotice";
 
-const GROUP_ROW_HEIGHT = 174;
+const GROUP_ROW_HEIGHT = 194;
 const GROUP_PAGE_SIZE = 100;
 
 export function organizationExecutionBatchSummary(executableCount: number, executionBatchLimit: number) {
@@ -73,6 +75,8 @@ type ConfirmedExecutionBatch = ExecutionConfirmation;
 
 export function OrganizeSuggestionsView() {
   const { t } = useI18nContext();
+  const { platform } = useCommandContext();
+  const oneOff = useOneOffOrganizeTask(t, platform);
   const { setView } = useNavigationContext();
   const plans = useOrganizationPlanStore((state) => state.plans);
   const plan = useOrganizationPlanStore((state) => state.activePlan);
@@ -87,8 +91,10 @@ export function OrganizeSuggestionsView() {
   const createPlanError = useOrganizationPlanStore((state) => state.createPlanError);
   const isPlanListLoading = useOrganizationPlanStore((state) => state.isPlanListLoading);
   const isLoading = useOrganizationPlanStore((state) => state.isLoading);
-  const isMutating = useOrganizationPlanStore((state) => state.isMutating);
+  const storeIsMutating = useOrganizationPlanStore((state) => state.isMutating);
+  const isMutating = storeIsMutating || oneOff.reading || Boolean(oneOff.progress);
   const isExecutionInFlight = useOrganizationPlanStore((state) => state.isExecutionInFlight);
+  const operationProgress = useOperationQueueStore((state) => state.operationProgress);
   const error = useOrganizationPlanStore((state) => state.error);
   const loadPlans = useOrganizationPlanStore((state) => state.loadPlans);
   const createPlan = useOrganizationPlanStore((state) => state.createPlan);
@@ -116,6 +122,7 @@ export function OrganizeSuggestionsView() {
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editedName, setEditedName] = useState("");
+  const [editedGroupFolder, setEditedGroupFolder] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [planTitle, setPlanTitle] = useState("");
   const [executionConfirmation, setExecutionConfirmation] = useState<ExecutionConfirmation | null>(null);
@@ -202,7 +209,7 @@ export function OrganizeSuggestionsView() {
   const needsAnalysisCount = plan?.summary.needsAnalysis ?? 0;
   const canGenerateSemanticProposals = Boolean(
     aiReadiness?.provider.state === "ready"
-    && aiReadiness.managedScopes.some((scope) => scope.state === "ready")
+    && (plan?.sourceKind === "one_off" || aiReadiness.managedScopes.some((scope) => scope.state === "ready"))
   );
   const dryRunBatch = dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null;
   const effectiveSummary = plan?.effectiveSummary ?? (plan ? {
@@ -386,6 +393,7 @@ export function OrganizeSuggestionsView() {
   }
 
   async function handleCreatePlan() {
+    if (oneOff.folderPath.trim()) { await oneOff.create(planTitle); return; }
     const source = planSource();
     if (!source) {
       setView("library");
@@ -431,7 +439,7 @@ export function OrganizeSuggestionsView() {
         ? group.groupActions.canKeepAll
         : group.groupActions.canClearAll;
     if (!available) return;
-    if (decision === "accepted" && group.readiness === "requires-decision" && !confirmed) {
+    if (decision === "accepted" && group.readiness === "requires-decision" && !confirmed && !(requestedPlan.sourceKind === "one_off" && group.riskLevel === "Normal" && group.confidenceBand === "high" && group.reviewReasonCounts.every(({ reason }) => reason === "target_directory_creation"))) {
       setConfirmGroupAcceptance({ planId: requestedPlan.id, planRevision: requestedPlan.revision, groupId: group.groupId, group });
       return;
     }
@@ -532,6 +540,12 @@ export function OrganizeSuggestionsView() {
   }
 
   async function handleAnalyzeMissing() {
+    if (plan?.sourceKind === "one_off") {
+      await oneOff.analyze();
+      const summary = useOrganizationPlanStore.getState().activePlan?.effectiveSummary;
+      setActiveTab(summary?.pendingReview ? "decision" : summary?.blocked ? "blocked" : "plan");
+      return;
+    }
     try {
       await analyzeMissing();
     } catch (error) {
@@ -565,6 +579,7 @@ export function OrganizeSuggestionsView() {
   }
 
   function openGroup(group: OrganizationPlanGroupSummary) {
+    setEditedGroupFolder((group.targetDirectory ?? "").replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? "");
     groupRequestEpoch.current += 1;
     setGroupItems([]);
     setGroupItemsCursor(null);
@@ -579,10 +594,16 @@ export function OrganizeSuggestionsView() {
     setGroupItemsError(null);
   }
 
+  function openHistory() {
+    useOperationQueueStore.setState({ requestedHistoryBatchId: executionResult?.operationBatchId ?? plan?.activeOperationBatchId ?? null });
+    setView("restore");
+  }
+
   return (
     <div className={cn(pageFrame, "gap-3") }>
       <AIReadinessNotice
         feature="organize"
+        sourceMode={!plan || plan.sourceKind === "one_off" ? "one_off" : "managed"}
         readiness={aiReadiness}
         loading={aiReadinessLoading}
         error={aiReadinessError}
@@ -591,6 +612,14 @@ export function OrganizeSuggestionsView() {
         setView={setView}
         onRetry={() => void refreshAiReadiness().catch(() => undefined)}
       />
+      {oneOff.error ? <NoticeBanner tone="error" title={t("organizeOneOffFailed")}>{oneOff.error}</NoticeBanner> : null}
+      {oneOff.reading ? <div role="status">{t("organizeOneOffReading")} <Button variant="ghost" onClick={oneOff.cancel}>{t("fmCancel")}</Button></div> : null}
+      {plan?.sourceKind === "one_off" && needsAnalysisCount > 0 ? <div className="flex flex-wrap items-center gap-3 text-sm">
+        <label className="flex items-center gap-2"><input type="checkbox" checked={oneOff.consent} disabled={isMutating} onChange={(event) => oneOff.setConsent(event.target.checked)} />{t("organizeOneOffConsent")}</label>
+        <Button variant="primary" disabled={isMutating || !oneOff.consent || !canGenerateSemanticProposals} onClick={() => void handleAnalyzeMissing()}>{t("organizePlanAnalyze")}</Button>
+      </div> : null}
+      {oneOff.progress ? <div role="status" className="flex items-center gap-3"><span>{t("organizeOneOffProgress").replace("{done}", String(oneOff.progress.done)).replace("{total}", String(oneOff.progress.total))}</span><Button variant="secondary" onClick={oneOff.cancel}>{t("organizeOneOffStop")}</Button></div> : null}
+      {isExecutionInFlight ? <div role="status">{t("organizeOneOffExecuting")} {operationProgress ? `${operationProgress.processed} / ${operationProgress.total}` : ""} <Button variant="secondary" onClick={() => void tauriApi.cancelOperations().catch(() => undefined)}>{t("fmCancel")}</Button></div> : null}
       {!plan && (planListState === "idle" || planListState === "loading") ? (
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="w-full max-w-xl">
@@ -643,12 +672,17 @@ export function OrganizeSuggestionsView() {
               <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{hasOnlyHistoricalPlans ? historicalPlanDescription : emptyPlanDescription}</p>
             </div>
             <div className="grid gap-2">
+              <label htmlFor="organization-folder">{t("organizeOneOffFolder")}</label>
+              <div className="flex gap-2"><input id="organization-folder" className={cn(inputSurface, "min-w-0 flex-1 px-3")} value={oneOff.folderPath} onChange={(event) => oneOff.setFolderPath(event.target.value)} placeholder={t("organizeOneOffFolderPlaceholder")} disabled={isMutating} /><Button variant="secondary" disabled={isMutating} onClick={() => void oneOff.chooseFolder()}>{t("browseChooseFolderTitle")}</Button></div>
+              <p className="text-xs text-[var(--zc-text-secondary)]">{t("organizeOneOffBoundary")}</p>
+            </div>
+            <div className="grid gap-2">
               <label className="text-sm font-medium text-[var(--zc-text-secondary)]" htmlFor="organization-plan-title">{t("organizePlanTitleLabel")}</label>
               <input id="organization-plan-title" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={planTitle} onChange={(event) => setPlanTitle(event.target.value)} placeholder={t("organizePlanTitlePlaceholder")} />
             </div>
             {createPlanError ? <NoticeBanner tone="error" title={t("organizeCreatePlanFailedTitle")}>{t("organizeCreatePlanFailedDesc")}</NoticeBanner> : null}
             <div className="flex flex-wrap gap-2">
-              <Button variant="primary" disabled={isPlanListLoading || isLoading || isMutating || planListState !== "loaded"} onClick={() => void handleCreatePlan().catch(() => undefined)}><Plus size={15} aria-hidden="true" />{t("organizeCreatePlanAction")}</Button>
+              <Button variant="primary" disabled={isPlanListLoading || isLoading || isMutating || planListState !== "loaded" || (!oneOff.folderPath.trim() && !planSource())} onClick={() => void handleCreatePlan().catch(() => undefined)}><Plus size={15} aria-hidden="true" />{oneOff.folderPath.trim() ? t("organizeOneOffRead") : t("organizeCreatePlanAction")}</Button>
               <Button variant="secondary" onClick={() => setView("library")}>{t("fileLibrary")}</Button>
             </div>
           </div>
@@ -671,11 +705,11 @@ export function OrganizeSuggestionsView() {
                   <summary className={cn(buttonGhost, "cursor-pointer list-none")}>{t("organizePlanActions")} <MoreHorizontal size={14} aria-hidden="true" /></summary>
                   <div className="absolute right-0 z-20 mt-1 grid min-w-52 gap-1 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1 shadow-[var(--zc-shadow-menu)]" role="menu">
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !["stale", "ready", "partially_completed"].includes(plan.status)} onClick={() => void handleRefreshPlan().catch(() => undefined)}><RefreshCw size={14} aria-hidden="true" />{t("organizePlanRefresh")}</Button>
-                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount || !canGenerateSemanticProposals} title={needsAnalysisCount && !canGenerateSemanticProposals ? t("organizeReadinessAnalyzeBlocked") : undefined} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
+                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount || !canGenerateSemanticProposals || (plan?.sourceKind === "one_off" && !oneOff.consent)} title={needsAnalysisCount && !canGenerateSemanticProposals ? t("organizeReadinessAnalyzeBlocked") : undefined} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
                     <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !canCancel} onClick={() => void handleCancelPlan().catch(() => undefined)}><X size={14} aria-hidden="true" />{t("organizePlanCancel")}</Button>
                   </div>
                 </details>
-                <Button variant="secondary" size="compact" onClick={() => setView("restore")}><History size={14} aria-hidden="true" />{t("organizeViewHistory")}</Button>
+                <Button variant="secondary" size="compact" onClick={openHistory}><History size={14} aria-hidden="true" />{t("organizeViewHistory")}</Button>
               </div>
             </div>
             <MetricStrip
@@ -690,21 +724,21 @@ export function OrganizeSuggestionsView() {
             />
           </section>
 
-          <WorkflowSteps
+          {plan.sourceKind !== "one_off" ? <WorkflowSteps
             label={t("organizeWorkflowLabel")}
             className="shrink-0"
             steps={[
-              { label: t("organizeWorkflowSuggestion"), detail: replaceCopy("organizeWorkflowPlanDetail", { count: plan.materializedCount }), state: "done", stateLabel: t("workflowStateDone") },
+              { label: t("organizeWorkflowSuggestion"), detail: replaceCopy(t("organizeWorkflowPlanDetail"), { count: plan.materializedCount }), state: "done", stateLabel: t("workflowStateDone") },
               { label: t("organizeWorkflowReview"), detail: t("organizeWorkflowReviewDetail"), state: organizeReviewWorkflowState, stateLabel: workflowStateLabel(organizeReviewWorkflowState, t) },
               { label: t("organizeWorkflowDryRun"), detail: t("organizeWorkflowDryRunDetail"), state: organizeDryRunWorkflowState, stateLabel: workflowStateLabel(organizeDryRunWorkflowState, t) },
               { label: t("organizeWorkflowConfirm"), detail: t("organizeWorkflowConfirmDetail"), state: organizeConfirmWorkflowState, stateLabel: workflowStateLabel(organizeConfirmWorkflowState, t) }
             ]}
-          />
-          <NoticeBanner tone="info" title={t("organizeWorkflowBoundaryTitle")}>
+          /> : null}
+          {plan.sourceKind !== "one_off" ? <NoticeBanner tone="info" title={t("organizeWorkflowBoundaryTitle")}>
             {t("organizeWorkflowBoundaryDesc")}
-          </NoticeBanner>
-          {effectiveSummary?.blocked ? (
-            <NoticeBanner tone="warning" title={replaceCopy("organizeBlockedSummary", { count: effectiveSummary.blocked })}>
+          </NoticeBanner> : null}
+          {plan.sourceKind !== "one_off" && effectiveSummary?.blocked ? (
+            <NoticeBanner tone="warning" title={replaceCopy(t("organizeBlockedSummary"), { count: effectiveSummary.blocked })}>
               {t("organizePreviewUnavailableDesc")}
             </NoticeBanner>
           ) : null}
@@ -761,6 +795,7 @@ export function OrganizeSuggestionsView() {
                               {group.excludedCount ? <span>{t("organizeGroupExcluded").replace("{count}", group.excludedCount.toLocaleString())}</span> : null}
                               {group.staleCount || group.conflictCount ? <span className="text-[var(--zc-warning-text)]">{t("organizeGroupIssues").replace("{stale}", group.staleCount.toLocaleString()).replace("{conflicts}", group.conflictCount.toLocaleString())}</span> : null}
                             </div>
+                            {group.sampleItems[0]?.reason ? <p className="truncate text-xs text-[var(--zc-text-secondary)]" title={group.sampleItems[0].reason}>{group.sampleItems[0].reason}</p> : null}
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className="min-w-0 truncate text-xs text-[var(--zc-text-tertiary)]">{groupReason(group, t)}</span>
                               <div className="flex shrink-0 flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
@@ -826,7 +861,7 @@ export function OrganizeSuggestionsView() {
             />
           ) : null}
 
-          {executionResult ? <NoticeBanner tone={executionResult.failedCount ? "warning" : "success"} title={executionResult.failedCount ? t("organizeResultPartialTitle") : t("organizeResultSuccessTitle")} action={<Button variant="secondary" size="compact" onClick={() => setView("restore")}>{t("organizeViewHistory")}</Button>}>
+          {executionResult ? <NoticeBanner tone={executionResult.succeededCount !== executionResult.attemptedCount ? "warning" : "success"} title={executionResult.succeededCount !== executionResult.attemptedCount ? t("organizeResultPartialTitle") : t("organizeResultSuccessTitle")} action={<Button variant="secondary" size="compact" onClick={openHistory}>{t("organizeViewHistory")}</Button>}>
             <span>{replaceCopy(t("organizeResultSummary"), { success: executionResult.succeededCount.toLocaleString(), skipped: executionResult.skippedCount.toLocaleString(), failed: executionResult.failedCount.toLocaleString() })}</span>
             {confirmedExecutionBatch?.batch.isBatched ? <span className="mt-1 block">{replaceCopy(t("organizeExecutionBatchResult"), { attempted: executionResult.attemptedCount.toLocaleString(), total: confirmedExecutionBatch.batch.batchCount.toLocaleString(), remaining: confirmedExecutionBatch.batch.remainingCount.toLocaleString() })}</span> : null}
           </NoticeBanner> : null}
@@ -858,6 +893,10 @@ export function OrganizeSuggestionsView() {
               {activeGroup.readiness === "requires-decision" ? <p className="text-xs leading-5 text-[var(--zc-warning-text)]">{t("organizeGroupDecisionHint")}</p> : null}
               <div className="flex flex-wrap gap-2 text-xs text-[var(--zc-text-secondary)]"><span>{riskLabel(activeGroup.riskLevel, t)}</span><span>{confidenceLabel(activeGroup.confidenceBand, t)}</span><span>{readinessLabel(activeGroup.readiness, t)}</span></div>
             </div>
+            {plan?.sourceKind === "one_off" && ["move", "move_rename", "rename"].includes(activeGroup.proposalKind) && canReview ? <form className="grid gap-2" onSubmit={(event) => {
+              event.preventDefault();
+              void updateGroupDecision(activeGroup, "undecided", editedGroupFolder.trim()).catch((error) => setReviewActionError(organizeActionError(error, t)));
+            }}><label htmlFor="organize-group-folder">{t("organizeOneOffGroupFolder")}</label><div className="flex gap-2"><input id="organize-group-folder" className={cn(inputSurface, "min-w-0 flex-1 px-2")} value={editedGroupFolder} onChange={(event) => setEditedGroupFolder(event.target.value)} disabled={isMutating} /><Button type="submit" variant="secondary" disabled={isMutating || !editedGroupFolder.trim()}>{t("organizeOneOffGroupApply")}</Button></div></form> : null}
             {groupItemsError ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")}>{groupItemsError}</NoticeBanner> : null}
             {editError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")}>{editError}</NoticeBanner> : null}
             <section className="grid gap-2" aria-label={t("organizeGroupItemListLabel")}>

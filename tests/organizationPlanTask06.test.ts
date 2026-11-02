@@ -139,7 +139,8 @@ describe("Task 06 durable Organization Plan contracts", () => {
     expect(store).toContain("requestEpoch");
     expect(store).not.toContain("localStorage");
     expect(view).not.toContain("useOrganizeDecisionStore");
-    expect(view).not.toContain("useOperationQueueStore");
+    // The shared queue may project progress and route History; Plan execution stays on its API.
+    expect(view).not.toContain("tauriApi.executeMoves(");
     expect(mock).toContain("browser_mock_native_execution_unavailable");
   });
 

@@ -57,7 +57,7 @@ pub struct AIClassificationCancellationToken {
 }
 
 impl AIClassificationCancellationToken {
-    fn begin(&self) -> Result<AIClassificationRunGuard, String> {
+    pub(crate) fn begin(&self) -> Result<AIClassificationRunGuard, String> {
         self.running
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
             .map_err(|_| "Another AI classification job is already running.".to_string())?;
@@ -72,7 +72,7 @@ impl AIClassificationCancellationToken {
     }
 }
 
-struct AIClassificationRunGuard {
+pub(crate) struct AIClassificationRunGuard {
     running: Arc<AtomicBool>,
 }
 

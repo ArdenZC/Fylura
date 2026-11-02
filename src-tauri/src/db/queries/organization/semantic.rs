@@ -42,6 +42,9 @@ pub(super) fn current_organization_projection(
     conn: &rusqlite::Connection,
     row: &IndexedFileRow,
 ) -> Result<OrganizationCurrentProjection, DbError> {
+    if super::one_off::is_source_id(&row.id) {
+        return super::one_off::projection(conn, row);
+    }
     match resolve_current_assessment(conn, row)? {
         AssessmentResolution::NotManaged | AssessmentResolution::Pending => {
             Ok(OrganizationCurrentProjection {
@@ -301,6 +304,7 @@ fn resolve_current_assessment(
     }
 
     let binding = SemanticSourceBinding {
+        one_off: None,
         global_entry_id: entry.id.clone(),
         managed_scope_id: effective_scope_id,
         input_fingerprint: fingerprint,
@@ -393,7 +397,7 @@ fn has_legacy_ai_classification(row: &IndexedFileRow) -> bool {
         .unwrap_or_else(|_| row.matched_rules.contains("ai:"))
 }
 
-fn pending_proposal(row: &IndexedFileRow) -> Proposal {
+pub(super) fn pending_proposal(row: &IndexedFileRow) -> Proposal {
     Proposal {
         fingerprint: blake3::hash(
             [row.path.as_str(), "managed-ai-pending"]
@@ -416,7 +420,7 @@ fn pending_proposal(row: &IndexedFileRow) -> Proposal {
     }
 }
 
-fn unavailable_proposal(row: &IndexedFileRow, code: &str) -> Proposal {
+pub(super) fn unavailable_proposal(row: &IndexedFileRow, code: &str) -> Proposal {
     Proposal {
         fingerprint: blake3::hash([row.path.as_str(), code].join("\0").as_bytes())
             .to_hex()

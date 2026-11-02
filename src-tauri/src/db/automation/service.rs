@@ -270,6 +270,7 @@ impl Database {
         for batch in eligible.chunks(100) {
             let result =
                 match self.analyze_organization_plan_items(AnalyzeOrganizationPlanItemsRequest {
+                    one_off_consent: false,
                     plan_id: plan_id.into(),
                     expected_plan_revision: plan.revision,
                     item_ids: batch.to_vec(),

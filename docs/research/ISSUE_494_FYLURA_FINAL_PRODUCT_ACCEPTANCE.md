@@ -7,7 +7,7 @@
 - **原始证据：** GitHub artifact `13113753811` 中只有 source 与 SHA manifest，缺少 manifest 指向的 JSONL。本次从该成功 job 的测试输出恢复同一 JSONL 记录；包含 500 个 raw pairs，计算出的 SHA-256 与 manifest `dbe8036820ebd191a7a1d0ea1d562693ba3775041719f192e73592e5b388926a` 一致。没有重跑 writer 矩阵。
 - **默认状态：** 当前交付只把候选编入 Windows/macOS Release 与开发构建；新增的平台默认开关保持未启用。`ZC_GLOBAL_SEARCH_FILENAME_RELEVANCE_CANDIDATE=0` 强制稳定 SQLite 路径，`=1` 可在包含候选 feature 的二进制中诊断启用。此前 56 项真实 GUI 授权、查询和撤权 PASS 不等于完整进程树资源验收；当前 Windows 主机已有运行中的 `FyluraGlobalIndex` 服务，而资格脚本会拒绝替换既有服务，因此本轮未停止服务、未访问或改写真实数据库，也未取得代表性资源/退出证据。**WINDOWS_DEFAULT_ON 未交付。**
 - **macOS / 发布：** Apple Silicon 安装版 GUI 仍 **UNVERIFIED**，macOS 默认关闭；`RELEASE_READY` 未满足。#404 与 #353 保持独立，不阻塞 Files M1。
-- **状态：** `CODE_MERGED`（#518/#533）；`WINDOWS_DEFAULT_ON=false`；`MACOS_DEFAULT_ON=false`；`RELEASE_READY=false`。
+- **状态：** `CODE_MERGED`（#518/#533 与 PR #537 平台启用策略，squash commit `8a6a87f`）；`WINDOWS_DEFAULT_ON=false`；`MACOS_DEFAULT_ON=false`；`RELEASE_READY=false`。PR #537 CI attempt 2 [41406169259](https://github.com/ArdenZC/Fylura/actions/runs/41406169259) 通过，包含独立 profile 与数据库上的 Windows Global Index 服务资格检查；这不代表完整安装版 GUI、资源和退出验收通过。
 
 下方 2026-11-01 与更早内容保留为日期化历史证据，不代表当前 PR 状态或当前 writer 结果。
 

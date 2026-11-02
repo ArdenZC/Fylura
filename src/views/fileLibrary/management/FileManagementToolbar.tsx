@@ -318,7 +318,9 @@ export function FileManagementToolbar() {
       acceptedPlan.rows.filter((row) => row.skipped).forEach((row) => { statuses[row.ticketId] = t("fmSkipped"); });
       rows.forEach((row, index) => {
         const log = result.logs[index];
-        statuses[row.ticketId] = log?.status === "success" ? t("fmSucceeded") : log?.status === "skipped" ? t("fmSkipped") : log?.error_message ? localizedStableError(log.error_message, t) : t("fmFailed");
+        statuses[row.ticketId] = log?.status === "success" ? t("fmSucceeded") : log?.status === "skipped" ? t("fmSkipped")
+          : log?.status === "manual_review" || log?.status === "pending" ? t("fmTaskNeedsReview")
+            : log?.error_message ? localizedStableError(log.error_message, t) : t("fmFailed");
         if (log?.status === "success") succeeded.add(row.ticketId);
       });
       const current = useFileManagementStore.getState();
@@ -328,7 +330,11 @@ export function FileManagementToolbar() {
           clipboard: current.clipboard ? { ...current.clipboard, tickets: current.clipboard.tickets.filter((ticket) => !succeeded.has(ticket.id)) } : null,
         } : {}) });
       if (result.logs.some((log) => log.status !== "success")) setPanel("results");
-      setNotice(transferCancelRequested() && result.logs.some((log) => log.status !== "success") ? t("fmCancelled") : t("fmFinished"));
+      const batch = groupOperationLogs(result.logs)[0];
+      const needsReview = result.logs.some((log) => log.status === "manual_review" || log.status === "pending");
+      setNotice(needsReview ? t("fmTaskNeedsReview")
+        : transferCancelRequested() && result.logs.some((log) => log.status !== "success") ? t("fmCancelled")
+          : batch && batch.failed > 0 ? taskBatchStatus(batch, false, t) : t("fmFinished"));
       previewController.close("escape");
       const affectedSurface = intent.sourcePaneId ? useFileManagementStore.getState().surfaces[intent.sourcePaneId]?.read() : currentSurface();
       if (intent.tickets.length > 0 && (!intent.sourceSignature || affectedSurface?.signature === intent.sourceSignature)) affectedSurface?.clear();
@@ -789,7 +795,7 @@ export function FileManagementToolbar() {
       {panel === "results" && <>
         {state.activeTransferTask && state.transferRunning && <div className="fm-progress fm-task-details" role="status"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : t("fmExecuting")}</strong>{taskProgressBar(liveTaskProgress)}<span>{liveTaskProgress ? `${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}` : state.activeTransferTask.sourceSummary}</span><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>}
         <p className="fm-muted">{resultsSummary}</p>
-        <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{log.status === "success" ? t("fmSucceeded") : log.status === "skipped" ? t("fmSkipped") : t("fmFailed")}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{localizedStableError(log.error_message, t)}</p>}</li>)}</ul>
+        <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{taskOperationStatus(log, false)}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{localizedStableError(log.error_message, t)}</p>}</li>)}</ul>
         {pageControls(state.results.length, resultPage, setResultPage)}
         <div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} disabled={!resultDestination} onClick={() => void go(resultDestination)}>{t("fmOpenDestination")}</button><button className={buttonGhost} onClick={() => { useFileManagementStore.setState({ results: [] }); closePanel(); }}>{t("fmDismiss")}</button></div>
         <p className="fm-muted">{t("fmRestoreHelp")}</p>

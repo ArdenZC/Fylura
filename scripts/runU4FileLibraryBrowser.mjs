@@ -144,6 +144,12 @@ try {
   await page.locator('[data-file-library-context-content]').getByRole('button', { name: 'Quick preview', exact: true }).first().click();
   await page.locator('[data-preview-host="zen-floating"]').waitFor();
   await page.keyboard.press("Escape");
+  // Preview focus restoration runs after React teardown / the next frame.
+  // Wait for the owning pane's target, then retain the strict focus assertion.
+  await page.waitForFunction((paneId) => {
+    const target = document.querySelector(`[data-pane-id="${paneId}"] [data-file-library-context-toggle]`);
+    return target !== null && document.activeElement === target;
+  }, await right.getAttribute("data-pane-id"));
   assert.equal(await pane.locator('[aria-selected="true"]').count(), leftSelection);
   assert.equal(await right.locator('[data-file-library-context-toggle]').evaluate((element) => document.activeElement === element), true);
   checks.push("Dual-pane Inspector preview and Escape return to owning pane; peer selection retained");

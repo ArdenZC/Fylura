@@ -559,6 +559,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: issue494-writer-512-targeted-windows-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: ci-evidence/issue494-writer-512-targeted-windows-*
+          path: |
+            ci-evidence/issue494-writer-512-targeted-windows.jsonl
+            ci-evidence/issue494-writer-512-targeted-windows-source.txt
+            ci-evidence/issue494-writer-512-targeted-windows-sha256.txt
           if-no-files-found: warn
           retention-days: 90

@@ -20,7 +20,6 @@ describe("W2-08 search, sort and presentation contracts", () => {
       canGoForward: false,
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onModeChange: vi.fn(),
       localSearch: createElement("input", {
         "data-file-library-local-search": "true",
         "aria-label": "Search the File Library"

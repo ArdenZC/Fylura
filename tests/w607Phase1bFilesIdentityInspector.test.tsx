@@ -15,7 +15,6 @@ import { makeTranslator } from "../src/i18n";
 import {
   focusLocalFileLibrarySearch,
   layoutForWidth,
-  nextFileLibraryModeForKey,
   WorkspaceCommandBar
 } from "../src/views/fileLibrary/FileLibraryWorkspace";
 import { restoreFileLibraryFocus } from "../src/views/fileLibrary/fileLibraryInteraction";
@@ -58,46 +57,43 @@ describe("W6-07 Phase 1B Files identity and continuity", () => {
     }
   });
 
-  it("announces Library/Browse Folder as internal Files modes without changing route identifiers", () => {
+  it("presents a single user-visible Files mode without changing route identifiers", () => {
     const english = renderToStaticMarkup(createElement(WorkspaceCommandBar, {
-      mode: "library",
-      targetLabel: makeTranslator("en")("fileLibraryModeLibrary"),
+      mode: "browse",
+      targetLabel: makeTranslator("en")("fileLibraryNoFolderOpen"),
       canGoBack: false,
       canGoForward: false,
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onModeChange: vi.fn(),
       t: makeTranslator("en")
     }));
     const chinese = renderToStaticMarkup(createElement(WorkspaceCommandBar, {
       mode: "browse",
-      targetLabel: makeTranslator("zh")("fileLibraryModeBrowse"),
+      targetLabel: makeTranslator("zh")("fileLibraryNoFolderOpen"),
       canGoBack: false,
       canGoForward: false,
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onModeChange: vi.fn(),
       t: makeTranslator("zh")
     }));
 
-    expect(english).toContain(">Library<");
-    expect(english).toContain(">Browse Folder<");
-    expect(english).toContain('data-file-library-mode="library"');
-    expect(english).toContain('data-file-library-mode="browse"');
-    expect(chinese).toContain(">资料库<");
-    expect(chinese).toContain(">浏览文件夹<");
-    expect(chinese).toContain('aria-selected="true"');
-
-    expect(nextFileLibraryModeForKey("ArrowLeft")).toBe("library");
-    expect(nextFileLibraryModeForKey("Home")).toBe("library");
-    expect(nextFileLibraryModeForKey("ArrowRight")).toBe("browse");
-    expect(nextFileLibraryModeForKey("End")).toBe("browse");
-    expect(nextFileLibraryModeForKey("Enter")).toBeNull();
+    expect(english).toContain("No folder open");
+    expect(chinese).toContain("未打开文件夹");
+    // ADR-0016: the ordinary file manager no longer offers a Library/Browse switch.
+    expect(english).not.toContain(">Library<");
+    expect(english).not.toContain(">Browse Folder<");
+    expect(english).not.toContain('role="tablist"');
+    expect(chinese).not.toContain(">资料库<");
+    expect(chinese).not.toContain(">浏览文件夹<");
+    expect(english).toContain('data-file-library-presented-mode="browse"');
 
     const workspace = read("src/views/fileLibrary/FileLibraryWorkspace.tsx");
+    // Managed Library implementation is retained, just not a presented mode.
     expect(workspace).toContain('state.mode === "library"');
     expect(workspace).toContain('import("./library/LibraryMode")');
     expect(workspace).toContain('<BrowseMode />');
+    expect(workspace).toContain("fixtureControls={isManagedLibraryBrowserFixture() &&");
+    expect(english).not.toContain("file-library-mode-switch");
     expect(workspace).not.toContain('import("./browse/BrowseMode")\nconst LibraryMode');
   });
 

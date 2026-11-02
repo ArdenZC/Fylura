@@ -105,7 +105,10 @@ async function openDetachedBrowse(page) {
 async function openOverview(page) {
   await page.getByRole("button", { name: "Overview", exact: true }).waitFor({ state: "visible" });
   await page.getByRole("button", { name: "Overview", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector(".file-library-workspace") === null, undefined, { timeout: 10_000 });
+  // Keep-mounted Files is intentionally hidden when another view is active.
+  // Assert the actual user-visible boundary, not React unmount timing.
+  await page.locator(".file-library-workspace").waitFor({ state: "hidden", timeout: 10_000 });
+  await page.getByRole("heading", { name: "Overview", exact: true }).waitFor({ state: "visible", timeout: 10_000 });
 }
 
 async function collectMeasurement(page, viewport) {
@@ -261,7 +264,7 @@ async function runScene(browser, baseUrl, scene, viewport, action) {
   };
 
   try {
-    await page.goto(`${baseUrl}?w2-01-browser-fixture=virtualized`, { waitUntil: "commit", timeout: 60_000 });
+    await page.goto(`${baseUrl}?w2-01-browser-fixture=virtualized&managed-library-test=1`, { waitUntil: "commit", timeout: 60_000 });
     await waitForApp(page);
     const result = await action(page, viewport, state);
     if (pageErrors.length || consoleErrors.length) {

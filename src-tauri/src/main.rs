@@ -639,6 +639,7 @@ fn main() {
             fylura_tauri::file_workspace::integration::commands::file_workspace_browse_retain_path,
             fylura_tauri::file_workspace::integration::commands::file_workspace_browse_dispose,
             fylura_tauri::file_workspace::integration::commands::file_workspace_location_list,
+            fylura_tauri::file_workspace::integration::commands::file_workspace_known_locations,
             fylura_tauri::file_workspace::integration::commands::file_workspace_change_start,
             fylura_tauri::file_workspace::integration::commands::file_workspace_change_pending,
             fylura_tauri::file_workspace::integration::commands::file_workspace_change_refresh,

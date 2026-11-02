@@ -65,6 +65,7 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `file_workspace_browse_retain_path` | `main_state_mutation` | main | Promote one opaque page-owned Browse path reference to history ownership | default | yes | W1-10 integration tests |
 | `file_workspace_browse_dispose` | `main_state_mutation` | main | Dispose one Browse session and attached process-local resources | default | yes | W1-10 integration tests |
 | `file_workspace_location_list` | `read_only` | main | Project managed and active ephemeral locations without creating a location authority | default | yes | W1-10 integration tests |
+| `file_workspace_known_locations` | `read_only` | main | Project well-known user folders and mounted volumes as navigation entry points; no session, scan root, index source, stored preference or directory enumeration | default | yes | known-locations projection tests |
 | `file_workspace_change_start` | `main_state_mutation` | main | Attach a bounded ephemeral change monitor to an existing Browse path ref | default | yes | W1-10 integration tests |
 | `file_workspace_change_pending` | `read_only` | main | Read one coalesced ephemeral Browse refresh hint | default | yes | W1-10 integration tests |
 | `file_workspace_change_refresh` | `main_state_mutation` | main | Consume a bounded change hint through the existing BrowseService | default | yes | W1-10 integration tests |

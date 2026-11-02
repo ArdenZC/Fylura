@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { makeTranslator } from "../src/i18n";
-import { maturityCopy } from "../src/i18n/maturityCopy";
 
 const zh = makeTranslator("zh");
 const en = makeTranslator("en");
@@ -32,26 +31,32 @@ describe("PM-01 product truth", () => {
     expect(dictionary).not.toMatch(/Preference Memory|偏好记忆/i);
   });
 
-  it("keeps Files, Search, Preview, and History/Restore available when AI is skipped", () => {
-    expect(zh("onboardingSkipFeatureBoundary")).toContain("文件、搜索、预览和历史恢复仍可使用");
-    expect(en("onboardingSkipFeatureBoundary")).toContain("Files, Search, Preview, and History/Restore remain available");
+  it("keeps Files, Search, Preview, and History/Restore available without AI or a Managed Library scope", () => {
+    expect(zh("onboardingFilesNoConfig")).toContain("不需要任何前置配置");
+    expect(en("onboardingFilesNoConfig")).toContain("No setup required");
+    expect(zh("onboardingSearchSkipHint")).toContain("暂不启用");
+    expect(en("onboardingSearchSkipHint")).toContain("Skipping");
     for (const key of [
-      "onboardingCapabilityFiles",
-      "onboardingCapabilitySearch",
-      "onboardingCapabilityPreview",
-      "onboardingCapabilityRestore"
+      "onboardingFilesTitle",
+      "onboardingOrganizeTitle",
+      "onboardingCleanupTitle",
+      "onboardingSearchTitle"
     ] as const) {
       expect(zh(key).length).toBeGreaterThan(0);
       expect(en(key).length).toBeGreaterThan(0);
     }
   });
 
-  it("keeps Skip AI separate from the required useful-folder first value", () => {
-    expect(zh("onboardingSkipAI")).toBe("跳过 AI 配置");
-    expect(en("onboardingSkipAI")).toBe("Skip AI setup");
-    expect(zh("onboardingUsefulFolderRequired")).toContain("选择并保存一个有用的文件夹");
-    expect(en("onboardingUsefulFolderRequired")).toContain("Choose and save a useful folder");
-    expect(maturityCopy("zh").onboardingNeedsFolder).toContain("添加一个有用的文件夹");
-    expect(maturityCopy("en").onboardingNeedsFolder).toContain("Add a useful folder");
+  it("no longer gates first launch on a folder, AI provider or index authorization", () => {
+    const dictionary = readFileSync(resolve("src/i18n/dictionary.ts"), "utf8");
+    // ADR-0016 supersedes the old required-useful-folder onboarding contract.
+    expect(dictionary).not.toContain("onboardingUsefulFolderRequired");
+    expect(dictionary).not.toContain("onboardingSkipAI");
+    expect(dictionary).not.toContain("onboardingManagedConsentTitle");
+    // AI-dependent scenes stay opt-in and point at the existing AI Settings.
+    expect(zh("onboardingOrganizeNeedsAI")).toContain("单独授权");
+    expect(en("onboardingOrganizeNeedsAI")).toContain("separate AI provider authorization");
+    expect(zh("onboardingStartUsing").length).toBeGreaterThan(0);
+    expect(en("onboardingStartUsing").length).toBeGreaterThan(0);
   });
 });

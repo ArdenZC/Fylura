@@ -314,10 +314,12 @@ describe("app render architecture", () => {
     expect(appShell).toContain("function navGroups");
     expect(appShell).toContain('id: "primary"');
     expect(appShell).toContain('id: "advanced"');
-    expect(appShell.indexOf('id: "scanner"')).toBeLessThan(appShell.indexOf('id: "library"'));
-    expect(appShell.indexOf('id: "library"')).toBeLessThan(appShell.indexOf('id: "organize"'));
+    // ADR-0016: the four core jobs lead, and Files is the default destination.
+    expect(appShell.indexOf('id: "library"')).toBeLessThan(appShell.indexOf('id: "global-search"'));
+    expect(appShell.indexOf('id: "global-search"')).toBeLessThan(appShell.indexOf('id: "organize"'));
     expect(appShell.indexOf('id: "organize"')).toBeLessThan(appShell.indexOf('id: "cleanup"'));
-    expect(appShell.indexOf('id: "organize"')).toBeLessThan(appShell.indexOf('id: "restore"'));
+    expect(appShell.indexOf('id: "cleanup"')).toBeLessThan(appShell.indexOf('id: "restore"'));
+    expect(appShell.indexOf('id: "restore"')).toBeLessThan(appShell.indexOf('id: "scanner"'));
     expect(appShell).toContain('{ id: "cleanup",');
     expect(appShell).not.toContain('{ id: "preview",');
     expect(appShell).not.toContain("index === 4");

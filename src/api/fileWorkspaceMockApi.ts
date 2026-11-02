@@ -41,6 +41,7 @@ const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_retain_path",
   "file_workspace_browse_dispose",
   "file_workspace_location_list",
+  "file_workspace_known_locations",
   "file_workspace_change_start",
   "file_workspace_change_pending",
   "file_workspace_change_refresh",
@@ -476,6 +477,15 @@ export async function mockFileWorkspaceInvoke<T>(
         ref: { ...location.ref },
         capabilities: { ...location.capabilities }
       })) as T;
+    case "file_workspace_known_locations":
+      // Browser mock mirrors the read-only projection shape. Paths are mock
+      // fixtures only; nothing here is scanned, indexed or persisted.
+      return [
+        { id: "home", kind: "folder", displayName: "Home", path: "/mock/home", available: true },
+        { id: "desktop", kind: "folder", displayName: "Desktop", path: "/mock/home/Desktop", available: true },
+        { id: "downloads", kind: "folder", displayName: "Downloads", path: "/mock/home/Downloads", available: true },
+        { id: "documents", kind: "folder", displayName: "Documents", path: "/mock/home/Documents", available: true }
+      ] as T;
     case "file_workspace_change_start":
       return startChange(request as unknown as ChangeStartRequest) as T;
     case "file_workspace_change_pending":

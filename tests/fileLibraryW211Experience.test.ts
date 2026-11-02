@@ -11,7 +11,7 @@ describe("W2-11 integrated experience QA contract", () => {
     const libraryMock = read("src/api/browserMockApi.ts");
     const browseMock = read("src/api/fileWorkspaceMockApi.ts");
 
-    expect(gate).toContain('const FIXTURE_QUERY = "w2-11-browser-fixture=integrated"');
+    expect(gate).toContain('const FIXTURE_QUERY = "managed-library-test=1&w2-11-browser-fixture=integrated"');
     expect(gate).toContain("const LIBRARY_TOTAL = 100_000");
     expect(gate).toContain("const BROWSE_SCAN_BUDGET = 1_024");
     expect(gate).toContain("const BROWSE_LATE_SENTINEL_INDEX = 99_000");

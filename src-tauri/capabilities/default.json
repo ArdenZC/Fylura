@@ -191,6 +191,7 @@
     "allow-file-workspace-browse-retain-path",
     "allow-file-workspace-browse-dispose",
     "allow-file-workspace-location-list",
+    "allow-file-workspace-known-locations",
     "allow-file-workspace-change-start",
     "allow-file-workspace-change-pending",
     "allow-file-workspace-change-refresh",

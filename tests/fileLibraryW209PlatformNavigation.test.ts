@@ -180,7 +180,6 @@ describe("W2-09 platform navigation and managed/unmanaged contracts", () => {
       canGoForward: false,
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onModeChange: vi.fn(),
       navigationOpen: false,
       onNavigationToggle: vi.fn(),
       t

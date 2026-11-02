@@ -1,6 +1,6 @@
 import { usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Star, X, FolderOpen, MoreHorizontal, Package, File, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { Activity, Brush, Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Sparkles, Star, X, FolderOpen, MoreHorizontal, Package, File, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fileManagementApi as api, type TransferAction, type TransferPreview, type TransferTicket, type SavedPlace } from "../../../api/fileManagementApi";
 import type { BrowseEntryRef } from "../../../types/fileWorkspace";
@@ -728,6 +728,11 @@ export function FileManagementToolbar() {
         <button className={buttonGhost} disabled={disabled} onClick={() => collect("basket")}><PackagePlus size={16}/>{t("fmAddBasket")}</button>
         <button className={buttonGhost} onClick={() => openPanel("basket")}><Package size={16}/>{t("fmBasket")} ({state.basket.length})<ChevronRight size={14}/></button>
         <button className={buttonGhost} onClick={() => openPanel("places")}><Star size={16}/>{t("fmPlaces")}<ChevronRight size={14}/></button>
+        <hr/>
+        {/* ADR-0016: the two AI jobs are discoverable from the current folder. */}
+        <span className="fm-muted" data-fm-ai-jobs="true">{t("fmAiJobs")}</span>
+        <button className={buttonGhost} data-fm-open-organize onClick={() => { closePanel(); setView("organize"); }}><Sparkles size={16}/>{t("fmOrganizeHere")}</button>
+        <button className={buttonGhost} data-fm-open-cleanup onClick={() => { closePanel(); setView("cleanup"); }}><Brush size={16}/>{t("fmCleanupHere")}</button>
         <hr/>
         <button className={buttonGhost} disabled={busy || !surface?.selectAll} onClick={() => { surface?.selectAll?.(); closePanel(); }}>{t(surface?.selectionScope === "loaded" ? "fmSelectLoaded" : "fmSelectAll")}</button>
         <button className={buttonGhost} disabled={disabled} onClick={() => { surface?.clear(); closePanel(); }}>{t("fmClearSelection")}</button>

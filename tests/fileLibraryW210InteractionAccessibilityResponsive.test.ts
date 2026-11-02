@@ -46,7 +46,6 @@ describe("W2-10 interaction/accessibility/responsive integration contracts", () 
       canGoForward: false,
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onModeChange: vi.fn(),
       navigationOpen: false,
       onNavigationToggle: vi.fn(),
       contextOpen: true,
@@ -59,7 +58,10 @@ describe("W2-10 interaction/accessibility/responsive integration contracts", () 
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('aria-label="Work folder"');
-    expect(html).toContain('role="tab"');
+    // ADR-0016 removed the Library/Browse tablist; the command bar keeps one
+    // presented mode plus pressed-state view and context toggles.
+    expect(html).toContain('data-file-library-presented-mode="browse"');
+    expect(html).not.toContain('role="tab"');
     expect(html).toContain('aria-pressed="true"');
   });
 

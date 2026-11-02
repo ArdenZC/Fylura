@@ -357,6 +357,7 @@ const explicitContracts: CommandContract[] = [
     "src-tauri/src/file_workspace/integration/commands.rs",
     [
       "file_workspace_location_list",
+      "file_workspace_known_locations",
       "file_workspace_change_pending",
       "file_workspace_read_eligibility",
       "file_workspace_preview_snapshot",
@@ -680,6 +681,7 @@ describe("Tauri command permission contract", () => {
       "file_workspace_browse_retain_path",
       "file_workspace_browse_dispose",
       "file_workspace_location_list",
+      "file_workspace_known_locations",
       "file_workspace_change_start",
       "file_workspace_change_pending",
       "file_workspace_change_refresh",
@@ -695,6 +697,9 @@ describe("Tauri command permission contract", () => {
       "file_workspace_preview_switch_source",
       "file_workspace_preview_asset_request",
     ] as const;
+    // Pure read-only projections own no runtime state and must not be routed
+    // through the runtime worker pool.
+    const directProjectionCommands = new Set(["file_workspace_known_locations"]);
     const directCancellationCommands = new Set([
       "file_workspace_browse_cancel_enumeration",
       "file_workspace_change_pending",
@@ -704,14 +709,14 @@ describe("Tauri command permission contract", () => {
       "file_workspace_preview_dispose",
     ]);
 
-    expect(commands).toHaveLength(30);
+    expect(commands).toHaveLength(31);
     for (const command of commands) {
       const parsed = functionBody(fileWorkspaceCommandsSource, command);
       expect(parsed, `${command} function body`).not.toBeNull();
       expect(fileWorkspaceCommandsSource).toMatch(new RegExp(`pub async fn ${command}\\b`));
       if (command === "file_workspace_transfer_execute") {
         expect(parsed?.body).toContain("execute_registered(");
-      } else if (directCancellationCommands.has(command)) {
+      } else if (directCancellationCommands.has(command) || directProjectionCommands.has(command)) {
         expect(parsed?.body).not.toContain("spawn_runtime(");
       } else {
         expect(parsed?.body).toContain("spawn_runtime(");

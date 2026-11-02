@@ -25,7 +25,7 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await page.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "en"); });
-  await page.goto(`${baseUrl}/?browser-mock=1`);
+  await page.goto(`${baseUrl}/?browser-mock=1&managed-library-test=1`);
   await page.getByRole("button", { name: "Files", exact: true }).click();
   assert.equal(await page.title(), "Fylura");
   const pane = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').first();
@@ -162,7 +162,7 @@ try {
   // Chinese layout is an independent browser-mock page, not a native-platform claim.
   const chinese = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await chinese.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "zh"); });
-  await chinese.goto(`${baseUrl}/?browser-mock=1`);
+  await chinese.goto(`${baseUrl}/?browser-mock=1&managed-library-test=1`);
   await chinese.getByRole("button", { name: "文件", exact: true }).click();
   const zhPane = chinese.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').first();
   const allFiles = zhPane.getByRole("button", { name: "查看所有已索引文件", exact: true });

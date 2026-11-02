@@ -83,7 +83,8 @@ const windowsCloseButton =
 const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
 const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]";
 
-type NavItem = { id: View; label: string; icon: typeof Radar };
+type NavItemId = View | "global-search";
+type NavItem = { id: NavItemId; label: string; icon: typeof Radar; action?: "open_search" };
 type NavGroup = { id: "primary" | "workflow" | "advanced"; label: string; items: NavItem[] };
 
 export function AppShell() {
@@ -295,6 +296,7 @@ function WindowsControls() {
 
 export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView } = useNavigationContext();
+  const { setIsCommandOpen } = useCommandContext();
   const { t } = useI18nContext();
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
@@ -324,8 +326,9 @@ export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] })
               <button
                 key={item.id}
                 className={cn(navItemBase, view === item.id && navItemActive, view === item.id && selectedFocusVisibleState)}
-                onClick={() => setView(item.id)}
+                onClick={() => item.action === "open_search" ? setIsCommandOpen(true) : setView(item.id as View)}
                 aria-current={view === item.id ? "page" : undefined}
+                data-nav-action={item.action ?? undefined}
               >
                 <item.icon size={18} strokeWidth={1.7} className="shrink-0" />
                 <span>{item.label}</span>
@@ -528,16 +531,18 @@ export function navGroups(t: Translator): NavGroup[] {
       id: "primary",
       label: "",
       items: [
-        { id: "scanner", label: t("overview"), icon: House },
-        { id: "library", label: t("filesWorkspace"), icon: Library }
+        // ADR-0016 four core jobs. Files is the default destination and opens
+        // in Browse without any Managed Library scope or index authorization.
+        { id: "library", label: t("filesWorkspace"), icon: Library },
+        { id: "global-search", label: t("navGlobalSearch"), icon: Search, action: "open_search" },
+        { id: "organize", label: t("organizeFiles"), icon: Sparkles },
+        { id: "cleanup", label: t("storageCleanup"), icon: Brush }
       ]
     },
     {
       id: "workflow",
       label: t("navWorkflow"),
       items: [
-        { id: "organize", label: t("organizeFiles"), icon: Sparkles },
-        { id: "cleanup", label: t("storageCleanup"), icon: Brush },
         { id: "restore", label: t("history"), icon: Clock3 }
       ]
     },
@@ -545,6 +550,9 @@ export function navGroups(t: Translator): NavGroup[] {
       id: "advanced",
       label: t("navSystem"),
       items: [
+        // Managed Library setup stays available, but it is no longer the entry
+        // point to the ordinary file manager.
+        { id: "scanner", label: t("overview"), icon: House },
         { id: "settings", label: t("settingsPageTitle"), icon: Settings }
       ]
     }

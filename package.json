@@ -54,6 +54,7 @@
     "verify": "npm run verify:frontend && npm run verify:rust && npm run verify:security",
     "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1",
     "test:browser:u3": "node scripts/runU3FileLibraryBrowser.mjs",
+    "test:browser:ux04": "node scripts/runUX04FileFirstBrowser.mjs",
     "test:browser:u4": "node scripts/runU4FileLibraryBrowser.mjs",
     "test:browser:u5": "node scripts/runU5FileLibraryBrowser.mjs",
     "dev:preflight": "node scripts/devPreflight.mjs",

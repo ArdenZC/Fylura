@@ -34,6 +34,19 @@ HEADs, Draft labels or Hosted CI results as native release qualification.
   #503 (W2-11 Blob lifecycle diagnostics), and #504 (pending-image Blob URL
   cleanup correction) are merged. #502 remains **OPEN** because the historical
   intermittent failure's precise cause was not independently proven.
+- **Active product delivery — UX-04 file-first onboarding (#527).** Implemented
+  on `master@04de7b2eba725cf3dd73f705faf40fb76d5d2d05`; see
+  [UX-04 record](tasks/UX-04-FILE-FIRST-ONBOARDING.md). First launch is a
+  skippable four-scene intro with no folder, Managed Library scope, AI provider
+  or Global Index requirement; every exit is durable and lands on Files. Files
+  opens in Browse with no folder and shows well-known folders, mounted volumes
+  and saved places from a new read-only `file_workspace_known_locations`
+  projection. The user-visible Library/Browse switch is removed while Managed
+  Library keeps its components, Query V2 authority, selection, tags, Saved
+  Views, scan roots and API. Global Search consent is explicit per volume and
+  reuses the existing authorization and Smart Lean policy. Navigation leads with
+  Files, Global Search, AI organize and AI cleanup. Browser evidence only;
+  Windows/macOS native GUI acceptance remains **UNVERIFIED**.
 - **Next product acceptance:** [#487](https://github.com/ArdenZC/Zen-Canvas/issues/487)
   is the consolidated Windows/macOS native whole-product test: File Library U1–U5,
   actual file operations/Restore, Global Index/Search, permissions, cancellation,

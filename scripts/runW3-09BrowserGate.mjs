@@ -83,7 +83,7 @@ async function runScenario(context, viewport, label, scenario, evidence, fixture
     window.__zcW309Browser = { created, revoked, get live() { return [...live]; } };
   });
   try {
-    await page.goto(`${baseUrl}?${fixtureQuery}`, { waitUntil: "commit" });
+    await page.goto(`${baseUrl}?${fixtureQuery}&managed-library-test=1`, { waitUntil: "commit" });
     await waitForApp(page, label);
     await scenario(page);
     const lifecycle = await page.evaluate(() => JSON.parse(JSON.stringify(window.__zcW309Browser ?? {})));

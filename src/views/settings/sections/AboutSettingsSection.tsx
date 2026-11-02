@@ -1,6 +1,7 @@
 import packageInfo from "../../../../package.json";
 import type { Translator } from "../../../types/ui";
 import { buttonSecondary } from "../../../utils/tw";
+import { requestOnboardingReopen } from "../../../components/onboardingReopen";
 import { quietText } from "../../shared/ui";
 import { SettingsControlGroup, SettingsDisclosure, SettingsRow, SettingsSection, SettingsSwitch } from "../components/SettingsPrimitives";
 
@@ -21,6 +22,13 @@ export function AboutSettingsSection({ t, developerMode, onDeveloperMode }: Abou
           <a className={buttonSecondary} href={packageInfo.homepage} target="_blank" rel="noreferrer">
             {t("aboutOpenProject")}
           </a>
+        </SettingsRow>
+      </SettingsControlGroup>
+      <SettingsControlGroup title={t("aboutGettingStarted")} description={t("aboutGettingStartedDesc")}>
+        <SettingsRow label={t("onboardingReopenIntro")} description={t("onboardingReopenIntroDesc")}>
+          <button type="button" className={buttonSecondary} data-onboarding-restart onClick={requestOnboardingReopen}>
+            {t("onboardingReopenIntro")}
+          </button>
         </SettingsRow>
       </SettingsControlGroup>
       <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")}>

@@ -76,6 +76,7 @@ export interface BrowseSourceOwner {
   readonly loadLocations: () => Promise<void>;
   readonly openLocationPicker: () => void;
   readonly chooseFolder: () => Promise<boolean>;
+  readonly openKnownLocation: (path: string, displayName?: string) => Promise<boolean>;
   readonly activateLocation: (location: LocationDescriptor) => Promise<boolean>;
   readonly refreshEnumeration: () => Promise<void>;
   readonly loadNextPage: () => Promise<void>;
@@ -309,6 +310,46 @@ export function useBrowseSourceOwner({
       setAdmissionLoading(false);
     }
   }, [controller, platform, t]);
+
+  /**
+   * Re-admits a path the user explicitly picked from the Places projection.
+   * This is the same user-intent admission as `chooseFolder`; it never creates
+   * a Managed Library root, scan or index authorization.
+   */
+  const openKnownLocation = useCallback(async (path: string, displayName?: string) => {
+    if (admissionLoadingRef.current) return false;
+    const routingHint = path.trim();
+    if (routingHint.length === 0) return false;
+    const workspacePlatform = workspacePlatformForRuntime(platform);
+    if (workspacePlatform === null) {
+      setAdmissionError(true);
+      return false;
+    }
+
+    admissionLoadingRef.current = true;
+    setAdmissionLoading(true);
+    setAdmissionError(false);
+    setLocationError(false);
+    try {
+      const response = await controller.openBrowse({
+        platform: workspacePlatform,
+        routingHint,
+        displayHint: displayName?.trim() || displayNameFromRoutingHint(routingHint)
+      });
+      if (response === null) {
+        setAdmissionError(true);
+        return false;
+      }
+      setShowLocationPicker(false);
+      return true;
+    } catch {
+      setAdmissionError(true);
+      return false;
+    } finally {
+      admissionLoadingRef.current = false;
+      setAdmissionLoading(false);
+    }
+  }, [controller, platform]);
 
   const activateLocation = useCallback(async (location: LocationDescriptor) => {
     if (!isActivatableLocation(location)) return false;
@@ -827,6 +868,7 @@ export function useBrowseSourceOwner({
     loadLocations,
     openLocationPicker,
     chooseFolder,
+    openKnownLocation,
     activateLocation,
     refreshEnumeration,
     loadNextPage,
@@ -861,13 +903,13 @@ export function isActivatableLocation(location: LocationDescriptor) {
   return location.availability === "available" && location.capabilities.canBrowse;
 }
 
-function workspacePlatformForRuntime(platform: NodeJS.Platform | "browser"): WorkspacePlatform | null {
+export function workspacePlatformForRuntime(platform: NodeJS.Platform | "browser"): WorkspacePlatform | null {
   if (platform === "win32") return "windows";
   if (platform === "darwin") return "macos";
   return null;
 }
 
-function displayNameFromRoutingHint(routingHint: string) {
+export function displayNameFromRoutingHint(routingHint: string) {
   const normalized = routingHint.replace(/[\\/]+$/, "");
   const segments = normalized.split(/[\\/]/).filter(Boolean);
   return segments.at(-1) ?? normalized;

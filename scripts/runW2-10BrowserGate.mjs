@@ -15,7 +15,7 @@ if (EXPECTED_CHECKOUT_SHA) {
 }
 const TASK_TEMP_DIR = path.resolve(".tmp-tests/w2-10-browser-runtime");
 const ARTIFACT_DIR = path.resolve(".tmp-tests/w2-10-browser-gate");
-const FIXTURE_QUERY = "w2-04-browser-fixture=source-owner&w2-05-browser-fixture=interaction&w2-09-browser-fixture=platform";
+const FIXTURE_QUERY = "managed-library-test=1&w2-04-browser-fixture=source-owner&w2-05-browser-fixture=interaction&w2-09-browser-fixture=platform";
 const SEARCH_MODIFIER = process.platform === "darwin" ? "Meta" : "Control";
 
 process.env.TEMP = TASK_TEMP_DIR;

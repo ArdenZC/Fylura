@@ -158,14 +158,27 @@ try {
     Object.defineProperty(navigator, "platform", { get: () => "Win32" });
     localStorage.setItem("zc-onboarding-complete", "true"); localStorage.setItem("zc-language", "zh");
   });
-  await chinese.goto(`${baseUrl}/?browser-mock=1`);
+  // Use the same mock corpus as the English U3 workflow and do not race
+  // admission/enumeration by sorting before the selected folder is visible.
+  await chinese.goto(`${baseUrl}/?browser-mock=1&u3-folder-move=1`);
   await chinese.getByRole("button", { name: "文件", exact: true }).click();
-  const chinesePane = chinese.locator("[data-pane-id]").first();
-  await chinesePane.getByRole("button", { name: "编辑路径（Ctrl/Cmd+L）", exact: true }).click();
-  await chinesePane.getByRole("textbox", { name: "文件夹路径", exact: true }).fill("C:/U3/Left");
-  await chinesePane.getByRole("textbox", { name: "文件夹路径", exact: true }).press("Enter");
-  await chinesePane.locator("[data-browse-sort]").selectOption("name");
-  await chinesePane.locator('[data-browse-entry-kind="directory"]').first().waitFor();
+  const chinesePane = chinese.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').first();
+  try {
+    await chinesePane.getByRole("button", { name: "编辑路径（Ctrl/Cmd+L）", exact: true }).click();
+    await chinesePane.getByRole("textbox", { name: "文件夹路径", exact: true }).fill("C:/U3/Left");
+    await chinesePane.getByRole("textbox", { name: "文件夹路径", exact: true }).press("Enter");
+    await chinesePane.locator('[data-browse-state="current-folder"]').waitFor({ state: "visible" });
+    // The native-order mock first page contains 32 files and no directories.
+    // Prove initial enumeration has published, then apply the backend snapshot
+    // name sort (foldersFirst=true) before asserting a directory is visible.
+    await chinesePane.locator('[data-browse-entry-kind="file"]').first().waitFor({ state: "visible" });
+    await chinesePane.locator("[data-browse-sort]").selectOption("name");
+    await chinesePane.locator('[data-browse-entry-kind="directory"]').first().waitFor({ state: "visible" });
+  } catch (error) {
+    await chinese.screenshot({ path: path.join(output, "failure-chinese.png"), fullPage: false }).catch(() => undefined);
+    await writeFile(path.join(output, "failure-chinese.txt"), await chinese.locator("body").innerText().catch(() => String(error)));
+    throw error;
+  }
   await chinese.evaluate(() => document.documentElement.classList.add("dark"));
   await chinese.screenshot({ path: path.join(output, "13-chinese-dark.png") });
   checks.push("Chinese and English, light and dark, 820/980/1280/1600 widths without page overflow");

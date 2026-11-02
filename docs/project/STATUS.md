@@ -1,6 +1,6 @@
 # Fylura Project Status
 
-Last verified: 2026-11-02 against GitHub and remote master. Dated baseline: `d95c281` ([#540](https://github.com/ArdenZC/Fylura/pull/540)); always fetch latest master before work.
+Last verified: 2026-11-02 against GitHub and remote master. Dated baseline: `7b6492b` ([#541](https://github.com/ArdenZC/Fylura/pull/541)); always fetch latest master before work.
 
 ## Current product goal
 
@@ -16,12 +16,12 @@ Scope: [delivery record](initiatives/file-first-product-delivery.md), [ADR-0016]
 
 - **M0-A complete:** #534 merged; [#527](https://github.com/ArdenZC/Fylura/issues/527) closed. Skippable onboarding, immediate Browse, no ordinary Library/Browse switch.
 - **M0-B/C complete:** [#535](https://github.com/ArdenZC/Fylura/pull/535) merged as `6392e66`, required CI passed; stop legacy startup Managed Scan submissions, preserve all managed data/services, archive old status and align milestones. Dormancy review: **2027-01-04**.
-- **M1 code complete:** #536 and #540 merged; final workflow closeout distinguishes partial failure/recovery-required results and verifies cancel → reissue on the existing engine. No new P0/P1 product defect was found in the exercised code workflows; native qualification remains #487. **M2 code complete:** one-off folder → metadata AI → grouped review/edit → batch execution → History/Restore; then **M3** AI Cleanup, **M4** Search/Zen Zero/real quality, **M5** Windows/macOS Beta acceptance.
+- **M1 code complete:** #536 and #540 merged; final workflow closeout distinguishes partial failure/recovery-required results and verifies cancel → reissue on the existing engine. No new P0/P1 product defect was found in the exercised code workflows; native qualification remains #487. **M2 code complete:** #541 merged as `7b6492b`, exact-head required CI passed; one-off folder → metadata AI → grouped review/edit → batch execution → History/Restore; then **M3** AI Cleanup, **M4** Search/Zen Zero/real quality, **M5** Windows/macOS Beta acceptance.
 
 ## Work in progress
 
 - M2 now accepts an explicitly selected supported folder through Browse → V2 Organization Plan source snapshots (Schema **47**). It analyzes **direct files only**, keeps subfolders in place, limits the task to **100 direct entries**, and requires per-task metadata-sharing consent plus a ready configured provider. No Managed Root or Global Index admission is created. Existing V1 managed plans remain compatible.
-- The next mainline is **M3 AI Cleanup**: supported folder → deterministic findings and optional authorized AI explanations → grouped risk review → Safe Trash → Restore. Reuse existing Analysis Finding and cleanup/recovery owners; no new index or parallel executor.
+- **M3 AI Cleanup is in progress:** first-screen cleanup candidates are prioritized over repeated guidance; assessment status stays beside AI actions, without changing consent, Preview or Restore gates. The workflow is supported folder → deterministic findings and authorized AI explanations → grouped risk review → Safe Trash → Restore. Reuse existing Analysis Finding and cleanup/recovery owners; no new index or parallel executor.
 - [#512](https://github.com/ArdenZC/Fylura/issues/512) is the open product inventory; [#487](https://github.com/ArdenZC/Fylura/issues/487) owns remaining real Windows/macOS GUI acceptance.
 - Search activation: **CODE_MERGED** (#518/#533 and platform-gated activation in #537); **WINDOWS_DEFAULT_ON=false**, **MACOS_DEFAULT_ON=false**, **RELEASE_READY=false**. Windows default-on awaits representative installed-app resource/exit qualification; macOS GUI remains **UNVERIFIED**. #404 SQLite writer competition and #353 macOS resource evidence stay separate. This does not block M1.
 - Independent Search work remains open in [#494](https://github.com/ArdenZC/Fylura/issues/494), PRs [#495](https://github.com/ArdenZC/Fylura/pull/495), [#497](https://github.com/ArdenZC/Fylura/pull/497), [#510](https://github.com/ArdenZC/Fylura/pull/510). These candidates are not the Files mainline. #518, #519, #521, #529, #533, #534 and #537 are merged, not active Drafts.

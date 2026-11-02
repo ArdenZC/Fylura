@@ -933,7 +933,9 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "get_analysis_run": {
       const run = mockAnalysisRuns.find((item) => item.id === String(args?.runId ?? ""));
       if (!run) throw new Error("Mock analysis run not found");
-      return run as T;
+      // Match native IPC's fresh response identity; sharing the start response
+      // can suppress the finding reload after a completed scan readback.
+      return structuredClone(run) as T;
     }
     case "get_active_analysis_run":
       return (mockAnalysisRuns.find((run) => ["queued", "running", "cancelling"].includes(run.status)) ?? null) as T;

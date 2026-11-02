@@ -1015,43 +1015,7 @@ function StorageCleanupPanel({
   return (
     <>
       <div className={cn(pageSurface, "grid content-start gap-4")} data-cleanup-authority="analysis-run-finding" data-cleanup-preview-state={preview ? "ready" : "none"}>
-        <NoticeBanner tone="info" title={t("storageCleanupSafetyTitle")}>
-          {t("storageCleanupSafetyDesc")}
-        </NoticeBanner>
-
-        <AIReadinessNotice
-          feature="cleanup"
-          readiness={aiReadiness}
-          loading={aiReadinessLoading}
-          error={aiReadinessError}
-          t={t}
-          setView={onNavigate ?? (() => undefined)}
-          onRetry={() => void refreshAIReadiness().catch(() => undefined)}
-        />
-
-        <WorkflowSteps
-          label={t("storageCleanupWorkflowLabel")}
-          steps={[
-            { label: t("storageCleanupWorkflowScan"), detail: t("storageCleanupWorkflowScanDetail"), state: cleanupScanWorkflowState, stateLabel: workflowStateLabel(cleanupScanWorkflowState, t) },
-            { label: t("storageCleanupWorkflowReview"), detail: t("storageCleanupWorkflowReviewDetail"), state: cleanupReviewWorkflowState, stateLabel: workflowStateLabel(cleanupReviewWorkflowState, t) },
-            { label: t("storageCleanupWorkflowSafeTrash"), detail: t("storageCleanupWorkflowSafeTrashDetail"), state: cleanupSafeTrashWorkflowState, stateLabel: workflowStateLabel(cleanupSafeTrashWorkflowState, t) },
-            { label: t("storageCleanupWorkflowRestore"), detail: t("storageCleanupWorkflowRestoreDetail"), state: cleanupRestoreWorkflowState, stateLabel: workflowStateLabel(cleanupRestoreWorkflowState, t) }
-          ]}
-        />
-
-        {run ? (
-          <section className="grid grid-cols-1 divide-y divide-[var(--zc-divider)] border-y border-[var(--zc-divider)] sm:grid-cols-3 sm:divide-x sm:divide-y-0" data-cleanup-summary aria-label={t("storageCleanupRunMetricsLabel")}>
-            <div className="grid gap-1 px-3 py-2 first:pl-0 sm:px-4 sm:first:pl-0"><span className={metadataText}>{t("storageCleanupSummaryCandidates")}</span><strong className="text-base tabular-nums text-[var(--zc-text-primary)]">{run.findingsPublished.toLocaleString()}</strong></div>
-            <div className="grid gap-1 px-3 py-2 sm:px-4"><span className={metadataText}>{t("storageCleanupSummaryReclaimable")}</span><strong className="text-base tabular-nums text-[var(--zc-success-text)]">{formatBytes(runReclaimable.bytes)}</strong></div>
-            <div className="grid gap-1 px-3 py-2 last:pr-0 sm:px-4 sm:last:pr-0"><span className={metadataText}>{t("storageCleanupSummaryRecovery")}</span><strong className="text-base text-[var(--zc-text-primary)]">{t("storageCleanupSummaryRecoveryValue")}</strong></div>
-          </section>
-        ) : null}
-
-        <NoticeBanner tone="info" title={t("storageCleanupSafetyNoticeTitle")}>
-          {t("storageCleanupSafetyNoticeDesc")}
-        </NoticeBanner>
-
-        <section className={cn(contentPanel, "grid gap-3 p-4")} data-cleanup-scope>
+        <section className={cn(contentPanel, "grid gap-2 p-3")} data-cleanup-scope>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className={sectionHeading}>{t("storageCleanupCurrentScope")}</h2>
@@ -1096,16 +1060,6 @@ function StorageCleanupPanel({
 
         {run ? (
           <section className="grid gap-3" data-analysis-run-id={run.id} data-cleanup-analysis-state={runState}>
-            <MetricStrip
-              ariaLabel={t("storageCleanupRunMetricsLabel")}
-              density="compact"
-              items={[
-                { label: t("storageCleanupSafeTier"), value: run.safeCount.toLocaleString(), tone: "green" },
-                { label: t("storageCleanupReviewTier"), value: run.reviewCount.toLocaleString(), tone: "amber" },
-                { label: t("storageCleanupCautionTier"), value: run.cautionCount.toLocaleString(), tone: "red" },
-                { label: t("storageCleanupReclaimable"), value: formatBytes(runReclaimable.bytes), hint: runReclaimable.estimated ? t("storageCleanupEstimateHint") : undefined }
-              ]}
-            />
             {isRunInProgress(run) ? (
               <DurableTaskStatus
                 state="running"
@@ -1133,10 +1087,11 @@ function StorageCleanupPanel({
               </NoticeBanner>
             ) : null}
             {!isRunInProgress(run) && !runIsPartial && runState === "completed" ? (
-              <NoticeBanner tone="success" title={run.findingsPublished === 0 ? t("storageCleanupRunCompletedEmptyTitle") : t("storageCleanupRunCompleted")}>
-                {run.findingsPublished === 0
-                  ? t("storageCleanupRunCompletedEmptyDesc")
-                  : replaceCopy("storageCleanupRunCompletedDesc", { detectors: run.detectorsCompleted, findings: run.findingsPublished })}
+              run.findingsPublished > 0 ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" role="status">
+                <strong className="text-[var(--zc-text-primary)]">{t("storageCleanupRunCompleted")}</strong>
+                <span className={metadataText}>{replaceCopy("storageCleanupRunCompletedDesc", { detectors: run.detectorsCompleted, findings: run.findingsPublished })}</span>
+              </div> : <NoticeBanner tone="success" title={t("storageCleanupRunCompletedEmptyTitle")}>
+                {t("storageCleanupRunCompletedEmptyDesc")}
               </NoticeBanner>
             ) : null}
             {runState === "failed" ? (
@@ -1216,8 +1171,19 @@ function StorageCleanupPanel({
           </>
         ) : null}
 
+        <AIReadinessNotice
+          feature="cleanup"
+          compact
+          readiness={aiReadiness}
+          loading={aiReadinessLoading}
+          error={aiReadinessError}
+          t={t}
+          setView={onNavigate ?? (() => undefined)}
+          onRetry={() => void refreshAIReadiness().catch(() => undefined)}
+        />
+
         {run && selectedFindingIds.size ? (
-          <footer className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-overlay)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-cleanup-selection-summary>
+          <footer className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-overlay)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-cleanup-selection-summary>
             <div className="min-w-0">
               <strong className="block text-sm text-[var(--zc-text-primary)]">{replaceCopy("storageCleanupSelectionSummary", { count: selectedFindingIds.size, size: formatBytes(selectedBytes) })}</strong>
               <span className={metadataText}>{t("storageCleanupSelectionSafety")}</span>
@@ -1263,6 +1229,37 @@ function StorageCleanupPanel({
             {replaceCopy("storageCleanupExecutionSummary", { moved: executionResult.moved, skipped: executionResult.skipped, failed: executionResult.failed })}
           </NoticeBanner>
         ) : null}
+        <details className="border-t border-[var(--zc-divider)] pt-3" data-cleanup-workflow-details>
+          <summary className="cursor-pointer text-sm text-[var(--zc-text-secondary)]">{t("storageCleanupWorkflowLabel")}</summary>
+          <div className="mt-3 grid gap-3">
+            <NoticeBanner tone="info" title={t("storageCleanupSafetyTitle")}>
+              {t("storageCleanupSafetyDesc")}
+            </NoticeBanner>
+
+            <WorkflowSteps
+              label={t("storageCleanupWorkflowLabel")}
+              steps={[
+                { label: t("storageCleanupWorkflowScan"), detail: t("storageCleanupWorkflowScanDetail"), state: cleanupScanWorkflowState, stateLabel: workflowStateLabel(cleanupScanWorkflowState, t) },
+                { label: t("storageCleanupWorkflowReview"), detail: t("storageCleanupWorkflowReviewDetail"), state: cleanupReviewWorkflowState, stateLabel: workflowStateLabel(cleanupReviewWorkflowState, t) },
+                { label: t("storageCleanupWorkflowSafeTrash"), detail: t("storageCleanupWorkflowSafeTrashDetail"), state: cleanupSafeTrashWorkflowState, stateLabel: workflowStateLabel(cleanupSafeTrashWorkflowState, t) },
+                { label: t("storageCleanupWorkflowRestore"), detail: t("storageCleanupWorkflowRestoreDetail"), state: cleanupRestoreWorkflowState, stateLabel: workflowStateLabel(cleanupRestoreWorkflowState, t) }
+              ]}
+            />
+
+            {run ? (
+              <section className="grid grid-cols-1 divide-y divide-[var(--zc-divider)] border-y border-[var(--zc-divider)] sm:grid-cols-3 sm:divide-x sm:divide-y-0" data-cleanup-summary aria-label={t("storageCleanupRunMetricsLabel")}>
+                <div className="grid gap-1 px-3 py-2 first:pl-0 sm:px-4 sm:first:pl-0"><span className={metadataText}>{t("storageCleanupSummaryCandidates")}</span><strong className="text-base tabular-nums text-[var(--zc-text-primary)]">{run.findingsPublished.toLocaleString()}</strong></div>
+                <div className="grid gap-1 px-3 py-2 sm:px-4"><span className={metadataText}>{t("storageCleanupSummaryReclaimable")}</span><strong className="text-base tabular-nums text-[var(--zc-success-text)]">{formatBytes(runReclaimable.bytes)}</strong></div>
+                <div className="grid gap-1 px-3 py-2 last:pr-0 sm:px-4 sm:last:pr-0"><span className={metadataText}>{t("storageCleanupSummaryRecovery")}</span><strong className="text-base text-[var(--zc-text-primary)]">{t("storageCleanupSummaryRecoveryValue")}</strong></div>
+              </section>
+            ) : null}
+
+            <NoticeBanner tone="info" title={t("storageCleanupSafetyNoticeTitle")}>
+              {t("storageCleanupSafetyNoticeDesc")}
+            </NoticeBanner>
+
+          </div>
+        </details>
       </div>
 
       <SideSheet

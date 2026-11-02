@@ -691,3 +691,38 @@ fn one_off_parent_alias_is_resolved_before_group_target_and_journal_derivation()
         .as_ref()
         .is_some_and(|path| Path::new(path) == root.join("Documents"))));
 }
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn organization_transfer_root_allows_regular_files_into_missing_children_only() {
+    use crate::file_ops::manual_transfer::{make_operation, revalidate, TransferAction};
+    use std::fs;
+    let f = Fixture::new();
+    let source = f.root.join("one-off.txt");
+    fs::write(&source, b"selected file").unwrap();
+    let root = f.root.canonicalize().unwrap();
+    let source = source.canonicalize().unwrap();
+    let target = root.join("Documents/one-off.txt");
+    let operation =
+        make_operation("source", &source, &root, &target, TransferAction::Move).unwrap();
+    revalidate(&operation).unwrap();
+    assert!(!root.join("Documents").exists()); // Preview has no filesystem side effect.
+    assert!(make_operation(
+        "source",
+        &source,
+        &root,
+        &root.join("one-off.txt"),
+        TransferAction::Move
+    )
+    .is_err());
+    let directory = root.join("Subfolder");
+    fs::create_dir(&directory).unwrap();
+    assert!(make_operation(
+        "directory",
+        &directory,
+        &root,
+        &directory.join("nested"),
+        TransferAction::Move
+    )
+    .is_err());
+}

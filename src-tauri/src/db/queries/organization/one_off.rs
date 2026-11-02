@@ -328,6 +328,35 @@ pub(super) fn projection(
         parent.join(template).to_string_lossy().into_owned()
     };
     let preview = operation_preview_from_indexed(semantic_row);
+    // Windows' existing indexed Move supports missing parents. On macOS use
+    // the shared Files transfer adapter: it verifies the selected route before
+    // PREPARED, creates missing children through the no-links directory guard,
+    // then revalidates the concrete destination. Never relax legacy Move's
+    // existing-parent restriction or create directories outside the journal.
+    #[cfg(target_os = "macos")]
+    let preview = preview.map(|mut preview| {
+        if preview.is_executable != Some(false)
+            && matches!(preview.operation_type.as_str(), "move" | "move_rename")
+        {
+            match crate::file_ops::manual_transfer::make_operation(
+                &row.id,
+                Path::new(&row.path),
+                parent,
+                Path::new(&preview.target_path),
+                crate::file_ops::manual_transfer::TransferAction::Move,
+            ) {
+                Ok(operation) => {
+                    preview.id = operation.id;
+                    preview.operation_type = operation.operation_type;
+                }
+                Err(error) => {
+                    preview.is_executable = Some(false);
+                    preview.blocking_reason = Some(error);
+                }
+            }
+        }
+        preview
+    });
     let mut proposal = proposal_from_preview(
         &row.path,
         &row.name,

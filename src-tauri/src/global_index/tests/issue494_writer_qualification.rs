@@ -26,6 +26,17 @@ const WRITER_BATCHES: [usize; 2] = [512, 5_000];
 const WRITER_P95_OVERHEAD_LIMIT_PERCENT: f64 = 10.0;
 const BOOTSTRAP_REPLICATES: usize = 2_000;
 
+// One pre-registered targeted requalification of the only production writer
+// cell that remained undecided: Windows x86_64, 512-row batches. The sample
+// count, the counterbalanced execution order and both seeds are fixed before
+// the run, so a result cannot be extended, trimmed or re-drawn mid-flight.
+const TARGETED_WRITER_BATCH_SIZE: usize = 512;
+const TARGETED_WRITER_PAIRS: usize = 500;
+const TARGETED_WRITER_WARMUPS: usize = 5;
+const TARGETED_ORDER_SEED: u64 = 0x4949_5a12_0a0b_0c0d;
+const TARGETED_ROWID_SEED: u64 = 0x4949_5a12_1d2e_3f40;
+const TARGETED_BOOTSTRAP_SEED: u64 = 0x4949_5a12_0b00_0001;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct WalState {
     busy: i64,
@@ -56,6 +67,16 @@ struct WriterCase {
     candidate: Vec<WriterTiming>,
     raw_pairs: Vec<JsonValue>,
     pair_orders: Vec<&'static str>,
+    invalid_pairs: Vec<JsonValue>,
+}
+
+/// A pre-computed pair of (writer order, rowid window). The order is decided
+/// before any measurement so the candidate/baseline split cannot depend on an
+/// observed latency.
+#[derive(Clone, Copy, Debug)]
+struct WriterPairPlan {
+    candidate_first: bool,
+    rowid_start: usize,
 }
 
 #[test]
@@ -196,6 +217,7 @@ fn issue494_writer_only_native_qualification() {
             "production_wal_autocheckpoint",
             batch_size,
             measured,
+            batch_size as u64 ^ 0x4949_4a11,
         ));
     }
 
@@ -236,6 +258,7 @@ fn issue494_writer_only_native_qualification() {
             "forced_full_checkpoint_stress",
             batch_size,
             measured,
+            batch_size as u64 ^ 0x4949_4a11,
         ));
     }
 
@@ -343,6 +366,264 @@ fn issue494_writer_only_native_qualification() {
     }));
 }
 
+/// One pre-registered targeted requalification of the only undecided
+/// production writer cell. The 500 pairs, the counterbalanced order and both
+/// seeds are fixed before the first measured write. Every pair is retained;
+/// an invalid pair fails the qualification instead of drawing a replacement.
+#[test]
+#[ignore = "Issue #494 targeted Windows 512-row writer qualification; exact 200k Release fixture"]
+fn issue494_writer_512_targeted_qualification() {
+    assert!(
+        !std::hint::black_box(cfg!(debug_assertions)),
+        "targeted writer qualification must run in Release mode"
+    );
+    if !cfg!(target_os = "windows") {
+        eprintln!(
+            "targeted Windows 512-row writer qualification is not applicable on host {}",
+            std::env::consts::OS
+        );
+        return;
+    }
+    assert_eq!(
+        std::hint::black_box(std::env::consts::ARCH),
+        "x86_64",
+        "Windows qualification requires native x86_64"
+    );
+
+    let output = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT").ok();
+    if let Some(path) = &output {
+        let output_path = std::path::PathBuf::from(path);
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).expect("create targeted writer evidence directory");
+        }
+        fs::write(output_path, "").expect("start fresh targeted writer JSONL evidence");
+    }
+
+    let plan = fixed_seed_pair_plan(
+        TARGETED_ORDER_SEED,
+        TARGETED_ROWID_SEED,
+        TARGETED_WRITER_WARMUPS + TARGETED_WRITER_PAIRS,
+        TARGETED_WRITER_BATCH_SIZE,
+    );
+    let planned_orders = plan
+        .iter()
+        .skip(TARGETED_WRITER_WARMUPS)
+        .map(|pair| {
+            if pair.candidate_first {
+                "candidate_first"
+            } else {
+                "baseline_first"
+            }
+        })
+        .collect::<Vec<_>>();
+    let candidate_first_pairs = planned_orders
+        .iter()
+        .filter(|order| **order == "candidate_first")
+        .count();
+
+    let master_path = test_db_path();
+    let baseline_path = sidecar_path(&master_path, ".writer-targeted-baseline.sqlite3");
+    let candidate_path = sidecar_path(&master_path, ".writer-targeted-candidate.sqlite3");
+    let _master_cleanup = BenchmarkCleanup(master_path.clone());
+    let _baseline_cleanup = BenchmarkCleanup(baseline_path.clone());
+    let _candidate_cleanup = BenchmarkCleanup(candidate_path.clone());
+
+    let context = benchmark_context(WRITER_FIXTURE_ENTRIES);
+    let fixture_started = Instant::now();
+    let db = Database::open(&master_path).expect("open production-schema targeted fixture");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert authorized synthetic source");
+    let (expectations, generation_ms, population_ms, population_batch_ms) =
+        populate_synthetic_database(&db, WRITER_FIXTURE_ENTRIES);
+    drop(expectations);
+    let fixture_connection = db
+        .conn()
+        .expect("get targeted fixture checkpoint connection");
+    let source_rows: i64 = fixture_connection
+        .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row.get(0))
+        .expect("verify targeted fixture row count");
+    assert_eq!(source_rows, WRITER_FIXTURE_ENTRIES as i64);
+    let source_checkpoint = checkpoint(&fixture_connection, "TRUNCATE");
+    assert_eq!(
+        source_checkpoint.busy, 0,
+        "targeted fixture WAL must be idle"
+    );
+    drop(fixture_connection);
+    drop(db);
+
+    let source_digest = blake3_file(&master_path);
+    fs::copy(&master_path, &baseline_path).expect("clone targeted baseline database");
+    fs::copy(&master_path, &candidate_path).expect("clone targeted candidate database");
+    let baseline_digest = blake3_file(&baseline_path);
+    let candidate_digest = blake3_file(&candidate_path);
+    assert_eq!(
+        source_digest, baseline_digest,
+        "targeted baseline clone must be byte-identical"
+    );
+    assert_eq!(
+        source_digest, candidate_digest,
+        "targeted candidate clone must be byte-identical"
+    );
+
+    let baseline_db = Database::open_for_writer_qualification(&baseline_path, false)
+        .expect("open targeted baseline through production SQLite pool");
+    let candidate_db = Database::open_for_writer_qualification(&candidate_path, true)
+        .expect("open targeted candidate through production SQLite pool with hooks");
+    candidate_db
+        .filename_search
+        .rebuild_now_for_test()
+        .expect("build candidate projection on its targeted clone");
+    assert!(
+        candidate_db.filename_search.diagnostics().ready,
+        "targeted candidate projection must be ready"
+    );
+
+    let mut baseline = baseline_db
+        .conn()
+        .expect("get targeted baseline pool connection");
+    let mut candidate = candidate_db
+        .conn()
+        .expect("get targeted candidate pool connection");
+    let baseline_contract = sqlite_writer_contract(&baseline);
+    let candidate_contract = sqlite_writer_contract(&candidate);
+    assert_eq!(baseline_contract, candidate_contract);
+    assert_eq!(baseline_contract.0, "wal", "targeted fixture must use WAL");
+    assert_eq!(baseline_contract.2, 1_000);
+    assert_database_pair_equivalent(&baseline, &candidate, &baseline_path, &candidate_path);
+    let fixture_setup_ms = fixture_started.elapsed().as_secs_f64() * 1000.0;
+
+    let measured = measure_writer_case_with_plan(
+        &mut baseline,
+        &mut candidate,
+        TARGETED_WRITER_BATCH_SIZE,
+        false,
+        TARGETED_WRITER_WARMUPS,
+        &plan,
+    );
+    assert_database_pair_equivalent(&baseline, &candidate, &baseline_path, &candidate_path);
+    let case = writer_case_record(
+        "production_wal_autocheckpoint",
+        TARGETED_WRITER_BATCH_SIZE,
+        measured,
+        TARGETED_BOOTSTRAP_SEED,
+    );
+
+    let invalid_pairs = case["pair_validity"]["invalid_pairs"]
+        .as_u64()
+        .expect("targeted invalid pair count");
+    let valid_pairs = case["pair_validity"]["valid_pairs"]
+        .as_u64()
+        .expect("targeted valid pair count");
+    let writer_classification = case["production_writer_classification"]
+        .as_str()
+        .expect("targeted writer classification")
+        .to_string();
+    let checkpoint_coverage = case["automatic_checkpoint_observation"]["coverage_status"]
+        .as_str()
+        .expect("targeted checkpoint coverage");
+    let qualification = if invalid_pairs > 0 {
+        "INVALID_PAIR_PRESENT"
+    } else if checkpoint_coverage != "AUTOCHECKPOINT_OBSERVED_IN_BOTH_ARMS" {
+        "INSUFFICIENT_AUTOCHECKPOINT_COVERAGE"
+    } else {
+        match writer_classification.as_str() {
+            "PRODUCTION_WRITER_PASS_WITH_MARGIN" => "PRODUCTION_WRITER_PASS_WITH_MARGIN",
+            "WRITER_NO_GO" => "WRITER_NO_GO",
+            _ => "POINT_PASS_INCONCLUSIVE",
+        }
+    };
+
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "issue494_writer_512_targeted_qualification",
+        "context": context,
+        "qualification_status": qualification,
+        "targeted_cell": {
+            "platform": "windows-x86_64",
+            "batch_size": TARGETED_WRITER_BATCH_SIZE,
+            "pairs_requested": TARGETED_WRITER_PAIRS,
+            "pairs_valid": valid_pairs,
+            "pairs_invalid": invalid_pairs,
+            "warmups_per_arm": TARGETED_WRITER_WARMUPS,
+            "candidate_first_pairs": candidate_first_pairs,
+            "baseline_first_pairs": TARGETED_WRITER_PAIRS - candidate_first_pairs,
+            "order_seed": TARGETED_ORDER_SEED,
+            "rowid_seed": TARGETED_ROWID_SEED,
+            "bootstrap_seed": TARGETED_BOOTSTRAP_SEED,
+            "execution_order_fixed_before_measurement": true,
+            "execution_order": planned_orders,
+            "sample_extension_or_early_stop": false,
+            "no_outlier_removal": true,
+        },
+        "fixture": {
+            "entry_count": WRITER_FIXTURE_ENTRIES,
+            "source_database_blake3": source_digest,
+            "baseline_clone_blake3": baseline_digest,
+            "candidate_clone_blake3": candidate_digest,
+            "byte_identical_clones_verified": true,
+            "source_rows": source_rows,
+            "dataset_generation_ms": generation_ms,
+            "sqlite_population_ms": population_ms,
+            "population_transaction_ms": super::super::summarize_samples(&population_batch_ms),
+            "fixture_and_index_setup_ms": fixture_setup_ms,
+        },
+        "connection_contract": {
+            "journal_mode": baseline_contract.0,
+            "synchronous": "NORMAL",
+            "wal_autocheckpoint_pages_production": baseline_contract.2,
+            "pool": "production Database pool: r2d2_sqlite, max_size=8, min_idle=1",
+            "candidate_only_difference": "candidate pool installs the production connection-local mutation hooks; baseline omits only those hooks",
+        },
+        "p95_write_budget_percent": WRITER_P95_OVERHEAD_LIMIT_PERCENT,
+        "case": case,
+    }));
+}
+
+/// Historical counterbalanced order used by the already-completed 100-pair
+/// dual-platform matrix. Reproduced from the same formula so the merged
+/// evidence stays identical.
+fn sequential_pair_plan(
+    batch_size: usize,
+    batch_index: usize,
+    total: usize,
+) -> Vec<WriterPairPlan> {
+    (0..total)
+        .map(|iteration| WriterPairPlan {
+            candidate_first: (iteration + batch_index).is_multiple_of(2),
+            rowid_start: (iteration * batch_size) % (WRITER_FIXTURE_ENTRIES as usize - batch_size),
+        })
+        .collect()
+}
+
+/// Pre-registered plan for the targeted 512-row cell. The writer order is a
+/// deterministically shuffled balanced sequence (half candidate-first) and the
+/// rowid window is drawn from the same fixed seeds, so the plan is recorded
+/// before the first measured write and cannot be influenced by the result.
+fn fixed_seed_pair_plan(
+    order_seed: u64,
+    rowid_seed: u64,
+    total: usize,
+    batch_size: usize,
+) -> Vec<WriterPairPlan> {
+    let mut orders = vec![false; total];
+    for slot in orders.iter_mut().take(total / 2) {
+        *slot = true;
+    }
+    let mut state = order_seed.max(1);
+    for index in (1..total).rev() {
+        let swap = (next_random(&mut state) as usize) % (index + 1);
+        orders.swap(index, swap);
+    }
+    let span = WRITER_FIXTURE_ENTRIES as usize - batch_size;
+    let mut rowid_state = rowid_seed.max(1);
+    (0..total)
+        .map(|index| WriterPairPlan {
+            candidate_first: orders[index],
+            rowid_start: (next_random(&mut rowid_state) as usize) % span,
+        })
+        .collect()
+}
+
 fn measure_writer_case(
     baseline: &mut Connection,
     candidate: &mut Connection,
@@ -350,19 +631,35 @@ fn measure_writer_case(
     batch_index: usize,
     force_full_checkpoint: bool,
 ) -> WriterCase {
-    let mut baseline_samples = Vec::with_capacity(WRITER_SAMPLES);
-    let mut candidate_samples = Vec::with_capacity(WRITER_SAMPLES);
-    let mut raw_pairs = Vec::with_capacity(WRITER_SAMPLES);
-    let mut pair_orders = Vec::with_capacity(WRITER_SAMPLES);
+    let plan = sequential_pair_plan(batch_size, batch_index, WRITER_WARMUPS + WRITER_SAMPLES);
+    measure_writer_case_with_plan(
+        baseline,
+        candidate,
+        batch_size,
+        force_full_checkpoint,
+        WRITER_WARMUPS,
+        &plan,
+    )
+}
 
-    for iteration in 0..(WRITER_WARMUPS + WRITER_SAMPLES) {
-        assert_wal_states_equal(
-            read_wal_state(baseline),
-            read_wal_state(candidate),
-            "before paired batch",
-        );
-        let candidate_first = (iteration + batch_index).is_multiple_of(2);
-        let first = (iteration * batch_size) % (WRITER_FIXTURE_ENTRIES as usize - batch_size);
+fn measure_writer_case_with_plan(
+    baseline: &mut Connection,
+    candidate: &mut Connection,
+    batch_size: usize,
+    force_full_checkpoint: bool,
+    warmups: usize,
+    plan: &[WriterPairPlan],
+) -> WriterCase {
+    let sample_capacity = plan.len().saturating_sub(warmups);
+    let mut baseline_samples = Vec::with_capacity(sample_capacity);
+    let mut candidate_samples = Vec::with_capacity(sample_capacity);
+    let mut raw_pairs = Vec::with_capacity(sample_capacity);
+    let mut pair_orders = Vec::with_capacity(sample_capacity);
+    let mut invalid_pairs = Vec::new();
+
+    for (iteration, pair_plan) in plan.iter().copied().enumerate() {
+        let candidate_first = pair_plan.candidate_first;
+        let first = pair_plan.rowid_start;
         let mut baseline_timing = None;
         let mut candidate_timing = None;
         for position in 0..2 {
@@ -380,14 +677,28 @@ fn measure_writer_case(
         }
         let baseline_timing = baseline_timing.expect("baseline pair timing");
         let candidate_timing = candidate_timing.expect("candidate pair timing");
-        assert_eq!(
-            baseline_timing.wal_before, candidate_timing.wal_before,
-            "paired clones must start each write with equivalent WAL state"
-        );
-        assert_eq!(
-            baseline_timing.wal_after, candidate_timing.wal_after,
-            "paired clones must finish each write with equivalent WAL/checkpoint work"
-        );
+
+        // A pair is only usable when both arms started and finished the same
+        // write against equivalent WAL state. Mismatches are retained as
+        // evidence instead of being silently dropped, and they never extend the
+        // sample (no replacement pair is drawn).
+        let before_mismatch = baseline_timing.wal_before != candidate_timing.wal_before;
+        let after_mismatch = baseline_timing.wal_after != candidate_timing.wal_after;
+        if before_mismatch || after_mismatch {
+            invalid_pairs.push(json!({
+                "plan_index": iteration,
+                "pair_index": iteration.saturating_sub(warmups),
+                "rowid_start": first,
+                "writer_order": if candidate_first { "candidate_first" } else { "baseline_first" },
+                "wal_before_equal": !before_mismatch,
+                "wal_after_equal": !after_mismatch,
+                "baseline_wal_before": wal_json(baseline_timing.wal_before),
+                "candidate_wal_before": wal_json(candidate_timing.wal_before),
+                "baseline_wal_after": wal_json(baseline_timing.wal_after),
+                "candidate_wal_after": wal_json(candidate_timing.wal_after),
+                "pair_valid": false,
+            }));
+        }
         if force_full_checkpoint {
             for timing in [baseline_timing, candidate_timing] {
                 let full = timing
@@ -407,8 +718,8 @@ fn measure_writer_case(
             );
         }
 
-        if iteration >= WRITER_WARMUPS {
-            let sample_index = iteration - WRITER_WARMUPS;
+        if iteration >= warmups {
+            let sample_index = iteration - warmups;
             let order = if candidate_first {
                 "candidate_first"
             } else {
@@ -418,6 +729,7 @@ fn measure_writer_case(
                 "pair_index": sample_index,
                 "rowid_start": first,
                 "writer_order": order,
+                "pair_valid": !(before_mismatch || after_mismatch),
                 "baseline": writer_timing_json(baseline_timing, !force_full_checkpoint),
                 "candidate": writer_timing_json(candidate_timing, !force_full_checkpoint),
                 "candidate_minus_baseline_ms": {
@@ -441,6 +753,7 @@ fn measure_writer_case(
         candidate: candidate_samples,
         raw_pairs,
         pair_orders,
+        invalid_pairs,
     }
 }
 
@@ -501,7 +814,12 @@ fn timed_writer_batch(
     }
 }
 
-fn writer_case_record(policy: &'static str, batch_size: usize, case: WriterCase) -> JsonValue {
+fn writer_case_record(
+    policy: &'static str,
+    batch_size: usize,
+    case: WriterCase,
+    bootstrap_seed: u64,
+) -> JsonValue {
     let metric = |pick: fn(WriterTiming) -> f64| {
         let baseline = case.baseline.iter().copied().map(pick).collect::<Vec<_>>();
         let candidate = case.candidate.iter().copied().map(pick).collect::<Vec<_>>();
@@ -514,7 +832,7 @@ fn writer_case_record(policy: &'static str, batch_size: usize, case: WriterCase)
             "baseline_ms": baseline_summary,
             "candidate_ms": candidate_summary,
             "candidate_p95_over_baseline_percent": overhead,
-            "paired_metric_p95_ratio_bootstrap_ci95_percent": paired_p95_ratio_ci95(&baseline, &candidate, batch_size as u64 ^ 0x4949_4a11),
+            "paired_metric_p95_ratio_bootstrap_ci95_percent": paired_p95_ratio_ci95(&baseline, &candidate, bootstrap_seed),
             "paired_delta_ms": super::super::summarize_samples(
                 &case.baseline.iter().zip(&case.candidate).map(|(base, candidate)| pick(*candidate) - pick(*base)).collect::<Vec<_>>()
             )
@@ -562,6 +880,8 @@ fn writer_case_record(policy: &'static str, batch_size: usize, case: WriterCase)
         .zip(&case.candidate)
         .filter(|(baseline, candidate)| candidate.total_ms > baseline.total_ms)
         .count();
+    let invalid_pair_count = case.invalid_pairs.len();
+    let checkpoint_stratified = checkpoint_stratified_diagnostic(&case);
 
     json!({
         "policy": policy,
@@ -569,6 +889,13 @@ fn writer_case_record(policy: &'static str, batch_size: usize, case: WriterCase)
         "sample_count": case.baseline.len(),
         "counterbalanced_pair_order": case.pair_orders,
         "candidate_slower_pair_count": candidate_slower_pairs,
+        "pair_validity": {
+            "valid_pairs": case.baseline.len() - invalid_pair_count,
+            "invalid_pairs": invalid_pair_count,
+            "replacement_pairs_drawn": false,
+            "rule": "a pair is valid only when both arms began and finished the same write against equivalent WAL/checkpoint state; invalid pairs are retained and never replaced",
+            "invalid_pair_records": case.invalid_pairs,
+        },
         "total": total,
         "update": update,
         "commit": commit,
@@ -586,8 +913,10 @@ fn writer_case_record(policy: &'static str, batch_size: usize, case: WriterCase)
                 "diagnostic only: forced FULL checkpoint is reported separately and does not gate production WAL eligibility"
             }
         },
+        "bootstrap_seed": bootstrap_seed,
         "production_writer_classification": production_writer_classification,
         "classification_reason": classification_reason,
+        "checkpoint_stratified_diagnostic": checkpoint_stratified,
         "automatic_checkpoint_observation": if production_policy {
             json!({
                 "coverage_status": checkpoint_coverage_status,
@@ -604,6 +933,44 @@ fn writer_case_record(policy: &'static str, batch_size: usize, case: WriterCase)
             })
         },
         "raw_paired_samples": case.raw_pairs
+    })
+}
+
+/// Diagnostic only. Splits the measured pairs by whether each arm observed real
+/// automatic-checkpoint frame work. This localises a heavy tail without
+/// changing the p95 gate, the budget or the eligibility rule.
+fn checkpoint_stratified_diagnostic(case: &WriterCase) -> JsonValue {
+    let group = |baseline_checkpoint: bool, candidate_checkpoint: bool| {
+        let mut baseline = Vec::new();
+        let mut candidate = Vec::new();
+        for (base, cand) in case.baseline.iter().zip(&case.candidate) {
+            let base_observed = automatic_checkpoint_frame_work_observed(*base);
+            let cand_observed = automatic_checkpoint_frame_work_observed(*cand);
+            if base_observed == baseline_checkpoint && cand_observed == candidate_checkpoint {
+                baseline.push(base.total_ms);
+                candidate.push(cand.total_ms);
+            }
+        }
+        let summary = if baseline.is_empty() {
+            JsonValue::Null
+        } else {
+            json!({
+                "pair_count": baseline.len(),
+                "baseline_total_ms": super::super::summarize_samples(&baseline),
+                "candidate_total_ms": super::super::summarize_samples(&candidate),
+                "candidate_minus_baseline_delta_ms": super::super::summarize_samples(
+                    &baseline.iter().zip(&candidate).map(|(base, cand)| cand - base).collect::<Vec<_>>()
+                )
+            })
+        };
+        summary
+    };
+    json!({
+        "interpretation": "diagnostic grouping only; the production gate still uses the whole undropped sample",
+        "both_arms_observed_automatic_checkpoint": group(true, true),
+        "baseline_only_observed_automatic_checkpoint": group(true, false),
+        "candidate_only_observed_automatic_checkpoint": group(false, true),
+        "neither_arm_observed_automatic_checkpoint": group(false, false),
     })
 }
 

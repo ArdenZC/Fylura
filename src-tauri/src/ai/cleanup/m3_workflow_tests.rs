@@ -69,7 +69,52 @@ fn m3_independent_ai_batches_keep_both_unchanged_findings_current() {
     assert!(has_current_ai_assessment(fixture.db(), &candidates[1].id));
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+// The older AI fixture helper deliberately returns only installer files.
+// Product workflow fixtures need directory and Review Findings as well.
+fn m3_all_cleanup_candidates(db: &Database, run_id: &str) -> Vec<StorageCandidate> {
+    let mut candidates = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = db
+            .list_analysis_findings(
+                &crate::db::AnalysisFindingFilter {
+                    run_id: Some(run_id.to_string()),
+                    detector_id: Some(crate::analysis::CLEANUP_HEURISTICS_DETECTOR.to_string()),
+                    status: Some("active".to_string()),
+                    ..Default::default()
+                },
+                cursor.as_deref(),
+                200,
+            )
+            .unwrap();
+        candidates.extend(
+            page.findings
+                .iter()
+                .map(|finding| storage_candidate_from_analysis_finding(finding).unwrap()),
+        );
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    candidates
+}
+
+#[test]
+fn m3_workflow_fixture_includes_real_dependency_directory_findings() {
+    let fixture = new_cleanup_ai_fixture();
+    let cache = m3_project_cache(&fixture);
+    let run = complete_cleanup_analysis_run(fixture.db(), &fixture.source_root);
+    let candidates = m3_all_cleanup_candidates(fixture.db(), &run.id);
+    assert!(
+        candidates.iter().any(
+            |c| crate::path_identity::normalize_for_compare(Path::new(&c.path))
+                == crate::path_identity::normalize_for_compare(&cache)
+        ),
+        "directory Finding must not be lost by installer-only fixture filtering"
+    );
+}
+
 fn m3_project_cache(fixture: &CleanupAiFixture) -> PathBuf {
     let project = fixture.source_root.join("project");
     fs::create_dir_all(project.join("node_modules/package")).unwrap();
@@ -110,7 +155,7 @@ fn m3_real_folder_scan_ai_group_review_safe_trash_history_and_restore() {
         );
     }
     drop(connection);
-    let candidates = active_cleanup_candidates(fixture.db(), &run.id);
+    let candidates = m3_all_cleanup_candidates(fixture.db(), &run.id);
     let safe = candidates
         .iter()
         .find(|c| {
@@ -214,7 +259,7 @@ fn m3_safe_candidates_need_no_ai_key_and_stale_sources_are_refused() {
     let fixture = new_cleanup_ai_fixture();
     let cache = m3_project_cache(&fixture);
     let run = complete_cleanup_analysis_run(fixture.db(), &fixture.source_root);
-    let candidate = active_cleanup_candidates(fixture.db(), &run.id)
+    let candidate = m3_all_cleanup_candidates(fixture.db(), &run.id)
         .into_iter()
         .find(|c| {
             crate::path_identity::normalize_for_compare(Path::new(&c.path))

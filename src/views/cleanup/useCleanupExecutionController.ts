@@ -7,7 +7,7 @@ import type {
   OperationPreviewResult
 } from "../../types/domain";
 import type { Translator } from "../../types/ui";
-import { cleanupSelectionFingerprint, isCleanupPreviewScopeExecutable } from "./cleanupModel";
+import { cleanupSelectionFingerprint, executableCleanupSubset } from "./cleanupModel";
 import type { CleanupApi, CleanupMutationOwner } from "./cleanupControllerTypes";
 
 type Props = {
@@ -123,7 +123,8 @@ export function useCleanupExecutionController({
       }
     })();
     if (!selections) return;
-    if (!isCleanupPreviewScopeExecutable(preview, selections.map((selection) => selection.findingId))) return;
+    const executable = executableCleanupSubset(preview, selections);
+    if (!executable.length) return;
     const selectionFingerprint = cleanupSelectionFingerprint(runId, selections);
     if (previewSelectionFingerprint.current !== selectionFingerprint) {
       invalidatePreviewState();
@@ -139,7 +140,7 @@ export function useCleanupExecutionController({
       && runRef.current?.id === runId
       && mutationOwnerRef.current?.id === mutationOwner.id;
     try {
-      const result = await api.moveCleanupCandidatesToSafeTrash(runId, selections);
+      const result = await api.moveCleanupCandidatesToSafeTrash(runId, executable);
       if (!ownsRequest()) return;
       setExecutionResult(result);
       resetSelection();
@@ -148,7 +149,12 @@ export function useCleanupExecutionController({
       setConfirmPreviewOpen(false);
       await loadRunDetails(runId, true, expectedScopeEpoch);
     } catch (executionError) {
-      if (ownsRequest()) reportError(executionError);
+      if (ownsRequest()) {
+        invalidatePreviewState();
+        resetSelection();
+        await loadRunDetails(runId, true, expectedScopeEpoch);
+        reportError(executionError);
+      }
     } finally {
       releaseMutation(mutationOwner);
     }

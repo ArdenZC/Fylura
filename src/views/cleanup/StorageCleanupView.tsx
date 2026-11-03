@@ -1,3 +1,6 @@
+import { CleanupGroups } from "./CleanupGroups";
+import { collectCleanupGroup } from "./collectCleanupGroup";
+import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { desktopDir, documentDir, downloadDir, tempDir } from "@tauri-apps/api/path";
@@ -9,6 +12,7 @@ import type {
   AnalysisDetector,
   AnalysisDetectorDescriptor,
   AnalysisFinding,
+  AnalysisFindingGroup,
   AnalysisFindingEvidence,
   AnalysisFindingPage,
   AnalysisRun,
@@ -30,7 +34,6 @@ import {
   DurableTaskStatus,
   MetricStrip,
   NoticeBanner,
-  SegmentedControl,
   SideSheet,
   StateBlock,
   contentPanel,
@@ -49,8 +52,9 @@ import {
   durableRunState,
   isAnalysisFinding,
   isCleanupPreviewExecutable,
-  isCleanupPreviewScopeExecutable,
+  executableCleanupSubset,
   isFindingSelectable,
+  canRequestCleanupReview,
   isRunInProgress,
   cleanupSelectionFingerprint,
   normalizeScopePaths,
@@ -79,7 +83,7 @@ type Props = {
 function browserPresentationCleanupPath(kind: "downloads" | "desktop" | "documents" | "temp"): string | null {
   if (!isBrowserMockEnabled()) return null;
   const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
-  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview", "visibility", "visibility-many"].includes(fixture)) return null;
+  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview", "visibility", "visibility-many", "workflow"].includes(fixture)) return null;
   // Explicit PM-01 browser fixtures use synthetic paths; native scope selection remains OS-owned.
   return {
     downloads: "C:/Users/Zen/Downloads",
@@ -124,6 +128,10 @@ function StorageCleanupPanel({
   const [, setRuns] = useState<AnalysisRun[]>([]);
   const [run, setRun] = useState<AnalysisRun | null>(null);
   const [runDetectors, setRunDetectors] = useState<AnalysisDetector[]>([]);
+  const [groups, setGroups] = useState<AnalysisFindingGroup[]>([]);
+  const [groupRead, setGroupRead] = useState<number | null>(null);
+  const groupAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => groupAbort.current?.abort(), []);
   const [findings, setFindings] = useState<AnalysisFinding[]>([]);
   const [findingCache, setFindingCache] = useState<Record<string, AnalysisFinding>>({});
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -131,7 +139,9 @@ function StorageCleanupPanel({
   const [evidenceByFinding, setEvidenceByFinding] = useState<Record<string, AnalysisFindingEvidence[]>>({});
   const [expandedEvidence, setExpandedEvidence] = useState<Set<string>>(() => new Set());
   const [reviewFinding, setReviewFinding] = useState<AnalysisFinding | null>(null);
+  const [previewVisibleCount, setPreviewVisibleCount] = useState(24);
   const [preview, setPreview] = useState<OperationPreviewResult | null>(null);
+  useEffect(() => setPreviewVisibleCount(24), [preview]);
   const [confirmPreviewOpen, setConfirmPreviewOpen] = useState(false);
   const [executionResult, setExecutionResult] = useState<CleanupExecutionResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -305,6 +315,7 @@ function StorageCleanupPanel({
     setRunDetectors([]);
     setFindings([]);
     setFindingCache({});
+    setGroups([]);
     setNextCursor(null);
     resetSelection();
     setEvidenceByFinding({});
@@ -356,7 +367,8 @@ function StorageCleanupPanel({
     setRun,
     setRunDetectors,
     setFindings,
-    setFindingCache,
+    setGroups,
+    reconcileUpdatedFindings,
     setNextCursor,
     setSelectedRoots,
     setLoading,
@@ -441,6 +453,7 @@ function StorageCleanupPanel({
     setConfirmPreviewOpen(false);
     resetSelection();
     setFindingCache({});
+    setGroups([]);
     defaultSelectionRuns.current.clear();
     scanIntentInFlight.current = true;
     const requestedScopeEpoch = scopeEpoch.current;
@@ -580,7 +593,7 @@ function StorageCleanupPanel({
     try {
       const current = await api.getAnalysisFinding(findingId);
       if (!ownsRequest()) return;
-      if (!current || current.tier !== "review" || current.status !== "active") throw new Error("cleanup_finding_changed");
+      if (!current || !canRequestCleanupReview(current)) throw new Error("cleanup_finding_changed");
       const decision = await api.setAnalysisFindingDecision({
         findingKey: current.findingKey,
         decision: "acknowledged",
@@ -638,7 +651,7 @@ function StorageCleanupPanel({
     if (interactionLockedRef.current) return;
     if (finding.tier === "caution" || finding.status !== "active") return;
     if (!isFindingSelectable(finding)) {
-      if (finding.tier === "review" && finding.decision !== "acknowledged") setReviewFinding(finding);
+      if (canRequestCleanupReview(finding) && finding.decision !== "acknowledged") setReviewFinding(finding);
       return;
     }
     commitSelection((current) => {
@@ -648,6 +661,46 @@ function StorageCleanupPanel({
       return next;
     });
   }, [commitSelection]);
+
+  const selectSafeGroup = async () => {
+    if (!run || interactionLockedRef.current || groupAbort.current) return;
+    const owner = beginMutation("select", run.id);
+    if (!owner) return;
+    const abort = new AbortController(); groupAbort.current = abort;
+    const expectedScope = scopeEpoch.current;
+    setGroupRead(0); invalidatePreviewState();
+    try {
+      const all = await collectCleanupGroup(api, run, "safe", abort.signal, setGroupRead);
+      if (scopeEpoch.current !== expectedScope || runRef.current?.id !== run.id) return;
+      if (runRef.current.revision !== run.revision) throw new Error("cleanup_group_changed");
+      setFindingCache((cache) => ({ ...cache, ...Object.fromEntries(all.map((finding) => [finding.id, finding])) }));
+      commitSelection((selected) => {
+        const next = new Set([...selected].filter((id) => findingCache[id]?.tier !== "safe"));
+        for (const finding of all) if (isFindingSelectable(finding)) next.add(finding.id);
+        return next;
+      });
+    } catch (failure) {
+      if (!abort.signal.aborted) { resetSelection(); reportError(t("cleanupGroupChanged")); }
+    } finally { groupAbort.current = null; setGroupRead(null); releaseMutation(owner); }
+  };
+
+  const keepFinding = async (finding: AnalysisFinding) => {
+    if (!api.getAnalysisFinding || !api.setAnalysisFindingDecision || interactionLockedRef.current) return;
+    const owner = beginMutation("acknowledge");
+    if (!owner) return;
+    try {
+      const current = await api.getAnalysisFinding(finding.id);
+      if (!current || current.runId !== runRef.current?.id || current.revision !== finding.revision) throw new Error("cleanup_finding_changed");
+      await api.setAnalysisFindingDecision({ findingKey: current.findingKey, decision: current.decision === "dismissed" ? "open" : "dismissed", expectedRevision: current.decisionRevision ?? 0 });
+      const updated = await api.getAnalysisFinding(finding.id);
+      if (!updated || updated.runId !== runRef.current?.id) throw new Error("cleanup_finding_changed");
+      removeSelectionsForIds([finding.id]);
+      setFindingCache((cache) => ({ ...cache, [updated.id]: updated }));
+      setFindings((items) => items.map((item) => item.id === updated.id ? updated : item));
+      await loadRunDetails(updated.runId, false);
+    } catch (failure) { reportError(failure); }
+    finally { releaseMutation(owner); }
+  };
 
   const invalidateReadbackFailures = useCallback((findingIds: readonly string[]) => {
     if (!findingIds.length) return;
@@ -969,9 +1022,10 @@ function StorageCleanupPanel({
   const canReviewFindings = Boolean(run && !isRunInProgress(run) && run.findingsPublished > 0);
   const previewExecutableCount = preview?.previews.filter(isCleanupPreviewExecutable).length ?? 0;
   const previewBlockedCount = preview ? preview.previews.length - previewExecutableCount : 0;
-  const previewScopeExecutable = preview
-    ? isCleanupPreviewScopeExecutable(preview, selectedFindings.map((finding) => finding.id))
-    : false;
+  const executableSelections = preview ? executableCleanupSubset(preview, selectedFindings.map((finding) => ({ findingId: finding.id, expectedRevision: finding.revision, ...(finding.tier === "review" && finding.decisionRevision != null ? { reviewConfirmation: { decisionRevision: finding.decisionRevision } } : {}) }))) : [];
+  const previewScopeExecutable = executableSelections.length > 0;
+  const finalSelected = new Set(executableSelections.map((selection) => selection.findingId));
+  const finalBytes = selectedFindings.filter((finding) => finalSelected.has(finding.id)).reduce((sum, finding) => sum + (finding.exactReclaimableBytes || finding.potentialReclaimableBytes || finding.sizeBytes), 0);
   const cleanupWorkflowCurrent = executionResult ? 3 : preview ? 2 : run && canReviewFindings ? 1 : 0;
   const cleanupScanWorkflowState: WorkflowStepState = !run || runState === "running"
     ? "current"
@@ -1007,6 +1061,7 @@ function StorageCleanupPanel({
       onReveal={revealFinding}
       onToggleEvidence={toggleEvidence}
       onRevalidate={revalidateFinding}
+      onKeep={(finding) => void keepFinding(finding)}
       interactionLocked={isMutating || isAiWorking}
       tierLabel={tierLabel}
     />
@@ -1120,6 +1175,7 @@ function StorageCleanupPanel({
                 <h2 className={sectionHeading}>{t("storageCleanupFindingsTitle")}</h2>
                 <p className={sectionDescription}>{t("storageCleanupFindingsDescription")}</p>
               </div>
+              {activeTier === "safe" ? <Button variant="secondary" size="compact" disabled={isMutating || isAiWorking || !(groups.find((group) => group.tier === "safe")?.selectableCount ?? run.safeCount)} onClick={() => void selectSafeGroup()}>{t("cleanupSelectSafeGroup").replace("{count}", String(groups.find((group) => group.tier === "safe")?.selectableCount ?? run.safeCount))}</Button> : null}
               {activeTier === "review" && api.analyzeCleanupCandidatesWithAI ? (
                 <Button variant="secondary" size="compact" disabled={isCheckingAIReadiness || aiWorkState === "canceling" || isMutating || (aiWorkState === "idle" && (!run.reviewCount || aiReadiness?.cleanup.state !== "ready"))} onClick={() => {
                   if (aiWorkState === "running") cancelAiRecheck();
@@ -1130,18 +1186,9 @@ function StorageCleanupPanel({
                 </Button>
               ) : null}
             </div>
+            {groupRead !== null ? <div className="flex items-center justify-between gap-2 text-sm" role="status">{t("cleanupGroupReading").replace("{count}", String(groupRead))}<Button variant="secondary" size="compact" onClick={() => groupAbort.current?.abort()}>{t("cancel")}</Button></div> : null}
             {aiStatus ? <NoticeBanner tone="info" title={t("storageCleanupAIRecheck")}>{aiStatus}</NoticeBanner> : null}
-            <SegmentedControl
-              value={activeTier}
-              ariaLabel={t("storageCleanupFindingTabsLabel")}
-              disabled={isMutating || isAiWorking}
-              onChange={changeActiveTier}
-              options={[
-                { value: "safe", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupSafeTier"), count: run.safeCount }) },
-                { value: "review", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupReviewTier"), count: run.reviewCount }) },
-                { value: "caution", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupCautionTier"), count: run.cautionCount }) }
-              ]}
-            />
+            <CleanupGroups run={run} groups={groups} active={activeTier} disabled={isMutating || isAiWorking} onChange={changeActiveTier} t={t} />
             <section className="min-w-0 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]" data-cleanup-findings data-cleanup-findings-virtualized={virtualizeFindings}>
               {loadingFindings && !findings.length ? <DurableTaskStatus state="running" title={t("storageCleanupFindingsLoading")} description={t("storageCleanupFindingsLoadingDesc")} density="compact" /> : null}
               {!loadingFindings && !findings.length ? <StateBlock tone={activeTier === "caution" ? "info" : "neutral"} title={t("storageCleanupNoFindingsTitle")} description={t("storageCleanupNoFindingsDesc")} density="compact" /> : null}
@@ -1225,8 +1272,10 @@ function StorageCleanupPanel({
         ) : null}
 
         {executionResult ? (
-          <NoticeBanner tone={executionResult.failed > 0 ? "warning" : "success"} title={executionResult.failed > 0 ? (executionResult.moved > 0 ? t("storageCleanupExecutionPartial") : t("storageCleanupExecutionFailed")) : t("storageCleanupExecutionDone")} action={<Button variant="secondary" size="compact" onClick={() => onNavigate?.("restore")}><History size={14} aria-hidden="true" />{t("storageCleanupExecutionHistory")}</Button>}>
+          <NoticeBanner tone={executionResult.failed > 0 || executionResult.skipped > 0 || executionResult.moved === 0 ? "warning" : "success"} title={executionResult.moved === 0 ? t("cleanupNothingMoved") : executionResult.failed > 0 || executionResult.skipped > 0 ? t("storageCleanupExecutionPartial") : t("storageCleanupExecutionDone")} action={executionResult.batchId ? <Button variant="secondary" size="compact" onClick={() => { useOperationQueueStore.setState({ requestedCleanupBatchId: executionResult.batchId ?? null }); onNavigate?.("restore"); }}><History size={14} aria-hidden="true" />{t("storageCleanupExecutionHistory")}</Button> : undefined}>
             {replaceCopy("storageCleanupExecutionSummary", { moved: executionResult.moved, skipped: executionResult.skipped, failed: executionResult.failed })}
+            <p>{t("cleanupRecoveryRecorded").replace("{count}", String(executionResult.logs.filter((log) => log.status === "success" && log.itemId).length))}</p>
+            {executionResult.logs.some((log) => log.status !== "success") ? <ul className="mt-2 space-y-1">{executionResult.logs.filter((log) => log.status !== "success").map((log, index) => <li key={log.candidateId ?? `${log.path}-${index}`}><strong>{log.name}</strong> · {log.status === "skipped" ? t("skipped") : log.status === "failed" ? t("failed") : t("storageCleanupReviewTier")} · {localizedStableError(log.message, t)}</li>)}</ul> : null}
           </NoticeBanner>
         ) : null}
         <details className="border-t border-[var(--zc-divider)] pt-3" data-cleanup-workflow-details>
@@ -1268,13 +1317,14 @@ function StorageCleanupPanel({
         description={t("storageCleanupPreviewReadyDesc")}
         closeLabel={t("close")}
         onClose={() => invalidatePreviewState()}
-        footer={preview ? <div className="flex flex-wrap justify-end gap-2"><Button variant="primary" disabled={isMutating || isAiWorking || Boolean(mutationUnavailable) || !previewScopeExecutable} onClick={() => setConfirmPreviewOpen(true)}>{t("storageCleanupPreviewConfirm")}</Button></div> : undefined}
+        footer={preview ? <div className="flex flex-wrap justify-end gap-2"><Button variant="primary" disabled={isMutating || isAiWorking || Boolean(mutationUnavailable) || !previewScopeExecutable} onClick={() => setConfirmPreviewOpen(true)}>{t("storageCleanupPreviewConfirm")} · {executableSelections.length}</Button></div> : undefined}
       >
         {preview ? (
           <div className="grid gap-4">
             <MetricStrip ariaLabel={t("storageCleanupPreviewMetricsLabel")} density="compact" items={[{ label: t("storageCleanupPreviewItems"), value: preview.total.toLocaleString() }, { label: t("storageCleanupPreviewExecutable"), value: previewExecutableCount.toLocaleString(), tone: "green" }, { label: t("storageCleanupPreviewBlocked"), value: previewBlockedCount.toLocaleString(), tone: "amber" }]} />
-            {preview.previews.slice(0, 24).map((item) => <div key={item.id} className="grid gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3"><strong className="truncate text-sm text-[var(--zc-text-primary)]">{item.old_name}</strong><span className={quietText}>{compactPath(item.source_path, 90)}</span><span className={metadataText}>{isCleanupPreviewExecutable(item) ? t("storageCleanupPreviewExecutable") : t("storageCleanupPreviewBlocked")}</span></div>)}
-            {preview.truncated || preview.hasMore ? <NoticeBanner tone="info">{replaceCopy("storageCleanupPreviewTruncated", { shown: Math.min(preview.previews.length, 24), total: preview.total })}</NoticeBanner> : null}
+            {[...preview.previews.filter((item) => !isCleanupPreviewExecutable(item)), ...preview.previews.filter(isCleanupPreviewExecutable)].slice(0, previewVisibleCount).map((item) => <div key={item.id} className="grid gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3"><strong className="truncate text-sm text-[var(--zc-text-primary)]">{item.old_name}</strong><span className={quietText}>{compactPath(item.source_path, 90)}</span><span className={metadataText}>{isCleanupPreviewExecutable(item) ? t("storageCleanupPreviewExecutable") : `${t("storageCleanupPreviewBlocked")}: ${localizedStableError(item.blocking_reason ?? "cleanup_finding_not_executable", t)}`}</span></div>)}
+            {preview.previews.length > previewVisibleCount ? <Button variant="secondary" onClick={() => setPreviewVisibleCount((count) => count + 24)}>{t("storageCleanupLoadMore")}</Button> : null}
+            {preview.previews.length > previewVisibleCount || preview.truncated || preview.hasMore ? <NoticeBanner tone="info">{replaceCopy("storageCleanupPreviewTruncated", { shown: Math.min(preview.previews.length, previewVisibleCount), total: preview.total })}</NoticeBanner> : null}
           </div>
         ) : null}
       </SideSheet>
@@ -1296,7 +1346,7 @@ function StorageCleanupPanel({
         open={confirmPreviewOpen && Boolean(preview)}
         tone="warning"
         title={t("storageCleanupConfirmSafeTrashTitle")}
-        description={replaceCopy("storageCleanupConfirmSafeTrashDesc", { count: selectedFindingIds.size, size: formatBytes(selectedBytes) })}
+        description={replaceCopy("storageCleanupConfirmSafeTrashDesc", { count: executableSelections.length, size: formatBytes(finalBytes) })}
         emphasis={t("storageCleanupConfirmSafeTrashEmphasis")}
         confirmLabel={t("storageCleanupMoveToSafeTrash")}
         cancelLabel={t("cancel")}

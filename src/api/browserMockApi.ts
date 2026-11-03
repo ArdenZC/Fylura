@@ -953,11 +953,24 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "list_analysis_run_detectors":
       return [] as T;
     case "list_analysis_findings": {
-      const findings = mockAnalysisFindings.filter((finding) => !args?.runId || finding.runId === String(args.runId));
-      return { findings, nextCursor: null, limit: Number(args?.limit ?? 100) } satisfies AnalysisFindingPage as T;
+      const runId = String(args?.runId ?? "");
+      const all = mockAnalysisFindings.filter((finding) => (!runId || finding.runId === runId) && finding.status === "active");
+      const run = mockAnalysisRuns.find((item) => item.id === runId);
+      const filtered = all.filter((finding) => !args?.tier || finding.tier === String(args.tier));
+      const offset = Number(args?.cursor ?? 0);
+      const limit = Number(args?.limit ?? 100);
+      const findings = filtered.slice(offset, offset + limit);
+      const groups = (["safe", "review", "caution"] as const).map((tier) => {
+        const members = all.filter((finding) => finding.tier === tier);
+        const categories = new Map<string, number>();
+        for (const finding of members) categories.set(finding.category, (categories.get(finding.category) ?? 0) + 1);
+        return { tier, count: members.length, excludedCount: members.filter((f) => f.decision === "dismissed").length, selectableCount: members.filter((f) => f.executable && f.decision !== "dismissed" && (tier === "safe" || (tier === "review" && f.decision === "acknowledged"))).length,
+          exactReclaimableBytes: members.reduce((sum, f) => sum + (f.exactReclaimableBytes ?? 0), 0), potentialReclaimableBytes: members.reduce((sum, f) => sum + f.potentialReclaimableBytes, 0), categories: [...categories].map(([category, count]) => ({ category, count })) };
+      });
+      return { findings: structuredClone(findings), nextCursor: offset + findings.length < filtered.length ? String(offset + findings.length) : null, limit, runRevision: run?.revision, groups: args?.cursor ? null : groups } satisfies AnalysisFindingPage as T;
     }
     case "get_analysis_finding":
-      return (mockAnalysisFindings.find((finding) => finding.id === String(args?.findingId ?? "")) ?? null) as T;
+      return structuredClone(mockAnalysisFindings.find((finding) => finding.id === String(args?.findingId ?? "")) ?? null) as T;
     case "list_analysis_finding_evidence":
       return mockAnalysisFindingEvidence(String(args?.findingId ?? "")) as T;
     case "get_dedupe_authority":
@@ -972,7 +985,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         createdAt: Math.floor(Date.now() / 1000),
         updatedAt: Math.floor(Date.now() / 1000)
       };
-      if (mockCleanupPresentationScenario() === "request-unavailable") {
+      {
         mockAnalysisFindings = mockAnalysisFindings.map((finding) => finding.findingKey === decision.findingKey
           ? { ...finding, decision: decision.decision, decisionRevision: decision.revision }
           : finding);
@@ -980,7 +993,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return decision as T;
     }
     case "revalidate_analysis_finding":
-      return (mockAnalysisFindings.find((finding) => finding.id === String(args?.findingId ?? "")) ?? null) as T;
+      return structuredClone(mockAnalysisFindings.find((finding) => finding.id === String(args?.findingId ?? "")) ?? null) as T;
     case "list_duplicate_groups":
       return {
         groups: mockDuplicateGroups,
@@ -1192,6 +1205,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "resolve_operation_recovery":
       return mockResolveOperationRecovery(args) as T;
     case "get_operation_logs":
+      if (mockCleanupPresentationScenario() === "workflow") return [] as T;
       return [...managementHistory, ...mockOperationLogs()].slice(0, Number(args?.limit ?? 500)) as T;
     case "get_operation_previews_for_scope":
       return mockOperationPreviews(args) as T;
@@ -1849,10 +1863,11 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
   const singleFindingVisibilityFixture = scenario === "visibility";
   const manyFindingVisibilityFixture = scenario === "visibility-many";
   const visibilityFixture = singleFindingVisibilityFixture || manyFindingVisibilityFixture;
-  const hasPresentationFindings = visibilityFixture || scenario === "current-assessment" || scenario === "request-unavailable" || scenario === "preview";
+  if (scenario === "workflow") mockWorkflowAssessed.clear();
+  const hasPresentationFindings = visibilityFixture || scenario === "current-assessment" || scenario === "request-unavailable" || scenario === "preview" || scenario === "workflow";
   const safeFindingCount = singleFindingVisibilityFixture ? 1 : manyFindingVisibilityFixture ? 48 : hasPresentationFindings ? 1 : 0;
   const reviewFindingCount = hasPresentationFindings && !visibilityFixture ? 1 : 0;
-  const presentationFindingCount = safeFindingCount + reviewFindingCount;
+  const presentationFindingCount = safeFindingCount + reviewFindingCount + (scenario === "workflow" ? 1 : 0);
   const requestedPaths = request?.scope?.paths?.map((path) => path.trim()).filter(Boolean) ?? [];
   const cleanupCandidates = mockStorageAnalysis().candidates;
   const safeCandidate = cleanupCandidates.find((candidate) => candidate.id === "storage-safe-node-modules");
@@ -1884,7 +1899,7 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
     findingsPublished: presentationFindingCount,
     safeCount: safeFindingCount,
     reviewCount: reviewFindingCount,
-    cautionCount: 0,
+    cautionCount: scenario === "workflow" ? 1 : 0,
     exactReclaimableBytes: hasPresentationFindings ? safeCandidate?.size ?? 1024 : 0,
     potentialReclaimableBytes: hasPresentationFindings
       ? (safeCandidate?.size ?? 1024) * safeFindingCount + (reviewCandidate?.size ?? 1024) * reviewFindingCount
@@ -1912,16 +1927,17 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
           }
           : finding;
       }),
-      ...(reviewFindingCount ? [makeMockCleanupFinding(run, reviewCandidate, reviewFindingId, reviewPath, "review")] : [])
+      ...(reviewFindingCount ? [makeMockCleanupFinding(run, reviewCandidate, reviewFindingId, reviewPath, "review")] : []),
+      ...(scenario === "workflow" ? [{ ...makeMockCleanupFinding(run, undefined, "browser-protected", `${rootPath}/personal-records`, "review"), tier: "caution", title: "personal-records", executable: false, actionKind: "reveal", reason: "Personal records are protected; retain them.", category: "User files" }] : [])
     ]
     : [];
   mockAnalysisRuns = [run, ...mockAnalysisRuns].slice(0, 20);
   return run;
 }
 
-function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "request-unavailable" | "preview" | "visibility" | "visibility-many" {
+function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "request-unavailable" | "preview" | "visibility" | "visibility-many" | "workflow" {
   const value = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
-  return value === "analysis-failure" || value === "current-assessment" || value === "request-unavailable" || value === "preview" || value === "visibility" || value === "visibility-many" ? value : "none";
+  return value === "analysis-failure" || value === "current-assessment" || value === "request-unavailable" || value === "preview" || value === "visibility" || value === "visibility-many" || value === "workflow" ? value : "none";
 }
 
 function makeMockCleanupFinding(
@@ -1969,6 +1985,7 @@ function makeMockCleanupFinding(
 }
 
 function mockAnalysisFindingEvidence(findingId: string): AnalysisFindingEvidence[] {
+  if (mockCleanupPresentationScenario() === "workflow") return mockWorkflowAssessed.has(findingId) ? [{ id: `presentation-${findingId}`, findingId, evidenceKind: "ai_assessment", subjectKind: "analysis_finding", subjectId: findingId, pathSnapshot: null, value: { presentationOnly: true }, createdAt: Date.now(), isCurrentAssessment: true }] : [];
   if (!["current-assessment", "request-unavailable"].includes(mockCleanupPresentationScenario()) || !mockAnalysisFindings.some((finding) => finding.id === findingId && finding.tier === "review")) return [];
   return [{
     id: `browser-presentation-only-assessment:${findingId}`,
@@ -3967,7 +3984,29 @@ function mockCleanupExecutionResult(args?: Record<string, unknown>): CleanupExec
   };
 }
 
+const mockWorkflowCleanupBatches: CleanupTrashBatch[] = [];
+const mockWorkflowAssessed = new Set<string>();
+function mockWorkflowCleanupExecution(args?: Record<string, unknown>): CleanupExecutionResult {
+  const selected = new Set(cleanupSelectionIds(args));
+  const runId = String(args?.jobId ?? "");
+  const run = mockAnalysisRuns.find((item) => item.id === runId);
+  const findings = mockAnalysisFindings.filter((item) => item.runId === runId && selected.has(item.id));
+  const batchId = `browser-workflow-cleanup-${Date.now()}`;
+  const movedAt = new Date().toISOString();
+  const items: CleanupTrashBatch["items"] = findings.map((finding, index) => ({ id: `${batchId}-${index}`, batchId, originalPath: finding.pathSnapshot ?? "", trashPath: `C:/Users/Zen/.zen-canvas-trash/${batchId}/${finding.title}`, name: finding.title, size: finding.sizeBytes, movedAt, restoredAt: null, status: "moved", message: "Browser simulation: moved to app-owned Safe Trash." }));
+  mockWorkflowCleanupBatches.unshift({ id: batchId, createdAt: movedAt, root: Array.isArray(run?.scope.paths) ? String(run.scope.paths[0] ?? "") : "", totalItems: items.length, totalSize: items.reduce((sum, item) => sum + item.size, 0), status: "success", items });
+  mockAnalysisFindings = mockAnalysisFindings.map((finding) => selected.has(finding.id) ? { ...finding, status: "stale", revision: finding.revision + 1 } : finding);
+  if (run) {
+    run.revision += 1;
+    run.safeCount = mockAnalysisFindings.filter((f) => f.runId === runId && f.status === "active" && f.tier === "safe").length;
+    run.reviewCount = mockAnalysisFindings.filter((f) => f.runId === runId && f.status === "active" && f.tier === "review").length;
+    run.findingsPublished = run.safeCount + run.reviewCount + run.cautionCount;
+  }
+  return { batchId, moved: items.length, skipped: 0, failed: 0, logs: items.map((item, index) => ({ candidateId: findings[index].id, path: item.originalPath, name: item.name, size: item.size, status: "success", message: "Browser simulation: recoverable move complete.", itemId: item.id, trashPath: item.trashPath })) };
+}
+
 function mockSafeTrashExecutionResult(args?: Record<string, unknown>): CleanupExecutionResult {
+  if (mockCleanupPresentationScenario() === "workflow") return mockWorkflowCleanupExecution(args);
   const result = mockCleanupExecutionResult(args);
   return {
     ...result,
@@ -3983,6 +4022,17 @@ function mockSafeTrashExecutionResult(args?: Record<string, unknown>): CleanupEx
 }
 
 function mockAnalyzeCleanupCandidatesWithAI(args?: Record<string, unknown>): StorageCandidate[] {
+  if (mockCleanupPresentationScenario() === "workflow") {
+    const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
+    const affectedRuns = new Set<string>();
+    mockAnalysisFindings = mockAnalysisFindings.map((finding) => {
+      if (!ids.has(finding.id)) return finding;
+      affectedRuns.add(finding.runId);
+      mockWorkflowAssessed.add(finding.id);
+      return { ...finding, revision: finding.revision + 1, evidenceSummary: { ...finding.evidenceSummary, aiAssessment: { schema: "cleanup_ai_assessment_v1", assessment: { candidateId: finding.id, reason: `Browser AI simulation: ${finding.tier === "safe" ? "Dependency data can be recreated; review local patches before cleanup." : "User-owned content should remain unless explicitly reviewed."}`, riskNote: null } } } };
+    });
+    for (const run of mockAnalysisRuns) if (affectedRuns.has(run.id)) run.revision += 1;
+  }
   if (mockCleanupPresentationScenario() === "request-unavailable") {
     throw new Error("provider_request_unavailable: browser presentation fixture only");
   }
@@ -4015,6 +4065,7 @@ function mockAnalyzeCleanupCandidatesWithAI(args?: Record<string, unknown>): Sto
 }
 
 function mockCleanupTrashBatches(): CleanupTrashBatch[] {
+  if (mockCleanupPresentationScenario() === "workflow") return mockWorkflowCleanupBatches.map((batch) => ({ ...batch, items: batch.items.map((item) => ({ ...item, ...mockCleanupRestoreState.get(item.id) })) }));
   const movedAt = mockCleanupCreatedAt;
   const items: CleanupTrashBatch["items"] = [
     {
@@ -4114,7 +4165,7 @@ function mockCleanupRestorePreviewItem(item: CleanupTrashBatch["items"][number])
 function mockCleanupRestoreResult(args?: Record<string, unknown>): CleanupRestoreResult {
   const ids = Array.isArray(args?.itemIds) ? args.itemIds.map(String) : [];
   const logs = ids.map((itemId) => {
-    const item = mockCleanupTrashBatches()[0]?.items.find((candidate) => candidate.id === itemId);
+    const item = mockCleanupTrashBatches().flatMap((batch) => batch.items).find((candidate) => candidate.id === itemId);
     const status: CleanupRestoreResult["logs"][number]["status"] = item?.id === "browser-cleanup-conflict"
       ? "conflict"
       : item?.status === "missing"
@@ -4171,7 +4222,7 @@ function mockCleanupPreviewCandidates(args?: Record<string, unknown>): CleanupPr
       category: candidate.category,
       reason: candidate.reason,
       operation_type: "move_to_trash_preview",
-      target_path: "Recycle Bin",
+      target_path: "Fylura Safe Trash",
       status: "pending",
       requires_confirmation: true,
       is_executable: false,
@@ -4193,7 +4244,7 @@ function mockCleanupPreviewOperations(args?: Record<string, unknown>): Operation
         fileId: candidate.id,
         operation_type: "move_to_trash",
         source_path: finding?.pathSnapshot ?? candidate.path,
-        target_path: "Recycle Bin",
+        target_path: "Fylura Safe Trash",
         old_name: name,
         new_name: name,
         status: "pending",
@@ -4231,7 +4282,7 @@ function mockCleanupPreviewOperations(args?: Record<string, unknown>): Operation
         fileId: finding.id,
         operation_type: "move_to_trash",
         source_path: finding.pathSnapshot ?? "",
-        target_path: "Recycle Bin",
+        target_path: "Fylura Safe Trash",
         old_name: name,
         new_name: name,
         status: "pending",
@@ -4368,7 +4419,7 @@ function browserPresentationFeatureReadinessFixture(): AIProductFeatureReadiness
     : fixture === "managed-consent-missing"
       ? "managed_local_ai_consent_required"
       : providerReason;
-  const managedScopes: AIProductFeatureReadiness["managedScopes"] = fixture === "scope-missing"
+  const managedScopes: AIProductFeatureReadiness["managedScopes"] = fixture === "scope-missing" || fixture.startsWith("cleanup-")
     ? []
     : [{
       state: managedState,

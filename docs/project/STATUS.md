@@ -1,6 +1,6 @@
 # Fylura Project Status
 
-Last verified: 2026-11-02 against GitHub and remote master. Dated baseline: `7b6492b` ([#541](https://github.com/ArdenZC/Fylura/pull/541)); always fetch latest master before work.
+Last verified: 2026-11-03 against GitHub and remote master. Dated baseline: `2ccdcc9` ([#538](https://github.com/ArdenZC/Fylura/pull/538)); M2 delivery: `7b6492b` (#541); always fetch latest master before work.
 
 ## Current product goal
 
@@ -16,12 +16,12 @@ Scope: [delivery record](initiatives/file-first-product-delivery.md), [ADR-0016]
 
 - **M0-A complete:** #534 merged; [#527](https://github.com/ArdenZC/Fylura/issues/527) closed. Skippable onboarding, immediate Browse, no ordinary Library/Browse switch.
 - **M0-B/C complete:** [#535](https://github.com/ArdenZC/Fylura/pull/535) merged as `6392e66`, required CI passed; stop legacy startup Managed Scan submissions, preserve all managed data/services, archive old status and align milestones. Dormancy review: **2027-01-04**.
-- **M1 code complete:** #536 and #540 merged; final workflow closeout distinguishes partial failure/recovery-required results and verifies cancel → reissue on the existing engine. No new P0/P1 product defect was found in the exercised code workflows; native qualification remains #487. **M2 code complete:** #541 merged as `7b6492b`, exact-head required CI passed; one-off folder → metadata AI → grouped review/edit → batch execution → History/Restore; then **M3** AI Cleanup, **M4** Search/Zen Zero/real quality, **M5** Windows/macOS Beta acceptance.
+- **M1 code complete:** #536 and #540 merged; final workflow closeout distinguishes partial failure/recovery-required results and verifies cancel → reissue on the existing engine. No new P0/P1 product defect was found in the exercised code workflows; native qualification remains #487. **M2 code complete:** #541 merged as `7b6492b`, exact-head required CI passed; one-off folder → metadata AI → grouped review/edit → batch execution → History/Restore; **M3 code complete:** supported folder → deterministic Finding groups → explicit AI review and exceptions → qualified Safe Trash batch → focused History/Restore; then **M4** Search/Zen Zero/real quality, **M5** Windows/macOS Beta acceptance.
 
 ## Work in progress
 
-- M2 now accepts an explicitly selected supported folder through Browse → V2 Organization Plan source snapshots (Schema **47**). It analyzes **direct files only**, keeps subfolders in place, limits the task to **100 direct entries**, and requires per-task metadata-sharing consent plus a ready configured provider. No Managed Root or Global Index admission is created. Existing V1 managed plans remain compatible.
-- **M3 AI Cleanup is in progress:** first-screen cleanup candidates are prioritized over repeated guidance; assessment status stays beside AI actions, without changing consent, Preview or Restore gates. The workflow is supported folder → deterministic findings and authorized AI explanations → grouped risk review → Safe Trash → Restore. Reuse existing Analysis Finding and cleanup/recovery owners; no new index or parallel executor.
+- M3 reuses the existing Analysis Finding, provider/consent, Preview and Safe Trash/Restore owners. Group totals/categories cover the complete backend run, not a loaded page. Safe candidates work without an AI key; Review retains its current-assessment and separate confirmation conditions; protected items remain excluded. Final cleanup confirmation is mandatory. Existing M2 retains its 100-direct-entry, metadata-only/no-recursion boundary.
+- The next mainline is **M4**: explicit Global Search authorization → truthful coverage → Smart Lean exclusions → usable results; then sustained Zen Zero resource measurements and supported native workflows. The 1M FTS candidates remain independent; no default-on/release claim follows from Cleanup delivery.
 - [#512](https://github.com/ArdenZC/Fylura/issues/512) is the open product inventory; [#487](https://github.com/ArdenZC/Fylura/issues/487) owns remaining real Windows/macOS GUI acceptance.
 - Search activation: **CODE_MERGED** (#518/#533 and platform-gated activation in #537); **WINDOWS_DEFAULT_ON=false**, **MACOS_DEFAULT_ON=false**, **RELEASE_READY=false**. Windows default-on awaits representative installed-app resource/exit qualification; macOS GUI remains **UNVERIFIED**. #404 SQLite writer competition and #353 macOS resource evidence stay separate. This does not block M1.
 - Independent Search work remains open in [#494](https://github.com/ArdenZC/Fylura/issues/494), PRs [#495](https://github.com/ArdenZC/Fylura/pull/495), [#497](https://github.com/ArdenZC/Fylura/pull/497), [#510](https://github.com/ArdenZC/Fylura/pull/510). These candidates are not the Files mainline. #518, #519, #521, #529, #533, #534 and #537 are merged, not active Drafts.
@@ -29,12 +29,12 @@ Scope: [delivery record](initiatives/file-first-product-delivery.md), [ADR-0016]
 ## Real blockers
 
 - Native whole-product GUI coverage remains incomplete under #487, including macOS [#270](https://github.com/ArdenZC/Fylura/issues/270) startup and [#446](https://github.com/ArdenZC/Fylura/issues/446) SIGBUS qualification. Browser/hosted checks do not establish Beta readiness.
-- M2 uses metadata only; no live model-quality or installed-app GUI qualification is implied. M3 still needs a complete ordinary-folder task; a durable Managed Library is not an acceptable prerequisite.
+- M2 uses metadata only; no live model-quality or installed-app GUI qualification is implied. M3 native installed-app GUI and live-model judgement quality remain unverified under #487; hosted filesystem tests and Chromium fixtures do not establish Beta readiness.
 - No public Release/Beta qualification is claimed. Independent historical research is not a blanket blocker for bounded Files delivery.
 
 ## Next
 
-Codex implements the authorized mainline: **M3 AI Cleanup: folder → findings/explanations → grouped review → Safe Trash → Restore**. Reuse merged drag/clipboard/tabs/dual-pane/Basket/rename/task/conflict/preview/recovery owners; fix observed friction, preserve backend Preview/Revalidation/Journal. Interrupt ordinary transfers only for an actual user decision.
+Codex implements the authorized mainline: **M4: Search authorization/coverage, Smart Lean, Zen Zero resources and real Windows/macOS quality**. Reuse merged drag/clipboard/tabs/dual-pane/Basket/rename/task/conflict/preview/recovery owners; fix observed friction, preserve backend Preview/Revalidation/Journal. Interrupt ordinary transfers only for an actual user decision.
 
 Existing specialist owners retain their boundaries: #487 owns native GUI QA/platform defects; #494 owns Search performance; neither expands this task into new audits or approval flows. No extra Owner gate or Release is introduced.
 

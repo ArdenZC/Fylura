@@ -675,7 +675,19 @@ export interface AnalysisFindingDecision {
   updatedAt: number;
 }
 
+export interface AnalysisFindingGroup {
+  tier: "safe" | "review" | "caution";
+  count: number;
+  excludedCount: number;
+  selectableCount: number;
+  exactReclaimableBytes: number;
+  potentialReclaimableBytes: number;
+  categories: { category: string; count: number }[];
+}
+
 export interface AnalysisFindingPage {
+  runRevision?: number | null;
+  groups?: AnalysisFindingGroup[] | null;
   findings: AnalysisFinding[];
   nextCursor: string | null;
   limit: number;
@@ -2068,6 +2080,7 @@ export interface CleanupPreviewItem {
 }
 
 export interface CleanupExecutionLog {
+  candidateId?: string | null;
   path: string;
   name: string;
   size: number;
@@ -2078,6 +2091,7 @@ export interface CleanupExecutionLog {
 }
 
 export interface CleanupExecutionResult {
+  batchId?: string | null;
   moved: number;
   skipped: number;
   failed: number;

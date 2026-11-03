@@ -950,19 +950,19 @@ fn cleanup_operation_preview_only_includes_safe_trash_candidates() {
     assert_eq!(preview.previews[0].operation_type, "move_to_trash");
     assert_eq!(preview.previews[0].source_path, safe.path);
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         assert_eq!(preview.previews[0].target_path, "Fylura Safe Trash");
         assert_eq!(preview.previews[0].is_executable, Some(true));
         assert_eq!(preview.previews[0].blocking_reason, None);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
-        assert_eq!(preview.previews[0].target_path, "Recycle Bin");
+        assert_eq!(preview.previews[0].target_path, "Fylura Safe Trash");
         assert_eq!(preview.previews[0].is_executable, Some(false));
         assert_eq!(
             preview.previews[0].blocking_reason.as_deref(),
-            Some("system_trash_source_binding_unsupported")
+            Some("unsupported_platform_linux")
         );
     }
     assert!(preview.previews[0].requires_confirmation);

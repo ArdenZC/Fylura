@@ -6,7 +6,7 @@ import { compactPath } from "../../utils/viewHelpers";
 import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { cn } from "../../utils/tw";
 import { Button, ToneBadge, metadataText, quietText } from "../shared/ui";
-import { isFindingSelectable, type CleanupTier } from "./cleanupModel";
+import { isFindingSelectable, canRequestCleanupReview, savedCleanupAIAdvice, type CleanupTier } from "./cleanupModel";
 
 export function FindingRow({
   finding,
@@ -22,6 +22,7 @@ export function FindingRow({
   onReveal,
   onToggleEvidence,
   onRevalidate,
+  onKeep,
   interactionLocked,
   tierLabel
 }: {
@@ -37,15 +38,18 @@ export function FindingRow({
   onToggle: (finding: AnalysisFinding) => void;
   onReveal: (finding: AnalysisFinding) => void;
   onToggleEvidence: (finding: AnalysisFinding) => void;
+  onKeep?: (finding: AnalysisFinding) => void;
   onRevalidate: (finding: AnalysisFinding) => void;
   interactionLocked: boolean;
   tierLabel: (tier: string, t: Translator) => string;
 }) {
   const isCaution = finding.tier === "caution";
   const selectable = isFindingSelectable(finding);
+  const reviewable = canRequestCleanupReview(finding);
   const confidence = finding.confidence === "exact" ? t("storageCleanupConfidenceExact") : finding.confidence === "estimated" ? t("storageCleanupConfidenceEstimated") : t("storageCleanupConfidenceUnknown");
   const category = findingCategoryLabel(finding.category, t);
   const reason = findingReasonLabel(finding.reason, t);
+  const aiAdvice = savedCleanupAIAdvice(finding);
   const riskNote = finding.riskNote ? findingRiskLabel(finding.riskNote, t) : null;
   return (
     <article
@@ -71,17 +75,19 @@ export function FindingRow({
         <div className="flex min-w-0 flex-wrap gap-2">
           {finding.pathSnapshot ? <Button variant="ghost" size="compact" onClick={() => onReveal(finding)}><FolderOpen size={14} aria-hidden="true" />{t("storageCleanupReveal")}</Button> : null}
           <Button variant="ghost" size="compact" onClick={() => onToggleEvidence(finding)}><FileSearch size={14} aria-hidden="true" />{evidenceExpanded ? t("storageCleanupFindingHideEvidence") : t("storageCleanupFindingEvidence")}</Button>
+          {onKeep && finding.tier !== "caution" ? <Button variant="ghost" size="compact" disabled={interactionLocked} onClick={() => onKeep(finding)}>{t(finding.decision === "dismissed" ? "cleanupIncludeAgain" : "cleanupKeep")}</Button> : null}
           {finding.status === "stale" ? <Button variant="secondary" size="compact" disabled={interactionLocked} onClick={() => onRevalidate(finding)}><RefreshCw size={14} aria-hidden="true" />{t("storageCleanupFindingRecheck")}</Button> : null}
         </div>
-        {isCaution ? <span className="text-xs font-medium text-[var(--zc-warning-text)]">{t("storageCleanupCautionHint")}</span> : <Button variant={selected ? "secondary" : "primary"} size="compact" disabled={interactionLocked || (!selectable && !(finding.tier === "review" && finding.status === "active" && finding.decision !== "acknowledged"))} aria-pressed={selected} onClick={() => onToggle(finding)}>{selected ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{selected ? t("storageCleanupSelected") : finding.tier === "review" && finding.decision !== "acknowledged" ? t("storageCleanupFindingAcknowledge") : t("storageCleanupSelectForTrash")}</Button>}
+        {isCaution ? <span className="text-xs font-medium text-[var(--zc-warning-text)]">{t("storageCleanupCautionHint")}</span> : <Button variant={selected ? "secondary" : "primary"} size="compact" disabled={interactionLocked || (!selectable && !(reviewable && finding.decision !== "acknowledged"))} aria-pressed={selected} onClick={() => onToggle(finding)}>{selected ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{selected ? t("storageCleanupSelected") : reviewable && finding.decision !== "acknowledged" ? t("storageCleanupFindingAcknowledge") : t("storageCleanupSelectForTrash")}</Button>}
       </div>
       <div className="grid gap-1 text-sm leading-6 text-[var(--zc-text-secondary)]">
         <span><strong className="font-medium text-[var(--zc-text-primary)]">{t("storageCleanupFindingWhy")}:</strong> {reason}</span>
+        {aiAdvice ? <span data-cleanup-ai-advice><strong className="font-medium text-[var(--zc-text-primary)]">{t("cleanupSavedAIAdvice")}:</strong> {aiAdvice.reason}{aiAdvice.riskNote && aiAdvice.riskNote !== finding.riskNote ? ` · ${aiAdvice.riskNote}` : ""}</span> : null}
         {riskNote ? <span className="text-[var(--zc-warning-text)]"><strong className="font-medium">{t("storageCleanupFindingRisk")}:</strong> {riskNote}</span> : null}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--zc-text-secondary)]">
         <span>{t("storageCleanupFindingConfidence")}: {confidence}</span>
-        <span>{finding.executable ? t("storageCleanupFindingExecutable") : t("storageCleanupFindingBlocked")}</span>
+        <span>{reviewable ? t("cleanupPendingPreview") : finding.executable ? t("storageCleanupFindingExecutable") : t("storageCleanupFindingBlocked")}</span>
         <span>{category}</span>
       </div>
        {evidenceExpanded ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3" data-finding-evidence><strong className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--zc-text-tertiary)]">{t("storageCleanupFindingEvidence")}</strong>{evidence?.length ? evidence.map((item) => <div key={item.id} className="text-xs leading-5 text-[var(--zc-text-secondary)]" data-ai-assessment-current={item.evidenceKind === "ai_assessment" ? (item.isCurrentAssessment ? "true" : "false") : undefined} data-ai-assessment-source={item.evidenceKind === "ai_assessment" ? (isBrowserMockEnabled() ? "presentation-fixture" : "backend-authority") : undefined}>{item.evidenceKind === "ai_assessment" ? item.isCurrentAssessment ? t(isBrowserMockEnabled() ? "storageCleanupCurrentAIAssessmentFixture" : "storageCleanupCurrentAIAssessment") : t("storageCleanupHistoricalAIAssessment") : item.evidenceKind}{item.pathSnapshot ? ` · ${compactPath(item.pathSnapshot, 100)}` : ""}</div>) : <span className={quietText}>{t("storageCleanupFindingEvidenceEmpty")}</span>}</div> : null}
@@ -95,7 +101,7 @@ export function tierLabel(tier: string, t: Translator): string {
   return t("storageCleanupCautionTier");
 }
 
-function findingCategoryLabel(category: string, t: Translator): string {
+export function findingCategoryLabel(category: string, t: Translator): string {
   if (category === "macos_package") return t("storageCleanupMacosPackageCategory");
   if (category === "cloud_item") return t("storageCleanupCloudItemCategory");
   return category;

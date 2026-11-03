@@ -1,6 +1,6 @@
 # Fylura Project Status
 
-Last verified: 2026-11-03 against GitHub and remote master. Dated baseline: `2ccdcc9` ([#538](https://github.com/ArdenZC/Fylura/pull/538)); M2 delivery: `7b6492b` (#541); always fetch latest master before work.
+Last verified: 2026-11-03 against GitHub and remote master. Dated baseline: `4e34b25` ([#542](https://github.com/ArdenZC/Fylura/pull/542)); M2 delivery: `7b6492b` (#541); M3 delivery: `4e34b25` (#542); always fetch latest master before work.
 
 ## Current product goal
 
@@ -23,8 +23,8 @@ Scope: [delivery record](initiatives/file-first-product-delivery.md), [ADR-0016]
 - M3 reuses the existing Analysis Finding, provider/consent, Preview and Safe Trash/Restore owners. Group totals/categories cover the complete backend run, not a loaded page. Safe candidates work without an AI key; Review retains its current-assessment and separate confirmation conditions; protected items remain excluded. Final cleanup confirmation is mandatory. Existing M2 retains its 100-direct-entry, metadata-only/no-recursion boundary.
 - The next mainline is **M4**: explicit Global Search authorization → truthful coverage → Smart Lean exclusions → usable results; then sustained Zen Zero resource measurements and supported native workflows. The 1M FTS candidates remain independent; no default-on/release claim follows from Cleanup delivery.
 - [#512](https://github.com/ArdenZC/Fylura/issues/512) is the open product inventory; [#487](https://github.com/ArdenZC/Fylura/issues/487) owns remaining real Windows/macOS GUI acceptance.
-- Search activation: **CODE_MERGED** (#518/#533 and platform-gated activation in #537); **WINDOWS_DEFAULT_ON=false**, **MACOS_DEFAULT_ON=false**, **RELEASE_READY=false**. Windows default-on awaits representative installed-app resource/exit qualification; macOS GUI remains **UNVERIFIED**. #404 SQLite writer competition and #353 macOS resource evidence stay separate. This does not block M1.
-- Independent Search work remains open in [#494](https://github.com/ArdenZC/Fylura/issues/494), PRs [#495](https://github.com/ArdenZC/Fylura/pull/495), [#497](https://github.com/ArdenZC/Fylura/pull/497), [#510](https://github.com/ArdenZC/Fylura/pull/510). These candidates are not the Files mainline. #518, #519, #521, #529, #533, #534 and #537 are merged, not active Drafts.
+- Search activation: **CODE_MERGED** (#518/#533 and platform-gated activation in #537); **WINDOWS_DEFAULT_ON=false**, **MACOS_DEFAULT_ON=false**, **RELEASE_READY=false**. Windows default-on remains pending candidate-bound installed-package GUI, resource and exit qualification in a profile-safe Windows environment that preserves the current service and installation; macOS GUI remains **UNVERIFIED**. #404 SQLite writer competition and #353 macOS resource evidence stay separate. This does not block M1.
+- Independent Search work remains open in [#494](https://github.com/ArdenZC/Fylura/issues/494), PRs [#495](https://github.com/ArdenZC/Fylura/pull/495), [#497](https://github.com/ArdenZC/Fylura/pull/497), [#510](https://github.com/ArdenZC/Fylura/pull/510). These candidates are not the Files mainline. #518, #519, #521, #529, #533, #534, #535, #536, #537, #540, #541 and #542 are merged, not active Drafts.
 
 ## Real blockers
 

@@ -143,7 +143,11 @@ fn m3_real_folder_scan_ai_group_review_safe_trash_history_and_restore() {
         .get_analysis_finding(&review.id)
         .unwrap()
         .unwrap();
-    assert!(safe_finding.evidence_summary["aiAssessment"]["assessment"]["reason"].as_str().is_some_and(|reason| !reason.is_empty()));
+    assert!(
+        safe_finding.evidence_summary["aiAssessment"]["assessment"]["reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty())
+    );
     assert!(has_current_ai_assessment(fixture.db(), &safe.id));
     assert!(has_current_ai_assessment(fixture.db(), &review.id));
     fixture

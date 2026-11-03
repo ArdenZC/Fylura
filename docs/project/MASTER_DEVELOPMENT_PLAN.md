@@ -762,6 +762,8 @@ This does not move current durable authorities merely by being recorded here.
 
 ### Organize
 
+M2 now delivers a bounded one-off task on the existing Organization Plan: up to 100 direct entries, metadata-only AI under explicit task consent, grouped review/folder edits, then existing Preview/Journal/History/Restore. Subfolders stay in place. The richer flow below remains future scope.
+
 Preferred future flow:
 
 ```text

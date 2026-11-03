@@ -1,5 +1,16 @@
 # Fylura Global Search 最终产品验收报告
 
+## 2026-11-02 搜索加速交付状态
+
+- **代码：** #518 在 `9f436bd` 合并，#533 在 `1f3c206` 合并。百万级候选证据仍引用原生 Release run [41181789652](https://github.com/ArdenZC/Fylura/actions/runs/41181789652)：候选 SHA `0251f3c1cbaa2f82703fffa3470153381f25c46f`，Windows 首屏/深页 p95 `28.623/33.341 ms`，Apple Silicon `22.624/26.551 ms`，完整 4,096 ID 独立排序校验通过；本轮未重跑该矩阵。
+- **Windows writer：** PR #533 exact-head `54d9cf5eb77ab09359cdfcd8e83fdf0ddac03ab8` / tree `44808597a6355637bdfe0c7e074e6b1ea25af7a1` 的 run [41381087488](https://github.com/ArdenZC/Fylura/actions/runs/41381087488) 与普通 CI [41381087493](https://github.com/ArdenZC/Fylura/actions/runs/41381087493) 均成功。500/500 配对有效、无替换或提前停止；自动 checkpoint 两臂各观测 126/500。生产 total p95 开销 `-0.637%`，配对 bootstrap 95% CI `[-4.385%, +5.042%]`，低于既定 `+10%` 上限，判定 **PASS**。
+- **原始证据：** GitHub artifact `13113753811` 中只有 source 与 SHA manifest，缺少 manifest 指向的 JSONL。本次从该成功 job 的测试输出恢复同一 JSONL 记录；包含 500 个 raw pairs，计算出的 SHA-256 与 manifest `dbe8036820ebd191a7a1d0ea1d562693ba3775041719f192e73592e5b388926a` 一致。没有重跑 writer 矩阵。
+- **默认状态：** 当前交付只把候选编入 Windows/macOS Release 与开发构建；新增的平台默认开关保持未启用。`ZC_GLOBAL_SEARCH_FILENAME_RELEVANCE_CANDIDATE=0` 强制稳定 SQLite 路径，`=1` 可在包含候选 feature 的二进制中诊断启用。此前 56 项真实 GUI 授权、查询和撤权 PASS 不等于完整进程树资源验收；当前 Windows 主机已有运行中的 `FyluraGlobalIndex` 服务，而资格脚本会拒绝替换既有服务，因此本轮未停止服务、未访问或改写真实数据库，也未取得代表性资源/退出证据。**WINDOWS_DEFAULT_ON 未交付。**
+- **macOS / 发布：** Apple Silicon 安装版 GUI 仍 **UNVERIFIED**，macOS 默认关闭；`RELEASE_READY` 未满足。#404 与 #353 保持独立，不阻塞 Files M1。
+- **状态：** `CODE_MERGED`（#518/#533 与 PR #537 平台启用策略，squash commit `8a6a87f`）；`WINDOWS_DEFAULT_ON=false`；`MACOS_DEFAULT_ON=false`；`RELEASE_READY=false`。PR #537 CI attempt 2 [41406169259](https://github.com/ArdenZC/Fylura/actions/runs/41406169259) 通过，包含独立 profile 与数据库上的 Windows Global Index 服务资格检查；这不代表完整安装版 GUI、资源和退出验收通过。
+
+下方 2026-11-01 与更早内容保留为日期化历史证据，不代表当前 PR 状态或当前 writer 结果。
+
 ## 2026-11-01 Windows 原生 GUI 终验更新（优先于下方历史结论）
 
 **本轮 Owner 决策：`READY_FOR_OWNER_MERGE_DEFAULT_OFF`，但 `CANDIDATE_DEFAULT_ON_NOT_READY`。** 以下为 2026-11-01 实机终验的后续更新；下文 2026-10-31 的 `ENVIRONMENT_UNVERIFIED` 结论属于历史阶段，不再代表 Windows GUI 当前状态。实际取证报告保存在本轮 Owner 的 `OWNER_ACCEPTANCE_REPORT.md` 和任务自有 `F:\FyluraQA\` 证据目录，不应把仅凭 CI 取得的结论写成原生 GUI 验收。

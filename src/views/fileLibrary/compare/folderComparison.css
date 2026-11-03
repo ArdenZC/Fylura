@@ -27,3 +27,8 @@
 
 .u3-batch-details > summary { cursor:pointer; padding:5px 0; color:var(--zc-text-secondary); }
 .u3-compare-pagination { position:sticky; bottom:0; z-index:2; justify-content:flex-end; padding:5px 0; border-top:1px solid var(--zc-divider); background:var(--zc-surface-overlay); }
+
+/* Comparison is an optional floating workspace, never a header above files. */
+.u3-comparison { padding: 0; border: 0; max-height: none; overflow: visible; }
+.u3-comparison-panel { position: absolute; z-index: 45; top: 140px; right: 8px; width: min(560px, calc(100% - 16px)); max-height: calc(100% - 150px); overflow: auto; overscroll-behavior: contain; padding: 14px; border: 1px solid var(--zc-border-strong); border-radius: var(--zc-radius-floating); background: var(--zc-surface-overlay); box-shadow: var(--zc-shadow-menu); }
+.u3-comparison-panel .u3-batch-actions { grid-template-columns: 1fr; }

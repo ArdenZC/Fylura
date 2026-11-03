@@ -59,6 +59,7 @@ function formatDate(value: string, t: Translator) {
 export function RestoreView() {
   const { t } = useI18nContext();
   const logs = useOperationQueueStore((state) => state.operationLogs);
+  const requestedHistoryBatchId = useOperationQueueStore((state) => state.requestedHistoryBatchId);
   const restoreIntent = useOperationQueueStore((state) => state.restoreIntent);
   const prepareOperationRestoreIntent = useOperationQueueStore((state) => state.prepareOperationRestoreIntent);
   const prepareCleanupRestoreIntent = useOperationQueueStore((state) => state.prepareCleanupRestoreIntent);
@@ -234,6 +235,13 @@ export function RestoreView() {
   useEffect(() => {
     if (!activeBatchId || !operationBatches.some((batch) => batch.id === activeBatchId)) setActiveBatchId(operationBatches[0]?.id ?? "");
   }, [activeBatchId, operationBatches]);
+
+  useEffect(() => {
+    if (requestedHistoryBatchId && operationBatches.some((batch) => batch.id === requestedHistoryBatchId)) {
+      setActiveBatchId(requestedHistoryBatchId);
+      useOperationQueueStore.setState({ requestedHistoryBatchId: null });
+    }
+  }, [requestedHistoryBatchId, operationBatches]);
 
   useEffect(() => {
     if (!activeCleanupBatchId || !cleanup.some((batch) => batch.id === activeCleanupBatchId)) setActiveCleanupBatchId(cleanup[0]?.id ?? "");

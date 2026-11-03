@@ -22,6 +22,17 @@ export function FolderComparison({ paneIds, activate, compact = false }: { paneI
   const [batchExpanded, setBatchExpanded] = useState(false);
   useEffect(() => setBatchExpanded(false), [compact]);
   const inFlight = useRef(false);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const root = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && !root.current?.contains(target) && !target.closest('[aria-modal="true"]')) setOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [open]);
   const [left, right] = sources;
   const ready = !!left?.browse && !!right?.browse && !left.showLocationPicker && !right.showLocationPicker;
   const filteredSource = sources.some((s) => s?.query.text || s?.query.entryKind !== "all");
@@ -54,21 +65,26 @@ export function FolderComparison({ paneIds, activate, compact = false }: { paneI
     activate(paneIds[side]); sources[side]?.selectIds(ids);
   }
   function action(side: number, kind: "basket" | "copy_other" | "move_other") {
+    if (kind !== "basket") setOpen(false);
     activate(paneIds[side]); useFileManagementStore.getState().requestAction(kind);
   }
-  return <section className="u3-comparison" aria-label={t("u3Compare")}>
-    <div className="u3-compare-controls">
-      <button className="wb-cross-button" aria-expanded={open} disabled={locked}
+  return <section ref={root} className="u3-comparison" data-open={open} aria-label={t("u3Compare")} onKeyDown={(event) => {
+    if (event.key === "Escape" && !event.defaultPrevented && open) {
+      event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus();
+    }
+  }}>
+    <div className="u3-compare-trigger">
+      <button ref={trigger} className="wb-cross-button" aria-expanded={open} disabled={locked}
         onClick={() => { setOpen(!open); if (!open) setRunning(true); }}>{t(open ? "u3CloseCompare" : "u3Compare")}</button>
-      {open && <>
+    </div>
+    {open && <div className="u3-comparison-panel">
+      <div className="u3-compare-controls">
         <button className="wb-cross-button" disabled={locked || !ready} onClick={() => {
           setRunning(true); setPage(0); void Promise.all(sources.map((s) => s?.refreshEnumeration()));
         }}>{t("browseRefresh")}</button>
         <button className="wb-cross-button" disabled={locked} onClick={() => setRunning(!running)}>{t(running ? "u3Pause" : "u3Resume")}</button>
         <label><input type="checkbox" checked={modified} disabled={locked} onChange={(e) => { setModified(e.target.checked); setPage(0); }}/>{t("u3CompareModified")}</label>
-      </>}
-    </div>
-    {open && <>
+      </div>
       <p className="u3-compare-help">{t("u3MetadataOnly")}</p>
       <details className="u3-compare-help"><summary>{t("u3Conditions")}</summary>{t("u3CompareHelp")}</details>
       <div role="status" aria-live="polite">{!ready ? t("u3NeedFolders") : filteredSource ? t("u3ClearFilters") : overflow ? t("u3CompareLimit") : failed ? t("u3CompareFailed") : pending ? t("u3Changed") : !running ? t("u3Paused") : !complete ? `${t("u3Comparing")} ${sources.map((s) => s?.loadedCount ?? 0).join(" / ")}` : `${t("u3Compared")} ${rows.length}`}</div>
@@ -113,6 +129,6 @@ export function FolderComparison({ paneIds, activate, compact = false }: { paneI
         </div>
         <div className="u3-compare-controls u3-compare-pagination" role="navigation" aria-label={t("u3CompareResults")}><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t("fileLibraryBack")}</button><span>{currentPage + 1} / {maxPage + 1}</span><button disabled={currentPage >= maxPage} onClick={() => setPage(currentPage + 1)}>{t("fileLibraryForward")}</button></div>
       </>}
-    </>}
+    </div>}
   </section>;
 }

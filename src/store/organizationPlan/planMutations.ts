@@ -1,7 +1,7 @@
+import type { OrganizationPlanSource } from "../../api/organizationApi";
 import { tauriApi } from "../../api/tauriApi";
 import type {
   ExecuteOrganizationPlanResult,
-  LibrarySelectionV1,
   OrganizationPlan,
   OrganizationPlanGroupSummary,
   OrganizationPlanItem
@@ -47,7 +47,7 @@ function isCancelableOrganizationPlan(status: OrganizationPlan["status"]): boole
 
 export async function createPlan(
   { get, set }: Context,
-  source: LibrarySelectionV1,
+  source: OrganizationPlanSource,
   expectedCount: number,
   title?: string
 ): Promise<OrganizationMutationResult<OrganizationPlan>> {
@@ -57,13 +57,10 @@ export async function createPlan(
   const mutationToken = state.mutationToken + 1;
   set((current) => takeGroupProjectionOwnership(current, { isMutating: true, mutationToken, createPlanError: null, error: null }));
   try {
-    const plan = await tauriApi.createOrganizationPlan({
-      version: 1,
-      requestId: `organization-plan-${Date.now().toString(36)}`,
-      title: title?.trim() || null,
-      source,
-      expectedCount
-    });
+    const common = { requestId: `organization-plan-${Date.now().toString(36)}`, title: title?.trim() || null, expectedCount };
+    const plan = await tauriApi.createOrganizationPlan(source.kind === "one_off"
+      ? { ...common, version: 2, source }
+      : { ...common, version: 1, source });
     if (!ownsMutation(get, requestEpoch, mutationToken)) return superseded(plan);
     set((current) => ({
       plans: replacePlan(current.plans, plan),
@@ -93,7 +90,8 @@ export async function createPlan(
 export async function updateGroupDecision(
   { get, set }: Context,
   group: OrganizationPlanGroupSummary,
-  decision: "accepted" | "kept" | "undecided"
+  decision: "accepted" | "kept" | "undecided",
+  editedTargetTemplate?: string
 ): Promise<OrganizationMutationResult<void>> {
   const plan = get().activePlan;
   if (!plan || get().isExecutionInFlight) return superseded();
@@ -107,7 +105,8 @@ export async function updateGroupDecision(
       expectedPlanRevision: plan.revision,
       expectedProjectionFingerprint: group.projectionFingerprint,
       expectedItemCount: group.itemCount,
-      decision
+      decision,
+      ...(editedTargetTemplate ? { editedTargetTemplate } : {})
     });
     if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded();
     await get().openPlan(plan.id);
@@ -184,7 +183,7 @@ export async function refreshPlan({ get, set }: Context): Promise<OrganizationMu
   }
 }
 
-export async function analyzeMissing({ get, set }: Context, itemIds: string[] = []): Promise<OrganizationMutationResult<number>> {
+export async function analyzeMissing({ get, set }: Context, itemIds: string[] = [], oneOffConsent = false): Promise<OrganizationMutationResult<number>> {
   const state = get();
   const plan = state.activePlan;
   if (!plan) return superseded(0);
@@ -193,7 +192,7 @@ export async function analyzeMissing({ get, set }: Context, itemIds: string[] = 
   const mutationToken = state.mutationToken + 1;
   set((current) => takeGroupProjectionOwnership(current, { isMutating: true, mutationToken, error: null }));
   try {
-    const result = await tauriApi.analyzeOrganizationPlanItems({ planId: plan.id, expectedPlanRevision: plan.revision, itemIds });
+    const result = await tauriApi.analyzeOrganizationPlanItems({ planId: plan.id, expectedPlanRevision: plan.revision, itemIds, ...(oneOffConsent ? { oneOffConsent: true } : {}) });
     if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded(result.queuedCount);
     set({ isMutating: false });
     return applied(result.queuedCount);

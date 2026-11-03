@@ -1,3 +1,4 @@
+import { useOperationQueueStore } from "../useOperationQueueStore";
 import { tauriApi } from "../../api/tauriApi";
 import type {
   ExecuteOrganizationPlanResult,
@@ -61,6 +62,8 @@ export async function executeDryRun({ get, set }: Context): Promise<Organization
   if (!plan || !dryRun) throw new Error("organization_dry_run_required");
   if (!dryRunSelection) throw new Error("organization_dry_run_selection_required");
   if (get().isExecutionInFlight) return superseded();
+  if (useOperationQueueStore.getState().activeOperationKind) throw new Error("operation_already_running");
+  useOperationQueueStore.setState({ activeOperationKind: "execute", isOperationCanceling: false, operationProgress: null });
   const requestEpoch = get().requestEpoch;
   const mutationToken = get().mutationToken + 1;
   set((state) => takeGroupProjectionOwnership(state, { isMutating: true, isExecutionInFlight: true, mutationToken, error: null }));
@@ -78,5 +81,7 @@ export async function executeDryRun({ get, set }: Context): Promise<Organization
       throw error;
     }
     return superseded();
+  } finally {
+    useOperationQueueStore.setState({ activeOperationKind: null, isOperationCanceling: false, operationProgress: null });
   }
 }

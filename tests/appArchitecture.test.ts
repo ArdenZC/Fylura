@@ -314,9 +314,9 @@ describe("app render architecture", () => {
     expect(appShell).toContain("function navGroups");
     expect(appShell).toContain('id: "primary"');
     expect(appShell).toContain('id: "advanced"');
-    // ADR-0016: the four core jobs lead, and Files is the default destination.
-    expect(appShell.indexOf('id: "library"')).toBeLessThan(appShell.indexOf('id: "global-search"'));
-    expect(appShell.indexOf('id: "global-search"')).toBeLessThan(appShell.indexOf('id: "organize"'));
+    // Files and AI tasks lead; Global Search uses the existing header search.
+    expect(appShell).not.toContain('id: "global-search"');
+    expect(appShell.indexOf('id: "library"')).toBeLessThan(appShell.indexOf('id: "organize"'));
     expect(appShell.indexOf('id: "organize"')).toBeLessThan(appShell.indexOf('id: "cleanup"'));
     expect(appShell.indexOf('id: "cleanup"')).toBeLessThan(appShell.indexOf('id: "restore"'));
     expect(appShell.indexOf('id: "restore"')).toBeLessThan(appShell.indexOf('id: "scanner"'));

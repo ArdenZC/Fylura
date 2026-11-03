@@ -38,7 +38,7 @@ Managed Library Query V2 / LibrarySelectionV1 / tags / Saved Views
 
 - **Browse** uses existing Browse/WorkspaceSession authority for real folder navigation and progressive enumeration, with no implicit managed-scan or AI admission.
 - **Managed Library** retains Query V2, LibrarySelectionV1 and existing durable metadata, records and compatibility. Hiding its ordinary mode switch **does not authorize removing or rewriting those authorities or user data**.
-- The user can run one-off AI Organize and AI Cleanup directly against a selected folder/file set; the current Organize selection-to-Plan coupling is an implementation gap, not a reason to force Managed admission.
+- The user can run one-off AI Organize and AI Cleanup directly against a selected folder/file set; Organize accepts a selected folder’s direct contents (up to 100 entries) through versioned Plan snapshots and explicit metadata AI consent; subfolders stay in place. Cleanup’s ordinary-folder workflow is the next milestone. Neither requires Managed admission.
 - Window/shell presentation can be shared, but durable Managed identity and session Browse identity remain separate.
 
 ## Cross-cutting and contextual surfaces
@@ -51,6 +51,10 @@ Managed Library Query V2 / LibrarySelectionV1 / tags / Saved Views
 | Windows Explorer Preview Pane | Preview deliberately supported content from Explorer without launching the normal Zen UI | W4 shell-hosted read-only integration using request-scoped `HostProvided` ownership; not a second Preview/provider/read authority and not a Zen Floating window embedded in Explorer |
 | Operation Preview & Execute | Review exact filesystem operations before execution | Contextual workflow/view over server-authoritative Operation Preview and revalidation; separate from content Quick Preview |
 | Content Understanding | Extract/understand managed content under explicit policy and consent | Dedicated/contextual surface over Content Policy/Run/Artifact; not a sidebar primary workspace and not Global Search or filesystem mutation authority |
+
+### Search entry points
+
+Global Search uses the top search bar and existing shortcut; it has no duplicate sidebar destination. Files keeps a bounded current-folder search beside its path. Index authorization/settings and the separate result window remain on existing authorities. Files places file rows before optional tools and comparison panels.
 
 ### Global Search versus Files local search
 

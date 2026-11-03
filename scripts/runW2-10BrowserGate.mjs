@@ -252,6 +252,8 @@ async function exerciseBrowse(page) {
   await browseList.waitFor({ state: "visible" });
   const browseSearch = page.locator('[data-file-library-command-search="true"] [data-file-library-local-search="true"]');
   await browseSearch.fill("notes");
+  await page.locator("[data-file-library-query-menu] > summary").click();
+  if (!(await page.locator("[data-file-library-query-menu]").evaluate((menu) => menu.open))) await page.locator("[data-file-library-query-menu] > summary").click();
   await page.locator('select[data-browse-query-kind]').selectOption("file");
   await page.waitForFunction(() => document.querySelector('[data-browse-query="notes"][data-browse-query-kind="file"]') !== null);
   const browseSort = page.locator('select[data-browse-sort]');
@@ -264,6 +266,7 @@ async function exerciseBrowse(page) {
   await browseSort.selectOption("native");
 
   await browseSearch.fill("");
+  if (!(await page.locator("[data-file-library-query-menu]").evaluate((menu) => menu.open))) await page.locator("[data-file-library-query-menu] > summary").click();
   await page.locator('select[data-browse-query-kind]').selectOption("all");
   await page.waitForFunction(() => document.querySelector('[data-browse-query]') === null && document.querySelector('[data-browse-query-kind="all"]') !== null);
   await page.locator('[data-browse-entry-kind="directory"] button').first().waitFor({ state: "visible" });
@@ -275,6 +278,7 @@ async function exerciseBrowse(page) {
   if (await parent.count() > 0) await parent.click();
   await page.waitForTimeout(100);
   await browseSearch.fill("notes");
+  if (!(await page.locator("[data-file-library-query-menu]").evaluate((menu) => menu.open))) await page.locator("[data-file-library-query-menu] > summary").click();
   await page.locator('select[data-browse-query-kind]').selectOption("file");
   await page.waitForFunction(() => document.querySelector('[data-browse-query="notes"][data-browse-query-kind="file"]') !== null);
 }

@@ -84,6 +84,17 @@
 @container (max-width: 560px) {
   .fm-primary-toolbar { gap: 2px; }
   .fm-primary-toolbar > button { padding-inline: 6px; gap: 4px; }
-  .fm-primary-toolbar > button > svg { display: none; }
+  .fm-primary-toolbar > button[data-fm-primary-action] { padding-inline: 6px; }
   .fm-more-trigger { margin-left: 0; }
+}
+
+.fm-primary-toolbar { flex-wrap: nowrap; min-height: 32px; }
+.fm-primary-toolbar .fm-selection[data-has-selection=false] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.fm-primary-toolbar > button { border-color: transparent; background: transparent; min-height: 28px; padding: 3px 7px; }
+.fm-primary-toolbar .fm-more-trigger { margin-left: auto; }
+.fm-more-actions .fm-drop-mode { justify-content: space-between; margin: 4px 0; padding: 4px 9px; }
+
+@container (max-width: 700px) {
+  .fm-primary-toolbar .fm-action-label { display: none; }
+  .fm-primary-toolbar > button[data-fm-primary-action] { min-width: 28px; }
 }

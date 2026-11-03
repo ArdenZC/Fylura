@@ -98,6 +98,7 @@ try {
       if (!(await browseSearch.isEnabled())) throw new Error("Browse current-folder search remained disabled");
       await browseSearch.fill("notes");
       if (await browseSearch.inputValue() !== "notes") throw new Error("Browse current-folder search did not retain the committed text");
+      await page.locator("[data-file-library-query-menu] > summary").click();
       await page.locator('select[data-browse-query-kind]').selectOption("file");
       const browseSort = page.locator('select[data-browse-sort]');
       await browseSort.waitFor({ state: "visible" });

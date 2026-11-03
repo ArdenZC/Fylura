@@ -1,8 +1,8 @@
+import type { OrganizationPlanSource } from "../api/organizationApi";
 import { create } from "zustand";
 import { tauriApi } from "../api/tauriApi";
 import type {
   ExecuteOrganizationPlanResult,
-  LibrarySelectionV1,
   OrganizationPlan,
   OrganizationPlanDryRun,
   OrganizationPlanGroupSummary,
@@ -59,13 +59,13 @@ export interface OrganizationPlanState {
   groupRequestEpoch: number;
   groupLoadingOwner: GroupLoadingOwner | null;
   loadPlans: () => Promise<void>;
-  createPlan: (source: LibrarySelectionV1, expectedCount: number, title?: string) => Promise<OrganizationMutationResult<OrganizationPlan>>;
+  createPlan: (source: OrganizationPlanSource, expectedCount: number, title?: string) => Promise<OrganizationMutationResult<OrganizationPlan>>;
   openPlan: (planId: string) => Promise<void>;
   loadNextGroupPage: () => Promise<OrganizationMutationResult<void>>;
-  updateGroupDecision: (group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided") => Promise<OrganizationMutationResult<void>>;
+  updateGroupDecision: (group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided", editedTargetTemplate?: string) => Promise<OrganizationMutationResult<void>>;
   updateDecision: (item: OrganizationPlanItem, decision: DurableDecision, editedFilename?: string) => Promise<OrganizationMutationResult<OrganizationPlan>>;
   refreshPlan: () => Promise<OrganizationMutationResult<OrganizationPlan>>;
-  analyzeMissing: (itemIds?: string[]) => Promise<OrganizationMutationResult<number>>;
+  analyzeMissing: (itemIds?: string[], oneOffConsent?: boolean) => Promise<OrganizationMutationResult<number>>;
   createDryRun: (selection?: OrganizationPlanSelection) => Promise<OrganizationMutationResult<OrganizationPlanDryRun>>;
   executeDryRun: () => Promise<OrganizationMutationResult<ExecuteOrganizationPlanResult>>;
   cancelPlan: () => Promise<OrganizationMutationResult<OrganizationPlan>>;
@@ -144,10 +144,10 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   createPlan: (source, expectedCount, title) => createPlan({ get, set }, source, expectedCount, title),
   openPlan: (planId) => openPlan({ get, set }, planId),
   loadNextGroupPage: () => loadNextGroupPage({ get, set }),
-  updateGroupDecision: (group, decision) => updateGroupDecision({ get, set }, group, decision),
+  updateGroupDecision: (group, decision, editedTargetTemplate) => updateGroupDecision({ get, set }, group, decision, editedTargetTemplate),
   updateDecision: (item, decision, editedFilename) => updateDecision({ get, set }, item, decision, editedFilename),
   refreshPlan: () => refreshPlan({ get, set }),
-  analyzeMissing: (itemIds = []) => analyzeMissing({ get, set }, itemIds),
+  analyzeMissing: (itemIds = [], oneOffConsent = false) => analyzeMissing({ get, set }, itemIds, oneOffConsent),
   createDryRun: (selection = { allAccepted: true, itemIds: [] }) => createDryRun({ get, set }, selection),
   executeDryRun: () => executeDryRun({ get, set }),
   cancelPlan: () => cancelPlan({ get, set }),

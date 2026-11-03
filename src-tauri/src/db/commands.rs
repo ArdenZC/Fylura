@@ -247,10 +247,20 @@ pub fn delete_library_saved_view<R: Runtime>(
 pub fn create_organization_plan<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
-    request: CreateOrganizationPlanRequestV1,
+    runtime: State<'_, crate::file_workspace::integration::FileWorkspaceRuntimeOwner>,
+    request: CreateOrganizationPlanCommand,
 ) -> Result<OrganizationPlanDto, String> {
     require_main_window(&window)?;
-    db.create_organization_plan(request).map_err(command_error)
+    match request {
+        CreateOrganizationPlanCommand::Managed(request) => {
+            db.create_organization_plan(request).map_err(command_error)
+        }
+        CreateOrganizationPlanCommand::OneOff(request) => {
+            let runtime = runtime.acquire_for_window(&window)?;
+            db.create_one_off_organization_plan(request, &runtime)
+                .map_err(command_error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -358,14 +368,39 @@ pub fn delete_organization_plan<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn analyze_organization_plan_items<R: Runtime>(
+pub async fn analyze_organization_plan_items<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
+    ai_cancel: State<'_, crate::ai::classification::AIClassificationCancellationToken>,
     request: AnalyzeOrganizationPlanItemsRequest,
 ) -> Result<AnalyzeOrganizationPlanItemsResult, String> {
     require_main_window(&window)?;
-    db.analyze_organization_plan_items(request)
-        .map_err(command_error)
+    let database = db.inner().clone();
+    let one_off = database
+        .is_one_off_organization_plan(&request.plan_id)
+        .map_err(command_error)?;
+    let guard = if one_off {
+        Some(ai_cancel.begin()?)
+    } else {
+        None
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        if database
+            .is_one_off_organization_plan(&request.plan_id)
+            .map_err(command_error)?
+        {
+            database
+                .analyze_one_off_organization_plan(request)
+                .map_err(command_error)
+        } else {
+            database
+                .analyze_organization_plan_items(request)
+                .map_err(command_error)
+        }
+    })
+    .await
+    .map_err(|_| "organization_ai_task_failed".to_string())?
 }
 
 #[tauri::command]

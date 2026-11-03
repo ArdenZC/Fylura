@@ -11,10 +11,10 @@ import { useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { fileManagementApi as api, type TransferTicket, type TransferPreview } from "../src/api/fileManagementApi";
 import { tauriApi } from "../src/api/tauriApi";
 import type { OperationLog, OperationPreview } from "../src/types/domain";
-const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), refreshHistory: vi.fn(async () => []), cancelOperations: vi.fn(async () => undefined) }));
+const mocks = vi.hoisted(() => ({ close: vi.fn(), navigate: vi.fn(), setView: vi.fn(), platform: "win32", refreshHistory: vi.fn(async () => []), cancelOperations: vi.fn(async () => undefined) }));
 vi.mock("../src/contexts/AppContexts", async () => {
   const { makeTranslator } = await import("../src/i18n"); const t = makeTranslator("en");
-  return { useI18nContext: () => ({ t, language: "en" }), useChromeContext: () => ({ platform: "win32" }), useNavigationContext: () => ({ setView: vi.fn() }) };
+  return { useI18nContext: () => ({ t, language: "en" }), useChromeContext: () => ({ platform: mocks.platform }), useNavigationContext: () => ({ setView: mocks.setView }) };
 });
 vi.mock("../src/views/fileLibrary/FileLibraryExperienceProvider", () => ({ useFileLibraryExperience: () => ({ controller: { openBrowse: mocks.navigate } }) }));
 vi.mock("../src/views/fileLibrary/preview/PreviewExperienceProvider", () => ({ usePreviewExperience: () => ({ controller: { close: mocks.close, closeForFileOperation: mocks.close } }) }));
@@ -74,6 +74,7 @@ beforeEach(() => {
   vi.spyOn(tauriApi,"cancelOperations").mockResolvedValue();
   useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},refresh,clear}),basket:[],clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null,surfaces:{},activePaneId:null,pendingTransfer:null,transferOpen:false,transferActive:false,transferRunning:false,activeTransferId:null,activeTransferTask:null,transferTicketIds:[],externalDropAction:"copy"});
   useOperationQueueStore.setState({ operationLogs: [], operationProgress: null, activeOperationKind: null, isOperationCanceling: false });
+  mocks.platform = "win32"; mocks.navigate.mockReset().mockResolvedValue({}); mocks.setView.mockClear();
   refresh.mockClear();clear.mockClear();mocks.close.mockClear();mocks.refreshHistory.mockClear();mocks.cancelOperations.mockClear();
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
@@ -92,6 +93,56 @@ describe("File Library manual management workflow", () => {
     expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(refresh).toHaveBeenCalledOnce();expect(clear).toHaveBeenCalledOnce();expect(mocks.close).toHaveBeenCalled();
+  });
+  it.each([
+    ["win32", "windows", "copy", "D:/"],
+    ["win32", "windows", "move", "D:\\"],
+    ["darwin", "macos", "copy", "/"],
+    ["darwin", "macos", "move", "/Volumes/USB/"],
+  ])("finishes a multi-select %s %s %s workflow and opens %s before History", async (platform, wirePlatform, action, destination) => {
+    mocks.platform = platform;
+    const refs = tickets.map((ticket) => ({ kind: "ephemeral" as const, browseSessionId: "source-session", entryId: ticket.id }));
+    const source = { signature: "browse-multi-selection", count: 2, refs, browse: { sessionId: "source-session", pathRef: { id: "source" } }, routingHint: platform === "darwin" ? "/Source" : "C:/Source", refresh, clear };
+    useFileManagementStore.setState({ surface: () => source });
+    const preview = plan();
+    preview.destinationDirectory = destination;
+    preview.rows.forEach((row) => { row.preview!.target_path = `${destination}${row.ticketId}.txt`; row.preview!.operation_type = action as "copy" | "move"; });
+    vi.mocked(api.previewTransfer).mockResolvedValueOnce(preview);
+    vi.mocked(api.executeTransfer).mockResolvedValueOnce({ batch_id: "batch", logs: result(["success", "success"]).map((log, index) => ({ ...log, operation_type: action, path_after: `${destination}${tickets[index]!.name}` })) });
+    await render();
+    await click(t(action === "move" ? "fmCut" : "fmCopy"));
+    expect(api.captureTransfer).toHaveBeenCalledWith({ refs });
+    useFileManagementStore.setState({ surface: () => ({ signature: "empty-destination", count: 0, browse: { sessionId: "target", pathRef: { id: "target" } }, routingHint: destination, refresh, clear }) });
+    await render();
+    await click(t("fmPaste"));
+    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({ action, destinationDirectory: destination, ticketIds: ["one", "two"] }));
+    expect(api.executeTransfer).toHaveBeenCalledOnce();
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    expect(mocks.refreshHistory).toHaveBeenCalled();
+    expect(useFileManagementStore.getState().clipboard?.tickets).toHaveLength(action === "move" ? 0 : 2);
+    await click(t("fmResults"));
+    await click(t("fmOpenDestination"));
+    const expectedDirectory = destination === "D:/" || destination === "/" ? destination : destination.replace(/\/$/, "");
+    expect(mocks.navigate).toHaveBeenCalledWith({ platform: wirePlatform, routingHint: expectedDirectory, displayHint: expectedDirectory });
+    await click(t("fmResults"));
+    await click(t("fmHistory"));
+    expect(mocks.setView).toHaveBeenCalledWith("restore");
+  });
+  it("opens the successful result directory after a partial failure", async () => {
+    const logs = result(["failed", "success"]);
+    logs[0]!.path_after = "C:/Missing/one.txt";
+    logs[1]!.path_after = "C:/Completed/two.txt";
+    useFileManagementStore.setState({ results: logs });
+    await render(); await click(t("fmResults")); await click(t("fmOpenDestination"));
+    expect(mocks.navigate).toHaveBeenCalledWith(expect.objectContaining({ routingHint: "C:/Completed" }));
+  });
+  it("keeps History reachable and disables destination navigation when every item failed", async () => {
+    useFileManagementStore.setState({ results: result(["failed", "failed"]) });
+    await render(); await click(t("fmResults"));
+    expect(button(t("fmOpenDestination")).disabled).toBe(true);
+    await click(t("fmHistory"));
+    expect(mocks.setView).toHaveBeenCalledWith("restore");
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
   it("waits for preview handle release before invoking a mutation", async () => {
     useFileManagementStore.setState({clipboard:{action:"copy",tickets}});
@@ -182,6 +233,31 @@ describe("File Library manual management workflow", () => {
     expect(api.captureTransfer).toHaveBeenCalledWith({ externalPaths: ["C:/Source/one.txt"] });
     expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["one"], action: "copy", destinationDirectory: "C:/Target", skip: [], keepBoth: [] });
   });
+  it("keeps recovery-required results distinct from failed operations", async () => {
+    const logs = result(["success", "manual_review"]);
+    logs[1]!.operation_phase = "source_cleanup_pending";
+    logs[1]!.error_message = "target_committed_source_cleanup_pending";
+    useFileManagementStore.setState({ results: logs });
+    await render(); await click(t("fmResults"));
+    const rows = document.querySelectorAll(".fm-results li");
+    expect(rows[1]!.querySelector(".fm-item-status")?.textContent).toBe(t("fmTaskNeedsReview"));
+    expect(button(t("fmHistory"))).toBeTruthy();
+    expect([...document.querySelectorAll("button")].some((item) => item.textContent?.trim() === t("fmRetrySafe"))).toBe(false);
+  });
+  it.each([
+    ["failed", "fmTaskPartial"],
+    ["manual_review", "fmTaskNeedsReview"],
+  ] as const)("shows an honest batch outcome when a Move partly returns %s", async (remaining, label) => {
+    const logs = result(["success", remaining]);
+    useFileManagementStore.setState({ clipboard: { action: "move", tickets }, basket: tickets });
+    vi.mocked(api.executeTransfer).mockResolvedValueOnce({ batch_id: "batch", logs });
+    await render(); await click(t("fmPaste"));
+    expect(document.querySelector(".fm-notice")?.textContent).toContain(t(label));
+    expect(useFileManagementStore.getState().clipboard?.tickets.map((ticket) => ticket.id)).toEqual(["two"]);
+    expect(useFileManagementStore.getState().basket.map((ticket) => ticket.id)).toEqual(["two"]);
+    expect(useFileManagementStore.getState().transferActive).toBe(false);
+    expect(useOperationQueueStore.getState().activeOperationKind).toBeNull();
+  });
   it("refreshes History and the file surface when an accepted execution returns an uncertain error", async () => {
     useFileManagementStore.setState({ clipboard: { action: "copy", tickets } });
     vi.mocked(api.executeTransfer).mockRejectedValueOnce(new Error("journal outcome unavailable"));
@@ -212,6 +288,17 @@ describe("File Library manual management workflow", () => {
     expect(useFileManagementStore.getState().basket.map((ticket)=>ticket.id)).toEqual(["two"]);
     expect(useFileManagementStore.getState().clipboard?.tickets.map((ticket)=>ticket.id)).toEqual(["two"]);
     expect(useFileManagementStore.getState().statuses.two).toContain(remainingStatus === "failed" ? "source_locked" : t("fmSkipped"));
+    expect(useFileManagementStore.getState().transferActive).toBe(false);
+    expect(useOperationQueueStore.getState().activeOperationKind).toBeNull();
+    const nextPlan = plan(); nextPlan.rows = [nextPlan.rows[1]!];
+    vi.mocked(api.previewTransfer).mockResolvedValueOnce(nextPlan);
+    vi.mocked(api.executeTransfer).mockResolvedValueOnce({ batch_id: "retry-batch", logs: [result(["failed", "success"])[1]!] });
+    await click(t("fmPaste"));
+    expect(api.executeTransfer).toHaveBeenCalledTimes(2);
+    expect(mocks.cancelOperations).toHaveBeenCalledTimes(1);
+    expect(useFileManagementStore.getState().clipboard?.tickets).toHaveLength(0);
+    expect(useFileManagementStore.getState().basket).toHaveLength(0);
+    expect(document.querySelector(".fm-notice")?.textContent).toContain(t("fmFinished"));
   });
   it("reports stale sources nonmodally and keeps the persistent basket tickets", async()=>{
     useFileManagementStore.setState({basket:tickets,basketOpen:true});
@@ -305,6 +392,7 @@ describe("File Library manual management workflow", () => {
     vi.mocked(api.previewTransfer).mockReset().mockResolvedValueOnce(conflict).mockResolvedValueOnce(actionPlan(tickets[0]!, "rename", "C:/Source", "renamed-again.txt"));
 
     await render();
+    await click(t("fmMore"));
     await click(t("fmRename"));
     const entryDialog = document.querySelector<HTMLElement>("[aria-modal=true]")!;
     await fill(entryDialog.querySelector("input")!, "renamed.txt");
@@ -333,6 +421,7 @@ describe("File Library manual management workflow", () => {
     vi.mocked(api.captureTransfer).mockResolvedValueOnce([tickets[0]!]);
     vi.mocked(api.previewTransfer).mockResolvedValueOnce(actionPlan(tickets[0]!, "trash", "C:/Source", tickets[0]!.name));
     await render();
+    await click(t("fmMore"));
     await click(t("fmSafeDelete"));
 
     expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({

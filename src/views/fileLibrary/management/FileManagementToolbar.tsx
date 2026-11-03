@@ -318,7 +318,9 @@ export function FileManagementToolbar() {
       acceptedPlan.rows.filter((row) => row.skipped).forEach((row) => { statuses[row.ticketId] = t("fmSkipped"); });
       rows.forEach((row, index) => {
         const log = result.logs[index];
-        statuses[row.ticketId] = log?.status === "success" ? t("fmSucceeded") : log?.status === "skipped" ? t("fmSkipped") : log?.error_message ? localizedStableError(log.error_message, t) : t("fmFailed");
+        statuses[row.ticketId] = log?.status === "success" ? t("fmSucceeded") : log?.status === "skipped" ? t("fmSkipped")
+          : log?.status === "manual_review" || log?.status === "pending" ? t("fmTaskNeedsReview")
+            : log?.error_message ? localizedStableError(log.error_message, t) : t("fmFailed");
         if (log?.status === "success") succeeded.add(row.ticketId);
       });
       const current = useFileManagementStore.getState();
@@ -328,7 +330,11 @@ export function FileManagementToolbar() {
           clipboard: current.clipboard ? { ...current.clipboard, tickets: current.clipboard.tickets.filter((ticket) => !succeeded.has(ticket.id)) } : null,
         } : {}) });
       if (result.logs.some((log) => log.status !== "success")) setPanel("results");
-      setNotice(transferCancelRequested() && result.logs.some((log) => log.status !== "success") ? t("fmCancelled") : t("fmFinished"));
+      const batch = groupOperationLogs(result.logs)[0];
+      const needsReview = result.logs.some((log) => log.status === "manual_review" || log.status === "pending");
+      setNotice(needsReview ? t("fmTaskNeedsReview")
+        : transferCancelRequested() && result.logs.some((log) => log.status !== "success") ? t("fmCancelled")
+          : batch && batch.failed > 0 ? taskBatchStatus(batch, false, t) : t("fmFinished"));
       previewController.close("escape");
       const affectedSurface = intent.sourcePaneId ? useFileManagementStore.getState().surfaces[intent.sourcePaneId]?.read() : currentSurface();
       if (intent.tickets.length > 0 && (!intent.sourceSignature || affectedSurface?.signature === intent.sourceSignature)) affectedSurface?.clear();
@@ -617,6 +623,7 @@ export function FileManagementToolbar() {
   const nameConflict = transfer?.action === "rename" || transfer?.action === "create_directory";
   const conflictsResolved = conflictTicketIds.length > 0 && conflictTicketIds.every((id) => skip.includes(id) || keepBoth.includes(id));
   const panelTitle = t(state.basketOpen ? "fmBasket" : panel === "places" ? "fmPlaces" : panel === "results" ? "fmResultsSummary" : panel === "tasks" ? "fmTasks" : "fmMore");
+  const resultDestination = parentPath(state.results.find((log) => log.status === "success" && log.path_after)?.path_after ?? "");
   const resultsSummary = `${t("fmResults")} · ${state.results.filter((log) => log.status === "success").length}/${state.results.length}`;
   const taskAttentionCount = operationTaskBatches.reduce((count, batch) => count + batch.pending + batch.failed, 0)
     + operationTaskBatches.filter((batch) => batch.logs.some((log) => log.status === "manual_review")).length;
@@ -701,14 +708,10 @@ export function FileManagementToolbar() {
   return <section className="fm-workflow" aria-label={t("fmActions")} data-file-management>
     <div className="fm-toolbar fm-primary-toolbar">
       <span className="fm-selection" data-has-selection={!disabled} aria-live="polite">{t("fmSelection")} <strong>{selected}</strong></span>
-      <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} title={t("fmShortcutNewFolder")} onClick={createDirectory}><FolderPlus size={14}/>{t("fmNewFolder")}</button>
-      <button className={buttonGhost} disabled={disabled} onClick={() => collect("copy")}><Copy size={14}/>{t("fmCopy")}</button>
-      <button className={buttonGhost} disabled={disabled} onClick={() => collect("cut")}><Scissors size={14}/>{t("fmCut")}</button>
-      <button className={buttonGhost} disabled={pasteDisabled} onClick={paste}><ClipboardPaste size={14}/>{t("fmPaste")}{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
-      <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
-      <button className={buttonGhost} disabled={disabled || surface?.count !== 1} title={t("fmShortcutRename")} onClick={renameSelection}><Pencil size={14}/>{t("fmRename")}</button>
-      <button className={buttonGhost} disabled={disabled} title={t("fmShortcutTrash")} onClick={trashSelection}><Trash2 size={14}/>{t("fmSafeDelete")}</button>
-      <label className="fm-drop-mode"><span>{t("fmExternalDropAction")}</span><select aria-label={t("fmExternalDropAction")} value={state.externalDropAction} disabled={state.transferActive} onChange={(event) => useFileManagementStore.setState({ externalDropAction: event.target.value as TransferAction })}><option value="copy">{t("fmCopy")}</option><option value="move">{t("fmMove")}</option></select></label>
+      <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} title={t("fmShortcutNewFolder")} aria-label={t("fmNewFolder")} data-fm-primary-action onClick={createDirectory}><FolderPlus size={14}/><span className="fm-action-label">{t("fmNewFolder")}</span></button>
+      <button className={buttonGhost} disabled={disabled} aria-label={t("fmCopy")} title={t("fmCopy")} data-fm-primary-action onClick={() => collect("copy")}><Copy size={14}/><span className="fm-action-label">{t("fmCopy")}</span></button>
+      <button className={buttonGhost} disabled={disabled} aria-label={t("fmCut")} title={t("fmCut")} data-fm-primary-action onClick={() => collect("cut")}><Scissors size={14}/><span className="fm-action-label">{t("fmCut")}</span></button>
+      <button className={buttonGhost} disabled={pasteDisabled} aria-label={`${t("fmPaste")}${state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}`} title={t("fmPaste")} data-fm-primary-action onClick={paste}><ClipboardPaste size={14}/><span className="fm-action-label">{t("fmPaste")}</span>{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
       <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "tasks"} onClick={(event) => panel === "tasks" ? closePanel() : openPanel("tasks", event.currentTarget)}><Activity size={14}/><span>{t("fmTasks")}{taskAttentionCount ? ` · ${taskAttentionCount}` : ""}</span></button>
       <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls={panelId} onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basket.length > 0 && <span className="fm-count">{state.basket.length}</span>}</button>
       {!!state.results.length && <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "results"} onClick={(event) => panel === "results" ? closePanel() : openPanel("results", event.currentTarget)}>{state.results.some((log) => log.status !== "success") ? <AlertTriangle size={14}/> : <Check size={14}/>}<span>{resultsSummary}</span></button>}
@@ -725,6 +728,11 @@ export function FileManagementToolbar() {
       <div className="fm-panel-heading"><h2>{panelTitle}{state.basketOpen ? ` (${state.basket.length})` : ""}</h2><button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => closePanel()}><X size={16}/></button></div>
       <div className="fm-panel-body">
       {panel === "more" && <div className="fm-more-actions">
+      <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
+      <button className={buttonGhost} disabled={disabled || surface?.count !== 1} title={t("fmShortcutRename")} onClick={renameSelection}><Pencil size={14}/>{t("fmRename")}</button>
+      <button className={buttonGhost} disabled={disabled} title={t("fmShortcutTrash")} onClick={trashSelection}><Trash2 size={14}/>{t("fmSafeDelete")}</button>
+      <label className="fm-drop-mode"><span>{t("fmExternalDropAction")}</span><select aria-label={t("fmExternalDropAction")} value={state.externalDropAction} disabled={state.transferActive} onChange={(event) => useFileManagementStore.setState({ externalDropAction: event.target.value as TransferAction })}><option value="copy">{t("fmCopy")}</option><option value="move">{t("fmMove")}</option></select></label>
+        <hr/>
         <button className={buttonGhost} disabled={disabled} onClick={() => collect("basket")}><PackagePlus size={16}/>{t("fmAddBasket")}</button>
         <button className={buttonGhost} onClick={() => openPanel("basket")}><Package size={16}/>{t("fmBasket")} ({state.basket.length})<ChevronRight size={14}/></button>
         <button className={buttonGhost} onClick={() => openPanel("places")}><Star size={16}/>{t("fmPlaces")}<ChevronRight size={14}/></button>
@@ -787,9 +795,9 @@ export function FileManagementToolbar() {
       {panel === "results" && <>
         {state.activeTransferTask && state.transferRunning && <div className="fm-progress fm-task-details" role="status"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : t("fmExecuting")}</strong>{taskProgressBar(liveTaskProgress)}<span>{liveTaskProgress ? `${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}` : state.activeTransferTask.sourceSummary}</span><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>}
         <p className="fm-muted">{resultsSummary}</p>
-        <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{log.status === "success" ? t("fmSucceeded") : log.status === "skipped" ? t("fmSkipped") : t("fmFailed")}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{localizedStableError(log.error_message, t)}</p>}</li>)}</ul>
+        <ul className="fm-results">{state.results.slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE).map((log) => <li key={log.id}><strong>{log.name_after}</strong><span className="fm-item-status">{taskOperationStatus(log, false)}</span><p className="fm-path" title={log.path_after}>{log.path_after}</p>{log.error_message && <p role="alert" className="fm-item-error">{localizedStableError(log.error_message, t)}</p>}</li>)}</ul>
         {pageControls(state.results.length, resultPage, setResultPage)}
-        <div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} onClick={() => void go(state.results[0]!.path_after.replace(/[/\\][^/\\]+$/, ""))}>{t("fmOpenDestination")}</button><button className={buttonGhost} onClick={() => { useFileManagementStore.setState({ results: [] }); closePanel(); }}>{t("fmDismiss")}</button></div>
+        <div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} disabled={!resultDestination} onClick={() => void go(resultDestination)}>{t("fmOpenDestination")}</button><button className={buttonGhost} onClick={() => { useFileManagementStore.setState({ results: [] }); closePanel(); }}>{t("fmDismiss")}</button></div>
         <p className="fm-muted">{t("fmRestoreHelp")}</p>
       </>}
       </div>

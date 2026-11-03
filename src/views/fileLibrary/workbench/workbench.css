@@ -310,3 +310,16 @@
   padding-block: 3px;
   font-size: 12px;
 }
+
+.wb-workbench { position: relative; }
+.wb-pane .file-library-workspace { gap: 3px; }
+.wb-pane-actions { flex-wrap: nowrap; min-height: 30px; }
+.wb-pane-hint { display: none; }
+.wb-workbench[data-wide="true"] .wb-side-button { display: none; }
+.wb-tabs-row { min-height: 34px; padding-bottom: 3px; }
+.wb-workbench .file-library-location-row .file-library-command-bar { padding-bottom: 0; }
+
+.wb-tabs-row { flex-wrap: wrap; }
+.wb-tabs-row > .wb-pane-actions { border: 0; padding: 0; margin-left: auto; flex: 0 0 auto; }
+.wb-workbench[data-wide="false"] .wb-tabs-row > .wb-pane-actions { flex: 1 0 100%; }
+.wb-workbench[data-wide="false"] .wb-cross-label { display: none; }

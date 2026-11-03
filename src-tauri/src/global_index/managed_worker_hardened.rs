@@ -433,6 +433,7 @@ impl Database {
         let canonical_response = SemanticAssessmentV1::decode_stored(
             response,
             SemanticSourceBinding {
+                one_off: None,
                 global_entry_id: job.global_entry_id.clone(),
                 managed_scope_id: job.managed_scope_id.clone(),
                 input_fingerprint: job.input_fingerprint.clone(),
@@ -920,6 +921,7 @@ fn parse_semantic_assessment(job: &ManagedAiJob, response: &str) -> Result<Strin
     let assessment = SemanticAssessmentV1::parse_provider_response(
         response,
         SemanticSourceBinding {
+            one_off: None,
             global_entry_id: job.global_entry_id.clone(),
             managed_scope_id: job.managed_scope_id.clone(),
             input_fingerprint: job.input_fingerprint.clone(),
@@ -1592,6 +1594,7 @@ mod tests {
             .expect("add current managed scope");
         let analysis = db
             .analyze_organization_plan_items(AnalyzeOrganizationPlanItemsRequest {
+                one_off_consent: false,
                 plan_id: plan.id.clone(),
                 expected_plan_revision: plan.revision,
                 item_ids: vec![initial_item.id.clone()],

@@ -93,6 +93,7 @@ fn semantic_delete_candidate_does_not_grant_cleanup_trash_authority() {
     let semantic = crate::ai::semantic::SemanticAssessmentV1::parse_provider_response(
             r#"{"version":1,"refId":"managed:entry-1","fileType":"Document","purpose":"Work","lifecycle":"Active","context":"","riskLevel":"Normal","suggestedAction":"DeleteCandidate","confidence":0.95,"reason":"possible cleanup candidate","keywords":[],"requiresConfirmation":false}"#,
             crate::ai::semantic::SemanticSourceBinding {
+                one_off: None,
                 global_entry_id: "entry-1".to_string(),
                 managed_scope_id: "scope-1".to_string(),
                 input_fingerprint: "fingerprint-1".to_string(),

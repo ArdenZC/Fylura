@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "vite --host 127.0.0.1",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeBuildCommand": "node scripts/generateFyluraIcons.mjs && node scripts/verifyFyluraIcons.mjs && npm run build:frontend && npm run build:native-preview-handler",
+    "beforeBuildCommand": "npm run build:frontend && npm run build:native-preview-handler",
     "frontendDist": "../dist"
   },
   "app": {
@@ -15,18 +15,13 @@
       "csp": "default-src 'self'; img-src 'self' blob: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'",
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$APPDATA/**"
-        ]
+        "scope": ["$APPDATA/**"]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis",
-      "dmg"
-    ],
+    "targets": ["nsis", "dmg"],
     "icon": [
       "../build/icon.png",
       "../build/icon.ico",

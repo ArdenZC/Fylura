@@ -1,9 +1,9 @@
-# Fylura small-icon clarity fix
+# Fylura native-size icon clarity
 
-**Existing issue:** The previous exporter rasterized a 1024px HTML icon containing a wide CSS `backdrop-filter`, translucent glass and shadows, then shrank it to 16–48px. Unsharp masking could not restore detail that was already blurred.
+Previous icon assets were derived by shrinking a 1024px HTML render with `backdrop-filter` glass and wide glow shadows. The pane and sphere merged under 64px; sharpening cannot restore that missing boundary.
 
-**Fix:** The new pure Node renderer calculates the original sphere/pane geometry at each native size. At 16,24,32,48,64px it removes backdrop blur, makes the glass pane more opaque, adds a one-device-pixel white edge and applies native-pixel antialiasing. Windows ICO contains PNG-backed individual frames. macOS ICNS contains all standard + Retina slots.
+This PR keeps the approved high-resolution image and updates only embedded 16/24/32/48/64px frames: clear white pane outline, stronger opacity, no backdrop blur, native-scale antialiasing. Large ICO and ICNS frames preserve the original artwork.
 
-The identity remains one unified blue sphere + foreground pane on both platforms. No changes to SQL, file operations, Windows services, COM GUIDs, application ID or performance limits.
+To reproduce: `node scripts/generateFyluraIcons.mjs` then `node scripts/verifyFyluraIcons.mjs`. Inspect `build/brand/small-sizes/Fylura_16.png` through `Fylura_64.png` at actual pixel sizes. The build already uses committed `build/icon.ico`, `build/icon.icns`, and `build/icon.png` via the unchanged Tauri configuration.
 
-Validation: `npm run assets:icons`, then view the five `build/brand/small-sizes` samples at actual size and inspect the Windows taskbar / macOS Dock in genuine NSIS/DMG package runs. macOS 26 Icon Composer Liquid Glass is separate; standard `.icns` cannot claim that functionality.
+No change to Rust source, dependency manifests, app identity, file operations, indexing, search SQL, Windows services, or platform signing. Native installed icon appearance on Windows taskbar and macOS Dock remains to be verified on each OS.

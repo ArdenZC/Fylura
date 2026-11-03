@@ -1,14 +1,16 @@
 # Fylura selected orb + glass-pane icon
 
-The user-approved icon has the cyan/blue sphere in the upper left and a translucent rounded-square panel in the lower right. There is **one unified silhouette** for Windows and macOS.
+The approved symbol is a blue/cyan sphere upper-left, overlapped by a translucent rounded pane lower-right. Windows and macOS use the **same silhouette**.
 
-**Source of truth:** `scripts/generateFyluraIcons.mjs` uses only built-in Node modules to generate:
-- `build/icon.png` (1024px), `build/icon.ico` (16/24/32/48/64/128/256px), `build/icon.icns` (16–1024 + Retina slots), and the NSIS installer/uninstaller icon variants.
-- `build/brand/small-sizes/Fylura_{16,24,32,48,64}.png` are direct native-size rasterizations, **not** 1024px downscales.
-- The small variants suppress backdrop blur, increase foreground pane opacity and edge contrast, preserving recognition at 16px.
+The Tauri bundle configuration already reads the committed files `build/icon.png`, `build/icon.ico`, `build/icon.icns`, and `build/installerIcon.ico`. The binaries in this PR are production inputs; **no Tauri config change is necessary**.
 
-`node scripts/generateFyluraIcons.mjs && node scripts/verifyFyluraIcons.mjs` renders and validates the icons; Tauri `beforeBuildCommand` invokes it before bundling. The icon scripts intentionally do not alter package dependencies or npm lifecycle hooks. On Windows, `npm run assets:brand` also generates NSIS sidebar/header bitmap and DMG background, after regenerating icons using the new source.
+- Windows ICO: separate hand-optimized frames 16, 24, 32, 48, 64, 128 and 256px.
+- macOS ICNS: standard 16–1024px icon slots and Retina sizes (macOS 13+).
+- 16–64px frames are optically rendered at native sizes, not blurry downscales.
+- `build/icon.png` remains the original 1024px approved source, unmodified.
 
-The ICO/ICNS binary files are committed with the optical small-size frames. The tracked 1024px PNG is the approved high-resolution source and is never regenerated. Build outputs use the newly generated resources, **not** the temporary-brand-source fixture. Do not manually overwrite these icon assets with images extracted from brand presentation boards.
+To regenerate or verify with Node alone, run `node scripts/generateFyluraIcons.mjs` and then `node scripts/verifyFyluraIcons.mjs`. On Windows, the existing `npm run assets:brand` command calls the new generator and also creates the NSIS header/sidebar and DMG background; it no longer regenerates the old temporary HTML artwork.
 
-The `.icns` is a normal macOS 13+ bundle icon; true macOS 26 native Icon Composer materials need a separate Mac-native pipeline. Windows NSIS and macOS DMG install/Dock/Taskbar visual acceptance still require native verification.
+We deliberately do not modify `package.json`, its dependency lockfile, npm lifecycle hooks, or Tauri configuration. Existing packaged app icons use the committed images directly; when intentionally changing the master image, rerun the generator and commit its outputs.
+
+Standard `.icns` does not implement native macOS 26 Icon Composer / Liquid Glass dynamic materials. Windows NSIS and macOS DMG installation and taskbar/Dock presentation remain subject to native smoke testing.

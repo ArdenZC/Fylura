@@ -9,7 +9,7 @@ const { call } = vi.hoisted(() => ({ call: vi.fn() }));
 vi.mock("../src/api/tauriApi", () => ({ tauriApi: { globalIndexCoverage: call } }));
 let root: Root | undefined;
 let host: HTMLDivElement;
-afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); call.mockReset(); });
+afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); call.mockReset(); vi.useRealTimers(); });
 function response(): IndexCoverageResponse { return { snapshot: { policy: { version: 1, revision: 7, mode: "smart_lean", rules: [] }, sources: [] }, preview: null }; }
 async function mount() {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
@@ -17,6 +17,35 @@ async function mount() {
 }
 async function click(text: string) { const b = [...host.querySelectorAll("button")].find((b) => b.textContent === text)!; await act(async () => b.click()); }
 describe("Index Coverage settings workflow", () => {
+  it("invalidates an old preview when polling observes a concurrent policy change", async () => {
+    vi.useFakeTimers();
+    let revision = 7;
+    call.mockImplementation(async (r: IndexCoverageRequest) => ({
+      snapshot: {
+        policy: { version: 1, revision, mode: revision === 7 ? "smart_lean" : "custom", rules: [] },
+        sources: [{ sourceId: "source", enabled: true, status: "indexing", pending: true, hasUndetermined: true, included: 0, excluded: 0, undetermined: 0 }]
+      },
+      preview: r.action === "preview" ? { sampled: 1, included: 1, excluded: 0, undetermined: 0, sampleLimit: 1000, isComplete: false } : null
+    }));
+    await mount();
+    await click("Preview coverage changes");
+    expect(call).toHaveBeenCalledWith({ action: "preview", expectedRevision: 7, mode: "smart_lean", rules: [] });
+    revision = 8;
+    await act(async () => vi.advanceTimersByTimeAsync(2500));
+    expect(host.textContent).toContain("Coverage policy changed elsewhere");
+    expect(host.textContent).not.toContain("not the complete impact");
+    expect([...host.querySelectorAll("button")].find((b) => b.textContent === "Apply and rebuild")!.disabled).toBe(true);
+    await click("Apply and rebuild");
+    expect(call.mock.calls.filter(([r]) => r.action === "save")).toHaveLength(0);
+    await click("Refresh coverage status");
+    expect(host.querySelector("select")!.value).toBe("custom");
+    expect(host.textContent).not.toContain("Coverage policy changed elsewhere");
+    await click("Preview coverage changes");
+    expect(call).toHaveBeenCalledWith({ action: "preview", expectedRevision: 8, mode: "custom", rules: [] });
+    await click("Apply and rebuild");
+    expect(call).toHaveBeenCalledWith({ action: "save", expectedRevision: 8, mode: "custom", rules: [] });
+  });
+
   it("requires a preview, binds CAS revision, and keeps source authorization separate", async () => {
     call.mockImplementation(async (r: IndexCoverageRequest) => ({ ...response(), preview: r.action === "preview" ? { sampled: 0, included: 0, excluded: 0, undetermined: 0, sampleLimit: 1000, isComplete: false } : null }));
     await mount();

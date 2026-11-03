@@ -2,6 +2,7 @@ import type { Language } from "./types";
 export type { Language } from "./types";
 
 const zh = {
+  indexCoveragePolicyChanged: "覆盖策略已在其他位置更改。请刷新并重新预览后再应用。",
   indexCoverageWaiting: "覆盖重建尚未完成；请核对位置健康和权限，修复后重建或重启。",
   indexCoverageSourceHealth: "位置健康",
   indexCoverageExcludedResult: "此结果已被当前搜索覆盖策略排除，并不表示文件不存在。可在设置中包含该文件夹。",
@@ -3163,6 +3164,7 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
+  indexCoveragePolicyChanged: "Coverage policy changed elsewhere. Refresh and preview again before applying.",
   indexCoverageWaiting: "Coverage rebuild is incomplete. Check source health and permissions, then rebuild or restart after recovery.",
   indexCoverageSourceHealth: "Source health",
   indexCoverageExcludedResult: "This result is excluded by the current coverage policy. It does not mean the file is absent. Include its folder in Settings to restore coverage.",

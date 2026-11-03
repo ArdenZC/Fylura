@@ -7,7 +7,7 @@ The user-approved icon has the cyan/blue sphere in the upper left and a transluc
 - `build/brand/small-sizes/Fylura_{16,24,32,48,64}.png` are direct native-size rasterizations, **not** 1024px downscales.
 - The small variants suppress backdrop blur, increase foreground pane opacity and edge contrast, preserving recognition at 16px.
 
-`npm run assets:icons` renders and verifies the icons. `npm run build` and Tauri `beforeBuildCommand` invoke it before bundling. On Windows, `npm run assets:brand` also generates NSIS sidebar/header bitmap and DMG background, after regenerating icons using the new source.
+`node scripts/generateFyluraIcons.mjs && node scripts/verifyFyluraIcons.mjs` renders and validates the icons; Tauri `beforeBuildCommand` invokes it before bundling. The icon scripts intentionally do not alter package dependencies or npm lifecycle hooks. On Windows, `npm run assets:brand` also generates NSIS sidebar/header bitmap and DMG background, after regenerating icons using the new source.
 
 The ICO/ICNS binary files are committed with the optical small-size frames. The tracked 1024px PNG is the approved high-resolution source and is never regenerated. Build outputs use the newly generated resources, **not** the temporary-brand-source fixture. Do not manually overwrite these icon assets with images extracted from brand presentation boards.
 

@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "vite --host 127.0.0.1",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeBuildCommand": "npm run assets:icons && npm run build:frontend && npm run build:native-preview-handler",
+    "beforeBuildCommand": "node scripts/generateFyluraIcons.mjs && node scripts/verifyFyluraIcons.mjs && npm run build:frontend && npm run build:native-preview-handler",
     "frontendDist": "../dist"
   },
   "app": {

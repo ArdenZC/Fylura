@@ -345,6 +345,12 @@ export function localizedStableError(error: unknown, t: Translator): string {
     || windowsGlobalIndexError === "global_index_source_not_authorizable") {
     return t("globalIndexErrorWindowsVolumeUnsupported");
   }
+  if (message === "cleanup_finding_changed_before_journal"
+    || message.startsWith("Storage cleanup finding revision is stale:")
+    || message.startsWith("Storage cleanup finding identity changed:")
+    || message.startsWith("Storage cleanup finding path is no longer present:")) return t("errorSourceIdentityChanged");
+  if (message === "cleanup_finding_not_executable") return t("storageCleanupFindingBlocked");
+  if (message.startsWith("Storage cleanup finding is kept or excluded:")) return t("cleanupKeptReason");
   if (message.startsWith("Storage cleanup finding requires a current AI assessment:")) {
     return t("storageCleanupCurrentAssessmentRequired");
   }

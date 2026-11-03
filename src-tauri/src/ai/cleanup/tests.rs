@@ -689,7 +689,7 @@ fn current_assessment_rejects_changed_live_source_identity() {
 }
 
 #[test]
-fn current_assessment_rejects_a_newer_analysis_run_revision() {
+fn current_assessment_survives_unrelated_run_aggregate_revision() {
     let fixture = new_cleanup_ai_fixture();
     let (run, _candidate, finding) = publish_single_cleanup_assessment(&fixture);
     assert!(has_current_ai_assessment(fixture.db(), &finding.id));
@@ -703,7 +703,7 @@ fn current_assessment_rejects_a_newer_analysis_run_revision() {
         .expect("advance Analysis Run revision");
     drop(connection);
 
-    assert!(!has_current_ai_assessment(fixture.db(), &finding.id));
+    assert!(has_current_ai_assessment(fixture.db(), &finding.id));
 }
 
 #[test]
@@ -1289,3 +1289,6 @@ fn cleanup_response(id: &str) -> String {
         r#"{{"analyses":[{{"candidateId":"{id}","tier":"Safe","category":"AI category","suggestedAction":"MoveToTrash","confidence":0.95,"reason":"AI reason.","riskNote":"AI risk.","trashAllowed":true,"selectedByDefault":true}}]}}"#
     )
 }
+
+#[path = "m3_workflow_tests.rs"]
+mod m3_workflow_tests;

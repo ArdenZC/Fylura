@@ -10,7 +10,9 @@ use std::{
     path::Path,
 };
 
+mod grouping;
 mod projection;
+pub use grouping::AnalysisFindingGroupDto;
 
 use projection::{
     aggregate_path_is_same_or_child, analysis_decision_from_row, analysis_detector_from_row,
@@ -168,6 +170,10 @@ pub struct AnalysisFindingDecisionDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisFindingPageDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_revision: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groups: Option<Vec<AnalysisFindingGroupDto>>,
     pub findings: Vec<AnalysisFindingDto>,
     pub next_cursor: Option<String>,
     pub limit: i64,
@@ -1092,7 +1098,8 @@ impl Database {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<AnalysisFindingPageDto, DbError> {
-        let conn = self.conn()?;
+        let pooled = self.conn()?;
+        let conn = pooled.unchecked_transaction()?;
         let limit = i64::try_from(limit.clamp(1, 200)).unwrap_or(200);
         let parsed_cursor = cursor.map(parse_finding_cursor).transpose()?;
         let mut clauses = vec!["1 = 1".to_string()];
@@ -1175,7 +1182,37 @@ impl Database {
                 })
             })
             .flatten();
+        let context = filter
+            .run_id
+            .as_ref()
+            .map(|id| {
+                conn.query_row(
+                    "SELECT revision,scope_json FROM analysis_runs WHERE id=?1",
+                    [id],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+                )
+                .optional()
+            })
+            .transpose()?
+            .flatten();
+        let run_revision = context.as_ref().map(|(revision, _)| *revision);
+        let is_cleanup = context.as_ref().is_some_and(|(_, scope)| {
+            serde_json::from_str::<Value>(scope)
+                .ok()
+                .is_some_and(|scope| scope["kind"] == "approved_cleanup_paths")
+        });
+        let groups = if cursor.is_none() && is_cleanup {
+            filter
+                .run_id
+                .as_ref()
+                .map(|id| grouping::summarize(&conn, id))
+                .transpose()?
+        } else {
+            None
+        };
         Ok(AnalysisFindingPageDto {
+            run_revision,
+            groups,
             findings,
             next_cursor,
             limit,
@@ -2035,15 +2072,20 @@ struct ExactPhysicalSubject {
     bytes: i64,
 }
 
-fn analysis_reclaimable_totals_tx(
-    tx: &Transaction<'_>,
+fn analysis_reclaimable_totals_tx(tx: &Connection, run_id: &str) -> Result<(i64, i64), DbError> {
+    analysis_reclaimable_totals_for_tier(tx, run_id, None)
+}
+
+fn analysis_reclaimable_totals_for_tier(
+    tx: &Connection,
     run_id: &str,
+    tier: Option<&str>,
 ) -> Result<(i64, i64), DbError> {
     let mut statement = tx.prepare(
-        "SELECT primary_subject_kind, primary_subject_id, path_snapshot, identity_snapshot_json, exact_reclaimable_bytes, potential_reclaimable_bytes FROM analysis_findings WHERE run_id = ?1 AND status = 'active'",
+        "SELECT primary_subject_kind, primary_subject_id, path_snapshot, identity_snapshot_json, exact_reclaimable_bytes, potential_reclaimable_bytes FROM analysis_findings WHERE run_id = ?1 AND status = 'active' AND (?2 IS NULL OR (tier = ?2 AND NOT EXISTS (SELECT 1 FROM analysis_finding_decisions d WHERE d.finding_key=analysis_findings.finding_key AND (d.decision='dismissed' OR (d.decision='snoozed' AND d.snoozed_until>unixepoch())))))",
     )?;
     let mut subjects = HashMap::<(String, String, String), ReclaimableSubject>::new();
-    let rows = statement.query_map(params![run_id], |row| {
+    let rows = statement.query_map(params![run_id, tier], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -2120,7 +2162,7 @@ fn analysis_reclaimable_totals_tx(
 }
 
 fn authoritative_duplicate_exact_subjects_tx(
-    tx: &Transaction<'_>,
+    tx: &Connection,
     finding: &ReclaimableSubject,
 ) -> Result<Vec<ExactPhysicalSubject>, DbError> {
     let identity = serde_json::from_str::<Value>(&finding.identity_json).unwrap_or(Value::Null);

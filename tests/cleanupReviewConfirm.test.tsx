@@ -174,7 +174,7 @@ describe("cleanup review confirmation", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    const reviewTab = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("需人工判断"));
+    const reviewTab = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.getAttribute("aria-label")?.includes("需人工判断"));
     expect(reviewTab).toBeTruthy();
     await act(async () => reviewTab?.click());
     await act(async () => {

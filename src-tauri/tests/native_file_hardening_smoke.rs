@@ -176,7 +176,7 @@ struct SmokeManifest {
     final_log_persistence_boundary: &'static str,
     claim_identity_reconciliation: &'static str,
     windows_nested_handle_relative: &'static str,
-    system_trash_preview: &'static str,
+    safe_trash_preview: &'static str,
     operation_reconciliation: &'static str,
     safe_trash_restore: &'static str,
     safe_trash_reconciliation: &'static str,
@@ -1663,17 +1663,17 @@ fn native_file_hardening_smoke() {
     )
     .expect("write cleanup fixture");
     let cleanup = classify_candidate_for_test(&cleanup_source, b"safe trash payload".len() as u64);
-    let system_trash_preview = preview_cleanup_operations_for_candidates(
+    let safe_trash_preview = preview_cleanup_operations_for_candidates(
         vec![cleanup.id.clone()],
         std::slice::from_ref(&cleanup),
         Some(&app_data),
     )
-    .expect("preview system trash fallback");
-    assert_eq!(system_trash_preview.previews.len(), 1);
-    assert_eq!(system_trash_preview.previews[0].is_executable, Some(false));
+    .expect("preview app-owned Safe Trash");
+    assert_eq!(safe_trash_preview.previews.len(), 1);
+    assert_eq!(safe_trash_preview.previews[0].is_executable, Some(true));
     assert_eq!(
-        system_trash_preview.previews[0].blocking_reason.as_deref(),
-        Some("system_trash_source_binding_unsupported")
+        safe_trash_preview.previews[0].blocking_reason.as_deref(),
+        None
     );
     let cleanup_result = move_cleanup_candidates_to_safe_trash_for_candidates(
         vec![cleanup.id.clone()],
@@ -2139,7 +2139,7 @@ fn native_file_hardening_smoke() {
         final_log_persistence_boundary: "passed",
         claim_identity_reconciliation: "passed",
         windows_nested_handle_relative: "passed",
-        system_trash_preview: "passed",
+        safe_trash_preview: "passed",
         operation_reconciliation: "passed",
         safe_trash_restore: "passed",
         safe_trash_reconciliation: "passed",

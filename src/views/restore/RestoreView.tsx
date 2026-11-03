@@ -59,6 +59,7 @@ function formatDate(value: string, t: Translator) {
 export function RestoreView() {
   const { t } = useI18nContext();
   const logs = useOperationQueueStore((state) => state.operationLogs);
+  const requestedCleanupBatchId = useOperationQueueStore((state) => state.requestedCleanupBatchId);
   const requestedHistoryBatchId = useOperationQueueStore((state) => state.requestedHistoryBatchId);
   const restoreIntent = useOperationQueueStore((state) => state.restoreIntent);
   const prepareOperationRestoreIntent = useOperationQueueStore((state) => state.prepareOperationRestoreIntent);
@@ -244,8 +245,18 @@ export function RestoreView() {
   }, [requestedHistoryBatchId, operationBatches]);
 
   useEffect(() => {
+    if (!requestedCleanupBatchId || !cleanupBatches.some((batch) => batch.id === requestedCleanupBatchId)) return;
+    setQuery("");
+    setFilter("cleanup");
+    setActiveCleanupBatchId(requestedCleanupBatchId);
+    if (isNarrow) setNarrowPane("details");
+    useOperationQueueStore.setState({ requestedCleanupBatchId: null });
+  }, [requestedCleanupBatchId, cleanupBatches, isNarrow]);
+
+  useEffect(() => {
+    if (requestedCleanupBatchId) return;
     if (!activeCleanupBatchId || !cleanup.some((batch) => batch.id === activeCleanupBatchId)) setActiveCleanupBatchId(cleanup[0]?.id ?? "");
-  }, [activeCleanupBatchId, cleanup]);
+  }, [activeCleanupBatchId, cleanup, requestedCleanupBatchId]);
 
   useEffect(() => {
     if (!isNarrow) setNarrowPane("list");
@@ -450,7 +461,7 @@ export function RestoreView() {
               const previewState = cleanupPreviewByBatch[batch.id]?.state ?? "unavailable";
               const previewFailed = previewState === "failed" || previewState === "unavailable";
               const active = batch.id === activeCleanupBatch?.id;
-              return <button key={batch.id} type="button" className={cn(rowButton, active && selectedFocusVisibleState, active && selectedSurface)} onClick={() => { setActiveCleanupBatchId(batch.id); if (isNarrow) setNarrowPane("details"); }}><span className="min-w-0 text-left"><strong className="block text-sm">{formatDate(batch.createdAt, t)}</strong><span className="block truncate text-xs text-[var(--muted)]">{batch.totalItems} · {formatBytes(batch.totalSize)} · {previewFailed ? t("cleanupPreviewUnavailable") : previewState === "loading" ? t("cleanupPreviewLoading") : `${cleanupBatchRestorableCount(batch, cleanupPreviewItems, cleanupAuthoritiesById)} ${t("restorable")}`}</span></span><Trash2 size={15} aria-hidden="true" /></button>;
+              return <button key={batch.id} data-cleanup-history-batch-id={batch.id} type="button" className={cn(rowButton, active && selectedFocusVisibleState, active && selectedSurface)} onClick={() => { setActiveCleanupBatchId(batch.id); if (isNarrow) setNarrowPane("details"); }}><span className="min-w-0 text-left"><strong className="block text-sm">{formatDate(batch.createdAt, t)}</strong><span className="block truncate text-xs text-[var(--muted)]">{batch.totalItems} · {formatBytes(batch.totalSize)} · {previewFailed ? t("cleanupPreviewUnavailable") : previewState === "loading" ? t("cleanupPreviewLoading") : `${cleanupBatchRestorableCount(batch, cleanupPreviewItems, cleanupAuthoritiesById)} ${t("restorable")}`}</span></span><Trash2 size={15} aria-hidden="true" /></button>;
             })}</div>}
             {showCleanup && cleanupLoadState === "ready" && cleanup.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : t("cleanupTrashEmpty")}</div>}
           </div>

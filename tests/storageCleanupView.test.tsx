@@ -15,6 +15,7 @@ describe("StorageCleanupView V4.3 durable UX", () => {
     const source = [
       "src/views/cleanup/StorageCleanupView.tsx",
       "src/views/cleanup/cleanupModel.ts",
+      "src/views/cleanup/CleanupGroups.tsx",
       "src/views/cleanup/FindingRow.tsx",
       "src/views/cleanup/useCleanupAnalysisController.ts",
       "src/views/cleanup/useCleanupSelectionController.ts",
@@ -35,6 +36,7 @@ describe("StorageCleanupView V4.3 durable UX", () => {
     const source = [
       "src/views/cleanup/StorageCleanupView.tsx",
       "src/views/cleanup/cleanupModel.ts",
+      "src/views/cleanup/CleanupGroups.tsx",
       "src/views/cleanup/FindingRow.tsx",
       "src/views/cleanup/useCleanupAnalysisController.ts",
       "src/views/cleanup/useCleanupSelectionController.ts",
@@ -57,6 +59,7 @@ describe("StorageCleanupView V4.3 durable UX", () => {
     const source = [
       "src/views/cleanup/StorageCleanupView.tsx",
       "src/views/cleanup/cleanupModel.ts",
+      "src/views/cleanup/CleanupGroups.tsx",
       "src/views/cleanup/FindingRow.tsx",
       "src/views/cleanup/useCleanupAnalysisController.ts",
       "src/views/cleanup/useCleanupSelectionController.ts",

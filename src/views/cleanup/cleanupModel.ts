@@ -93,7 +93,7 @@ export function durableRunState(run: AnalysisRun): "running" | "partial" | "comp
 }
 
 export function isBackendDefaultSafeFinding(finding: AnalysisFinding): boolean {
-  return finding.tier === "safe" && finding.status === "active" && finding.executable && !finding.requiresConfirmation && isTrashAction(finding.actionKind);
+  return isFindingSelectable(finding) && finding.tier === "safe" && finding.executable && !finding.requiresConfirmation && isTrashAction(finding.actionKind);
 }
 
 export function reconcileAuthoritativeFindingUpdates(
@@ -129,14 +129,41 @@ export function isAnalysisFinding(value: unknown): value is AnalysisFinding {
     && typeof candidate.status === "string";
 }
 
+/** Offers a separate Review decision, never filesystem execution authority. */
+export function canRequestCleanupReview(finding: AnalysisFinding): boolean {
+  return finding.tier === "review" && finding.status === "active"
+    && isTrashAction(finding.actionKind) && finding.primarySubjectKind !== "duplicate_group"
+    && finding.decision !== "dismissed" && finding.decision !== "snoozed";
+}
+
 export function isFindingSelectable(finding: AnalysisFinding): boolean {
-  return (finding.tier === "safe" || finding.tier === "review")
-    && finding.status === "active"
-    && finding.executable
+  return finding.status === "active" && finding.decision !== "dismissed" && finding.decision !== "snoozed"
     && isTrashAction(finding.actionKind)
-    && (finding.tier !== "review" || finding.decision === "acknowledged");
+    && ((finding.tier === "safe" && finding.executable)
+      || (canRequestCleanupReview(finding) && finding.decision === "acknowledged"));
 }
 
 export function isTrashAction(actionKind: string): boolean {
   return /trash|move/i.test(actionKind);
+}
+
+/** A complete preview may refuse some selections. Only its verified subset can execute. */
+export function executableCleanupSubset(preview: OperationPreviewResult, selections: readonly CleanupFindingSelection[]): CleanupFindingSelection[] {
+  if (preview.truncated || preview.hasMore || preview.total !== preview.previews.length) return [];
+  const wanted = new Set(selections.map((s) => s.findingId));
+  const ids = preview.previews.map((item) => item.fileId || item.file_id || "");
+  if (wanted.size !== selections.length || new Set(ids).size !== ids.length || ids.some((id) => !wanted.has(id)) || ids.length !== wanted.size) return [];
+  const allowed = new Set(preview.previews.filter(isCleanupPreviewExecutable).map((item) => item.fileId || item.file_id || ""));
+  return selections.filter((selection) => allowed.has(selection.findingId));
+}
+
+/** Display persisted advice only. Raw evidence never proves currentness or eligibility. */
+export function savedCleanupAIAdvice(finding: AnalysisFinding): { reason: string; riskNote: string | null } | null {
+  const envelope = finding.evidenceSummary?.aiAssessment;
+  if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) return null;
+  const record = envelope as Record<string, unknown>;
+  if (record.schema !== "cleanup_ai_assessment_v1" || !record.assessment || typeof record.assessment !== "object") return null;
+  const assessment = record.assessment as Record<string, unknown>;
+  if (assessment.candidateId !== finding.id || typeof assessment.reason !== "string" || !assessment.reason.trim()) return null;
+  return { reason: assessment.reason, riskNote: typeof assessment.riskNote === "string" ? assessment.riskNote : null };
 }

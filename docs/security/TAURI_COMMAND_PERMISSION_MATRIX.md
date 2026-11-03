@@ -202,7 +202,7 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `get_active_analysis_run` | `read_only` | main | Read the active analysis run | default | no | analysis admission tests |
 | `list_analysis_runs` | `read_only` | main | List durable analysis run history | default | no | analysis query tests |
 | `list_analysis_run_detectors` | `read_only` | main | Read detector progress for a run | default | no | detector lifecycle tests |
-| `list_analysis_findings` | `read_only` | main | Read typed findings with a keyset cursor | default | no | finding cursor tests |
+| `list_analysis_findings` | `read_only` | main | Read typed Finding pages; approved Cleanup scopes include complete groups and Run revision | default | no | finding cursor tests |
 | `get_analysis_finding` | `read_only` | main | Read one finding and its decision projection | default | no | finding detail tests |
 | `list_analysis_finding_evidence` | `read_only` | main | Read typed finding evidence | default | no | evidence tests |
 | `get_dedupe_authority` | `read_only` | main | Read the global duplicate authority watermark | default | no | authority tests |
@@ -225,8 +225,8 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `cancel_storage_cleanup_scan` | `main_state_mutation` | main | Cancel cleanup scan | default | yes | cleanup cancel tests |
 | `reveal_storage_candidate` | `read_only` | main | Open candidate folder | default | no | command permission contract |
 | `preview_cleanup_candidates` | `read_only` | main | Build cleanup preview | default | no | preview tests |
-| `preview_cleanup_operations` | `read_only` | main | Build operation preview | default | no | preview tests |
-| `move_cleanup_candidates_to_safe_trash` | `filesystem_mutation` | main | Move to Safe Trash | default | yes | cleanup safety tests |
+| `preview_cleanup_operations` | `read_only` | main | Preview qualified and refused Finding selections for app-owned Safe Trash | default | no | preview tests |
+| `move_cleanup_candidates_to_safe_trash` | `filesystem_mutation` | main | Revalidate selections, journal Safe Trash and return Finding-bound outcomes/batch | default | yes | cleanup safety tests |
 | `list_cleanup_trash_batches` | `read_only` | main | Read Safe Trash journal | default | no | command permission contract |
 | `preview_restore_cleanup_trash` | `read_only` | main | Build restore preview | default | no | restore tests |
 | `restore_cleanup_trash_items` | `filesystem_mutation` | main | Restore Safe Trash items | default | yes | restore identity tests |

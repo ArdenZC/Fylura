@@ -960,13 +960,14 @@ function StorageCleanupPanel({
         }
       }
       if (!ownsOperation()) return;
-      setAiStatus(replaceCopy(isSelectedSafeAssessment
-        ? "storageCleanupAISelectedDoneSummary"
-        : "storageCleanupAIRecheckDoneSummary", { total, processed, skipped, mutationFailed, readbackFailed }));
       await loadRunDetails(reviewRunId, true, expectedScopeEpoch);
       if (!ownsOperation()) return;
       const currentRun = runRef.current;
       if (currentRun) await loadFindings(currentRun.id, activeTierRef.current, null, false, currentRun.revision);
+      if (!ownsOperation()) return;
+      setAiStatus(replaceCopy(isSelectedSafeAssessment
+        ? "storageCleanupAISelectedDoneSummary"
+        : "storageCleanupAIRecheckDoneSummary", { total, processed, skipped, mutationFailed, readbackFailed }));
     } catch (aiError) {
       if (stopAfterCancellation()) return;
       if (ownsOperation()) reportError(aiError);

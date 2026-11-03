@@ -656,9 +656,10 @@ pub(crate) fn has_current_ai_assessment(db: &Database, finding_id: &str) -> bool
         || run.scope.get("kind").and_then(serde_json::Value::as_str)
             != Some("approved_cleanup_paths")
         || !matches!(run.status.as_str(), "completed" | "completed_with_warnings")
-        // Publishing AI assessments refreshes the run aggregate once in the
-        // same transaction, after capturing this pre-publication revision.
-        || expected_run_revision.checked_add(1) != Some(run.revision)
+        // Other Finding batches may advance this aggregate revision. Bind
+        // currentness to this Finding's exact revision, source/detector/policy
+        // facts, and a run which has not rewound before its publication.
+        || expected_run_revision.checked_add(1).is_none_or(|published| run.revision < published)
         || run.source_snapshot_hash != coverage["analysisSourceSnapshotHash"]
         || run.detector_set_hash != coverage["detectorSetHash"]
     {

@@ -27,6 +27,7 @@ export type CleanupApi = Partial<Pick<
 >>;
 
 export type CleanupMutationKind =
+  | "select"
   | "scan"
   | "cancel"
   | "retry"

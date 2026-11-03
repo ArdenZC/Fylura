@@ -413,7 +413,7 @@ export function CleanupInspector({
   }
 
   return (
-    <section className="grid gap-3" aria-labelledby="cleanup-inspector-title">
+    <section className="grid gap-3" aria-labelledby="cleanup-inspector-title" data-cleanup-batch-id={batch.id}>
       <div>
         <div className="flex items-start gap-2">{onBack && <button type="button" className={buttonSecondary} onClick={onBack} aria-label={t("historyInspectorBack")}><ArrowLeft size={16} /></button>}<h2 id="cleanup-inspector-title" className="text-base font-semibold">{t("historyCleanupScope")}</h2></div>
         <p className={cn(mutedText, "mt-1")}>{t("historyCleanupRestoreDesc")}</p>
@@ -425,7 +425,10 @@ export function CleanupInspector({
           const eligible = previewState === "ready" && Boolean(preview) && isRestorableCleanupTrashItem(item, preview, previewState);
           const currentPath = item.status === "restored" ? item.originalPath : item.trashPath;
           const technical = technicalOpen.has(item.id);
-          const rawMessage = previewState === "failed" ? previewError || "" : item.message || preview?.blockingReason || "";
+          // Successful ledger messages are informational, not Restore errors.
+          // Current backend preview refusals take precedence over old journal text.
+          const rawMessage = item.status === "restored" || previewState !== "ready" ? ""
+            : preview?.blockingReason || (item.status === "moved" ? "" : item.message || "");
           return (
             <div key={item.id} className={cn(rowSurface, "grid gap-2")} role="listitem">
               <div className="flex items-start gap-3">
@@ -456,7 +459,7 @@ export function CleanupInspector({
                 <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${item.name}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(item)}>
                   <ExternalLink size={15} />
                 </button>
-                {!eligible && <FileWarning size={16} className="text-[var(--muted)]" aria-hidden="true" />}
+                {!eligible && item.status !== "restored" && <FileWarning size={16} className="text-[var(--muted)]" aria-hidden="true" />}
               </div>
             </div>
           );

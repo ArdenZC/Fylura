@@ -29,9 +29,11 @@ export function AIReadinessNotice({
   t,
   setView,
   onRetry,
-  sourceMode = "managed"
+  sourceMode = "managed",
+  compact = false
 }: {
   sourceMode?: "managed" | "one_off";
+  compact?: boolean;
   feature: Feature;
   readiness: AIProductFeatureReadiness | null;
   loading: boolean;
@@ -99,6 +101,18 @@ export function AIReadinessNotice({
   const cleanupText = cleanupReadinessText(cleanupState, cleanup.reason, cleanup.provider.state, cleanup.provider.reason, t);
   const cleanupTarget = cleanup.provider.state !== "ready" ? "settings-ai-provider" : "settings-ai-cleanup";
   const tone = cleanupState === "ready" ? "info" : cleanupState === "error" || cleanupState === "temporarily_unavailable" ? "error" : "warning";
+  if (compact) return <div
+    data-ai-readiness-feature="cleanup"
+    data-ai-readiness-source={isBrowserMockEnabled() ? "presentation-fixture" : "backend-authority"}
+    data-ai-provider-state={cleanup.provider.state}
+    data-ai-cleanup-state={cleanupState}
+  >
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+      <span className="text-[var(--zc-text-secondary)]">{cleanupText}</span>
+      {cleanupState !== "ready" ? <Button variant="secondary" size="compact" onClick={() => openSettingsSection(setView, cleanupTarget)}>{t("aiReadinessOpenSettings")}</Button> : null}
+    </div>
+    <BrowserMockNote t={t} />
+  </div>;
   return <div
     data-ai-readiness-feature="cleanup"
     data-ai-readiness-source={isBrowserMockEnabled() ? "presentation-fixture" : "backend-authority"}

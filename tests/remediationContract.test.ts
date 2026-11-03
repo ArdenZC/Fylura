@@ -38,8 +38,8 @@ describe("remediation contracts", () => {
       "preview_cleanup_operations",
       "move_cleanup_candidates_to_safe_trash"
     ]) {
-      expect(cleanup).toMatch(new RegExp(`pub fn ${command}[\\s\\S]{0,260}?job_id: String`));
-      expect(cleanup).toMatch(new RegExp(`pub fn ${command}[\\s\\S]{0,360}?selections: Vec<CleanupFindingSelection>`));
+      expect(cleanup).toMatch(new RegExp(`pub ${command === "preview_cleanup_candidates" ? "" : "async "}fn ${command}[\\s\\S]{0,260}?job_id: String`));
+      expect(cleanup).toMatch(new RegExp(`pub ${command === "preview_cleanup_candidates" ? "" : "async "}fn ${command}[\\s\\S]{0,360}?selections: Vec<CleanupFindingSelection>`));
     }
     expect(cleanupAI).toMatch(/pub async fn analyze_cleanup_candidates_with_ai[\s\S]{0,220}?job_id: String/);
     for (const method of [

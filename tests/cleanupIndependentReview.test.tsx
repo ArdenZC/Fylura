@@ -198,7 +198,7 @@ function scopeButton(): HTMLButtonElement {
 
 function button(text: string): HTMLButtonElement {
   const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
-  const found = buttons.find((item) => item.textContent?.includes(text))
+  const found = buttons.find((item) => (item.textContent?.includes(text) || item.getAttribute("aria-label")?.includes(text)))
     ?? (text === t("storageCleanupMoveToSafeTrash")
       ? buttons.find((item) => item.textContent?.includes(t("storageCleanupPreviewSelectedSafeTrash")))
       : undefined);
@@ -208,7 +208,7 @@ function button(text: string): HTMLButtonElement {
 
 function findingButton(findingId: string, text: string): HTMLButtonElement {
   const row = container.querySelector<HTMLElement>(`[data-analysis-finding-id="${findingId}"]`);
-  const found = [...(row?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((item) => item.textContent?.includes(text));
+  const found = [...(row?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((item) => (item.textContent?.includes(text) || item.getAttribute("aria-label")?.includes(text)));
   if (!found) throw new Error(`finding button not found: ${findingId} / ${text}; row=${row?.textContent ?? "missing"}`);
   return found;
 }
@@ -983,7 +983,7 @@ describe("Cleanup independent review behavior", () => {
     await act(async () => root.render(createElement(CleanupView, { api, t })));
     await flush(8);
     expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
-    expect(container.querySelector("[data-cleanup-current-assessment-guidance]")?.textContent).toContain("当前 AI 评估");
+    expect(container.querySelector("[data-cleanup-current-assessment-guidance]")?.textContent).toContain("无需 AI Key");
     expect(button(t("storageCleanupAISelectedAnalyze")).disabled).toBe(false);
     expect(analyzeCleanupCandidatesWithAI).not.toHaveBeenCalled();
 
@@ -1183,7 +1183,7 @@ describe("Cleanup independent review behavior", () => {
   it("keeps Safe Trash mutation ownership through completion", async () => {
     const run = makeRun("run-safe-trash-lock", "completed", 1);
     const finding = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
-    let resolveMove: (value: { moved: number; skipped: number; failed: number }) => void = () => undefined;
+    let resolveMove: (value: { moved: number; skipped: number; failed: number; logs: [] }) => void = () => undefined;
     const previewCleanupOperations = vi.fn(async () => ({ total: 1, previews: [{
       id: "preview-safe-trash-lock",
       fileId: finding.id,
@@ -1199,7 +1199,7 @@ describe("Cleanup independent review behavior", () => {
       reason: "approved",
       is_executable: true
     }], truncated: false, hasMore: false }));
-    const moveCleanupCandidatesToSafeTrash = vi.fn(() => new Promise<{ moved: number; skipped: number; failed: number }>((resolve) => { resolveMove = resolve; }));
+    const moveCleanupCandidatesToSafeTrash = vi.fn(() => new Promise<{ moved: number; skipped: number; failed: number; logs: [] }>((resolve) => { resolveMove = resolve; }));
     const api = commonApi(run, {
       listAnalysisRuns: async () => [run],
       listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [finding] : [], nextCursor: null, limit: 100 }),
@@ -1245,7 +1245,7 @@ describe("Cleanup independent review behavior", () => {
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
     expect(moveCleanupCandidatesToSafeTrash).toHaveBeenCalledOnce();
 
-    resolveMove({ moved: 1, skipped: 0, failed: 0 });
+    resolveMove({ moved: 1, skipped: 0, failed: 0, logs: [] });
     await flush(10);
     expect(container.textContent).toContain(t("storageCleanupExecutionDone"));
     expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
@@ -1255,7 +1255,7 @@ describe("Cleanup independent review behavior", () => {
   it("keeps blocked cleanup previews out of confirmation and Safe Trash mutation", async () => {
     const run = makeRun("run-safe-trash-blocked-preview", "completed", 1);
     const finding = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
-    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0 }));
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0, logs: [] }));
     const previewCleanupOperations = vi.fn(async () => ({ total: 1, previews: [{
       id: "preview-blocked-safe-trash",
       fileId: finding.id,
@@ -1302,7 +1302,7 @@ describe("Cleanup independent review behavior", () => {
     const run = makeRun("run-safe-trash-preview-failure", "completed", 1);
     const finding = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
     const previewCleanupOperations = vi.fn(async () => { throw new Error("preview_failed"); });
-    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0 }));
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0, logs: [] }));
     const api = commonApi(run, {
       listAnalysisRuns: async () => [run],
       listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [finding] : [], nextCursor: null, limit: 100 }),
@@ -1326,11 +1326,11 @@ describe("Cleanup independent review behavior", () => {
     expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
   });
 
-  it("keeps mixed or incomplete cleanup previews out of Safe Trash mutation", async () => {
+  it("executes only the qualified subset of a complete mixed cleanup preview", async () => {
     const run = makeRun("run-safe-trash-mixed-preview", "completed", 2);
     const first = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
     const second = { ...makeFinding(run, 1), decision: "acknowledged" as const, decisionRevision: 1 };
-    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 2, skipped: 0, failed: 0 }));
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0, logs: [] }));
     const previewCleanupOperations = vi.fn(async () => ({ total: 2, previews: [{
       id: "preview-mixed-executable",
       fileId: first.id,
@@ -1378,8 +1378,13 @@ describe("Cleanup independent review behavior", () => {
     await flush(5);
 
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
-    expect(button(t("storageCleanupPreviewConfirm")).disabled).toBe(true);
-    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
+    expect(button(t("storageCleanupPreviewConfirm")).disabled).toBe(false);
+    await act(async () => button(t("storageCleanupPreviewConfirm")).click());
+    await flush(2);
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(6);
+    expect(moveCleanupCandidatesToSafeTrash).toHaveBeenCalledWith(run.id, [{ findingId: first.id, expectedRevision: first.revision, reviewConfirmation: { decisionRevision: 1 } }]);
+
   });
 
   it("removes a selected Review finding after AI returns an authoritative Caution revision and clears preview", async () => {
@@ -1736,7 +1741,7 @@ describe("Cleanup independent review behavior", () => {
     const safeFinding = { ...makeSafeFinding(runA, 0), exactReclaimableBytes: 0, potentialReclaimableBytes: 5, sizeBytes: 1 };
     const listAnalysisRuns = vi.fn(async () => [runA]);
     const startAnalysisRun = vi.fn(async () => runA);
-    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0 }));
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0, logs: [] }));
     const api = commonApi(runA, {
       listAnalysisRuns,
       getAnalysisRun: vi.fn(async () => runA),
@@ -2118,4 +2123,32 @@ describe("Cleanup independent review behavior", () => {
 
     expect(getAnalysisRun).toHaveBeenCalledWith(uncRun.id);
   });
+  it("selects the complete Safe group and previews all 205 items with one final batch confirmation", async () => {
+    const run = { ...makeRun("run-full-safe", "completed", 205), safeCount: 205, reviewCount: 0 };
+    const all = Array.from({ length: 205 }, (_, index) => ({ ...makeFinding(run, index), tier: "safe", executable: true, requiresConfirmation: true }));
+    const previewCleanupOperations = vi.fn(async (_id: string, selections: { findingId: string }[]) => ({
+      total: selections.length, truncated: false, hasMore: false,
+      previews: selections.map((selection) => ({ id: selection.findingId, fileId: selection.findingId, operation_type: "move_to_trash", status: "pending", is_executable: true, source_path: "C:/Root/cache", target_path: "Fylura Safe Trash", old_name: selection.findingId, new_name: selection.findingId, requires_confirmation: true, risk_level: "Normal", confidence: 1, reason: "deterministic fixture" }))
+    }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run], getAnalysisRun: async () => run,
+      listAnalysisFindings: async (request: { tier?: string; cursor?: string | null }) => {
+        const offset = Number(request.cursor ?? 0);
+        const findings = request.tier === "safe" ? all.slice(offset, offset + 100) : [];
+        return { findings, nextCursor: request.tier === "safe" && offset + 100 < 205 ? String(offset + 100) : null, limit: 100, runRevision: run.revision };
+      }, previewCleanupOperations
+    });
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button(t("cleanupSelectSafeGroup").replace("{count}", "205")).click());
+    await flush(10);
+    expect(container.querySelector("[data-cleanup-selection-summary]")?.textContent).toContain("205");
+    await act(async () => button(t("storageCleanupPreviewSelectedSafeTrash")).click());
+    await flush(8);
+    expect(previewCleanupOperations.mock.calls[0][1]).toHaveLength(205);
+    expect(button(t("storageCleanupPreviewConfirm")).disabled).toBe(false);
+    expect(container.textContent).toContain(t("storageCleanupPreviewTruncated").replace("{shown}", "24").replace("{total}", "205"));
+    expect(container.querySelectorAll('[role="alertdialog"]')).toHaveLength(0);
+  });
+
 });

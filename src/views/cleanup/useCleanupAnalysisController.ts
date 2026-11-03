@@ -4,6 +4,7 @@ import type {
   AnalysisDetector,
   AnalysisDetectorDescriptor,
   AnalysisFinding,
+  AnalysisFindingGroup,
   AnalysisRun
 } from "../../types/domain";
 import {
@@ -32,8 +33,9 @@ type Props = {
   setRuns: Dispatch<SetStateAction<AnalysisRun[]>>;
   setRun: Dispatch<SetStateAction<AnalysisRun | null>>;
   setRunDetectors: Dispatch<SetStateAction<AnalysisDetector[]>>;
+  setGroups: Dispatch<SetStateAction<AnalysisFindingGroup[]>>;
   setFindings: Dispatch<SetStateAction<AnalysisFinding[]>>;
-  setFindingCache: Dispatch<SetStateAction<Record<string, AnalysisFinding>>>;
+  reconcileUpdatedFindings: (findings: AnalysisFinding[]) => void;
   setNextCursor: Dispatch<SetStateAction<string | null>>;
   setSelectedRoots: Dispatch<SetStateAction<string[]>>;
   setLoading: Dispatch<SetStateAction<boolean>>;
@@ -60,7 +62,8 @@ export function useCleanupAnalysisController({
   setRun,
   setRunDetectors,
   setFindings,
-  setFindingCache,
+  setGroups,
+  reconcileUpdatedFindings,
   setNextCursor,
   setSelectedRoots,
   setLoading,
@@ -96,13 +99,10 @@ export function useCleanupAnalysisController({
         limit: FINDING_PAGE_SIZE
       });
       if (!ownsRequest() || page.findings.some((finding) => finding.runId !== runId)) return;
+      if (page.groups) setGroups(page.groups);
       setFindings((current) => append ? [...current, ...page.findings] : page.findings);
       setNextCursor(page.nextCursor);
-      setFindingCache((current) => {
-        const next = { ...current };
-        for (const finding of page.findings) next[finding.id] = finding;
-        return next;
-      });
+      reconcileUpdatedFindings(page.findings);
       if (!append && tier === "safe" && !defaultSelectionRuns.current.has(runId)) {
         defaultSelectionRuns.current.add(runId);
         selectBackendDefaultSafeFindings(page.findings);
@@ -112,7 +112,7 @@ export function useCleanupAnalysisController({
     } finally {
       if (ownsRequest()) setLoadingFindings(false);
     }
-  }, [activeTierEpoch, activeTierRef, api, defaultSelectionRuns, findingsEpoch, reportError, runRef, scopeEpoch, selectBackendDefaultSafeFindings, setFindingCache, setFindings, setLoadingFindings, setNextCursor]);
+  }, [activeTierEpoch, activeTierRef, api, defaultSelectionRuns, findingsEpoch, reportError, runRef, scopeEpoch, selectBackendDefaultSafeFindings, reconcileUpdatedFindings, setFindings, setGroups, setLoadingFindings, setNextCursor]);
 
   const loadRunDetails = useCallback(async (runId: string, clearFindings = true, expectedScopeEpoch = scopeEpoch.current) => {
     if (!api.getAnalysisRun || !api.listAnalysisRunDetectors) return;

@@ -105,6 +105,7 @@ export interface OperationQueueStore {
   executionError: string;
   previewRequestId: number;
   requestedHistoryBatchId: string | null;
+  requestedCleanupBatchId: string | null;
   operationProgress: OperationProgressPayload | null;
   isOperationCanceling: boolean;
   activeOperationKind: OperationProgressPayload["kind"] | null;
@@ -193,6 +194,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   executionError: "",
   previewRequestId: 0,
   requestedHistoryBatchId: null,
+  requestedCleanupBatchId: null,
   operationProgress: null,
   isOperationCanceling: false,
   activeOperationKind: null,

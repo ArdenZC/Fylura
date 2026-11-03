@@ -19,6 +19,8 @@ type Props = {
 };
 
 export function useCleanupSelectionController({ findingCache, setFindingCache, run, invalidatePreviewState }: Props) {
+  const findingCacheRef = useRef(findingCache);
+  findingCacheRef.current = findingCache;
   const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(() => new Set());
   const selectedFindingIdsRef = useRef(selectedFindingIds);
   const selectionRevision = useRef(0);
@@ -86,17 +88,26 @@ export function useCleanupSelectionController({ findingCache, setFindingCache, r
   const reconcileUpdatedFindings = useCallback((updatedFindings: AnalysisFinding[]) => {
     if (!updatedFindings.length) return;
     const selectedBeforeUpdate = selectedFindingIdsRef.current;
-    const selectedRevisionAffected = updatedFindings.some((finding) => selectedBeforeUpdate.has(finding.id));
+    const selectedRevisionAffected = updatedFindings.some((finding) => {
+      if (!selectedBeforeUpdate.has(finding.id)) return false;
+      const old = findingCacheRef.current[finding.id];
+      return !old || old.revision !== finding.revision || old.decisionRevision !== finding.decisionRevision
+        || old.decision !== finding.decision || old.status !== finding.status || old.tier !== finding.tier
+        || old.executable !== finding.executable || old.actionKind !== finding.actionKind;
+    });
     setFindingCache((cache) => {
       const next = { ...cache };
       for (const finding of updatedFindings) next[finding.id] = finding;
+      findingCacheRef.current = next;
       return next;
     });
     const nextSelected = reconcileAuthoritativeFindingUpdates(selectedBeforeUpdate, updatedFindings);
     selectedFindingIdsRef.current = nextSelected;
-    selectionRevision.current += 1;
-    setSelectedFindingIds(nextSelected);
-    if (selectedRevisionAffected) invalidatePreviewState();
+    if (selectedRevisionAffected) {
+      selectionRevision.current += 1;
+      setSelectedFindingIds(nextSelected);
+      invalidatePreviewState();
+    }
   }, [invalidatePreviewState]);
 
   const removeSelectionsForIds = useCallback((findingIds: readonly string[]) => {

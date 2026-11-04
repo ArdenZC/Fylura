@@ -362,6 +362,19 @@ fn one_off_native_single_file_name_edit_execute_journal_and_restore() {
         .available_actions
         .iter()
         .any(|action| action == "edit_name"));
+    assert_eq!(invoice.decision, "undecided");
+    let unreviewed_dry = f
+        .db
+        .get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: plan.revision,
+            item_ids: vec![invoice.id.clone()],
+            all_accepted: false,
+        })
+        .unwrap_err();
+    assert!(unreviewed_dry
+        .to_string()
+        .contains("organization_selection_item_invalid"));
 
     let reviewed =
         f.db.update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {

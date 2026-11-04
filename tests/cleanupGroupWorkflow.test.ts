@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { collectCleanupGroup } from "../src/views/cleanup/collectCleanupGroup";
-import { executableCleanupSubset, isFindingSelectable } from "../src/views/cleanup/cleanupModel";
+import { executableCleanupSubset, isFindingSelectable, retainSelectedCleanupFindingsAfterExecution } from "../src/views/cleanup/cleanupModel";
 import type { AnalysisFinding, AnalysisRun, OperationPreviewResult } from "../src/types/domain";
 
 const run = { id: "run", revision: 7, safeCount: 205, reviewCount: 0, cautionCount: 0 } as AnalysisRun;
@@ -62,5 +62,23 @@ describe("qualified Cleanup preview subset", () => {
     for (const bad of [{ ...preview, total: 3 }, { ...preview, truncated: true }, { ...preview, hasMore: true }, { ...preview, previews: [preview.previews[0], preview.previews[0]] }, { ...preview, previews: [{ ...preview.previews[0], fileId: "foreign" }, preview.previews[1]] }]) {
       expect(executableCleanupSubset(bad, selections)).toEqual([]);
     }
+  });
+});
+
+describe("partial Safe Trash selection reconciliation", () => {
+  it("drops successful, changed, protected, missing, and unconfirmed findings while retaining current failures", () => {
+    const ids = ["success", "failed", "changed", "protected", "missing", "unconfirmed-review"];
+    const refreshed = [
+      { ...findings[0], id: "success", revision: 2 },
+      { ...findings[1], id: "failed", revision: 5 },
+      { ...findings[2], id: "changed", revision: 6, status: "stale" },
+      { ...findings[3], id: "protected", revision: 7, tier: "caution", executable: false },
+      { ...findings[4], id: "unconfirmed-review", revision: 8, tier: "review", decision: "acknowledged", decisionRevision: null }
+    ] as AnalysisFinding[];
+    expect(retainSelectedCleanupFindingsAfterExecution(
+      ids,
+      new Set(["success"]),
+      refreshed
+    )).toEqual(new Set(["failed"]));
   });
 });

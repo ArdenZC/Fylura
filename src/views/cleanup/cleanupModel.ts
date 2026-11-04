@@ -109,6 +109,20 @@ export function reconcileAuthoritativeFindingUpdates(
   return next;
 }
 
+export function retainSelectedCleanupFindingsAfterExecution(
+  selectedIds: readonly string[],
+  successfulIds: ReadonlySet<string>,
+  refreshedFindings: readonly AnalysisFinding[]
+): Set<string> {
+  const refreshed = new Map(refreshedFindings.map((finding) => [finding.id, finding]));
+  return new Set(selectedIds.filter((id) => {
+    if (successfulIds.has(id)) return false;
+    const finding = refreshed.get(id);
+    return Boolean(finding && isFindingSelectable(finding)
+      && (finding.tier !== "review" || finding.decisionRevision != null));
+  }));
+}
+
 export function cleanupSelectionFingerprint(runId: string, selections: readonly CleanupFindingSelection[]): string {
   return [runId, ...selections
     .map((selection) => [

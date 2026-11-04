@@ -222,6 +222,12 @@ pub struct OrganizationPlanEffectiveSummaryDto {
 pub struct OrganizationSemanticExplanationDto {
     pub assessment_fingerprint: String,
     pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_settings_current: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]

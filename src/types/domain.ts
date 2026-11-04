@@ -1154,6 +1154,9 @@ export interface OrganizationPlanItem {
 export interface OrganizationSemanticExplanation {
   assessmentFingerprint: string;
   reason: string;
+  providerKind?: string;
+  model?: string;
+  providerSettingsCurrent?: boolean;
 }
 
 export interface OrganizationPlanItemPage {

@@ -1387,6 +1387,143 @@ describe("Cleanup independent review behavior", () => {
 
   });
 
+  it("refreshes Finding revisions after partial Safe Trash, retains only eligible failures and cancellation, then retries through Preview and History", async () => {
+    const run = makeRun("run-safe-trash-partial-selection", "completed", 0, { safeCount: 4 });
+    const first = makeSafeFinding(run, 0);
+    const failed = makeSafeFinding(run, 1);
+    const changed = makeSafeFinding(run, 2);
+    const canceled = makeSafeFinding(run, 3);
+    const failedRevision = { ...failed, revision: 2 };
+    const changedRevision = { ...changed, revision: 2, status: "stale" as const, executable: false };
+    const canceledRevision = { ...canceled, revision: 2 };
+    let latestRun = run;
+    let activeFindings = [first, failed, changed, canceled];
+    const latestById = new Map<string, AnalysisFinding>(activeFindings.map((finding) => [finding.id, finding]));
+    const previewCleanupOperations = vi.fn(async (_runId: string, selections: { findingId: string }[]) => ({
+      total: selections.length,
+      truncated: false,
+      hasMore: false,
+      previews: selections.map((selection) => ({
+        id: `preview-${selection.findingId}`,
+        fileId: selection.findingId,
+        operation_type: "move_to_trash" as const,
+        source_path: `C:/Root/${selection.findingId}`,
+        target_path: "Fylura Safe Trash",
+        old_name: selection.findingId,
+        new_name: selection.findingId,
+        status: "pending" as const,
+        risk_level: "Normal" as const,
+        confidence: 1,
+        requires_confirmation: true,
+        reason: "authoritative fixture",
+        is_executable: true
+      }))
+    }));
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async (_runId: string, selections: { findingId: string; expectedRevision: number }[]) => {
+      if (moveCleanupCandidatesToSafeTrash.mock.calls.length === 1) {
+        expect(selections.map(({ findingId, expectedRevision }) => [findingId, expectedRevision])).toEqual([
+          [first.id, 1], [failed.id, 1], [changed.id, 1], [canceled.id, 1]
+        ]);
+        const staleFirst = { ...first, revision: 2, status: "stale" as const, executable: false };
+        latestById.set(first.id, staleFirst);
+        latestById.set(failed.id, failedRevision);
+        latestById.set(changed.id, changedRevision);
+        latestById.set(canceled.id, canceledRevision);
+        activeFindings = [failedRevision, canceledRevision];
+        latestRun = { ...run, revision: 3, safeCount: 2 };
+        return {
+          batchId: "batch-partial",
+          moved: 1,
+          skipped: 2,
+          failed: 1,
+          logs: [
+            { candidateId: first.id, path: first.pathSnapshot ?? "C:/Root/first", name: "first", size: 1, status: "success" as const, message: "moved", itemId: "trash-first" },
+            { candidateId: failed.id, path: failed.pathSnapshot ?? "C:/Root/failed", name: "failed", size: 1, status: "failed" as const, message: "retryable failure", itemId: null },
+            { candidateId: changed.id, path: changed.pathSnapshot ?? "C:/Root/changed", name: "changed", size: 1, status: "skipped" as const, message: "source_changed", itemId: null },
+            { candidateId: canceled.id, path: canceled.pathSnapshot ?? "C:/Root/canceled", name: "canceled", size: 1, status: "skipped" as const, message: "operation_cancelled", itemId: null }
+          ]
+        };
+      }
+      expect(selections.map(({ findingId, expectedRevision }) => [findingId, expectedRevision])).toEqual([
+        [failed.id, 2], [canceled.id, 2]
+      ]);
+      for (const id of [failed.id, canceled.id]) {
+        const current = latestById.get(id)!;
+        latestById.set(id, { ...current, revision: 3, status: "stale", executable: false });
+      }
+      activeFindings = [];
+      latestRun = { ...run, revision: 4, safeCount: 0 };
+      return {
+        batchId: "batch-retry",
+        moved: 2,
+        skipped: 0,
+        failed: 0,
+        logs: [failed, canceled].map((finding) => ({
+          candidateId: finding.id,
+          path: finding.pathSnapshot ?? "C:/Root/item",
+          name: finding.id,
+          size: 1,
+          status: "success" as const,
+          message: "moved after new confirmation",
+          itemId: `trash-${finding.id}`
+        }))
+      };
+    });
+    const onNavigate = vi.fn();
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => latestRun,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? activeFindings : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      getAnalysisFinding: async (id: string) => latestById.get(id) ?? null,
+      previewCleanupOperations,
+      moveCleanupCandidatesToSafeTrash
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, onNavigate, t })));
+    await flush(8);
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    await act(async () => button(t("storageCleanupPreviewSelectedSafeTrash")).click());
+    await flush(6);
+    await act(async () => button(t("storageCleanupPreviewConfirm")).click());
+    await flush(2);
+    const firstConfirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')]
+      .find((candidate) => candidate.textContent?.includes(t("storageCleanupMoveToSafeTrash")));
+    expect(firstConfirm).toBeDefined();
+    await act(async () => firstConfirm?.click());
+    await flush(14);
+
+    expect(moveCleanupCandidatesToSafeTrash).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(t("storageCleanupExecutionPartial"));
+    expect(container.textContent).toContain(t("failed"));
+    expect(container.textContent).toContain(t("skipped"));
+    expect(container.textContent).toContain(t("storageCleanupExecutionRemainingReview").replace("{count}", "2"));
+    expect(container.querySelector(`[data-analysis-finding-id="${changed.id}"]`)).toBeNull();
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    expect(container.textContent).not.toContain(t("storageCleanupPreviewReadyTitle"));
+
+    await act(async () => button(t("storageCleanupPreviewSelectedSafeTrash")).click());
+    await flush(6);
+    expect(previewCleanupOperations).toHaveBeenCalledTimes(2);
+    expect(previewCleanupOperations.mock.calls[1]?.[1].map(({ findingId }) => findingId)).toEqual([failed.id, canceled.id]);
+    await act(async () => button(t("storageCleanupPreviewConfirm")).click());
+    await flush(2);
+    const secondConfirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')]
+      .find((candidate) => candidate.textContent?.includes(t("storageCleanupMoveToSafeTrash")));
+    expect(secondConfirm).toBeDefined();
+    await act(async () => secondConfirm?.click());
+    await flush(14);
+
+    expect(moveCleanupCandidatesToSafeTrash).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain(t("storageCleanupExecutionDone"));
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    await act(async () => button(t("storageCleanupExecutionHistory")).click());
+    expect(onNavigate).toHaveBeenCalledWith("restore");
+  });
+
   it("removes a selected Review finding after AI returns an authoritative Caution revision and clears preview", async () => {
     const run = makeRun("run-ai-reconcile-caution", "completed", 1);
     const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };

@@ -5,9 +5,9 @@ use crate::{
     ai::{
         provider::AIProvider,
         readiness::{provider_readiness, provider_readiness_is_current, AIReadinessState},
-        schema::{AIChatMessage, AIChatRequest, AIProviderOptions},
+        schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions},
         semantic::{OneOffSemanticBinding, SemanticAssessmentV1, SemanticSourceBinding},
-        settings::{get_ai_settings_for_db, provider_for_settings},
+        settings::{get_ai_settings_for_db, provider_for_settings, AI_SETTINGS_KEY},
     },
     file_ops::{file_namespace_fingerprint, FileIdentityFingerprint},
     file_workspace::{integration::FileWorkspaceRuntime, BrowseEntryRef, BrowsePathRef},
@@ -16,6 +16,20 @@ use std::path::{Path, PathBuf};
 
 const MAX_ITEMS: usize = 100;
 const SOURCE_PREFIX: &str = "organization-source-";
+// Keep provenance in the existing opaque provider binding string. Adding
+// fields to the durable V1 semantic envelope would make older binaries reject
+// it because that envelope intentionally denies unknown fields.
+const ONE_OFF_PROVIDER_BINDING_PREFIX: &str = "one-off-provider-v1:";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct OneOffProviderProvenanceV1 {
+    version: u32,
+    binding_fingerprint: String,
+    provider_kind: String,
+    model: String,
+    settings_fingerprint: String,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -281,6 +295,7 @@ pub(super) fn projection(
         });
     };
     let stored: SemanticAssessmentV1 = serde_json::from_str(&raw)?;
+    let provider_provenance = decode_provider_binding(&stored.source_binding.provider);
     let binding = binding(
         conn,
         &plan_id,
@@ -368,12 +383,24 @@ pub(super) fn projection(
         blake3::hash(format!("{}\0{}", proposal.fingerprint, assessment.fingerprint()).as_bytes())
             .to_hex()
             .to_string();
+    let provider_settings_current = provider_provenance.as_ref().and_then(|provenance| {
+        current_provider_settings_fingerprint(conn)
+            .ok()
+            .map(|current| current == provenance.settings_fingerprint)
+    });
     Ok(OrganizationCurrentProjection {
         proposal,
         preview,
         semantic_explanation: Some(OrganizationSemanticExplanationDto {
             assessment_fingerprint: assessment.fingerprint(),
             reason: assessment.reason,
+            provider_kind: provider_provenance
+                .as_ref()
+                .map(|provenance| provenance.provider_kind.clone()),
+            model: provider_provenance
+                .as_ref()
+                .map(|provenance| provenance.model.clone()),
+            provider_settings_current,
         }),
     })
 }
@@ -433,6 +460,54 @@ fn binding(
         input_fingerprint: blake3::hash(raw.as_bytes()).to_hex().to_string(),
         provider,
     })
+}
+
+fn encode_provider_binding(
+    binding_fingerprint: &str,
+    provider_kind: AIProviderKind,
+    model: &str,
+    settings_fingerprint: String,
+) -> Result<String, DbError> {
+    let value = OneOffProviderProvenanceV1 {
+        version: 1,
+        binding_fingerprint: binding_fingerprint.to_string(),
+        provider_kind: provider_kind_wire(provider_kind).to_string(),
+        model: model.to_string(),
+        settings_fingerprint,
+    };
+    let encoded = serde_json::to_string(&value)?;
+    Ok(format!("{ONE_OFF_PROVIDER_BINDING_PREFIX}{encoded}"))
+}
+
+fn decode_provider_binding(value: &str) -> Option<OneOffProviderProvenanceV1> {
+    let encoded = value.strip_prefix(ONE_OFF_PROVIDER_BINDING_PREFIX)?;
+    let provenance: OneOffProviderProvenanceV1 = serde_json::from_str(encoded).ok()?;
+    (provenance.version == 1
+        && !provenance.binding_fingerprint.is_empty()
+        && matches!(
+            provenance.provider_kind.as_str(),
+            "ollama" | "openai_compatible"
+        )
+        && !provenance.model.trim().is_empty())
+    .then_some(provenance)
+}
+
+fn current_provider_settings_fingerprint(conn: &Connection) -> Result<String, DbError> {
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key=?1",
+            [AI_SETTINGS_KEY],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(crate::db::app_setting_value_fingerprint(value.as_deref()))
+}
+
+fn provider_kind_wire(provider: AIProviderKind) -> &'static str {
+    match provider {
+        AIProviderKind::Ollama => "ollama",
+        AIProviderKind::OpenAICompatible => "openai_compatible",
+    }
 }
 
 impl Database {
@@ -595,7 +670,14 @@ impl Database {
             };
             let row =
                 load_source(&conn, &id)?.ok_or_else(|| validation("one_off_source_changed"))?;
-            let binding = binding(&conn, &request.plan_id, &id, policy.into())?;
+            let settings_fingerprint = current_provider_settings_fingerprint(&conn)?;
+            let provider_binding = encode_provider_binding(
+                policy,
+                settings.provider,
+                &settings.model,
+                settings_fingerprint,
+            )?;
+            let binding = binding(&conn, &request.plan_id, &id, provider_binding)?;
             (item, row, binding)
         };
         if !policy_is_current() {

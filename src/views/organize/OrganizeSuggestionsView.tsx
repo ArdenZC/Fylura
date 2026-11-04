@@ -931,6 +931,20 @@ export function OrganizeSuggestionsView() {
                 >
                   <strong className="text-xs font-semibold text-[var(--zc-text-secondary)]">{t("organizeSemanticExplanation")}</strong>
                   <p className="break-words text-sm leading-5 text-[var(--zc-text-primary)]">{activeItem.semanticExplanation?.reason || t("organizeSemanticExplanationUnavailable")}</p>
+                  {plan?.sourceKind === "one_off" ? (
+                    <p className="text-xs leading-5 text-[var(--zc-text-secondary)]" data-one-off-provider-provenance>
+                      {activeItem.semanticExplanation?.providerKind && activeItem.semanticExplanation.model
+                        ? replaceCopy(t(activeItem.semanticExplanation.providerSettingsCurrent === true
+                          ? "organizeSemanticProviderCurrent"
+                          : activeItem.semanticExplanation.providerSettingsCurrent === false
+                            ? "organizeSemanticProviderChanged"
+                            : "organizeSemanticProviderUnknown"), {
+                            provider: activeItem.semanticExplanation.providerKind === "ollama" ? "Ollama" : "OpenAI-compatible",
+                            model: activeItem.semanticExplanation.model
+                          })
+                        : t("organizeSemanticProviderUnknown")}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button

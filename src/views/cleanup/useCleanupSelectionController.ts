@@ -8,8 +8,10 @@ import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import {
   isBackendDefaultSafeFinding,
   isFindingSelectable,
-  reconcileAuthoritativeFindingUpdates
+  reconcileAuthoritativeFindingUpdates,
+  retainSelectedCleanupFindingsAfterExecution
 } from "./cleanupModel";
+import type { CleanupExecutionResult } from "../../types/domain";
 
 type Props = {
   findingCache: Record<string, AnalysisFinding>;
@@ -120,6 +122,26 @@ export function useCleanupSelectionController({ findingCache, setFindingCache, r
     invalidatePreviewState();
   }, [invalidatePreviewState]);
 
+  const reconcileAfterSafeTrash = useCallback((
+    selectedIds: readonly string[],
+    result: CleanupExecutionResult,
+    refreshedFindings: readonly AnalysisFinding[]
+  ) => {
+    const successfulIds = new Set(result.logs
+      .filter((log) => log.status === "success" && typeof log.candidateId === "string" && log.candidateId.length > 0)
+      .map((log) => log.candidateId as string));
+    setFindingCache((cache) => {
+      const next = { ...cache };
+      for (const finding of refreshedFindings) next[finding.id] = finding;
+      findingCacheRef.current = next;
+      return next;
+    });
+    const nextSelected = retainSelectedCleanupFindingsAfterExecution(selectedIds, successfulIds, refreshedFindings);
+    selectionRevision.current += 1;
+    selectedFindingIdsRef.current = nextSelected;
+    setSelectedFindingIds(nextSelected);
+  }, [setFindingCache]);
+
   return {
     selectedFindingIds,
     selectedFindingIdsRef,
@@ -132,6 +154,7 @@ export function useCleanupSelectionController({ findingCache, setFindingCache, r
     selectBackendDefaultSafeFindings,
     buildSelections,
     reconcileUpdatedFindings,
-    removeSelectionsForIds
+    removeSelectionsForIds,
+    reconcileAfterSafeTrash
   };
 }

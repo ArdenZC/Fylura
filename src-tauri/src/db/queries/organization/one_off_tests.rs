@@ -363,9 +363,8 @@ fn one_off_native_single_file_name_edit_execute_journal_and_restore() {
         .iter()
         .any(|action| action == "edit_name"));
     assert_eq!(invoice.decision, "undecided");
-    let unreviewed_dry = f
-        .db
-        .get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+    let unreviewed_dry =
+        f.db.get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
             plan_id: plan.id.clone(),
             expected_plan_revision: plan.revision,
             item_ids: vec![invoice.id.clone()],

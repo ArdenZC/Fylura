@@ -476,7 +476,18 @@ try {
     $directProfile = Join-Path $taskRoot "smart-lean-direct-profile"
     & $ProbeExe --prepare-profile $directProfile $script:fixtureVolume | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Smart Lean Direct profile preparation failed" }
-    $directJson = & $ProbeExe --qualify-smart-lean-direct $directProfile $script:evidence.expectedQualificationSourceId $smartIncluded $smartExcluded
+    $nativeTempRoot = Join-Path $script:fixtureVolume "smart-lean-native-temp"
+    New-Item -ItemType Directory -Path $nativeTempRoot -Force | Out-Null
+    $previousTemp = $env:TEMP
+    $previousTmp = $env:TMP
+    try {
+        $env:TEMP = $nativeTempRoot
+        $env:TMP = $nativeTempRoot
+        $directJson = & $ProbeExe --qualify-smart-lean-direct $directProfile $script:evidence.expectedQualificationSourceId $smartIncluded $smartExcluded
+    } finally {
+        $env:TEMP = $previousTemp
+        $env:TMP = $previousTmp
+    }
     if ($LASTEXITCODE -ne 0) { throw "Smart Lean Direct native qualification failed" }
     $script:evidence.smartLeanDirect = $directJson | ConvertFrom-Json
 

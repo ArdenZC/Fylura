@@ -266,6 +266,14 @@ fn known_cache_roots(source_root: &Path) -> Vec<PathBuf> {
     roots.shrink_to_fit();
     roots
 }
+fn known_temporary_roots(source_root: &Path) -> Vec<PathBuf> {
+    let root = std::env::temp_dir();
+    if root.starts_with(source_root) && identity(&root).is_some() {
+        vec![root]
+    } else {
+        Vec::new()
+    }
+}
 pub(crate) fn source_identity_current(source: &GlobalVolume) -> bool {
     #[cfg(windows)]
     if source.platform == "windows" {
@@ -334,6 +342,7 @@ pub(crate) fn observe_batch(
     let root = Path::new(&source.mount_path);
     let boundaries = protected_roots(root);
     let caches = known_cache_roots(root);
+    let temporary = known_temporary_roots(root);
     let rules = if policy.mode == CoverageMode::Custom {
         policy
             .rules
@@ -390,6 +399,8 @@ pub(crate) fn observe_batch(
                         None
                     } else if caches.iter().any(|cache| dir.starts_with(cache)) {
                         Some("known_user_cache")
+                    } else if temporary.iter().any(|temp| dir.starts_with(temp)) {
+                        Some("known_temporary_root")
                     } else {
                         performance_root(dir, root)
                     };

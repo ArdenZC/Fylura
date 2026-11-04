@@ -2,6 +2,7 @@ import type { Language } from "./types";
 export type { Language } from "./types";
 
 const zh = {
+  indexCoveragePolicyChanged: "覆盖策略已在其他位置更改。请刷新并重新预览后再应用。",
   indexCoverageWaiting: "覆盖重建尚未完成；请核对位置健康和权限，修复后重建或重启。",
   indexCoverageSourceHealth: "位置健康",
   indexCoverageExcludedResult: "此结果已被当前搜索覆盖策略排除，并不表示文件不存在。可在设置中包含该文件夹。",
@@ -11,7 +12,7 @@ const zh = {
   indexCoverageSmart: "智能精简（默认）",
   indexCoverageBroad: "广泛覆盖",
   indexCoverageCustom: "自定义",
-  indexCoverageRulesHelp: "仅凭项目清单与目录结构证据排除 npm 依赖、Python 虚拟环境、Rust 和 CMake 生成目录；普通文档、源代码、Windows、build、AppData、日志和 Unicode 路径不按名称排除。自定义以最具体路径优先，同路径排除优先；包含不突破系统保护或位置授权。",
+  indexCoverageRulesHelp: "排除系统保护路径、平台识别的缓存位置，以及落在已授权位置内的操作系统临时目录；只有项目清单与目录结构证实的 npm 依赖、Python 虚拟环境、Rust 和 CMake 生成目录才会按 Smart Lean 排除。普通文档、照片、源代码，以及仅因 Windows、build、AppData、cache、tmp 或日志等名称相似的目录都会保留；名称本身不会触发排除。自定义以最具体路径优先，同路径排除优先；包含不突破系统保护或位置授权。",
   indexCoverageSource: "已授权位置",
   indexCoverageNoSource: "请先启用位置",
   indexCoverageFolder: "文件夹绝对路径",
@@ -20,7 +21,7 @@ const zh = {
   indexCoverageRemove: "移除规则",
   indexCoverageReconfiguring: "正在重新配置覆盖范围；旧策略结果暂时隐藏，重启后继续重建。",
   indexCoveragePartial: "部分覆盖：身份、权限、别名或云可用性尚未确认的条目保守保持可见。",
-  indexCoverageCurrent: "当前策略已保存；完整性仍取决于下方位置的索引进度和健康状态。",
+  indexCoverageCurrent: "当前策略已保存，但索引可能仍未完成；请查看下方已启用位置的状态和候选观察数。",
   indexCoverageObservations: "本轮及后续更新的候选观察数（含重复和最小父目录，非文件总数）",
   indexCoverageIncluded: "纳入",
   indexCoverageExcluded: "排除",
@@ -3179,6 +3180,7 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
+  indexCoveragePolicyChanged: "Coverage policy changed elsewhere. Refresh and preview again before applying.",
   indexCoverageWaiting: "Coverage rebuild is incomplete. Check source health and permissions, then rebuild or restart after recovery.",
   indexCoverageSourceHealth: "Source health",
   indexCoverageExcludedResult: "This result is excluded by the current coverage policy. It does not mean the file is absent. Include its folder in Settings to restore coverage.",
@@ -3188,7 +3190,7 @@ const en: Record<keyof typeof zh, string> = {
   indexCoverageSmart: "Smart Lean (default)",
   indexCoverageBroad: "Broad Coverage",
   indexCoverageCustom: "Custom",
-  indexCoverageRulesHelp: "Project manifests and structure must prove npm dependencies, Python environments, Rust or CMake build output. Documents, source code, ordinary Windows/build/AppData folders, logs and Unicode paths are never excluded by name alone. Custom rules use the most specific path; exclusion wins ties. Include cannot override protection or source authorization.",
+  indexCoverageRulesHelp: "Smart Lean excludes protected OS paths, platform-recognized cache locations, and the OS temporary root when it falls inside an authorized source. Project manifests and structure must prove npm dependencies, Python environments, or Rust/CMake build output. Documents, photos, source code, and lookalike Windows/build/AppData/cache/tmp/log folders remain searchable; names alone never trigger exclusion. Custom rules use the most specific path; exclusion wins ties. Include cannot override protection or source authorization.",
   indexCoverageSource: "Authorized source",
   indexCoverageNoSource: "Enable a source first",
   indexCoverageFolder: "Absolute folder path",
@@ -3197,7 +3199,7 @@ const en: Record<keyof typeof zh, string> = {
   indexCoverageRemove: "Remove rule",
   indexCoverageReconfiguring: "Reconfiguring coverage. Old-policy results are hidden; rebuilding resumes after restart.",
   indexCoveragePartial: "Partial coverage: entries with uncertain identity, permissions, aliases or cloud availability stay visible conservatively.",
-  indexCoverageCurrent: "Current policy saved. Completeness still depends on source indexing and health below.",
+  indexCoverageCurrent: "Current policy saved, but indexing may still be incomplete. Check enabled source status and candidate observations below.",
   indexCoverageObservations: "Candidate observations in this rebuild and later updates (includes repeats and minimal ancestors; not file totals)",
   indexCoverageIncluded: "Included",
   indexCoverageExcluded: "Excluded",

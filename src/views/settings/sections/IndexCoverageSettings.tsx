@@ -18,6 +18,8 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const initialized = useRef(false);
+  const editRevision = useRef<number | null>(null);
+  const [policyChanged, setPolicyChanged] = useState(false);
   const pending = snapshot?.sources.some((s) => s.enabled && s.pending) ?? false;
   const sourceSignature = sources.map((s) => `${s.volume.id}:${s.volume.enabled}:${s.volume.indexStatus}`).join("|");
   useEffect(() => {
@@ -30,9 +32,16 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
         setSnapshot(response.snapshot);
         if (!initialized.current) {
           initialized.current = true;
+          editRevision.current = response.snapshot.policy.revision;
+          setPolicyChanged(false);
           setMode(response.snapshot.policy.mode);
           setRules(response.snapshot.policy.rules.map(({ sourceId, path, include }) => ({ sourceId, path, include })));
         }
+        if (editRevision.current !== response.snapshot.policy.revision) {
+          setPolicyChanged(true);
+          setPreview(null);
+        }
+        if (!response.snapshot.sources.some((s) => s.pending)) setError(null);
         if (response.snapshot.sources.some((s) => s.enabled && (
           ["indexing", "syncing", "rebuild_required"].includes(s.status)
           || (s.pending && s.status === "watcher_unavailable")
@@ -44,7 +53,7 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
   }, [reload, sourceSignature]);
   const authorized = sources.filter((s) => s.volume.enabled && (s.volume.platform !== "windows" || s.volume.scopeAuthorizationState === "authorized"));
   const totals = snapshot?.sources.filter((s) => s.enabled).reduce((a, s) => ({ included: a.included + s.included, excluded: a.excluded + s.excluded, undetermined: a.undetermined + s.undetermined }), { included: 0, excluded: 0, undetermined: 0 });
-  const editable = !disabled && !busy && snapshot !== null;
+  const editable = !disabled && !busy && snapshot !== null && !policyChanged;
   const clearPreview = () => { setPreview(null); setError(null); };
   function addRule(include: boolean) {
     const id = sourceId || authorized[0]?.volume.id;
@@ -57,15 +66,23 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
     if (!snapshot || !editable) return;
     setBusy(true); setError(null);
     try {
-      const response = await tauriApi.globalIndexCoverage({ action, expectedRevision: snapshot.policy.revision, mode, rules });
+      const response = await tauriApi.globalIndexCoverage({ action, expectedRevision: editRevision.current ?? snapshot.policy.revision, mode, rules });
       setSnapshot(response.snapshot); setPreview(response.preview);
-      if (action === "save") setReload((v) => v + 1);
+      if (action === "save") {
+        editRevision.current = response.snapshot.policy.revision;
+        setReload((v) => v + 1);
+      }
     } catch (e) {
       const recoveryFailure = committedLifecycleRecoveryFailure(e);
       if (recoveryFailure) {
         initialized.current = false;
+        setSnapshot(null);
+        setPolicyChanged(true);
         setReload((v) => v + 1);
         setError(`${t("globalIndexChangeCommittedRecoveryPending")} ${recoveryFailure}`);
+      } else if (String(e).includes("coverage_revision_conflict")) {
+        setPolicyChanged(true);
+        setError(null);
       } else {
         setError(String(e));
       }
@@ -95,7 +112,8 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
     <ul className="grid max-h-56 gap-1 overflow-auto text-sm">{snapshot?.sources.filter((s) => s.enabled).map((s) => <li key={s.sourceId}>{sources.find((source) => source.volume.id === s.sourceId)?.volume.displayName ?? s.sourceId} · {t("indexCoverageSourceHealth")}: {statusText?.(s.status) ?? s.status}</li>)}</ul>
     {totals ? <p className={quietText}>{t("indexCoverageObservations")} · {t("indexCoverageIncluded")}: {totals.included} · {t("indexCoverageExcluded")}: {totals.excluded} · {t("indexCoverageUndetermined")}: {totals.undetermined}</p> : null}
     {preview ? <div role="status" className="grid gap-1 text-sm"><p>{t("indexCoveragePreviewHelp")}</p><p>{preview.sampled} / {preview.sampleLimit} · {t("indexCoverageIncluded")}: {preview.included} · {t("indexCoverageExcluded")}: {preview.excluded} · {t("indexCoverageUndetermined")}: {preview.undetermined}</p><p>{t("indexCoverageApplyHelp")}</p></div> : null}
+    {policyChanged ? <p role="alert" className="text-sm">{t("indexCoveragePolicyChanged")}</p> : null}
     {error ? <p role="alert" className="break-words text-sm">{t("indexCoverageFailed")} {error}</p> : null}
-    <div className="flex flex-wrap gap-2"><button type="button" className={buttonSecondary} disabled={!editable} onClick={() => void submit("preview")}>{t("indexCoveragePreview")}</button><button type="button" className={buttonSecondary} disabled={!editable || !preview} onClick={() => void submit("save")}>{t("indexCoverageApply")}</button><button type="button" className={buttonSecondary} onClick={() => { initialized.current = false; clearPreview(); setReload((v) => v + 1); }}>{t("indexCoverageRefresh")}</button></div>
+    <div className="flex flex-wrap gap-2"><button type="button" className={buttonSecondary} disabled={!editable} onClick={() => void submit("preview")}>{t("indexCoveragePreview")}</button><button type="button" className={buttonSecondary} disabled={!editable || !preview} onClick={() => void submit("save")}>{t("indexCoverageApply")}</button><button type="button" className={buttonSecondary} onClick={() => { initialized.current = false; setSnapshot(null); clearPreview(); setReload((v) => v + 1); }}>{t("indexCoverageRefresh")}</button></div>
   </fieldset>;
 }

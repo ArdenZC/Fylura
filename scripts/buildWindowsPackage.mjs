@@ -64,11 +64,14 @@ try {
     ".bin",
     process.platform === "win32" ? "tauri.cmd" : "tauri",
   );
-  const tauriArgs = [
-    "build",
-    "--features",
-    "desktop-runtime,global-search-filename-relevance-candidate",
+  const releaseFeatures = [
+    "desktop-runtime",
+    "global-search-filename-relevance-candidate",
   ];
+  if (process.platform === "win32") {
+    releaseFeatures.push("global-search-filename-relevance-windows-default-on");
+  }
+  const tauriArgs = ["build", "--features", releaseFeatures.join(",")];
   if (process.platform === "win32") {
     tauriArgs.push("--config", packageConfig);
   }

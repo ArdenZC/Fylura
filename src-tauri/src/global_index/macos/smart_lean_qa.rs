@@ -1,4 +1,4 @@
-//! Explicit native qualification on a task-owned APFS disk image only.
+//! Explicit native qualification on one task-owned, scoped filesystem directory.
 use super::*;
 use crate::global_index::{
     coverage::{bind_rule, CoverageMode},
@@ -38,7 +38,7 @@ pub fn run_qualification() -> Result<(), String> {
 
 fn qualify_scoped_source() {
     let root = PathBuf::from(
-        std::env::var_os("ZEN_SMART_LEAN_VOLUME_ROOT").expect("controlled APFS root required"),
+        std::env::var_os("ZEN_SMART_LEAN_VOLUME_ROOT").expect("controlled native root required"),
     );
     let task = PathBuf::from(
         std::env::var_os("ZEN_SMART_LEAN_TASK_ROOT").expect("controlled task root required"),
@@ -47,7 +47,7 @@ fn qualify_scoped_source() {
     let runner = PathBuf::from(std::env::var_os("RUNNER_TEMP").expect("runner root required"));
     assert!(task.starts_with(&runner));
     assert_eq!(
-        fs::read_to_string(task.join("owned-volume.txt")).unwrap(),
+        fs::read_to_string(task.join("owned-source-root.txt")).unwrap(),
         root.to_string_lossy()
     );
     super::trace_native_qa_phase("native_qa.volume_identity", "begin");
@@ -120,13 +120,16 @@ fn qualify_scoped_source() {
     let custom_included_file = custom_include.join("valuable-user-file.txt");
     let temporary_root = std::env::temp_dir();
     if !temporary_root.starts_with(&root) {
-        report_capability_gap(&root, "task-owned TMPDIR is outside the APFS source");
+        report_capability_gap(&root, "task-owned TMPDIR is outside the authorized source");
         return;
     }
     let temporary_file = temporary_root.join("zcsmartlean-native-temporary-file.txt");
     let cache_root = dirs::cache_dir().expect("task-owned HOME must expose its cache root");
     if !cache_root.starts_with(&root) {
-        report_capability_gap(&root, "task-owned HOME cache is outside the APFS source");
+        report_capability_gap(
+            &root,
+            "task-owned HOME cache is outside the authorized source",
+        );
         return;
     }
     let cache_file = cache_root.join("zcsmartlean-native-cache-file.txt");
@@ -206,7 +209,7 @@ fn qualify_scoped_source() {
         super::trace_native_qa_phase("native_qa.scoped_initial_provider", "end");
         if !visible(&db, &included) {
             report["capabilityGap"] =
-                "Hosted Spotlight did not gather the controlled APFS fixture".into();
+                "Hosted Spotlight did not gather the task-owned directory fixture".into();
             report["sourceStatus"] = db
                 .get_global_volume(&source.id)
                 .unwrap()

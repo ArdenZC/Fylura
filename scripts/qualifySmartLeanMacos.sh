@@ -55,10 +55,16 @@ export ZEN_SMART_LEAN_NATIVE_PHASE_DIR="$phase_dir"
 cargo build --locked --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --bin smart-lean-macos-qa
 qa_binary="${CARGO_TARGET_DIR:-src-tauri/target}/debug/smart-lean-macos-qa"
 python3 - "$qa_binary" "$PWD" <<'PYTHON'
-import json, pathlib, shutil, subprocess, sys
+import json, os, pathlib, shutil, subprocess, sys
 root = pathlib.Path(sys.argv[2])
 phase_dir = pathlib.Path(__import__("os").environ["ZEN_SMART_LEAN_NATIVE_PHASE_DIR"])
 artifact_phase_dir = root / "smart-lean-native-phase"
+task_home = pathlib.Path(os.environ["ZEN_SMART_LEAN_VOLUME_ROOT"]) / "smart-lean-native-home"
+task_tmp = pathlib.Path(os.environ["ZEN_SMART_LEAN_VOLUME_ROOT"]) / "smart-lean-native-tmp"
+task_home.mkdir(parents=True, exist_ok=True)
+task_tmp.mkdir(parents=True, exist_ok=True)
+os.environ["HOME"] = str(task_home)
+os.environ["TMPDIR"] = str(task_tmp)
 
 def read_phases():
     phases = {}

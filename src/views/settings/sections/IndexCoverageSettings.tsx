@@ -41,6 +41,7 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
           setPolicyChanged(true);
           setPreview(null);
         }
+        if (!response.snapshot.sources.some((s) => s.pending)) setError(null);
         if (response.snapshot.sources.some((s) => s.enabled && (
           ["indexing", "syncing", "rebuild_required"].includes(s.status)
           || (s.pending && s.status === "watcher_unavailable")
@@ -75,8 +76,13 @@ export function IndexCoverageSettings({ t, sources, disabled, statusText }: { t:
       const recoveryFailure = committedLifecycleRecoveryFailure(e);
       if (recoveryFailure) {
         initialized.current = false;
+        setSnapshot(null);
+        setPolicyChanged(true);
         setReload((v) => v + 1);
         setError(`${t("globalIndexChangeCommittedRecoveryPending")} ${recoveryFailure}`);
+      } else if (String(e).includes("coverage_revision_conflict")) {
+        setPolicyChanged(true);
+        setError(null);
       } else {
         setError(String(e));
       }

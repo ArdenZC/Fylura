@@ -24,10 +24,13 @@ impl Drop for FixtureCleanup {
 impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("zen-smart-lean-{}", uuid::Uuid::new_v4()));
+        Self::new_with_source_root(root.clone(), root)
+    }
+    fn new_with_source_root(root: PathBuf, source_root: PathBuf) -> Self {
         fs::create_dir_all(&root).unwrap();
         let db = Database::open(root.join("fixture.sqlite")).unwrap();
         let mut source = crate::global_index::tests::test_volume();
-        source.mount_path = root.to_string_lossy().into_owned();
+        source.mount_path = source_root.to_string_lossy().into_owned();
         source.scope_authorization_state = "authorized".into();
         source.enabled = true;
         db.upsert_global_volume(&source).unwrap();
@@ -135,12 +138,15 @@ fn native_false_exclusion_oracle_preserves_user_files() {
         "README",
         ".vscode/settings.json",
         "logs/important.log",
+        "Pictures/first-light.jpg",
         "资料/设计稿.png",
         "Program Files2/notes.txt",
         "node_modules/notes.md",
         "build/report.pdf",
         "target/notes.md",
         ".venv/notes.txt",
+        "tmp/meeting-notes.md",
+        "cache/indexed-report.pdf",
     ];
     let entries = names.iter().map(|p| f.file(p)).collect::<Vec<_>>();
     assert_eq!(
@@ -148,6 +154,101 @@ fn native_false_exclusion_oracle_preserves_user_files() {
         vec![Decision::Include; names.len()]
     );
 }
+
+#[test]
+fn native_system_temporary_root_is_excluded_without_excluding_tmp_named_folders() {
+    let source_root = std::env::temp_dir();
+    let fixture_root = source_root.join(format!("zen-smart-lean-temp-{}", uuid::Uuid::new_v4()));
+    let f = Fixture::new_with_source_root(fixture_root, source_root.clone());
+    let temporary = f.file("task-owned-temp/volatile.txt");
+
+    assert!(Path::new(&temporary.path).starts_with(&source_root));
+    assert_eq!(
+        observe_batch(
+            &CoveragePolicy::default(),
+            &f.source,
+            std::slice::from_ref(&temporary)
+        ),
+        vec![Decision::Exclude("known_temporary_root")]
+    );
+}
+
+#[test]
+fn proven_dependency_and_build_trees_are_excluded_but_generic_names_are_not() {
+    let f = Fixture::new();
+    let npm = f.dependencies();
+    let python = f.file("python/.venv/lib/site-packages/module.py");
+    f.file("python/.venv/pyvenv.cfg");
+    f.file("python/.venv/Scripts/activate");
+    let rust = f.file("rust/target/debug/generated.o");
+    f.file("rust/Cargo.toml");
+    f.file("rust/target/.rustc_info.json");
+    let cmake = f.file("cmake/build/CMakeFiles/generated.o");
+    f.file("cmake/build/CMakeCache.txt");
+    f.file("cmake/build/CMakeFiles/.fixture");
+    let lookalikes = [
+        f.file("cache/valuable.json"),
+        f.file("tmp/valuable.txt"),
+        f.file("build/valuable-design.pdf"),
+        f.file("target/valuable-notes.md"),
+        f.file(".venv/valuable-notes.txt"),
+    ];
+
+    let mut candidates = vec![npm, python, rust, cmake];
+    candidates.extend(lookalikes);
+    assert_eq!(
+        observe_batch(&CoveragePolicy::default(), &f.source, &candidates),
+        vec![
+            Decision::Exclude("npm_dependencies"),
+            Decision::Exclude("python_environment"),
+            Decision::Exclude("rust_build_output"),
+            Decision::Exclude("cmake_build_output"),
+            Decision::Include,
+            Decision::Include,
+            Decision::Include,
+            Decision::Include,
+            Decision::Include,
+        ]
+    );
+}
+
+#[test]
+fn ordinary_documents_photos_and_project_sources_remain_searchable() {
+    let f = Fixture::new();
+    let document = f.file("docs/meeting-notes.md");
+    let photo = f.file("Pictures/first-light.jpg");
+    let source = f.file("project/src/main.rs");
+    let dependency = f.dependencies();
+    let owner = f.owner();
+    f.db.upsert_global_entries_batch_owned(
+        &[
+            document.clone(),
+            photo.clone(),
+            source.clone(),
+            dependency.clone(),
+        ],
+        &owner,
+    )
+    .unwrap();
+
+    for (query, expected) in [
+        ("meeting-notes", document),
+        ("first-light", photo),
+        ("main", source),
+    ] {
+        let results = f.db.search_global_entries(query, 25, 0).unwrap();
+        assert!(
+            results.iter().any(|entry| entry.path == expected.path),
+            "missing {query}: {results:?}"
+        );
+    }
+    assert!(f
+        .db
+        .search_global_entries("noise", 25, 0)
+        .unwrap()
+        .is_empty());
+}
+
 #[test]
 fn production_admission_excludes_only_proven_trees_and_keeps_graph_identity() {
     let f = Fixture::new();
@@ -269,6 +370,29 @@ fn policy_switch_fences_old_writes_hides_old_results_and_survives_restart() {
         .unwrap(),
         0
     );
+}
+
+#[test]
+fn stale_policy_writer_cannot_replace_existing_broad_coverage_after_restart() {
+    let f = Fixture::new();
+    assert_eq!(
+        f.db.global_index_coverage().unwrap().policy.mode,
+        CoverageMode::SmartLean
+    );
+    f.db.save_global_index_coverage(1, CoverageMode::BroadCoverage, vec![])
+        .unwrap();
+
+    let stale =
+        f.db.save_global_index_coverage(1, CoverageMode::SmartLean, vec![]);
+    assert!(
+        matches!(stale, Err(crate::db::DbError::Validation(message)) if message == "coverage_revision_conflict")
+    );
+
+    let reopened = Database::open(f.root.join("fixture.sqlite")).unwrap();
+    let snapshot = reopened.global_index_coverage().unwrap();
+    assert_eq!(snapshot.policy.revision, 2);
+    assert_eq!(snapshot.policy.mode, CoverageMode::BroadCoverage);
+    assert!(snapshot.sources[0].pending);
 }
 #[test]
 fn lawful_include_and_broad_restore_excluded_files_without_source_opt_in() {

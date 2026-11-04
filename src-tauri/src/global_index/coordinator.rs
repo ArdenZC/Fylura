@@ -1609,6 +1609,84 @@ mod tests {
         drop(db);
     }
 
+    #[test]
+    fn coverage_change_reports_committed_state_when_provider_lifecycle_release_fails() {
+        struct LifecycleFailureProvider;
+        impl GlobalIndexProvider for LifecycleFailureProvider {
+            fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+                Err(GlobalIndexError::Provider(
+                    "controlled discovery stop".into(),
+                ))
+            }
+            fn start_initial_index(
+                &self,
+                _source: &GlobalSourceDescriptor,
+                _sink: &mut dyn GlobalIndexSink,
+                _cancel: &AtomicBool,
+            ) -> Result<(), GlobalIndexError> {
+                Ok(())
+            }
+            fn resume_incremental_sync(
+                &self,
+                _source: &GlobalSourceDescriptor,
+                _sink: &mut dyn GlobalIndexSink,
+                _cancel: &AtomicBool,
+            ) -> Result<(), GlobalIndexError> {
+                Ok(())
+            }
+            fn pause(&self) -> Result<(), GlobalIndexError> {
+                Ok(())
+            }
+            fn status(&self) -> Result<String, GlobalIndexError> {
+                Ok("controlled".into())
+            }
+            fn shutdown(&self) -> Result<(), GlobalIndexError> {
+                Ok(())
+            }
+            fn update_coverage_lifecycle(
+                &self,
+                update: &mut dyn FnMut() -> Result<bool, GlobalIndexError>,
+            ) -> Result<(), GlobalIndexError> {
+                update()?;
+                Err(GlobalIndexError::Provider(
+                    "controlled lifecycle release failure".into(),
+                ))
+            }
+        }
+
+        let path = TestDatabasePath::new();
+        let db = Database::open(&path.0).expect("open isolated coverage database");
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.enabled = true;
+        db.upsert_global_volume(&volume)
+            .expect("seed authorized source");
+        let coordinator = GlobalIndexCoordinator::with_provider(
+            db.clone(),
+            Arc::new(LifecycleFailureProvider),
+            Arc::new(GlobalIndexWakeSlot::default()),
+        );
+
+        let error = coordinator
+            .set_coverage_policy(
+                1,
+                crate::global_index::coverage::CoverageMode::BroadCoverage,
+                vec![],
+            )
+            .expect_err("the lifecycle release must be reported after the durable commit");
+        assert!(error
+            .to_string()
+            .contains("global_index_change_committed_recovery_pending"));
+        coordinator.pause().expect("stop isolated provider worker");
+
+        let snapshot = db.global_index_coverage().expect("read committed policy");
+        assert_eq!(snapshot.policy.revision, 2);
+        assert_eq!(
+            snapshot.policy.mode,
+            crate::global_index::coverage::CoverageMode::BroadCoverage
+        );
+        assert!(snapshot.sources[0].pending);
+    }
+
     struct TestDatabasePath(PathBuf);
 
     impl TestDatabasePath {

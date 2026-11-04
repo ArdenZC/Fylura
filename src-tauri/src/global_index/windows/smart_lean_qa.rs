@@ -156,7 +156,7 @@ pub fn run(
         baseline(&db, source_id)?;
         let included_visible = visible(&db, included)?;
         let excluded_visible = visible(&db, excluded)?;
-        if !included_visible || excluded_visible != (mode != CoverageMode::SmartLean) {
+        if !included_visible || excluded_visible != (mode == CoverageMode::BroadCoverage) {
             return Err(format!("direct native coverage mismatch: mode={mode:?} included={included_visible} low_value={excluded_visible}").into());
         }
         for path in [document.as_path(), photo.as_path(), code.as_path()] {

@@ -1,0 +1,172 @@
+{
+  "base_commit": "12dfea7ec49e8ad576db4029a3da2fdadbe41ba1",
+  "branch": "test/issue-381-b4-p1a-f1-lifecycle",
+  "commands": [
+    {
+      "argv": [
+        "rustc",
+        "--version",
+        "--verbose"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "rustc-version",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/rustc-version.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 196,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/rustc-version.stdout",
+      "stdout_sha256": "b2bdf493bcf6d1dc55181a0efc2774b6d9cf7bf5c8dcc5bed592c994b2ad38c4"
+    },
+    {
+      "argv": [
+        "cargo",
+        "--version"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "cargo-version",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/cargo-version.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 36,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/cargo-version.stdout",
+      "stdout_sha256": "1aedaa9cce116919d39b1eb303a58865771582bc24fc259aa8e26cb212e0f59e"
+    },
+    {
+      "argv": [
+        "cargo",
+        "tree",
+        "-e",
+        "features",
+        "--locked",
+        "--manifest-path",
+        "/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1/Cargo.toml"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "cargo-tree-features",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/cargo-tree-features.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 12386,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/cargo-tree-features.stdout",
+      "stdout_sha256": "9438528cdf1132c052a84f7cade9605085afcc00c6eada10b8648e5ed4019b12"
+    },
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1/Cargo.toml"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "cargo-fmt-check",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/cargo-fmt-check.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 0,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/cargo-fmt-check.stdout",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "--manifest-path",
+        "/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1/Cargo.toml"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "cargo-build-release",
+      "stderr_bytes": 150,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/cargo-build-release.stderr",
+      "stderr_sha256": "e421dd6fa4d827687b01de2586bb43b4c8913980ac53f1f811936fd899a033e0",
+      "stdout_bytes": 0,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/cargo-build-release.stdout",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "/tmp/issue381-b4-p1a-target/release/issue381-b4-p1a-f1",
+        "--remediation-only"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "focused-remediation",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/focused-remediation.stderr.txt",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 18617,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/focused-remediation.stdout.jsonl",
+      "stdout_sha256": "aab83f9385db21760534fc8405688658cb2fdcf78cca8d77eb69258eb94eabe0"
+    },
+    {
+      "argv": [
+        "/tmp/issue381-b4-p1a-target/release/issue381-b4-p1a-f1",
+        "--samples",
+        "100"
+      ],
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "matrix-native",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/matrix-native.stderr.txt",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 2160919,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/matrix-native.stdout.jsonl.gz",
+      "stdout_sha256": "3d10620b779ac778134a3d6a6fcef043089c63e5c233a61c982ec465ccbe2b67",
+      "stdout_uncompressed_bytes": 23308426,
+      "stdout_uncompressed_sha256": "90d274b59e55dea326ac43ed6a855dab45efc4cf35d0f762ada688acb6a93b4a"
+    },
+    {
+      "argv": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "/workspace/Zen-Canvas/tests/issue381_b4_p1a_f1/oracle.py",
+        "/workspace/Zen-Canvas/docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/matrix-native.stdout.jsonl.gz",
+        "/workspace/Zen-Canvas/docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/matrix-oracle-checks.jsonl"
+      ],
+      "checks_bytes": 13300,
+      "checks_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/matrix-oracle-checks.jsonl",
+      "checks_sha256": "bd24bcf889ccbaa0a1135c65323c6516bd64562d50948bb8bfb03e0da001c6a5",
+      "cwd": "/workspace/Zen-Canvas",
+      "exit_code": 0,
+      "name": "matrix-oracle",
+      "stderr_bytes": 0,
+      "stderr_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/matrix-oracle.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 228,
+      "stdout_path": "docs/project/research/issue-381-b4-p1a/evidence/remediation-r1-r3-v1/raw/matrix-oracle.stdout",
+      "stdout_sha256": "0d3c3e4241cb5e1e5f80b0c8859e2063c5da8b0aa772fab992ec96e755dca24a"
+    }
+  ],
+  "executor_architecture": "x86_64",
+  "executor_kernel": "6.18.44",
+  "executor_os": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "lock_parity": {
+    "all_harness_package_versions_and_checksums_in_product_lock": true,
+    "harness_registry_package_count": 69,
+    "mismatches": [],
+    "product_registry_package_count": 588
+  },
+  "native_gate": "ENVIRONMENT_UNAVAILABLE (requires hosted native Windows and macOS runs)",
+  "power_loss_gate": "not established by process kill or fsync",
+  "recorded_at_utc": "2026-10-14T05:08:07.569194+00:00",
+  "repository": "ArdenZC/Zen-Canvas",
+  "source_file_sha256": {
+    "tests/issue381_b4_p1a_f1/Cargo.lock": "760a1670f886138af3fd4aceca099d3eef6754ca20bd1b083dc31e56db65c5e5",
+    "tests/issue381_b4_p1a_f1/Cargo.toml": "0453497b398eb79305659160a3ffdca15bd1308168d36856af0f3d462865306e",
+    "tests/issue381_b4_p1a_f1/oracle.py": "9b3c37dbc198cfcbc7fedf9d368b478b7ea1e12a254b35e5e0df9278fa74c59e",
+    "tests/issue381_b4_p1a_f1/run.py": "a9240eca4bb205d746958406cbf19fc6a6f63731b13e12c81bf094fcc4ab1afe",
+    "tests/issue381_b4_p1a_f1/src/db.rs": "2ebc283c2d3f64e12d0a439aa04ec7d3982f36751685a9ceb2814eb7ac1c0c2a",
+    "tests/issue381_b4_p1a_f1/src/main.rs": "9c18603ee703f933166221700b3083909a15e9c58dea127ffb8f042c31291fd2",
+    "tests/issue381_b4_p1a_f1/src/model.rs": "1a4d758f8ddd3324441d01ec8643eb347398ddf34bfe2490f5b5243e35c0b7a0"
+  },
+  "source_head": "d2b916ac5889072945005036c7594dea2e23dbb2",
+  "source_tree": "080a2210a11ca001abd2ea98694653705a400f61",
+  "workspace_filesystem_type": "overlayfs"
+}

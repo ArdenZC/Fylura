@@ -1,0 +1,23 @@
+{
+  "label": "original PR #408 harness coverage-gap behavior reproduction; not a passing remediation result",
+  "baseline_head": "12dfea7ec49e8ad576db4029a3da2fdadbe41ba1",
+  "baseline_tree": "60e5a1a8aa400360ef27ffb11ec0ad4e01cf3daf",
+  "archived_source_root": "docs/project/research/issue-381-b4-p1a/evidence/previous-pr408-source/tests/issue381_b4_p1a_f1",
+  "temporary_probe_modification": "temporary copy only: main dispatches test_pin_gc() and test_n04() then exits; no repository source was modified for this probe",
+  "command": [
+    "/workspace/.cache/cargo/bin/cargo",
+    "run",
+    "--locked",
+    "--manifest-path",
+    "/tmp/issue381-pr408-baseline-gap-20261014/Cargo.toml",
+    "--",
+    "--gap-reproduction"
+  ],
+  "cwd": "/workspace/Zen-Canvas",
+  "exit_code": 0,
+  "stdout_sha256": "7381d6d507709f179b8d66ac4854cbdb1529478ed27704eefa11e4dd12805623",
+  "stdout_bytes": 2423,
+  "stderr_sha256": "f9a1ebe66f070cef250a262ac861a8d0b16af735676c678a51886f3f48ecf7b4",
+  "stderr_bytes": 3788,
+  "interpretation": "The old test_pin_gc reports twelve Pin-first outcomes. The old P1A-N04 reports EXPECTED_REJECTION from a hash inequality expression without running a tampered manifest through verify_seal. These reproduce the coverage gap and are not evidence that either old path fully verified the required contract."
+}

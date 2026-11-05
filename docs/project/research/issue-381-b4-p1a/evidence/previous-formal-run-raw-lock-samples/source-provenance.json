@@ -1,0 +1,20 @@
+{
+  "base_commit": "ab3915e3cdcc7c729317498b3b97501862832a91",
+  "base_tree": "ca22989646575bba9a7224ce10becbb89c01e0ee",
+  "patch_bytes": 127147,
+  "patch_path": "docs/project/research/issue-381-b4-p1a/evidence/final/source-harness.patch",
+  "patch_scope_is_test_harness_only": true,
+  "patch_sha256": "f16b6329888716c2385e5c9e26772420ccc0b77533ef7349a4f9b1ea164c5d98",
+  "source_changed_files": [
+    "tests/issue381_b4_p1a_f1/.gitignore",
+    "tests/issue381_b4_p1a_f1/Cargo.lock",
+    "tests/issue381_b4_p1a_f1/Cargo.toml",
+    "tests/issue381_b4_p1a_f1/oracle.py",
+    "tests/issue381_b4_p1a_f1/run.py",
+    "tests/issue381_b4_p1a_f1/src/db.rs",
+    "tests/issue381_b4_p1a_f1/src/main.rs",
+    "tests/issue381_b4_p1a_f1/src/model.rs"
+  ],
+  "source_head": "ac02ed24c4c0c8a654d1f914d4a9881246e63ea7",
+  "source_tree": "824d7f9b5ba02b9b0a10a448ce54e8e2933c1647"
+}

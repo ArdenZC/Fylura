@@ -1,0 +1,60 @@
+{
+  "hardened-smoke": {
+    "oracle": {
+      "evidence_bytes": 7398,
+      "evidence_path": "docs/project/research/issue-381-b4-p1a/evidence/development/hardened-smoke.oracle",
+      "evidence_sha256": "02a80e80112a354a6352d8d0ad7479fbd41100d662b956c5f478d3a9f4110175",
+      "gzip": false,
+      "raw_bytes": 7398,
+      "raw_sha256": "02a80e80112a354a6352d8d0ad7479fbd41100d662b956c5f478d3a9f4110175",
+      "source_temp_path": "/tmp/issue381-b4-p1a-smoke2.oracle.jsonl"
+    },
+    "stderr": {
+      "evidence_bytes": 0,
+      "evidence_path": "docs/project/research/issue-381-b4-p1a/evidence/development/hardened-smoke.stderr",
+      "evidence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip": false,
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_temp_path": "/tmp/issue381-b4-p1a-smoke2.stderr.txt"
+    },
+    "stdout": {
+      "evidence_bytes": 2129827,
+      "evidence_path": "docs/project/research/issue-381-b4-p1a/evidence/development/hardened-smoke.stdout.jsonl.gz",
+      "evidence_sha256": "6b4a36b9b950c7aed708e65fe5e338fd1fa618d60f28b78c2e7e52fde212672a",
+      "gzip": true,
+      "raw_bytes": 23055235,
+      "raw_sha256": "032d828358424ea8c655764bcedcc7bdfe98d398968e59ca441ccefcee35a208",
+      "source_temp_path": "/tmp/issue381-b4-p1a-smoke2.stdout.jsonl"
+    }
+  },
+  "initial-smoke": {
+    "oracle": {
+      "evidence_bytes": 7398,
+      "evidence_path": "docs/project/research/issue-381-b4-p1a/evidence/development/initial-smoke.oracle",
+      "evidence_sha256": "02a80e80112a354a6352d8d0ad7479fbd41100d662b956c5f478d3a9f4110175",
+      "gzip": false,
+      "raw_bytes": 7398,
+      "raw_sha256": "02a80e80112a354a6352d8d0ad7479fbd41100d662b956c5f478d3a9f4110175",
+      "source_temp_path": "/tmp/issue381-b4-p1a-smoke/oracle.jsonl"
+    },
+    "stderr": {
+      "evidence_bytes": 0,
+      "evidence_path": "docs/project/research/issue-381-b4-p1a/evidence/development/initial-smoke.stderr",
+      "evidence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip": false,
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_temp_path": "/tmp/issue381-b4-p1a-smoke/stderr.txt"
+    },
+    "stdout": {
+      "evidence_bytes": 2129536,
+      "evidence_path": "docs/project/research/issue-381-b4-p1a/evidence/development/initial-smoke.stdout.jsonl.gz",
+      "evidence_sha256": "f166fb159c7cbd109522795c40f52420cf5f1d104773f574227a71f45fc01637",
+      "gzip": true,
+      "raw_bytes": 23051800,
+      "raw_sha256": "b45eb6fd698a115c2f10daad1287e96d38ac6d8aff655fc9e4d1cf2d21fee482",
+      "source_temp_path": "/tmp/issue381-b4-p1a-smoke/stdout.jsonl"
+    }
+  }
+}

@@ -1,0 +1,559 @@
+name: Issue 270 macOS QA candidate package
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [master]
+    paths:
+      - .github/workflows/issue-270-macos-qa-package.yml
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: issue-270-macos-qa-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    if: ${{ github.event.pull_request.draft == true && github.event.pull_request.head.ref == 'qa/issue-270-macos-package' }}
+    runs-on: macos-26
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    env:
+      CARGO_BUILD_JOBS: 2
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+      EXPECTED_PRODUCT_SHA: d5fdd65b786cdd6c98cf69bf4a80a729fcb346ca
+      EXPECTED_PRODUCT_TREE: 1cbdff33aaa53d1f5c838231a4fe82e86378e107
+      EVIDENCE_ROOT: ${{ github.workspace }}/.tmp/issue-270-macos-qa
+    steps:
+      - name: Checkout workflow PR revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: workflow-source
+          persist-credentials: false
+
+      - name: Checkout immutable product candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ArdenZC/Zen-Canvas
+          ref: d5fdd65b786cdd6c98cf69bf4a80a729fcb346ca
+          path: product-source
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: product-source/package-lock.json
+
+      - name: Verify runner and source identities
+        id: identity
+        shell: bash
+        env:
+          WORKFLOW_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WORKFLOW_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          WORKFLOW_MERGE_SHA: ${{ github.sha }}
+          WORKFLOW_PR_NUMBER: ${{ github.event.pull_request.number }}
+          WORKFLOW_PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_ROOT/evidence" "$EVIDENCE_ROOT/artifact"
+
+          runner_arch="$(uname -m)"
+          test "$runner_arch" = arm64 || { echo "PACKAGE_BLOCKED: expected arm64 runner, got $runner_arch"; exit 1; }
+          macos_version="$(sw_vers -productVersion)"
+          case "$macos_version" in
+            26.*) ;;
+            *) echo "PACKAGE_BLOCKED: macos-26 runner reported macOS $macos_version"; exit 1 ;;
+          esac
+
+          product_head="$(git -C product-source rev-parse HEAD)"
+          product_tree="$(git -C product-source rev-parse 'HEAD^{tree}')"
+          test "$product_head" = "$EXPECTED_PRODUCT_SHA" || { echo "PACKAGE_BLOCKED: product HEAD mismatch: $product_head"; exit 1; }
+          test "$product_tree" = "$EXPECTED_PRODUCT_TREE" || { echo "PACKAGE_BLOCKED: product Tree mismatch: $product_tree"; exit 1; }
+
+          workflow_head="$(git -C workflow-source rev-parse HEAD)"
+          workflow_tree="$(git -C workflow-source rev-parse 'HEAD^{tree}')"
+          test "$workflow_head" = "$WORKFLOW_PR_HEAD_SHA" || { echo "PACKAGE_BLOCKED: workflow PR checkout mismatch: $workflow_head"; exit 1; }
+          test "$workflow_head" != "$product_head" || { echo "PACKAGE_BLOCKED: workflow and product source identities unexpectedly match"; exit 1; }
+
+          {
+            sw_vers
+            printf 'runner_arch=%s\n' "$runner_arch"
+            printf '\nXcode:\n'
+            xcodebuild -version
+            printf '\nRust toolchain:\n'
+            (cd product-source && rustup show active-toolchain && rustc -vV && cargo -V)
+            printf '\nNode tooling:\n'
+            node --version
+            npm --version
+          } > "$EVIDENCE_ROOT/evidence/runner-versions.txt" 2>&1
+
+          printf '%s\n' \
+            "workflow_pr_head_sha=$workflow_head" \
+            "workflow_pr_tree_sha=$workflow_tree" \
+            "workflow_pr_base_sha=$WORKFLOW_PR_BASE_SHA" \
+            "workflow_merge_sha=$WORKFLOW_MERGE_SHA" \
+            "workflow_pr_number=$WORKFLOW_PR_NUMBER" \
+            "workflow_pr_head_ref=$WORKFLOW_PR_HEAD_REF" \
+            "product_source_sha=$product_head" \
+            "product_source_tree=$product_tree" \
+            "macos_version=$macos_version" \
+            "runner_arch=$runner_arch" \
+            "workflow_run_id=$RUN_ID" \
+            "workflow_run_attempt=$RUN_ATTEMPT" \
+            "workflow_run_url=$SERVER_URL/$REPOSITORY/actions/runs/$RUN_ID" \
+            > "$EVIDENCE_ROOT/evidence/source-identities.txt"
+          printf 'workflow_tree_sha=%s\n' "$workflow_tree" >> "$GITHUB_OUTPUT"
+
+      - name: Build and inspect QA candidate
+        id: candidate
+        shell: bash
+        env:
+          WORKFLOW_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WORKFLOW_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          WORKFLOW_MERGE_SHA: ${{ github.sha }}
+          WORKFLOW_PR_NUMBER: ${{ github.event.pull_request.number }}
+          WORKFLOW_PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          evidence="$EVIDENCE_ROOT/evidence"
+          artifact="$EVIDENCE_ROOT/artifact"
+          trap 'status=$?; trap - ERR; printf "unhandled build-step failure at line %s (exit %s)\n" "$LINENO" "$status" >> "$evidence/script-abort.txt"; exit "$status"' ERR
+          product="$GITHUB_WORKSPACE/product-source"
+          app="$product/src-tauri/target/release/bundle/macos/Zen Canvas.app"
+          executable=""
+          executable_name=""
+          executable_relative_path=""
+          zip_name="ZenCanvas-issue-270-d5fdd65-macos26-arm64.app.zip"
+          zip_path="$artifact/$zip_name"
+          failure_reason=""
+          package_ready=false
+          npm_ci_exit=not_run
+          tauri_build_exit=not_run
+          app_validation=not_run
+          zip_validation=not_run
+          architecture="unavailable"
+          executable_sha256=""
+          archive_sha256=""
+          archive_size_bytes=""
+          app_content_sha256=""
+          codesign_display_exit=not_run
+          codesign_verify_exit=not_run
+          spctl_assess_exit=not_run
+          stapler_validate_exit=not_run
+
+          cd "$product"
+          product_head="$(git rev-parse HEAD)"
+          product_tree="$(git rev-parse 'HEAD^{tree}')"
+          if [ "$product_head" != "$EXPECTED_PRODUCT_SHA" ] || [ "$product_tree" != "$EXPECTED_PRODUCT_TREE" ]; then
+            failure_reason="product source identity changed before build (HEAD=$product_head Tree=$product_tree)"
+          fi
+          shasum -a 256 package-lock.json src-tauri/Cargo.lock > "$evidence/lockfile-sha256.txt"
+          node -e 'const fs=require("node:fs"); const c=JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json","utf8")); process.stdout.write(`${c.version}\n`)' > "$evidence/app-version.txt"
+
+          if [ -n "$failure_reason" ]; then
+            npm_ci_exit=not_run
+          elif npm ci 2>&1 | tee "$evidence/npm-ci.log"; then
+            npm_ci_exit=0
+          else
+            npm_ci_exit=$?
+            failure_reason="npm ci failed with exit code $npm_ci_exit"
+          fi
+
+          if [ "$npm_ci_exit" = 0 ]; then
+            npx --no-install tauri --version > "$evidence/tauri-cli-version.txt" 2>&1 || true
+            task_config="$RUNNER_TEMP/issue-270-tauri-config.json"
+            printf '{"mainBinaryName":"zen-canvas"}\n' > "$task_config"
+            if npx tauri build --features "desktop-runtime,native-qa" --bundles app --config "$task_config" -- --locked 2>&1 | tee "$evidence/tauri-build.log"; then
+              tauri_build_exit=0
+            else
+              tauri_build_exit=$?
+              failure_reason="Tauri QA app build failed with exit code $tauri_build_exit"
+            fi
+            rm -f "$task_config"
+          fi
+
+          if [ "$tauri_build_exit" = 0 ]; then
+            if [ ! -d "$app" ]; then
+              app_validation=failed
+              failure_reason="Tauri reported a bundle but Zen Canvas.app is missing at the expected output path"
+            else
+              if executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2> "$evidence/cfbundle-executable-error.txt")"; then
+                plist_exit=0
+              else
+                plist_exit=$?
+              fi
+              executable_relative_path="Contents/MacOS/$executable_name"
+              executable="$app/$executable_relative_path"
+              printf 'CFBundleExecutable=%s\npath=%s\n' "$executable_name" "$executable_relative_path" > "$evidence/executable-identity.txt"
+              if [ "$plist_exit" -ne 0 ] || [ -z "$executable_name" ] || [[ "$executable_name" == */* ]] || [ ! -x "$executable" ]; then
+                app_validation=failed
+                failure_reason="CFBundleExecutable could not be resolved to an executable inside Zen Canvas.app"
+              else
+                if arch_output="$(lipo -archs "$executable" 2>&1)"; then
+                  arch_exit=0
+                else
+                  arch_exit=$?
+                fi
+                printf '%s\n' "$arch_output" > "$evidence/executable-architectures.txt"
+                architecture="$arch_output"
+                normalized_arches=" ${arch_output//,/ } "
+                case "$normalized_arches" in
+                  *" arm64 "*) arm64_present=true ;;
+                  *) arm64_present=false ;;
+                esac
+                if [ "$arch_exit" -ne 0 ] || [ "$arm64_present" != true ]; then
+                  app_validation=failed
+                  failure_reason="CFBundleExecutable '$executable_name' does not report the arm64 architecture"
+                else
+                  app_validation=passed
+                fi
+              fi
+            fi
+          fi
+
+          if [ "$app_validation" = passed ]; then
+            if python3 - "$app" "$artifact/app-content-manifest.json" > "$evidence/app-content-manifest.log" 2>&1 <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+
+          root = os.path.abspath(sys.argv[1])
+          output = sys.argv[2]
+          entries = []
+          for current, directories, files in os.walk(root, topdown=True, followlinks=False):
+              directories.sort()
+              files.sort()
+              for name in list(directories):
+                  full = os.path.join(current, name)
+                  if os.path.islink(full):
+                      relative = os.path.relpath(full, root).replace(os.sep, "/")
+                      entries.append({"path": relative, "type": "symlink", "target": os.readlink(full)})
+              for name in files:
+                  full = os.path.join(current, name)
+                  relative = os.path.relpath(full, root).replace(os.sep, "/")
+                  if os.path.islink(full):
+                      entries.append({"path": relative, "type": "symlink", "target": os.readlink(full)})
+                  elif os.path.isfile(full):
+                      digest = hashlib.sha256()
+                      with open(full, "rb") as stream:
+                          for block in iter(lambda: stream.read(1024 * 1024), b""):
+                              digest.update(block)
+                      entries.append({"path": relative, "type": "file", "sha256": digest.hexdigest()})
+          entries.sort(key=lambda entry: entry["path"])
+          with open(output, "w", encoding="utf-8", newline="\n") as stream:
+              json.dump({"root": "Zen Canvas.app", "entries": entries}, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+              stream.write("\n")
+          PY
+            then
+              manifest_exit=0
+            else
+              manifest_exit=$?
+              cat "$evidence/app-content-manifest.log" >&2
+            fi
+            if [ "$manifest_exit" -ne 0 ]; then
+              app_validation=failed
+              failure_reason="could not generate deterministic app-content manifest (exit $manifest_exit)"
+            else
+              app_content_sha256="$(shasum -a 256 "$artifact/app-content-manifest.json" | awk '{print $1}')"
+              executable_sha256="$(shasum -a 256 "$executable" | awk '{print $1}')"
+
+              if codesign -dv --verbose=4 "$app" > "$artifact/codesign-display.txt" 2>&1; then
+                codesign_display_exit=0
+              else
+                codesign_display_exit=$?
+              fi
+              if codesign --verify --deep --strict --verbose=2 "$app" > "$artifact/codesign-verify.txt" 2>&1; then
+                codesign_verify_exit=0
+              else
+                codesign_verify_exit=$?
+              fi
+              if spctl --assess --type execute --verbose=4 "$app" > "$artifact/spctl-assess.txt" 2>&1; then
+                spctl_assess_exit=0
+              else
+                spctl_assess_exit=$?
+              fi
+              if xcrun stapler validate -v "$app" > "$artifact/stapler-validate.txt" 2>&1; then
+                stapler_validate_exit=0
+              else
+                stapler_validate_exit=$?
+              fi
+
+              if ditto -c -k --sequesterRsrc --keepParent "$app" "$zip_path" > "$evidence/ditto.log" 2>&1; then
+                if unzip -t "$zip_path" > "$evidence/zip-validation.txt" 2>&1; then
+                  zip_validation=passed
+                  archive_sha256="$(shasum -a 256 "$zip_path" | awk '{print $1}')"
+                  archive_size_bytes="$(stat -f '%z' "$zip_path")"
+                  package_ready=true
+                else
+                  zip_validation=failed
+                  failure_reason="ditto ZIP integrity verification failed"
+                fi
+              else
+                zip_validation=failed
+                failure_reason="ditto could not create the QA app ZIP"
+              fi
+            fi
+          fi
+
+          if [ "$package_ready" != true ] && [ -z "$failure_reason" ]; then
+            failure_reason="candidate package did not reach a verified ZIP"
+          fi
+
+          export PACKAGE_READY="$package_ready"
+          export PACKAGE_STATUS="$([ "$package_ready" = true ] && printf READY || printf PACKAGE_BLOCKED)"
+          export FAILURE_REASON="$failure_reason"
+          export NPM_CI_EXIT="$npm_ci_exit"
+          export TAURI_BUILD_EXIT="$tauri_build_exit"
+          export APP_VALIDATION="$app_validation"
+          export ZIP_VALIDATION="$zip_validation"
+          export EXECUTABLE_ARCHITECTURES="$architecture"
+          export EXECUTABLE_NAME="$executable_name"
+          export EXECUTABLE_RELATIVE_PATH="$executable_relative_path"
+          export EXECUTABLE_SHA256="$executable_sha256"
+          export PACKAGE_FILENAME="$zip_name"
+          export PACKAGE_SHA256="$archive_sha256"
+          export PACKAGE_SIZE_BYTES="$archive_size_bytes"
+          export APP_CONTENT_MANIFEST_SHA256="$app_content_sha256"
+          export CODESIGN_DISPLAY_EXIT="$codesign_display_exit"
+          export CODESIGN_VERIFY_EXIT="$codesign_verify_exit"
+          export SPCTL_ASSESS_EXIT="$spctl_assess_exit"
+          export STAPLER_VALIDATE_EXIT="$stapler_validate_exit"
+          export WORKFLOW_PR_HEAD_SHA WORKFLOW_PR_BASE_SHA WORKFLOW_MERGE_SHA WORKFLOW_PR_NUMBER WORKFLOW_PR_HEAD_REF
+          export RUN_ID RUN_ATTEMPT SERVER_URL REPOSITORY EXPECTED_PRODUCT_SHA EXPECTED_PRODUCT_TREE
+          export MACOS_VERSION="$(sw_vers -productVersion)"
+          export RUNNER_ARCH="$(uname -m)"
+          export WORKFLOW_TREE_SHA="$(git -C ../workflow-source rev-parse 'HEAD^{tree}')"
+          export BUILD_FLAGS='npx tauri build --features "desktop-runtime,native-qa" --bundles app --config {"mainBinaryName":"zen-canvas"} -- --locked'
+          export CARGO_LOCK_SHA256="$(awk 'NR==2 {print $1}' "$evidence/lockfile-sha256.txt")"
+          export PACKAGE_LOCK_SHA256="$(awk 'NR==1 {print $1}' "$evidence/lockfile-sha256.txt")"
+          export APP_VERSION="$(cat "$evidence/app-version.txt")"
+
+          cp "$evidence/source-identities.txt" "$artifact/source-identities.txt"
+          cp "$evidence/runner-versions.txt" "$artifact/runner-versions.txt"
+          cp "$evidence/lockfile-sha256.txt" "$artifact/lockfile-sha256.txt"
+          cp "$evidence/app-version.txt" "$artifact/app-version.txt"
+          if [ -f "$evidence/tauri-cli-version.txt" ]; then cp "$evidence/tauri-cli-version.txt" "$artifact/tauri-cli-version.txt"; fi
+
+          python3 - "$evidence/provenance.json" "$artifact/provenance.json" "$artifact/codesign-display.txt" "$artifact/codesign-verify.txt" "$artifact/spctl-assess.txt" "$artifact/stapler-validate.txt" <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          evidence_path, artifact_path, display_path, verify_path, spctl_path, stapler_path = sys.argv[1:]
+          def read_text(path):
+              try:
+                  return pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
+              except OSError:
+                  return ""
+
+          display = read_text(display_path)
+          if os.environ["CODESIGN_DISPLAY_EXIT"] != "0":
+              signature_state = "unsigned_or_codesign_inspection_failed"
+          elif re.search(r"^Signature=adhoc\s*$", display, re.MULTILINE | re.IGNORECASE):
+              signature_state = "ad_hoc_untrusted"
+          elif re.search(r"^Authority=", display, re.MULTILINE):
+              signature_state = "signed_identity_present"
+          else:
+              signature_state = "signature_present_identity_unconfirmed"
+
+          data = {
+              "status": os.environ["PACKAGE_STATUS"],
+              "failureReason": os.environ["FAILURE_REASON"] or None,
+              "candidate": {
+                  "productSourceSha": os.environ["EXPECTED_PRODUCT_SHA"],
+                  "productSourceTree": os.environ["EXPECTED_PRODUCT_TREE"],
+                  "appVersion": os.environ["APP_VERSION"],
+                  "bundleIdentifier": "com.startlan.zencanvas",
+                  "buildFlags": os.environ["BUILD_FLAGS"],
+                  "npmCiExitCode": os.environ["NPM_CI_EXIT"],
+                  "tauriBuildExitCode": os.environ["TAURI_BUILD_EXIT"],
+                  "cargoLockSha256": os.environ["CARGO_LOCK_SHA256"],
+                  "packageLockSha256": os.environ["PACKAGE_LOCK_SHA256"],
+              },
+              "workflow": {
+                  "repository": os.environ["REPOSITORY"],
+                  "pullRequestNumber": os.environ["WORKFLOW_PR_NUMBER"],
+                  "pullRequestHeadRef": os.environ["WORKFLOW_PR_HEAD_REF"],
+                  "pullRequestHeadSha": os.environ["WORKFLOW_PR_HEAD_SHA"],
+                  "pullRequestBaseSha": os.environ["WORKFLOW_PR_BASE_SHA"],
+                  "mergeCommitSha": os.environ["WORKFLOW_MERGE_SHA"],
+                  "runId": os.environ["RUN_ID"],
+                  "runAttempt": os.environ["RUN_ATTEMPT"],
+                  "runUrl": f"{os.environ['SERVER_URL']}/{os.environ['REPOSITORY']}/actions/runs/{os.environ['RUN_ID']}",
+              },
+              "runner": {
+                  "label": "macos-26",
+                  "macOSVersion": os.environ["MACOS_VERSION"],
+                  "architecture": os.environ["RUNNER_ARCH"],
+                  "versionsEvidence": "runner-versions.txt",
+                  "tauriCliVersionEvidence": "tauri-cli-version.txt",
+              },
+              "workflowDefinition": {
+                  "headSha": os.environ["WORKFLOW_PR_HEAD_SHA"],
+                  "treeSha": os.environ["WORKFLOW_TREE_SHA"],
+              },
+              "build": {
+                  "appValidation": os.environ["APP_VALIDATION"],
+                  "zipValidation": os.environ["ZIP_VALIDATION"],
+                  "mainExecutableArchitectures": os.environ["EXECUTABLE_ARCHITECTURES"],
+                  "mainExecutableName": os.environ["EXECUTABLE_NAME"] or None,
+                  "mainExecutablePath": os.environ["EXECUTABLE_RELATIVE_PATH"] or None,
+                  "mainExecutableSha256": os.environ["EXECUTABLE_SHA256"] or None,
+                  "appContentManifest": "app-content-manifest.json",
+                  "appContentManifestSha256": os.environ["APP_CONTENT_MANIFEST_SHA256"] or None,
+                  "packageFile": os.environ["PACKAGE_FILENAME"] if os.environ["PACKAGE_SHA256"] else None,
+                  "packageSizeBytes": int(os.environ["PACKAGE_SIZE_BYTES"]) if os.environ["PACKAGE_SIZE_BYTES"] else None,
+                  "packageSha256": os.environ["PACKAGE_SHA256"] or None,
+              },
+              "security": {
+                  "signatureState": signature_state,
+                  "codesignDisplayExitCode": os.environ["CODESIGN_DISPLAY_EXIT"],
+                  "codesignVerifyExitCode": os.environ["CODESIGN_VERIFY_EXIT"],
+                  "spctlAssessmentExitCode": os.environ["SPCTL_ASSESS_EXIT"],
+                  "staplerValidationExitCode": os.environ["STAPLER_VALIDATE_EXIT"],
+                  "notarizationState": "stapled_ticket_valid" if os.environ["STAPLER_VALIDATE_EXIT"] == "0" else "not_verified",
+                  "evidence": [
+                      "codesign-display.txt",
+                      "codesign-verify.txt",
+                      "spctl-assess.txt",
+                      "stapler-validate.txt",
+                  ],
+                  "gatekeeperBypassed": False,
+                  "adHocSigningRequested": False,
+              },
+              "artifactRetentionDays": 14,
+              "nativeAcceptance": "NATIVE_UNVERIFIED",
+          }
+          for path in (evidence_path, artifact_path):
+              pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+              pathlib.Path(path).write_text(json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          PY
+
+          printf 'package_ready=%s\n' "$package_ready" >> "$GITHUB_OUTPUT"
+          printf 'package_status=%s\n' "$PACKAGE_STATUS" >> "$GITHUB_OUTPUT"
+          printf 'package_sha256=%s\n' "$archive_sha256" >> "$GITHUB_OUTPUT"
+          printf 'executable_sha256=%s\n' "$executable_sha256" >> "$GITHUB_OUTPUT"
+          printf 'failure_reason=%s\n' "$failure_reason" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verified QA candidate package
+        id: upload-candidate
+        if: ${{ steps.candidate.outputs.package_ready == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue-270-macos-qa-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/.tmp/issue-270-macos-qa/artifact/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Record artifact identity and expiry
+        id: artifact-reference
+        if: ${{ steps.upload-candidate.outcome == 'success' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_URL: ${{ github.api_url }}
+          ARTIFACT_ID: ${{ steps.upload-candidate.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload-candidate.outputs.artifact-url }}
+          ARTIFACT_NAME: issue-270-macos-qa-${{ github.run_id }}-${{ github.run_attempt }}
+          PACKAGE_SHA256: ${{ steps.candidate.outputs.package_sha256 }}
+          EXECUTABLE_SHA256: ${{ steps.candidate.outputs.executable_sha256 }}
+          FAILURE_REASON: ${{ steps.candidate.outputs.failure_reason }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          test -n "$ARTIFACT_ID"
+          curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$API_URL/repos/$REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
+            > "$EVIDENCE_ROOT/evidence/artifact-api.json"
+          node - "$EVIDENCE_ROOT/evidence/artifact-api.json" "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const [artifactPath, summaryPath] = process.argv.slice(2);
+          const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
+          const env = process.env;
+          if (String(artifact.id) !== env.ARTIFACT_ID) throw new Error("artifact API id mismatch");
+          if (artifact.expired || !artifact.expires_at) throw new Error("artifact expiry is missing or already expired");
+          const summary = [
+            "## Issue #270 macOS QA package",
+            "",
+            `- Status: **READY_FOR_OWNER_NATIVE_ACCEPTANCE** (package only; GUI/search/idle acceptance remains NATIVE_UNVERIFIED)`,
+            `- Workflow run: [${env.RUN_ID} attempt ${env.RUN_ATTEMPT}](${env.SERVER_URL}/${env.REPOSITORY}/actions/runs/${env.RUN_ID})`,
+            `- Artifact: [${artifact.name}](${env.ARTIFACT_URL}) (ID ${artifact.id}; expires ${artifact.expires_at}; retention 14 days)`,
+            `- Package SHA-256: ${env.PACKAGE_SHA256}`,
+            `- Main executable SHA-256: ${env.EXECUTABLE_SHA256}`,
+            `- Artifact API size: ${artifact.size_in_bytes} bytes`,
+            `- Artifact API download URL: ${artifact.archive_download_url}`,
+            `- Native acceptance: NATIVE_UNVERIFIED; the Owner must use an interactive Apple Silicon macOS session with a verifiably indexed Spotlight corpus.`,
+            "",
+          ].join("\n");
+          fs.appendFileSync(summaryPath, summary);
+          const ref = {
+            repository: env.REPOSITORY,
+            runId: Number(env.RUN_ID),
+            runAttempt: Number(env.RUN_ATTEMPT),
+            artifactId: artifact.id,
+            artifactName: artifact.name,
+            artifactUrl: env.ARTIFACT_URL,
+            artifactDownloadUrl: artifact.archive_download_url,
+            createdAt: artifact.created_at,
+            expiresAt: artifact.expires_at,
+            sizeBytes: artifact.size_in_bytes,
+            packageSha256: env.PACKAGE_SHA256,
+            executableSha256: env.EXECUTABLE_SHA256,
+          };
+          fs.writeFileSync(`${process.env.EVIDENCE_ROOT}/evidence/artifact-reference.json`, JSON.stringify(ref, null, 2) + "\n");
+          NODE
+
+      - name: Upload package failure evidence
+        if: ${{ always() && steps.candidate.outputs.package_ready != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue-270-macos-qa-blocked-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/.tmp/issue-270-macos-qa/evidence/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Require verified QA artifact upload
+        if: ${{ always() }}
+        shell: bash
+        env:
+          PACKAGE_READY: ${{ steps.candidate.outputs.package_ready }}
+          PACKAGE_STATUS: ${{ steps.candidate.outputs.package_status }}
+          UPLOAD_OUTCOME: ${{ steps.upload-candidate.outcome }}
+          REFERENCE_OUTCOME: ${{ steps.artifact-reference.outcome }}
+          FAILURE_REASON: ${{ steps.candidate.outputs.failure_reason }}
+        run: |
+          set -euo pipefail
+          if [ "$PACKAGE_READY" != true ]; then
+            echo "PACKAGE_BLOCKED: ${FAILURE_REASON:-candidate packaging did not complete}" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$UPLOAD_OUTCOME" != success ] || [ "$REFERENCE_OUTCOME" != success ]; then
+            echo "PACKAGE_BLOCKED: package upload or artifact expiry verification failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

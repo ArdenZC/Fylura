@@ -255,7 +255,8 @@ function StorageCleanupPanel({
     selectBackendDefaultSafeFindings,
     buildSelections,
     reconcileUpdatedFindings,
-    removeSelectionsForIds
+    removeSelectionsForIds,
+    reconcileAfterSafeTrash
   } = useCleanupSelectionController({ findingCache, setFindingCache, run, invalidatePreviewState });
 
   const reportError = useCallback((value: unknown) => {
@@ -386,6 +387,7 @@ function StorageCleanupPanel({
     selectionRevision,
     buildSelections,
     resetSelection,
+    reconcileAfterSafeTrash,
     preview,
     setPreview,
     setConfirmPreviewOpen,
@@ -1276,6 +1278,7 @@ function StorageCleanupPanel({
           <NoticeBanner tone={executionResult.failed > 0 || executionResult.skipped > 0 || executionResult.moved === 0 ? "warning" : "success"} title={executionResult.moved === 0 ? t("cleanupNothingMoved") : executionResult.failed > 0 || executionResult.skipped > 0 ? t("storageCleanupExecutionPartial") : t("storageCleanupExecutionDone")} action={executionResult.batchId ? <Button variant="secondary" size="compact" onClick={() => { useOperationQueueStore.setState({ requestedCleanupBatchId: executionResult.batchId ?? null }); onNavigate?.("restore"); }}><History size={14} aria-hidden="true" />{t("storageCleanupExecutionHistory")}</Button> : undefined}>
             {replaceCopy("storageCleanupExecutionSummary", { moved: executionResult.moved, skipped: executionResult.skipped, failed: executionResult.failed })}
             <p>{t("cleanupRecoveryRecorded").replace("{count}", String(executionResult.logs.filter((log) => log.status === "success" && log.itemId).length))}</p>
+            {selectedFindings.length > 0 ? <p role="status">{replaceCopy("storageCleanupExecutionRemainingReview", { count: selectedFindings.length })}</p> : null}
             {executionResult.logs.some((log) => log.status !== "success") ? <ul className="mt-2 space-y-1">{executionResult.logs.filter((log) => log.status !== "success").map((log, index) => <li key={log.candidateId ?? `${log.path}-${index}`}><strong>{log.name}</strong> · {log.status === "skipped" ? t("skipped") : log.status === "failed" ? t("failed") : t("storageCleanupReviewTier")} · {localizedStableError(log.message, t)}</li>)}</ul> : null}
           </NoticeBanner>
         ) : null}

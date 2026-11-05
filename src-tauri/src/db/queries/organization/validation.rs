@@ -53,35 +53,18 @@ pub(super) fn validate_edited_filename(
     let preview_id = preview_id.ok_or_else(|| {
         DbError::Validation("organization_item_has_no_editable_preview".to_string())
     })?;
-    let previews = {
-        let row = load_indexed_file_by_id(conn, &file_id)?
-            .ok_or_else(|| DbError::Validation("organization_source_missing".to_string()))?;
-        operation_preview_from_indexed(row)
-    };
-    let preview = previews
+    let row = load_indexed_file_by_id(conn, &file_id)?
+        .ok_or_else(|| DbError::Validation("organization_source_missing".to_string()))?;
+    let projection = current_organization_projection(conn, &row)?;
+    let preview = projection
+        .preview
         .filter(|preview| preview.id == preview_id)
         .ok_or_else(|| DbError::Validation("organization_preview_stale".to_string()))?;
-    let (_, extension, is_dir) = conn.query_row(
-        "SELECT name, extension, is_dir FROM files WHERE id = ?1 AND is_stale = 0",
-        params![file_id],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)? != 0,
-            ))
-        },
-    )?;
-    let original_name: String = conn.query_row(
-        "SELECT name FROM files WHERE id = ?1",
-        params![file_id],
-        |row| row.get(0),
-    )?;
     let normalized = crate::file_naming::normalize_proposed_file_name(
-        &original_name,
-        &extension,
+        &row.name,
+        &row.extension,
         value,
-        is_dir,
+        row.is_dir,
         crate::file_naming::ExtensionChangePolicy::Preserve,
     )
     .map_err(DbError::Validation)?;

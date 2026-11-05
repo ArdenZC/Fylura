@@ -18,6 +18,7 @@ type Props = {
   selectionRevision: MutableRefObject<number>;
   buildSelections: () => CleanupFindingSelection[];
   resetSelection: () => void;
+  reconcileAfterSafeTrash: (selectedIds: readonly string[], result: CleanupExecutionResult, refreshedFindings: readonly AnalysisFinding[]) => void;
   preview: OperationPreviewResult | null;
   setPreview: Dispatch<SetStateAction<OperationPreviewResult | null>>;
   setConfirmPreviewOpen: Dispatch<SetStateAction<boolean>>;
@@ -46,6 +47,7 @@ export function useCleanupExecutionController({
   selectionRevision,
   buildSelections,
   resetSelection,
+  reconcileAfterSafeTrash,
   preview,
   setPreview,
   setConfirmPreviewOpen,
@@ -125,6 +127,7 @@ export function useCleanupExecutionController({
     if (!selections) return;
     const executable = executableCleanupSubset(preview, selections);
     if (!executable.length) return;
+    const selectedIds = selectedFindings.map((finding) => finding.id);
     const selectionFingerprint = cleanupSelectionFingerprint(runId, selections);
     if (previewSelectionFingerprint.current !== selectionFingerprint) {
       invalidatePreviewState();
@@ -139,15 +142,38 @@ export function useCleanupExecutionController({
       && previewSelectionFingerprint.current === selectionFingerprint
       && runRef.current?.id === runId
       && mutationOwnerRef.current?.id === mutationOwner.id;
+    const ownsResultRefresh = () => expectedScopeEpoch === scopeEpoch.current
+      && expectedAiOperationEpoch === aiOperationEpoch.current
+      && runRef.current?.id === runId
+      && mutationOwnerRef.current?.id === mutationOwner.id;
     try {
       const result = await api.moveCleanupCandidatesToSafeTrash(runId, executable);
       if (!ownsRequest()) return;
+      invalidatePreviewState();
       setExecutionResult(result);
-      resetSelection();
-      setPreview(null);
       previewSelectionFingerprint.current = null;
       setConfirmPreviewOpen(false);
       await loadRunDetails(runId, true, expectedScopeEpoch);
+      if (!ownsResultRefresh()) return;
+      if (!api.getAnalysisFinding) {
+        resetSelection();
+        reportError(new Error("cleanup_execution_finding_refresh_unavailable"));
+        return;
+      }
+      try {
+        const refreshed = await Promise.all(selectedIds.map((id) => api.getAnalysisFinding!(id)));
+        if (!ownsResultRefresh()) return;
+        reconcileAfterSafeTrash(
+          selectedIds,
+          result,
+          refreshed.filter((finding): finding is AnalysisFinding => Boolean(finding))
+        );
+      } catch (refreshError) {
+        if (ownsResultRefresh()) {
+          resetSelection();
+          reportError(new Error("cleanup_execution_finding_refresh_failed", { cause: refreshError }));
+        }
+      }
     } catch (executionError) {
       if (ownsRequest()) {
         invalidatePreviewState();
@@ -158,7 +184,7 @@ export function useCleanupExecutionController({
     } finally {
       releaseMutation(mutationOwner);
     }
-  }, [aiOperationEpoch, api, beginMutation, buildSelections, invalidatePreviewState, interactionLockedRef, loadRunDetails, mutationOwnerRef, preview, previewSelectionFingerprint, releaseMutation, reportError, resetSelection, run, runRef, selectedFindings.length, selectionRevision, setConfirmPreviewOpen, setError, setExecutionResult, setPreview, scopeEpoch]);
+  }, [aiOperationEpoch, api, beginMutation, buildSelections, invalidatePreviewState, interactionLockedRef, loadRunDetails, mutationOwnerRef, preview, previewSelectionFingerprint, reconcileAfterSafeTrash, releaseMutation, reportError, resetSelection, run, runRef, selectedFindings, selectionRevision, setConfirmPreviewOpen, setError, setExecutionResult, setPreview, scopeEpoch]);
 
   return { previewSelected, moveSelectedToSafeTrash };
 }

@@ -62,6 +62,9 @@ pub(super) fn current_organization_projection(
             let semantic_explanation = OrganizationSemanticExplanationDto {
                 assessment_fingerprint: assessment.fingerprint(),
                 reason: assessment.reason.chars().take(512).collect(),
+                provider_kind: None,
+                model: None,
+                provider_settings_current: None,
             };
             let mut semantic_row = row.clone();
             semantic_row.file_type = assessment.file_type.clone();

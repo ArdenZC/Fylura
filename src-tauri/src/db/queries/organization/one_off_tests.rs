@@ -333,6 +333,143 @@ fn one_off_native_filesystem_analysis_group_execute_journal_and_restore() {
     );
 }
 
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn one_off_native_single_file_name_edit_execute_journal_and_restore() {
+    use crate::file_ops::*;
+    struct Quiet;
+    impl OperationProgressEmitter for Quiet {
+        fn emit_progress(&self, _: OperationProgressPayload) {}
+    }
+
+    let f = Fixture::new();
+    let plan = f.analyze(&f.plan());
+    let items =
+        f.db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+            plan_id: plan.id.clone(),
+            cursor: None,
+            page_size: 100,
+        })
+        .unwrap();
+    let invoice = items
+        .items
+        .iter()
+        .find(|item| item.source_name_snapshot == "invoice.txt")
+        .unwrap();
+    let original_fingerprint = invoice.proposal_fingerprint.clone();
+    assert_eq!(invoice.proposal_kind, "move");
+    assert!(invoice
+        .available_actions
+        .iter()
+        .any(|action| action == "edit_name"));
+    assert_eq!(invoice.decision, "undecided");
+    let unreviewed_dry =
+        f.db.get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: plan.revision,
+            item_ids: vec![invoice.id.clone()],
+            all_accepted: false,
+        })
+        .unwrap_err();
+    assert!(unreviewed_dry
+        .to_string()
+        .contains("organization_selection_item_invalid"));
+
+    let reviewed =
+        f.db.update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: plan.revision,
+            safe_batch: false,
+            mutations: vec![OrganizationDecisionMutation {
+                item_id: invoice.id.clone(),
+                expected_item_revision: invoice.revision,
+                decision: "edited".into(),
+                edited_filename: Some("reviewed-invoice.txt".into()),
+            }],
+        })
+        .unwrap();
+    assert_eq!(reviewed.revision, plan.revision + 1);
+    let reviewed_item =
+        f.db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+            plan_id: plan.id.clone(),
+            cursor: None,
+            page_size: 100,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.id == invoice.id)
+        .unwrap();
+    assert_eq!(reviewed_item.decision, "edited");
+    assert_eq!(
+        reviewed_item.edited_name.as_deref(),
+        Some("reviewed-invoice.txt")
+    );
+    assert_eq!(reviewed_item.proposal_fingerprint, original_fingerprint);
+
+    let dry =
+        f.db.get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: reviewed.revision,
+            item_ids: vec![invoice.id.clone()],
+            all_accepted: false,
+        })
+        .unwrap();
+    assert_eq!(dry.executable_count, 1, "dry run: {:?}", dry.items);
+    assert_eq!(
+        std::path::Path::new(&dry.items[0].to).file_name().unwrap(),
+        "reviewed-invoice.txt"
+    );
+
+    let dispatch =
+        f.db.begin_organization_plan_execution(&ExecuteOrganizationPlanRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: reviewed.revision,
+            dry_run_fingerprint: dry.dry_run_fingerprint,
+            item_ids: vec![invoice.id.clone()],
+            all_accepted: false,
+            confirmed: true,
+        })
+        .unwrap();
+    let result = execute_moves_with_persistence_with_progress_and_app_data(
+        &f.db,
+        ExecuteMovesRequest {
+            operations: dispatch.selections.clone(),
+        },
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        &Quiet,
+        None,
+        Some(dispatch.operation_batch_id.clone()),
+    )
+    .unwrap();
+    assert!(result.logs.iter().all(|log| log.status == "success"));
+    assert_eq!(
+        f.db.finalize_organization_plan_execution(&plan.id, &dispatch, &result.logs)
+            .unwrap()
+            .succeeded_count,
+        1
+    );
+    let moved = f.source.join("Documents/reviewed-invoice.txt");
+    assert!(moved.exists());
+    let logs =
+        f.db.get_restorable_operation_logs_by_ids(
+            &result
+                .logs
+                .iter()
+                .map(|log| log.id.clone())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    assert_eq!(logs.len(), 1);
+    let restored = restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs }).unwrap();
+    assert_eq!(restored.restored, 1);
+    assert!(!moved.exists());
+    assert_eq!(
+        std::fs::read(f.source.join("invoice.txt")).unwrap(),
+        b"real private content: never sent to AI"
+    );
+}
+
 #[test]
 fn one_off_group_folder_edit_is_bounded_and_does_not_approve_items() {
     let f = Fixture::new();
@@ -466,6 +603,180 @@ fn one_off_policy_revocation_prevents_assessment_publication() {
             )
             .unwrap();
     assert_eq!(count, 0);
+}
+
+#[test]
+fn one_off_provider_changes_keep_saved_advice_provenance_and_require_review_and_confirmation() {
+    let f = Fixture::new();
+    let mut plan = f.analyze(&f.plan());
+    let item =
+        f.db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+            plan_id: plan.id.clone(),
+            cursor: None,
+            page_size: 100,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.source_name_snapshot == "invoice.txt")
+        .unwrap();
+    assert_eq!(
+        item.semantic_explanation
+            .as_ref()
+            .unwrap()
+            .provider_kind
+            .as_deref(),
+        Some("ollama")
+    );
+    assert_eq!(
+        item.semantic_explanation.as_ref().unwrap().model.as_deref(),
+        Some("fixture")
+    );
+    let item_id = item.id.clone();
+    let original_fingerprint = item.proposal_fingerprint.clone();
+
+    let credentials = crate::ai::settings::InMemoryCredentialStore::default();
+    let mut settings =
+        crate::ai::settings::get_ai_settings_with_store(&f.db, &credentials).unwrap();
+    settings.model = "new-model".into();
+    {
+        let conn = f.db.conn().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings(key,value) VALUES(?1,?2)",
+            params![AI_SETTINGS_KEY, serde_json::to_string(&settings).unwrap()],
+        )
+        .unwrap();
+    }
+    plan =
+        f.db.refresh_organization_plan(OrganizationPlanRevisionRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: plan.revision,
+        })
+        .unwrap();
+    let current_item =
+        f.db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+            plan_id: plan.id.clone(),
+            cursor: None,
+            page_size: 100,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.id == item_id)
+        .unwrap();
+    assert_eq!(current_item.proposal_fingerprint, original_fingerprint);
+    assert_eq!(
+        current_item
+            .semantic_explanation
+            .as_ref()
+            .unwrap()
+            .model
+            .as_deref(),
+        Some("fixture")
+    );
+    assert_eq!(
+        current_item
+            .semantic_explanation
+            .as_ref()
+            .unwrap()
+            .provider_settings_current,
+        Some(false)
+    );
+
+    let reviewed =
+        f.db.update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: plan.revision,
+            safe_batch: false,
+            mutations: vec![OrganizationDecisionMutation {
+                item_id: current_item.id.clone(),
+                expected_item_revision: current_item.revision,
+                decision: "accepted".into(),
+                edited_filename: None,
+            }],
+        })
+        .unwrap();
+    settings.enabled = false;
+    {
+        let conn = f.db.conn().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings(key,value) VALUES(?1,?2)",
+            params![AI_SETTINGS_KEY, serde_json::to_string(&settings).unwrap()],
+        )
+        .unwrap();
+    }
+    let new_analysis =
+        f.db.analyze_one_off_organization_plan(AnalyzeOrganizationPlanItemsRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: reviewed.revision,
+            item_ids: vec![current_item.id.clone()],
+            one_off_consent: true,
+        })
+        .unwrap_err();
+    assert!(new_analysis
+        .to_string()
+        .contains("one_off_ai_provider_not_ready"));
+
+    plan =
+        f.db.refresh_organization_plan(OrganizationPlanRevisionRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: reviewed.revision,
+        })
+        .unwrap();
+    let after_disable =
+        f.db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+            plan_id: plan.id.clone(),
+            cursor: None,
+            page_size: 100,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.id == current_item.id)
+        .unwrap();
+    assert_eq!(after_disable.decision, "accepted");
+    assert_eq!(
+        after_disable
+            .semantic_explanation
+            .as_ref()
+            .unwrap()
+            .model
+            .as_deref(),
+        Some("fixture")
+    );
+    assert_eq!(
+        after_disable
+            .semantic_explanation
+            .as_ref()
+            .unwrap()
+            .provider_settings_current,
+        Some(false)
+    );
+    let dry =
+        f.db.get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+            plan_id: plan.id.clone(),
+            expected_plan_revision: plan.revision,
+            item_ids: vec![current_item.id.clone()],
+            all_accepted: false,
+        })
+        .unwrap();
+    assert_eq!(dry.executable_count, 1);
+    assert!(f.source.join("invoice.txt").exists());
+    assert!(f.source.join("notes.txt").exists());
+    let unconfirmed =
+        f.db.begin_organization_plan_execution(&ExecuteOrganizationPlanRequest {
+            plan_id: plan.id,
+            expected_plan_revision: dry.plan_revision,
+            dry_run_fingerprint: dry.dry_run_fingerprint,
+            item_ids: vec![after_disable.id],
+            all_accepted: false,
+            confirmed: false,
+        })
+        .err()
+        .unwrap();
+    assert!(unconfirmed
+        .to_string()
+        .contains("organization_execution_confirmation_required"));
 }
 
 #[cfg(any(windows, target_os = "macos"))]

@@ -456,6 +456,91 @@ describe("File Library manual management workflow", () => {
     expect(useFileManagementStore.getState().transferOpen).toBe(false);
   });
 
+  it.each([
+    { action: "copy", change: "projection", shouldExecute: true },
+    { action: "move", change: "projection", shouldExecute: true },
+    { action: "copy", change: "source-selection", shouldExecute: false },
+    { action: "copy", change: "destination-path", shouldExecute: false },
+  ] as const)("guards cross-pane $action against $change changes", async ({ action, change, shouldExecute }) => {
+    const sourceRefs = [
+      { kind: "ephemeral" as const, browseSessionId: "left-session", entryId: "one" },
+      { kind: "ephemeral" as const, browseSessionId: "left-session", entryId: "two" },
+    ];
+    const makeBrowseState = (sessionId: string, pathId: string, routingHint: string, selectedEntryRefs: typeof sourceRefs) => ({
+      sessionId, pathId, routingHint, selectedEntryRefs,
+      query: { text: null, entryKind: "all" },
+      enumerationId: `${sessionId}-enumeration-1`, entriesLength: selectedEntryRefs.length,
+      enumerationState: "complete", pendingChange: null, changeState: "watching",
+    });
+    const sourceState = makeBrowseState("left-session", "left-root", "C:/Source", sourceRefs);
+    const targetState = makeBrowseState("right-session", "right-root", "C:/Target", []);
+    const makeSurface = (state: typeof sourceState) => ({
+      get signature() {
+        return JSON.stringify(["browse", state.sessionId, state.pathId, state.query, state.selectedEntryRefs,
+          state.enumerationId, state.entriesLength, state.enumerationState, state.pendingChange, state.changeState]);
+      },
+      get count() { return state.selectedEntryRefs.length; },
+      get refs() { return state.selectedEntryRefs; },
+      browse: { sessionId: state.sessionId, get pathRef() { return { id: state.pathId }; } },
+      get routingHint() { return state.routingHint; },
+      refresh, clear,
+    });
+    const source = makeSurface(sourceState);
+    const target = makeSurface(targetState);
+    useFileManagementStore.setState({activePaneId:"left",surface:()=>source,surfaces:{left:{owner:"left",read:()=>source},right:{owner:"right",read:()=>target}}});
+    const acceptedPreview = plan();
+    acceptedPreview.rows.forEach((row) => {
+      row.preview!.operation_type = action;
+      row.preview!.suggested_action = action === "move" ? "Move" : "Copy";
+    });
+    vi.mocked(api.previewTransfer).mockImplementationOnce(async (request) => {
+      if (change === "projection") {
+        // The other pane becoming visible advances Browse enumeration and watcher
+        // projection state while the authoritative Preview request is in flight.
+        sourceState.enumerationId = "left-session-enumeration-2";
+        sourceState.enumerationState = "loading_more";
+        targetState.enumerationId = "right-session-enumeration-2";
+        targetState.enumerationState = "complete";
+        targetState.entriesLength = 3;
+      } else if (change === "source-selection") {
+        sourceState.selectedEntryRefs = [sourceRefs[0]!];
+        sourceState.entriesLength = 1;
+      } else {
+        targetState.pathId = "right-other-root";
+        targetState.routingHint = "C:/OtherTarget";
+      }
+      return {
+        ...acceptedPreview,
+        destinationDirectory: request.destinationDirectory,
+        rows: acceptedPreview.rows.map((row) => ({
+          ...row,
+          preview: row.preview ? { ...row.preview, operation_type: action } : null,
+        })),
+      };
+    });
+    function TwoPanes() {
+      const [active,setActive] = useState("left");
+      const value = (id: string): PaneContextValue => ({id,visible:true,focused:active===id,rootRef:{current:host},projection:defaultFileLibraryProjection,scope:{kind:"all"},setScope:vi.fn(),routingHint:id==="left"?"C:/Source":"C:/Target",updateLocation:vi.fn(),activate:()=>setActive(id),peerId:id==="left"?"right":"left",activatePeer:()=>{setActive(id==="left"?"right":"left");useFileManagementStore.getState().activatePane(id==="left"?"right":"left");},registerPreview:vi.fn(),beforeMutation:vi.fn(async()=>undefined),afterMutation:vi.fn(async()=>undefined)});
+      return <><PaneContext.Provider value={value("left")}><FileManagementToolbar/></PaneContext.Provider><PaneContext.Provider value={value("right")}><FileManagementToolbar/></PaneContext.Provider></>;
+    }
+
+    await act(async () => root.render(<TwoPanes/>));
+    await act(async () => useFileManagementStore.getState().requestAction(action === "copy" ? "copy_other" : "move_other"));
+    await settle();
+
+    expect(api.captureTransfer).toHaveBeenCalledWith({ refs: sourceRefs });
+    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({
+      ticketIds: ["one", "two"], action, destinationDirectory: "C:/Target",
+    }));
+    if (shouldExecute) {
+      expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
+      expect(document.body.textContent).not.toContain("transfer_preview_stale");
+    } else {
+      expect(api.executeTransfer).not.toHaveBeenCalled();
+      expect(document.body.textContent).toContain("transfer_preview_stale");
+    }
+  });
+
   it("marks unavailable favorite locations and keeps them out of destination selection", async()=>{
     vi.mocked(api.fileLibraryPlaces).mockResolvedValue([{id:"offline",name:"Offline disk",routingHint:"Z:/Gone",favorite:true,current:false,visitedAt:1,unavailable:true}]);
     await render();await click(t("fmMore"));await click(t("fmPlaces"));expect(document.body.textContent).toContain(t("fmUnavailable"));

@@ -11,7 +11,7 @@ import {
   type TransferAction,
   type TransferTicket,
 } from "../../../api/fileManagementApi";
-import { useFileManagementStore } from "../management/fileManagementStore";
+import { transferDestinationContextKey, transferSourceContextKey, useFileManagementStore } from "../management/fileManagementStore";
 import { releaseTransferTickets } from "../management/transferTicketOwnership";
 import { useAppStore } from "../../../store/useAppStore";
 import type { Translator } from "../../../types/ui";
@@ -158,8 +158,8 @@ export function useWorkbenchDrag({
     return workbenchPointerSessionIsCurrent(session, {
       currentToken: registry.current.current?.token ?? null,
       activeTabId: snapshot.activeTabId,
-      sourceSignature: sourceSurface?.signature ?? null,
-      peerSignature: peerSurface?.signature ?? null,
+      sourceSignature: transferSourceContextKey(sourceSurface),
+      peerSignature: transferDestinationContextKey(peerSurface),
       sourcePath: sourcePane?.path ?? null,
       peerPath: peerPane?.path ?? null,
       sourceVisible: !!sourceElement && !sourceElement.hidden && sourceElement.getClientRects().length > 0 && sourceSurface?.visible !== false,
@@ -228,8 +228,8 @@ export function useWorkbenchDrag({
       tabId,
       sourcePaneId,
       peerPaneId,
-      sourceSignature: sourceSurface.signature,
-      peerSignature: peerSurface.signature,
+      sourceSignature: transferSourceContextKey(sourceSurface) ?? "",
+      peerSignature: transferDestinationContextKey(peerSurface) ?? "",
       sourcePath: sourcePane.path,
       peerPath: peerPane.path,
       startX: event.clientX,
@@ -337,8 +337,8 @@ export function useWorkbenchDrag({
         pendingTransfer: {
           paneId: targetPane.id,
           sourcePaneId: session.sourcePaneId,
-          sourceSignature: session.sourceSignature,
-          destinationSignature: session.peerSignature,
+          sourceContextKey: session.sourceSignature,
+          destinationContextKey: session.peerSignature,
           tickets,
           action,
           destination: session.peerPath,

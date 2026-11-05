@@ -6,7 +6,7 @@ import { releaseTransferTickets } from "../management/transferTicketOwnership";
 import { useAppStore } from "../../../store/useAppStore";
 import type { BrowseEntryRef } from "../../../types/fileWorkspace";
 import type { Translator } from "../../../types/ui";
-import { useFileManagementStore } from "../management/fileManagementStore";
+import { transferDestinationContextKey, useFileManagementStore } from "../management/fileManagementStore";
 import type { FileWorkbenchModel } from "./workbenchModel";
 
 interface ExternalDropTarget {
@@ -204,8 +204,8 @@ export function useNativeFileDrop({
                 useAppStore.getState().showError(t("wbExternalDropUnsupported"));
                 return;
               }
-              const destinationSignature = initialStore.surfaces[target.paneId]?.read().signature;
-              if (!destinationSignature) {
+              const destinationContextKey = transferDestinationContextKey(initialStore.surfaces[target.paneId]?.read(), target.destinationEntry);
+              if (!destinationContextKey) {
                 useAppStore.getState().showError(t("wbSelectionChanged"));
                 return;
               }
@@ -220,7 +220,7 @@ export function useNativeFileDrop({
                 wide,
                 active && !locked && !currentStore.transferActive && !currentStore.transferOpen && !currentStore.pendingTransfer,
               );
-              if (!nativeDropRequestGate.isCurrent(requestToken) || cancelled || currentStore.transferActive || currentStore.transferOpen || currentStore.pendingTransfer || currentStore.surfaces[target.paneId]?.read().signature !== destinationSignature || !sameExternalDropTarget(target, currentTarget)) {
+              if (!nativeDropRequestGate.isCurrent(requestToken) || cancelled || currentStore.transferActive || currentStore.transferOpen || currentStore.pendingTransfer || transferDestinationContextKey(currentStore.surfaces[target.paneId]?.read(), target.destinationEntry) !== destinationContextKey || !sameExternalDropTarget(target, currentTarget)) {
                 await releaseTransferTickets(tickets);
                 capturedTickets = [];
                 if (!cancelled && nativeDropRequestGate.isCurrent(requestToken)) {
@@ -236,7 +236,7 @@ export function useNativeFileDrop({
               useFileManagementStore.setState({
                 pendingTransfer: {
                   paneId: target.paneId,
-                  destinationSignature,
+                  destinationContextKey,
                   tickets,
                   action: dropAction,
                   destination: target.destination,

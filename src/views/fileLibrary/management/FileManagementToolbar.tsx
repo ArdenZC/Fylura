@@ -16,7 +16,7 @@ import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { isFileLibraryShortcutExcludedTarget } from "../fileLibraryInteraction";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
-import { useFileManagementStore, type ManagementTransferIntent } from "./fileManagementStore";
+import { transferDestinationContextKey, transferSourceContextKey, useFileManagementStore, type ManagementTransferIntent } from "./fileManagementStore";
 import { releaseTransferTickets } from "./transferTicketOwnership";
 import { orchestrateTransfer } from "./transferOrchestrator";
 import "./fileManagement.css";
@@ -38,9 +38,9 @@ interface NameIntent {
   tickets: TransferTicket[];
   destinationDirectory: string;
   sourcePaneId?: string;
-  sourceSignature?: string;
+  sourceContextKey?: string;
   destinationPaneId?: string;
-  destinationSignature?: string;
+  destinationContextKey?: string;
 }
 function PageControls({ count, page, change, previous, next }: { count: number; page: number; change: (page: number) => void; previous: string; next: string }) {
   if (count <= PAGE_SIZE) return null;
@@ -191,8 +191,9 @@ export function FileManagementToolbar() {
   async function capturedSelection() {
     const current = currentSurface();
     if (!current || (current.count === 0 && current.selection?.kind !== "all_matching")) return [];
+    const sourceContextKey = transferSourceContextKey(current);
     const captured = await api.captureTransfer(current.selection ? { selection: current.selection } : { refs: current.refs ?? [] });
-    if (currentSurface()?.signature !== current.signature) { await releaseUnused(captured.map((ticket) => ticket.id)); throw Error("transfer_selection_changed"); }
+    if (transferSourceContextKey(currentSurface()) !== sourceContextKey) { await releaseUnused(captured.map((ticket) => ticket.id)); throw Error("transfer_selection_changed"); }
     return captured;
   }
   async function releaseUnused(ids: string[]) {
@@ -239,12 +240,11 @@ export function FileManagementToolbar() {
     if (!mounted.current || transferCancelRequested() || !store.transferActive || store.activeTransferId !== intent.id || !intent.tickets.every((ticket) => ids.has(ticket.id))) return false;
     if (intent.sourcePaneId) {
       const source = store.surfaces[intent.sourcePaneId]?.read();
-      if (!source || source.signature !== intent.sourceSignature) return false;
+      if (!source || transferSourceContextKey(source) !== intent.sourceContextKey) return false;
     }
     if (intent.destinationPaneId) {
       const target = store.surfaces[intent.destinationPaneId]?.read();
-      if (!target || target.signature !== intent.destinationSignature) return false;
-      if (!intent.destinationEntry && intent.destinationDirectory && target.routingHint && target.routingHint !== intent.destinationDirectory) return false;
+      if (!target || transferDestinationContextKey(target, intent.destinationEntry) !== intent.destinationContextKey) return false;
     }
     return true;
   }
@@ -337,7 +337,7 @@ export function FileManagementToolbar() {
           : batch && batch.failed > 0 ? taskBatchStatus(batch, false, t) : t("fmFinished"));
       previewController.close("escape");
       const affectedSurface = intent.sourcePaneId ? useFileManagementStore.getState().surfaces[intent.sourcePaneId]?.read() : currentSurface();
-      if (intent.tickets.length > 0 && (!intent.sourceSignature || affectedSurface?.signature === intent.sourceSignature)) affectedSurface?.clear();
+      if (intent.tickets.length > 0 && (!intent.sourceContextKey || transferSourceContextKey(affectedSurface) === intent.sourceContextKey)) affectedSurface?.clear();
       clearTransferState(intent);
       try {
         const directories = [acceptedPlan.destinationDirectory, ...intent.tickets.map((ticket) => parentPath(ticket.path))].filter(Boolean);
@@ -381,7 +381,7 @@ export function FileManagementToolbar() {
     tickets: TransferTicket[],
     action: TransferAction,
     origin: TransferOrigin,
-    options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationSignature" | "sourcePaneId" | "sourceSignature" | "newName">> = {},
+    options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationContextKey" | "sourcePaneId" | "sourceContextKey" | "newName">> = {},
   ) {
     const store = useFileManagementStore.getState();
     if (!tickets.length && action !== "create_directory") return;
@@ -414,9 +414,9 @@ export function FileManagementToolbar() {
       id: crypto.randomUUID(), tickets, action, origin, destinationDirectory, destinationEntry,
       newName: options.newName?.trim(),
       destinationPaneId,
-      destinationSignature: options.destinationSignature ?? destinationSurface?.signature,
+      destinationContextKey: options.destinationContextKey ?? transferDestinationContextKey(destinationSurface, destinationEntry) ?? undefined,
       sourcePaneId: options.sourcePaneId,
-      sourceSignature: options.sourceSignature,
+      sourceContextKey: options.sourceContextKey,
     };
     closePanel(false); setError("");
     setNotice("");
@@ -467,23 +467,23 @@ export function FileManagementToolbar() {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
     await run(async () => {
       const source = currentSurface();
-      const sourceSignature = source?.signature;
+      const sourceContextKey = transferSourceContextKey(source ?? undefined);
       const tickets = await capturedSelection(); if (!tickets.length) return;
       const result = await open({ directory: true, multiple: false, title: t("fmDestination") });
       const destinationDirectory = Array.isArray(result) ? result[0] : result;
       if (!destinationDirectory) { await releaseUnused(tickets.map((ticket) => ticket.id)); return; }
-      if (!sourceSignature || currentSurface()?.signature !== sourceSignature) {
+      if (!sourceContextKey || transferSourceContextKey(currentSurface()) !== sourceContextKey) {
         await releaseUnused(tickets.map((ticket) => ticket.id)); throw Error("transfer_selection_changed");
       }
-      begin(tickets, "move", "selection", { destinationDirectory, sourcePaneId: pane?.id, sourceSignature });
+      begin(tickets, "move", "selection", { destinationDirectory, sourcePaneId: pane?.id, sourceContextKey });
     });
   }
   function trashSelection() {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
     void run(async () => {
-      const sourceSignature = currentSurface()?.signature;
+      const sourceContextKey = transferSourceContextKey(currentSurface());
       const tickets = await capturedSelection();
-      if (!tickets.length || !sourceSignature || currentSurface()?.signature !== sourceSignature) {
+      if (!tickets.length || !sourceContextKey || transferSourceContextKey(currentSurface()) !== sourceContextKey) {
         await releaseUnused(tickets.map((ticket) => ticket.id));
         if (tickets.length) throw Error("transfer_selection_changed");
         return;
@@ -491,16 +491,16 @@ export function FileManagementToolbar() {
       begin(tickets, "trash", "selection", {
         destinationDirectory: parentPath(tickets[0]!.path),
         sourcePaneId: pane?.id,
-        sourceSignature,
+        sourceContextKey,
       });
     });
   }
   function renameSelection() {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
     void run(async () => {
-      const sourceSignature = currentSurface()?.signature;
+      const sourceContextKey = transferSourceContextKey(currentSurface());
       const tickets = await capturedSelection();
-      if (tickets.length !== 1 || !sourceSignature || currentSurface()?.signature !== sourceSignature) {
+      if (tickets.length !== 1 || !sourceContextKey || transferSourceContextKey(currentSurface()) !== sourceContextKey) {
         await releaseUnused(tickets.map((ticket) => ticket.id));
         throw Error("transfer_rename_selection_invalid");
       }
@@ -512,7 +512,7 @@ export function FileManagementToolbar() {
         tickets,
         destinationDirectory: parentPath(tickets[0]!.path),
         sourcePaneId: pane?.id,
-        sourceSignature,
+        sourceContextKey,
       });
     });
   }
@@ -528,7 +528,7 @@ export function FileManagementToolbar() {
       tickets: [],
       destinationDirectory: current.routingHint,
       destinationPaneId: pane?.id,
-      destinationSignature: current.signature,
+      destinationContextKey: transferDestinationContextKey(current) ?? undefined,
     });
   }
   function cancelNameEntry() {
@@ -545,9 +545,9 @@ export function FileManagementToolbar() {
     begin(pending.tickets, pending.action, "selection", {
       destinationDirectory: pending.destinationDirectory,
       sourcePaneId: pending.sourcePaneId,
-      sourceSignature: pending.sourceSignature,
+      sourceContextKey: pending.sourceContextKey,
       destinationPaneId: pending.destinationPaneId,
-      destinationSignature: pending.destinationSignature,
+      destinationContextKey: pending.destinationContextKey,
       newName: trimmedName,
     });
   }
@@ -584,12 +584,15 @@ export function FileManagementToolbar() {
     const destinationSurface = useFileManagementStore.getState().surfaces[pane.peerId]?.read();
     const source = currentSurface();
     if (!destinationSurface?.browse || !destinationSurface.routingHint || !source) { setError(t("wbUnsupportedDrop")); return; }
-    const peerId = pane.peerId; const destination = destinationSurface.routingHint; const destinationSignature = destinationSurface.signature;
+    const peerId = pane.peerId; const destination = destinationSurface.routingHint;
+    const sourceContextKey = transferSourceContextKey(source);
+    const destinationContextKey = transferDestinationContextKey(destinationSurface);
     void run(async () => {
       const tickets = await capturedSelection();
-      if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen || useFileManagementStore.getState().activePaneId !== pane.id || currentSurface()?.visible === false || useFileManagementStore.getState().surfaces[peerId]?.read().signature !== destinationSignature) { await releaseUnused(tickets.map((ticket) => ticket.id)); throw Error(t("wbSelectionChanged")); }
+      const currentTarget = useFileManagementStore.getState().surfaces[peerId]?.read();
+      if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen || useFileManagementStore.getState().activePaneId !== pane.id || currentSurface()?.visible === false || !sourceContextKey || transferSourceContextKey(currentSurface()) !== sourceContextKey || transferDestinationContextKey(currentTarget) !== destinationContextKey) { await releaseUnused(tickets.map((ticket) => ticket.id)); throw Error(t("wbSelectionChanged")); }
       pane.activatePeer();
-      useFileManagementStore.setState({ pendingTransfer: { paneId: peerId, sourcePaneId: pane.id, sourceSignature: source.signature, destinationSignature, tickets, action, destination } });
+      useFileManagementStore.setState({ pendingTransfer: { paneId: peerId, sourcePaneId: pane.id, sourceContextKey, destinationContextKey: destinationContextKey ?? undefined, tickets, action, destination } });
     });
   }
   useEffect(() => {
@@ -597,12 +600,12 @@ export function FileManagementToolbar() {
     if (!pane || !focused || !pending || pending.paneId !== pane.id) return;
     useFileManagementStore.setState({ pendingTransfer: null });
     const target = useFileManagementStore.getState().surfaces[pending.paneId]?.read();
-    if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen || !target || target.signature !== pending.destinationSignature) {
+    if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen || transferDestinationContextKey(target, pending.destinationEntry) !== pending.destinationContextKey) {
       void releaseUnused(pending.tickets.map((ticket) => ticket.id)); setError(t("wbSelectionChanged")); return;
     }
     begin(pending.tickets, pending.action, pending.external ? "external" : "selection", {
-      sourcePaneId: pending.sourcePaneId, sourceSignature: pending.sourceSignature,
-      destinationPaneId: pending.paneId, destinationSignature: pending.destinationSignature,
+      sourcePaneId: pending.sourcePaneId, sourceContextKey: pending.sourceContextKey,
+      destinationPaneId: pending.paneId, destinationContextKey: pending.destinationContextKey,
       destinationDirectory: pending.destination, destinationEntry: pending.destinationEntry,
     });
   }, [state.pendingTransfer, focused, pane?.id]);

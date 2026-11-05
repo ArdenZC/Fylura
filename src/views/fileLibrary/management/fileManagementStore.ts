@@ -21,9 +21,44 @@ export interface ManagementSurface {
   selectAll?: () => void;
   selectionScope?: "loaded" | "all";
 }
+/**
+ * Transfer guards use only the selected source references and their owning
+ * Browse location. The render signature also contains enumeration/watcher
+ * projection state, which may advance without changing the user's selection.
+ */
+export function transferSourceContextKey(surface: ManagementSurface | undefined) {
+  if (!surface) return null;
+  const refs = surface.refs?.map((ref) => JSON.stringify(ref)).sort() ?? null;
+  return JSON.stringify({
+    browseSessionId: surface.browse?.sessionId ?? null,
+    browsePathId: surface.browse?.pathRef.id ?? null,
+    routingHint: surface.routingHint ?? null,
+    selection: surface.selection ?? null,
+    refs,
+  });
+}
+
+/**
+ * A destination transfer is bound to the current Browse location and, for a
+ * drop-on-folder action, the exact captured folder entry. Selection and async
+ * enumeration state do not define the destination directory.
+ */
+export function transferDestinationContextKey(
+  surface: ManagementSurface | undefined,
+  destinationEntry?: BrowseEntryRef,
+) {
+  if (!surface) return null;
+  return JSON.stringify({
+    browseSessionId: surface.browse?.sessionId ?? null,
+    browsePathId: surface.browse?.pathRef.id ?? null,
+    routingHint: surface.routingHint ?? null,
+    destinationEntry: destinationEntry ?? null,
+  });
+}
+
 export interface PendingPaneTransfer {
-  paneId: string; sourcePaneId?: string; sourceSignature?: string;
-  destinationSignature?: string;
+  paneId: string; sourcePaneId?: string; sourceContextKey?: string;
+  destinationContextKey?: string;
   tickets: TransferTicket[]; action: TransferAction; destination: string;
   destinationEntry?: BrowseEntryRef; external?: boolean;
 }
@@ -36,9 +71,9 @@ export interface ManagementTransferIntent {
   destinationDirectory: string;
   destinationEntry?: BrowseEntryRef;
   destinationPaneId?: string;
-  destinationSignature?: string;
+  destinationContextKey?: string;
   sourcePaneId?: string;
-  sourceSignature?: string;
+  sourceContextKey?: string;
 }
 export interface ActiveTransferTask {
   id: string;

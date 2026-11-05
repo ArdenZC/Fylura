@@ -1411,9 +1411,9 @@ impl Database {
                     && live_item.operation_kind == "move"
                 {
                     let source = std::path::Path::new(&live_item.from);
-                    let destination_root = source.parent().ok_or_else(|| {
-                        DbError::Validation("one_off_parent_missing".to_string())
-                    })?;
+                    let destination_root = source
+                        .parent()
+                        .ok_or_else(|| DbError::Validation("one_off_parent_missing".to_string()))?;
                     crate::file_ops::manual_transfer::make_operation(
                         &file_id,
                         source,

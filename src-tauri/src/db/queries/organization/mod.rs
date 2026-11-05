@@ -1396,10 +1396,38 @@ impl Database {
             {
                 #[cfg(test)]
                 let _profile = OrganizationExecutionProfileTimer::new("execution.selection_build");
+                let preview_id = live_item.authoritative_preview_id.clone().ok_or_else(|| {
+                    DbError::Validation("organization_preview_missing".to_string())
+                })?;
+                // The macOS one-off Move preview ID binds its target path. An
+                // explicit filename edit changes that target after the AI
+                // proposal was previewed, so issue a fresh transfer identity
+                // for the final, Dry Run-approved target. Do not weaken the
+                // transfer revalidation or grant execution outside the source
+                // folder's verified destination root.
+                #[cfg(target_os = "macos")]
+                let preview_id = if one_off::is_source_id(&file_id)
+                    && preview_id.starts_with("op-transfer-v5-")
+                    && live_item.operation_kind == "move"
+                {
+                    let source = std::path::Path::new(&live_item.from);
+                    let destination_root = source.parent().ok_or_else(|| {
+                        DbError::Validation("one_off_parent_missing".to_string())
+                    })?;
+                    crate::file_ops::manual_transfer::make_operation(
+                        &file_id,
+                        source,
+                        destination_root,
+                        std::path::Path::new(&live_item.to),
+                        crate::file_ops::manual_transfer::TransferAction::Move,
+                    )
+                    .map_err(DbError::Validation)?
+                    .id
+                } else {
+                    preview_id
+                };
                 selections.push(crate::file_ops::OperationPreviewRequest {
-                    id: live_item.authoritative_preview_id.clone().ok_or_else(|| {
-                        DbError::Validation("organization_preview_missing".to_string())
-                    })?,
+                    id: preview_id,
                     file_id,
                     operation_type: live_item.operation_kind.clone(),
                     source_path: live_item.from.clone(),

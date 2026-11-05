@@ -22,7 +22,7 @@ use crate::db::{Database, DbError};
 use rusqlite::{params, Connection, Params};
 use std::collections::HashSet;
 
-const MAX_SEARCH_LIMIT: u32 = 200;
+pub(crate) const MAX_SEARCH_LIMIT: u32 = 200;
 const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 // The final page is taken from this bounded, de-duplicated candidate window.
 // A layer may fetch up to target + already-seen ids to compensate for overlap,
@@ -638,6 +638,13 @@ fn hydrate_ranked_filename_page(
         ));
     }
     Ok(rows.into_iter().map(|(result, _)| result).collect())
+}
+
+/// Test-only access to the production candidate window. #494 evidence records
+/// this value so a window change cannot silently invalidate a benchmark.
+#[cfg(test)]
+pub(crate) fn diagnostic_candidate_window() -> usize {
+    MAX_TIER_CANDIDATES as usize
 }
 
 fn layer_limit(target: u32, seen: usize) -> u32 {

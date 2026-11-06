@@ -28,6 +28,7 @@ import { buildPreparedTestArgs, runPreparedTestBinary } from "../scripts/runPrep
 import { resolvePerformanceProfile } from "../scripts/performanceProfile.mjs";
 import { createPerformanceBuildIdentity } from "../scripts/performanceBuildIdentity.mjs";
 import { createPerformanceFixtureIdentity, PERFORMANCE_FIXTURE_SCHEMA_VERSION } from "../scripts/performanceFixtureIdentity.mjs";
+import { WINDOWS_GLOBAL_SEARCH_FEATURES, windowsReleaseFeatures } from "../scripts/windowsReleaseFeatures.mjs";
 
 const TEST_RUST_VERSION = "rustc test";
 
@@ -284,11 +285,31 @@ describe("performance profile and manifest contract", () => {
   });
 
   it("keeps the performance-only Tauri mock feature out of production desktop tests", () => {
-    expect(PERFORMANCE_BUILD_FEATURES).toBe("performance-test-tauri");
+    expect(PERFORMANCE_BUILD_FEATURES).toBe(
+      "performance-test-tauri,global-search-filename-relevance-candidate,global-search-filename-relevance-windows-default-on",
+    );
     expect(getPrecompileTargets("workspace-foundation").find((target) => target.targetKey === "lib")?.targetArgs)
-      .toEqual(["--lib", "--features", "performance-test-tauri"]);
+      .toEqual(["--lib", "--features", PERFORMANCE_BUILD_FEATURES]);
     expect(read("src-tauri/Cargo.toml")).toContain('performance-test-tauri = ["tauri/test"]');
     expect(read("src-tauri/Cargo.toml")).not.toContain("[dev-dependencies]");
+  });
+
+  it("keeps Search performance features aligned with the Windows Release candidate", () => {
+    expect(read("scripts/buildWindowsPackage.mjs")).toContain(
+      "windowsReleaseFeatures(process.platform)",
+    );
+    expect(windowsReleaseFeatures("win32")).toEqual([
+      "desktop-runtime",
+      ...WINDOWS_GLOBAL_SEARCH_FEATURES,
+    ]);
+    expect(windowsReleaseFeatures("darwin")).toEqual([
+      "desktop-runtime",
+      "global-search-filename-relevance-candidate",
+    ]);
+    expect(PERFORMANCE_BUILD_FEATURES.split(",").filter((feature) => feature !== "performance-test-tauri"))
+      .toEqual([...WINDOWS_GLOBAL_SEARCH_FEATURES]);
+    expect(getPerformanceBenchmarks("search", "full").find((benchmark) => benchmark.id === "global_search_1m"))
+      .toMatchObject({ targetKey: "lib", targetArgs: ["--lib", "--features", PERFORMANCE_BUILD_FEATURES] });
   });
 
   it("keeps fixture ownership explicit and profile-sized", () => {

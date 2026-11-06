@@ -106,18 +106,33 @@ fn single_key_zero_sparse_multi_volume_ties_and_window_match_legacy() {
     );
     conn.execute_batch("ROLLBACK").unwrap();
 
-    let (probe, exact) = diagnostic_extension_prefix_strategy_sqls();
-    let mut stmt = conn
-        .prepare(&format!("EXPLAIN QUERY PLAN {probe}"))
-        .unwrap();
-    let plan = stmt
-        .query_map(params!["jp", "jp*"], |row| row.get::<_, String>(3))
-        .unwrap()
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .unwrap();
-    assert!(plan
-        .iter()
-        .any(|part| { part.contains("idx_global_entries_active_extension_order") }));
+    let (first_key, next_key, exact) = diagnostic_extension_prefix_strategy_sqls();
+    for (sql, params) in [
+        (first_key, vec!["jp", "jp*"]),
+        (next_key, vec!["jp", "jpg", "jq"]),
+    ] {
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let plan = stmt
+            .query_map(rusqlite::params_from_iter(params), |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(plan
+            .iter()
+            .any(|part| { part.contains("idx_global_entries_active_extension_order") }));
+        assert!(
+            plan.iter().any(|part| {
+                part.contains("SEARCH ge USING INDEX idx_global_entries_active_extension_order")
+                    && part.contains("(extension>? AND extension<?)")
+            }),
+            "extension-key discovery must seek a bounded extension-index range: {plan:?}"
+        );
+        assert!(!plan
+            .iter()
+            .any(|part| part.contains("USE TEMP B-TREE FOR ORDER BY")));
+    }
 
     let mut stmt = conn
         .prepare(&format!("EXPLAIN QUERY PLAN {exact}"))

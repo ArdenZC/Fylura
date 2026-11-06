@@ -1,6 +1,13 @@
+import { WINDOWS_GLOBAL_SEARCH_FEATURES } from "./windowsReleaseFeatures.mjs";
+
 const CARGO_TEST_ARGS = ["--release", "--locked", "--manifest-path", "src-tauri/Cargo.toml"];
 
-export const PERFORMANCE_BUILD_FEATURES = "performance-test-tauri";
+// Performance unit tests substitute Tauri's runtime while compiling with the
+// same candidate/default-on features as the Windows Release package.
+export const PERFORMANCE_BUILD_FEATURES = [
+  "performance-test-tauri",
+  ...WINDOWS_GLOBAL_SEARCH_FEATURES,
+].join(",");
 
 export const PERFORMANCE_TARGETS = Object.freeze({
   lib: Object.freeze({

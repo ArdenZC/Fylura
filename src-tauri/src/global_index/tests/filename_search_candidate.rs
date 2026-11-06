@@ -615,10 +615,22 @@ fn filename_candidate_unready_and_unsupported_shapes_keep_the_sqlite_fallback() 
     db.upsert_global_entries_batch(std::slice::from_ref(&entry))
         .expect("insert fallback fixture");
 
+    assert!(crate::global_index::search::filename_relevance_query_supported("txt"));
+    let before_ready_diagnostics = db.filename_search.diagnostics();
     let before_ready = db
-        .search_global_entries_snapshot("unrecognized", 80, 0)
-        .expect("unready candidate uses SQLite");
-    assert!(before_ready.results.is_empty());
+        .search_global_entries_snapshot("txt", 80, 0)
+        .expect("unready candidate uses SQLite for an exact-extension search");
+    assert_eq!(before_ready.results.len(), 1);
+    assert_eq!(before_ready.results[0].id, entry.entry_id());
+    let after_unready_fallback = db.filename_search.diagnostics();
+    assert_eq!(
+        after_unready_fallback.accepted_queries, before_ready_diagnostics.accepted_queries,
+        "an unready Filename Candidate must not claim the SQLite result"
+    );
+    assert!(
+        after_unready_fallback.fallback_not_ready > before_ready_diagnostics.fallback_not_ready,
+        "a supported extension query must record the not-ready SQLite fallback"
+    );
     let unsupported = db
         .search_global_entries_snapshot("Unicode-报告", 80, 0)
         .expect("punctuation and Unicode query remains on existing SQLite behavior");

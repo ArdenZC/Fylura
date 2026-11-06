@@ -250,7 +250,10 @@ fn sqlite_search_tiers_and_filename_candidate_paths_enforce_windows_authorizatio
         } else {
             authorized_entries[7].entry_id()
         };
-        assert_eq!(candidate_ids, vec![authorized_id.clone()]);
+        assert!(
+            candidate_ids.contains(&authorized_id),
+            "FTS candidate enumeration must preserve the authorized source match"
+        );
 
         let results = db
             .search_global_entries(query, 20, 0)

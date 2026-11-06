@@ -250,10 +250,17 @@ fn sqlite_search_tiers_and_filename_candidate_paths_enforce_windows_authorizatio
         } else {
             authorized_entries[7].entry_id()
         };
-        assert!(
-            candidate_ids.contains(&authorized_id),
-            "FTS candidate enumeration must preserve the authorized source match"
-        );
+        if query == "candidateguard" {
+            assert!(
+                candidate_ids.contains(&authorized_id),
+                "FTS candidate enumeration must preserve the authorized filename match"
+            );
+        } else {
+            assert!(
+                candidate_ids.is_empty(),
+                "path-only matches must stay in the dedicated path search"
+            );
+        }
 
         let results = db
             .search_global_entries(query, 20, 0)

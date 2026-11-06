@@ -19,7 +19,7 @@ use super::filename_search::{
 };
 use super::models::GlobalSearchResult;
 use crate::db::{Database, DbError};
-use rusqlite::{params, Connection, Params};
+use rusqlite::{params, Connection, OptionalExtension, Params};
 use std::collections::HashSet;
 
 const MAX_SEARCH_LIMIT: u32 = 200;
@@ -890,20 +890,34 @@ fn search_exact_extension(
     collect_candidates(&mut statement, params![query, limit])
 }
 
-// Use the existing active extension covering index to discover whether this
-// prefix maps to zero, exactly one, or multiple distinct extension values.
-// Two values are enough to establish that the legacy range-and-sort path is
-// necessary; no extension-name cache or new schema is introduced.
-const EXTENSION_PREFIX_SINGLE_KEY_PROBE_SQL: &str = "
-    SELECT DISTINCT ge.extension
+// The first/next probes seek the active extension index and stop after one
+// row. DISTINCT over the entire matching range made a two-character prefix
+// scan every row when it mapped to one extension (for example, `jp` → `jpg`).
+const EXTENSION_PREFIX_FIRST_KEY_SQL: &str = "
+    SELECT ge.extension
     FROM global_entries ge INDEXED BY idx_global_entries_active_extension_order
-    JOIN global_volumes gv ON gv.id = ge.volume_id
-    WHERE gv.enabled = 1 AND gv.coverage_pending = 0
+    CROSS JOIN global_volumes gv
+    WHERE gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0
       AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
       AND ge.is_stale = 0
       AND ge.extension GLOB ?2
       AND ge.extension <> lower(?1)
-    LIMIT 2
+    ORDER BY ge.extension COLLATE BINARY
+    LIMIT 1
+";
+
+const EXTENSION_PREFIX_NEXT_KEY_SQL: &str = "
+    SELECT ge.extension
+    FROM global_entries ge INDEXED BY idx_global_entries_active_extension_order
+    CROSS JOIN global_volumes gv
+    WHERE gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0
+      AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
+      AND ge.is_stale = 0
+      AND ge.extension > ?2 COLLATE BINARY
+      AND ge.extension < ?3 COLLATE BINARY
+      AND ge.extension <> lower(?1)
+    ORDER BY ge.extension COLLATE BINARY
+    LIMIT 1
 ";
 
 fn extension_prefix_legacy_sql() -> String {
@@ -927,9 +941,10 @@ fn extension_prefix_single_key_sql() -> String {
 }
 
 #[cfg(test)]
-pub(crate) fn diagnostic_extension_prefix_strategy_sqls() -> (&'static str, String) {
+pub(crate) fn diagnostic_extension_prefix_strategy_sqls() -> (&'static str, &'static str, String) {
     (
-        EXTENSION_PREFIX_SINGLE_KEY_PROBE_SQL,
+        EXTENSION_PREFIX_FIRST_KEY_SQL,
+        EXTENSION_PREFIX_NEXT_KEY_SQL,
         extension_prefix_single_key_sql(),
     )
 }
@@ -973,30 +988,54 @@ fn search_extension_prefix(
     };
     let read = transaction.as_deref().unwrap_or(conn);
     let glob = format!("{}*", escape_glob(query));
-    let extensions = {
-        let mut statement = read.prepare(EXTENSION_PREFIX_SINGLE_KEY_PROBE_SQL)?;
-        let rows = statement.query_map(params![query, &glob], |row| {
-            row.get::<_, rusqlite::types::Value>(0)
-        })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
+    let Some(upper_bound) = extension_prefix_upper_bound(query) else {
+        return search_extension_prefix_legacy(read, query, &glob, limit);
+    };
+    let first_extension = read
+        .query_row(
+            EXTENSION_PREFIX_FIRST_KEY_SQL,
+            params![query, &glob],
+            |row| row.get::<_, rusqlite::types::Value>(0),
+        )
+        .optional()?;
+    let extension = match first_extension {
+        None => return Ok(Vec::new()),
+        Some(rusqlite::types::Value::Text(extension)) => extension,
+        Some(_) => {
+            // Preserve SQLite's original coercion/error behavior for malformed
+            // dynamic extension values.
+            return search_extension_prefix_legacy(read, query, &glob, limit);
+        }
     };
 
-    match extensions {
-        Ok(values) if values.is_empty() => Ok(Vec::new()),
-        Ok(values) if values.len() == 1 => {
-            if let rusqlite::types::Value::Text(extension) = &values[0] {
-                // Exactly one extension means the composite index's
-                // (modified_at_fs DESC, id ASC) suffix is already the final
-                // tier order. Keep every original predicate before LIMIT.
-                let mut statement = read.prepare(&extension_prefix_single_key_sql())?;
-                return collect_candidates(&mut statement, params![query, &glob, limit, extension]);
-            }
-            search_extension_prefix_legacy(read, query, &glob, limit)
-        }
-        // Multiple extension keys need a global time sort. Malformed SQLite
-        // extension values also retain the original production query/error.
-        _ => search_extension_prefix_legacy(read, query, &glob, limit),
+    let next_extension = read
+        .query_row(
+            EXTENSION_PREFIX_NEXT_KEY_SQL,
+            params![query, &extension, upper_bound],
+            |row| row.get::<_, rusqlite::types::Value>(0),
+        )
+        .optional()?;
+    if next_extension.is_some() {
+        // Multiple extension keys need a global time sort. A TEXT or malformed
+        // second value both require the original range-and-sort semantics.
+        return search_extension_prefix_legacy(read, query, &glob, limit);
     }
+
+    // Exactly one extension means the composite index's
+    // (modified_at_fs DESC, id ASC) suffix is already the final tier order.
+    // Keep every original predicate before LIMIT.
+    let mut statement = read.prepare(&extension_prefix_single_key_sql())?;
+    collect_candidates(&mut statement, params![query, &glob, limit, extension])
+}
+
+fn extension_prefix_upper_bound(query: &str) -> Option<String> {
+    let mut bytes = query.as_bytes().to_vec();
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_alphanumeric) {
+        return None;
+    }
+    let last = bytes.last_mut()?;
+    *last = last.checked_add(1)?;
+    String::from_utf8(bytes).ok()
 }
 
 fn search_fts(

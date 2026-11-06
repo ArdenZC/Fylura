@@ -83,6 +83,9 @@ function trackedBuildInputs() {
     path.join(root, "rust-toolchain"),
     path.join(root, "rust-toolchain.toml"),
     path.join(root, "src-tauri", "tauri.conf.json"),
+    path.join(root, "scripts", "performanceManifest.mjs"),
+    path.join(root, "scripts", "windowsReleaseFeatures.mjs"),
+    path.join(root, "scripts", "buildWindowsPackage.mjs"),
     path.join(root, "src-tauri", "src"),
     path.join(root, "src-tauri", "tests"),
   ];

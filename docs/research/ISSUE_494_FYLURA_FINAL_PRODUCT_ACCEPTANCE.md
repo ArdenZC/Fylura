@@ -1,5 +1,23 @@
 # Fylura Global Search 最终产品验收报告
 
+## 2026-11-06 Full CI 搜索路径核验（PR #548）
+
+- **测量身份：** PR HEAD `0dfa63e53d3f9f0b204fdeb16a4d0e42497d4cec`，Full Validation run [42160773360](https://github.com/ArdenZC/Fylura/actions/runs/42160773360)，Windows x86_64 / rustc 1.97.1 / SQLite 3.51.3。使用 `synthetic_sqlite_global_index` 1,000,000 项 fixture、Windows Release 同一 Cargo feature 组合、Windows 默认开启 feature；实际调用 `search_global_entries_snapshot()`。
+- **运行时候选：** Candidate 与 Windows 默认开启 feature 均为 true，数据库打开时 runtime 已 ON，无需额外环境变量；索引 ready。1,000,000 项索引初始化耗时 `5,364.005 ms`，私有索引内存 `105,906,375 bytes`。`report`、`invoice` 等支持的查询每次均由候选接受（30 次采样 accepted=30、fallback=0）。
+- **正式产品路径 p95 / 100 ms 门槛：**
+
+  | 查询 | 首屏 p95 | offset 80 p95 | 实际路由 | 结果 |
+  |---|---:|---:|---|---|
+  | `report` | 108.534 ms | 103.767 ms | Filename Candidate | **FAIL** |
+  | `invoice` | 95.505 ms | 98.409 ms | Filename Candidate | PASS |
+  | `quarterly` | 65.566 ms | 65.903 ms | Filename Candidate | PASS |
+  | `jp` | 1.170 ms | SQLite fallback | PASS |
+
+- **结果正确性：** Full benchmark 的独立 oracle、结果窗口、排序、去重、来源授权过滤与短查询回退断言均通过；`Performance / Search` 的产品路径失败项仅为 `report` 两个 p95 超出门槛。`jp` 确认走 SQLite fallback，候选 accepted 增量为 0。
+- **历史 SQLite 监督：** 同一 fixture 的旧 SQLite `fts_substring_report` / `fts_substring_invoice` p95 分别为 `323.054 / 390.897 ms`。这些数据保留为旧路径历史监督，未充当产品 Candidate PASS；此前 Full CI 旧查询失败记录也未删除。
+- **Full Validation：** 整体 **FAIL**。`Performance / Search` 因 `report` 超过 100 ms 失败；`Native macOS performance` 另因 100k 目录复制测试收到 `content_read_rejected: directory_entry_limit_exceeded` 失败。`Performance profile` 与 Windows/macOS Quality 汇总随前述失败而失败；其余本轮 Full job 通过。未重跑 writer 500-pair。
+- **交付边界：** PR #548 把 Full Search 门禁对齐到 Windows 正式候选路径，并独立保留 SQLite fallback 监督；它没有消除 `report` 的真实性能缺口。门槛保持 100 ms，本轮不扩展为新的候选排序算法研究。#494 仍有明确的 Windows 1M `report` 首屏与分页性能阻塞。
+
 ## 2026-11-02 搜索加速交付状态
 
 - **代码：** #518 在 `9f436bd` 合并，#533 在 `1f3c206` 合并。百万级候选证据仍引用原生 Release run [41181789652](https://github.com/ArdenZC/Fylura/actions/runs/41181789652)：候选 SHA `0251f3c1cbaa2f82703fffa3470153381f25c46f`，Windows 首屏/深页 p95 `28.623/33.341 ms`，Apple Silicon `22.624/26.551 ms`，完整 4,096 ID 独立排序校验通过；本轮未重跑该矩阵。

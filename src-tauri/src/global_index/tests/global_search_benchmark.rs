@@ -33,6 +33,12 @@ const DEFAULT_ENTRIES: u64 = 100_000;
 const ALLOWED_ENTRIES: [u64; 5] = [100_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
 const INSERT_BATCH_SIZE: u64 = 512;
 const SEARCH_RESULT_LIMIT: u32 = 80;
+#[cfg(feature = "global-search-windows-release-performance-contract")]
+const _: () = assert!(
+    cfg!(feature = "global-search-filename-relevance-candidate")
+        && cfg!(feature = "global-search-filename-relevance-windows-default-on"),
+    "Search performance binaries must compile with the Windows Release Candidate features"
+);
 // This is the current search candidate-window contract in search.rs. Keep the
 // assertion here so a product change cannot silently invalidate this evidence.
 const SEARCH_CANDIDATE_LIMIT: usize = 4_096;
@@ -43,6 +49,16 @@ const WARMUP_SAMPLES: usize = 5;
 // the full fixed query matrix completes within the hosted-runner budget.
 const WARM_SAMPLES: usize = 30;
 const REOPENED_CONNECTION_SAMPLES: usize = 30;
+
+#[cfg(feature = "global-search-windows-release-performance-contract")]
+fn require_windows_release_search_performance_contract() {}
+
+#[cfg(not(feature = "global-search-windows-release-performance-contract"))]
+fn require_windows_release_search_performance_contract() {
+    panic!(
+        "Search performance binaries must enable the Windows Release Candidate contract feature"
+    );
+}
 
 const INSERT_SYNTHETIC_ENTRY: &str = r#"
     INSERT INTO global_entries (
@@ -644,6 +660,9 @@ fn benchmark_context(entries: u64) -> JsonValue {
         "rustc": command("rustc", &["-vV"]),
         "debug_assertions": cfg!(debug_assertions),
         "desktop_runtime_feature": cfg!(feature = "desktop-runtime"),
+        "performance_test_tauri_feature": cfg!(feature = "performance-test-tauri"),
+        "filename_candidate_feature": cfg!(feature = "global-search-filename-relevance-candidate"),
+        "windows_default_on_feature": cfg!(feature = "global-search-filename-relevance-windows-default-on"),
         "rustflags": env::var("RUSTFLAGS").ok(),
         "sqlite_version": rusqlite::version(),
         "runner_os": env::consts::OS,
@@ -750,7 +769,7 @@ fn capture_query_plans(conn: &Connection, context: &JsonValue) -> Vec<JsonValue>
     let prefix_sql = diagnostic_search_tier_sql("name_prefix");
     let extension_sql = diagnostic_search_tier_sql("exact_extension");
     let extension_prefix_sql = diagnostic_search_tier_sql("extension_prefix");
-    let (extension_probe_sql, extension_single_sql) =
+    let (extension_first_sql, extension_next_sql, extension_single_sql) =
         crate::global_index::search::diagnostic_extension_prefix_strategy_sqls();
     let fts_sql = diagnostic_search_tier_sql("fts");
     let punctuation_sql = diagnostic_search_tier_sql("punctuation_prefix");
@@ -807,12 +826,24 @@ fn capture_query_plans(conn: &Connection, context: &JsonValue) -> Vec<JsonValue>
         plan_record(
             conn,
             context,
-            "extension_prefix_discovery",
+            "extension_prefix_first_key",
             "jp",
-            extension_probe_sql.to_string(),
+            extension_first_sql.to_string(),
             vec![
                 SqlValue::Text("jp".to_string()),
                 SqlValue::Text("jp*".to_string()),
+            ],
+        ),
+        plan_record(
+            conn,
+            context,
+            "extension_prefix_next_key",
+            "jp",
+            extension_next_sql.to_string(),
+            vec![
+                SqlValue::Text("jp".to_string()),
+                SqlValue::Text("jpg".to_string()),
+                SqlValue::Text("jq".to_string()),
             ],
         ),
         plan_record(
@@ -872,6 +903,8 @@ fn query_record(
         "expected_top_result": first.map(|entry| json!({"id": entry.id, "name": entry.name})),
         "result_limit": SEARCH_RESULT_LIMIT,
         "correct": true,
+        "route": "sqlite_historical",
+        "entrypoint": "Database::search_global_entries with Filename Candidate explicitly disabled",
         "warm": {
             "connection_mode": "database_pool_entrypoint_repeated",
             "connection_checkout_included": true,
@@ -951,6 +984,118 @@ fn assert_candidate_and_pagination_contract(
     }));
 }
 
+/// Independent SQL oracle for the Windows Filename Candidate ranking contract.
+/// The current fixture has one eligible source and deterministic name classes;
+/// the query mirrors the documented exact → prefix → extension → whole-word →
+/// substring → path order without calling the production candidate matcher.
+fn filename_candidate_oracle_ids(conn: &Connection, query: &str) -> Vec<String> {
+    let sql = r#"
+        SELECT ge.id
+        FROM global_entries ge
+        JOIN global_volumes gv ON gv.id = ge.volume_id
+        WHERE gv.enabled = 1 AND gv.coverage_pending = 0
+          AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
+          AND ge.is_stale = 0
+          AND (
+              ge.name_normalized = lower(?1)
+              OR ge.name_normalized GLOB (lower(?1) || '*')
+              OR ge.extension = lower(?1)
+              OR (ge.extension GLOB (lower(?1) || '*') AND ge.extension <> lower(?1))
+              OR instr(ge.name_normalized, lower(?1)) > 0
+              OR instr(lower(ge.extension), lower(?1)) > 0
+              OR instr(ge.path_normalized, lower(?1)) > 0
+          )
+        ORDER BY
+          CASE
+            WHEN ge.name_normalized = lower(?1) THEN 0
+            WHEN ge.name_normalized GLOB (lower(?1) || '*') THEN 1
+            WHEN ge.extension = lower(?1) THEN 2
+            WHEN ge.extension GLOB (lower(?1) || '*') AND ge.extension <> lower(?1) THEN 3
+            WHEN instr(ge.name_normalized, lower(?1)) > 0
+              AND (
+                instr(ge.name_normalized, lower(?1)) = 1
+                OR substr(ge.name_normalized, instr(ge.name_normalized, lower(?1)) - 1, 1)
+                    NOT GLOB '[a-z0-9_]'
+              )
+              AND (
+                substr(ge.name_normalized,
+                  instr(ge.name_normalized, lower(?1)) + length(lower(?1)), 1) = ''
+                OR substr(ge.name_normalized,
+                  instr(ge.name_normalized, lower(?1)) + length(lower(?1)), 1)
+                    NOT GLOB '[a-z0-9_]'
+              ) THEN 4
+            WHEN instr(ge.name_normalized, lower(?1)) > 0
+              OR instr(lower(ge.extension), lower(?1)) > 0 THEN 5
+            ELSE 6
+          END ASC,
+          ge.modified_at_fs DESC,
+          ge.id COLLATE BINARY ASC
+        LIMIT ?2
+    "#;
+    let mut statement = conn
+        .prepare(sql)
+        .expect("prepare independent candidate order oracle");
+    statement
+        .query_map(params![query, SEARCH_CANDIDATE_LIMIT as u32], |row| {
+            row.get::<_, String>(0)
+        })
+        .expect("query independent candidate order oracle")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect independent candidate order oracle")
+}
+
+fn assert_product_snapshot_page(
+    snapshot: &super::super::repository::GlobalSearchSnapshot,
+    expected_ids: &[String],
+    offset: usize,
+    limit: usize,
+    entries: u64,
+    query: &str,
+) {
+    let expected = expected_ids
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let actual = snapshot
+        .results
+        .iter()
+        .map(|result| result.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual, expected,
+        "product Snapshot IDs/order for {query:?} offset={offset}"
+    );
+    assert_eq!(
+        actual
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        actual.len(),
+        "product Snapshot contains duplicate IDs for {query:?} offset={offset}"
+    );
+    assert!(snapshot
+        .results
+        .iter()
+        .all(|result| result.volume_id == "gv_test"));
+    assert!(snapshot
+        .source_health
+        .iter()
+        .any(|source| source.source_id == "gv_test" && source.enabled));
+    assert_eq!(snapshot.index_status.total_entries, entries as i64);
+}
+
+fn candidate_fallback_count(
+    diagnostics: &super::super::filename_search::FilenameSearchDiagnostics,
+) -> u64 {
+    diagnostics.fallback_not_ready
+        + diagnostics.fallback_busy
+        + diagnostics.fallback_untracked_change
+        + diagnostics.fallback_source_change
+        + diagnostics.fallback_overlay_limit
+}
+
 fn remove_database_files(path: &Path) {
     let _ = fs::remove_file(path);
     let _ = fs::remove_file(sidecar_path(path, "-wal"));
@@ -966,6 +1111,7 @@ fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
 #[test]
 #[ignore = "synthetic Global Search baseline; set ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES to a supported scale"]
 fn global_search_synthetic_benchmark_baseline() {
+    require_windows_release_search_performance_contract();
     let entries = configured_entries();
     let context = benchmark_context(entries);
     let output_path = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT").ok();
@@ -980,6 +1126,29 @@ fn global_search_synthetic_benchmark_baseline() {
     let path = test_db_path();
     let _cleanup = BenchmarkCleanup(path.clone());
     let db = Database::open(&path).expect("open synthetic Global Index database");
+    let release_default_enabled = cfg!(all(
+        target_os = "windows",
+        not(debug_assertions),
+        feature = "global-search-filename-relevance-windows-default-on"
+    ));
+    let runtime_enabled_at_open = db.filename_search.diagnostics().enabled;
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "windows_product_runtime_activation",
+        "context": context,
+        "cargo_candidate_feature": cfg!(feature = "global-search-filename-relevance-candidate"),
+        "cargo_windows_default_on_feature": cfg!(feature = "global-search-filename-relevance-windows-default-on"),
+        "windows_release_default_activation_expected": release_default_enabled,
+        "runtime_enabled_at_database_open": runtime_enabled_at_open,
+        "passed": runtime_enabled_at_open == release_default_enabled
+    }));
+    assert_eq!(
+        runtime_enabled_at_open, release_default_enabled,
+        "Filename Candidate default runtime activation must match Windows Release"
+    );
+    // Keep the historical SQLite path independent from process environment.
+    // The same manager is explicitly enabled below for the product-path pass.
+    db.filename_search.set_enabled_for_test(false);
     db.upsert_global_volume(&test_volume())
         .expect("insert synthetic benchmark volume");
 
@@ -1024,6 +1193,8 @@ fn global_search_synthetic_benchmark_baseline() {
         "schema_version": 1,
         "record_type": "dataset",
         "context": context,
+        "filename_candidate_runtime_enabled_at_database_open": runtime_enabled_at_open,
+        "windows_release_default_activation_expected": release_default_enabled,
         "fixture": {
             "entry_count": entries,
             "path_data_is_synthetic_only": true,
@@ -1080,7 +1251,7 @@ fn global_search_synthetic_benchmark_baseline() {
         &expectations[common_prefix_case],
     );
 
-    let mut performance_regressions = Vec::new();
+    let mut sqlite_warm_p95_by_class = std::collections::HashMap::new();
     for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
         let expected_first_page = expectation.expected_page(0, SEARCH_RESULT_LIMIT as usize);
         drop(assert_search_results(
@@ -1171,39 +1342,353 @@ fn global_search_synthetic_benchmark_baseline() {
             let mut sorted_warm_samples = warm_samples.clone();
             sorted_warm_samples.sort_by(f64::total_cmp);
             let warm_p95_ms = quantile(&sorted_warm_samples, 0.95);
-            let passed = warm_p95_ms <= WARM_QUERY_P95_LIMIT_MS;
+            let within_historical_target = warm_p95_ms <= WARM_QUERY_P95_LIMIT_MS;
+            sqlite_warm_p95_by_class.insert(query_case.class, warm_p95_ms);
             emit_record(&json!({
                 "schema_version": 1,
-                "record_type": "performance_gate",
+                "record_type": "sqlite_historical_performance",
                 "context": context,
                 "query_class": query_case.class,
                 "entries": entries,
                 "warm_p95_ms": round_ms(warm_p95_ms),
-                "limit_ms": WARM_QUERY_P95_LIMIT_MS,
+                "original_limit_ms": WARM_QUERY_P95_LIMIT_MS,
+                "within_original_limit": within_historical_target,
+                "qualification": "historical_sqlite_path_only"
+            }));
+        }
+    }
+
+    let sqlite_history_misses = sqlite_warm_p95_by_class
+        .iter()
+        .filter(|(_, p95)| **p95 > WARM_QUERY_P95_LIMIT_MS)
+        .map(|(class, p95)| format!("{class}: {:.3}ms", p95))
+        .collect::<Vec<_>>();
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "sqlite_historical_performance_summary",
+        "context": context,
+        "original_limit_ms": WARM_QUERY_P95_LIMIT_MS,
+        "measured_query_count": sqlite_warm_p95_by_class.len(),
+        "over_original_limit": sqlite_history_misses,
+        "qualification": "not_the_windows_default_product_gate"
+    }));
+
+    let candidate_init_started = Instant::now();
+    db.filename_search.enable_for_test();
+    let candidate_init_error = db
+        .filename_search
+        .rebuild_now_for_test()
+        .err()
+        .map(|error| error.to_string());
+    let candidate_init_wall_ms = candidate_init_started.elapsed().as_secs_f64() * 1_000.0;
+    let initialized = db.filename_search.diagnostics();
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "windows_product_candidate_initialization",
+        "context": context,
+        "cargo_candidate_feature": cfg!(feature = "global-search-filename-relevance-candidate"),
+        "cargo_windows_default_on_feature": cfg!(feature = "global-search-filename-relevance-windows-default-on"),
+        "runtime_enabled": initialized.enabled,
+        "runtime_ready": initialized.ready,
+        "runtime_enabled_at_database_open": runtime_enabled_at_open,
+        "automatic_environment_override_required": false,
+        "activation_scope": "test harness explicitly activates the production manager because Cargo test builds are not Windows Release activations",
+        "fixture_entries": entries,
+        "index_entries": initialized.index_entries,
+        "build_wall_ms": round_ms(candidate_init_wall_ms),
+        "manager_build_ms": round_ms(initialized.last_build_micros as f64 / 1_000.0),
+        "index_private_bytes": initialized.index_private_bytes,
+        "build_peak_bytes": initialized.index_build_peak_bytes,
+        "initialization_passed": candidate_init_error.is_none()
+            && initialized.enabled
+            && initialized.ready
+            && initialized.index_entries == entries as usize
+            && initialized.last_error.is_none(),
+        "initialization_error": candidate_init_error,
+        "last_error": initialized.last_error
+    }));
+    assert!(
+        candidate_init_error.is_none(),
+        "Filename Candidate initialization failed; SQLite fallback is not a product-path pass: {candidate_init_error:?}"
+    );
+    assert!(
+        initialized.enabled,
+        "Filename Candidate runtime state must be ON"
+    );
+    assert!(
+        initialized.ready,
+        "Filename Candidate initialization must finish before timing"
+    );
+    assert_eq!(initialized.index_entries, entries as usize);
+    assert!(
+        initialized.last_error.is_none(),
+        "Filename Candidate reported an initialization error"
+    );
+
+    let candidate_queries: [(&str, usize); 5] = [
+        ("quarterly", 1),
+        ("report", 3),
+        ("invoice", 4),
+        ("pdf", 5),
+        ("zzznomatchtoken", 8),
+    ];
+    let mut candidate_gate_failures = Vec::new();
+    let mut product_gate_failures = Vec::new();
+    for (query, case_index) in candidate_queries {
+        assert!(crate::global_index::search::filename_relevance_query_supported(query));
+        let query_case = QUERY_MATRIX[case_index];
+        let expectation = &expectations[case_index];
+        let oracle_ids = filename_candidate_oracle_ids(&inspection_connection, query);
+        assert_eq!(
+            oracle_ids.len(),
+            expectation.bounded_match_count(),
+            "independent Candidate SQL oracle count for query={query:?}"
+        );
+
+        for offset in [0_usize, SEARCH_RESULT_LIMIT as usize] {
+            for _ in 0..WARMUP_SAMPLES {
+                let snapshot = db
+                    .search_global_entries_snapshot(query, SEARCH_RESULT_LIMIT, offset as u32)
+                    .expect("warm the real product Repository Snapshot path");
+                assert_product_snapshot_page(
+                    &snapshot,
+                    &oracle_ids,
+                    offset,
+                    SEARCH_RESULT_LIMIT as usize,
+                    entries,
+                    query,
+                );
+            }
+
+            let before_samples = db.filename_search.diagnostics();
+            let mut samples = Vec::with_capacity(WARM_SAMPLES);
+            for _ in 0..WARM_SAMPLES {
+                let started = Instant::now();
+                let snapshot = db
+                    .search_global_entries_snapshot(query, SEARCH_RESULT_LIMIT, offset as u32)
+                    .expect("time the real product Repository Snapshot path");
+                samples.push(started.elapsed().as_secs_f64() * 1_000.0);
+                assert_product_snapshot_page(
+                    &snapshot,
+                    &oracle_ids,
+                    offset,
+                    SEARCH_RESULT_LIMIT as usize,
+                    entries,
+                    query,
+                );
+            }
+            let after_samples = db.filename_search.diagnostics();
+            let accepted_delta = after_samples.accepted_queries - before_samples.accepted_queries;
+            let fallback_delta = candidate_fallback_count(&after_samples)
+                - candidate_fallback_count(&before_samples);
+            let route_verified = accepted_delta == WARM_SAMPLES as u64
+                && fallback_delta == 0
+                && after_samples.enabled
+                && after_samples.ready;
+
+            let mut ordered = samples.clone();
+            ordered.sort_by(f64::total_cmp);
+            let p95 = quantile(&ordered, 0.95);
+            let passed = route_verified && p95 <= WARM_QUERY_P95_LIMIT_MS;
+            emit_record(&json!({
+                "schema_version": 1,
+                "record_type": "windows_product_snapshot_performance_gate",
+                "context": context,
+                "query_class": query_case.class,
+                "query": query,
+                "route": "filename_candidate",
+                "entrypoint": "search_global_entries_snapshot",
+                "offset": offset,
+                "result_limit": SEARCH_RESULT_LIMIT,
+                "warmup_samples": WARMUP_SAMPLES,
+                "timing_samples": WARM_SAMPLES,
+                "candidate_accepted_queries": accepted_delta,
+                "candidate_fallback_delta": fallback_delta,
+                "candidate_route_verified": route_verified,
+                "p95_ms": round_ms(p95),
+                "target_ms": WARM_QUERY_P95_LIMIT_MS,
                 "passed": passed
             }));
             if !passed {
-                performance_regressions.push(format!(
-                    "{}: {:.3}ms > {:.3}ms",
-                    query_case.class, warm_p95_ms, WARM_QUERY_P95_LIMIT_MS
-                ));
+                let reason = if !route_verified {
+                    format!(
+                        "{query} offset={offset}: Filename Candidate route verification failed (accepted={accepted_delta}/{WARM_SAMPLES}, fallback_delta={fallback_delta}, enabled={}, ready={})",
+                        after_samples.enabled, after_samples.ready
+                    )
+                } else {
+                    format!("{query} offset={offset}: {p95:.3}ms > {WARM_QUERY_P95_LIMIT_MS:.3}ms")
+                };
+                candidate_gate_failures.push(reason.clone());
+                product_gate_failures.push(reason);
             }
         }
+    }
+
+    // These real product inputs remain outside the current candidate shape and
+    // must use SQLite. Verify every fallback class without altering its result
+    // order; `jp` receives the retained 100ms performance gate below.
+    let fallback_accepted_before = db.filename_search.diagnostics().accepted_queries;
+    let fallback_count_before = candidate_fallback_count(&db.filename_search.diagnostics());
+    for (query_case, expectation) in QUERY_MATRIX.iter().copied().zip(expectations.iter()) {
+        if crate::global_index::search::filename_relevance_query_supported(query_case.query) {
+            continue;
+        }
+        let accepted_before = db.filename_search.diagnostics().accepted_queries;
+        let fallback_before = candidate_fallback_count(&db.filename_search.diagnostics());
+        let snapshot = db
+            .search_global_entries_snapshot(query_case.query, SEARCH_RESULT_LIMIT, 0)
+            .expect("unsupported query uses normal SQLite-backed product Snapshot");
+        let fallback_diagnostics = db.filename_search.diagnostics();
+        let accepted_delta = fallback_diagnostics.accepted_queries - accepted_before;
+        let fallback_delta = candidate_fallback_count(&fallback_diagnostics) - fallback_before;
+        let route_verified = accepted_delta == 0 && fallback_delta == 0;
+        let expected_ids = expectation
+            .expected_page(0, SEARCH_RESULT_LIMIT as usize)
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_product_snapshot_page(
+            &snapshot,
+            &expected_ids,
+            0,
+            SEARCH_RESULT_LIMIT as usize,
+            entries,
+            query_case.query,
+        );
+        emit_record(&json!({
+            "schema_version": 1,
+            "record_type": "sqlite_fallback_product_correctness",
+            "context": context,
+            "query_class": query_case.class,
+            "query": query_case.query,
+            "route": "sqlite_fallback",
+            "entrypoint": "search_global_entries_snapshot",
+            "result_count": snapshot.results.len(),
+            "candidate_accepted_query_delta": accepted_delta,
+            "candidate_fallback_counter_delta": fallback_delta,
+            "route_verified": route_verified,
+            "correct_order_and_source_filtering": true
+        }));
+    }
+    let fallback_accepted_after = db.filename_search.diagnostics().accepted_queries;
+    let fallback_count_after = candidate_fallback_count(&db.filename_search.diagnostics());
+    let unsupported_fallback_route_verified = fallback_accepted_after == fallback_accepted_before
+        && fallback_count_after == fallback_count_before;
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "sqlite_fallback_product_route_summary",
+        "context": context,
+        "route_verified": unsupported_fallback_route_verified,
+        "candidate_accepted_query_delta": fallback_accepted_after - fallback_accepted_before,
+        "candidate_fallback_counter_delta": fallback_count_after - fallback_count_before,
+        "query_count": QUERY_MATRIX
+            .iter()
+            .filter(|query| !crate::global_index::search::filename_relevance_query_supported(query.query))
+            .count()
+    }));
+    if !unsupported_fallback_route_verified {
+        product_gate_failures
+            .push("unsupported-query SQLite fallback route verification failed".to_string());
+    }
+
+    let jp_index = 6;
+    let jp_expectation = &expectations[jp_index];
+    assert!(!crate::global_index::search::filename_relevance_query_supported("jp"));
+    let jp_expected_ids = jp_expectation
+        .expected_page(0, SEARCH_CANDIDATE_LIMIT)
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    for _ in 0..WARMUP_SAMPLES {
+        let snapshot = db
+            .search_global_entries_snapshot("jp", SEARCH_RESULT_LIMIT, 0)
+            .expect("warm short-query SQLite fallback through the product Snapshot");
+        assert_product_snapshot_page(
+            &snapshot,
+            &jp_expected_ids,
+            0,
+            SEARCH_RESULT_LIMIT as usize,
+            entries,
+            "jp",
+        );
+    }
+    let jp_before = db.filename_search.diagnostics();
+    let mut jp_samples = Vec::with_capacity(WARM_SAMPLES);
+    for _ in 0..WARM_SAMPLES {
+        let started = Instant::now();
+        let snapshot = db
+            .search_global_entries_snapshot("jp", SEARCH_RESULT_LIMIT, 0)
+            .expect("time short-query SQLite fallback through the product Snapshot");
+        jp_samples.push(started.elapsed().as_secs_f64() * 1_000.0);
+        assert_product_snapshot_page(
+            &snapshot,
+            &jp_expected_ids,
+            0,
+            SEARCH_RESULT_LIMIT as usize,
+            entries,
+            "jp",
+        );
+    }
+    let jp_after = db.filename_search.diagnostics();
+    let jp_accepted_delta = jp_after.accepted_queries - jp_before.accepted_queries;
+    let jp_fallback_delta =
+        candidate_fallback_count(&jp_after) - candidate_fallback_count(&jp_before);
+    let jp_route_verified = jp_accepted_delta == 0 && jp_fallback_delta == 0;
+    let mut jp_ordered = jp_samples.clone();
+    jp_ordered.sort_by(f64::total_cmp);
+    let jp_p95 = quantile(&jp_ordered, 0.95);
+    let jp_within_target = jp_p95 <= WARM_QUERY_P95_LIMIT_MS;
+    let jp_passed = jp_route_verified && jp_within_target;
+    emit_record(&json!({
+        "schema_version": 1,
+        "record_type": "sqlite_fallback_product_performance_gate",
+        "context": context,
+        "query_class": QUERY_MATRIX[jp_index].class,
+        "query": "jp",
+        "route": "sqlite_fallback_unsupported_short_query",
+        "entrypoint": "search_global_entries_snapshot",
+        "legacy_database_entrypoint_p95_ms": sqlite_warm_p95_by_class.get("extension_prefix"),
+        "warmup_samples": WARMUP_SAMPLES,
+        "timing_samples": WARM_SAMPLES,
+        "candidate_accepted_query_delta": jp_accepted_delta,
+        "candidate_fallback_counter_delta": jp_fallback_delta,
+        "sqlite_fallback_route_verified": jp_route_verified,
+        "p95_ms": round_ms(jp_p95),
+        "target_ms": WARM_QUERY_P95_LIMIT_MS,
+        "within_target": jp_within_target,
+        "passed": jp_passed
+    }));
+    if !jp_passed {
+        let reason = if !jp_route_verified {
+            format!(
+                "jp SQLite fallback Snapshot route verification failed (accepted_delta={jp_accepted_delta}, fallback_delta={jp_fallback_delta})"
+            )
+        } else {
+            format!("jp SQLite fallback Snapshot: {jp_p95:.3}ms > {WARM_QUERY_P95_LIMIT_MS:.3}ms")
+        };
+        product_gate_failures.push(reason);
     }
 
     drop(inspection_connection);
     drop(db);
     emit_record(&json!({
         "schema_version": 1,
-        "record_type": "performance_gate_summary",
+        "record_type": "windows_product_search_gate_summary",
         "context": context,
-        "passed": performance_regressions.is_empty(),
-        "regressions": &performance_regressions
+        "windows_product_candidate_gate_passed": candidate_gate_failures.is_empty(),
+        "windows_product_candidate_failures": candidate_gate_failures,
+        "sqlite_fallback_jp_passed": jp_passed,
+        "sqlite_fallback_jp_route_verified": jp_route_verified,
+        "sqlite_fallback_jp_within_target": jp_within_target,
+        "overall_passed": product_gate_failures.is_empty(),
+        "failures": &product_gate_failures,
+        "historical_sqlite_over_target_queries": sqlite_history_misses,
+        "historical_sqlite_metrics_are_not_promoted_to_product_candidate_pass": true
     }));
     assert!(
-        performance_regressions.is_empty(),
-        "warm Global Search p95 exceeded the historical {WARM_QUERY_P95_LIMIT_MS:.3}ms budget at entries={entries}: {}",
-        performance_regressions.join("; ")
+        product_gate_failures.is_empty(),
+        "Windows product Search performance gate failed at entries={entries}: {}",
+        product_gate_failures.join("; ")
     );
 }
 

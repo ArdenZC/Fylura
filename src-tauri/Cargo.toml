@@ -51,6 +51,13 @@ desktop-runtime = [
     "tauri/image-png",
 ]
 performance-test-tauri = ["tauri/test"]
+# Marks the synthetic Search performance binary as using the Windows Release
+# candidate feature contract. This is intentionally separate from the common
+# performance-test-tauri feature used by unrelated Rust characterization tests.
+global-search-windows-release-performance-contract = [
+    "global-search-filename-relevance-candidate",
+    "global-search-filename-relevance-windows-default-on",
+]
 
 [dependencies]
 blake3 = "1"

@@ -7,6 +7,7 @@ import {
   prepareWindowsNsisTemplate,
 } from "./prepareWindowsNsisLifecycleTemplate.mjs";
 import { assertGeneratedPreviewResourcePathFile } from "./verifyWindowsNsisPreviewResource.mjs";
+import { windowsReleaseFeatures } from "./windowsReleaseFeatures.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nativeBuildScript = path.join(repositoryRoot, "scripts", "buildWindowsPreviewHandler.mjs");
@@ -64,13 +65,7 @@ try {
     ".bin",
     process.platform === "win32" ? "tauri.cmd" : "tauri",
   );
-  const releaseFeatures = [
-    "desktop-runtime",
-    "global-search-filename-relevance-candidate",
-  ];
-  if (process.platform === "win32") {
-    releaseFeatures.push("global-search-filename-relevance-windows-default-on");
-  }
+  const releaseFeatures = windowsReleaseFeatures(process.platform);
   const tauriArgs = ["build", "--features", releaseFeatures.join(",")];
   if (process.platform === "win32") {
     tauriArgs.push("--config", packageConfig);

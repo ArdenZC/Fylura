@@ -909,13 +909,15 @@ fn query_record(
             "connection_mode": "database_pool_entrypoint_repeated",
             "connection_checkout_included": true,
             "warmup_samples": WARMUP_SAMPLES,
-            "latency_ms": summarize_samples(warm_samples)
+            "latency_ms": summarize_samples(warm_samples),
+            "raw_samples_ms": warm_samples
         },
         "reopened_connection": {
             "connection_mode": "new_sqlite_connection_per_sample",
             "connection_open_included_in_latency": false,
             "samples": reopened_samples.len(),
             "latency_ms": summarize_samples(reopened_samples),
+            "raw_samples_ms": reopened_samples,
             "os_page_cache_cleared": false
         }
     })
@@ -1169,7 +1171,9 @@ fn measure_candidate_snapshot_stages(
         "candidate_fallback_delta": fallback_delta,
         "candidate_route_verified": route_verified,
         "profiled_full_route_ms": summarize_samples(&full_route_samples),
+        "profiled_full_route_raw_ms": full_route_samples,
         "instrumentation_overhead_ms": summarize_samples(&instrumentation_overhead_samples),
+        "instrumentation_overhead_raw_ms": instrumentation_overhead_samples,
         "stage_ms": stage_summary,
         "stage_raw_ms": stage_samples,
         "result_order_source_health_and_index_status_checked": true
@@ -1421,7 +1425,9 @@ fn global_search_synthetic_benchmark_baseline() {
         if entries <= 1_000_000 {
             let mut sorted_warm_samples = warm_samples.clone();
             sorted_warm_samples.sort_by(f64::total_cmp);
+            let warm_p50_ms = quantile(&sorted_warm_samples, 0.50);
             let warm_p95_ms = quantile(&sorted_warm_samples, 0.95);
+            let warm_p99_ms = quantile(&sorted_warm_samples, 0.99);
             let within_historical_target = warm_p95_ms <= WARM_QUERY_P95_LIMIT_MS;
             sqlite_warm_p95_by_class.insert(query_case.class, warm_p95_ms);
             emit_record(&json!({
@@ -1430,7 +1436,10 @@ fn global_search_synthetic_benchmark_baseline() {
                 "context": context,
                 "query_class": query_case.class,
                 "entries": entries,
+                "warm_p50_ms": round_ms(warm_p50_ms),
                 "warm_p95_ms": round_ms(warm_p95_ms),
+                "warm_p99_ms": round_ms(warm_p99_ms),
+                "warm_raw_samples_ms": warm_samples,
                 "original_limit_ms": WARM_QUERY_P95_LIMIT_MS,
                 "within_original_limit": within_historical_target,
                 "qualification": "historical_sqlite_path_only"
@@ -1569,7 +1578,9 @@ fn global_search_synthetic_benchmark_baseline() {
 
             let mut ordered = samples.clone();
             ordered.sort_by(f64::total_cmp);
+            let p50 = quantile(&ordered, 0.50);
             let p95 = quantile(&ordered, 0.95);
+            let p99 = quantile(&ordered, 0.99);
             let passed = route_verified && p95 <= WARM_QUERY_P95_LIMIT_MS;
             emit_record(&json!({
                 "schema_version": 1,
@@ -1586,7 +1597,10 @@ fn global_search_synthetic_benchmark_baseline() {
                 "candidate_accepted_queries": accepted_delta,
                 "candidate_fallback_delta": fallback_delta,
                 "candidate_route_verified": route_verified,
+                "p50_ms": round_ms(p50),
                 "p95_ms": round_ms(p95),
+                "p99_ms": round_ms(p99),
+                "raw_samples_ms": samples,
                 "target_ms": WARM_QUERY_P95_LIMIT_MS,
                 "passed": passed
             }));
@@ -1732,7 +1746,9 @@ fn global_search_synthetic_benchmark_baseline() {
     let jp_route_verified = jp_accepted_delta == 0 && jp_fallback_delta == 0;
     let mut jp_ordered = jp_samples.clone();
     jp_ordered.sort_by(f64::total_cmp);
+    let jp_p50 = quantile(&jp_ordered, 0.50);
     let jp_p95 = quantile(&jp_ordered, 0.95);
+    let jp_p99 = quantile(&jp_ordered, 0.99);
     let jp_within_target = jp_p95 <= WARM_QUERY_P95_LIMIT_MS;
     let jp_passed = jp_route_verified && jp_within_target;
     emit_record(&json!({
@@ -1749,7 +1765,10 @@ fn global_search_synthetic_benchmark_baseline() {
         "candidate_accepted_query_delta": jp_accepted_delta,
         "candidate_fallback_counter_delta": jp_fallback_delta,
         "sqlite_fallback_route_verified": jp_route_verified,
+        "p50_ms": round_ms(jp_p50),
         "p95_ms": round_ms(jp_p95),
+        "p99_ms": round_ms(jp_p99),
+        "raw_samples_ms": jp_samples,
         "target_ms": WARM_QUERY_P95_LIMIT_MS,
         "within_target": jp_within_target,
         "passed": jp_passed

@@ -429,16 +429,9 @@ pub(crate) fn search_global_entries_with_filename_index_on_connection(
 }
 
 const FILENAME_TRIGRAM_ROWID_SQL: &str = r#"
-    SELECT ge.rowid
+    SELECT global_entries_fts.rowid
     FROM global_entries_fts
-    CROSS JOIN global_entries ge
-    CROSS JOIN global_volumes gv
     WHERE global_entries_fts MATCH ?1
-      AND ge.rowid = global_entries_fts.rowid
-      AND gv.id = ge.volume_id
-      AND gv.enabled = 1 AND gv.coverage_pending = 0
-      AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
-      AND ge.is_stale = 0
 "#;
 
 #[cfg(test)]
@@ -463,6 +456,10 @@ fn search_filename_trigram_candidates(
     // Path matches are evaluated separately by `search_path_only_candidates`;
     // including the path column here makes the rowid scan inspect path-only
     // hits that the compact index must discard.
+    // The compact view contains only active, non-stale, authorized rows for
+    // the validated SQLite snapshot. Ranking rejects rowids outside that view,
+    // and hydration rechecks the SQL source filters. Avoid repeating those
+    // per-row joins while enumerating FTS rowids.
     let fts_query = format!("{{name extension}} : \"{}\"", query.replace('"', "\"\""));
     #[cfg(test)]
     if legacy_filename_join_candidates_for_test() {

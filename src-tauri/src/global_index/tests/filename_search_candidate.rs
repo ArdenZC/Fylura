@@ -367,6 +367,103 @@ fn filename_candidate_matches_full_independent_oracle_across_tiers_and_unicode_n
 }
 
 #[test]
+fn filename_candidate_filters_unqualified_fts_rowids_through_snapshot_membership() {
+    let (db, path) = open_candidate_database();
+    let mut unauthorized_volume = test_volume();
+    unauthorized_volume.id = "gv_unauthorized".into();
+    unauthorized_volume.stable_volume_id = "stable-unauthorized".into();
+    unauthorized_volume.mount_path = r"D:\Global\".into();
+    unauthorized_volume.scope_authorization_state = "not_authorized".into();
+    db.upsert_global_volume(&unauthorized_volume)
+        .expect("insert an enabled but unauthorized source");
+    db.update_global_volume_state(
+        &unauthorized_volume.id,
+        INDEX_STATUS_READY,
+        None,
+        None,
+        None,
+        Some(10),
+        None,
+    )
+    .expect("mark unauthorized source ready");
+
+    let authorized = fixture_entry(
+        "gv_test",
+        r"C:\Global\Annual Report authorized.txt",
+        "Annual Report authorized.txt",
+        "txt",
+        Some(30),
+        false,
+    );
+    let unauthorized = fixture_entry(
+        &unauthorized_volume.id,
+        r"D:\Global\Annual Report private.txt",
+        "Annual Report private.txt",
+        "txt",
+        Some(20),
+        false,
+    );
+    let stale = fixture_entry(
+        "gv_test",
+        r"C:\Global\Annual Report stale.txt",
+        "Annual Report stale.txt",
+        "txt",
+        Some(10),
+        false,
+    );
+    db.upsert_global_entries_batch(&[authorized.clone(), unauthorized, stale.clone()])
+        .expect("insert eligible, unauthorized, and stale FTS rows");
+    db.conn()
+        .expect("obtain hooked SQLite connection")
+        .execute(
+            "UPDATE global_entries SET is_stale=1 WHERE id=?1",
+            [stale.entry_id()],
+        )
+        .expect("mark one FTS row stale before building the view");
+    let diagnostics = build_index(&db);
+    assert_eq!(diagnostics.index_entries, 1);
+
+    let raw_connection = db.conn().expect("inspect raw FTS candidates");
+    let mut raw_statement = raw_connection
+        .prepare(super::super::search::diagnostic_filename_trigram_candidates_sql())
+        .expect("prepare raw Filename Candidate FTS query");
+    let raw_candidates: Vec<i64> = raw_statement
+        .query_map(["{name extension} : \"report\""], |row| row.get(0))
+        .expect("enumerate raw FTS rowids")
+        .collect::<rusqlite::Result<_>>()
+        .expect("collect raw FTS rowids");
+    assert_eq!(raw_candidates.len(), 3);
+    drop(raw_statement);
+    drop(raw_connection);
+
+    let before = db.filename_search.diagnostics();
+    let snapshot = db
+        .search_global_entries_snapshot("report", 80, 0)
+        .expect("search the real product Snapshot path");
+    let after = db.filename_search.diagnostics();
+    assert_eq!(after.accepted_queries - before.accepted_queries, 1);
+    assert_eq!(after.fallback_not_ready - before.fallback_not_ready, 0);
+    assert_eq!(after.fallback_busy - before.fallback_busy, 0);
+    assert_eq!(
+        after.fallback_untracked_change - before.fallback_untracked_change,
+        0
+    );
+    assert_eq!(
+        after.fallback_source_change - before.fallback_source_change,
+        0
+    );
+    assert_eq!(
+        after.fallback_overlay_limit - before.fallback_overlay_limit,
+        0
+    );
+    assert_eq!(snapshot.results.len(), 1);
+    assert_eq!(snapshot.results[0].id, authorized.entry_id());
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn filename_candidate_preserves_complete_4096_candidate_window_and_deep_page() {
     let (db, path) = open_candidate_database();
     let mut entries = Vec::with_capacity(5_000);

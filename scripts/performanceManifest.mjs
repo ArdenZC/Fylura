@@ -6,6 +6,7 @@ const CARGO_TEST_ARGS = ["--release", "--locked", "--manifest-path", "src-tauri/
 // same candidate/default-on features as the Windows Release package.
 export const PERFORMANCE_BUILD_FEATURES = [
   "performance-test-tauri",
+  "global-search-windows-release-performance-contract",
   ...WINDOWS_GLOBAL_SEARCH_FEATURES,
 ].join(",");
 

@@ -1,7 +1,7 @@
 export type PerformanceProfile = "full" | "extended";
 export type PerformanceSuite = "search" | "scan-schema" | "library-content" | "intelligence" | "workspace-foundation" | "preview-platform";
 export type PerformanceTargetKey = "lib" | "fts" | "migrations" | "fileLibrary" | "fixtureBuilder";
-export const PERFORMANCE_BUILD_FEATURES: "performance-test-tauri,global-search-filename-relevance-candidate,global-search-filename-relevance-windows-default-on";
+export const PERFORMANCE_BUILD_FEATURES: "performance-test-tauri,global-search-windows-release-performance-contract,global-search-filename-relevance-candidate,global-search-filename-relevance-windows-default-on";
 export const PREVIEW_PERFORMANCE_CONTRACT: Readonly<{
   metricDefinition: string;
   phaseBMetricDefinition: string;

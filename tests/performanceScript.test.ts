@@ -286,11 +286,12 @@ describe("performance profile and manifest contract", () => {
 
   it("keeps the performance-only Tauri mock feature out of production desktop tests", () => {
     expect(PERFORMANCE_BUILD_FEATURES).toBe(
-      "performance-test-tauri,global-search-filename-relevance-candidate,global-search-filename-relevance-windows-default-on",
+      "performance-test-tauri,global-search-windows-release-performance-contract,global-search-filename-relevance-candidate,global-search-filename-relevance-windows-default-on",
     );
     expect(getPrecompileTargets("workspace-foundation").find((target) => target.targetKey === "lib")?.targetArgs)
       .toEqual(["--lib", "--features", PERFORMANCE_BUILD_FEATURES]);
     expect(read("src-tauri/Cargo.toml")).toContain('performance-test-tauri = ["tauri/test"]');
+    expect(read("src-tauri/Cargo.toml")).toContain("global-search-windows-release-performance-contract = [");
     expect(read("src-tauri/Cargo.toml")).not.toContain("[dev-dependencies]");
   });
 
@@ -306,8 +307,11 @@ describe("performance profile and manifest contract", () => {
       "desktop-runtime",
       "global-search-filename-relevance-candidate",
     ]);
-    expect(PERFORMANCE_BUILD_FEATURES.split(",").filter((feature) => feature !== "performance-test-tauri"))
-      .toEqual([...WINDOWS_GLOBAL_SEARCH_FEATURES]);
+    expect(PERFORMANCE_BUILD_FEATURES.split(",")).toEqual([
+      "performance-test-tauri",
+      "global-search-windows-release-performance-contract",
+      ...WINDOWS_GLOBAL_SEARCH_FEATURES,
+    ]);
     expect(getPerformanceBenchmarks("search", "full").find((benchmark) => benchmark.id === "global_search_1m"))
       .toMatchObject({ targetKey: "lib", targetArgs: ["--lib", "--features", PERFORMANCE_BUILD_FEATURES] });
   });

@@ -201,28 +201,38 @@ export function useCleanupAnalysisController({
   useEffect(() => {
     const disposers: UnlistenFn[] = [];
     let disposed = false;
+    const register = async (subscription: Promise<UnlistenFn> | undefined) => {
+      const off = await subscription;
+      if (!off) return;
+      if (disposed) off();
+      else disposers.push(off);
+    };
     async function subscribe() {
-      const offRun = await api.onAnalysisRunUpdated?.((updated) => {
-        if (!isCleanupRun(updated) || !run || updated.id !== run.id) return;
-        if (updated.revision >= run.revision) void loadRunDetails(updated.id).catch(() => undefined);
-      });
-      const offFindings = await api.onAnalysisFindingsPublished?.((updated) => {
-        if (run && updated.id === run.id) void loadRunDetails(updated.id).catch(() => undefined);
-      });
-      const offDetector = await api.onAnalysisDetectorUpdated?.((updated) => {
-        if (run && updated.runId === run.id) void loadRunDetails(updated.runId, false).catch(() => undefined);
-      });
-      for (const disposer of [offRun, offFindings, offDetector]) {
-        if (disposer) disposers.push(disposer);
-      }
-      if (disposed) while (disposers.length) disposers.pop()?.();
+      await Promise.all([
+        register(api.onAnalysisRunUpdated?.((updated) => {
+          const current = runRef.current;
+          if (disposed || !current || !isCleanupRun(updated) || updated.id !== current.id) return;
+          if (updated.revision >= current.revision) void loadRunDetails(updated.id).catch(() => undefined);
+        })),
+        register(api.onAnalysisFindingsPublished?.((updated) => {
+          if (!disposed && updated.id === runRef.current?.id) void loadRunDetails(updated.id).catch(() => undefined);
+        })),
+        register(api.onAnalysisDetectorUpdated?.((updated) => {
+          if (!disposed && updated.runId === runRef.current?.id) void loadRunDetails(updated.runId, false).catch(() => undefined);
+        }))
+      ]);
+      // Native registration is asynchronous. Reconcile after every listener is
+      // attached so a fast run cannot finish inside the subscription gap and
+      // leave the UI permanently running. The backend remains the authority.
+      const current = runRef.current;
+      if (!disposed && current && isRunInProgress(current)) await loadRunDetails(current.id, false);
     }
     void subscribe().catch(() => undefined);
     return () => {
       disposed = true;
       while (disposers.length) disposers.pop()?.();
     };
-  }, [api, loadRunDetails, run]);
+  }, [api, loadRunDetails, run?.id, runRef]);
 
   return { loadFindings, loadRunDetails };
 }

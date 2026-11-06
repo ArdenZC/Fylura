@@ -269,6 +269,27 @@ describe("Cleanup independent review behavior", () => {
     await flush(8);
   }
 
+  it("reconciles completion that occurs while native event subscriptions are attaching", async () => {
+    let durable = makeRun("run-subscription-race", "running");
+    let attach!: () => void;
+    const registration = new Promise<void>((resolve) => { attach = resolve; });
+    const api = commonApi(durable, {
+      listAnalysisRuns: async () => [durable],
+      getAnalysisRun: async () => durable,
+      onAnalysisRunUpdated: async () => { await registration; return () => undefined; }
+    });
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/Root"], api, t })));
+    await flush(8);
+    expect(container.textContent).toContain(t("storageCleanupRunRunning"));
+    // The backend finishes before the native listener exists. There is no later
+    // event to rescue the view; attaching must reconcile the durable snapshot.
+    durable = { ...makeRun(durable.id, "completed"), revision: 3 };
+    await act(async () => { attach(); await registration; });
+    await flush(8);
+    expect(container.textContent).toContain(t("storageCleanupRunCompletedEmptyTitle"));
+    expect(container.textContent).not.toContain(t("storageCleanupRunRunning"));
+  });
+
   it("renders workflow progress with native ordered-list semantics and accessible state labels", () => {
     const states = [
       { label: "扫描", state: "done" as const, stateLabel: "已完成" },

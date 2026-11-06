@@ -50,6 +50,16 @@ const WARMUP_SAMPLES: usize = 5;
 const WARM_SAMPLES: usize = 30;
 const REOPENED_CONNECTION_SAMPLES: usize = 30;
 
+#[cfg(feature = "global-search-windows-release-performance-contract")]
+fn require_windows_release_search_performance_contract() {}
+
+#[cfg(not(feature = "global-search-windows-release-performance-contract"))]
+fn require_windows_release_search_performance_contract() {
+    panic!(
+        "Search performance binaries must enable the Windows Release Candidate contract feature"
+    );
+}
+
 const INSERT_SYNTHETIC_ENTRY: &str = r#"
     INSERT INTO global_entries (
         id, volume_id, platform_file_id, parent_platform_file_id,
@@ -1101,10 +1111,7 @@ fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
 #[test]
 #[ignore = "synthetic Global Search baseline; set ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES to a supported scale"]
 fn global_search_synthetic_benchmark_baseline() {
-    assert!(
-        cfg!(feature = "global-search-windows-release-performance-contract"),
-        "Search performance binaries must enable the Windows Release Candidate contract feature"
-    );
+    require_windows_release_search_performance_contract();
     let entries = configured_entries();
     let context = benchmark_context(entries);
     let output_path = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT").ok();

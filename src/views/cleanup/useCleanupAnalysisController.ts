@@ -225,7 +225,7 @@ export function useCleanupAnalysisController({
       // attached so a fast run cannot finish inside the subscription gap and
       // leave the UI permanently running. The backend remains the authority.
       const current = runRef.current;
-      if (!disposed && current) await loadRunDetails(current.id, false);
+      if (!disposed && current && isRunInProgress(current)) await loadRunDetails(current.id, false);
     }
     void subscribe().catch(() => undefined);
     return () => {

@@ -236,4 +236,3 @@ export function useCleanupAnalysisController({
 
   return { loadFindings, loadRunDetails };
 }
-

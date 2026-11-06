@@ -1369,10 +1369,24 @@ impl Database {
                         else {
                             return Ok(None);
                         };
+                        #[cfg(test)]
+                        let source_health_started = std::time::Instant::now();
                         let (source_health, source_revision, enabled_rows) =
                             load_snapshot_source_health(transaction)?;
+                        #[cfg(test)]
+                        super::filename_search::record_candidate_search_stage(
+                            "snapshot_source_health",
+                            source_health_started,
+                        );
+                        #[cfg(test)]
+                        let index_status_started = std::time::Instant::now();
                         let index_status =
                             global_index_status_with_total(transaction, enabled_rows)?;
+                        #[cfg(test)]
+                        super::filename_search::record_candidate_search_stage(
+                            "snapshot_index_status",
+                            index_status_started,
+                        );
                         Ok(Some(GlobalSearchSnapshot {
                             results,
                             source_health,

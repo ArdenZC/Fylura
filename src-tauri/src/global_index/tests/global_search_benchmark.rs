@@ -1096,6 +1096,86 @@ fn candidate_fallback_count(
         + diagnostics.fallback_overlay_limit
 }
 
+fn measure_candidate_snapshot_stages(
+    db: &Database,
+    query: &str,
+    offset: usize,
+    expected_ids: &[String],
+    entries: u64,
+    context: &JsonValue,
+) -> JsonValue {
+    let before = db.filename_search.diagnostics();
+    let mut full_route_samples = Vec::with_capacity(WARM_SAMPLES);
+    let mut instrumentation_overhead_samples = Vec::with_capacity(WARM_SAMPLES);
+    let mut stage_samples = std::collections::HashMap::<&'static str, Vec<f64>>::new();
+
+    for iteration in 0..(WARMUP_SAMPLES + WARM_SAMPLES) {
+        let started = Instant::now();
+        let (snapshot, stages) =
+            crate::global_index::filename_search::capture_candidate_search_stages(|| {
+                db.search_global_entries_snapshot(query, SEARCH_RESULT_LIMIT, offset as u32)
+                    .expect("profile real product Snapshot with Filename Candidate")
+            });
+        let profiled_full_route_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        assert_product_snapshot_page(
+            &snapshot,
+            expected_ids,
+            offset,
+            SEARCH_RESULT_LIMIT as usize,
+            entries,
+            query,
+        );
+
+        if iteration >= WARMUP_SAMPLES {
+            let stage_sum_ms = stages
+                .values()
+                .map(|elapsed_ns| *elapsed_ns as f64 / 1_000_000.0)
+                .sum::<f64>();
+            full_route_samples.push(profiled_full_route_ms);
+            instrumentation_overhead_samples.push((profiled_full_route_ms - stage_sum_ms).max(0.0));
+            for (stage, duration_ns) in stages {
+                stage_samples
+                    .entry(stage)
+                    .or_default()
+                    .push(duration_ns as f64 / 1_000_000.0);
+            }
+        }
+    }
+
+    let after = db.filename_search.diagnostics();
+    let accepted_delta = after.accepted_queries - before.accepted_queries;
+    let fallback_delta = candidate_fallback_count(&after) - candidate_fallback_count(&before);
+    let route_verified = accepted_delta == (WARMUP_SAMPLES + WARM_SAMPLES) as u64
+        && fallback_delta == 0
+        && after.enabled
+        && after.ready;
+    let stage_summary = stage_samples
+        .iter()
+        .map(|(stage, samples)| (*stage, summarize_samples(samples)))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    json!({
+        "schema_version": 1,
+        "record_type": "windows_product_snapshot_candidate_stage_diagnostic",
+        "context": context,
+        "query": query,
+        "offset": offset,
+        "entrypoint": "search_global_entries_snapshot",
+        "route": "filename_candidate",
+        "warmup_samples": WARMUP_SAMPLES,
+        "timing_samples": WARM_SAMPLES,
+        "instrumentation": "cfg(test)-only stage timers; stage samples are separate from the uninstrumented 100ms gate samples",
+        "candidate_accepted_queries": accepted_delta,
+        "candidate_fallback_delta": fallback_delta,
+        "candidate_route_verified": route_verified,
+        "profiled_full_route_ms": summarize_samples(&full_route_samples),
+        "instrumentation_overhead_ms": summarize_samples(&instrumentation_overhead_samples),
+        "stage_ms": stage_summary,
+        "stage_raw_ms": stage_samples,
+        "result_order_source_health_and_index_status_checked": true
+    })
+}
+
 fn remove_database_files(path: &Path) {
     let _ = fs::remove_file(path);
     let _ = fs::remove_file(sidecar_path(path, "-wal"));
@@ -1432,6 +1512,7 @@ fn global_search_synthetic_benchmark_baseline() {
         ("pdf", 5),
         ("zzznomatchtoken", 8),
     ];
+    let capture_stages = env::var("ZC_GLOBAL_SEARCH_CAPTURE_STAGES").ok().as_deref() == Some("1");
     let mut candidate_gate_failures = Vec::new();
     let mut product_gate_failures = Vec::new();
     for (query, case_index) in candidate_queries {
@@ -1509,6 +1590,21 @@ fn global_search_synthetic_benchmark_baseline() {
                 "target_ms": WARM_QUERY_P95_LIMIT_MS,
                 "passed": passed
             }));
+            if capture_stages && matches!(query, "report" | "invoice") {
+                let stage_record = measure_candidate_snapshot_stages(
+                    &db,
+                    query,
+                    offset,
+                    &oracle_ids,
+                    entries,
+                    &context,
+                );
+                emit_record(&stage_record);
+                assert_eq!(
+                    stage_record["candidate_route_verified"], true,
+                    "stage diagnostic must capture accepted Filename Candidate queries"
+                );
+            }
             if !passed {
                 let reason = if !route_verified {
                     format!(

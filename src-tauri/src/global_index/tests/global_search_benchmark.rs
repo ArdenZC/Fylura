@@ -909,13 +909,15 @@ fn query_record(
             "connection_mode": "database_pool_entrypoint_repeated",
             "connection_checkout_included": true,
             "warmup_samples": WARMUP_SAMPLES,
-            "latency_ms": summarize_samples(warm_samples)
+            "latency_ms": summarize_samples(warm_samples),
+            "raw_samples_ms": warm_samples
         },
         "reopened_connection": {
             "connection_mode": "new_sqlite_connection_per_sample",
             "connection_open_included_in_latency": false,
             "samples": reopened_samples.len(),
             "latency_ms": summarize_samples(reopened_samples),
+            "raw_samples_ms": reopened_samples,
             "os_page_cache_cleared": false
         }
     })
@@ -1094,6 +1096,88 @@ fn candidate_fallback_count(
         + diagnostics.fallback_untracked_change
         + diagnostics.fallback_source_change
         + diagnostics.fallback_overlay_limit
+}
+
+fn measure_candidate_snapshot_stages(
+    db: &Database,
+    query: &str,
+    offset: usize,
+    expected_ids: &[String],
+    entries: u64,
+    context: &JsonValue,
+) -> JsonValue {
+    let before = db.filename_search.diagnostics();
+    let mut full_route_samples = Vec::with_capacity(WARM_SAMPLES);
+    let mut instrumentation_overhead_samples = Vec::with_capacity(WARM_SAMPLES);
+    let mut stage_samples = std::collections::HashMap::<&'static str, Vec<f64>>::new();
+
+    for iteration in 0..(WARMUP_SAMPLES + WARM_SAMPLES) {
+        let started = Instant::now();
+        let (snapshot, stages) =
+            crate::global_index::filename_search::capture_candidate_search_stages(|| {
+                db.search_global_entries_snapshot(query, SEARCH_RESULT_LIMIT, offset as u32)
+                    .expect("profile real product Snapshot with Filename Candidate")
+            });
+        let profiled_full_route_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        assert_product_snapshot_page(
+            &snapshot,
+            expected_ids,
+            offset,
+            SEARCH_RESULT_LIMIT as usize,
+            entries,
+            query,
+        );
+
+        if iteration >= WARMUP_SAMPLES {
+            let stage_sum_ms = stages
+                .values()
+                .map(|elapsed_ns| *elapsed_ns as f64 / 1_000_000.0)
+                .sum::<f64>();
+            full_route_samples.push(profiled_full_route_ms);
+            instrumentation_overhead_samples.push((profiled_full_route_ms - stage_sum_ms).max(0.0));
+            for (stage, duration_ns) in stages {
+                stage_samples
+                    .entry(stage)
+                    .or_default()
+                    .push(duration_ns as f64 / 1_000_000.0);
+            }
+        }
+    }
+
+    let after = db.filename_search.diagnostics();
+    let accepted_delta = after.accepted_queries - before.accepted_queries;
+    let fallback_delta = candidate_fallback_count(&after) - candidate_fallback_count(&before);
+    let route_verified = accepted_delta == (WARMUP_SAMPLES + WARM_SAMPLES) as u64
+        && fallback_delta == 0
+        && after.enabled
+        && after.ready;
+    let stage_summary = stage_samples
+        .iter()
+        .map(|(stage, samples)| (*stage, summarize_samples(samples)))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    json!({
+        "schema_version": 1,
+        "record_type": "windows_product_snapshot_candidate_stage_diagnostic",
+        "context": context,
+        "query": query,
+        "offset": offset,
+        "entrypoint": "search_global_entries_snapshot",
+        "route": "filename_candidate",
+        "warmup_samples": WARMUP_SAMPLES,
+        "timing_samples": WARM_SAMPLES,
+        "instrumentation": "cfg(test)-only stage timers; stage samples are separate from the uninstrumented 100ms gate samples",
+        "candidate_accepted_queries": accepted_delta,
+        "candidate_fallback_delta": fallback_delta,
+        "candidate_route_verified": route_verified,
+        "profiled_full_route_ms": summarize_samples(&full_route_samples),
+        "profiled_full_route_raw_ms": full_route_samples,
+        "instrumentation_overhead_ms": summarize_samples(&instrumentation_overhead_samples),
+        "instrumentation_overhead_raw_ms": instrumentation_overhead_samples,
+        "stage_ms": stage_summary,
+        "stage_raw_ms": stage_samples,
+        "result_order_source_health_and_index_status_checked": true
+    })
 }
 
 fn remove_database_files(path: &Path) {
@@ -1341,7 +1425,9 @@ fn global_search_synthetic_benchmark_baseline() {
         if entries <= 1_000_000 {
             let mut sorted_warm_samples = warm_samples.clone();
             sorted_warm_samples.sort_by(f64::total_cmp);
+            let warm_p50_ms = quantile(&sorted_warm_samples, 0.50);
             let warm_p95_ms = quantile(&sorted_warm_samples, 0.95);
+            let warm_p99_ms = quantile(&sorted_warm_samples, 0.99);
             let within_historical_target = warm_p95_ms <= WARM_QUERY_P95_LIMIT_MS;
             sqlite_warm_p95_by_class.insert(query_case.class, warm_p95_ms);
             emit_record(&json!({
@@ -1350,7 +1436,10 @@ fn global_search_synthetic_benchmark_baseline() {
                 "context": context,
                 "query_class": query_case.class,
                 "entries": entries,
+                "warm_p50_ms": round_ms(warm_p50_ms),
                 "warm_p95_ms": round_ms(warm_p95_ms),
+                "warm_p99_ms": round_ms(warm_p99_ms),
+                "warm_raw_samples_ms": warm_samples,
                 "original_limit_ms": WARM_QUERY_P95_LIMIT_MS,
                 "within_original_limit": within_historical_target,
                 "qualification": "historical_sqlite_path_only"
@@ -1432,6 +1521,7 @@ fn global_search_synthetic_benchmark_baseline() {
         ("pdf", 5),
         ("zzznomatchtoken", 8),
     ];
+    let capture_stages = env::var("ZC_GLOBAL_SEARCH_CAPTURE_STAGES").ok().as_deref() == Some("1");
     let mut candidate_gate_failures = Vec::new();
     let mut product_gate_failures = Vec::new();
     for (query, case_index) in candidate_queries {
@@ -1488,7 +1578,9 @@ fn global_search_synthetic_benchmark_baseline() {
 
             let mut ordered = samples.clone();
             ordered.sort_by(f64::total_cmp);
+            let p50 = quantile(&ordered, 0.50);
             let p95 = quantile(&ordered, 0.95);
+            let p99 = quantile(&ordered, 0.99);
             let passed = route_verified && p95 <= WARM_QUERY_P95_LIMIT_MS;
             emit_record(&json!({
                 "schema_version": 1,
@@ -1505,10 +1597,28 @@ fn global_search_synthetic_benchmark_baseline() {
                 "candidate_accepted_queries": accepted_delta,
                 "candidate_fallback_delta": fallback_delta,
                 "candidate_route_verified": route_verified,
+                "p50_ms": round_ms(p50),
                 "p95_ms": round_ms(p95),
+                "p99_ms": round_ms(p99),
+                "raw_samples_ms": samples,
                 "target_ms": WARM_QUERY_P95_LIMIT_MS,
                 "passed": passed
             }));
+            if capture_stages && matches!(query, "report" | "invoice") {
+                let stage_record = measure_candidate_snapshot_stages(
+                    &db,
+                    query,
+                    offset,
+                    &oracle_ids,
+                    entries,
+                    &context,
+                );
+                emit_record(&stage_record);
+                assert_eq!(
+                    stage_record["candidate_route_verified"], true,
+                    "stage diagnostic must capture accepted Filename Candidate queries"
+                );
+            }
             if !passed {
                 let reason = if !route_verified {
                     format!(
@@ -1636,7 +1746,9 @@ fn global_search_synthetic_benchmark_baseline() {
     let jp_route_verified = jp_accepted_delta == 0 && jp_fallback_delta == 0;
     let mut jp_ordered = jp_samples.clone();
     jp_ordered.sort_by(f64::total_cmp);
+    let jp_p50 = quantile(&jp_ordered, 0.50);
     let jp_p95 = quantile(&jp_ordered, 0.95);
+    let jp_p99 = quantile(&jp_ordered, 0.99);
     let jp_within_target = jp_p95 <= WARM_QUERY_P95_LIMIT_MS;
     let jp_passed = jp_route_verified && jp_within_target;
     emit_record(&json!({
@@ -1653,7 +1765,10 @@ fn global_search_synthetic_benchmark_baseline() {
         "candidate_accepted_query_delta": jp_accepted_delta,
         "candidate_fallback_counter_delta": jp_fallback_delta,
         "sqlite_fallback_route_verified": jp_route_verified,
+        "p50_ms": round_ms(jp_p50),
         "p95_ms": round_ms(jp_p95),
+        "p99_ms": round_ms(jp_p99),
+        "raw_samples_ms": jp_samples,
         "target_ms": WARM_QUERY_P95_LIMIT_MS,
         "within_target": jp_within_target,
         "passed": jp_passed

@@ -45,6 +45,7 @@ on:
         options:
           - baseline
           - baseline_release
+          - product_snapshot_stages
           - fts_diagnostic
           - source_health_diagnostic
           - source_health_topology_diagnostic
@@ -126,6 +127,26 @@ jobs:
         run: >-
           cargo test --release --manifest-path src-tauri/Cargo.toml
           --features desktop-runtime
+          --lib
+          global_index::tests::global_search_benchmark::global_search_synthetic_benchmark_baseline
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Require the 1M Windows product Snapshot stage fixture
+        if: ${{ github.event_name == 'workflow_dispatch' && env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'product_snapshot_stages' }}
+        shell: pwsh
+        run: |
+          if ($env:ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES -ne '1000000') {
+            throw 'Product Snapshot stage diagnostic is fixed at exactly 1,000,000 rows.'
+          }
+      # Uses the exact #548 Windows Release Candidate feature set and the same
+      # 1M product Snapshot benchmark. Instrumented stage samples are emitted
+      # separately; only the uninstrumented samples decide the fixed 100ms gate.
+      - name: Run Windows product Snapshot stage diagnostic
+        if: ${{ github.event_name == 'workflow_dispatch' && env.ZC_GLOBAL_SEARCH_BENCHMARK_MODE == 'product_snapshot_stages' }}
+        env:
+          ZC_GLOBAL_SEARCH_CAPTURE_STAGES: "1"
+        run: >-
+          cargo test --release --locked --manifest-path src-tauri/Cargo.toml
+          --features performance-test-tauri,global-search-windows-release-performance-contract,global-search-filename-relevance-candidate,global-search-filename-relevance-windows-default-on
           --lib
           global_index::tests::global_search_benchmark::global_search_synthetic_benchmark_baseline
           -- --ignored --exact --nocapture --test-threads=1

@@ -33,6 +33,12 @@ const DEFAULT_ENTRIES: u64 = 100_000;
 const ALLOWED_ENTRIES: [u64; 5] = [100_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
 const INSERT_BATCH_SIZE: u64 = 512;
 const SEARCH_RESULT_LIMIT: u32 = 80;
+#[cfg(feature = "performance-test-tauri")]
+const _: () = assert!(
+    cfg!(feature = "global-search-filename-relevance-candidate")
+        && cfg!(feature = "global-search-filename-relevance-windows-default-on"),
+    "Search performance binaries must compile with the Windows Release Candidate features"
+);
 // This is the current search candidate-window contract in search.rs. Keep the
 // assertion here so a product change cannot silently invalidate this evidence.
 const SEARCH_CANDIDATE_LIMIT: usize = 4_096;
@@ -1095,12 +1101,6 @@ fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
 #[test]
 #[ignore = "synthetic Global Search baseline; set ZC_GLOBAL_SEARCH_BENCHMARK_ENTRIES to a supported scale"]
 fn global_search_synthetic_benchmark_baseline() {
-    assert!(
-        cfg!(feature = "performance-test-tauri")
-            && cfg!(feature = "global-search-filename-relevance-candidate")
-            && cfg!(feature = "global-search-filename-relevance-windows-default-on"),
-        "Search performance binary must compile with the Windows Release Candidate features"
-    );
     let entries = configured_entries();
     let context = benchmark_context(entries);
     let output_path = env::var("ZC_GLOBAL_SEARCH_BENCHMARK_OUTPUT").ok();

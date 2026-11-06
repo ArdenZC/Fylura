@@ -108,12 +108,12 @@ fn single_key_zero_sparse_multi_volume_ties_and_window_match_legacy() {
 
     let (first_key, next_key, exact) = diagnostic_extension_prefix_strategy_sqls();
     for (sql, params) in [
-        (first_key, vec!["jp", "jp*"]),
-        (next_key, vec!["jp", "jpg", "jq"]),
+        (first_key, &["jp", "jp*"][..]),
+        (next_key, &["jp", "jpg", "jq"][..]),
     ] {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
         let plan = stmt
-            .query_map(rusqlite::params_from_iter(params), |row| {
+            .query_map(rusqlite::params_from_iter(params.iter().copied()), |row| {
                 row.get::<_, String>(3)
             })
             .unwrap()

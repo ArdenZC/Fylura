@@ -459,7 +459,11 @@ fn search_filename_trigram_candidates(
     conn: &Connection,
     query: &str,
 ) -> Result<Vec<FilenameTrigramCandidate>, DbError> {
-    let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+    // The compact Filename Candidate ranks only names and extensions.
+    // Path matches are evaluated separately by `search_path_only_candidates`;
+    // including the path column here makes the rowid scan inspect path-only
+    // hits that the compact index must discard.
+    let fts_query = format!("{{name extension}} : \"{}\"", query.replace('"', "\"\""));
     #[cfg(test)]
     if legacy_filename_join_candidates_for_test() {
         let mut statement = conn.prepare(LEGACY_FILENAME_TRIGRAM_JOIN_SQL)?;

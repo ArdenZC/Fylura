@@ -451,6 +451,8 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
         run_directory_copy(streaming_preview).expect("large directory streaming copy");
     let streaming_elapsed = streaming_start.elapsed();
     let streaming_resource_stats = streaming_resources.map(NativeProcessMonitor::finish);
+    let streaming_resource_report =
+        native_copy_resources::format_native_process_stats(streaming_resource_stats);
     assert_eq!(streaming_result.logs[0].status, "success");
     let (streaming_read_calls, streaming_read_bytes) =
         fylura_tauri::platform::macos::copy::copy_io_metrics();
@@ -472,6 +474,8 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     let clone_result = run_directory_copy(clone_preview).expect("large directory APFS clone copy");
     let clone_elapsed = clone_start.elapsed();
     let clone_resource_stats = clone_resources.map(NativeProcessMonitor::finish);
+    let clone_resource_report =
+        native_copy_resources::format_native_process_stats(clone_resource_stats);
     assert_eq!(clone_result.logs[0].status, "success");
     let (clone_read_calls, clone_read_bytes) =
         fylura_tauri::platform::macos::copy::copy_io_metrics();
@@ -499,7 +503,7 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     let streaming_seconds = streaming_elapsed.as_secs_f64().max(0.001);
     let clone_seconds = clone_elapsed.as_secs_f64().max(0.001);
     println!(
-        "macOS native performance directory100k entries=100000 payloadBytes={} streamingPreviewMs={} streamingElapsedMs={} streamingFilesPerSecond={:.1} streamingPayloadMiBPerSecond={:.1} streamingReadCalls={} streamingReadBytes={} streamingPhaseTimingsNs={streaming_phase_timings:?} streamingResources={streaming_resource_stats:?} clonePreviewMs={} cloneElapsedMs={} cloneFilesPerSecond={:.1} clonePayloadMiBPerSecond={:.1} cloneReadCalls={} cloneReadBytes={} clonePhaseTimingsNs={clone_phase_timings:?} cloneResources={clone_resource_stats:?} cloneSuccesses={} cloneFallbacks={} sameSourceAndValidation=true",
+        "macOS native performance directory100k entries=100000 payloadBytes={} streamingPreviewMs={} streamingElapsedMs={} streamingFilesPerSecond={:.1} streamingPayloadMiBPerSecond={:.1} streamingReadCalls={} streamingReadBytes={} streamingPhaseTimingsNs={streaming_phase_timings:?} streamingResources={streaming_resource_report} clonePreviewMs={} cloneElapsedMs={} cloneFilesPerSecond={:.1} clonePayloadMiBPerSecond={:.1} cloneReadCalls={} cloneReadBytes={} clonePhaseTimingsNs={clone_phase_timings:?} cloneResources={clone_resource_report} cloneSuccesses={} cloneFallbacks={} sameSourceAndValidation=true",
         256_u64 * 1024 * 1024,
         streaming_preview_elapsed.as_millis(),
         streaming_elapsed.as_millis(),

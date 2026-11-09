@@ -2126,6 +2126,8 @@ fn native_file_hardening_smoke() {
             run_copy(&legacy_destination).expect("Windows copy with historical redundant flushes");
         let legacy_elapsed = legacy_start.elapsed();
         let legacy_resource_stats = legacy_resources.map(NativeProcessMonitor::finish);
+        let legacy_resource_report =
+            native_copy_resources::format_native_process_stats(legacy_resource_stats);
         assert_eq!(legacy_result.logs[0].status, "success");
         let legacy_extra_flushes =
             fylura_tauri::fs_safety::copy_commit::windows_copy_extra_flush_count_for_qa();
@@ -2141,6 +2143,8 @@ fn native_file_hardening_smoke() {
             run_copy(&optimized_destination).expect("Windows copy with consolidated flush");
         let optimized_elapsed = optimized_start.elapsed();
         let optimized_resource_stats = optimized_resources.map(NativeProcessMonitor::finish);
+        let optimized_resource_report =
+            native_copy_resources::format_native_process_stats(optimized_resource_stats);
         assert_eq!(optimized_result.logs[0].status, "success");
         let optimized_extra_flushes =
             fylura_tauri::fs_safety::copy_commit::windows_copy_extra_flush_count_for_qa();
@@ -2211,7 +2215,7 @@ fn native_file_hardening_smoke() {
         }
         let file_validation_elapsed = file_validation_start.elapsed();
         println!(
-            "Windows native performance fileCopy1GiB bytes={copy_bytes} legacyPreviewMs={} legacyElapsedMs={} legacyExtraFlushes={legacy_extra_flushes} legacyPhaseTimingsNs={legacy_phase_timings:?} legacyResources={legacy_resource_stats:?} optimizedPreviewMs={} optimizedElapsedMs={} optimizedExtraFlushes={optimized_extra_flushes} optimizedPhaseTimingsNs={optimized_phase_timings:?} optimizedResources={optimized_resource_stats:?} robocopyElapsedMs={} robocopyAvailable={} commonHashAndTimestampValidationMs={} finalStagingSyncs=1",
+            "Windows native performance fileCopy1GiB bytes={copy_bytes} legacyPreviewMs={} legacyElapsedMs={} legacyExtraFlushes={legacy_extra_flushes} legacyPhaseTimingsNs={legacy_phase_timings:?} legacyResources={legacy_resource_report} optimizedPreviewMs={} optimizedElapsedMs={} optimizedExtraFlushes={optimized_extra_flushes} optimizedPhaseTimingsNs={optimized_phase_timings:?} optimizedResources={optimized_resource_report} robocopyElapsedMs={} robocopyAvailable={} commonHashAndTimestampValidationMs={} finalStagingSyncs=1",
             legacy_preview_elapsed.as_millis(),
             legacy_elapsed.as_millis(),
             optimized_preview_elapsed.as_millis(),
@@ -2263,6 +2267,8 @@ fn native_file_hardening_smoke() {
             .expect("execute Windows 100k directory Copy");
             let elapsed = start.elapsed();
             let resource_stats = resources.map(NativeProcessMonitor::finish);
+            let resource_report =
+                native_copy_resources::format_native_process_stats(resource_stats);
             let phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
             fylura_tauri::fs_safety::copy_commit::set_windows_directory_full_file_identity_for_qa(
                 false,
@@ -2271,7 +2277,7 @@ fn native_file_hardening_smoke() {
                 result,
                 preview_elapsed,
                 elapsed,
-                resource_stats,
+                resource_report,
                 phase_timings,
             )
         };
@@ -2391,7 +2397,7 @@ fn native_file_hardening_smoke() {
             );
         }
         println!(
-            "Windows native performance directory100k entries={copied_entries} legacyPreviewMs={} legacyElapsedMs={} legacyFilesPerSecond={:.1} legacyPhaseTimingsNs={legacy_directory_phase_timings:?} legacyResources={legacy_directory_resources:?} optimizedPreviewMs={} optimizedElapsedMs={} optimizedFilesPerSecond={:.1} optimizedPhaseTimingsNs={optimized_directory_phase_timings:?} optimizedResources={optimized_directory_resources:?} robocopyElapsedMs={} robocopyAvailable={} sourceRetained=true",
+            "Windows native performance directory100k entries={copied_entries} legacyPreviewMs={} legacyElapsedMs={} legacyFilesPerSecond={:.1} legacyPhaseTimingsNs={legacy_directory_phase_timings:?} legacyResources={legacy_directory_resources} optimizedPreviewMs={} optimizedElapsedMs={} optimizedFilesPerSecond={:.1} optimizedPhaseTimingsNs={optimized_directory_phase_timings:?} optimizedResources={optimized_directory_resources} robocopyElapsedMs={} robocopyAvailable={} sourceRetained=true",
             legacy_directory_preview_elapsed.as_millis(),
             legacy_directory_elapsed.as_millis(),
             100_000.0 / legacy_directory_elapsed.as_secs_f64().max(0.001),

@@ -31,6 +31,25 @@ pub struct NativeProcessStats {
     pub pageins: Option<u64>,
 }
 
+pub fn format_native_process_stats(stats: Option<NativeProcessStats>) -> String {
+    match stats {
+        Some(stats) => format!(
+            "cpuTimeNs={} startRssBytes={} endRssBytes={} peakRssBytes={} startPrivateBytes={:?} endPrivateBytes={:?} peakPrivateBytes={:?} readBytes={} writtenBytes={} pageins={:?}",
+            stats.cpu_time_ns,
+            stats.start_rss_bytes,
+            stats.end_rss_bytes,
+            stats.peak_rss_bytes,
+            stats.start_private_bytes,
+            stats.end_private_bytes,
+            stats.peak_private_bytes,
+            stats.read_bytes,
+            stats.written_bytes,
+            stats.pageins,
+        ),
+        None => "unavailable".to_string(),
+    }
+}
+
 #[derive(Default)]
 struct Samples {
     peak_rss_bytes: u64,

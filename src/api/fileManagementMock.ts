@@ -2,7 +2,7 @@
 import type { BrowseEntry, EntryRef } from "../types/fileWorkspace";
 import type { TransferPreview, TransferTicket, SavedPlace } from "./fileManagementApi";
 import type { OperationLog, OperationPreview } from "../types/domain";
-const files = new Map<string, { id: string; version: number; directory?: boolean; size?: number; modified?: number }>([
+const files = new Map<string, { id: string; version: number; directory?: boolean; size?: number; modified?: number; created?: number }>([
   ["C:/U1/Source/one.txt", { id: "one", version: 1 }],
   ["C:/U1/Source/two.txt", { id: "two", version: 1 }],
   ["C:/U1/Other/three.txt", { id: "three", version: 1 }],
@@ -11,8 +11,8 @@ const files = new Map<string, { id: string; version: number; directory?: boolean
 // U3 browser evidence fixture. Metadata and file mutations remain an in-memory simulation.
 for (let i = 0; i < 137; i++) {
   const name = `Document-${String(i).padStart(3, "0")}.${i % 2 ? "txt" : "md"}`;
-  if (i !== 2) files.set(`C:/U3/Left/${name}`, { id: `left-${i}`, version: 1, size: i % 7 * 100, modified: 1700000000 + i });
-  if (i !== 1) files.set(`C:/U3/Right/${name}`, { id: `right-${i}`, version: 1, size: i % 7 * 100 + (i === 3 ? 1 : 0), modified: 1700000000 + i + (i === 4 ? 5 : 0) });
+  if (i !== 2) files.set(`C:/U3/Left/${name}`, { id: `left-${i}`, version: 1, size: i % 7 * 100, modified: 1700000000 + i, created: 1600000000 - i });
+  if (i !== 1) files.set(`C:/U3/Right/${name}`, { id: `right-${i}`, version: 1, size: i % 7 * 100 + (i === 3 ? 1 : 0), modified: 1700000000 + i + (i === 4 ? 5 : 0), created: 1600000000 - i });
 }
 for (const side of ["Left", "Right"]) files.set(`C:/U3/${side}/Subfolder`, { id: `${side}-folder`, version: 1, directory: true });
 const includeFolderMoveFixture = typeof window !== "undefined"
@@ -40,7 +40,7 @@ export function managementFixturePage(sessionId: string, directory: string, enum
     ref: { kind: "ephemeral", browseSessionId: sessionId, entryId: `${enumerationId}:${file.id}:${file.version}` },
     name: path.slice(path.lastIndexOf("/") + 1), displayPath: path, kind: file.directory ? "directory" : "file",
     ...(file.directory ? { pathRef: { id: `${enumerationId}:${file.id}:path` } } : { extension: path.split(".").at(-1), size: file.size ?? 10 }),
-    modifiedAt: file.modified ?? 1, materialization: "unknown"
+    createdAt: file.created, modifiedAt: file.modified ?? 1, materialization: "unknown"
   }));
 }
 export function isManagementCommand(command: string) { return ["file_workspace_transfer_capture", "file_workspace_transfer_preview", "file_workspace_transfer_execute", "file_workspace_places"].includes(command); }

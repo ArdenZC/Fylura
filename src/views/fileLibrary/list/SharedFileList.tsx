@@ -2,6 +2,7 @@ import { usePane } from "../workbench/PaneContext";
 import { AlertTriangle, FileText, Folder, FolderOpen } from "lucide-react";
 import { memo, useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import type { BrowseSortSpec } from "../../../types/fileWorkspace";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
 import { formatBytes, formatDate } from "../../../utils/format";
@@ -70,7 +71,9 @@ export function SharedFileList({
   onPreview,
   onContextMenu,
   onOpenContextMenu,
-  onEscape
+  onEscape,
+  sort,
+  onSort
 }: {
   interaction: PresentationInteractionProjection;
   language: Language;
@@ -90,6 +93,8 @@ export function SharedFileList({
   ) => void;
   onOpenContextMenu?: (entry: PresentationEntry, index: number) => void;
   onEscape?: () => boolean;
+  sort?: BrowseSortSpec;
+  onSort?: (field: BrowseSortSpec["field"]) => void;
 }) {
   const pane = usePane();
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -195,8 +200,27 @@ export function SharedFileList({
     }
   }
 
+  const showCreated = interaction.source === "browse";
+  const columns: { field: BrowseSortSpec["field"]; label: string }[] = [
+    { field: "name", label: t("fileName") },
+    { field: "type", label: t("fileType") },
+    ...(showCreated ? [{ field: "created" as const, label: t("u3Created") }] : []),
+    { field: "modified", label: t("fileModified") },
+    { field: "size", label: t("fileSize") }
+  ];
   return (
-    <div className="shared-file-list-shell">
+    <div className={cn("shared-file-list-shell", showCreated && "has-created-column")}>
+      <div className="shared-file-list-header" role="group" aria-label={t("u3Sort")}>
+        {columns.map(({ field, label }) => onSort ? (
+          <button key={field} type="button" data-browse-sort-column={field}
+            className={field === "size" ? "shared-file-list-size-heading" : undefined}
+            aria-pressed={sort?.field === field}
+            aria-label={sort?.field === field ? `${label}, ${sort.direction === "asc" ? t("u3Asc") : t("u3Desc")}` : label}
+            onClick={() => onSort(field)}>
+            {label}{sort?.field === field ? <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span> : null}
+          </button>
+        ) : <span key={field} className={field === "size" ? "shared-file-list-size-heading" : undefined}>{label}</span>)}
+      </div>
       <div
         ref={scrollRef}
         className="shared-file-list"
@@ -215,12 +239,6 @@ export function SharedFileList({
         data-browse-logical-count={interaction.source === "browse" ? interaction.rowCount : undefined}
         onKeyDown={handleKeyDown}
       >
-        <div className="shared-file-list-header" role="presentation">
-          <span>{t("fileName")}</span>
-          <span>{t("fileType")}</span>
-          <span>{t("fileModified")}</span>
-          <span className="shared-file-list-size-heading">{t("fileSize")}</span>
-        </div>
         {interaction.rowCount === 0 ? (
           <div className="shared-file-list-empty">{emptyLabel ?? t("browseUnknownValue")}</div>
         ) : (
@@ -234,6 +252,7 @@ export function SharedFileList({
                 <SharedFileRow
                   key={entry.renderKey}
                   entry={entry}
+                  showCreated={showCreated}
                   index={virtualRow.index}
                   selected={isInteractionEntrySelected(interaction, entry)}
                   focused={isInteractionEntryFocused(interaction, entry)}
@@ -278,6 +297,7 @@ export function SharedFileList({
 
 const SharedFileRow = memo(function SharedFileRow({
   entry,
+  showCreated,
   index,
   selected,
   focused,
@@ -290,6 +310,7 @@ const SharedFileRow = memo(function SharedFileRow({
   onActivate
 }: {
   entry: PresentationEntry;
+  showCreated: boolean;
   index: number;
   selected: boolean;
   focused: boolean;
@@ -350,7 +371,10 @@ const SharedFileRow = memo(function SharedFileRow({
           {details ? <span className={cn(missingLabel && "shared-file-list-warning")} title={details}>{details}</span> : null}
         </span>
       </span>
-      <span className="shared-file-list-kind">{kindLabel}</span>
+      <span className="shared-file-list-kind">{isDirectory ? kindLabel : entry.typeHint ?? entry.extension ?? kindLabel}</span>
+      {showCreated ? <time className="shared-file-list-created">
+        {entry.createdAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.createdAt), language)}
+      </time> : null}
       <time className="shared-file-list-modified" dateTime={entry.modifiedAt === undefined ? undefined : String(entry.modifiedAt)}>
         {entry.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.modifiedAt), language)}
       </time>

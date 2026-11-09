@@ -629,6 +629,7 @@ fn main() {
             fylura_tauri::file_workspace::integration::commands::file_workspace_places,
             fylura_tauri::file_workspace::integration::commands::file_workspace_browse_open,
             fylura_tauri::file_workspace::integration::commands::file_workspace_browse_reveal,
+            fylura_tauri::file_workspace::integration::commands::file_workspace_browse_launch,
             fylura_tauri::file_workspace::integration::commands::file_workspace_browse_restore,
             fylura_tauri::file_workspace::integration::commands::file_workspace_location_browse,
             fylura_tauri::file_workspace::integration::commands::file_workspace_browse_start_enumeration,

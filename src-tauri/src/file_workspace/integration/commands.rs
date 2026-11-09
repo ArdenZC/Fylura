@@ -89,6 +89,20 @@ pub async fn file_workspace_browse_reveal<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn file_workspace_browse_launch<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: super::types::BrowseLaunchRequest,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_browse_launch", move |runtime| {
+        runtime.launch_browse_entry(request)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn file_workspace_browse_open<R: Runtime>(
     window: WebviewWindow<R>,
     runtime: State<'_, FileWorkspaceRuntimeOwner>,

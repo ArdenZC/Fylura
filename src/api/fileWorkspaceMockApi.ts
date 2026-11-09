@@ -31,6 +31,7 @@ import type { FolderSummaryPayloadV1 } from "./folderPreviewWire";
 const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_open",
   "file_workspace_browse_reveal",
+  "file_workspace_browse_launch",
   "file_workspace_browse_restore",
   "file_workspace_location_browse",
   "file_workspace_browse_start_enumeration",
@@ -61,6 +62,7 @@ const FILE_WORKSPACE_COMMANDS = new Set([
 type MockArgs = Record<string, unknown> | undefined;
 
 interface MockEnumeration {
+  fixtureDirectory?: string;
   requestId: string;
   enumerationId: string;
   cursor?: string;
@@ -82,6 +84,7 @@ interface MockBrowseSession {
   rootPathRef: { id: string };
   generation: number;
   pathRefs: Set<string>;
+  fixturePaths: Map<string, string>;
   retainedPathRefs: Set<string>;
   entries: Map<string, MockEntry>;
   enumeration?: MockEnumeration;
@@ -436,6 +439,10 @@ export async function mockFileWorkspaceInvoke<T>(
 ): Promise<T> {
   const request = args?.request as Record<string, unknown> | undefined;
   switch (command) {
+    case "file_workspace_browse_launch":
+      if (request?.action !== "open" && request?.action !== "open_with") throw new Error("invalid_launch_action");
+      resolveManagementMockEntry(request?.entryRef as import("../types/fileWorkspace").EntryRef);
+      throw new Error("browser_mock_launch_unavailable");
     case "file_workspace_browse_reveal":
       resolveManagementMockEntry(request?.entryRef as import("../types/fileWorkspace").EntryRef);
       throw new Error("browser_mock_reveal_unavailable");
@@ -584,6 +591,7 @@ function newBrowseSession(displayName: string, admitted: boolean): BrowseOpenRes
     rootPathRef: response.rootPathRef,
     generation: 0,
     pathRefs: new Set([response.rootPathRef.id]),
+    fixturePaths: new Map(),
     retainedPathRefs: new Set([response.rootPathRef.id]),
     entries: new Map(),
     disposed: false
@@ -639,6 +647,7 @@ function restoreBrowse(request: BrowseRestoreRequest): BrowseOpenResponse {
 function startEnumeration(request: BrowseStartEnumerationRequest): BrowsePage {
   const session = getSession(request.sessionId);
   if (!session.pathRefs.has(request.pathRef.id)) throw new Error("browse_path_ref_invalid");
+  const fixtureDirectory = session.fixturePaths.get(request.pathRef.id) ?? session.routingHint;
   if (session.enumeration !== undefined) {
     invalidateEntriesForEnumeration(session, session.enumeration.enumerationId);
   }
@@ -646,6 +655,7 @@ function startEnumeration(request: BrowseStartEnumerationRequest): BrowsePage {
   const enumerationId = `${session.sessionId}-enumeration-${session.generation}`;
   const cursor = `${enumerationId}-cursor`;
   session.enumeration = {
+    fixtureDirectory,
     requestId: request.requestId,
     enumerationId,
     cursor,
@@ -675,7 +685,7 @@ function sortedMockEntries(entries: BrowseEntry[], query: BrowseQuerySpecV1) {
   if (!sort) return entries;
   return [...entries].sort((a, b) => {
     if (sort.foldersFirst && a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
-    const value = (entry: BrowseEntry) => sort.field === "name" ? entry.name : sort.field === "type" ? entry.extension : sort.field === "size" ? entry.size : entry.modifiedAt;
+    const value = (entry: BrowseEntry) => sort.field === "name" ? entry.name : sort.field === "type" ? entry.extension : sort.field === "size" ? entry.size : sort.field === "created" ? entry.createdAt : entry.modifiedAt;
     const av = value(a), bv = value(b);
     const compared = av === bv ? 0 : av === undefined ? -1 : bv === undefined ? 1 : av < bv ? -1 : 1;
     const tie = a.name === b.name ? 0 : a.name < b.name ? -1 : 1;
@@ -685,7 +695,7 @@ function sortedMockEntries(entries: BrowseEntry[], query: BrowseQuerySpecV1) {
 function publishFixturePage(session: MockBrowseSession, requestId: string, enumerationId: string, pageSize: number, query: BrowseQuerySpecV1, raw: BrowseEntry[]): BrowsePage {
   const all = sortedMockEntries(raw.filter((entry) => (query.entryKind === "all" || entry.kind === query.entryKind)
     && (!query.text || entry.name.toLowerCase().includes(query.text.trim().toLowerCase()))), query);
-  if (query.sort && raw.length > 20_000) throw Error("browse_sort_capacity_exceeded");
+  if (query.sort && raw.length > 100_000) throw Error("browse_sort_capacity_exceeded");
   const start = session.enumeration?.nextIndex ?? 0;
   const entries = all.slice(start, start + Math.max(1, Math.min(256, pageSize)));
   const complete = start + entries.length >= all.length;
@@ -693,7 +703,10 @@ function publishFixturePage(session: MockBrowseSession, requestId: string, enume
   for (const entry of entries) {
     managementEntries.set(entry.ref.entryId, entry);
     session.entries.set(entry.ref.entryId, { enumerationId, pathRefId: entry.pathRef?.id });
-    if (entry.pathRef) session.pathRefs.add(entry.pathRef.id);
+    if (entry.pathRef) {
+      session.pathRefs.add(entry.pathRef.id);
+      session.fixturePaths.set(entry.pathRef.id, entry.displayPath);
+    }
   }
   return { sessionId: session.sessionId, requestId, enumerationId, entries, completion: complete ? "complete" : "partial",
     ...(complete ? { knownCount: all.length } : { nextCursor: session.enumeration?.cursor }) };
@@ -706,7 +719,8 @@ function makePage(
   pageSize: number,
   query: BrowseQuerySpecV1
 ): BrowsePage {
-  const fixtureEntries = session.routingHint && managementFixturePage(session.sessionId, session.routingHint, enumerationId);
+  const directory = session.enumeration?.fixtureDirectory ?? session.routingHint;
+  const fixtureEntries = directory && managementFixturePage(session.sessionId, directory, enumerationId);
   if (fixtureEntries) {
     return publishFixturePage(session, requestId, enumerationId, pageSize, query, fixtureEntries);
   }
@@ -714,7 +728,7 @@ function makePage(
     return makeW303QueryPage(session, requestId, enumerationId);
   }
   if (isW211IntegratedFixtureEnabled()) {
-    if (query.sort && W211_BROWSE_TOTAL > 20_000) throw Error("browse_sort_capacity_exceeded");
+    if (query.sort && W211_BROWSE_TOTAL > 100_000) throw Error("browse_sort_capacity_exceeded");
     return makeW211Page(session, requestId, enumerationId, pageSize, query);
   }
   const allEntries = [
@@ -1346,6 +1360,7 @@ function removePathIfUnpinned(session: MockBrowseSession, pathRefId: string) {
     if (entry.pathRefId === pathRefId) return;
   }
   session.pathRefs.delete(pathRefId);
+  session.fixturePaths.delete(pathRefId);
 }
 
 function retainPath(request: MockArgs) {

@@ -52,13 +52,13 @@ export function useBrowseContextMenu({
     const width = 260;
     const height = Math.min(
       window.innerHeight - 16,
-      entry.entryKind === "directory" ? 360 : 320,
+      entry.entryKind === "directory" ? 520 : 560,
     );
     setContextMenu({
       entry,
       restoreFocusElement,
-      x: clamp(anchorX ?? rect?.left ?? 8, width),
-      y: clamp(anchorY ?? rect?.bottom ?? 8, height)
+      x: clamp(anchorX ?? rect?.left ?? 8, width, window.innerWidth),
+      y: clamp(anchorY ?? rect?.bottom ?? 8, height, window.innerHeight)
     });
   }, [source.selectEntry, source.selectedIds]);
 
@@ -110,8 +110,8 @@ export function useBrowseContextMenu({
   return { contextMenu, openContextMenu, closeContextMenu, openFocusedContextMenu, handleRowContextMenu };
 }
 
-function clamp(value: number, size: number) {
-  return Math.max(8, Math.min(value, window.innerWidth - size - 8));
+function clamp(value: number, size: number, extent: number) {
+  return Math.max(8, Math.min(value, extent - size - 8));
 }
 
 function isValidFocusTarget(target: HTMLElement | null) {

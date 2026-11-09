@@ -142,7 +142,7 @@ function isBrowseQuerySpec(value: unknown): value is BrowseQuerySpecV1 {
     && (value.entryKind === "all" || value.entryKind === "file" || value.entryKind === "directory")
     && (value.sort === undefined || isRecord(value.sort)
       && hasOnlyKeys(value.sort, ["field", "direction", "foldersFirst"])
-      && ["name", "type", "size", "modified"].includes(String(value.sort.field))
+      && ["name", "type", "size", "created", "modified"].includes(String(value.sort.field))
       && ["asc", "desc"].includes(String(value.sort.direction))
       && typeof value.sort.foldersFirst === "boolean");
 }

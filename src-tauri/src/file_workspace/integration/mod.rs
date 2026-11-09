@@ -10,6 +10,7 @@ mod change;
 pub mod commands;
 mod folder;
 mod known_locations;
+mod launch;
 mod location;
 pub(crate) mod places;
 mod preview;

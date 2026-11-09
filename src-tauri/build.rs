@@ -177,6 +177,7 @@ const COMMANDS: &[&str] = &[
     "file_workspace_places",
     "file_workspace_browse_open",
     "file_workspace_browse_reveal",
+    "file_workspace_browse_launch",
     "file_workspace_browse_restore",
     "file_workspace_location_browse",
     "file_workspace_browse_start_enumeration",

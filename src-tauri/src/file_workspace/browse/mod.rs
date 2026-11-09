@@ -40,6 +40,9 @@ pub(crate) const RAW_DIRECTORY_SCAN_BUDGET: usize = 1024;
 // set. They prevent max_sessions from multiplying the measured single-session
 // RSS cost into an unbounded process-level reservation without evicting any
 // frontend-owned EntryRef or W1-10 history PathRef.
+// 32 configured panes plus readmittable history, tree sessions and admission
+// cleanup overlap. Aggregate entry/path budgets below remain authoritative.
+pub(crate) const DEFAULT_MAX_BROWSE_SESSIONS: usize = 96;
 pub(crate) const DEFAULT_MAX_BROWSE_PATH_REFS: usize = 16_384;
 pub(crate) const DEFAULT_MAX_BROWSE_ENTRY_REFS: usize = 100_000;
 pub(crate) const DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS: usize = 32_768;
@@ -74,7 +77,7 @@ pub(crate) struct BrowseLimits {
 impl Default for BrowseLimits {
     fn default() -> Self {
         Self {
-            max_sessions: 32,
+            max_sessions: DEFAULT_MAX_BROWSE_SESSIONS,
             max_page_size: 256,
             max_path_refs: DEFAULT_MAX_BROWSE_PATH_REFS,
             max_entry_refs: DEFAULT_MAX_BROWSE_ENTRY_REFS,
@@ -2112,6 +2115,25 @@ mod tests {
 
     fn service(limits: BrowseLimits) -> BrowseService {
         BrowseService::new(limits).expect("valid limits")
+    }
+
+    #[test]
+    fn eight_four_pane_tabs_have_bounded_history_and_tree_admission_headroom() {
+        let fixture = Fixture::new();
+        let service = service(BrowseLimits::default());
+        // 32 current pane roots, 32 retained history roots, four visible trees
+        // and four concurrently admitted locations awaiting old-root cleanup.
+        let sessions = (0..72)
+            .map(|_| service.start_session(fixture.directory()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(service.resource_counts().sessions, 72);
+        assert_eq!(service.resource_counts().path_refs, 72);
+        assert_eq!(service.resource_counts().entry_refs, 0);
+        for session in sessions {
+            service.dispose_session(&session.session_id).unwrap();
+        }
+        assert_eq!(service.resource_counts().sessions, 0);
+        assert_eq!(service.resource_counts().path_refs, 0);
     }
 
     #[test]

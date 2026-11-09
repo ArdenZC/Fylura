@@ -1,3 +1,4 @@
+import type { BrowseEntryRef } from "../../../types/fileWorkspace";
 import {
   useCallback,
   useEffect,
@@ -43,7 +44,7 @@ export interface InternalDropFeedback {
 type PointerPaneTarget =
   | { kind: "same-pane" }
   | { kind: "peer-pane"; pane: WorkbenchPane }
-  | { kind: "folder" }
+  | { kind: "folder"; pane: WorkbenchPane; destinationEntry: BrowseEntryRef; label: string }
   | { kind: "unsupported" };
 
 function hasActiveModal() {
@@ -71,25 +72,30 @@ function resolvePointerPaneTarget(
     session.peerPaneId,
     targetPaneId,
   );
-  if (disposition === "same-pane") return { kind: "same-pane" };
-  if (disposition !== "peer-pane") return { kind: "unsupported" };
+  if (disposition === "unsupported") return { kind: "unsupported" };
   const snapshot = model.getSnapshot();
   const tab = snapshot.tabs.find((item) => item.id === session.tabId);
-  if (!tab || snapshot.activeTabId !== session.tabId || !tab.dual) return { kind: "unsupported" };
-  const pane = tab.panes.find((item) => item.id === session.peerPaneId);
+  if (!tab || snapshot.activeTabId !== session.tabId) return { kind: "unsupported" };
+  const pane = tab.panes.find((item) => item.id === targetPaneId);
   if (
     !pane ||
-    !wide ||
     paneElement.hidden ||
     paneElement.getClientRects().length === 0 ||
     pane.controller.getState().mode !== "browse" ||
-    pane.path !== session.peerPath
+    (tab.dual && !wide && tab.activePaneId !== pane.id) ||
+    pane.path !== (pane.id === session.sourcePaneId ? session.sourcePath : session.peerPath)
   ) return { kind: "unsupported" };
   const content = element.closest<HTMLElement>('[data-workspace-slot="content"]');
   if (!content || !paneElement.contains(content)) return { kind: "unsupported" };
   if (element.closest("button,input,select,textarea,a,[role=button],[role=menuitem],[role=dialog]")) return { kind: "unsupported" };
   const row = element.closest<HTMLElement>("[data-file-entry-kind]");
-  if (row?.dataset.fileEntryKind === "directory") return { kind: "folder" };
+  if (row?.dataset.fileEntryKind === "directory") {
+    const browseSessionId = row.dataset.browseSessionId;
+    const entryId = row.dataset.browseEntryId ?? row.dataset.browseGridEntryId;
+    if (!browseSessionId || !entryId || row === session.sourceElement) return { kind: "unsupported" };
+    return { kind: "folder", pane, destinationEntry: { kind: "ephemeral", browseSessionId, entryId }, label: row.dataset.fileEntryName ?? "" };
+  }
+  if (disposition === "same-pane") return { kind: "same-pane" };
   return { kind: "peer-pane", pane };
 }
 
@@ -164,11 +170,11 @@ export function useWorkbenchDrag({
       peerPath: peerPane?.path ?? null,
       sourceVisible: !!sourceElement && !sourceElement.hidden && sourceElement.getClientRects().length > 0 && sourceSurface?.visible !== false,
       peerVisible: !!peerElement && !peerElement.hidden && peerElement.getClientRects().length > 0 && peerSurface?.visible !== false,
-      workspaceActive: active && !!tab?.dual && wide,
+      workspaceActive: active && !!tab,
       transferOpen: locked || store.transferOpen,
       modalOpen: hasActiveModal(),
     });
-  }, [active, locked, model, wide, workbenchRef]);
+  }, [active, locked, model, workbenchRef]);
 
   const onPointerDown = useCallback((
     event: ReactPointerEvent<HTMLDivElement>,
@@ -180,11 +186,8 @@ export function useWorkbenchDrag({
     if (
       event.button !== 0 ||
       !event.isPrimary ||
-      !peerPaneId ||
       !visible ||
       !active ||
-      !wide ||
-      !dual ||
       locked ||
       hasActiveModal() ||
       registry.current.current
@@ -196,14 +199,14 @@ export function useWorkbenchDrag({
     const snapshot = model.getSnapshot();
     const tab = snapshot.tabs.find((item) => item.id === tabId);
     const sourcePane = tab?.panes.find((item) => item.id === sourcePaneId);
-    const peerPane = tab?.panes.find((item) => item.id === peerPaneId);
+    const effectivePeerId = dual && wide && peerPaneId ? peerPaneId : sourcePaneId;
+    const peerPane = tab?.panes.find((item) => item.id === effectivePeerId);
     const store = useFileManagementStore.getState();
     const sourceSurface = store.surfaces[sourcePaneId]?.read();
-    const peerSurface = store.surfaces[peerPaneId]?.read();
+    const peerSurface = store.surfaces[effectivePeerId]?.read();
     if (
       !tab ||
       snapshot.activeTabId !== tabId ||
-      !tab.dual ||
       !sourcePane?.path ||
       !peerPane?.path ||
       sourcePane.controller.getState().mode !== "browse" ||
@@ -213,7 +216,7 @@ export function useWorkbenchDrag({
       sourceSurface.visible === false ||
       peerSurface.visible === false ||
       ![...(workbenchRef.current?.querySelectorAll<HTMLElement>("[data-pane-id]") ?? [])]
-        .some((element) => element.dataset.paneId === peerPaneId && !element.hidden && element.getClientRects().length > 0)
+        .some((element) => element.dataset.paneId === effectivePeerId && !element.hidden && element.getClientRects().length > 0)
     ) return;
     const captureRequest = workbenchPointerCaptureRequest({
       selected: row.getAttribute("aria-selected") === "true",
@@ -227,7 +230,7 @@ export function useWorkbenchDrag({
       pointerId: event.pointerId,
       tabId,
       sourcePaneId,
-      peerPaneId,
+      peerPaneId: effectivePeerId,
       sourceSignature: transferSourceContextKey(sourceSurface) ?? "",
       peerSignature: transferDestinationContextKey(peerSurface) ?? "",
       sourcePath: sourcePane.path,
@@ -292,19 +295,15 @@ export function useWorkbenchDrag({
       wide,
       active,
     );
-    const next = target.kind === "peer-pane"
+    const next = target.kind === "peer-pane" || target.kind === "folder"
       ? {
           paneId: target.pane.id,
           action: (event.shiftKey ? "move" : "copy") as TransferAction,
-          label: target.pane.path.split(/[\\/]/).filter(Boolean).at(-1) ?? target.pane.path,
+          label: target.kind === "folder" ? target.label : target.pane.path.split(/[\\/]/).filter(Boolean).at(-1) ?? target.pane.path,
         }
       : null;
-    if (!next && target.kind === "folder") {
-      setFeedback((current) => current ? null : current);
-      return;
-    }
     setFeedback((current) =>
-      current?.paneId === next?.paneId && current?.action === next?.action
+      current?.paneId === next?.paneId && current?.action === next?.action && current?.label === next?.label
         ? current
         : next,
     );
@@ -312,15 +311,17 @@ export function useWorkbenchDrag({
 
   const completeDrop = useCallback(async (
     session: PointerSession,
-    targetPane: WorkbenchPane,
+    target: Extract<PointerPaneTarget, { kind: "peer-pane" | "folder" }>,
     action: TransferAction,
   ) => {
+    const targetPane = target.pane;
+    const destinationEntry = target.kind === "folder" ? target.destinationEntry : undefined;
     let tickets: TransferTicket[] = [];
     try {
       if (!session.tickets) throw Error(t("wbUnsupportedDrop"));
       tickets = await session.tickets;
       if (registry.current.current?.token !== session.token) return;
-      if (!isCurrent(session) || targetPane.id !== session.peerPaneId || !tickets.length) {
+      if (!isCurrent(session) || (targetPane.id !== session.peerPaneId && targetPane.id !== session.sourcePaneId) || !tickets.length) {
         cancelSession(session.token);
         useAppStore.getState().showError(t("wbSelectionChanged"));
         return;
@@ -338,10 +339,11 @@ export function useWorkbenchDrag({
           paneId: targetPane.id,
           sourcePaneId: session.sourcePaneId,
           sourceContextKey: session.sourceSignature,
-          destinationContextKey: session.peerSignature,
+          destinationContextKey: transferDestinationContextKey(useFileManagementStore.getState().surfaces[targetPane.id]?.read(), destinationEntry) ?? undefined,
+          destinationEntry,
           tickets,
           action,
-          destination: session.peerPath,
+          destination: destinationEntry ? "" : session.peerPath,
         },
       });
       finished.handedOff = true;
@@ -381,13 +383,12 @@ export function useWorkbenchDrag({
       cancelSession(session.token);
       return;
     }
-    if (target.kind !== "peer-pane") {
+    if (target.kind !== "peer-pane" && target.kind !== "folder") {
       cancelSession(session.token);
-      if (target.kind === "folder") useAppStore.getState().showError(t("wbFolderDropUnsupported"));
-      else if (!hasActiveModal()) useAppStore.getState().showError(t("wbUnsupportedDrop"));
+      if (!hasActiveModal()) useAppStore.getState().showError(t("wbUnsupportedDrop"));
       return;
     }
-    void completeDrop(session, target.pane, event.shiftKey ? "move" : "copy");
+    void completeDrop(session, target, event.shiftKey ? "move" : "copy");
   }, [active, cancelSession, completeDrop, model, t, wide, workbenchRef]);
 
   const onPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -444,7 +445,7 @@ export function useWorkbenchDrag({
   }, [cancelSession, model, releaseSessionTickets]);
 
   useEffect(() => {
-    if (!active || !wide || !dual || locked) cancelSession();
+    if (!active || locked) cancelSession();
   }, [active, cancelSession, dual, locked, wide]);
 
   return {

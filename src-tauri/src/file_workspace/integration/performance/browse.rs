@@ -9,6 +9,7 @@ use crate::file_workspace::{
         BrowseQuerySpecV1, BrowseSortDirection, BrowseSortField, BrowseSortSpec,
         DEFAULT_MAX_BROWSE_ENTRY_REFS, DEFAULT_MAX_BROWSE_PATH_REFS,
         DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS, DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS,
+        DEFAULT_MAX_BROWSE_SESSIONS,
     },
     integration::types::{
         BrowseCompletionDto, BrowseNextPageRequest, BrowseSessionRequest,
@@ -40,15 +41,15 @@ fn browse_session_capacity_remains_bounded() {
     let session_fixture = WorkspaceFixture::smoke();
     let runtime = runtime_for(&session_fixture);
     let mut sessions = Vec::new();
-    for index in 0..32 {
+    for index in 0..DEFAULT_MAX_BROWSE_SESSIONS {
         sessions.push(
             open_fixture(&runtime, &session_fixture, &format!("capacity-{index}")).session_id,
         );
     }
-    assert_eq!(sessions.len(), 32);
+    assert_eq!(sessions.len(), DEFAULT_MAX_BROWSE_SESSIONS);
     assert_eq!(
         try_open_fixture(&runtime, &session_fixture, "capacity-overflow")
-            .expect_err("the 33rd Browse session must fail closed"),
+            .expect_err("a Browse session beyond the configured cap must fail closed"),
         "browse_session_capacity_exceeded"
     );
     for session_id in sessions {
@@ -62,7 +63,10 @@ fn browse_session_capacity_remains_bounded() {
         "browse_multi_session_capacity",
         metrics::HARD_PASS,
         [
-            ("max_sessions".to_string(), json!(32)),
+            (
+                "max_sessions".to_string(),
+                json!(DEFAULT_MAX_BROWSE_SESSIONS),
+            ),
             ("overflow_behavior".to_string(), json!("fail closed")),
             (
                 "settled_sessions".to_string(),
@@ -205,7 +209,10 @@ fn browse_session_capacity_remains_bounded() {
         "browse_multi_session_ref_pressure",
         metrics::HARD_PASS,
         [
-            ("max_sessions".to_string(), json!(32)),
+            (
+                "max_sessions".to_string(),
+                json!(DEFAULT_MAX_BROWSE_SESSIONS),
+            ),
             (
                 "per_session_max_entry_refs".to_string(),
                 json!(DEFAULT_MAX_BROWSE_ENTRY_REFS),
@@ -541,7 +548,7 @@ fn browse_100k_progressive_bounded_ownership() {
                 "capacity_behavior".to_string(),
                 json!("fail closed at exact bound"),
             ),
-            ("max_sessions".to_string(), json!(32)),
+            ("max_sessions".to_string(), json!(DEFAULT_MAX_BROWSE_SESSIONS)),
             (
                 "theoretical_process_entry_ref_bound".to_string(),
                 json!(DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS),
@@ -560,11 +567,11 @@ fn browse_100k_progressive_bounded_ownership() {
             ),
             (
                 "aggregate_budget_strategy".to_string(),
-                json!("independent process-wide live-ref caps; max_sessions remains 32"),
+                json!("independent process-wide live-ref caps; session metadata cap is shared with production"),
             ),
             (
                 "multi_session_capacity_behavior".to_string(),
-                json!("32-session count cap plus real aggregate EntryRef/PathRef pressure"),
+                json!("bounded session count plus real aggregate EntryRef/PathRef pressure"),
             ),
             ("timing_includes_resource_sampling".to_string(), json!(true)),
             ("fixture_root_scope".to_string(), json!("repository-local")),

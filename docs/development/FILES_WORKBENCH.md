@@ -10,7 +10,7 @@ Persistence keeps the existing `zen-canvas:file-library-workbench:v1` key to fin
 
 The toolbar selects a destination pane explicitly. Drag capture records all visible destination identities and paths; drop and asynchronous ticket handoff revalidate the chosen destination, source selection, modal/visibility and tab. Closing, navigating or hiding the destination cannot retarget captured work. Folder rows still carry backend opaque refs, and Copy/Shift-Move flows through existing preview/conflict/progress/cancel/Journal/Restore.
 
-Focused checks: `npm test -- tests/fileWorkbench.test.ts tests/fileManagementPaneOwnership.test.tsx tests/fileLibraryW204Browse.test.ts tests/fileManagementWorkflow.test.tsx src/views/fileLibrary/workbench/workbenchPointerSession.test.ts`; browser workflow: `npm run test:browser:files-multipane`. Browser fixtures do not establish real filesystem or Windows/macOS installed GUI acceptance. Those remain UNVERIFIED in #487. OS clipboard, true USB/SD disconnect/drive-letter reuse and mounted cloud/SMB semantics remain open #553 work; #552 copy optimization is reused unchanged.
+Focused checks: `npm test -- tests/fileWorkbench.test.ts tests/fileManagementPaneOwnership.test.tsx tests/fileLibraryW204Browse.test.ts tests/fileManagementWorkflow.test.tsx src/views/fileLibrary/workbench/workbenchPointerSession.test.ts`; browser workflow: `npm run test:browser:files-multipane`. Browser fixtures do not establish real filesystem or Windows/macOS installed GUI acceptance. Those remain UNVERIFIED in #487. Real OS clipboard roundtrip, true USB/SD disconnect/drive-letter reuse and mounted cloud/SMB qualification remain UNVERIFIED #553/#487 acceptance; #552 copy optimization is reused unchanged.
 
 ## OS clipboard and mounted volumes
 

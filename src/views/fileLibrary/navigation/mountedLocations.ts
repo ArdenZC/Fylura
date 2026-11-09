@@ -55,6 +55,6 @@ export class MountedLocationProjection {
 const mountedLocations = new MountedLocationProjection();
 const inactiveSubscription = () => () => undefined;
 export function useMountedLocations(enabled: boolean) {
-  const snapshot = useSyncExternalStore(enabled ? mountedLocations.subscribe : inactiveSubscription, mountedLocations.getSnapshot);
+  const snapshot = useSyncExternalStore(enabled ? mountedLocations.subscribe : inactiveSubscription, mountedLocations.getSnapshot, mountedLocations.getSnapshot);
   return { ...snapshot, refresh: mountedLocations.refresh };
 }

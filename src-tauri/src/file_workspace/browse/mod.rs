@@ -498,6 +498,7 @@ impl BrowseService {
                     .ok_or(BrowseError::DirectoryUnavailable)?,
             )
         };
+        validate_directory_path(&path)?;
         let current =
             capture_source_object_identity(&path).map_err(|_| BrowseError::DirectoryUnavailable)?;
         if expected.physical_key.is_none()

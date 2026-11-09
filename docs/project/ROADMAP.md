@@ -23,6 +23,20 @@ Use the [delivery record](initiatives/file-first-product-delivery.md). M0 and M1
 
 Managed Library stays dormant: #534 already restricts its UI fixture to non-Tauri browser tests with `managed-library-test=1`; no new flag is needed. Startup no longer submits saved scan/search roots to Managed Scan. Preserve databases, roots, Query V2, Saved Views, tags, settings, existing APIs and shared file services. Already-authorized Global Index/Managed AI policy remains separate from opening Files; no new indexing or AI consent is inferred. Re-evaluate dormancy on **2027-01-04**.
 
+**Files parity and connected-storage expansion (Owner decision 2026-11-09)**
+
+**Target:** Fylura Files is the user's everyday alternative to Windows File Explorer / macOS Finder. This expands the product acceptance requirements; it does **not** mean the work is currently code-complete or that Fylura replaces the OS Shell/Finder process. Track one coherent workstream in [#553](https://github.com/ArdenZC/Fylura/issues/553); do not fan out research-only PRs or create a second file-operation engine. Existing #512 inventory and #487 native QA stay authoritative.
+
+| Priority | Delivery package | Acceptance consequence |
+| --- | --- | --- |
+| **P0-A** | Basic Files parity: launch file in OS default application on double-click/Enter, Open with, creation-time sorting alongside name/type/size/modified, list details/header, ordinary file operations and system clipboard/drag | Until implemented and checked in visible Browse, mark feature gaps OPEN, not done merely because Preview/reveal or hidden Managed Library supports adjacent behavior |
+| **P0-performance** | Continue Copy/Move throughput and responsiveness optimization on the merged [#552](https://github.com/ArdenZC/Fylura/pull/552) baseline: Windows 1 GiB and 100k small-file folders, macOS APFS clone/fallback, progress/cancellation and later cross-source transfers | Reuse native paired A/B metrics and controlled disk/device fixtures; keep integrity, identity revalidation, Journal/Restore and source-specific capabilities. Earlier single-run CI Windows 1 GiB 17.47→14.28s, 100k 1404.4→1240.6s; Robocopy 7.12s is a contextual comparator, not a universal gate |
+| **P0-B** | Local removable USB/SD/SSD/HDD and already-mounted SMB/NAS/cloud clients: browse/open/mutate under actual source capabilities; mounted provider placeholders, connectivity and removal states | Controlled device/cloud QA verifies disconnect, drive identity reuse, online-only hydration, cross-volume transfers, permission/read-only, conflict, Journal and Restore boundaries; no implicit indexing or mass cloud download |
+| **P0-C** | Installed-app native Windows 11 and Apple Silicon macOS end-to-end matrix for the above with real controlled source fixtures | Integrate into existing #487/M5 Beta acceptance; browser mocks and backend filesystem CI are not native GUI qualification |
+| **P1** | Direct account connections for cloud providers, beginning with official Google Drive/OneDrive API feasibility and explicit per-account OAuth | Separate optional phase after mounted cloud support; no mandatory paid infrastructure or insecure workarounds |
+
+Keep successful M0–M4 implementations and protected gates intact. Release/Beta claims require the added everyday Files baseline and supported-source reality; do not convert a scope decision into a retrospective PASS.
+
 ## Historical W0–W6 implementation record
 
 The following is retained technical history, including original evidence and links. **Every Current/Open/Draft/blocked statement inside this record is historical, not a current task or ordering gate.** The current M0–M5 milestones above supersede the old sequencing; consult live GitHub for old PR/Issue state. Legacy M1/M1.1 below means historical mutation work, not the current Files milestone. Old product name citations remain historical.

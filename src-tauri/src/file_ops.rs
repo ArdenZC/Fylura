@@ -99,6 +99,18 @@ pub fn native_qa_transfer_copy_preview(
     )
 }
 
+/// Execute a native QA transfer through the persisted journal while allowing
+/// the harness to observe progress and request cancellation mid-operation.
+#[cfg(feature = "native-qa")]
+pub fn native_qa_execute_moves_with_persistence_progress(
+    db: &Database,
+    request: ExecuteMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+) -> Result<ExecuteMovesResult, String> {
+    execute_moves_with_persistence_with_progress(db, request, cancel_flag, emitter)
+}
+
 #[cfg(feature = "native-qa")]
 fn native_qa_transfer_preview(
     source: &Path,

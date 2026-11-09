@@ -213,3 +213,34 @@
     outline: 2px solid CanvasText;
   }
 }
+
+.has-created-column .shared-file-list-header,
+.has-created-column .shared-file-list-row {
+  grid-template-columns: minmax(180px, 1.5fr) minmax(70px, 0.6fr) 132px 132px 92px;
+}
+.shared-file-list-header button {
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.shared-file-list-header button.shared-file-list-size-heading { text-align: right; }
+.shared-file-list-header button[aria-pressed="true"] { color: var(--zc-text-primary); }
+.shared-file-list-header button:focus-visible { outline: 2px solid var(--zc-focus-ring); outline-offset: 2px; }
+.shared-file-list-created {
+  overflow: hidden;
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 1100px) {
+  .has-created-column .shared-file-list-header,
+  .has-created-column .shared-file-list-row { grid-template-columns: minmax(0, 1fr) 92px; }
+  .has-created-column .shared-file-list-created,
+  .has-created-column .shared-file-list-header > :nth-child(4) { display: none; }
+}

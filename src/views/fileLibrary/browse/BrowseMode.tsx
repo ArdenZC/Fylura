@@ -4,8 +4,8 @@ import { ChevronRight, Clock3, Folder, FolderOpen, LoaderCircle, MapPin, Refresh
 import { useCallback, useEffect, useMemo, useRef, useLayoutEffect, useState } from "react";
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
-import type { LocationDescriptor } from "../../../types/fileWorkspace";
-import { revealBrowseEntry } from "../../../api/fileWorkspaceApi";
+import type { BrowseSortSpec, LocationDescriptor } from "../../../types/fileWorkspace";
+import { launchBrowseEntry, revealBrowseEntry } from "../../../api/fileWorkspaceApi";
 import { cn } from "../../../utils/tw";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import {
@@ -42,7 +42,8 @@ export function BrowseMode() {
   const { platform } = useCommandContext();
   const source = useBrowseSourceOwner({ controller, state, t, platform });
   useBrowseManagementSurface(source);
-  useEffect(() => setRevealError(null), [source.focusedId]);
+  // Keep row geometry stable between the two clicks of a double-click.
+  useEffect(() => setRevealError(null), [source.sessionId, source.currentPathRef?.id]);
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
   const focusedPreviewSource = useMemo(() => {
@@ -124,12 +125,12 @@ export function BrowseMode() {
       <select className="file-library-command-button" aria-label={t("u3Sort")}
         value={source.query.sort?.field ?? "native"} data-browse-sort
         onChange={(event) => source.setSort(event.target.value === "native" ? undefined : {
-          field: event.target.value as "name" | "type" | "size" | "modified",
+          field: event.target.value as BrowseSortSpec["field"],
           direction: source.query.sort?.direction ?? "asc", foldersFirst: source.query.sort?.foldersFirst ?? true
         })}>
         <option value="native">{t("u3NativeOrder")}</option>
         <option value="name">{t("u3Name")}</option><option value="type">{t("u3Type")}</option>
-        <option value="size">{t("u3Size")}</option><option value="modified">{t("u3Modified")}</option>
+        <option value="size">{t("u3Size")}</option><option value="created">{t("u3Created")}</option><option value="modified">{t("u3Modified")}</option>
       </select>
       <button className="file-library-command-button" disabled={!source.query.sort}
         aria-label={t("u3Direction")} onClick={() => source.query.sort && source.setSort({
@@ -252,7 +253,36 @@ export function BrowseMode() {
     return false;
   }
 
+  function activateEntry(entry: import("../presentation/contracts").BrowsePresentationEntry) {
+    if (entry.entryKind === "directory") {
+      source.navigateInto(entry);
+      return;
+    }
+    setRevealError(null);
+    void launchBrowseEntry(entry.entryRef).catch(() => setRevealError(t("browseLaunchUnavailable")));
+  }
+
+  function sortByColumn(field: BrowseSortSpec["field"]) {
+    source.setSort({ field,
+      direction: source.query.sort?.field === field && source.query.sort.direction === "asc" ? "desc" : "asc",
+      foldersFirst: source.query.sort?.foldersFirst ?? true });
+  }
+
   const browseContextItems = contextMenu === null ? [] : [
+    { label: t("browseSystemOpen"), action: () => {
+      closeContextMenu(contextMenu.entry.entryKind === "directory" ? "source-change" : "action");
+      activateEntry(contextMenu.entry);
+    } },
+    ...(contextMenu.entry.entryKind === "file" ? [{ label: t("browseOpenWith"), action: () => {
+      closeContextMenu("action");
+      setRevealError(null);
+      void launchBrowseEntry(contextMenu.entry.entryRef, "open_with").catch(() => setRevealError(t("browseLaunchUnavailable")));
+    } }] : []),
+    { label: t("browseReveal"), action: () => {
+      closeContextMenu("action");
+      setRevealError(null);
+      void revealBrowseEntry(contextMenu.entry.entryRef).catch(() => setRevealError(t("u4RevealUnavailable")));
+    } },
     ...(["copy", "cut", "paste", "move", "basket"] as const).map((action) => ({
       label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : action === "paste" ? "fmPaste" : "fmMove"),
       action: () => { closeContextMenu(action === "paste" || action === "move" ? "dialog-handoff" : "action"); useFileManagementStore.getState().requestAction(action); }
@@ -272,15 +302,6 @@ export function BrowseMode() {
         requestAnimationFrame(() => useFileManagementStore.getState().requestAction("trash"));
       }
     },
-    ...(contextMenu.entry.entryKind === "directory"
-      ? [{
-          label: t("browseOpenFolder"),
-          action: () => {
-            closeContextMenu("source-change");
-            void source.navigateInto(contextMenu.entry);
-          }
-        }]
-      : []),
     {
       label: t("fileLibraryContextOpen"),
       action: () => {
@@ -404,6 +425,7 @@ export function BrowseMode() {
                   {t("browseLocationsDesc")}
                 </NoticeBanner>
               ) : null}
+              {revealError ? <NoticeBanner tone="warning" title={revealError} /> : null}
               <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
                 {[changeStatusText ?? statusText, selectionText].filter(Boolean).join(" · ")}
               </div>
@@ -417,7 +439,7 @@ export function BrowseMode() {
                 loadMoreLabel={t("browseLoadMore")}
                 loadingMoreLabel={t("browseEnumerationLoadingMore")}
                 onEnter={(entry) => {
-                  if (entry.source === "browse") source.navigateInto(entry);
+                  if (entry.source === "browse") activateEntry(entry);
                 }}
                 onPreview={(entry, trigger, event) => entry.source === "browse"
                   ? previewController.handleSpace(
@@ -427,7 +449,7 @@ export function BrowseMode() {
                   )
                   : false}
                 onActivate={(entry) => {
-                  if (entry.source === "browse") source.navigateInto(entry);
+                  if (entry.source === "browse") activateEntry(entry);
                 }}
                 onContextMenu={(event, entry) => {
                   if (entry.source === "browse") handleRowContextMenu(event, entry);
@@ -435,6 +457,8 @@ export function BrowseMode() {
                 onOpenContextMenu={openFocusedContextMenu}
                 onEscape={handleListEscape}
               /> : <SharedFileList
+                sort={source.query.sort}
+                onSort={sortByColumn}
                 interaction={interaction}
                 language={language}
                 t={t}
@@ -443,7 +467,7 @@ export function BrowseMode() {
                 loadMoreLabel={t("browseLoadMore")}
                 loadingMoreLabel={t("browseEnumerationLoadingMore")}
                 onEnter={(entry) => {
-                  if (entry.source === "browse") source.navigateInto(entry);
+                  if (entry.source === "browse") activateEntry(entry);
                 }}
                 onPreview={(entry, trigger, event) => entry.source === "browse"
                   ? previewController.handleSpace(
@@ -453,7 +477,7 @@ export function BrowseMode() {
                   )
                   : false}
                 onActivate={(entry) => {
-                  if (entry.source === "browse") source.navigateInto(entry);
+                  if (entry.source === "browse") activateEntry(entry);
                 }}
                 onContextMenu={(event, entry) => {
                   if (entry.source === "browse") handleRowContextMenu(event, entry);

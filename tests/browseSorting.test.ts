@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { mockFileWorkspaceInvoke as invoke } from "../src/api/fileWorkspaceMockApi";
 import type { BrowseOpenResponse, BrowsePage, BrowseSortSpec } from "../src/types/fileWorkspace";
 describe("Browse sorted pagination contract", () => {
-  it("passes whole-folder sorting through eight field/direction combinations over 100+ entries and preserves query filtering", async () => {
+  it("passes whole-folder sorting through all field/direction/folder-priority combinations over 100+ entries and preserves query filtering", async () => {
     const session = await invoke<BrowseOpenResponse>("file_workspace_browse_open", { request: { platform:"windows", routingHint:"C:/U3/Left" } });
-    for (const field of ["name","type","size","modified"] as const) for (const direction of ["asc","desc"] as const) {
-      const sort: BrowseSortSpec = {field,direction,foldersFirst:true};
+    for (const field of ["name","type","size","created","modified"] as const) for (const direction of ["asc","desc"] as const) for (const foldersFirst of [true, false]) {
+      const sort: BrowseSortSpec = {field,direction,foldersFirst};
       let page = await invoke<BrowsePage>("file_workspace_browse_start_enumeration", {request:{sessionId:session.sessionId,requestId:`${field}-${direction}`,pathRef:session.rootPathRef,pageSize:17,query:{text:null,entryKind:"all",sort}}});
       const entries = [...page.entries];
       while (page.nextCursor) {
@@ -14,11 +14,15 @@ describe("Browse sorted pagination contract", () => {
       }
       expect(entries).toHaveLength(138);
       expect(page.knownCount).toBe(138);
-      expect(entries[0].kind).toBe("directory");
-      const key = (e: typeof entries[number]) => field === "name" ? e.name : field === "type" ? e.extension : field === "size" ? e.size : e.modifiedAt;
-      for (let i=2;i<entries.length;i++) {
+      if (foldersFirst) expect(entries[0].kind).toBe("directory");
+      const key = (e: typeof entries[number]) => field === "name" ? e.name : field === "type" ? e.extension : field === "size" ? e.size : field === "created" ? e.createdAt : e.modifiedAt;
+      for (let i=1;i<entries.length;i++) {
+        if (foldersFirst && entries[i-1].kind !== entries[i].kind) {
+          expect(entries[i-1].kind).toBe("directory");
+          continue;
+        }
         const a=key(entries[i-1]),b=key(entries[i]);
-        const order=a===b ? (entries[i-1].name < entries[i].name ? -1:1) : a! < b! ? -1:1;
+        const order=a===b ? (entries[i-1].name < entries[i].name ? -1:1) : a === undefined ? -1 : b === undefined ? 1 : a < b ? -1:1;
         expect(direction === "asc" ? order : -order).toBeLessThan(0);
       }
     }

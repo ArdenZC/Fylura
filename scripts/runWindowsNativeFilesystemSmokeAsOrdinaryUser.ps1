@@ -22,6 +22,7 @@ if ($Child) {
     $env:ZC_NATIVE_QA_REQUIRE_CROSS_VOLUME = "1"
     $env:ZC_NATIVE_QA_ARTIFACT_ROOT = $config.EvidenceRoot
     $env:ZEN_CANVAS_NATIVE_QA_SECONDARY_TEMP = $config.SecondaryRoot
+    $env:ZC_WINDOWS_NATIVE_COPY_PROFILE = "1"
 
     $tokenOutput = (& whoami.exe /all 2>&1 | Out-String)
     Set-Content -LiteralPath (Join-Path $config.EvidenceRoot "native-file-hardening-whoami.txt") -Value $tokenOutput -Encoding utf8

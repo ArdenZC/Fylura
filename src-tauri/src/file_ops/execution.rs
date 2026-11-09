@@ -160,8 +160,10 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
         return Err("injected after_completed_phase_before_final_log_persist failure".to_string());
     }
 
-    db.save_operation_logs(&result.batch_id, &result.logs)
-        .map_err(|error| format!("operation completed but failed to persist logs: {error}"))?;
+    crate::file_ops::measure_native_qa_copy_phase("journal_finalize", || {
+        db.save_operation_logs(&result.batch_id, &result.logs)
+            .map_err(|error| format!("operation completed but failed to persist logs: {error}"))
+    })?;
     Ok(result)
 }
 
@@ -266,17 +268,26 @@ fn execute_moves_core_with_identity(
                                         crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
                                     })?;
                                 }
-                                db.update_operation_phase(log).map_err(|error| {
-                                    let message = format!("journal phase persistence failed: {error}");
-                                    if matches!(
-                                        phase.as_str(),
-                                        "target_committed" | "source_cleanup_pending" | "completed"
-                                    ) {
-                                        crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
-                                    } else {
-                                        crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(message)
-                                    }
-                                })?;
+                                crate::file_ops::measure_native_qa_copy_phase(
+                                    "journal_phase_write",
+                                    || {
+                                        db.update_operation_phase(log).map_err(|error| {
+                                            let message = format!(
+                                                "journal phase persistence failed: {error}"
+                                            );
+                                            if matches!(
+                                                phase.as_str(),
+                                                "target_committed"
+                                                    | "source_cleanup_pending"
+                                                    | "completed"
+                                            ) {
+                                                crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                                            } else {
+                                                crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(message)
+                                            }
+                                        })
+                                    },
+                                )?;
                             }
                         }
                         emitter.emit_progress(OperationProgressPayload {

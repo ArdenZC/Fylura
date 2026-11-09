@@ -11,9 +11,30 @@ use thiserror::Error;
 const SAMPLE_SIZE: u64 = 1024 * 1024;
 const HASH_BUFFER_SIZE: usize = 1024 * 1024;
 pub const DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE: usize = 5000;
-#[cfg(not(target_os = "macos"))]
-const DIRECTORY_IDENTITY_ENTRY_LIMIT: usize = 5000;
 pub const DIRECTORY_IDENTITY_DEPTH_LIMIT: usize = 64;
+pub const DIRECTORY_ENTRY_NAME_MEMORY_BUDGET_BYTES: usize = 64 * 1024 * 1024;
+
+/// Bounds directory-name storage kept by active traversal frames.
+#[derive(Default)]
+pub struct DirectoryEntryNameBudget {
+    used_bytes: usize,
+}
+
+impl DirectoryEntryNameBudget {
+    pub fn reserve(&mut self, name_bytes: usize) -> Option<usize> {
+        let reserved = name_bytes.checked_add(128)?;
+        let next = self.used_bytes.checked_add(reserved)?;
+        if next > DIRECTORY_ENTRY_NAME_MEMORY_BUDGET_BYTES {
+            return None;
+        }
+        self.used_bytes = next;
+        Some(reserved)
+    }
+
+    pub fn release(&mut self, reserved: usize) {
+        self.used_bytes = self.used_bytes.saturating_sub(reserved);
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExpectedFileIdentity {
@@ -472,8 +493,16 @@ fn hash_directory(
 ) -> Result<(u64, String, String), IdentityError> {
     let metadata = fs::symlink_metadata(path)?;
     let root_volume = platform_volume_id(path, &metadata);
-    let mut entry_count = 0usize;
-    hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut entry_count)
+    #[cfg(target_os = "macos")]
+    {
+        let mut entry_count = 0usize;
+        hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut entry_count)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut name_budget = DirectoryEntryNameBudget::default();
+        hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut name_budget)
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -482,7 +511,7 @@ fn hash_directory_at(
     cancel: Option<&AtomicBool>,
     depth: usize,
     root_volume: Option<&str>,
-    entry_count: &mut usize,
+    name_budget: &mut DirectoryEntryNameBudget,
 ) -> Result<(u64, String, String), IdentityError> {
     if depth >= DIRECTORY_IDENTITY_DEPTH_LIMIT {
         return Err(IdentityError::ContentReadRejected(
@@ -490,19 +519,34 @@ fn hash_directory_at(
         ));
     }
     let mut entries_with_names = Vec::new();
+    let mut reserved_name_bytes = 0usize;
     for entry in fs::read_dir(path)? {
         if is_cancelled(cancel) {
             return Err(IdentityError::Cancelled);
         }
-        if *entry_count >= DIRECTORY_IDENTITY_ENTRY_LIMIT {
-            return Err(IdentityError::ContentReadRejected(
-                "directory_entry_limit_exceeded",
-            ));
-        }
-        *entry_count += 1;
         let entry = entry?;
         let name = entry.file_name();
         let raw_name = raw_os_name_bytes(&name)?;
+        let retained_name_bytes =
+            raw_name
+                .len()
+                .checked_mul(2)
+                .ok_or(IdentityError::ContentReadRejected(
+                    "directory_entry_memory_budget_exceeded",
+                ))?;
+        let reserved =
+            name_budget
+                .reserve(retained_name_bytes)
+                .ok_or(IdentityError::ContentReadRejected(
+                    "directory_entry_memory_budget_exceeded",
+                ))?;
+        if entries_with_names.try_reserve(1).is_err() {
+            name_budget.release(reserved);
+            return Err(IdentityError::ContentReadRejected(
+                "directory_entry_buffer_allocation_failed",
+            ));
+        }
+        reserved_name_bytes = reserved_name_bytes.saturating_add(reserved);
         entries_with_names.push((raw_name, entry));
     }
     entries_with_names.sort_by(|(left_name, left), (right_name, right)| {
@@ -529,7 +573,7 @@ fn hash_directory_at(
         }
         let child = if child_metadata.is_dir() {
             let (size, sample_hash, full_hash) =
-                hash_directory_at(&child_path, cancel, depth + 1, root_volume, entry_count)?;
+                hash_directory_at(&child_path, cancel, depth + 1, root_volume, name_budget)?;
             ExpectedFileIdentity {
                 size,
                 modified_ns: modified_ns(&child_metadata),
@@ -564,6 +608,7 @@ fn hash_directory_at(
             child.full_hash.as_deref().unwrap_or_default().as_bytes(),
         );
     }
+    name_budget.release(reserved_name_bytes);
     Ok((
         size,
         sample_hasher.finalize().to_hex().to_string(),
@@ -1011,18 +1056,15 @@ mod tests {
 
     #[test]
     #[cfg(not(target_os = "macos"))]
-    fn directory_identity_stops_at_the_bounded_entry_limit() {
-        let root = fixture("entry-limit");
-        for index in 0..=DIRECTORY_IDENTITY_ENTRY_LIMIT {
+    fn directory_identity_accepts_more_than_the_old_entry_limit() {
+        let root = fixture("entry-limit-removed");
+        for index in 0..5_001 {
             fs::write(root.join(format!("entry-{index:04}")), b"").expect("entry");
         }
 
-        assert!(matches!(
-            capture_identity(&root, None),
-            Err(IdentityError::ContentReadRejected(
-                "directory_entry_limit_exceeded"
-            ))
-        ));
+        let identity =
+            capture_identity(&root, None).expect("directory identity above 5,000 entries");
+        assert!(identity.full_hash.is_some());
         let _ = fs::remove_dir_all(root);
     }
 

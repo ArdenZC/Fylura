@@ -1,5 +1,10 @@
 #![cfg(all(feature = "native-qa", target_os = "macos", target_arch = "aarch64"))]
 
+#[path = "support/native_copy_resources.rs"]
+mod native_copy_resources;
+
+use native_copy_resources::NativeProcessMonitor;
+
 use std::{
     fs,
     panic::{catch_unwind, AssertUnwindSafe},
@@ -376,7 +381,7 @@ fn macos_legacy_untagged_cleanup_identity_cannot_be_promoted_by_recovery() {
 }
 
 #[test]
-fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_guards() {
+fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_performance() {
     if std::env::var("ZC_MACOS_NATIVE_FULL_PROFILE").as_deref() != Ok("1") {
         println!("macOS native full copy profile: SKIPPED — FULL PROFILE NOT REQUESTED");
         return;
@@ -538,78 +543,171 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_guard
     }
 
     let directory_source = root.join("directory-100k");
-    let directory_target_parent = root.join("directory-100k-destination");
-    let directory_target = directory_target_parent.join("directory-100k");
+    let streaming_destination = root.join("directory-100k-destination-streaming");
+    let clone_destination = root.join("directory-100k-destination-clone");
+    fs::create_dir_all(&streaming_destination).expect("streaming copy destination");
+    fs::create_dir_all(&clone_destination).expect("clone copy destination");
+    let streaming_target = streaming_destination.join("directory-100k");
+    let clone_target = clone_destination.join("directory-100k");
     fs::create_dir_all(&directory_source).expect("large directory source");
-    fs::create_dir_all(&directory_target_parent).expect("large directory destination");
-    for index in 0..99_998_u32 {
+    for index in 0..99_997_u32 {
         fs::write(
             directory_source.join(format!("entry-{index:06}.txt")),
             index.to_le_bytes(),
         )
         .expect("large directory entry");
     }
+    let large_file = fs::File::create(directory_source.join("large-payload.bin"))
+        .expect("create large file in directory fixture");
+    let mut large_file = std::io::BufWriter::new(large_file);
+    let payload = vec![0x5a; 1024 * 1024];
+    for _ in 0..256 {
+        large_file
+            .write_all(&payload)
+            .expect("write large file in directory fixture");
+    }
+    large_file.flush().expect("flush large directory fixture");
+    drop(large_file);
     let hardlink_source = directory_source.join("hardlink-source.bin");
     let hardlink_alias = directory_source.join("hardlink-alias.bin");
     fs::write(&hardlink_source, b"hardlink topology fixture").expect("hardlink source");
     fs::hard_link(&hardlink_source, &hardlink_alias).expect("hardlink alias");
+    let run_directory_copy = |preview: OperationPreviewRequest| {
+        execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![preview],
+            },
+        )
+    };
     let resources_before_copy = native_process_resources();
-    let directory_start = Instant::now();
-    let directory_result =
-        execute_native_transfer_copy(&db, &directory_source, &directory_target_parent);
-    let directory_elapsed = directory_start.elapsed().as_millis();
-    let resources_after_copy = native_process_resources();
-    assert_eq!(
-        directory_result.logs[0].status, "success",
-        "large directory copy operation log: {:?}",
-        directory_result.logs[0]
-    );
-    let persisted_large_copy = db
-        .get_operation_logs(Some(100))
-        .expect("read 100,000-entry copy history")
-        .into_iter()
-        .find(|log| log.id == directory_result.logs[0].id)
-        .expect("persisted 100,000-entry copy history");
-    assert_eq!(persisted_large_copy.status, "success");
-    assert_eq!(persisted_large_copy.operation_phase, "completed");
-    let copied_entries = fs::read_dir(&directory_target)
-        .expect("copied large directory")
-        .count();
-    assert_eq!(copied_entries, 100_000);
-    for index in 0..99_998_u32 {
+    fylura_tauri::platform::macos::copy::set_directory_tree_clone_enabled_for_qa(false);
+    let streaming_resources = NativeProcessMonitor::start();
+    let streaming_start = Instant::now();
+    let streaming_preview_start = Instant::now();
+    let streaming_preview =
+        native_qa_transfer_copy_preview(&directory_source, &streaming_destination)
+            .expect("large directory streaming Copy preview");
+    let streaming_preview_elapsed = streaming_preview_start.elapsed();
+    fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
+    fylura_tauri::platform::macos::copy::reset_copy_io_metrics();
+    fylura_tauri::platform::macos::copy::reset_directory_tree_clone_metrics();
+    let streaming_result =
+        run_directory_copy(streaming_preview).expect("large directory streaming copy");
+    let streaming_elapsed = streaming_start.elapsed();
+    let streaming_resource_stats = streaming_resources.map(NativeProcessMonitor::finish);
+    let streaming_resource_report =
+        native_copy_resources::format_native_process_stats(streaming_resource_stats);
+    assert_eq!(streaming_result.logs[0].status, "success");
+    assert_eq!(streaming_result.logs[0].operation_phase, "completed");
+    let (streaming_read_calls, streaming_read_bytes) =
+        fylura_tauri::platform::macos::copy::copy_io_metrics();
+    let streaming_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
+
+    fylura_tauri::platform::macos::copy::set_directory_tree_clone_enabled_for_qa(true);
+    let clone_resources = NativeProcessMonitor::start();
+    let clone_start = Instant::now();
+    let clone_preview_start = Instant::now();
+    let clone_preview = native_qa_transfer_copy_preview(&directory_source, &clone_destination)
+        .expect("large directory APFS Clone preview");
+    let clone_preview_elapsed = clone_preview_start.elapsed();
+    fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
+    fylura_tauri::platform::macos::copy::reset_copy_io_metrics();
+    fylura_tauri::platform::macos::copy::reset_directory_tree_clone_metrics();
+    let clone_result = run_directory_copy(clone_preview).expect("large directory APFS clone copy");
+    let clone_elapsed = clone_start.elapsed();
+    let clone_resource_stats = clone_resources.map(NativeProcessMonitor::finish);
+    let clone_resource_report =
+        native_copy_resources::format_native_process_stats(clone_resource_stats);
+    assert_eq!(clone_result.logs[0].status, "success");
+    assert_eq!(clone_result.logs[0].operation_phase, "completed");
+    let (clone_read_calls, clone_read_bytes) =
+        fylura_tauri::platform::macos::copy::copy_io_metrics();
+    let (clone_successes, clone_fallbacks) =
+        fylura_tauri::platform::macos::copy::directory_tree_clone_metrics();
+    let clone_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
+    assert!(streaming_read_bytes >= 256 * 1024 * 1024);
+    assert!(clone_successes > 0, "APFS clone path was not exercised");
+
+    let validation_start = Instant::now();
+    let source_identity = fylura_tauri::fs_safety::capture_identity(&directory_source, None)
+        .expect("large directory source identity");
+    for target in [&streaming_target, &clone_target] {
         assert_eq!(
-            fs::read(directory_target.join(format!("entry-{index:06}.txt")))
-                .expect("copied large-directory payload"),
-            index.to_le_bytes(),
-            "copied entry payload differs at index {index}"
+            fs::read_dir(target)
+                .expect("copied large directory")
+                .count(),
+            100_000
+        );
+        let target_identity = fylura_tauri::fs_safety::capture_identity(target, None)
+            .expect("large directory target identity");
+        assert_eq!(
+            target_identity.full_hash, source_identity.full_hash,
+            "copied directory differs from its source"
+        );
+        assert_eq!(target_identity.size, source_identity.size);
+        let copied_hardlink_source =
+            fs::metadata(target.join("hardlink-source.bin")).expect("copied hardlink source");
+        let copied_hardlink_alias =
+            fs::metadata(target.join("hardlink-alias.bin")).expect("copied hardlink alias");
+        assert_eq!(
+            std::os::unix::fs::MetadataExt::ino(&copied_hardlink_source),
+            std::os::unix::fs::MetadataExt::ino(&copied_hardlink_alias),
+            "hardlink topology was not preserved"
+        );
+        assert_eq!(
+            fs::read(target.join("hardlink-source.bin")).expect("copied hardlink payload"),
+            b"hardlink topology fixture"
+        );
+        assert_eq!(
+            fs::metadata(target.join("large-payload.bin"))
+                .expect("copied payload metadata")
+                .len(),
+            256 * 1024 * 1024
         );
     }
-    let copied_hardlink_source =
-        fs::metadata(directory_target.join("hardlink-source.bin")).expect("copied hardlink source");
-    let copied_hardlink_alias =
-        fs::metadata(directory_target.join("hardlink-alias.bin")).expect("copied hardlink alias");
-    assert_eq!(
-        std::os::unix::fs::MetadataExt::ino(&copied_hardlink_source),
-        std::os::unix::fs::MetadataExt::ino(&copied_hardlink_alias),
-        "hardlink topology was not preserved"
-    );
-    assert_eq!(
-        fs::read(directory_target.join("hardlink-source.bin")).expect("hardlink payload"),
-        b"hardlink topology fixture"
-    );
+    let directory_validation_elapsed = validation_start.elapsed();
+    let resources_after_copy = native_process_resources();
     assert!(
         resources_after_copy.1 <= resources_before_copy.1 + 2,
         "directory copy leaked descriptors: before={} after={}",
         resources_before_copy.1,
         resources_after_copy.1
     );
+    let persisted_logs = db
+        .get_operation_logs(Some(100))
+        .expect("read 100,000-entry copy history");
+    for result in [&streaming_result, &clone_result] {
+        let persisted = persisted_logs
+            .iter()
+            .find(|log| log.id == result.logs[0].id)
+            .expect("persisted large-directory copy history");
+        assert_eq!(persisted.status, "success");
+        assert_eq!(persisted.operation_phase, "completed");
+    }
+
+    let streaming_seconds = streaming_elapsed.as_secs_f64().max(0.001);
+    let clone_seconds = clone_elapsed.as_secs_f64().max(0.001);
     println!(
-        "macOS native performance directoryCopy entries={copied_entries} elapsedMs={} processPeakRssBytesBefore={} processPeakRssBytesAfter={} openFdsBefore={} openFdsAfter={} payloadsVerified=true hardlinkTopologyVerified=true",
-        directory_elapsed,
-        resources_before_copy.0,
-        resources_after_copy.0,
+        "macOS native performance directory100k entries=100000 payloadBytes={} streamingPreviewMs={} streamingElapsedMs={} streamingFilesPerSecond={:.1} streamingPayloadMiBPerSecond={:.1} streamingReadCalls={} streamingReadBytes={} streamingPhaseTimingsNs={streaming_phase_timings:?} streamingResources={streaming_resource_report} clonePreviewMs={} cloneElapsedMs={} cloneFilesPerSecond={:.1} clonePayloadMiBPerSecond={:.1} cloneReadCalls={} cloneReadBytes={} clonePhaseTimingsNs={clone_phase_timings:?} cloneResources={clone_resource_report} cloneSuccesses={} cloneFallbacks={} commonTreeHashValidationMs={} openFdsBefore={} openFdsAfter={} sourceRetained=true hardlinkTopologyVerified=true",
+        256_u64 * 1024 * 1024,
+        streaming_preview_elapsed.as_millis(),
+        streaming_elapsed.as_millis(),
+        100_000.0 / streaming_seconds,
+        256.0 / streaming_seconds,
+        streaming_read_calls,
+        streaming_read_bytes,
+        clone_preview_elapsed.as_millis(),
+        clone_elapsed.as_millis(),
+        100_000.0 / clone_seconds,
+        256.0 / clone_seconds,
+        clone_read_calls,
+        clone_read_bytes,
+        clone_successes,
+        clone_fallbacks,
+        directory_validation_elapsed.as_millis(),
         resources_before_copy.1,
-        resources_after_copy.1
+        resources_after_copy.1,
     );
 
     let changed_source = root.join("directory-source-changed");
@@ -758,4 +856,5 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_guard
         threshold_5000_elapsed,
         threshold_5001_elapsed
     );
+    println!("macOS native validation directory100k cancellationBoundaryVerified=true");
 }

@@ -341,17 +341,6 @@ jobs:
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
-      - name: Native filesystem hardening smoke
-        shell: pwsh
-        run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1
-      - name: Upload ordinary-user native filesystem evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: windows-native-file-smoke-full-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/fylura-native-file-qa-evidence
-          if-no-files-found: warn
-
   windows-native-preview-handler:
     name: Windows native Preview Handler
     needs: [source-evidence, validation-plan]
@@ -1156,9 +1145,42 @@ jobs:
             --prepared-binaries=.performance-artifacts/binaries/preview-platform \
             --build-identity="${{ steps.native-binary-build-identity.outputs.build_identity }}"
 
+  windows-native-filesystem-smoke:
+    name: Windows native filesystem smoke
+    needs: [source-evidence, validation-plan]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: fylura-Windows-v2
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Native filesystem hardening smoke
+        shell: pwsh
+        run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1
+      - name: Upload ordinary-user native filesystem evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-native-file-smoke-full-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fylura-native-file-qa-evidence
+          if-no-files-found: warn
+
   quality-windows:
     name: Quality (windows-latest)
-    needs: [validation-plan, frontend-quality, rust-windows, windows-native-preview-handler, performance-profile, build-windows, package-windows, dependency-audit]
+    needs: [validation-plan, frontend-quality, rust-windows, windows-native-filesystem-smoke, windows-native-preview-handler, performance-profile, build-windows, package-windows, dependency-audit]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1188,6 +1210,7 @@ jobs:
           VALIDATION_PLAN: ${{ needs.validation-plan.result }}
           FRONTEND: ${{ needs.frontend-quality.result }}
           RUST: ${{ needs.rust-windows.result }}
+          NATIVE_FILESYSTEM_SMOKE: ${{ needs.windows-native-filesystem-smoke.result }}
           WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}
           PERFORMANCE: ${{ needs.performance-profile.result }}
           BUILD: ${{ needs.build-windows.result }}
@@ -1198,6 +1221,7 @@ jobs:
           test "$VALIDATION_PLAN" = success
           test "$FRONTEND" = success
           test "$RUST" = success
+          test "$NATIVE_FILESYSTEM_SMOKE" = success
           test "$WINDOWS_NATIVE" = success
           test "$PERFORMANCE" = success
           test "$BUILD" = success

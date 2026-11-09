@@ -528,7 +528,7 @@ jobs:
       matrix:
         validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -562,17 +562,6 @@ jobs:
           ZC_NATIVE_QA_WATCHER_FIXTURE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
           ZC_NATIVE_QA_WATCHER_TRACE_ROOT: ${{ runner.temp }}/pm02b-watcher-event-root
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "performance-test-tauri native-qa" --lib watcher::tests::windows_recommended_watcher_publishes_real_file_create_and_append -- --exact --nocapture --test-threads=1
-      - name: Native filesystem hardening smoke
-        if: ${{ always() && !cancelled() }}
-        shell: pwsh
-        run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1
-      - name: Upload ordinary-user native filesystem evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: windows-native-file-smoke-${{ github.run_attempt }}-${{ matrix.validation_lane }}
-          path: ${{ runner.temp }}/fylura-native-file-qa-evidence
-          if-no-files-found: warn
       - name: Setup Node for resident lifecycle assets
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -707,6 +696,45 @@ jobs:
           path: ${{ runner.temp }}/ci-lane-result.json
           if-no-files-found: error
           retention-days: 1
+  windows-native-filesystem-smoke:
+    name: Windows native filesystem smoke (${{ matrix.validation_lane }})
+    needs: [change-scope, validation-plan]
+    if: ${{ needs.change-scope.outputs.rust_changed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ matrix.validation_lane == 'head_validation' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: fylura-Windows-v2-${{ matrix.validation_lane }}
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Native filesystem hardening smoke
+        shell: pwsh
+        run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1
+      - name: Upload ordinary-user native filesystem evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-native-file-smoke-${{ github.run_attempt }}-${{ matrix.validation_lane }}
+          path: ${{ runner.temp }}/fylura-native-file-qa-evidence
+          if-no-files-found: warn
+
   windows-global-index-service-qualification:
     name: Windows Global Index service qualification
     needs: [change-scope]
@@ -895,6 +923,10 @@ jobs:
             --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
             --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided \
             --skip fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_forks
+      - name: Native macOS APFS clone and 100k directory copy profile
+        env:
+          ZC_MACOS_NATIVE_FULL_PROFILE: "1"
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_native_hardening_smoke macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_performance -- --exact --nocapture --test-threads=1
       - name: Native APFS cross-volume directory Move evidence
         if: ${{ always() && !cancelled() }}
         shell: bash
@@ -2088,7 +2120,7 @@ jobs:
           retention-days: 1
   quality-windows:
     name: Quality (windows-latest)
-    needs: [change-scope, validation-plan, frontend-quality, rust-windows, windows-native-preview-handler, windows-global-index-service-qualification, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]
+    needs: [change-scope, validation-plan, frontend-quality, rust-windows, windows-native-filesystem-smoke, windows-native-preview-handler, windows-global-index-service-qualification, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]
     if: ${{ always() && needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
@@ -2132,6 +2164,7 @@ jobs:
           FRONTEND_EXPECTED: ${{ needs.change-scope.outputs.frontend_changed }}
           RUST_EXPECTED: ${{ needs.change-scope.outputs.rust_changed }}
           WINDOWS_NATIVE_EXPECTED: ${{ needs.change-scope.outputs.windows_native_preview_handler_changed }}
+          NATIVE_FILESYSTEM_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.rust_changed }}
           GLOBAL_INDEX_SERVICE_EXPECTED: ${{ needs.change-scope.outputs.windows_global_index_service_qualification_changed }}
           BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
           PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation }}
@@ -2140,6 +2173,7 @@ jobs:
           FRONTEND: ${{ needs.frontend-quality.result }}
           RUST: ${{ needs.rust-windows.result }}
           WINDOWS_NATIVE: ${{ needs.windows-native-preview-handler.result }}
+          NATIVE_FILESYSTEM_SMOKE: ${{ needs.windows-native-filesystem-smoke.result }}
           GLOBAL_INDEX_SERVICE: ${{ needs.windows-global-index-service-qualification.result }}
           PERFORMANCE: ${{ needs.performance-profile.result }}
           BUILD: ${{ needs.build-windows.result }}
@@ -2162,6 +2196,7 @@ jobs:
           }
           check_expected "$FRONTEND_EXPECTED" "$FRONTEND" frontend
           check_expected "$RUST_EXPECTED" "$RUST" rust-windows
+          check_expected "$NATIVE_FILESYSTEM_SMOKE_EXPECTED" "$NATIVE_FILESYSTEM_SMOKE" windows-native-filesystem-smoke
           check_expected "$WINDOWS_NATIVE_EXPECTED" "$WINDOWS_NATIVE" windows-native-preview-handler
           check_expected "$GLOBAL_INDEX_SERVICE_EXPECTED" "$GLOBAL_INDEX_SERVICE" windows-global-index-service-qualification
           check_expected true "$PERFORMANCE" performance-profile

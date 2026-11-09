@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 const LIMIT: usize = 1000;
 const EXTERNAL_PATH_LIMIT: usize = 256;
+#[cfg(target_os = "macos")]
 const EXTERNAL_TREE_ENTRY_LIMIT: usize =
     crate::fs_safety::identity::DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE;
 const EXTERNAL_TREE_DEPTH_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT;
@@ -1338,8 +1339,11 @@ pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
         return Err("transfer_source_invalid".into());
     }
     let root_namespace = file_namespace_fingerprint(root)?;
-    let mut snapshot =
-        TransferTreeSnapshot::new(format!(".:directory:{root_identity:?}:{root_namespace:?}"));
+    let mut snapshot = TransferTreeSnapshot::new();
+    snapshot.push(
+        format!(".:directory:{root_identity:?}:{root_namespace:?}"),
+        0,
+    )?;
     let mut entry_count = 0usize;
     collect_directory_tree(
         root,
@@ -1355,23 +1359,29 @@ pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
 struct TransferTreeSnapshot {
     records: Vec<String>,
     unordered: Option<crate::fs_safety::identity::OrderIndependentDigest>,
+    name_budget: crate::fs_safety::identity::DirectoryEntryNameBudget,
+    reserved_record_bytes: usize,
 }
 
 impl TransferTreeSnapshot {
-    fn new(root_record: String) -> Self {
+    fn new() -> Self {
         Self {
-            records: vec![root_record],
+            records: Vec::new(),
             unordered: None,
+            name_budget: crate::fs_safety::identity::DirectoryEntryNameBudget::default(),
+            reserved_record_bytes: 0,
         }
     }
 
-    fn push(&mut self, record: String, entry_count: usize) {
+    fn push(&mut self, record: String, entry_count: usize) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         if self.unordered.is_none() && entry_count > EXTERNAL_TREE_ENTRY_LIMIT {
             let mut unordered = crate::fs_safety::identity::OrderIndependentDigest::default();
             for record in std::mem::take(&mut self.records) {
                 update_transfer_snapshot_digest(&mut unordered, &record);
             }
+            self.name_budget.release(self.reserved_record_bytes);
+            self.reserved_record_bytes = 0;
             self.unordered = Some(unordered);
         }
         #[cfg(not(target_os = "macos"))]
@@ -1380,8 +1390,18 @@ impl TransferTreeSnapshot {
         if let Some(unordered) = &mut self.unordered {
             update_transfer_snapshot_digest(unordered, &record);
         } else {
+            let reserved = self
+                .name_budget
+                .reserve(record.len())
+                .ok_or_else(|| "transfer_directory_memory_budget_exceeded".to_string())?;
+            if self.records.try_reserve(1).is_err() {
+                self.name_budget.release(reserved);
+                return Err("transfer_directory_memory_allocation_failed".into());
+            }
+            self.reserved_record_bytes = self.reserved_record_bytes.saturating_add(reserved);
             self.records.push(record);
         }
+        Ok(())
     }
 
     fn finish(mut self) -> String {
@@ -1407,7 +1427,6 @@ fn update_transfer_snapshot_digest(
     digest.update_bytes(&[0]);
 }
 
-#[cfg(target_os = "macos")]
 fn collect_directory_tree(
     root: &Path,
     directory: &Path,
@@ -1439,71 +1458,14 @@ fn collect_directory_tree(
             snapshot.push(
                 format!("{relative_display}:directory:{physical_identity:?}:{identity:?}"),
                 *entry_count,
-            );
+            )?;
             collect_directory_tree(root, &path, depth + 1, entry_count, snapshot, root_volume)?;
         } else if path.is_file() {
             validate_source_path(&path)?;
             snapshot.push(
                 format!("{relative_display}:file:{physical_identity:?}:{identity:?}"),
                 *entry_count,
-            );
-        } else {
-            return Err("transfer_source_invalid".into());
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn collect_directory_tree(
-    root: &Path,
-    directory: &Path,
-    depth: usize,
-    entry_count: &mut usize,
-    snapshot: &mut TransferTreeSnapshot,
-    root_volume: Option<&str>,
-) -> Result<(), String> {
-    if depth >= EXTERNAL_TREE_DEPTH_LIMIT {
-        return Err("transfer_directory_depth_limit".into());
-    }
-    let mut entries = Vec::new();
-    for entry in std::fs::read_dir(directory).map_err(|error| error.to_string())? {
-        if entry_count.saturating_add(entries.len()) >= EXTERNAL_TREE_ENTRY_LIMIT {
-            return Err("transfer_directory_entry_limit".into());
-        }
-        entries.push(entry.map_err(|error| error.to_string())?);
-    }
-    entries.sort_by_key(|entry| entry.file_name());
-    for entry in entries {
-        *entry_count += 1;
-        if *entry_count > EXTERNAL_TREE_ENTRY_LIMIT {
-            return Err("transfer_directory_entry_limit".into());
-        }
-        let path = entry.path();
-        let physical_identity = crate::fs_safety::capture_source_object_identity(&path)
-            .map_err(|error| error.to_string())?;
-        let identity = file_namespace_fingerprint(&path)?;
-        if root_volume.is_some() && identity.platform_volume_id.as_deref() != root_volume {
-            return Err("transfer_nested_volume_unsupported".into());
-        }
-        ensure_general_file_operation_allowed(&path)?;
-        let relative_path = path
-            .strip_prefix(root)
-            .map_err(|_| "transfer_source_invalid")?
-            .to_path_buf();
-        let relative_display = utf8_relative_path(&relative_path)?;
-        if path.is_dir() {
-            snapshot.push(
-                format!("{relative_display}:directory:{physical_identity:?}:{identity:?}"),
-                *entry_count,
-            );
-            collect_directory_tree(root, &path, depth + 1, entry_count, snapshot, root_volume)?;
-        } else if path.is_file() {
-            validate_source_path(&path)?;
-            snapshot.push(
-                format!("{relative_display}:file:{physical_identity:?}:{identity:?}"),
-                *entry_count,
-            );
+            )?;
         } else {
             return Err("transfer_source_invalid".into());
         }

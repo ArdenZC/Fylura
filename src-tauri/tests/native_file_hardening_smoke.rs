@@ -1,5 +1,10 @@
 #![cfg(all(feature = "native-qa", windows))]
 
+#[path = "support/native_copy_resources.rs"]
+mod native_copy_resources;
+
+use native_copy_resources::NativeProcessMonitor;
+
 use fylura_tauri::{
     db::Database,
     file_ops::{
@@ -25,6 +30,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,
+    io::Write,
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     process::Command,
@@ -2071,6 +2077,338 @@ fn native_file_hardening_smoke() {
         .expect("final-log recovered record");
     assert_eq!(final_log_recovered.status, "success");
     assert_eq!(final_log_recovered.operation_phase, "completed");
+
+    if env::var("ZC_WINDOWS_NATIVE_COPY_PROFILE").as_deref() == Ok("1") {
+        let copy_root = source_volume.join(format!("copy-performance-{run_id}"));
+        fs::create_dir_all(&copy_root).expect("create isolated Windows copy profile root");
+        let copy_bytes = 1024_u64 * 1024 * 1024;
+        let copy_source = copy_root.join("copy-performance-1g.bin");
+        let legacy_destination = copy_root.join("copy-performance-redundant-flush");
+        let optimized_destination = copy_root.join("copy-performance-single-flush");
+        fs::create_dir_all(&legacy_destination).expect("create legacy Copy destination");
+        fs::create_dir_all(&optimized_destination).expect("create optimized Copy destination");
+        let legacy_target = legacy_destination.join("copy-performance-1g.bin");
+        let optimized_target = optimized_destination.join("copy-performance-1g.bin");
+        let mut file = std::io::BufWriter::with_capacity(
+            1024 * 1024,
+            fs::File::create(&copy_source).expect("create Windows copy performance source"),
+        );
+        let payload = vec![0x5a; 1024 * 1024];
+        for _ in 0..1024 {
+            file.write_all(&payload)
+                .expect("write Windows copy performance source");
+        }
+        file.flush().expect("flush Windows copy performance source");
+        drop(file);
+
+        let run_copy = |destination_directory: &Path| {
+            let preview_start = std::time::Instant::now();
+            let preview = fylura_tauri::file_ops::native_qa_transfer_copy_preview(
+                &copy_source,
+                destination_directory,
+            )?;
+            let preview_elapsed = preview_start.elapsed();
+            execute_moves_with_persistence(
+                &db,
+                ExecuteMovesRequest {
+                    operations: vec![preview],
+                },
+            )
+            .map(|result| (result, preview_elapsed))
+        };
+
+        fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
+        fylura_tauri::fs_safety::copy_commit::set_windows_copy_extra_flushes_for_qa(true);
+        fylura_tauri::fs_safety::copy_commit::reset_windows_copy_extra_flush_metrics_for_qa();
+        let legacy_resources = NativeProcessMonitor::start();
+        let legacy_start = std::time::Instant::now();
+        let (legacy_result, legacy_preview_elapsed) =
+            run_copy(&legacy_destination).expect("Windows copy with historical redundant flushes");
+        let legacy_elapsed = legacy_start.elapsed();
+        let legacy_resource_stats = legacy_resources.map(NativeProcessMonitor::finish);
+        let legacy_resource_report =
+            native_copy_resources::format_native_process_stats(legacy_resource_stats);
+        assert_eq!(legacy_result.logs[0].status, "success");
+        let legacy_extra_flushes =
+            fylura_tauri::fs_safety::copy_commit::windows_copy_extra_flush_count_for_qa();
+        let legacy_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
+        assert_eq!(legacy_extra_flushes, 2);
+
+        fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
+        fylura_tauri::fs_safety::copy_commit::set_windows_copy_extra_flushes_for_qa(false);
+        fylura_tauri::fs_safety::copy_commit::reset_windows_copy_extra_flush_metrics_for_qa();
+        let optimized_resources = NativeProcessMonitor::start();
+        let optimized_start = std::time::Instant::now();
+        let (optimized_result, optimized_preview_elapsed) =
+            run_copy(&optimized_destination).expect("Windows copy with consolidated flush");
+        let optimized_elapsed = optimized_start.elapsed();
+        let optimized_resource_stats = optimized_resources.map(NativeProcessMonitor::finish);
+        let optimized_resource_report =
+            native_copy_resources::format_native_process_stats(optimized_resource_stats);
+        assert_eq!(optimized_result.logs[0].status, "success");
+        let optimized_extra_flushes =
+            fylura_tauri::fs_safety::copy_commit::windows_copy_extra_flush_count_for_qa();
+        let optimized_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
+        assert_eq!(optimized_extra_flushes, 0);
+        assert_eq!(fs::metadata(&legacy_target).unwrap().len(), copy_bytes);
+        assert_eq!(fs::metadata(&optimized_target).unwrap().len(), copy_bytes);
+        assert!(copy_source.is_file(), "Copy must retain its source");
+        fylura_tauri::fs_safety::copy_commit::set_windows_copy_extra_flushes_for_qa(false);
+
+        let robocopy_target = copy_root.join("robocopy-file-copy");
+        fs::create_dir_all(&robocopy_target).expect("create Robocopy file target");
+        let robocopy_start = std::time::Instant::now();
+        let robocopy_output = std::process::Command::new("robocopy.exe")
+            .arg(&copy_root)
+            .arg(&robocopy_target)
+            .arg("copy-performance-1g.bin")
+            .args([
+                "/COPY:DAT",
+                "/R:0",
+                "/W:0",
+                "/J",
+                "/NFL",
+                "/NDL",
+                "/NJH",
+                "/NJS",
+                "/NP",
+            ])
+            .output();
+        let (robocopy_elapsed, robocopy_file_target) = match robocopy_output {
+            Ok(output) => {
+                let code = output.status.code().unwrap_or(16);
+                assert!(
+                    code <= 7,
+                    "Robocopy file baseline failed with code {code}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                (
+                    robocopy_start.elapsed(),
+                    Some(robocopy_target.join("copy-performance-1g.bin")),
+                )
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                println!("Windows native comparison robocopy=UNVERIFIED reason=tool_unavailable");
+                (robocopy_start.elapsed(), None)
+            }
+            Err(error) => panic!("start Robocopy file baseline: {error}"),
+        };
+        let file_validation_start = std::time::Instant::now();
+        let source_identity =
+            fylura_tauri::fs_safety::identity::capture_identity(&copy_source, None)
+                .expect("hash Windows copy performance source");
+        for target in [&legacy_target, &optimized_target]
+            .into_iter()
+            .chain(robocopy_file_target.iter())
+        {
+            let target_identity = fylura_tauri::fs_safety::identity::capture_identity(target, None)
+                .expect("hash Windows copy performance target");
+            assert_eq!(
+                target_identity.full_hash, source_identity.full_hash,
+                "copy target content differs from its source"
+            );
+            assert_eq!(
+                fs::metadata(target).unwrap().modified().unwrap(),
+                fs::metadata(&copy_source).unwrap().modified().unwrap(),
+                "copy target modified time was not preserved"
+            );
+        }
+        let file_validation_elapsed = file_validation_start.elapsed();
+        println!(
+            "Windows native performance fileCopy1GiB bytes={copy_bytes} legacyPreviewMs={} legacyElapsedMs={} legacyExtraFlushes={legacy_extra_flushes} legacyPhaseTimingsNs={legacy_phase_timings:?} legacyResources={legacy_resource_report} optimizedPreviewMs={} optimizedElapsedMs={} optimizedExtraFlushes={optimized_extra_flushes} optimizedPhaseTimingsNs={optimized_phase_timings:?} optimizedResources={optimized_resource_report} robocopyElapsedMs={} robocopyAvailable={} commonHashAndTimestampValidationMs={} finalStagingSyncs=1",
+            legacy_preview_elapsed.as_millis(),
+            legacy_elapsed.as_millis(),
+            optimized_preview_elapsed.as_millis(),
+            optimized_elapsed.as_millis(),
+            robocopy_elapsed.as_millis(),
+            robocopy_file_target.is_some(),
+            file_validation_elapsed.as_millis(),
+        );
+
+        let directory_source = copy_root.join("directory-100k");
+        let legacy_directory_destination = copy_root.join("directory-100k-legacy-destination");
+        let optimized_directory_destination =
+            copy_root.join("directory-100k-optimized-destination");
+        let legacy_directory_target = legacy_directory_destination.join("directory-100k");
+        let optimized_directory_target = optimized_directory_destination.join("directory-100k");
+        fs::create_dir_all(&legacy_directory_destination)
+            .expect("create Windows 100k legacy destination");
+        fs::create_dir_all(&optimized_directory_destination)
+            .expect("create Windows 100k optimized destination");
+        fs::create_dir_all(&directory_source).expect("create Windows 100k directory source");
+        for index in 0..100_000_u32 {
+            fs::write(
+                directory_source.join(format!("entry-{index:06}.bin")),
+                index.to_le_bytes(),
+            )
+            .expect("create Windows 100k directory entry");
+        }
+        let run_directory_copy = |destination: &Path, legacy_full_identity: bool| {
+            fylura_tauri::fs_safety::copy_commit::set_windows_directory_full_file_identity_for_qa(
+                legacy_full_identity,
+            );
+            fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
+            let resources = NativeProcessMonitor::start();
+            let start = std::time::Instant::now();
+            let preview_start = std::time::Instant::now();
+            let preview = fylura_tauri::file_ops::native_qa_transfer_copy_preview(
+                &directory_source,
+                destination,
+            )
+            .expect("create Windows 100k directory Copy preview");
+            let preview_elapsed = preview_start.elapsed();
+            fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
+            let result = execute_moves_with_persistence(
+                &db,
+                ExecuteMovesRequest {
+                    operations: vec![preview],
+                },
+            )
+            .expect("execute Windows 100k directory Copy");
+            let elapsed = start.elapsed();
+            let resource_stats = resources.map(NativeProcessMonitor::finish);
+            let resource_report =
+                native_copy_resources::format_native_process_stats(resource_stats);
+            let phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
+            fylura_tauri::fs_safety::copy_commit::set_windows_directory_full_file_identity_for_qa(
+                false,
+            );
+            (
+                result,
+                preview_elapsed,
+                elapsed,
+                resource_report,
+                phase_timings,
+            )
+        };
+
+        let (
+            legacy_directory_result,
+            legacy_directory_preview_elapsed,
+            legacy_directory_elapsed,
+            legacy_directory_resources,
+            legacy_directory_phase_timings,
+        ) = run_directory_copy(&legacy_directory_destination, true);
+        assert_eq!(legacy_directory_result.logs[0].status, "success");
+        let legacy_copied_entries = fs::read_dir(&legacy_directory_target)
+            .expect("read Windows 100k copied directory")
+            .count();
+        assert_eq!(legacy_copied_entries, 100_000);
+        assert_eq!(
+            fs::read(legacy_directory_target.join("entry-099999.bin"))
+                .expect("read legacy copied entry"),
+            99_999_u32.to_le_bytes()
+        );
+
+        let (
+            optimized_directory_result,
+            optimized_directory_preview_elapsed,
+            optimized_directory_elapsed,
+            optimized_directory_resources,
+            optimized_directory_phase_timings,
+        ) = run_directory_copy(&optimized_directory_destination, false);
+        assert_eq!(optimized_directory_result.logs[0].status, "success");
+        let copied_entries = fs::read_dir(&optimized_directory_target)
+            .expect("read optimized Windows 100k copied directory")
+            .count();
+        assert_eq!(copied_entries, 100_000);
+        assert_eq!(
+            fs::read(optimized_directory_target.join("entry-099999.bin"))
+                .expect("read optimized copied entry"),
+            99_999_u32.to_le_bytes()
+        );
+        assert!(
+            directory_source.is_dir(),
+            "directory Copy must retain source"
+        );
+
+        let robocopy_directory_target = copy_root.join("directory-100k-robocopy");
+        let robocopy_directory_start = std::time::Instant::now();
+        let robocopy_directory_output = std::process::Command::new("robocopy.exe")
+            .arg(&directory_source)
+            .arg(&robocopy_directory_target)
+            .args([
+                "/E",
+                "/COPY:DAT",
+                "/DCOPY:DAT",
+                "/R:0",
+                "/W:0",
+                "/MT:1",
+                "/NFL",
+                "/NDL",
+                "/NJH",
+                "/NJS",
+                "/NP",
+            ])
+            .output();
+        let (robocopy_directory_elapsed, robocopy_directory_available) =
+            match robocopy_directory_output {
+                Ok(output) => {
+                    let code = output.status.code().unwrap_or(16);
+                    assert!(
+                        code <= 7,
+                        "Robocopy directory baseline failed with code {code}: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    (robocopy_directory_start.elapsed(), true)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    (robocopy_directory_start.elapsed(), false)
+                }
+                Err(error) => panic!("start Robocopy directory baseline: {error}"),
+            };
+        if robocopy_directory_available {
+            let directory_validation_start = std::time::Instant::now();
+            let source_identity =
+                fylura_tauri::fs_safety::identity::capture_identity(&directory_source, None)
+                    .expect("hash Windows 100k source directory");
+            let source_sample_time = fs::metadata(directory_source.join("entry-099999.bin"))
+                .unwrap()
+                .modified()
+                .unwrap();
+            for target in [
+                &legacy_directory_target,
+                &optimized_directory_target,
+                &robocopy_directory_target,
+            ] {
+                let target_identity =
+                    fylura_tauri::fs_safety::identity::capture_identity(target, None)
+                        .expect("hash Windows 100k target directory");
+                assert_eq!(
+                    target_identity.full_hash, source_identity.full_hash,
+                    "100k directory copy differs from its source"
+                );
+                assert_eq!(
+                    fs::metadata(target.join("entry-099999.bin"))
+                        .unwrap()
+                        .modified()
+                        .unwrap(),
+                    source_sample_time,
+                    "100k file modified time was not preserved"
+                );
+            }
+            println!(
+                "Windows native validation directory100k commonTreeHashValidationMs={} targets=3",
+                directory_validation_start.elapsed().as_millis(),
+            );
+        } else {
+            println!(
+                "Windows native comparison robocopyDirectory=UNVERIFIED reason=tool_unavailable"
+            );
+        }
+        println!(
+            "Windows native performance directory100k entries={copied_entries} legacyPreviewMs={} legacyElapsedMs={} legacyFilesPerSecond={:.1} legacyPhaseTimingsNs={legacy_directory_phase_timings:?} legacyResources={legacy_directory_resources} optimizedPreviewMs={} optimizedElapsedMs={} optimizedFilesPerSecond={:.1} optimizedPhaseTimingsNs={optimized_directory_phase_timings:?} optimizedResources={optimized_directory_resources} robocopyElapsedMs={} robocopyAvailable={} sourceRetained=true",
+            legacy_directory_preview_elapsed.as_millis(),
+            legacy_directory_elapsed.as_millis(),
+            100_000.0 / legacy_directory_elapsed.as_secs_f64().max(0.001),
+            optimized_directory_preview_elapsed.as_millis(),
+            optimized_directory_elapsed.as_millis(),
+            100_000.0 / optimized_directory_elapsed.as_secs_f64().max(0.001),
+            robocopy_directory_elapsed.as_millis(),
+            robocopy_directory_available,
+        );
+        fs::remove_dir_all(&copy_root).expect("remove isolated Windows copy profile root");
+    }
 
     let sqlite_integrity = rusqlite::Connection::open(&database_path)
         .expect("open SQLite integrity connection")

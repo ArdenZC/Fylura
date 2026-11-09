@@ -58,6 +58,12 @@ Each Files tab owns 1–4 independent file-content panes, not counting the appli
 
 Narrow windows show the active pane and a pane switcher without squeezing four lists. Mounted hidden panes retain their controller, live Browse page refs, selection and list DOM; observation and Quick Preview pause while hidden. Navigation or explicit refresh still replaces stale page refs normally. Copy/Move selects an explicit destination among all other configured panes; pointer Copy / Shift-Move binds any visible destination or folder row. All operations retain existing Transfer, conflicts, cancellation, progress, Journal and Restore authority. Layout and pane lifecycle details are in [Files workbench development notes](../development/FILES_WORKBENCH.md). Windows/macOS installed GUI acceptance remains **UNVERIFIED** under #487.
 
+### Clipboard and mounted-device implementation (#553)
+
+System file clipboard handoff uses Windows `CF_HDROP` / Preferred DropEffect and macOS file URLs. Copy/Cut exports backend-revalidated Transfer tickets; Paste reads the current OS clipboard on explicit user action, preserves the requested move/copy action and binds the destination Browse reference. Fylura's own clipboard reuses original physical-identity tickets; other apps' files enter through the existing bounded external-path admission (256 items per external batch). Existing internal selection/ticket limits remain 1,000. macOS uses Cmd+Option+V to request Move for Finder-copied files; Finder itself applies its normal paste/move shortcuts to file URLs exported by Fylura. Operations performed by Explorer/Finder use those apps' recovery behavior; operations executed inside Fylura keep its existing Journal/Restore chain.
+
+The Files directory navigation shows mounted drives/devices, shares one foreground refresh across panes, and re-admits a chosen volume through Browse. Discovery never authorizes Global Index, Managed Library or AI. Browse retains its root's physical object identity; transfer destinations can bind the backend session/path ref, so a reused drive letter or mount path cannot silently substitute for that admitted target. Removing media does not redirect other panes. Windows/macOS installed GUI, actual USB/SD filesystem/capacity/permission/disconnect behavior, safe eject, and mounted SMB/cloud differences remain **UNVERIFIED/open** in #487/#553.
+
 ### Accessible source types and boundaries
 
 | Source | Required everyday Files behavior | Boundary / qualification |

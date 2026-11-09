@@ -1,5 +1,6 @@
 import type {
   TransferAction,
+  TransferBrowseDestination,
   TransferPreview,
   TransferTicket,
 } from "../../../api/fileManagementApi";
@@ -10,6 +11,7 @@ export interface TransferOrchestrationRequest {
   action: TransferAction;
   destinationDirectory: string;
   destinationEntry?: BrowseEntryRef;
+  destinationBrowse?: TransferBrowseDestination;
   newName?: string;
   skip: string[];
   keepBoth: string[];
@@ -28,6 +30,7 @@ export interface TransferOrchestrationPorts<TResult> {
     action: TransferAction;
     destinationDirectory: string;
     destinationEntry?: BrowseEntryRef;
+    destinationBrowse?: TransferBrowseDestination;
     newName?: string;
     skip: string[];
     keepBoth: string[];
@@ -60,6 +63,7 @@ export async function orchestrateTransfer<TResult>(
     action: request.action,
     destinationDirectory: request.destinationDirectory,
     destinationEntry: request.destinationEntry,
+    ...(request.destinationBrowse ? { destinationBrowse: request.destinationBrowse } : {}),
     ...(request.newName === undefined ? {} : { newName: request.newName }),
     skip: request.skip,
     keepBoth: request.keepBoth,

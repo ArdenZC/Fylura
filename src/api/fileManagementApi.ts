@@ -8,11 +8,17 @@ export interface TransferPreview { id: string; destinationDirectory: string; row
 export interface SavedPlace { id: string; name: string; routingHint: string; favorite: boolean; visitedAt: number; unavailable: boolean; current?: boolean }
 export type KnownLocationKind = "folder" | "volume";
 export interface KnownLocation { id: string; kind: KnownLocationKind; displayName: string; path: string; available: boolean }
+export interface TransferBrowseDestination { sessionId: string; pathRef: BrowsePathRef }
+export type SystemClipboardRequest = { kind: "read"; ticketIds?: string[] } | { kind: "write"; ticketIds: string[]; moveFiles: boolean };
+export interface SystemClipboardTransfer { tickets: TransferTicket[]; action: "copy" | "move"; owned: boolean }
 export const fileManagementApi = {
+  systemClipboard(request: SystemClipboardRequest): Promise<SystemClipboardTransfer> {
+    return invokeCommand("file_workspace_system_clipboard", { request });
+  },
   captureTransfer(request: { refs?: EntryRef[]; selection?: LibrarySelectionV1; releaseIds?: string[]; externalPaths?: string[] }): Promise<TransferTicket[]> {
     return invokeCommand("file_workspace_transfer_capture", { request });
   },
-  previewTransfer(request: { ticketIds: string[]; action: TransferAction; destinationDirectory: string; destinationEntry?: BrowseEntryRef; newName?: string; keepBoth?: string[]; skip?: string[] }): Promise<TransferPreview> {
+  previewTransfer(request: { ticketIds: string[]; action: TransferAction; destinationDirectory: string; destinationEntry?: BrowseEntryRef; destinationBrowse?: TransferBrowseDestination; newName?: string; keepBoth?: string[]; skip?: string[] }): Promise<TransferPreview> {
     return invokeCommand("file_workspace_transfer_preview", { request });
   },
   executeTransfer(request: { previewId: string; confirmed: boolean }): Promise<ExecuteOperationResult> {

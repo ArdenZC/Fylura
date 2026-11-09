@@ -567,3 +567,26 @@ pub async fn file_workspace_places<R: Runtime>(
     })
     .await
 }
+
+#[tauri::command]
+pub async fn file_workspace_system_clipboard<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: super::system_clipboard::SystemClipboardRequest,
+) -> Result<super::system_clipboard::SystemClipboardTransfer, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    #[cfg(target_os = "windows")]
+    let owner = Some(
+        window
+            .hwnd()
+            .map_err(|_| "workspace_clipboard_unavailable")?
+            .0 as usize,
+    );
+    #[cfg(not(target_os = "windows"))]
+    let owner = None;
+    spawn_runtime(runtime, "workspace_system_clipboard", move |runtime| {
+        runtime.system_clipboard(request, owner)
+    })
+    .await
+}

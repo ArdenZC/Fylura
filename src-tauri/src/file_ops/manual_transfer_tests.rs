@@ -39,6 +39,7 @@ fn preview(
 ) -> TransferPreview {
     runtime
         .preview_transfer(TransferPreviewRequest {
+            destination_browse: None,
             ticket_ids: ids,
             action,
             destination_directory: normalize_path(target),
@@ -2103,6 +2104,7 @@ fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
     assert_eq!(row.kind, BrowseEntryKindDto::Directory);
     let plan = runtime
         .preview_transfer(TransferPreviewRequest {
+            destination_browse: None,
             ticket_ids: vec![tickets[0].id.clone()],
             action: TransferAction::Copy,
             destination_directory: String::new(),
@@ -2127,6 +2129,7 @@ fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
         })
         .unwrap();
     let stale = runtime.preview_transfer(TransferPreviewRequest {
+        destination_browse: None,
         ticket_ids: vec![tickets[0].id.clone()],
         action: TransferAction::Copy,
         destination_directory: String::new(),
@@ -2148,6 +2151,7 @@ fn preview_named(
 ) -> TransferPreview {
     runtime
         .preview_transfer(TransferPreviewRequest {
+            destination_browse: None,
             ticket_ids: ids,
             action,
             destination_directory: normalize_path(target),
@@ -2223,6 +2227,7 @@ fn fl24_create_folder_uses_preview_confirm_and_non_restorable_journal() {
     let runtime = runtime(&f);
     let folder = f.root.join("created-folder");
     let request = |name: &str| TransferPreviewRequest {
+        destination_browse: None,
         ticket_ids: vec![],
         action: TransferAction::CreateDirectory,
         destination_directory: normalize_path(&f.root),
@@ -2497,6 +2502,7 @@ fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
     let regular_ticket = capture(&runtime, &f).remove(0);
     let destination_preview = runtime
         .preview_transfer(TransferPreviewRequest {
+            destination_browse: None,
             ticket_ids: vec![regular_ticket.id],
             action: TransferAction::Copy,
             destination_directory: normalize_path(&trash_root),
@@ -2513,6 +2519,7 @@ fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
 
     let create_error = runtime
         .preview_transfer(TransferPreviewRequest {
+            destination_browse: None,
             ticket_ids: vec![],
             action: TransferAction::CreateDirectory,
             destination_directory: normalize_path(&trash_root),
@@ -2533,4 +2540,91 @@ fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
 fn fl24_windows_extended_prefix_is_allowed_without_allowing_wildcards() {
     assert!(validate_cleanup_path_syntax(Path::new(r"\\?\D:\fixtures\ordinary-folder")).is_ok());
     assert!(validate_cleanup_path_syntax(Path::new(r"\\?\D:\fixtures\wild?card-folder")).is_err());
+}
+
+#[test]
+fn clipboard_reuse_checks_original_ticket_identity_and_does_not_capture_a_replacement() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let tickets = capture(&runtime, &f);
+    let ids = tickets
+        .iter()
+        .map(|ticket| ticket.id.clone())
+        .collect::<Vec<_>>();
+    let paths = tickets
+        .iter()
+        .map(|ticket| ticket.path.clone())
+        .collect::<Vec<_>>();
+    assert!(runtime
+        .clipboard_owned_tickets(&ids, &paths)
+        .unwrap()
+        .is_some());
+    assert!(runtime
+        .clipboard_owned_tickets(&ids, &[normalize_path(&f.root.join("other.txt"))])
+        .unwrap()
+        .is_none());
+    let original = PathBuf::from(&tickets[0].path);
+    let moved = original.with_extension("old-copy");
+    fs::rename(&original, &moved).unwrap();
+    fs::write(&original, b"replacement").unwrap();
+    assert!(runtime
+        .clipboard_owned_tickets(&ids, &paths)
+        .err()
+        .unwrap()
+        .contains("source_changed"));
+    assert!(runtime
+        .clipboard_transfer_paths(&ids)
+        .unwrap_err()
+        .contains("source_changed"));
+}
+
+#[test]
+fn transfer_destination_browse_binding_rejects_another_directory_or_rebound_root() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let tickets = capture(&runtime, &f);
+    let destination = f.root.join("bound-device");
+    let other = f.root.join("other-device");
+    fs::create_dir(&destination).unwrap();
+    fs::create_dir(&other).unwrap();
+    let browse = runtime
+        .open_browse(BrowseOpenRequest {
+            platform: if cfg!(windows) {
+                WorkspacePlatform::Windows
+            } else {
+                WorkspacePlatform::Macos
+            },
+            routing_hint: normalize_path(&destination),
+            display_hint: None,
+            global_entry_id: None,
+        })
+        .unwrap();
+    let request = |path: &Path| TransferPreviewRequest {
+        ticket_ids: tickets.iter().map(|ticket| ticket.id.clone()).collect(),
+        action: TransferAction::Copy,
+        destination_directory: normalize_path(path),
+        destination_entry: None,
+        destination_browse: Some(TransferBrowseDestination {
+            session_id: browse.session_id.clone(),
+            path_ref: browse.root_path_ref.clone(),
+        }),
+        new_name: None,
+        keep_both: vec![],
+        skip: vec![],
+    };
+    assert!(runtime.preview_transfer(request(&destination)).is_ok());
+    assert!(runtime
+        .preview_transfer(request(&other))
+        .err()
+        .unwrap()
+        .contains("destination_changed"));
+    let retained = f.root.join("disconnected-device");
+    fs::rename(&destination, retained).unwrap();
+    fs::create_dir(&destination).unwrap();
+    assert!(runtime
+        .preview_transfer(request(&destination))
+        .err()
+        .unwrap()
+        .contains("directory_unavailable"));
+    assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
 }

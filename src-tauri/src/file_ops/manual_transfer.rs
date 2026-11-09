@@ -2,6 +2,7 @@
 //! the only mutation authority. Tickets are bounded Main-lifetime references,
 //! not paths, managed imports, a clipboard filesystem or a second work queue.
 use super::*;
+mod clipboard;
 use crate::db::{LibrarySelectionV1, OperationPreviewDto};
 use crate::file_workspace::integration::FileWorkspaceRuntime;
 use crate::file_workspace::{BrowseEntryRef, EntryRef};
@@ -9,8 +10,8 @@ use crate::fs_safety::{DirectoryIdentity, VerifiedDirectory};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-const LIMIT: usize = 1000;
-const EXTERNAL_PATH_LIMIT: usize = 256;
+pub(crate) const LIMIT: usize = 1000;
+pub(crate) const EXTERNAL_PATH_LIMIT: usize = 256;
 #[cfg(target_os = "macos")]
 const EXTERNAL_TREE_ENTRY_LIMIT: usize =
     crate::fs_safety::identity::DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE;
@@ -67,6 +68,13 @@ pub enum TransferAction {
     Trash,
     CreateDirectory,
 }
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TransferBrowseDestination {
+    pub session_id: String,
+    pub path_ref: crate::file_workspace::BrowsePathRef,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransferPreviewRequest {
@@ -75,6 +83,8 @@ pub struct TransferPreviewRequest {
     pub destination_directory: String,
     #[serde(default)]
     pub destination_entry: Option<crate::file_workspace::BrowseEntryRef>,
+    #[serde(default)]
+    pub destination_browse: Option<TransferBrowseDestination>,
     #[serde(default)]
     pub new_name: Option<String>,
     #[serde(default)]
@@ -635,6 +645,26 @@ impl FileWorkspaceRuntime {
         &self,
         request: &TransferPreviewRequest,
     ) -> Result<PathBuf, String> {
+        if request.destination_entry.is_some() && request.destination_browse.is_some() {
+            return Err("transfer_destination_invalid".into());
+        }
+        if let Some(destination) = &request.destination_browse {
+            let directory = self
+                .inner
+                .browse
+                .resolve_watch_target(&destination.session_id, &destination.path_ref)
+                .map_err(|error| error.to_string())?;
+            let bound = directory
+                .as_path()
+                .canonicalize()
+                .map_err(|error| error.to_string())?;
+            let requested = PathBuf::from(&request.destination_directory)
+                .canonicalize()
+                .map_err(|error| error.to_string())?;
+            if bound != requested {
+                return Err("transfer_destination_changed".into());
+            }
+        }
         let directory = match &request.destination_entry {
             Some(entry) => {
                 if !request.destination_directory.trim().is_empty() {

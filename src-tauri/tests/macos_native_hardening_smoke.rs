@@ -15,6 +15,7 @@ use fylura_tauri::{
     db::Database,
     file_ops::{
         execute_moves_core_with_progress, execute_moves_with_persistence,
+        native_qa_execute_moves_with_persistence_progress, native_qa_transfer_copy_preview,
         reconcile_pending_operation_journal, restore_moves_with_persistence,
         set_operation_test_fault, ExecuteMovesRequest, OperationPreviewRequest,
         OperationProgressEmitter, OperationProgressPayload, OperationTestFaultPoint,
@@ -32,6 +33,58 @@ struct NativeQaProgressSink;
 
 impl OperationProgressEmitter for NativeQaProgressSink {
     fn emit_progress(&self, _payload: OperationProgressPayload) {}
+}
+
+struct NativeQaTempRoot(std::path::PathBuf);
+
+impl Drop for NativeQaTempRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+struct CancelAfterDirectoryProgress {
+    cancel: Arc<AtomicBool>,
+    triggered: std::sync::atomic::AtomicBool,
+}
+
+impl OperationProgressEmitter for CancelAfterDirectoryProgress {
+    fn emit_progress(&self, payload: OperationProgressPayload) {
+        if payload.phase.as_deref() == Some("copying")
+            && payload.processed_items.unwrap_or_default() >= 10
+        {
+            self.triggered
+                .store(true, std::sync::atomic::Ordering::Release);
+            self.cancel
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
+
+fn execute_native_transfer_copy(
+    db: &Database,
+    source: &std::path::Path,
+    destination_directory: &std::path::Path,
+) -> fylura_tauri::file_ops::ExecuteMovesResult {
+    let operation = native_qa_transfer_copy_preview(source, destination_directory)
+        .expect("real transfer copy preview");
+    execute_moves_with_persistence(
+        db,
+        ExecuteMovesRequest {
+            operations: vec![operation],
+        },
+    )
+    .expect("journaled transfer copy")
+}
+
+fn native_process_resources() -> (u64, usize) {
+    let mut usage = unsafe { std::mem::zeroed::<libc::rusage>() };
+    assert_eq!(unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) }, 0);
+    let peak_rss_bytes = usage.ru_maxrss.max(0) as u64;
+    let open_fds = fs::read_dir("/dev/fd")
+        .expect("read process descriptor directory")
+        .count();
+    (peak_rss_bytes, open_fds)
 }
 
 #[test]
@@ -333,50 +386,69 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
         println!("macOS native full copy profile: SKIPPED — FULL PROFILE NOT REQUESTED");
         return;
     }
-    use std::io::Write;
-    use std::os::unix::fs::MetadataExt;
-    use std::time::Instant;
+    use std::{
+        io::{Read, Seek, SeekFrom, Write},
+        os::unix::fs::MetadataExt,
+        time::Instant,
+    };
 
     let root = std::env::temp_dir().join(format!(
         "zen-canvas-macos-native-copy-profile-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&root).expect("profile root");
+    let _root_cleanup = NativeQaTempRoot(root.clone());
     let db = Database::open(root.join("qa.sqlite3")).expect("profile database");
     fylura_tauri::platform::macos::copy::reset_copy_io_metrics();
 
     let sparse_source = root.join("sparse-100gb.bin");
-    let sparse_target = root.join("sparse-100gb-copy.bin");
+    let sparse_target_directory = root.join("sparse-target");
+    fs::create_dir_all(&sparse_target_directory).expect("sparse target directory");
+    let sparse_target = sparse_target_directory.join("sparse-100gb.bin");
     let sparse_size = 100_u64 * 1024 * 1024 * 1024;
-    let sparse_file = fs::OpenOptions::new()
+    let mut sparse_file = fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(&sparse_source)
         .expect("sparse source");
     sparse_file.set_len(sparse_size).expect("sparse length");
+    sparse_file
+        .seek(SeekFrom::Start(4096))
+        .expect("sparse seek");
+    sparse_file
+        .write_all(b"sparse-start")
+        .expect("sparse start data");
+    sparse_file
+        .seek(SeekFrom::Start(sparse_size - 4096))
+        .expect("sparse end seek");
+    sparse_file
+        .write_all(b"sparse-end")
+        .expect("sparse end data");
     drop(sparse_file);
     let sparse_start = Instant::now();
-    let sparse_result = execute_moves_with_persistence(
-        &db,
-        ExecuteMovesRequest {
-            operations: vec![OperationPreviewRequest {
-                id: "native-sparse-clone".to_string(),
-                file_id: "native-sparse-clone-file".to_string(),
-                operation_type: "copy".to_string(),
-                source_path: sparse_source.to_string_lossy().into_owned(),
-                target_path: sparse_target.to_string_lossy().into_owned(),
-                old_name: "sparse-100gb.bin".to_string(),
-                new_name: "sparse-100gb-copy.bin".to_string(),
-                is_executable: Some(true),
-            }],
-        },
-    )
-    .expect("sparse clone operation");
+    let sparse_result = execute_native_transfer_copy(&db, &sparse_source, &sparse_target_directory);
     assert_eq!(sparse_result.logs[0].status, "success");
     let sparse_source_metadata = fs::metadata(&sparse_source).expect("sparse source metadata");
     let sparse_target_metadata = fs::metadata(&sparse_target).expect("sparse target metadata");
     assert_eq!(sparse_target_metadata.len(), sparse_size);
+    let mut sparse_copy = fs::File::open(&sparse_target).expect("sparse copy");
+    sparse_copy
+        .seek(SeekFrom::Start(4096))
+        .expect("sparse copy start");
+    let mut sparse_start_bytes = [0; 12];
+    sparse_copy
+        .read_exact(&mut sparse_start_bytes)
+        .expect("read sparse start");
+    assert_eq!(&sparse_start_bytes, b"sparse-start");
+    sparse_copy
+        .seek(SeekFrom::Start(sparse_size - 4096))
+        .expect("sparse copy end");
+    let mut sparse_end_bytes = [0; 10];
+    sparse_copy
+        .read_exact(&mut sparse_end_bytes)
+        .expect("read sparse end");
+    assert_eq!(&sparse_end_bytes, b"sparse-end");
     let (sparse_read_calls, sparse_read_bytes) =
         fylura_tauri::platform::macos::copy::copy_io_metrics();
     assert!(
@@ -390,11 +462,85 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
         sparse_target_metadata.blocks()
     );
     println!(
-        "macOS native performance sparseClone sizeBytes={sparse_size} sourceBlocks={} targetBlocks={} elapsedMs={} readCalls={sparse_read_calls} readBytes={sparse_read_bytes} sequentialReadBounded=true",
+        "macOS native performance sparseClone sizeBytes={sparse_size} sourceBlocks={} targetBlocks={} elapsedMs={} readCalls={sparse_read_calls} readBytes={sparse_read_bytes} contentVerified=true sequentialReadBounded=true",
         sparse_source_metadata.blocks(),
         sparse_target_metadata.blocks(),
         sparse_start.elapsed().as_millis()
     );
+
+    let threshold_source = root.join("directory-5000");
+    let threshold_target_parent = root.join("directory-5000-destination");
+    fs::create_dir_all(&threshold_source).expect("5,000-entry source");
+    fs::create_dir_all(&threshold_target_parent).expect("5,000-entry destination");
+    for index in 0..5_000_u32 {
+        fs::write(
+            threshold_source.join(format!("entry-{index:05}.bin")),
+            index.to_le_bytes(),
+        )
+        .expect("5,000-entry fixture");
+    }
+    let threshold_5000_start = Instant::now();
+    let threshold_5000_result =
+        execute_native_transfer_copy(&db, &threshold_source, &threshold_target_parent);
+    let threshold_5000_elapsed = threshold_5000_start.elapsed().as_millis();
+    assert_eq!(threshold_5000_result.logs[0].status, "success");
+    let threshold_5000_target = threshold_target_parent.join("directory-5000");
+    assert_eq!(
+        fs::read_dir(&threshold_5000_target)
+            .expect("5,000 copy")
+            .count(),
+        5_000
+    );
+    for index in 0..5_000_u32 {
+        assert_eq!(
+            fs::read(threshold_5000_target.join(format!("entry-{index:05}.bin")))
+                .expect("5,000 copied entry"),
+            index.to_le_bytes()
+        );
+    }
+
+    fs::write(
+        threshold_source.join("entry-05000.bin"),
+        5_000_u32.to_le_bytes(),
+    )
+    .expect("cross former limit");
+    let reverse_source = root.join("directory-5001-reverse-order");
+    fs::create_dir_all(&reverse_source).expect("reverse-order identity source");
+    for index in (0..5_001_u32).rev() {
+        fs::write(
+            reverse_source.join(format!("entry-{index:05}.bin")),
+            index.to_le_bytes(),
+        )
+        .expect("reverse-order identity entry");
+    }
+    let forward_identity = fylura_tauri::fs_safety::capture_identity(&threshold_source, None)
+        .expect("forward large-directory identity");
+    let reverse_identity = fylura_tauri::fs_safety::capture_identity(&reverse_source, None)
+        .expect("reverse large-directory identity");
+    assert_eq!(forward_identity.size, reverse_identity.size);
+    assert_eq!(forward_identity.sample_hash, reverse_identity.sample_hash);
+    assert_eq!(forward_identity.full_hash, reverse_identity.full_hash);
+    let threshold_5001_parent = root.join("directory-5001-destination");
+    fs::create_dir_all(&threshold_5001_parent).expect("5,001-entry destination");
+    let threshold_5001_start = Instant::now();
+    let threshold_5001_result =
+        execute_native_transfer_copy(&db, &threshold_source, &threshold_5001_parent);
+    let threshold_5001_elapsed = threshold_5001_start.elapsed().as_millis();
+    assert_eq!(threshold_5001_result.logs[0].status, "success");
+    let threshold_5001_target = threshold_5001_parent.join("directory-5000");
+    assert_eq!(
+        fs::read_dir(&threshold_5001_target)
+            .expect("5,001 copy")
+            .count(),
+        5_001
+    );
+    for index in 0..5_001_u32 {
+        assert_eq!(
+            fs::read(threshold_5001_target.join(format!("entry-{index:05}.bin")))
+                .expect("5,001 copied entry"),
+            index.to_le_bytes()
+        );
+    }
 
     let directory_source = root.join("directory-100k");
     let streaming_destination = root.join("directory-100k-destination-streaming");
@@ -434,11 +580,12 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
             },
         )
     };
+    let resources_before_copy = native_process_resources();
     fylura_tauri::platform::macos::copy::set_directory_tree_clone_enabled_for_qa(false);
     let streaming_resources = NativeProcessMonitor::start();
     let streaming_start = Instant::now();
     let streaming_preview_start = Instant::now();
-    let streaming_preview = fylura_tauri::file_ops::native_qa_transfer_copy_preview(
+    let streaming_preview = native_qa_transfer_copy_preview(
         &directory_source,
         &streaming_destination,
     )
@@ -454,6 +601,7 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     let streaming_resource_report =
         native_copy_resources::format_native_process_stats(streaming_resource_stats);
     assert_eq!(streaming_result.logs[0].status, "success");
+    assert_eq!(streaming_result.logs[0].operation_phase, "completed");
     let (streaming_read_calls, streaming_read_bytes) =
         fylura_tauri::platform::macos::copy::copy_io_metrics();
     let streaming_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
@@ -462,11 +610,9 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     let clone_resources = NativeProcessMonitor::start();
     let clone_start = Instant::now();
     let clone_preview_start = Instant::now();
-    let clone_preview = fylura_tauri::file_ops::native_qa_transfer_copy_preview(
-        &directory_source,
-        &clone_destination,
-    )
-    .expect("large directory APFS Clone preview");
+    let clone_preview =
+        native_qa_transfer_copy_preview(&directory_source, &clone_destination)
+            .expect("large directory APFS Clone preview");
     let clone_preview_elapsed = clone_preview_start.elapsed();
     fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
     fylura_tauri::platform::macos::copy::reset_copy_io_metrics();
@@ -477,17 +623,30 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     let clone_resource_report =
         native_copy_resources::format_native_process_stats(clone_resource_stats);
     assert_eq!(clone_result.logs[0].status, "success");
+    assert_eq!(clone_result.logs[0].operation_phase, "completed");
     let (clone_read_calls, clone_read_bytes) =
         fylura_tauri::platform::macos::copy::copy_io_metrics();
     let (clone_successes, clone_fallbacks) =
         fylura_tauri::platform::macos::copy::directory_tree_clone_metrics();
     let clone_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
+    assert!(streaming_read_bytes >= 256 * 1024 * 1024);
+    assert!(clone_successes > 0, "APFS clone path was not exercised");
 
+    let validation_start = Instant::now();
+    let source_identity = fylura_tauri::fs_safety::capture_identity(&directory_source, None)
+        .expect("large directory source identity");
     for target in [&streaming_target, &clone_target] {
-        let copied_entries = fs::read_dir(target)
-            .expect("copied large directory")
-            .count();
-        assert_eq!(copied_entries, 100_000);
+        assert_eq!(
+            fs::read_dir(target).expect("copied large directory").count(),
+            100_000
+        );
+        let target_identity = fylura_tauri::fs_safety::capture_identity(target, None)
+            .expect("large directory target identity");
+        assert_eq!(
+            target_identity.full_hash, source_identity.full_hash,
+            "copied directory differs from its source"
+        );
+        assert_eq!(target_identity.size, source_identity.size);
         let copied_hardlink_source =
             fs::metadata(target.join("hardlink-source.bin")).expect("copied hardlink source");
         let copied_hardlink_alias =
@@ -497,13 +656,41 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
             std::os::unix::fs::MetadataExt::ino(&copied_hardlink_alias),
             "hardlink topology was not preserved"
         );
+        assert_eq!(
+            fs::read(target.join("hardlink-source.bin")).expect("copied hardlink payload"),
+            b"hardlink topology fixture"
+        );
+        assert_eq!(
+            fs::metadata(target.join("large-payload.bin"))
+                .expect("copied payload metadata")
+                .len(),
+            256 * 1024 * 1024
+        );
     }
-    assert!(streaming_read_bytes >= 256 * 1024 * 1024);
-    assert!(clone_successes > 0, "APFS clone path was not exercised");
+    let directory_validation_elapsed = validation_start.elapsed();
+    let resources_after_copy = native_process_resources();
+    assert!(
+        resources_after_copy.1 <= resources_before_copy.1 + 2,
+        "directory copy leaked descriptors: before={} after={}",
+        resources_before_copy.1,
+        resources_after_copy.1
+    );
+    let persisted_logs = db
+        .get_operation_logs(Some(100))
+        .expect("read 100,000-entry copy history");
+    for result in [&streaming_result, &clone_result] {
+        let persisted = persisted_logs
+            .iter()
+            .find(|log| log.id == result.logs[0].id)
+            .expect("persisted large-directory copy history");
+        assert_eq!(persisted.status, "success");
+        assert_eq!(persisted.operation_phase, "completed");
+    }
+
     let streaming_seconds = streaming_elapsed.as_secs_f64().max(0.001);
     let clone_seconds = clone_elapsed.as_secs_f64().max(0.001);
     println!(
-        "macOS native performance directory100k entries=100000 payloadBytes={} streamingPreviewMs={} streamingElapsedMs={} streamingFilesPerSecond={:.1} streamingPayloadMiBPerSecond={:.1} streamingReadCalls={} streamingReadBytes={} streamingPhaseTimingsNs={streaming_phase_timings:?} streamingResources={streaming_resource_report} clonePreviewMs={} cloneElapsedMs={} cloneFilesPerSecond={:.1} clonePayloadMiBPerSecond={:.1} cloneReadCalls={} cloneReadBytes={} clonePhaseTimingsNs={clone_phase_timings:?} cloneResources={clone_resource_report} cloneSuccesses={} cloneFallbacks={} sameSourceAndValidation=true",
+        "macOS native performance directory100k entries=100000 payloadBytes={} streamingPreviewMs={} streamingElapsedMs={} streamingFilesPerSecond={:.1} streamingPayloadMiBPerSecond={:.1} streamingReadCalls={} streamingReadBytes={} streamingPhaseTimingsNs={streaming_phase_timings:?} streamingResources={streaming_resource_report} clonePreviewMs={} cloneElapsedMs={} cloneFilesPerSecond={:.1} clonePayloadMiBPerSecond={:.1} cloneReadCalls={} cloneReadBytes={} clonePhaseTimingsNs={clone_phase_timings:?} cloneResources={clone_resource_report} cloneSuccesses={} cloneFallbacks={} commonTreeHashValidationMs={} openFdsBefore={} openFdsAfter={} sourceRetained=true hardlinkTopologyVerified=true",
         256_u64 * 1024 * 1024,
         streaming_preview_elapsed.as_millis(),
         streaming_elapsed.as_millis(),
@@ -519,6 +706,128 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
         clone_read_bytes,
         clone_successes,
         clone_fallbacks,
+        directory_validation_elapsed.as_millis(),
+        resources_before_copy.1,
+        resources_after_copy.1,
+    );
+
+    let changed_source = root.join("directory-source-changed");
+    let changed_target_parent = root.join("directory-source-changed-destination");
+    fs::create_dir_all(&changed_source).expect("changed source");
+    fs::create_dir_all(&changed_target_parent).expect("changed destination");
+    fs::write(changed_source.join("entry.txt"), b"before").expect("changed fixture");
+    let changed_preview = native_qa_transfer_copy_preview(&changed_source, &changed_target_parent)
+        .expect("preview source-change copy");
+    fs::write(changed_source.join("entry.txt"), b"changed after preview")
+        .expect("mutate source after preview");
+    let changed_error = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![changed_preview],
+        },
+    )
+    .expect_err("source change after preview must invalidate the operation");
+    assert!(
+        changed_error.contains("operation_preview_stale"),
+        "unexpected source-change rejection: {changed_error}"
+    );
+    assert!(changed_source.exists());
+    assert!(!changed_target_parent
+        .join("directory-source-changed")
+        .exists());
+
+    let conflict_source = root.join("directory-conflict-source");
+    let conflict_target_parent = root.join("directory-conflict-destination");
+    fs::create_dir_all(&conflict_source).expect("conflict source");
+    fs::create_dir_all(&conflict_target_parent).expect("conflict destination");
+    fs::write(conflict_source.join("entry.txt"), b"source").expect("conflict fixture");
+    let conflict_preview =
+        native_qa_transfer_copy_preview(&conflict_source, &conflict_target_parent)
+            .expect("preview conflict copy");
+    let conflict_target = conflict_target_parent.join("directory-conflict-source");
+    fs::create_dir(&conflict_target).expect("create target conflict after preview");
+    fs::write(conflict_target.join("existing.txt"), b"keep").expect("conflict target");
+    let conflict_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![conflict_preview],
+        },
+    )
+    .expect("target-conflict outcome");
+    assert_ne!(conflict_result.logs[0].status, "success");
+    assert_eq!(
+        fs::read(conflict_target.join("existing.txt")).expect("preserved conflict"),
+        b"keep"
+    );
+    assert!(conflict_source.exists());
+
+    let unsupported_source = root.join("directory-unsupported-source");
+    let unsupported_target_parent = root.join("directory-unsupported-destination");
+    fs::create_dir_all(&unsupported_source).expect("unsupported source");
+    fs::create_dir_all(&unsupported_target_parent).expect("unsupported destination");
+    std::os::unix::fs::symlink(root.join("missing-target"), unsupported_source.join("link"))
+        .expect("unsupported symlink fixture");
+    assert!(
+        native_qa_transfer_copy_preview(&unsupported_source, &unsupported_target_parent).is_err()
+    );
+
+    let cancel_source = root.join("directory-cancel-source");
+    let cancel_target_parent = root.join("directory-cancel-destination");
+    fs::create_dir_all(&cancel_source).expect("cancel source directory");
+    fs::create_dir_all(&cancel_target_parent).expect("cancel target directory");
+    for index in 0..256_u32 {
+        fs::write(
+            cancel_source.join(format!("entry-{index:04}.bin")),
+            index.to_le_bytes(),
+        )
+        .expect("cancel entry");
+    }
+    let cancel_preview = native_qa_transfer_copy_preview(&cancel_source, &cancel_target_parent)
+        .expect("preview cancellable copy");
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let cancel_emitter = CancelAfterDirectoryProgress {
+        cancel: Arc::clone(&cancel_flag),
+        triggered: std::sync::atomic::AtomicBool::new(false),
+    };
+    let cancel_result = native_qa_execute_moves_with_persistence_progress(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![cancel_preview.clone()],
+        },
+        cancel_flag,
+        &cancel_emitter,
+    )
+    .expect("mid-copy cancellation outcome");
+    assert!(cancel_emitter
+        .triggered
+        .load(std::sync::atomic::Ordering::Acquire));
+    assert_ne!(cancel_result.logs[0].status, "success");
+    assert!(cancel_source.exists());
+    assert!(!cancel_target_parent
+        .join("directory-cancel-source")
+        .exists());
+    let persisted_cancel = db
+        .get_operation_logs(Some(100))
+        .expect("read cancellation journal")
+        .into_iter()
+        .find(|log| log.id == cancel_result.logs[0].id)
+        .expect("persisted cancellation operation");
+    assert_eq!(persisted_cancel.status, cancel_result.logs[0].status);
+    assert_eq!(
+        persisted_cancel.operation_phase,
+        cancel_result.logs[0].operation_phase
+    );
+    assert_eq!(
+        fs::read_dir(&cancel_target_parent)
+            .expect("profile root after cancellation")
+            .filter_map(Result::ok)
+            .filter(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".zen-canvas-stage-"))
+            .count(),
+        0,
+        "cancelled copy left a staging directory"
     );
 
     let canceled_source = root.join("canceled-source.txt");
@@ -544,9 +853,9 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     assert!(canceled_source.exists());
     assert!(!canceled_target.exists());
     println!(
-        "macOS native performance directory100k validationEntries=100000 streamingElapsedMs={} cloneElapsedMs={} nameMemoryBudgetBytes=67108864 hardlinkTopologyVerified=true cancellationBoundaryVerified=true",
-        streaming_elapsed.as_millis(),
-        clone_elapsed.as_millis(),
+        "macOS native performance directoryCopyBoundary entries=5000,5001 elapsed5000Ms={} elapsed5001Ms={} contentVerified=true",
+        threshold_5000_elapsed,
+        threshold_5001_elapsed
     );
-    fs::remove_dir_all(root).expect("remove native copy profile");
+    println!("macOS native validation directory100k cancellationBoundaryVerified=true");
 }

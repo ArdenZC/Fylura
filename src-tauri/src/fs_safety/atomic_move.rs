@@ -89,6 +89,10 @@ pub enum AtomicMoveError {
     UnsafePath,
     #[error("directory_tree_limit_exceeded")]
     DirectoryTreeLimitExceeded,
+    #[error("directory_hardlink_index_limit_exceeded")]
+    DirectoryHardlinkIndexLimitExceeded,
+    #[error("directory_staging_cleanup_pending: {0}")]
+    StagingCleanupPending(String),
     #[error("directory_nested_volume_unsupported")]
     DirectoryNestedVolumeUnsupported,
     #[error("windows_special_metadata_unsupported:{0}")]
@@ -140,6 +144,7 @@ impl AtomicMoveError {
             Self::TargetCommittedDurabilityUnknown | Self::TargetCommittedIdentityMismatch => {
                 AtomicMoveCommitState::ManualReview
             }
+            Self::StagingCleanupPending(_) => AtomicMoveCommitState::ManualReview,
             Self::SourceClaimRecoveryRequired(_) | Self::SourceClaimRollbackFailed(_) => {
                 AtomicMoveCommitState::SourceClaimed
             }
@@ -152,6 +157,9 @@ impl AtomicMoveError {
     }
 
     pub fn is_post_commit(&self) -> bool {
+        if matches!(self, Self::StagingCleanupPending(_)) {
+            return false;
+        }
         matches!(
             self.commit_state(),
             AtomicMoveCommitState::TargetCommitted

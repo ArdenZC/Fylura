@@ -10,12 +10,11 @@ use thiserror::Error;
 
 const SAMPLE_SIZE: u64 = 1024 * 1024;
 const HASH_BUFFER_SIZE: usize = 1024 * 1024;
+pub const DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE: usize = 5000;
 pub const DIRECTORY_IDENTITY_DEPTH_LIMIT: usize = 64;
 pub const DIRECTORY_ENTRY_NAME_MEMORY_BUDGET_BYTES: usize = 64 * 1024 * 1024;
 
-/// Tracks directory-name storage retained by active traversal frames and
-/// hardlink maps. The budget is shared across recursion, so nested wide
-/// directories cannot each consume the full allowance simultaneously.
+/// Bounds directory-name storage kept by active traversal frames.
 #[derive(Default)]
 pub struct DirectoryEntryNameBudget {
     used_bytes: usize,
@@ -23,8 +22,6 @@ pub struct DirectoryEntryNameBudget {
 
 impl DirectoryEntryNameBudget {
     pub fn reserve(&mut self, name_bytes: usize) -> Option<usize> {
-        // Account for the name allocation, its Vec entry, and allocator
-        // overhead rather than imposing a fixed number-of-files ceiling.
         let reserved = name_bytes.checked_add(128)?;
         let next = self.used_bytes.checked_add(reserved)?;
         if next > DIRECTORY_ENTRY_NAME_MEMORY_BUDGET_BYTES {
@@ -496,10 +493,18 @@ fn hash_directory(
 ) -> Result<(u64, String, String), IdentityError> {
     let metadata = fs::symlink_metadata(path)?;
     let root_volume = platform_volume_id(path, &metadata);
-    let mut name_budget = DirectoryEntryNameBudget::default();
-    hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut name_budget)
+    #[cfg(target_os = "macos")]
+    let mut entry_count = 0usize;
+    #[cfg(target_os = "macos")]
+    hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut entry_count)
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut name_budget = DirectoryEntryNameBudget::default();
+        hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut name_budget)
+    }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn hash_directory_at(
     path: &Path,
     cancel: Option<&AtomicBool>,
@@ -521,21 +526,12 @@ fn hash_directory_at(
         let entry = entry?;
         let name = entry.file_name();
         let raw_name = raw_os_name_bytes(&name)?;
-        // `raw_name` is kept beside the `DirEntry`, which retains its own
-        // encoded name allocation until this directory frame is released.
-        let retained_name_bytes =
-            raw_name
-                .len()
-                .checked_mul(2)
-                .ok_or(IdentityError::ContentReadRejected(
-                    "directory_entry_memory_budget_exceeded",
-                ))?;
-        let reserved =
-            name_budget
-                .reserve(retained_name_bytes)
-                .ok_or(IdentityError::ContentReadRejected(
-                    "directory_entry_memory_budget_exceeded",
-                ))?;
+        let retained_name_bytes = raw_name.len().checked_mul(2).ok_or(
+            IdentityError::ContentReadRejected("directory_entry_memory_budget_exceeded"),
+        )?;
+        let reserved = name_budget.reserve(retained_name_bytes).ok_or(
+            IdentityError::ContentReadRejected("directory_entry_memory_budget_exceeded"),
+        )?;
         if entries_with_names.try_reserve(1).is_err() {
             name_budget.release(reserved);
             return Err(IdentityError::ContentReadRejected(
@@ -545,7 +541,7 @@ fn hash_directory_at(
         reserved_name_bytes = reserved_name_bytes.saturating_add(reserved);
         entries_with_names.push((raw_name, entry));
     }
-    entries_with_names.sort_unstable_by(|(left_name, left), (right_name, right)| {
+    entries_with_names.sort_by(|(left_name, left), (right_name, right)| {
         left_name
             .cmp(right_name)
             .then_with(|| left.path().cmp(&right.path()))
@@ -610,6 +606,264 @@ fn hash_directory_at(
         sample_hasher.finalize().to_hex().to_string(),
         full_hasher.finalize().to_hex().to_string(),
     ))
+}
+
+#[cfg(target_os = "macos")]
+fn hash_directory_at(
+    path: &Path,
+    cancel: Option<&AtomicBool>,
+    depth: usize,
+    root_volume: Option<&str>,
+    entry_count: &mut usize,
+) -> Result<(u64, String, String), IdentityError> {
+    if depth >= DIRECTORY_IDENTITY_DEPTH_LIMIT {
+        return Err(IdentityError::ContentReadRejected(
+            "directory_depth_limit_exceeded",
+        ));
+    }
+
+    // Preserve the sorted v1 identity for directories up to the former limit.
+    // Once a directory exceeds that bound, switch to a commutative v2
+    // manifest, keeping only the first bounded batch of names in memory.
+    let mut iterator = fs::read_dir(path)?;
+    let mut pending = Vec::with_capacity(DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE);
+    let mut total_size = 0_u64;
+    loop {
+        if is_cancelled(cancel) {
+            return Err(IdentityError::Cancelled);
+        }
+        let Some(entry) = iterator.next() else {
+            break;
+        };
+        let entry = entry?;
+        *entry_count = (*entry_count).saturating_add(1);
+        let child_name = entry.file_name();
+        if pending.len() < DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE {
+            pending.push(child_name);
+            continue;
+        }
+
+        let mut sample_manifest = OrderIndependentDigest::default();
+        let mut full_manifest = OrderIndependentDigest::default();
+        for name in pending.drain(..) {
+            let raw_name = raw_os_name_bytes(&name)?;
+            let child_path = path.join(&name);
+            let child = hash_directory_child(&child_path, cancel, depth, root_volume, entry_count)?;
+            total_size = total_size.saturating_add(child.size);
+            update_unordered_directory_entry(
+                &mut sample_manifest,
+                &raw_name,
+                child.kind,
+                child.size,
+                &child.sample_hash,
+            );
+            update_unordered_directory_entry(
+                &mut full_manifest,
+                &raw_name,
+                child.kind,
+                child.size,
+                &child.full_hash,
+            );
+        }
+        let child_path = path.join(&child_name);
+        let raw_name = raw_os_name_bytes(&child_name)?;
+        let child = hash_directory_child(&child_path, cancel, depth, root_volume, entry_count)?;
+        total_size = total_size.saturating_add(child.size);
+        update_unordered_directory_entry(
+            &mut sample_manifest,
+            &raw_name,
+            child.kind,
+            child.size,
+            &child.sample_hash,
+        );
+        update_unordered_directory_entry(
+            &mut full_manifest,
+            &raw_name,
+            child.kind,
+            child.size,
+            &child.full_hash,
+        );
+
+        for entry in iterator {
+            if is_cancelled(cancel) {
+                return Err(IdentityError::Cancelled);
+            }
+            let entry = entry?;
+            *entry_count = (*entry_count).saturating_add(1);
+            let child_name = entry.file_name();
+            let name = raw_os_name_bytes(&child_name)?;
+            let child_path = path.join(&child_name);
+            let child = hash_directory_child(&child_path, cancel, depth, root_volume, entry_count)?;
+            total_size = total_size.saturating_add(child.size);
+            update_unordered_directory_entry(
+                &mut sample_manifest,
+                &name,
+                child.kind,
+                child.size,
+                &child.sample_hash,
+            );
+            update_unordered_directory_entry(
+                &mut full_manifest,
+                &name,
+                child.kind,
+                child.size,
+                &child.full_hash,
+            );
+        }
+        return Ok((
+            total_size,
+            sample_manifest.finalize_hex(b"directory-sample-v2\0"),
+            full_manifest.finalize_hex(b"directory-full-v2\0"),
+        ));
+    }
+
+    pending.sort();
+    let mut size = 0_u64;
+    let mut sample_hasher = blake3::Hasher::new();
+    let mut full_hasher = blake3::Hasher::new();
+    sample_hasher.update(b"directory\0");
+    full_hasher.update(b"directory\0");
+    for child_name in pending {
+        if is_cancelled(cancel) {
+            return Err(IdentityError::Cancelled);
+        }
+        let raw_name = raw_os_name_bytes(&child_name)?;
+        let child_path = path.join(&child_name);
+        let child = hash_directory_child(&child_path, cancel, depth, root_volume, entry_count)?;
+        size = size.saturating_add(child.size);
+        update_directory_entry(
+            &mut sample_hasher,
+            &raw_name,
+            child.kind,
+            child.size,
+            &child.sample_hash,
+        );
+        update_directory_entry(
+            &mut full_hasher,
+            &raw_name,
+            child.kind,
+            child.size,
+            &child.full_hash,
+        );
+    }
+    Ok((
+        size,
+        sample_hasher.finalize().to_hex().to_string(),
+        full_hasher.finalize().to_hex().to_string(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+struct DirectoryChildIdentity {
+    size: u64,
+    kind: &'static [u8],
+    sample_hash: Vec<u8>,
+    full_hash: Vec<u8>,
+}
+
+#[cfg(target_os = "macos")]
+fn hash_directory_child(
+    child_path: &Path,
+    cancel: Option<&AtomicBool>,
+    parent_depth: usize,
+    root_volume: Option<&str>,
+    entry_count: &mut usize,
+) -> Result<DirectoryChildIdentity, IdentityError> {
+    let child_metadata = fs::symlink_metadata(child_path)?;
+    let child_volume = platform_volume_id(child_path, &child_metadata);
+    if root_volume.is_some() && child_volume.as_deref() != root_volume {
+        return Err(IdentityError::ContentReadRejected(
+            "nested_volume_entry_unsupported",
+        ));
+    }
+    let (child, kind) = if child_metadata.is_dir() {
+        let (size, sample_hash, full_hash) = hash_directory_at(
+            child_path,
+            cancel,
+            parent_depth + 1,
+            root_volume,
+            entry_count,
+        )?;
+        (
+            ExpectedFileIdentity {
+                size,
+                modified_ns: modified_ns(&child_metadata),
+                platform_volume_id: child_volume,
+                platform_file_id: platform_file_id(child_path, &child_metadata),
+                sample_hash: Some(sample_hash),
+                full_hash: Some(full_hash),
+            },
+            b"dir\0".as_slice(),
+        )
+    } else {
+        let child = capture_namespace_identity(child_path, cancel)?;
+        let kind = if child_metadata.file_type().is_symlink() {
+            b"symlink\0".as_slice()
+        } else {
+            b"file\0".as_slice()
+        };
+        (child, kind)
+    };
+    Ok(DirectoryChildIdentity {
+        size: child.size,
+        kind,
+        sample_hash: child.sample_hash.unwrap_or_default().into_bytes(),
+        full_hash: child.full_hash.unwrap_or_default().into_bytes(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn update_unordered_directory_entry(
+    digest: &mut OrderIndependentDigest,
+    raw_name: &[u8],
+    kind: &[u8],
+    size: u64,
+    child_hash: &[u8],
+) {
+    let mut entry = blake3::Hasher::new();
+    update_directory_entry(&mut entry, raw_name, kind, size, child_hash);
+    digest.update_hash(entry.finalize());
+}
+
+/// A bounded-memory multiset digest for directory manifests whose filesystem
+/// enumeration order is not stable. Every member is independently hashed;
+/// sum and xor accumulators preserve multiplicity without storing the members.
+#[derive(Default)]
+pub(crate) struct OrderIndependentDigest {
+    sum: [u64; 4],
+    xor: [u64; 4],
+    count: u64,
+}
+
+impl OrderIndependentDigest {
+    pub(crate) fn update_bytes(&mut self, bytes: &[u8]) {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"manifest-member-v1\0");
+        hasher.update(bytes);
+        self.update_hash(hasher.finalize());
+    }
+
+    fn update_hash(&mut self, hash: blake3::Hash) {
+        for (index, chunk) in hash.as_bytes().chunks_exact(8).enumerate() {
+            let mut bytes = [0_u8; 8];
+            bytes.copy_from_slice(chunk);
+            let value = u64::from_le_bytes(bytes);
+            self.sum[index] = self.sum[index].wrapping_add(value);
+            self.xor[index] ^= value;
+        }
+        self.count = self.count.saturating_add(1);
+    }
+
+    pub(crate) fn finalize_hex(&self, domain: &[u8]) -> String {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"order-independent-manifest-v1\0");
+        hasher.update(domain);
+        hasher.update(&self.count.to_le_bytes());
+        for value in self.sum.iter().chain(self.xor.iter()) {
+            hasher.update(&value.to_le_bytes());
+        }
+        hasher.finalize().to_hex().to_string()
+    }
 }
 
 fn update_directory_entry(
@@ -793,6 +1047,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn directory_identity_accepts_more_than_the_old_entry_limit() {
         let root = fixture("entry-limit-removed");
         for index in 0..5_001 {
@@ -803,6 +1058,46 @@ mod tests {
             capture_identity(&root, None).expect("directory identity above 5,000 entries");
         assert!(identity.full_hash.is_some());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn directory_identity_streams_past_the_former_entry_limit() {
+        let root = fixture("streamed-entry-limit");
+        for index in 0..=DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE {
+            fs::write(root.join(format!("entry-{index:04}")), index.to_le_bytes()).expect("entry");
+        }
+
+        let identity = capture_identity(&root, None).expect("large directory identity");
+        assert!(identity.full_hash.is_some());
+        assert_eq!(
+            identity.size,
+            (DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE as u64 + 1) * std::mem::size_of::<usize>() as u64
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn order_independent_manifest_keeps_order_and_multiplicity() {
+        let mut first = OrderIndependentDigest::default();
+        first.update_bytes(b"alpha");
+        first.update_bytes(b"beta");
+        first.update_bytes(b"alpha");
+
+        let mut reordered = OrderIndependentDigest::default();
+        reordered.update_bytes(b"alpha");
+        reordered.update_bytes(b"alpha");
+        reordered.update_bytes(b"beta");
+
+        let mut missing_duplicate = OrderIndependentDigest::default();
+        missing_duplicate.update_bytes(b"alpha");
+        missing_duplicate.update_bytes(b"beta");
+
+        assert_eq!(first.finalize_hex(b"test"), reordered.finalize_hex(b"test"));
+        assert_ne!(
+            first.finalize_hex(b"test"),
+            missing_duplicate.finalize_hex(b"test")
+        );
     }
 
     #[test]

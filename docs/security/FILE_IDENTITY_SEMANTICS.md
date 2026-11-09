@@ -50,11 +50,26 @@ trusted identity.
 ## Directory identity
 
 Directories use a stable recursive manifest when content verification is part
-of the operation policy. Entries are sorted by filename; each manifest record
-includes the filename, entry type, byte-size contribution and child content
-hash. Same-volume directory namespace operations use the root namespace
-identity and do not recursively hash the tree. Symlinks, Windows reparse
-points and unsupported special entries are rejected instead of being followed.
+of the operation policy. Each directory with at most 5,000 direct entries keeps
+the sorted v1 encoding. On macOS, a directory with more direct entries switches
+to a domain-separated v2 multiset digest: each entry still commits its filename,
+type, byte-size contribution and child content hash, while fixed-size sum/xor
+accumulators make enumeration order irrelevant without retaining all entries.
+The full directory identity still hashes every regular file completely; v2 does
+not substitute metadata or a sample for content verification. Per-directory
+name buffering is capped, recursion remains capped at depth 64, and nested
+volumes are rejected.
+
+The manual Transfer Preview has a separate metadata snapshot. It preserves the
+sorted legacy fingerprint through 5,000 entries and uses the same bounded,
+order-independent construction for larger macOS trees. Revalidation recomputes
+that snapshot before execution. Same-volume directory namespace operations use
+the root namespace identity and do not recursively hash the tree. Copy rejects
+symlinks, nested volumes and unsupported special entries instead of following
+or materializing them. macOS copy enumerates and removes staged directory
+entries incrementally. It retains only the bounded index needed to preserve
+hard-link groups; the index has explicit group-count and path-byte caps and
+fails safely if those caps are exceeded.
 
 ## Fail-closed comparison
 

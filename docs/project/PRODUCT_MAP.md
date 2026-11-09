@@ -1,6 +1,6 @@
 # Fylura Product Map
 
-Fylura is a local-first personal file lifecycle assistant. It does not replace Finder or File Explorer as the operating system's canonical filesystem browser. It adds managed indexing, review, content preview, safe execution and recovery around user files.
+Fylura is a local-first personal file manager and file lifecycle assistant. **Files aims to replace Finder/File Explorer for users' everyday file-management workflows** on supported Windows and Apple Silicon macOS, while preserving each OS's shell, file associations and mounting services. Managed indexing, content preview, safe operations/recovery and AI features build on that ordinary file-manager baseline; Fylura does not replace the OS shell process.
 
 This map describes product ownership. Durable implementation authority is defined in `ARCHITECTURE_MAP.md`. Current initiative/Track state remains owned by `STATUS.md`.
 
@@ -40,6 +40,29 @@ Managed Library Query V2 / LibrarySelectionV1 / tags / Saved Views
 - **Managed Library** retains Query V2, LibrarySelectionV1 and existing durable metadata, records and compatibility. Hiding its ordinary mode switch **does not authorize removing or rewriting those authorities or user data**.
 - The user can run one-off AI Organize and AI Cleanup directly against a selected folder/file set; Organize accepts a selected folder’s direct contents (up to 100 entries) through versioned Plan snapshots and explicit metadata AI consent; subfolders stay in place. Cleanup’s ordinary-folder workflow is the next milestone. Neither requires Managed admission.
 - Window/shell presentation can be shared, but durable Managed identity and session Browse identity remain separate.
+
+## Files parity and connected storage (Owner direction 2026-11-09)
+
+**Required product outcome:** a user can use Fylura Files as their primary everyday file manager without repeatedly returning to Explorer or Finder. The expectation is functional parity for common tasks, not shell-process replacement, takeover of system defaults or unsupported promises of complete OS API equivalence. Track delivery/qualification in [Files parity #553](https://github.com/ArdenZC/Fylura/issues/553) alongside [product inventory #512](https://github.com/ArdenZC/Fylura/issues/512) and [native E2E #487](https://github.com/ArdenZC/Fylura/issues/487). This section is a **target and acceptance contract, not a statement that the features are already complete**.
+
+### Beta-blocking basic Files workflows (P0)
+
+- Open files with the OS-associated default application through double-click/Enter; enter folders through double-click/Enter; offer context Open/Open with/Reveal. Space remains Zen Quick Preview, not an OS file launch.
+- Navigate mounted drives and folders, show file types/metadata, create/rename/copy/cut/paste/move/delete/restore files and directories, use system clipboard and drag interoperability, and offer ordinary keyboard shortcuts.
+- Browse list/grid and details columns must support name, type/extension, size, **creation time** and modified time, both sort directions and folders-first. Sorting must apply to the authoritative directory/result set, not only currently loaded rows. The current Browse sort fields lack creation time; hidden Managed Library support does not count as a visible Files implementation.
+- Common operations should not require redundant preview-confirm clicks when no user decision is needed; retain existing backend Preview/Revalidation/Journal/History/Restore. Clarify OS Recycle Bin/Trash semantics versus the existing app-managed Safe Trash.
+
+### Accessible source types and boundaries
+
+| Source | Required everyday Files behavior | Boundary / qualification |
+| --- | --- | --- |
+| Local fixed drives | Browse, open, preview and common mutations | Respect filesystem/permission capabilities and platform-specific metadata |
+| Removable USB/SSD/HDD/SD media | Discover mounted volumes; show device location; browse/open/copy/move/delete; report hot-plug, disconnect, capacity and read-only failures; safe eject where supported | Never trust a reused drive letter/mountpoint as the same physical source; cross-volume mutation must preserve existing operation and recovery authority |
+| Mounted SMB/NAS | Browse and supported operations with clear offline, reconnection, credentials and permission states | Network provider semantics can be weaker than local filesystem; don't claim guaranteed Restore when not available |
+| Mounted cloud clients (e.g. Google Drive Desktop, OneDrive, Dropbox) | Browse provider-exposed folders/virtual drives, open on explicit user action, transfer files where supported, show unavailable/online-only/download state | Respect on-demand hydration; no implicit mass downloads from thumbnail, preview or background search/indexing; no unverified offline guarantees |
+| Direct native cloud accounts (P1 after mounted source P0) | User-opt-in login, browse, upload/download and supported file modifications | Dedicated provider OAuth and scopes, token revocation, pagination/rate-limit/conflict/transfer recovery; assess official APIs individually, no mandatory paid service |
+
+**Discovery is not authorization.** Plugging in a device, mounting a share, or making a cloud client folder visible must not automatically enroll that source into Global Index, Managed Library or AI analysis; cloud-only entries must not be eagerly hydrated. Source identity, capabilities, authorization and stale-entry checks remain backend-owned. Native installed-app tests on Windows and supported Apple Silicon macOS are required before any complete parity/Beta claim.
 
 ## Cross-cutting and contextual surfaces
 

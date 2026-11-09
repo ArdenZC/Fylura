@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$Child,
+    [switch]$CopyPerformanceProfile,
     [string]$ConfigPath
 )
 
@@ -22,7 +23,13 @@ if ($Child) {
     $env:ZC_NATIVE_QA_REQUIRE_CROSS_VOLUME = "1"
     $env:ZC_NATIVE_QA_ARTIFACT_ROOT = $config.EvidenceRoot
     $env:ZEN_CANVAS_NATIVE_QA_SECONDARY_TEMP = $config.SecondaryRoot
-    $env:ZC_WINDOWS_NATIVE_COPY_PROFILE = "1"
+    # The 1 GiB + 100k legacy/optimized/Robocopy comparison takes tens of
+    # minutes. Run it only in the dedicated on-demand copy-performance workflow.
+    if ($config.CopyPerformanceProfile -eq $true) {
+        $env:ZC_WINDOWS_NATIVE_COPY_PROFILE = "1"
+    } else {
+        Remove-Item Env:ZC_WINDOWS_NATIVE_COPY_PROFILE -ErrorAction SilentlyContinue
+    }
 
     $tokenOutput = (& whoami.exe /all 2>&1 | Out-String)
     Set-Content -LiteralPath (Join-Path $config.EvidenceRoot "native-file-hardening-whoami.txt") -Value $tokenOutput -Encoding utf8
@@ -121,6 +128,7 @@ try {
         SourceTemp = $sourceTemp
         SecondaryRoot = $secondaryRoot
         EvidenceRoot = $evidenceRoot
+        CopyPerformanceProfile = [bool]$CopyPerformanceProfile
     }
     Set-Content -LiteralPath $configPath -Value ($config | ConvertTo-Json -Compress) -Encoding utf8
     & icacls.exe $configPath /grant "*${userSid}:R" | Out-Null

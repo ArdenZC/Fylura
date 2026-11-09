@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 
 const LIMIT: usize = 1000;
 const EXTERNAL_PATH_LIMIT: usize = 256;
-const EXTERNAL_TREE_ENTRY_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_ENTRY_LIMIT;
 const EXTERNAL_TREE_DEPTH_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT;
 #[derive(Default)]
 pub(crate) struct TransferState {
@@ -1289,17 +1288,25 @@ pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
         return Err("transfer_source_invalid".into());
     }
     let root_namespace = file_namespace_fingerprint(root)?;
-    let mut records = vec![format!(".:directory:{root_identity:?}:{root_namespace:?}")];
-    let mut entry_count = 0usize;
+    let mut records = Vec::new();
+    let mut name_budget = crate::fs_safety::identity::DirectoryEntryNameBudget::default();
+    push_tree_record(
+        &mut records,
+        &mut name_budget,
+        format!(".:directory:{root_identity:?}:{root_namespace:?}"),
+    )?;
     collect_directory_tree(
         root,
         root,
         0,
-        &mut entry_count,
+        &mut name_budget,
         &mut records,
         root_namespace.platform_volume_id.as_deref(),
     )?;
-    records.sort();
+    // Preserve the exact journal/preview fingerprint contract used by older
+    // operation rows while bounding the retained records by the same shared
+    // memory budget as sorted names and hardlink paths.
+    records.sort_unstable();
     let mut hasher = blake3::Hasher::new();
     for record in records {
         hasher.update(record.as_bytes());
@@ -1308,31 +1315,50 @@ pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
+fn push_tree_record(
+    records: &mut Vec<String>,
+    name_budget: &mut crate::fs_safety::identity::DirectoryEntryNameBudget,
+    record: String,
+) -> Result<(), String> {
+    let reserved = name_budget
+        .reserve(record.len())
+        .ok_or_else(|| "transfer_directory_memory_budget_exceeded".to_string())?;
+    if records.try_reserve(1).is_err() {
+        name_budget.release(reserved);
+        return Err("transfer_directory_memory_allocation_failed".into());
+    }
+    records.push(record);
+    Ok(())
+}
+
 fn collect_directory_tree(
     root: &Path,
     directory: &Path,
     depth: usize,
-    entry_count: &mut usize,
+    name_budget: &mut crate::fs_safety::identity::DirectoryEntryNameBudget,
     records: &mut Vec<String>,
     root_volume: Option<&str>,
 ) -> Result<(), String> {
     if depth >= EXTERNAL_TREE_DEPTH_LIMIT {
         return Err("transfer_directory_depth_limit".into());
     }
-    let mut entries = Vec::new();
+    let mut names = Vec::new();
+    let mut reserved_name_bytes = 0usize;
     for entry in std::fs::read_dir(directory).map_err(|error| error.to_string())? {
-        if entry_count.saturating_add(entries.len()) >= EXTERNAL_TREE_ENTRY_LIMIT {
-            return Err("transfer_directory_entry_limit".into());
+        let name = entry.map_err(|error| error.to_string())?.file_name();
+        let reserved = name_budget
+            .reserve(name.as_encoded_bytes().len())
+            .ok_or_else(|| "transfer_directory_memory_budget_exceeded".to_string())?;
+        if names.try_reserve(1).is_err() {
+            name_budget.release(reserved);
+            return Err("transfer_directory_memory_allocation_failed".into());
         }
-        entries.push(entry.map_err(|error| error.to_string())?);
+        reserved_name_bytes = reserved_name_bytes.saturating_add(reserved);
+        names.push(name);
     }
-    entries.sort_by_key(|entry| entry.file_name());
-    for entry in entries {
-        *entry_count += 1;
-        if *entry_count > EXTERNAL_TREE_ENTRY_LIMIT {
-            return Err("transfer_directory_entry_limit".into());
-        }
-        let path = entry.path();
+    names.sort_unstable();
+    for name in names {
+        let path = directory.join(name);
         let physical_identity = crate::fs_safety::capture_source_object_identity(&path)
             .map_err(|error| error.to_string())?;
         let identity = file_namespace_fingerprint(&path)?;
@@ -1346,19 +1372,24 @@ fn collect_directory_tree(
             .to_path_buf();
         let relative_display = utf8_relative_path(&relative_path)?;
         if path.is_dir() {
-            records.push(format!(
-                "{relative_display}:directory:{physical_identity:?}:{identity:?}"
-            ));
-            collect_directory_tree(root, &path, depth + 1, entry_count, records, root_volume)?;
+            push_tree_record(
+                records,
+                name_budget,
+                format!("{relative_display}:directory:{physical_identity:?}:{identity:?}"),
+            )?;
+            collect_directory_tree(root, &path, depth + 1, name_budget, records, root_volume)?;
         } else if path.is_file() {
             validate_source_path(&path)?;
-            records.push(format!(
-                "{relative_display}:file:{physical_identity:?}:{identity:?}"
-            ));
+            push_tree_record(
+                records,
+                name_budget,
+                format!("{relative_display}:file:{physical_identity:?}:{identity:?}"),
+            )?;
         } else {
             return Err("transfer_source_invalid".into());
         }
     }
+    name_budget.release(reserved_name_bytes);
     Ok(())
 }
 

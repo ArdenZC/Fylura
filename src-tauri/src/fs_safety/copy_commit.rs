@@ -16,7 +16,68 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+#[cfg(all(windows, feature = "native-qa"))]
+use std::sync::atomic::AtomicU64;
+
 const COPY_BUFFER_SIZE: usize = 1024 * 1024;
+
+#[cfg(all(windows, feature = "native-qa"))]
+static WINDOWS_COPY_EXTRA_FLUSHES_FOR_QA: AtomicBool = AtomicBool::new(false);
+#[cfg(all(windows, feature = "native-qa"))]
+static WINDOWS_COPY_EXTRA_FLUSH_COUNT_FOR_QA: AtomicU64 = AtomicU64::new(0);
+#[cfg(all(windows, feature = "native-qa"))]
+static WINDOWS_DIRECTORY_FULL_FILE_IDENTITY_FOR_QA: AtomicBool = AtomicBool::new(false);
+
+#[cfg(all(windows, feature = "native-qa"))]
+pub fn set_windows_copy_extra_flushes_for_qa(enabled: bool) {
+    WINDOWS_COPY_EXTRA_FLUSHES_FOR_QA.store(enabled, Ordering::Relaxed);
+}
+
+#[cfg(all(windows, feature = "native-qa"))]
+pub fn reset_windows_copy_extra_flush_metrics_for_qa() {
+    WINDOWS_COPY_EXTRA_FLUSH_COUNT_FOR_QA.store(0, Ordering::Relaxed);
+}
+
+#[cfg(all(windows, feature = "native-qa"))]
+pub fn windows_copy_extra_flush_count_for_qa() -> u64 {
+    WINDOWS_COPY_EXTRA_FLUSH_COUNT_FOR_QA.load(Ordering::Relaxed)
+}
+
+#[cfg(all(windows, feature = "native-qa"))]
+pub fn set_windows_directory_full_file_identity_for_qa(enabled: bool) {
+    WINDOWS_DIRECTORY_FULL_FILE_IDENTITY_FOR_QA.store(enabled, Ordering::Relaxed);
+}
+
+#[cfg(windows)]
+fn windows_directory_full_file_identity_for_qa() -> bool {
+    #[cfg(feature = "native-qa")]
+    {
+        return WINDOWS_DIRECTORY_FULL_FILE_IDENTITY_FOR_QA.load(Ordering::Relaxed);
+    }
+    #[cfg(not(feature = "native-qa"))]
+    {
+        false
+    }
+}
+
+#[cfg(windows)]
+fn sync_legacy_copy_flush_for_qa(writer: &mut File) -> Result<(), AtomicMoveError> {
+    #[cfg(feature = "native-qa")]
+    if WINDOWS_COPY_EXTRA_FLUSHES_FOR_QA.load(Ordering::Relaxed) {
+        WINDOWS_COPY_EXTRA_FLUSH_COUNT_FOR_QA.fetch_add(1, Ordering::Relaxed);
+        crate::file_ops::measure_native_qa_copy_phase("redundant_file_sync", || {
+            writer.sync_all().map_err(AtomicMoveError::Io)
+        })?;
+    }
+    #[cfg(not(feature = "native-qa"))]
+    let _ = writer;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn sync_legacy_copy_flush_for_qa(_writer: &mut File) -> Result<(), AtomicMoveError> {
+    Ok(())
+}
 
 struct StagingFile<'a> {
     parent: &'a VerifiedDirectory,
@@ -50,9 +111,14 @@ impl<'a> StagingFile<'a> {
         expected: &identity::ExpectedFileIdentity,
         cancel: Option<&AtomicBool>,
     ) -> Result<(), AtomicMoveError> {
-        self.handle.sync_all().map_err(AtomicMoveError::Io)?;
-        let actual = identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
-            .map_err(map_identity_error)?;
+        crate::file_ops::measure_native_qa_copy_phase("staging_file_sync", || {
+            self.handle.sync_all().map_err(AtomicMoveError::Io)
+        })?;
+        let actual =
+            crate::file_ops::measure_native_qa_copy_phase("staging_content_verification", || {
+                identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
+                    .map_err(map_identity_error)
+            })?;
         if !identity::content_identity_matches(expected, &actual) {
             return Err(AtomicMoveError::CopyVerificationFailed);
         }
@@ -84,11 +150,17 @@ impl<'a> StagingFile<'a> {
             .verified_identity
             .as_ref()
             .ok_or(AtomicMoveError::CopyVerificationFailed)?;
-        let handle_identity =
-            identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
-                .map_err(map_identity_error)?;
-        let path_identity =
-            identity::capture_identity(&self.path, cancel).map_err(map_identity_error)?;
+        let handle_identity = crate::file_ops::measure_native_qa_copy_phase(
+            "staging_handle_identity_verification",
+            || {
+                identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
+                    .map_err(map_identity_error)
+            },
+        )?;
+        let path_identity = crate::file_ops::measure_native_qa_copy_phase(
+            "staging_path_identity_verification",
+            || identity::capture_identity(&self.path, cancel).map_err(map_identity_error),
+        )?;
         if !identity::identity_matches(expected, &handle_identity)
             || !identity::identity_matches(&handle_identity, &path_identity)
         {
@@ -102,11 +174,17 @@ impl<'a> StagingFile<'a> {
             .verified_identity
             .as_ref()
             .ok_or(AtomicMoveError::CopyVerificationFailed)?;
-        let handle_identity =
-            identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
-                .map_err(map_identity_error)?;
-        let path_identity =
-            identity::capture_identity(&self.path, cancel).map_err(map_identity_error)?;
+        let handle_identity = crate::file_ops::measure_native_qa_copy_phase(
+            "committed_handle_identity_verification",
+            || {
+                identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
+                    .map_err(map_identity_error)
+            },
+        )?;
+        let path_identity = crate::file_ops::measure_native_qa_copy_phase(
+            "committed_path_identity_verification",
+            || identity::capture_identity(&self.path, cancel).map_err(map_identity_error),
+        )?;
         if !identity::identity_matches(expected, &handle_identity)
             || !identity::identity_matches(&handle_identity, &path_identity)
         {
@@ -184,9 +262,10 @@ pub(crate) fn copy_commit_move_with_claim_path(
         Some(path) => path.to_path_buf(),
         None => source_claim::planned_claim_path(source, "copy-commit").map_err(map_claim_error)?,
     };
-    let mut claim =
+    let mut claim = crate::file_ops::measure_native_qa_copy_phase("source_claim", || {
         source_claim::claim_source_at(source, &expected, &claim_path, "copy-commit", cancel)
-            .map_err(map_claim_error)?;
+            .map_err(map_claim_error)
+    })?;
     copy_commit_claim(&mut claim, target_parent, target_name, cancel, None).map(|_| ())
 }
 
@@ -292,13 +371,15 @@ fn copy_commit_claim_with_source_retirement(
         }
         let mut progress = crate::fs_safety::DirectoryTransferProgress::new("copying");
         progress.reset("copying", None, None, &mut observer)?;
-        copy_file_from_claim(
-            claim,
-            &mut staging.handle,
-            cancel,
-            &mut progress,
-            &mut observer,
-        )?;
+        crate::file_ops::measure_native_qa_copy_phase("stream_copy_and_source_hash", || {
+            copy_file_from_claim(
+                claim,
+                &mut staging.handle,
+                cancel,
+                &mut progress,
+                &mut observer,
+            )
+        })?;
         progress.record_item(claim.current_path(), &mut observer)?;
         progress.finish(&mut observer)?;
         staging.sync_and_verify(claim.expected_identity(), cancel)?;
@@ -311,8 +392,12 @@ fn copy_commit_claim_with_source_retirement(
             staging.path.as_path(),
             &target_parent.path().join(target_name),
         );
-        staging.verify_path_binding(cancel)?;
-        staging.commit_noreplace(target_name)?;
+        crate::file_ops::measure_native_qa_copy_phase("staging_path_binding_check", || {
+            staging.verify_path_binding(cancel)
+        })?;
+        crate::file_ops::measure_native_qa_copy_phase("commit_publish", || {
+            staging.commit_noreplace(target_name)
+        })?;
         target_committed = true;
         if let Some(observer) = observer.as_deref_mut() {
             observer(crate::fs_safety::FileOperationEvent::Phase(
@@ -325,9 +410,11 @@ fn copy_commit_claim_with_source_retirement(
         ) {
             return Err(AtomicMoveError::TargetCommittedDurabilityUnknown);
         }
-        target_parent
-            .sync()
-            .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
+        crate::file_ops::measure_native_qa_copy_phase("target_directory_sync", || {
+            target_parent
+                .sync()
+                .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)
+        })?;
         #[cfg(any(test, feature = "native-qa"))]
         if super::atomic_move::test_faults::take_fault(
             super::atomic_move::test_faults::AtomicFaultPoint::TargetIdentity,
@@ -335,9 +422,11 @@ fn copy_commit_claim_with_source_retirement(
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
         }
         staging.verify_committed(cancel)?;
-        claim
-            .sync()
-            .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
+        crate::file_ops::measure_native_qa_copy_phase("source_claim_sync", || {
+            claim
+                .sync()
+                .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)
+        })?;
         if retire_source {
             progress.reset(
                 "source_retirement",
@@ -508,7 +597,9 @@ fn copy_directory_claim(
         ensure_supported_windows_file_attributes(&source_root_metadata)?;
         ensure_windows_no_named_streams(claim.current_path())?;
         let source_before =
-            directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)?;
+            crate::file_ops::measure_native_qa_copy_phase("content_hash_source_pre", || {
+                directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)
+            })?;
         progress.finish(&mut observer)?;
         Ok(source_before)
     })();
@@ -544,16 +635,22 @@ fn copy_directory_claim(
     };
     let mut target_committed = false;
     let result = (|| {
-        let mut entry_count = 0usize;
-        copy_directory_contents(
-            claim.current_path(),
-            &staging.path,
-            0,
-            &mut entry_count,
-            cancel,
-            &mut progress,
-            &mut observer,
-        )?;
+        crate::file_ops::measure_native_qa_copy_phase("directory_copy_and_traversal", || {
+            copy_directory_contents(
+                claim.current_path(),
+                &staging.path,
+                0,
+                cancel,
+                &mut progress,
+                &mut observer,
+            )
+        })?;
+        #[cfg(any(test, feature = "native-qa"))]
+        if super::atomic_move::test_faults::take_fault(
+            super::atomic_move::test_faults::AtomicFaultPoint::MutateDirectorySourceSameSizeAfterCopy,
+        ) {
+            mutate_first_tree_file_same_size_for_qa(claim.current_path())?;
+        }
         copy_windows_directory_metadata(claim.current_path(), &staging.path)?;
         progress.finish(&mut observer)?;
         progress.reset(
@@ -563,15 +660,26 @@ fn copy_directory_claim(
             &mut observer,
         )?;
         let source_after =
-            directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)?;
+            crate::file_ops::measure_native_qa_copy_phase("content_hash_source_post", || {
+                directory_content_digest(claim.current_path(), cancel, &mut progress, &mut observer)
+            })?;
         progress.finish(&mut observer)?;
+        #[cfg(any(test, feature = "native-qa"))]
+        if super::atomic_move::test_faults::take_fault(
+            super::atomic_move::test_faults::AtomicFaultPoint::TamperDirectoryStagingSameSizeBeforeVerify,
+        ) {
+            mutate_first_tree_file_same_size_for_qa(&staging.path)?;
+        }
         progress.reset(
             "verify_staging",
             Some(source_before.entries),
             Some(source_before.bytes),
             &mut observer,
         )?;
-        let staged = directory_content_digest(&staging.path, cancel, &mut progress, &mut observer)?;
+        let staged =
+            crate::file_ops::measure_native_qa_copy_phase("content_hash_staging_tree", || {
+                directory_content_digest(&staging.path, cancel, &mut progress, &mut observer)
+            })?;
         progress.finish(&mut observer)?;
         if source_before.hash != source_after.hash || source_before.hash != staged.hash {
             return Err(AtomicMoveError::CopyVerificationFailed);
@@ -585,13 +693,15 @@ fn copy_directory_claim(
         let staged_identity =
             identity::capture_identity(&staging.path, cancel).map_err(map_identity_error)?;
         progress.reset("publishing", None, None, &mut observer)?;
-        publish_staged_directory(
-            &staging.path,
-            &target_parent,
-            target_name,
-            &staged_identity,
-            cancel,
-        )?;
+        crate::file_ops::measure_native_qa_copy_phase("commit_publish", || {
+            publish_staged_directory(
+                &staging.path,
+                &target_parent,
+                target_name,
+                &staged_identity,
+                cancel,
+            )
+        })?;
         target_committed = true;
         staging.published = true;
         if let Some(observer) = observer.as_deref_mut() {
@@ -614,13 +724,16 @@ fn copy_directory_claim(
             Some(source_before.bytes),
             &mut observer,
         )?;
-        let target_digest = directory_content_digest(
-            &target_parent.path().join(target_name),
-            cancel,
-            &mut progress,
-            &mut observer,
-        )
-        .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+        let target_digest =
+            crate::file_ops::measure_native_qa_copy_phase("content_hash_published_target", || {
+                directory_content_digest(
+                    &target_parent.path().join(target_name),
+                    cancel,
+                    &mut progress,
+                    &mut observer,
+                )
+                .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)
+            })?;
         progress.finish(&mut observer)?;
         if target_digest.hash != source_before.hash {
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
@@ -721,6 +834,39 @@ fn copy_directory_claim(
     Ok(())
 }
 
+#[cfg(any(test, feature = "native-qa"))]
+#[cfg(windows)]
+fn mutate_first_tree_file_same_size_for_qa(root: &std::path::Path) -> Result<(), AtomicMoveError> {
+    fn find_file(root: &std::path::Path) -> Result<Option<PathBuf>, AtomicMoveError> {
+        for entry in fs::read_dir(root).map_err(AtomicMoveError::Io)? {
+            let path = entry.map_err(AtomicMoveError::Io)?.path();
+            let metadata = fs::symlink_metadata(&path).map_err(AtomicMoveError::Io)?;
+            if metadata_is_reparse_point(&metadata) || metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_file() {
+                return Ok(Some(path));
+            }
+            if metadata.is_dir() {
+                if let Some(path) = find_file(&path)? {
+                    return Ok(Some(path));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    let path = find_file(root)?.ok_or_else(|| {
+        AtomicMoveError::Io(io::Error::other("native_qa_tree_has_no_mutable_file"))
+    })?;
+    let mut bytes = fs::read(&path).map_err(AtomicMoveError::Io)?;
+    let first = bytes
+        .first_mut()
+        .ok_or_else(|| AtomicMoveError::Io(io::Error::other("native_qa_tree_file_is_empty")))?;
+    *first ^= 1;
+    fs::write(path, bytes).map_err(AtomicMoveError::Io)
+}
+
 #[cfg(windows)]
 struct StagingDirectory {
     path: PathBuf,
@@ -793,32 +939,19 @@ fn copy_directory_contents(
     source: &std::path::Path,
     target: &std::path::Path,
     depth: usize,
-    entry_count: &mut usize,
     cancel: Option<&AtomicBool>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     const MAX_DEPTH: usize = 64;
-    const MAX_ENTRIES: usize = 5000;
     if depth >= MAX_DEPTH {
         return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
     }
     let source_directory = VerifiedDirectory::open_existing(source).map_err(map_directory_error)?;
-    let mut entries = Vec::new();
     for entry in fs::read_dir(source).map_err(AtomicMoveError::Io)? {
-        if entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
-            return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
-        }
-        entries.push(entry.map_err(AtomicMoveError::Io)?);
-    }
-    entries.sort_by_key(|entry| entry.file_name());
-    for entry in entries {
+        let entry = entry.map_err(AtomicMoveError::Io)?;
         if is_cancelled(cancel) {
             return Err(AtomicMoveError::Cancelled);
-        }
-        *entry_count += 1;
-        if *entry_count > MAX_ENTRIES {
-            return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
         }
         let name = entry.file_name();
         let source_child = entry.path();
@@ -835,7 +968,6 @@ fn copy_directory_contents(
                 &source_child,
                 &target_child,
                 depth + 1,
-                entry_count,
                 cancel,
                 progress,
                 observer,
@@ -890,9 +1022,32 @@ fn copy_regular_file(
         return Err(AtomicMoveError::ReparsePoint);
     }
     ensure_supported_windows_file_attributes(&metadata)?;
-    let expected = identity::capture_identity_from_handle(&reader, source, cancel)
-        .map_err(map_identity_error)?;
-    let path_expected = identity::capture_identity(source, cancel).map_err(map_identity_error)?;
+    // The directory copy proves content equality with bounded whole-tree
+    // digests before and after the copy, on staging, and after publish. These
+    // per-file full hashes reread every payload several more times without
+    // strengthening that proof. Keep the old checks behind native QA so the
+    // same 100k fixture can measure their cost directly.
+    let legacy_full_identity = windows_directory_full_file_identity_for_qa();
+    let expected =
+        crate::file_ops::measure_native_qa_copy_phase("directory_file_identity_before", || {
+            if legacy_full_identity {
+                identity::capture_identity_from_handle(&reader, source, cancel)
+            } else {
+                identity::capture_namespace_identity_from_handle(&reader, source, cancel)
+            }
+            .map_err(map_identity_error)
+        })?;
+    let path_expected = crate::file_ops::measure_native_qa_copy_phase(
+        "directory_file_path_identity_before",
+        || {
+            if legacy_full_identity {
+                identity::capture_identity(source, cancel)
+            } else {
+                identity::capture_namespace_identity_only(source, cancel)
+            }
+            .map_err(map_identity_error)
+        },
+    )?;
     if !identity::identity_matches(&expected, &path_expected) {
         return Err(AtomicMoveError::SourceChanged);
     }
@@ -904,34 +1059,47 @@ fn copy_regular_file(
         .create_new(true)
         .open(target)
         .map_err(map_create_error)?;
-    let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"file\0");
-    hasher.update(&metadata.len().to_le_bytes());
+    let buffer_size = if legacy_full_identity {
+        COPY_BUFFER_SIZE
+    } else {
+        metadata.len().min(COPY_BUFFER_SIZE as u64).max(1) as usize
+    };
+    let mut buffer = vec![0_u8; buffer_size];
+    let mut hasher = legacy_full_identity.then(|| {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"file\0");
+        hasher.update(&metadata.len().to_le_bytes());
+        hasher
+    });
     let mut copied = 0_u64;
-    loop {
-        if is_cancelled(cancel) {
-            return Err(AtomicMoveError::Cancelled);
+    crate::file_ops::measure_native_qa_copy_phase("directory_file_stream_copy", || {
+        loop {
+            if is_cancelled(cancel) {
+                return Err(AtomicMoveError::Cancelled);
+            }
+            let read = reader.read(&mut buffer).map_err(AtomicMoveError::Io)?;
+            if read == 0 {
+                break;
+            }
+            writer
+                .write_all(&buffer[..read])
+                .map_err(AtomicMoveError::Io)?;
+            if let Some(hasher) = hasher.as_mut() {
+                hasher.update(&buffer[..read]);
+            }
+            copied = copied.saturating_add(read as u64);
+            progress.record_bytes(source, read as u64, observer)?;
+            #[cfg(any(test, feature = "native-qa"))]
+            if super::atomic_move::test_faults::take_fault(
+                super::atomic_move::test_faults::AtomicFaultPoint::OutOfSpaceDuringCopy,
+            ) {
+                return Err(AtomicMoveError::Io(io::Error::other(
+                    "injected_out_of_space_during_copy",
+                )));
+            }
         }
-        let read = reader.read(&mut buffer).map_err(AtomicMoveError::Io)?;
-        if read == 0 {
-            break;
-        }
-        writer
-            .write_all(&buffer[..read])
-            .map_err(AtomicMoveError::Io)?;
-        hasher.update(&buffer[..read]);
-        copied = copied.saturating_add(read as u64);
-        progress.record_bytes(source, read as u64, observer)?;
-        #[cfg(any(test, feature = "native-qa"))]
-        if super::atomic_move::test_faults::take_fault(
-            super::atomic_move::test_faults::AtomicFaultPoint::OutOfSpaceDuringCopy,
-        ) {
-            return Err(AtomicMoveError::Io(io::Error::other(
-                "injected_out_of_space_during_copy",
-            )));
-        }
-    }
+        Ok(())
+    })?;
     let source_times = std::fs::FileTimes::new()
         .set_accessed(metadata.accessed().map_err(AtomicMoveError::Io)?)
         .set_modified(metadata.modified().map_err(AtomicMoveError::Io)?);
@@ -941,20 +1109,60 @@ fn copy_regular_file(
     writer
         .set_permissions(metadata.permissions())
         .map_err(AtomicMoveError::Io)?;
-    writer.sync_all().map_err(AtomicMoveError::Io)?;
+    crate::file_ops::measure_native_qa_copy_phase("directory_file_sync", || {
+        writer.sync_all().map_err(AtomicMoveError::Io)
+    })?;
     set_windows_copy_attributes(target, metadata.file_attributes())?;
-    let full_hash = hasher.finalize().to_hex().to_string();
-    if copied != expected.size || expected.full_hash.as_deref() != Some(full_hash.as_str()) {
+    if copied != expected.size {
         return Err(AtomicMoveError::CopyVerificationFailed);
     }
-    let source_after = identity::capture_identity_from_handle(&reader, source, cancel)
-        .map_err(map_identity_error)?;
+    if let Some(hasher) = hasher {
+        let full_hash = hasher.finalize().to_hex().to_string();
+        if expected.full_hash.as_deref() != Some(full_hash.as_str()) {
+            return Err(AtomicMoveError::CopyVerificationFailed);
+        }
+    }
+    let source_after =
+        crate::file_ops::measure_native_qa_copy_phase("directory_file_identity_after", || {
+            if legacy_full_identity {
+                identity::capture_identity_from_handle(&reader, source, cancel)
+            } else {
+                identity::capture_namespace_identity_from_handle(&reader, source, cancel)
+            }
+            .map_err(map_identity_error)
+        })?;
     if !identity::identity_matches(&expected, &source_after) {
         return Err(AtomicMoveError::SourceChanged);
     }
-    let target_identity = identity::capture_identity(target, cancel).map_err(map_identity_error)?;
-    if !identity::content_identity_matches(&expected, &target_identity) {
-        return Err(AtomicMoveError::CopyVerificationFailed);
+    let source_path_after = crate::file_ops::measure_native_qa_copy_phase(
+        "directory_file_path_identity_after",
+        || {
+            if legacy_full_identity {
+                identity::capture_identity(source, cancel)
+            } else {
+                identity::capture_namespace_identity_only(source, cancel)
+            }
+            .map_err(map_identity_error)
+        },
+    )?;
+    if !identity::identity_matches(&expected, &source_path_after) {
+        return Err(AtomicMoveError::SourceChanged);
+    }
+    if legacy_full_identity {
+        let target_identity =
+            identity::capture_identity(target, cancel).map_err(map_identity_error)?;
+        if !identity::content_identity_matches(&expected, &target_identity) {
+            return Err(AtomicMoveError::CopyVerificationFailed);
+        }
+    } else {
+        let target_handle_identity =
+            identity::capture_namespace_identity_from_handle(&writer, target, cancel)
+                .map_err(map_identity_error)?;
+        let target_path_identity = identity::capture_namespace_identity_only(target, cancel)
+            .map_err(map_identity_error)?;
+        if !identity::identity_matches(&target_handle_identity, &target_path_identity) {
+            return Err(AtomicMoveError::CopyVerificationFailed);
+        }
     }
     Ok(())
 }
@@ -1120,6 +1328,7 @@ struct DirectoryContentDigestState {
     root: PathBuf,
     entry_count: usize,
     byte_count: u64,
+    name_budget: identity::DirectoryEntryNameBudget,
     hasher: blake3::Hasher,
 }
 
@@ -1140,7 +1349,6 @@ fn directory_content_digest(
     ) -> Result<(), AtomicMoveError> {
         use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
         const MAX_DEPTH: usize = 64;
-        const MAX_ENTRIES: usize = 5000;
         if is_cancelled(cancel) {
             return Err(AtomicMoveError::Cancelled);
         }
@@ -1159,20 +1367,30 @@ fn directory_content_digest(
         state.hasher.update(b"directory\0");
         state.hasher.update(&(name.len() as u64).to_le_bytes());
         state.hasher.update(&name);
-        let mut entries = Vec::new();
+        let mut names = Vec::new();
+        let mut reserved_name_bytes = 0usize;
         for entry in fs::read_dir(current).map_err(AtomicMoveError::Io)? {
-            if state.entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
-                return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
+            let name = entry.map_err(AtomicMoveError::Io)?.file_name();
+            let reserved = state
+                .name_budget
+                .reserve(name.as_encoded_bytes().len())
+                .ok_or(AtomicMoveError::DirectoryTreeLimitExceeded)?;
+            if names.try_reserve(1).is_err() {
+                state.name_budget.release(reserved);
+                return Err(AtomicMoveError::Io(io::Error::other(
+                    "directory_entry_buffer_allocation_failed",
+                )));
             }
-            entries.push(entry.map_err(AtomicMoveError::Io)?);
+            reserved_name_bytes = reserved_name_bytes.saturating_add(reserved);
+            names.push(name);
         }
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            state.entry_count += 1;
-            if state.entry_count > MAX_ENTRIES {
-                return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
-            }
-            let path = entry.path();
+        names.sort_unstable();
+        for name in names {
+            state.entry_count = state
+                .entry_count
+                .checked_add(1)
+                .ok_or(AtomicMoveError::DirectoryTreeLimitExceeded)?;
+            let path = current.join(name);
             let metadata = fs::symlink_metadata(&path).map_err(AtomicMoveError::Io)?;
             if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
                 return Err(AtomicMoveError::ReparsePoint);
@@ -1215,6 +1433,7 @@ fn directory_content_digest(
             }
         }
         verified.ensure_unchanged().map_err(map_directory_error)?;
+        state.name_budget.release(reserved_name_bytes);
         Ok(())
     }
 
@@ -1222,6 +1441,7 @@ fn directory_content_digest(
         root: root.to_path_buf(),
         entry_count: 0,
         byte_count: 0,
+        name_budget: identity::DirectoryEntryNameBudget::default(),
         hasher: blake3::Hasher::new(),
     };
     visit(root, 0, &mut state, cancel, progress, observer)?;
@@ -1284,9 +1504,9 @@ fn retire_claimed_directory_verified_against_target(
     let target_path = target_parent.path().join(target_name);
     {
         let mut context = DirectoryRetirementContext {
-            entry_count: 0,
             deletion_parent: target_parent,
             cancel,
+            name_budget: identity::DirectoryEntryNameBudget::default(),
         };
         let location = DirectoryRetirementLocation {
             source_parent_handle: &source_root,
@@ -1308,9 +1528,9 @@ fn retire_claimed_directory_verified_against_target(
 
 #[cfg(windows)]
 struct DirectoryRetirementContext<'a> {
-    entry_count: usize,
     deletion_parent: &'a VerifiedDirectory,
     cancel: Option<&'a AtomicBool>,
+    name_budget: identity::DirectoryEntryNameBudget,
 }
 
 #[cfg(windows)]
@@ -1330,27 +1550,35 @@ fn retire_directory_entries_verified(
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     const MAX_DEPTH: usize = 64;
-    const MAX_ENTRIES: usize = 5000;
     if depth >= MAX_DEPTH {
         return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
     }
     if is_cancelled(context.cancel) {
         return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
     }
-    let mut entries = Vec::new();
+    let mut names = Vec::new();
+    let mut reserved_name_bytes = 0usize;
     for entry in fs::read_dir(location.source_parent_path).map_err(AtomicMoveError::Io)? {
-        if context.entry_count.saturating_add(entries.len()) >= MAX_ENTRIES {
-            return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
+        let name = entry.map_err(AtomicMoveError::Io)?.file_name();
+        let reserved = context
+            .name_budget
+            .reserve(name.as_encoded_bytes().len())
+            .ok_or(AtomicMoveError::DirectoryTreeLimitExceeded)?;
+        if names.try_reserve(1).is_err() {
+            context.name_budget.release(reserved);
+            return Err(AtomicMoveError::Io(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "directory_entry_buffer_allocation_failed",
+            )));
         }
-        entries.push(entry.map_err(AtomicMoveError::Io)?);
+        reserved_name_bytes = reserved_name_bytes.saturating_add(reserved);
+        names.push(name);
     }
-    entries.sort_by_key(|entry| entry.file_name());
-    for entry in entries {
+    names.sort_unstable();
+    for name in names {
         if is_cancelled(context.cancel) {
             return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
         }
-        context.entry_count += 1;
-        let name = entry.file_name();
         let source_path = location.source_parent_path.join(&name);
         let target_path = location.target_parent_path.join(&name);
         let metadata = fs::symlink_metadata(&source_path).map_err(AtomicMoveError::Io)?;
@@ -1417,6 +1645,7 @@ fn retire_directory_entries_verified(
             progress.record_bytes(&source_path, metadata.len(), observer)?;
         }
     }
+    context.name_budget.release(reserved_name_bytes);
     Ok(())
 }
 
@@ -1804,7 +2033,7 @@ fn copy_file_from_claim(
             )));
         }
     }
-    writer.sync_all().map_err(AtomicMoveError::Io)?;
+    sync_legacy_copy_flush_for_qa(writer)?;
     let hash = hasher.finalize().to_hex().to_string();
     if copied != claim.expected_identity().size
         || claim.expected_identity().full_hash.as_deref() != Some(hash.as_str())
@@ -1823,7 +2052,7 @@ fn copy_file_from_claim(
         use std::os::windows::fs::MetadataExt;
         set_windows_copy_attributes(claim.current_path(), source_metadata.file_attributes())?;
     }
-    writer.sync_all().map_err(AtomicMoveError::Io)?;
+    sync_legacy_copy_flush_for_qa(writer)?;
     Ok(())
 }
 
@@ -1933,8 +2162,13 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
 
 fn map_content_read_rejected(reason: &'static str) -> AtomicMoveError {
     match reason {
-        "directory_entry_limit_exceeded" | "directory_depth_limit_exceeded" => {
+        "directory_entry_limit_exceeded"
+        | "directory_entry_memory_budget_exceeded"
+        | "directory_depth_limit_exceeded" => {
             return AtomicMoveError::DirectoryTreeLimitExceeded;
+        }
+        "directory_entry_buffer_allocation_failed" => {
+            return AtomicMoveError::Io(io::Error::new(io::ErrorKind::OutOfMemory, reason));
         }
         "nested_volume_entry_unsupported" => {
             return AtomicMoveError::DirectoryNestedVolumeUnsupported;
@@ -2301,6 +2535,95 @@ mod tests {
         assert!(!target_parent_path.join("tree").exists());
         assert!(!claim_path.exists());
         drop(claim);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn run_directory_copy_tree_verification_fault(
+        label: &str,
+        point: super::super::atomic_move::test_faults::AtomicFaultPoint,
+    ) -> (Result<(), AtomicMoveError>, PathBuf, PathBuf, PathBuf) {
+        let root = fixture(label);
+        let source_parent = root.join("source");
+        let target_parent_path = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent_path).expect("target parent");
+        let source = source_parent.join("tree");
+        fs::create_dir(&source).expect("source directory");
+        fs::write(source.join("payload.bin"), b"same-size source payload").expect("source payload");
+        let claim_path = source_claim::planned_claim_path(&source, label).expect("claim path");
+        let expected = identity::capture_namespace_identity_only(&source, None)
+            .expect("directory namespace identity");
+        let mut claim = source_claim::claim_source_at(&source, &expected, &claim_path, label, None)
+            .expect("claim directory source");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+        let _serial = super::super::atomic_move::test_faults::lock();
+        super::super::atomic_move::test_faults::set_fault(Some(point));
+        let result = copy_commit_claim_preserving_source(
+            &mut claim,
+            target_parent,
+            std::ffi::OsStr::new("tree"),
+            None,
+            None,
+        );
+        super::super::atomic_move::test_faults::set_fault(None);
+        drop(claim);
+        (result, root, source, target_parent_path.join("tree"))
+    }
+
+    #[test]
+    fn directory_tree_verification_rejects_same_size_source_content_change() {
+        let (result, root, source, target) = run_directory_copy_tree_verification_fault(
+            "directory-same-size-source-change",
+            super::super::atomic_move::test_faults::AtomicFaultPoint::
+                MutateDirectorySourceSameSizeAfterCopy,
+        );
+
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::CopyVerificationFailed)
+        ));
+        assert_eq!(
+            fs::metadata(source.join("payload.bin"))
+                .expect("source metadata")
+                .len(),
+            b"same-size source payload".len() as u64
+        );
+        assert_ne!(
+            fs::read(source.join("payload.bin")).expect("mutated source"),
+            b"same-size source payload"
+        );
+        assert!(!target.exists(), "changed source content must not publish");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn directory_tree_verification_rejects_same_size_staging_tamper() {
+        let (result, root, source, target) = run_directory_copy_tree_verification_fault(
+            "directory-same-size-staging-tamper",
+            super::super::atomic_move::test_faults::AtomicFaultPoint::
+                TamperDirectoryStagingSameSizeBeforeVerify,
+        );
+
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::CopyVerificationFailed)
+        ));
+        assert_eq!(
+            fs::read(source.join("payload.bin")).expect("retained source"),
+            b"same-size source payload"
+        );
+        assert!(
+            !target.exists(),
+            "tampered staging content must not publish"
+        );
+        assert!(fs::read_dir(target.parent().expect("target parent"))
+            .expect("inspect staging cleanup")
+            .all(|entry| !entry
+                .expect("read target parent entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".zen-canvas-stage-")));
         let _ = fs::remove_dir_all(root);
     }
 

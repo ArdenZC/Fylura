@@ -1507,6 +1507,8 @@ pub mod test_faults {
         SourceCleanup,
         CancelDirectoryCopyAfterEntry,
         OutOfSpaceDuringCopy,
+        MutateDirectorySourceSameSizeAfterCopy,
+        TamperDirectoryStagingSameSizeBeforeVerify,
     }
 
     thread_local! {
@@ -1645,8 +1647,13 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
 
 fn map_content_read_rejected(reason: &'static str) -> AtomicMoveError {
     match reason {
-        "directory_entry_limit_exceeded" | "directory_depth_limit_exceeded" => {
+        "directory_entry_limit_exceeded"
+        | "directory_entry_memory_budget_exceeded"
+        | "directory_depth_limit_exceeded" => {
             return AtomicMoveError::DirectoryTreeLimitExceeded;
+        }
+        "directory_entry_buffer_allocation_failed" => {
+            return AtomicMoveError::Io(io::Error::new(io::ErrorKind::OutOfMemory, reason));
         }
         "nested_volume_entry_unsupported" => {
             return AtomicMoveError::DirectoryNestedVolumeUnsupported;

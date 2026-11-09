@@ -9,6 +9,8 @@ use crate::{
 use std::io::Read;
 #[cfg(not(target_os = "macos"))]
 use std::process::Command as ProcessCommand;
+#[cfg(feature = "native-qa")]
+use std::{cell::RefCell, collections::BTreeMap};
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
@@ -19,6 +21,47 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{command, AppHandle, Emitter, Manager, Runtime, State, WebviewWindow};
+
+#[cfg(feature = "native-qa")]
+thread_local! {
+    static NATIVE_QA_COPY_PHASE_TIMINGS: RefCell<BTreeMap<&'static str, u128>> = RefCell::new(BTreeMap::new());
+}
+
+#[inline(always)]
+pub(crate) fn measure_native_qa_copy_phase<T>(
+    name: &'static str,
+    operation: impl FnOnce() -> T,
+) -> T {
+    #[cfg(feature = "native-qa")]
+    let started = std::time::Instant::now();
+    let result = operation();
+    #[cfg(feature = "native-qa")]
+    NATIVE_QA_COPY_PHASE_TIMINGS.with(|timings| {
+        let mut timings = timings.borrow_mut();
+        let elapsed = started.elapsed().as_nanos();
+        let value = timings.entry(name).or_default();
+        *value = value.saturating_add(elapsed);
+    });
+    #[cfg(not(feature = "native-qa"))]
+    let _ = name;
+    result
+}
+
+#[cfg(feature = "native-qa")]
+pub fn reset_native_qa_copy_phase_timings() {
+    NATIVE_QA_COPY_PHASE_TIMINGS.with(|timings| timings.borrow_mut().clear());
+}
+
+#[cfg(feature = "native-qa")]
+pub fn native_qa_copy_phase_timings() -> Vec<(String, u128)> {
+    NATIVE_QA_COPY_PHASE_TIMINGS.with(|timings| {
+        timings
+            .borrow()
+            .iter()
+            .map(|(name, nanos)| ((*name).to_string(), *nanos))
+            .collect()
+    })
+}
 
 mod authority;
 mod execution;

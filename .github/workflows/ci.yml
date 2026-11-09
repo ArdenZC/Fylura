@@ -895,6 +895,10 @@ jobs:
             --skip macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss \
             --skip macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided \
             --skip fl23_macos_apfs_cross_volume_directory_move_and_restore_preserve_resource_forks
+      - name: Native macOS APFS clone and 100k directory copy profile
+        env:
+          ZC_MACOS_NATIVE_FULL_PROFILE: "1"
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_native_hardening_smoke macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_performance -- --exact --nocapture --test-threads=1
       - name: Native APFS cross-volume directory Move evidence
         if: ${{ always() && !cancelled() }}
         shell: bash

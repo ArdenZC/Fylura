@@ -20,11 +20,12 @@ Intel Macs, Universal binaries, Rosetta, and Linux are not product targets.
 
 ## Bounded directory transfers
 
-Windows and macOS directory copy, Move, and Restore are bounded to 5,000
-descendant entries and 64 directory levels including the selected root. A
-tree beyond either limit is explicitly refused before mutation. The source
-remains unchanged; Fylura does not silently skip entries or report a partial
-tree as a complete transfer.
+Windows and macOS directory copy, Move, and Restore have no fixed descendant
+entry count. They retain a 64-level depth limit and a shared 64 MiB budget for
+sorted names, transfer fingerprint records, and retained hardlink paths. A
+tree that exceeds either bound is refused without being reported as complete.
+Copy and retirement process entries incrementally; full source and staged-tree
+verification, cancellation, journaling, and recovery remain in force.
 
 ## macOS operation support
 
@@ -96,12 +97,12 @@ attempting source cleanup.
 ## Windows and Linux
 
 Windows source-handle and verified-directory primitives remain the filesystem
-authority. Cross-volume directory Move is
-bounded to 5,000 entries and depth 64. Reparse points, EFS-encrypted files,
-extended attributes, NTFS named streams, sparse files, integrity streams,
-offline/provider placeholders, and other unsupported special attributes are
-rejected before source cleanup; Fylura does not silently discard them. For
-ordinary staged Copy and Move, target files and directories inherit the
+authority. Cross-volume directory Move retains the 64-level depth and shared
+64 MiB traversal memory budget without a fixed entry count. Reparse points,
+EFS-encrypted files, extended attributes, NTFS named streams, sparse files,
+integrity streams, offline/provider placeholders, and other unsupported
+special attributes are rejected before source cleanup; Fylura does not silently
+discard them. For ordinary staged Copy and Move, target files and directories inherit the
 destination parent's DACL and mandatory integrity label. Source Owner, DACL,
 and SACL are neither read nor copied, and the source's permissions are not
 modified. Same-volume atomic rename moves the existing filesystem objects and

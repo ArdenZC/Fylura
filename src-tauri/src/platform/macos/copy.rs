@@ -36,6 +36,15 @@ const SAMPLE_SIZE: usize = 1024 * 1024;
 static COPY_READ_CALLS: AtomicU64 = AtomicU64::new(0);
 #[cfg(any(test, feature = "native-qa"))]
 static COPY_READ_BYTES: AtomicU64 = AtomicU64::new(0);
+#[cfg(any(test, feature = "native-qa"))]
+static DIRECTORY_TREE_CLONE_SUCCESSES: AtomicU64 = AtomicU64::new(0);
+#[cfg(any(test, feature = "native-qa"))]
+static DIRECTORY_TREE_CLONE_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "native-qa")]
+thread_local! {
+    static DIRECTORY_TREE_CLONE_ENABLED_FOR_QA: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
 
 #[cfg(any(test, feature = "native-qa"))]
 pub fn reset_copy_io_metrics() {
@@ -49,6 +58,37 @@ pub fn copy_io_metrics() -> (u64, u64) {
         COPY_READ_CALLS.load(Ordering::Relaxed),
         COPY_READ_BYTES.load(Ordering::Relaxed),
     )
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+pub fn reset_directory_tree_clone_metrics() {
+    DIRECTORY_TREE_CLONE_SUCCESSES.store(0, Ordering::Relaxed);
+    DIRECTORY_TREE_CLONE_FALLBACKS.store(0, Ordering::Relaxed);
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+pub fn directory_tree_clone_metrics() -> (u64, u64) {
+    (
+        DIRECTORY_TREE_CLONE_SUCCESSES.load(Ordering::Relaxed),
+        DIRECTORY_TREE_CLONE_FALLBACKS.load(Ordering::Relaxed),
+    )
+}
+
+#[cfg(feature = "native-qa")]
+pub fn set_directory_tree_clone_enabled_for_qa(enabled: bool) {
+    DIRECTORY_TREE_CLONE_ENABLED_FOR_QA.with(|value| value.set(enabled));
+}
+
+#[inline]
+fn directory_tree_clone_enabled() -> bool {
+    #[cfg(feature = "native-qa")]
+    {
+        return DIRECTORY_TREE_CLONE_ENABLED_FOR_QA.with(std::cell::Cell::get);
+    }
+    #[cfg(not(feature = "native-qa"))]
+    {
+        true
+    }
 }
 
 #[cfg(any(test, feature = "native-qa"))]
@@ -214,10 +254,13 @@ fn copy_commit_claim_with_source_retirement(
         observer: &mut observer,
         root_path: claim.current_path(),
     };
+    let clone_strategy_eligible =
+        directory_clone_strategy_eligible(claim.original_path(), target_parent.path());
     let copy_proof = match copy_object(
         claim,
         target_parent.raw_fd(),
         &staging_name,
+        clone_strategy_eligible,
         cancel,
         Some(claim.expected_identity()),
         &mut copy_progress,
@@ -590,13 +633,16 @@ pub(crate) fn copy_commit_source_stable(
     if matches!(kind, ClaimedEntryKind::Directory) {
         directory_progress.reset("preparing", None, None, &mut observer)?;
     }
-    let source_identity = if matches!(kind, ClaimedEntryKind::Directory) {
-        let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
-        crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
-            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
-    } else {
-        source_namespace_identity.clone()
-    };
+    let source_identity =
+        crate::file_ops::measure_native_qa_copy_phase("source_content_identity", || {
+            if matches!(kind, ClaimedEntryKind::Directory) {
+                let handle = source_handle.as_ref().ok_or(AtomicMoveError::UnsafePath)?;
+                crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
+                    .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))
+            } else {
+                Ok(source_namespace_identity.clone())
+            }
+        })?;
 
     let staging_name = OsString::from(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     notify_phase(&mut observer, "copying")?;
@@ -660,21 +706,37 @@ pub(crate) fn copy_commit_source_stable(
                 use std::os::unix::fs::MetadataExt;
                 handle.metadata().map_err(AtomicMoveError::Io)?.dev()
             };
-            let mut state = DirectoryCopyState::new(source_root_device, destination.as_raw_fd());
+            let destination_root_device = {
+                use std::os::unix::fs::MetadataExt;
+                destination.metadata().map_err(AtomicMoveError::Io)?.dev()
+            };
+            let allow_file_clones =
+                matches!(verification_policy, CopyVerificationPolicy::FullPostVerify)
+                    && source_root_device == destination_root_device
+                    && local_apfs_descriptor(handle.as_raw_fd())
+                    && local_apfs_descriptor(target_parent.raw_fd())
+                    && directory_clone_strategy_eligible(source, target_parent.path());
+            let mut state = DirectoryCopyState::new(
+                source_root_device,
+                destination.as_raw_fd(),
+                allow_file_clones,
+            );
             let mut copy_progress = DirectoryCopyProgress {
                 progress: Some(&mut directory_progress),
                 observer: &mut observer,
                 root_path: source,
             };
-            copy_tree_from_fd(
-                handle.as_raw_fd(),
-                destination.as_raw_fd(),
-                Path::new(""),
-                &mut state,
-                0,
-                cancel,
-                &mut copy_progress,
-            )?;
+            crate::file_ops::measure_native_qa_copy_phase("directory_copy_and_traversal", || {
+                copy_tree_from_fd(
+                    handle.as_raw_fd(),
+                    destination.as_raw_fd(),
+                    Path::new(""),
+                    &mut state,
+                    0,
+                    cancel,
+                    &mut copy_progress,
+                )
+            })?;
             directory_progress.finish(&mut observer)?;
             let total_items = directory_progress.processed_items();
             directory_progress.set_total_items(Some(total_items));
@@ -700,16 +762,20 @@ pub(crate) fn copy_commit_source_stable(
     if matches!(kind, ClaimedEntryKind::Directory) {
         directory_progress.reset("verify_staging", None, None, &mut observer)?;
     }
-    if let Err(error) = verify_staged_copy(
-        &copy_proof,
-        kind,
-        &target_parent.path().join(&staging_name),
-        target_parent.raw_fd(),
-        &staging_name,
-        &source_identity,
-        expected_identity,
-        cancel,
-    ) {
+    if let Err(error) =
+        crate::file_ops::measure_native_qa_copy_phase("staging_content_verification", || {
+            verify_staged_copy(
+                &copy_proof,
+                kind,
+                &target_parent.path().join(&staging_name),
+                target_parent.raw_fd(),
+                &staging_name,
+                &source_identity,
+                expected_identity,
+                cancel,
+            )
+        })
+    {
         cleanup_staging_at(
             target_parent.raw_fd(),
             &staging_name,
@@ -750,21 +816,24 @@ pub(crate) fn copy_commit_source_stable(
     if matches!(kind, ClaimedEntryKind::Directory) {
         directory_progress.reset("verify_source", None, None, &mut observer)?;
     }
-    let source_after = match (kind, source_handle.as_ref(), verification_policy) {
-        (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::PhysicalClone)
-        | (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::StreamingHash) => {
-            crate::fs_safety::identity::capture_namespace_identity_from_handle(
-                handle, source, cancel,
-            )
-            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
-        }
-        (_, Some(handle), _) => {
-            crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
-                .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?
-        }
-        (_, None, _) => capture_namespace_identity(source, cancel)
-            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))?,
-    };
+    let source_after =
+        crate::file_ops::measure_native_qa_copy_phase("source_content_verify", || {
+            match (kind, source_handle.as_ref(), verification_policy) {
+                (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::PhysicalClone)
+                | (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::StreamingHash) => {
+                    crate::fs_safety::identity::capture_namespace_identity_from_handle(
+                        handle, source, cancel,
+                    )
+                    .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))
+                }
+                (_, Some(handle), _) => {
+                    crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
+                        .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))
+                }
+                (_, None, _) => capture_namespace_identity(source, cancel)
+                    .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string()))),
+            }
+        })?;
     let physical_after = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
         source_parent.raw_fd(),
         source_name,
@@ -811,14 +880,16 @@ pub(crate) fn copy_commit_source_stable(
 
     let staging_physical = copy_proof.staging_physical();
 
-    publish_staging_exclusive(
-        target_parent.raw_fd(),
-        &staging_name,
-        target_name,
-        kind,
-        staging_physical,
-        cancel,
-    )
+    crate::file_ops::measure_native_qa_copy_phase("commit_publish", || {
+        publish_staging_exclusive(
+            target_parent.raw_fd(),
+            &staging_name,
+            target_name,
+            kind,
+            staging_physical,
+            cancel,
+        )
+    })
     .inspect_err(|_| {
         cleanup_staging_at(
             target_parent.raw_fd(),
@@ -831,19 +902,23 @@ pub(crate) fn copy_commit_source_stable(
         directory_progress.reset("verify_target", None, None, &mut observer)?;
     }
 
-    verify_committed_copy(
-        &copy_proof,
-        kind,
-        target,
-        target_parent.raw_fd(),
-        target_name,
-        &source_identity,
-        expected_identity,
-        cancel,
-    )?;
-    target_parent
-        .sync()
-        .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
+    crate::file_ops::measure_native_qa_copy_phase("content_hash_published_target", || {
+        verify_committed_copy(
+            &copy_proof,
+            kind,
+            target,
+            target_parent.raw_fd(),
+            target_name,
+            &source_identity,
+            expected_identity,
+            cancel,
+        )
+    })?;
+    crate::file_ops::measure_native_qa_copy_phase("target_directory_sync", || {
+        target_parent
+            .sync()
+            .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)
+    })?;
     if !retire_source {
         notify_phase(&mut observer, "completed")?;
         return Ok(());
@@ -872,19 +947,21 @@ pub(crate) fn copy_commit_source_stable(
         &mut observer,
     )?;
     notify_phase(&mut observer, "source_cleanup_pending")?;
-    let mut claim = crate::fs_safety::source_claim::claim_source_at(
-        source,
-        &source_identity,
-        &claim_path,
-        "source-retirement",
-        cancel,
-    )
-    .map_err(|error| {
-        AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
-            "{}: {}",
-            crate::platform::macos::strategy::MAC_SOURCE_RETIREMENT_PENDING,
-            error
-        ))
+    let mut claim = crate::file_ops::measure_native_qa_copy_phase("source_claim", || {
+        crate::fs_safety::source_claim::claim_source_at(
+            source,
+            &source_identity,
+            &claim_path,
+            "source-retirement",
+            cancel,
+        )
+        .map_err(|error| {
+            AtomicMoveError::TargetCommittedSourceDeleteFailed(format!(
+                "{}: {}",
+                crate::platform::macos::strategy::MAC_SOURCE_RETIREMENT_PENDING,
+                error
+            ))
+        })
     })?;
     if let Err(error) = if claim.kind() == ClaimedEntryKind::Directory {
         claim.delete_claim_tree_with_progress(|path, bytes| {
@@ -936,6 +1013,7 @@ fn copy_object(
     claim: &SourceClaim,
     target_parent_fd: RawFd,
     staging_name: &OsStr,
+    clone_strategy_eligible: bool,
     cancel: Option<&AtomicBool>,
     expected: Option<&identity::ExpectedFileIdentity>,
     copy_progress: &mut DirectoryCopyProgress<'_, '_, '_>,
@@ -1000,7 +1078,19 @@ fn copy_object(
                 use std::os::unix::fs::MetadataExt;
                 source.metadata().map_err(AtomicMoveError::Io)?.dev()
             };
-            let mut state = DirectoryCopyState::new(source_root_device, destination.as_raw_fd());
+            let destination_root_device = {
+                use std::os::unix::fs::MetadataExt;
+                destination.metadata().map_err(AtomicMoveError::Io)?.dev()
+            };
+            let allow_file_clones = source_root_device == destination_root_device
+                && local_apfs_descriptor(source.as_raw_fd())
+                && local_apfs_descriptor(destination.as_raw_fd())
+                && clone_strategy_eligible;
+            let mut state = DirectoryCopyState::new(
+                source_root_device,
+                destination.as_raw_fd(),
+                allow_file_clones,
+            );
             copy_tree_from_fd(
                 source.as_raw_fd(),
                 destination.as_raw_fd(),
@@ -1487,16 +1577,18 @@ struct DirectoryCopyState {
     hardlinks: HashMap<(u64, u64), PathBuf>,
     source_root_device: u64,
     destination_root_fd: RawFd,
-    entry_count: usize,
+    allow_file_clones: bool,
+    name_budget: crate::fs_safety::identity::DirectoryEntryNameBudget,
 }
 
 impl DirectoryCopyState {
-    fn new(source_root_device: u64, destination_root_fd: RawFd) -> Self {
+    fn new(source_root_device: u64, destination_root_fd: RawFd, allow_file_clones: bool) -> Self {
         Self {
             hardlinks: HashMap::new(),
             source_root_device,
             destination_root_fd,
-            entry_count: 0,
+            allow_file_clones,
+            name_budget: crate::fs_safety::identity::DirectoryEntryNameBudget::default(),
         }
     }
 }
@@ -1519,13 +1611,12 @@ fn copy_tree_from_fd(
     if depth >= crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT {
         return Err(AtomicMoveError::DirectoryTreeLimitExceeded);
     }
-    let remaining = crate::fs_safety::identity::DIRECTORY_IDENTITY_ENTRY_LIMIT
-        .saturating_sub(state.entry_count);
-    for name in directory_entry_names_bounded(source_fd, remaining)? {
+    let (names, reserved_name_bytes) =
+        directory_entry_names_bounded(source_fd, &mut state.name_budget)?;
+    for name in names {
         if is_cancelled(cancel) {
             return Err(AtomicMoveError::Cancelled);
         }
-        state.entry_count += 1;
         let source_identity =
             crate::platform::macos::identity::MacPhysicalIdentity::from_at(source_fd, &name)
                 .map_err(AtomicMoveError::Io)?;
@@ -1569,35 +1660,35 @@ fn copy_tree_from_fd(
                             )?;
                         }
                     } else {
+                        state
+                            .name_budget
+                            .reserve(relative_path.as_os_str().as_encoded_bytes().len())
+                            .ok_or(AtomicMoveError::DirectoryTreeLimitExceeded)?;
                         let source_file = open_file_at(source_fd, &name)?;
-                        let destination_file = create_staging_file(destination_fd, &name)?;
-                        copy_tree_file_contents_and_metadata(
+                        copy_tree_regular_file(
                             &source_file,
-                            &destination_file,
+                            source_identity.size,
+                            destination_fd,
+                            &name,
+                            state.allow_file_clones,
                             cancel,
                             &progress_path,
-                            copy_progress.progress.as_deref_mut(),
-                            copy_progress.observer,
+                            copy_progress,
                         )?;
-                        let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
-                        copy_fd_metadata(&metadata, &destination_file)?;
-                        destination_file.sync_all().map_err(AtomicMoveError::Io)?;
                         state.hardlinks.insert(key, relative_path.clone());
                     }
                 } else {
                     let source_file = open_file_at(source_fd, &name)?;
-                    let destination_file = create_staging_file(destination_fd, &name)?;
-                    copy_tree_file_contents_and_metadata(
+                    copy_tree_regular_file(
                         &source_file,
-                        &destination_file,
+                        source_identity.size,
+                        destination_fd,
+                        &name,
+                        state.allow_file_clones,
                         cancel,
                         &progress_path,
-                        copy_progress.progress.as_deref_mut(),
-                        copy_progress.observer,
+                        copy_progress,
                     )?;
-                    let metadata = source_file.metadata().map_err(AtomicMoveError::Io)?;
-                    copy_fd_metadata(&metadata, &destination_file)?;
-                    destination_file.sync_all().map_err(AtomicMoveError::Io)?;
                 }
             }
             _ => return Err(AtomicMoveError::UnsafePath),
@@ -1614,7 +1705,99 @@ fn copy_tree_from_fd(
             return Err(AtomicMoveError::StagingIdentityChanged);
         }
     }
+    state.name_budget.release(reserved_name_bytes);
     Ok(())
+}
+
+fn copy_tree_regular_file(
+    source: &File,
+    source_size: u64,
+    destination_parent_fd: RawFd,
+    destination_name: &OsStr,
+    allow_clone: bool,
+    cancel: Option<&AtomicBool>,
+    progress_path: &Path,
+    copy_progress: &mut DirectoryCopyProgress<'_, '_, '_>,
+) -> Result<(), AtomicMoveError> {
+    if allow_clone {
+        match clone_file_if_possible(source, destination_parent_fd, destination_name) {
+            Ok(()) => {
+                #[cfg(any(test, feature = "native-qa"))]
+                DIRECTORY_TREE_CLONE_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+                let destination = open_file_at(destination_parent_fd, destination_name)?;
+                copy_metadata_with_native_api(source, &destination)?;
+                verify_clone_metadata(source, &destination)?;
+                destination.sync_all().map_err(AtomicMoveError::Io)?;
+                if let Some(progress) = copy_progress.progress.as_deref_mut() {
+                    progress.record_bytes(progress_path, source_size, copy_progress.observer)?;
+                }
+                return Ok(());
+            }
+            Err(error) if staging_entry_is_absent(destination_parent_fd, destination_name)? => {
+                #[cfg(any(test, feature = "native-qa"))]
+                DIRECTORY_TREE_CLONE_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                let _ = error;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    let destination = create_staging_file(destination_parent_fd, destination_name)?;
+    copy_tree_file_contents_and_metadata(
+        source,
+        &destination,
+        cancel,
+        progress_path,
+        copy_progress.progress.as_deref_mut(),
+        copy_progress.observer,
+    )?;
+    let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
+    copy_fd_metadata(&metadata, &destination)?;
+    destination.sync_all().map_err(AtomicMoveError::Io)
+}
+
+fn staging_entry_is_absent(parent_fd: RawFd, name: &OsStr) -> Result<bool, AtomicMoveError> {
+    let name = CString::new(name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
+    let mut metadata = unsafe { std::mem::zeroed::<libc::stat>() };
+    if unsafe {
+        libc::fstatat(
+            parent_fd,
+            name.as_ptr(),
+            &mut metadata,
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    } == 0
+    {
+        return Ok(false);
+    }
+    let error = io::Error::last_os_error();
+    if error.kind() == io::ErrorKind::NotFound {
+        Ok(true)
+    } else {
+        Err(AtomicMoveError::Io(error))
+    }
+}
+
+#[inline]
+fn local_apfs_descriptor(fd: RawFd) -> bool {
+    use std::ffi::CStr;
+
+    let mut info = unsafe { std::mem::zeroed::<libc::statfs>() };
+    if unsafe { libc::fstatfs(fd, &mut info) } != 0 {
+        return false;
+    }
+    let filesystem = unsafe { CStr::from_ptr(info.f_fstypename.as_ptr()) };
+    filesystem.to_bytes().eq_ignore_ascii_case(b"apfs")
+        && info.f_flags & (libc::MNT_LOCAL as u32) != 0
+}
+
+#[inline]
+fn directory_clone_strategy_eligible(source: &Path, target_parent: &Path) -> bool {
+    directory_tree_clone_enabled()
+        && matches!(
+            crate::platform::macos::strategy::select(source, target_parent),
+            crate::platform::macos::strategy::MacMutationStrategy::LocalApfs
+        )
 }
 
 fn copy_tree_file_contents_and_metadata(
@@ -1692,38 +1875,10 @@ fn linkat(
     }
 }
 
-fn directory_entry_names(parent_fd: RawFd) -> Result<Vec<OsString>, AtomicMoveError> {
-    use std::os::unix::ffi::OsStringExt;
-
-    let scan_fd = unsafe { libc::dup(parent_fd) };
-    if scan_fd < 0 {
-        return Err(AtomicMoveError::Io(io::Error::last_os_error()));
-    }
-    let directory = unsafe { libc::fdopendir(scan_fd) };
-    if directory.is_null() {
-        unsafe { libc::close(scan_fd) };
-        return Err(AtomicMoveError::Io(io::Error::last_os_error()));
-    }
-    let mut names = Vec::new();
-    loop {
-        let entry = unsafe { libc::readdir(directory) };
-        if entry.is_null() {
-            break;
-        }
-        let raw_name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
-        if raw_name == b"." || raw_name == b".." {
-            continue;
-        }
-        names.push(OsString::from_vec(raw_name.to_vec()));
-    }
-    unsafe { libc::closedir(directory) };
-    Ok(names)
-}
-
 fn directory_entry_names_bounded(
     parent_fd: RawFd,
-    entry_limit: usize,
-) -> Result<Vec<OsString>, AtomicMoveError> {
+    name_budget: &mut crate::fs_safety::identity::DirectoryEntryNameBudget,
+) -> Result<(Vec<OsString>, usize), AtomicMoveError> {
     use std::os::unix::ffi::OsStringExt;
 
     let scan_fd = unsafe { libc::dup(parent_fd) };
@@ -1736,6 +1891,7 @@ fn directory_entry_names_bounded(
         return Err(AtomicMoveError::Io(io::Error::last_os_error()));
     }
     let mut names = Vec::new();
+    let mut reserved_name_bytes = 0usize;
     let mut result = Ok(());
     loop {
         let entry = unsafe { libc::readdir(directory) };
@@ -1746,14 +1902,26 @@ fn directory_entry_names_bounded(
         if raw_name == b"." || raw_name == b".." {
             continue;
         }
-        if names.len() >= entry_limit {
+        let Some(reserved) = name_budget.reserve(raw_name.len()) else {
             result = Err(AtomicMoveError::DirectoryTreeLimitExceeded);
             break;
+        };
+        if names.try_reserve(1).is_err() {
+            name_budget.release(reserved);
+            result = Err(AtomicMoveError::Io(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "directory_entry_buffer_allocation_failed",
+            )));
+            break;
         }
+        reserved_name_bytes = reserved_name_bytes.saturating_add(reserved);
         names.push(OsString::from_vec(raw_name.to_vec()));
     }
     unsafe { libc::closedir(directory) };
-    result.map(|()| names)
+    result.map(|()| {
+        names.sort_unstable();
+        (names, reserved_name_bytes)
+    })
 }
 
 #[cfg(test)]
@@ -2266,7 +2434,7 @@ fn publish_directory_exclusive(
         use std::os::unix::fs::MetadataExt;
         source.metadata().map_err(AtomicMoveError::Io)?.dev()
     };
-    let mut state = DirectoryCopyState::new(source_root_device, destination.as_raw_fd());
+    let mut state = DirectoryCopyState::new(source_root_device, destination.as_raw_fd(), false);
     let mut no_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>> = None;
     let mut copy_progress = DirectoryCopyProgress {
         progress: None,
@@ -2298,7 +2466,8 @@ fn publish_directory_exclusive(
     destination
         .sync_all()
         .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
-    remove_staging_tree(parent_fd, staging_name, staging_physical)
+    let mut name_budget = crate::fs_safety::identity::DirectoryEntryNameBudget::default();
+    remove_staging_tree(parent_fd, staging_name, staging_physical, &mut name_budget)
 }
 
 fn publish_symlink_exclusive(
@@ -2386,19 +2555,23 @@ fn remove_staging_tree(
     parent_fd: RawFd,
     name: &OsStr,
     expected: crate::platform::macos::identity::MacPhysicalIdentity,
+    name_budget: &mut crate::fs_safety::identity::DirectoryEntryNameBudget,
 ) -> Result<(), AtomicMoveError> {
     ensure_staging_identity(parent_fd, name, expected)?;
     let name_c = CString::new(name.as_bytes()).map_err(|_| AtomicMoveError::UnsafePath)?;
     if expected.file_type == libc::S_IFDIR as u32 {
         let directory = open_directory_at(parent_fd, name_c.as_c_str())?;
-        for child in directory_entry_names(directory.as_raw_fd())? {
+        let (children, reserved_name_bytes) =
+            directory_entry_names_bounded(directory.as_raw_fd(), name_budget)?;
+        for child in children {
             let child_expected = crate::platform::macos::identity::MacPhysicalIdentity::from_at(
                 directory.as_raw_fd(),
                 &child,
             )
             .map_err(AtomicMoveError::Io)?;
-            remove_staging_tree(directory.as_raw_fd(), &child, child_expected)?;
+            remove_staging_tree(directory.as_raw_fd(), &child, child_expected, name_budget)?;
         }
+        name_budget.release(reserved_name_bytes);
         ensure_staging_identity(parent_fd, name, expected)?;
         if unsafe { libc::unlinkat(parent_fd, name_c.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
             return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
@@ -2423,7 +2596,8 @@ fn cleanup_staging_at(
     let Some(expected) = expected else {
         return;
     };
-    let _ = remove_staging_tree(parent_fd, name, expected);
+    let mut name_budget = crate::fs_safety::identity::DirectoryEntryNameBudget::default();
+    let _ = remove_staging_tree(parent_fd, name, expected, &mut name_budget);
 }
 
 fn rollback_before_publish(

@@ -93,14 +93,17 @@ pub(crate) fn persist_pending_operation_journal(
         .iter()
         .enumerate()
         .map(|(index, operation)| {
-            if operation.id.starts_with("op-transfer-") {
-                manual_transfer::revalidate(operation)?;
-            }
-            if operation.id.starts_with("op-manual-move-") {
-                manual_move::revalidate(operation)?;
-            }
-            #[cfg(target_os = "macos")]
-            ensure_macos_mutation_eligible_before_journal(operation)?;
+            crate::file_ops::measure_native_qa_copy_phase("preview_preflight", || {
+                if operation.id.starts_with("op-transfer-") {
+                    manual_transfer::revalidate(operation)?;
+                }
+                if operation.id.starts_with("op-manual-move-") {
+                    manual_move::revalidate(operation)?;
+                }
+                #[cfg(target_os = "macos")]
+                ensure_macos_mutation_eligible_before_journal(operation)?;
+                Ok::<(), String>(())
+            })?;
             // PREPARED is a namespace-only durability record on macOS.  Copy
             // and Duplicate still obtain full content evidence later, after
             // provider materialization/coordination and after the journal row
@@ -109,13 +112,18 @@ pub(crate) fn persist_pending_operation_journal(
             let is_directory = fs::symlink_metadata(Path::new(&operation.source_path))
                 .map(|metadata| metadata.is_dir())
                 .unwrap_or(false);
-            let fingerprint = if cfg!(target_os = "macos") || is_directory {
-                file_namespace_fingerprint(Path::new(&operation.source_path))
-            } else {
-                file_identity_fingerprint(Path::new(&operation.source_path))
-            }
-            .map_err(|error| format!("cannot journal source identity: {error}"))?;
-            db.validate_one_off_operation_identity(operation, &fingerprint)?;
+            let fingerprint =
+                crate::file_ops::measure_native_qa_copy_phase("source_identity", || {
+                    if cfg!(target_os = "macos") || is_directory {
+                        file_namespace_fingerprint(Path::new(&operation.source_path))
+                    } else {
+                        file_identity_fingerprint(Path::new(&operation.source_path))
+                    }
+                    .map_err(|error| format!("cannot journal source identity: {error}"))
+                })?;
+            crate::file_ops::measure_native_qa_copy_phase("preview_preflight", || {
+                db.validate_one_off_operation_identity(operation, &fingerprint)
+            })?;
             let claim_path = crate::fs_safety::source_claim::planned_claim_path(
                 Path::new(&operation.source_path),
                 &operation.id,
@@ -163,8 +171,10 @@ pub(crate) fn persist_pending_operation_journal(
         .map(|((_, prepared), operation)| (operation.id.clone(), (*prepared).clone()))
         .collect::<std::collections::HashMap<_, _>>();
     let logs = logs.into_iter().map(|(log, _)| log).collect::<Vec<_>>();
-    db.save_operation_logs(batch_id, &logs).map_err(|error| {
-        format!("failed to persist operation journal before execution: {error}")
+    crate::file_ops::measure_native_qa_copy_phase("journal_prepare", || {
+        db.save_operation_logs(batch_id, &logs).map_err(|error| {
+            format!("failed to persist operation journal before execution: {error}")
+        })
     })?;
     #[cfg(any(test, feature = "native-qa"))]
     for prepared in fingerprints.values() {

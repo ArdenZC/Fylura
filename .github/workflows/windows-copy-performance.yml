@@ -1,0 +1,40 @@
+name: Windows Copy Performance Qualification
+
+# The native 1 GiB and 100k-file A/B profiles are expensive and must not run
+# in routine PR/push smoke. Run this workflow explicitly when qualifying copy
+# performance changes or investigating a regression.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-copy-performance:
+    name: Windows native 1 GiB and 100k copy A/B (ordinary user)
+    runs-on: windows-latest
+    timeout-minutes: 100
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: fylura-Windows-v2-copy-performance
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Native copy A/B profile as isolated ordinary user
+        shell: pwsh
+        run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1 -CopyPerformanceProfile
+      - name: Upload native copy qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-native-copy-performance-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fylura-native-file-qa-evidence
+          if-no-files-found: warn
+          retention-days: 7

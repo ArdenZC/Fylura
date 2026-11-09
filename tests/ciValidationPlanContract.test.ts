@@ -826,7 +826,7 @@ describe("workflow lane and governance wiring", () => {
       "needs: [change-scope, validation-plan, performance-prepare, performance-search, performance-scan-schema, performance-library-content, performance-intelligence, performance-workspace-foundation, performance-preview-platform]",
     );
     expect(qualityWindows).toContain(
-      "needs: [change-scope, validation-plan, frontend-quality, rust-windows, windows-native-preview-handler, windows-global-index-service-qualification, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]",
+      "needs: [change-scope, validation-plan, frontend-quality, rust-windows, windows-native-filesystem-smoke, windows-native-preview-handler, windows-global-index-service-qualification, performance-profile, build-windows, package-windows, package-smoke, dependency-audit]",
     );
     expect(qualityMacos).toContain(
       "needs: [change-scope, validation-plan, frontend-quality, rust-macos, performance-profile, performance-macos, build-macos, package-macos, package-smoke, dependency-audit]",

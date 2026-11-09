@@ -371,6 +371,7 @@ describe("CI final performance remediation contract", () => {
       "perf_preview_platform",
       "frontend_changed",
       "windows_native_preview_handler_changed",
+      "windows_native_filesystem_smoke_changed",
       "rust_changed",
       "macos_sensitive",
       "performance_sensitive",
@@ -382,6 +383,7 @@ describe("CI final performance remediation contract", () => {
     }
     expect(interactiveWorkflow).toContain("needs.change-scope.outputs.rust_changed == 'true'");
     expect(interactiveWorkflow).toContain("needs.change-scope.outputs.windows_native_preview_handler_changed == 'true'");
+    expect(interactiveWorkflow).toContain("needs.change-scope.outputs.windows_native_filesystem_smoke_changed == 'true'");
     expect(interactiveWorkflow).toContain("needs.change-scope.outputs.macos_sensitive == 'true'");
     expect(interactiveWorkflow).toContain("needs.change-scope.outputs.release_sensitive == 'true'");
     expect(packageJson.scripts["build:check"]).toContain("build:frontend");

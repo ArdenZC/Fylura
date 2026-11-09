@@ -39,7 +39,11 @@ export interface WorkbenchTab {
   id: string;
   panes: WorkbenchPane[];
   activePaneId: string;
-  dual: boolean;
+  /** Retained panes beyond paneCount keep their navigation and selection. */
+  paneCount: number;
+  layout: "columns" | "grid";
+  columnSizes: number[];
+  rowSizes: number[];
 }
 export interface WorkbenchSnapshot {
   tabs: WorkbenchTab[];
@@ -68,7 +72,10 @@ export class FileWorkbenchModel {
       id: `tab-${++serial}`,
       panes: [pane],
       activePaneId: pane.id,
-      dual: false,
+      paneCount: 1,
+      layout: "columns" as const,
+      columnSizes: [1, 1, 1, 1],
+      rowSizes: [1, 1],
     };
     this.snapshot = { tabs: [tab], activeTabId: tab.id };
   }
@@ -104,7 +111,10 @@ export class FileWorkbenchModel {
       id: `tab-${++serial}`,
       panes: [pane],
       activePaneId: pane.id,
-      dual: false,
+      paneCount: 1,
+      layout: "columns" as const,
+      columnSizes: [1, 1, 1, 1],
+      rowSizes: [1, 1],
     };
     this.publish([...this.snapshot.tabs, tab], tab.id);
     return tab;
@@ -112,17 +122,54 @@ export class FileWorkbenchModel {
   activate(tabId: string, paneId?: string) {
     const tab = this.snapshot.tabs.find((item) => item.id === tabId);
     if (!tab) return;
-    if (paneId && tab.panes.some((pane) => pane.id === paneId))
+    if (paneId && tab.panes.some((pane) => pane.id === paneId)) {
       tab.activePaneId = paneId;
+      tab.paneCount = Math.max(tab.paneCount, tab.panes.findIndex((pane) => pane.id === paneId) + 1);
+    }
     this.publish([...this.snapshot.tabs], tabId);
   }
-  toggleDual(tabId: string) {
+  setPaneCount(tabId: string, count: number) {
+    const tab = this.snapshot.tabs.find((item) => item.id === tabId);
+    if (!tab || !Number.isInteger(count) || count < 1 || count > 4) return;
+    while (tab.panes.length < count) tab.panes.push(this.pane());
+    tab.paneCount = count;
+    if (!tab.panes.slice(0, count).some((pane) => pane.id === tab.activePaneId))
+      tab.activePaneId = tab.panes[0].id;
+    tab.layout = count === 4 ? "grid" : "columns";
+    this.publish();
+  }
+  setLayout(tabId: string, layout: "columns" | "grid") {
     const tab = this.snapshot.tabs.find((item) => item.id === tabId);
     if (!tab) return;
-    if (tab.panes.length === 1) tab.panes.push(this.pane());
-    tab.dual = !tab.dual;
-    if (!tab.dual) tab.activePaneId = tab.panes[0].id;
+    tab.layout = layout;
     this.publish();
+  }
+  setSizes(tabId: string, axis: "columnSizes" | "rowSizes", sizes: number[]) {
+    const tab = this.snapshot.tabs.find((item) => item.id === tabId);
+    if (!tab || sizes.length !== (axis === "columnSizes" ? 4 : 2) ||
+        sizes.some((size) => !Number.isFinite(size) || size < 0.1 || size > 10)) return;
+    tab[axis] = [...sizes];
+    this.publish();
+  }
+  movePane(tabId: string, paneId: string, offset: number) {
+    const tab = this.snapshot.tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    const index = tab.panes.findIndex((pane) => pane.id === paneId);
+    const next = index + offset;
+    if (index < 0 || next < 0 || next >= tab.paneCount) return;
+    [tab.panes[index], tab.panes[next]] = [tab.panes[next], tab.panes[index]];
+    this.publish();
+  }
+  async closePane(tabId: string, paneId: string) {
+    const tab = this.snapshot.tabs.find((item) => item.id === tabId);
+    if (!tab || tab.paneCount <= 1) return;
+    const index = tab.panes.findIndex((pane) => pane.id === paneId);
+    if (index < 0 || index >= tab.paneCount) return;
+    const [removed] = tab.panes.splice(index, 1);
+    tab.paneCount -= 1;
+    if (tab.activePaneId === paneId) tab.activePaneId = tab.panes[Math.min(index, tab.paneCount - 1)].id;
+    this.publish();
+    await (removed.controller === this.root ? removed.controller.suspend() : removed.controller.dispose());
   }
   updatePath(paneId: string, path: string, pathTargetKey: string | null = null) {
     const pane = this.snapshot.tabs
@@ -145,7 +192,10 @@ export class FileWorkbenchModel {
           id: `tab-${++serial}`,
           panes: [pane],
           activePaneId: pane.id,
-          dual: false,
+          paneCount: 1,
+          layout: "columns" as const,
+          columnSizes: [1, 1, 1, 1],
+          rowSizes: [1, 1],
         },
       ];
     }
@@ -178,7 +228,10 @@ export class FileWorkbenchModel {
         id: `tab-${++serial}`,
         panes: [pane],
         activePaneId: pane.id,
-        dual: false,
+        paneCount: 1,
+        layout: "columns" as const,
+        columnSizes: [1, 1, 1, 1],
+        rowSizes: [1, 1],
       };
       this.publish([...this.snapshot.tabs, tab], tab.id);
     } else

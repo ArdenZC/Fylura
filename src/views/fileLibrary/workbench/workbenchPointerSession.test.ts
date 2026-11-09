@@ -4,6 +4,7 @@ import {
   workbenchPointerCaptureRequest,
   workbenchPointerDropDisposition,
   workbenchPointerSessionIsCurrent,
+  workbenchPointerDestinationIsCurrent,
   type WorkbenchPointerSession,
   type WorkbenchPointerSessionState,
 } from "./workbenchPointerSession";
@@ -14,11 +15,9 @@ function session(): WorkbenchPointerSession {
     pointerId: 4,
     tabId: "tab-1",
     sourcePaneId: "pane-a",
-    peerPaneId: "pane-b",
     sourceSignature: "source-signature",
-    peerSignature: "peer-signature",
     sourcePath: "E:/fixture/source",
-    peerPath: "E:/fixture/target",
+    destinations: { "pane-b": { path: "E:/fixture/target", signature: "target-signature" } },
     startX: 10,
     startY: 10,
     moved: false,
@@ -32,11 +31,8 @@ function currentState(): WorkbenchPointerSessionState {
     currentToken: "gesture-1",
     activeTabId: "tab-1",
     sourceSignature: "source-signature",
-    peerSignature: "peer-signature",
     sourcePath: "E:/fixture/source",
-    peerPath: "E:/fixture/target",
     sourceVisible: true,
-    peerVisible: true,
     workspaceActive: true,
     transferOpen: false,
     modalOpen: false,
@@ -83,19 +79,19 @@ describe("controlled workbench pointer sessions", () => {
     expect(registry.current).toBeNull();
   });
 
-  it("treats the source pane as a no-op and accepts only its peer", () => {
-    expect(workbenchPointerDropDisposition("pane-a", "pane-b", "pane-a")).toBe("same-pane");
-    expect(workbenchPointerDropDisposition("pane-a", "pane-b", "pane-b")).toBe("peer-pane");
-    expect(workbenchPointerDropDisposition("pane-a", "pane-b", "other")).toBe("unsupported");
+  it("treats the source pane as a no-op and accepts any captured destination", () => {
+    expect(workbenchPointerDropDisposition("pane-a", ["pane-b", "pane-c", "pane-d"], "pane-a")).toBe("same-pane");
+    expect(workbenchPointerDropDisposition("pane-a", ["pane-b", "pane-c", "pane-d"], "pane-b")).toBe("target-pane");
+    expect(workbenchPointerDropDisposition("pane-a", ["pane-b", "pane-c", "pane-d"], "other")).toBe("unsupported");
   });
 
   it("revalidates both pane identities and cancels stale or obscured sessions", () => {
     const active = session();
     active.moved = true;
     expect(workbenchPointerSessionIsCurrent(active, currentState())).toBe(true);
-    expect(workbenchPointerSessionIsCurrent(active, { ...currentState(), peerSignature: "changed" })).toBe(false);
+    expect(workbenchPointerDestinationIsCurrent(active, "pane-b", "E:/fixture/target", "changed", true)).toBe(false);
     expect(workbenchPointerSessionIsCurrent(active, { ...currentState(), sourcePath: "E:/fixture/other" })).toBe(false);
     expect(workbenchPointerSessionIsCurrent(active, { ...currentState(), modalOpen: true })).toBe(false);
-    expect(workbenchPointerSessionIsCurrent(active, { ...currentState(), peerVisible: false })).toBe(false);
+    expect(workbenchPointerDestinationIsCurrent(active, "pane-b", "E:/fixture/target", "target-signature", false)).toBe(false);
   });
 });

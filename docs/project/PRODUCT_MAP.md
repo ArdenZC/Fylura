@@ -11,7 +11,7 @@ This map describes product ownership. Durable implementation authority is define
 | Workspace | User purpose | Product boundary |
 | --- | --- | --- |
 | Overview | Optional summary of recent work, task state and issues | Secondary/supporting surface; first-run completion defaults to Files, not Overview |
-| **Files / File Management** | Browse original system folders; use tabs, dual panes, File Basket, preview and ordinary safe file operations | **Only Browse is a primary visible mode**; Managed Library Query V2, tags, Saved Views and related durable data/code are preserved internally, not an initial setup prerequisite |
+| **Files / File Management** | Browse original system folders; use tabs, 1–4 independent panes, File Basket, preview and ordinary safe file operations | **Only Browse is a primary visible mode**; Managed Library Query V2, tags, Saved Views and related durable data/code are preserved internally, not an initial setup prerequisite |
 | **AI Organize** | Choose an arbitrary folder/selection/Basket, receive AI-explained grouped proposals, review exceptions and execute a batch | Must support one-off unmanaged scope without first admitting Managed Library; reuse durable Organization Plan / Dry Run / Journal / Restore and separate AI consent |
 | **AI Cleanup** | Choose a cleanup scope, get an AI-explained grouped cleanup proposal, review risks, then Safe Trash eligible candidates | Durable detector facts + current AI semantic evidence + conservative eligibility; Safe Trash / history / recovery remain authoritative |
 | History | Understand changes, restore recoverable work and resolve recovery cases | Operation/cleanup ledgers and identity revalidation |
@@ -49,8 +49,14 @@ Managed Library Query V2 / LibrarySelectionV1 / tags / Saved Views
 
 - Open files with the OS-associated default application through double-click/Enter; enter folders through double-click/Enter; offer context Open/Open with/Reveal. Space remains Zen Quick Preview, not an OS file launch.
 - Navigate mounted drives and folders, show file types/metadata, create/rename/copy/cut/paste/move/delete/restore files and directories, use system clipboard and drag interoperability, and offer ordinary keyboard shortcuts.
-- Browse list/grid and details columns must support name, type/extension, size, **creation time** and modified time, both sort directions and folders-first. Sorting must apply to the authoritative directory/result set, not only currently loaded rows. The current Browse sort fields lack creation time; hidden Managed Library support does not count as a visible Files implementation.
+- Browse list/grid and details columns must support name, type/extension, size, **creation time** and modified time, both sort directions and folders-first. Sorting must apply to the authoritative directory/result set, not only currently loaded rows. Creation-time and full-directory sorting are delivered by #556; native GUI qualification remains #487.
 - Common operations should not require redundant preview-confirm clicks when no user decision is needed; retain existing backend Preview/Revalidation/Journal/History/Restore. Clarify OS Recycle Bin/Trash semantics versus the existing app-managed Safe Trash.
+
+### Multi-pane Files baseline (#553)
+
+Each Files tab owns 1–4 independent file-content panes, not counting the application navigation, directory tree or Inspector. Three panes use horizontal columns; four default to a resizable 2×2 grid with optional columns. Every tab keeps its pane count, order, active pane, split proportions and re-admissible directories. Old single/dual sessions migrate without discarding dormant panes. Reducing the count retains pane state; explicitly closing a pane disposes it. F6 / Shift+F6 cycles the configured panes.
+
+Narrow windows show the active pane and a pane switcher without squeezing four lists. Mounted hidden panes retain their controller, live Browse page refs, selection and list DOM; observation and Quick Preview pause while hidden. Navigation or explicit refresh still replaces stale page refs normally. Copy/Move selects an explicit destination among all other configured panes; pointer Copy / Shift-Move binds any visible destination or folder row. All operations retain existing Transfer, conflicts, cancellation, progress, Journal and Restore authority. Layout and pane lifecycle details are in [Files workbench development notes](../development/FILES_WORKBENCH.md). Windows/macOS installed GUI acceptance remains **UNVERIFIED** under #487.
 
 ### Accessible source types and boundaries
 

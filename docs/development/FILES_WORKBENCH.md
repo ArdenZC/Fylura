@@ -1,0 +1,13 @@
+# Files workbench
+
+Tracking: [#553](https://github.com/ArdenZC/Fylura/issues/553). Native acceptance: [#487](https://github.com/ArdenZC/Fylura/issues/487).
+
+`FileWorkbenchModel` owns disposable pane/controller instances and each tab's count (1–4), layout, active pane and split weights. `panes` may contain dormant panes beyond `paneCount`: changing the count preserves them; explicit close disposes only that pane. Reordering moves the existing pane instance. No new Browse or file operation engine is introduced.
+
+`WorkbenchLayout` owns CSS grid and pointer/keyboard separator interaction. Three panes use columns; four default to 2×2. Each visible column needs 500px, and the grid needs 640px height; below that the active pane fills the area and buttons/F6 switch panes. Hidden panes keep their DOM/pages/selection, stop observation and close Quick Preview. Explicit refresh, navigation and post-mutation invalidation continue to replace stale pages on the existing owners. Backend entry, path and ticket limits remain unchanged.
+
+Persistence keeps the existing `zen-canvas:file-library-workbench:v1` key to find old data, writes format version 2 and accepts versions 1/2. Version 1 `dual` becomes `paneCount`; its hidden second pane is retained. Parsing remains bounded and rejects unknown fields/invalid split weights. Only paths, validated restore metadata and UI layout persist; refs, tickets, previews and mutations never do. Restore applies saved Browse query/view presentation after fresh backend admission. Pane visibility and root search handoff stay inactive until restore completes, avoiding cancellation of the root restore by intermediate tab construction.
+
+The toolbar selects a destination pane explicitly. Drag capture records all visible destination identities and paths; drop and asynchronous ticket handoff revalidate the chosen destination, source selection, modal/visibility and tab. Closing, navigating or hiding the destination cannot retarget captured work. Folder rows still carry backend opaque refs, and Copy/Shift-Move flows through existing preview/conflict/progress/cancel/Journal/Restore.
+
+Focused checks: `npm test -- tests/fileWorkbench.test.ts tests/fileManagementPaneOwnership.test.tsx tests/fileLibraryW204Browse.test.ts tests/fileManagementWorkflow.test.tsx src/views/fileLibrary/workbench/workbenchPointerSession.test.ts`; browser workflow: `npm run test:browser:files-multipane`. Browser fixtures do not establish real filesystem or Windows/macOS installed GUI acceptance. Those remain UNVERIFIED in #487. OS clipboard, true USB/SD disconnect/drive-letter reuse and mounted cloud/SMB semantics remain open #553 work; #552 copy optimization is reused unchanged.

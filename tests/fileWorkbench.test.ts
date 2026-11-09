@@ -62,7 +62,7 @@ describe("U2 independent workspace instances", () => {
     second.panes[0].projection.useFileLibrarySelectionStore
       .getState()
       .setExplicit(["other-file"]);
-    model.toggleDual(second.id);
+    model.setPaneCount(second.id, second.paneCount === 1 ? 2 : 1);
     const right = second.panes[1];
     right.controller.setViewMode("list");
     model.updatePath(right.id, "C:/Destination");
@@ -76,8 +76,8 @@ describe("U2 independent workspace instances", () => {
         .selection,
     ).toEqual({ kind: "explicit", fileIds: ["first-file"] });
     model.activate(second.id, right.id);
-    model.toggleDual(second.id);
-    model.toggleDual(second.id);
+    model.setPaneCount(second.id, second.paneCount === 1 ? 2 : 1);
+    model.setPaneCount(second.id, second.paneCount === 1 ? 2 : 1);
     expect(second.panes[1]).toBe(right);
     expect(right.path).toBe("C:/Destination");
     expect(right.controller).not.toBe(secondController);
@@ -109,11 +109,11 @@ describe("U2 independent workspace instances", () => {
     const root = new FileLibraryExperienceController();
     const model = new FileWorkbenchModel(root);
     const first = model.getSnapshot().tabs[0]!;
-    model.toggleDual(first.id);
+    model.setPaneCount(first.id, 2);
     const firstLeft = first.panes[0]!;
     const firstRight = first.panes[1]!;
     const second = model.newTab()!;
-    model.toggleDual(second.id);
+    model.setPaneCount(second.id, second.paneCount === 1 ? 2 : 1);
     const secondRight = second.panes[1]!;
     const setBrowse = (pane: typeof firstLeft, path: string) => {
       model.updatePath(pane.id, path);
@@ -134,7 +134,7 @@ describe("U2 independent workspace instances", () => {
       ["C:/First/Left", "C:/First/Right"],
       ["C:/Second/Left", "C:/Second/Right"],
     ]);
-    expect(serialized!.tabs.map((tab) => tab.dual)).toEqual([true, true]);
+    expect(serialized!.tabs.map((tab) => tab.paneCount)).toEqual([2, 2]);
     expect(serialized!.tabs[1]!.activePaneIndex).toBe(1);
     expect(serialized!.activeTabIndex).toBe(1);
     expect(JSON.stringify(serialized)).not.toMatch(/ticket|previewId|transferAuthority|permissionToken/i);
@@ -150,6 +150,60 @@ describe("U2 independent workspace instances", () => {
     expect(parsePersistedWorkbench({ ...serialized!, staleTransferTicket: "forbidden" })).toBeNull();
     await model.dispose();
     await root.dispose();
+  });
+
+  it("keeps four independent pane instances through 4→1→3→4 and restores bounded layout preferences", async () => {
+    const root = new FileLibraryExperienceController();
+    const model = new FileWorkbenchModel(root);
+    const tab = model.getSnapshot().tabs[0];
+    model.setPaneCount(tab.id, 4);
+    const original = [...tab.panes];
+    original.forEach((pane, i) => {
+      pane.controller.setViewMode(i % 2 ? "grid" : "list");
+      pane.projection.useFileLibrarySelectionStore.getState().setExplicit([`file-${i}`]);
+    });
+    model.activate(tab.id, original[3].id);
+    model.setPaneCount(tab.id, 1);
+    expect(tab.activePaneId).toBe(original[0].id);
+    model.setPaneCount(tab.id, 3);
+    model.setPaneCount(tab.id, 4);
+    expect(tab.panes).toEqual(original);
+    expect(tab.layout).toBe("grid");
+    original.forEach((pane, i) => {
+      expect(pane.projection.useFileLibrarySelectionStore.getState().selection).toEqual({ kind: "explicit", fileIds: [`file-${i}`] });
+      expect(pane.controller.getState().workspace.session.presentation.viewMode).toBe(i % 2 ? "grid" : "list");
+    });
+    model.setSizes(tab.id, "columnSizes", [1.4, 0.6, 1, 1]);
+    model.setSizes(tab.id, "rowSizes", [0.7, 1.3]);
+    model.activate(tab.id, original[3].id);
+    const saved = serializeWorkbenchSnapshot(model.getSnapshot(), "windows")!;
+    expect(saved.version).toBe(2);
+    expect(parsePersistedWorkbench(JSON.parse(JSON.stringify(saved)))).toEqual(saved);
+    expect(saved.tabs[0]).toMatchObject({ paneCount: 4, layout: "grid", activePaneIndex: 3, columnSizes: [1.4, 0.6, 1, 1], rowSizes: [0.7, 1.3] });
+    model.setPaneCount(tab.id, 5);
+    expect(tab.paneCount).toBe(4);
+    model.movePane(tab.id, original[3].id, -1);
+    expect(tab.panes[2]).toBe(original[3]);
+    const dispose = vi.spyOn(original[3].controller, "dispose");
+    await model.closePane(tab.id, original[3].id);
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(tab.paneCount).toBe(3);
+    expect(tab.panes).not.toContain(original[3]);
+    await model.dispose(); await root.dispose();
+  });
+
+  it.each([false, true])("migrates legacy dual=%s without discarding the hidden second pane or other tabs", (dual) => {
+    const pane = (id: string) => ({ id, path: `C:/${id}`, restore: null });
+    const saved = parsePersistedWorkbench({ version: 1, activeTabIndex: 1, tabs: [
+      { id: "first", panes: [pane("a")], activePaneIndex: 0, dual: false },
+      { id: "second", panes: [pane("b"), pane("c")], activePaneIndex: dual ? 1 : 0, dual },
+    ] })!;
+    expect(saved.version).toBe(2);
+    expect(saved.activeTabIndex).toBe(1);
+    expect(saved.tabs[1].panes.map((pane) => pane.path)).toEqual(["C:/b", "C:/c"]);
+    expect(saved.tabs[1].paneCount).toBe(dual ? 2 : 1);
+    expect(saved.tabs[1].activePaneIndex).toBe(dual ? 1 : 0);
+    expect(parsePersistedWorkbench({ ...saved, tabs: [{ ...saved.tabs[1], columnSizes: [NaN, 1, 1, 1] }] })).toBeNull();
   });
 
   it("does not persist a stale Places path while the new Browse target is unresolved", async () => {

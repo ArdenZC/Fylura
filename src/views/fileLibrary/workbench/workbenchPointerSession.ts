@@ -40,11 +40,9 @@ export interface WorkbenchPointerSession {
   pointerId: number;
   tabId: string;
   sourcePaneId: string;
-  peerPaneId: string;
   sourceSignature: string;
-  peerSignature: string;
   sourcePath: string;
-  peerPath: string;
+  destinations: Record<string, { path: string; signature: string }>;
   startX: number;
   startY: number;
   moved: boolean;
@@ -95,11 +93,11 @@ export class WorkbenchPointerSessionRegistry {
 
 export function workbenchPointerDropDisposition(
   sourcePaneId: string,
-  peerPaneId: string,
+  destinationPaneIds: string[],
   targetPaneId: string | null,
-): "same-pane" | "peer-pane" | "unsupported" {
+): "same-pane" | "target-pane" | "unsupported" {
   if (targetPaneId === sourcePaneId) return "same-pane";
-  if (targetPaneId === peerPaneId) return "peer-pane";
+  if (targetPaneId !== null && destinationPaneIds.includes(targetPaneId)) return "target-pane";
   return "unsupported";
 }
 
@@ -107,11 +105,8 @@ export interface WorkbenchPointerSessionState {
   currentToken: string | null;
   activeTabId: string | null;
   sourceSignature: string | null;
-  peerSignature: string | null;
   sourcePath: string | null;
-  peerPath: string | null;
   sourceVisible: boolean;
-  peerVisible: boolean;
   workspaceActive: boolean;
   transferOpen: boolean;
   modalOpen: boolean;
@@ -126,12 +121,17 @@ export function workbenchPointerSessionIsCurrent(
     state.currentToken === session.token &&
     state.activeTabId === session.tabId &&
     state.sourceSignature === session.sourceSignature &&
-    state.peerSignature === session.peerSignature &&
     state.sourcePath === session.sourcePath &&
-    state.peerPath === session.peerPath &&
     state.sourceVisible &&
-    state.peerVisible &&
     state.workspaceActive &&
     !state.transferOpen &&
     !state.modalOpen;
+}
+
+export function workbenchPointerDestinationIsCurrent(
+  session: WorkbenchPointerSession, paneId: string, path: string | null,
+  signature: string | null, visible: boolean,
+) {
+  const saved = session.destinations[paneId];
+  return !!saved && visible && saved.path === path && saved.signature === signature;
 }

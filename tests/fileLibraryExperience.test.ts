@@ -287,13 +287,13 @@ describe("W2-01 File Library Workspace shell contract", () => {
     expect(workspace).not.toContain("legacy_library");
   });
 
-  it("suspends hidden workbench panes and guards hidden Browse enumeration", () => {
+  it("retains hidden pane pages while guarding hidden Browse enumeration", () => {
     const workbench = readFileSync(resolve("src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx"), "utf8");
     const browseOwner = readFileSync(resolve("src/views/fileLibrary/browse/browseSourceOwner.ts"), "utf8");
 
-    expect(workbench).toContain("active={props.visible}");
-    expect(workbench).toContain("wideDualPane={tab.dual && wide}");
-    expect(browseOwner).toContain("if (!visible || state.workspace.suspended) {");
+    expect(workbench).toContain("active={retained}");
+    expect(workbench).toContain("wideMultiPane={tab.paneCount > 1 && wide}");
+    expect(browseOwner).toContain("if (state.workspace.suspended) {");
     expect(browseOwner).toContain("activeEnumerationKeyRef.current = null;");
     expect(browseOwner).toContain("if (state.mode !== \"browse\" || targetKey === null");
   });

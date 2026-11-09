@@ -50,7 +50,7 @@ try {
   assert.equal(await left.locator("[data-browse-sort]").inputValue(), "size");
   await left.locator("[data-file-library-query-menu] > summary").click();
   checks.push("Sort remains pane/tab-local across tab activation");
-  await page.getByRole("button", { name: "Dual pane", exact: true }).click();
+  await page.getByRole("combobox", { name: "File pane count", exact: true }).selectOption("2");
   const right = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').nth(1);
   await right.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
   await right.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Right");

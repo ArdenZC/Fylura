@@ -576,23 +576,23 @@ export function FileManagementToolbar() {
   useEffect(() => {
     const action = state.pendingAction; if (!action || !focused) return;
     useFileManagementStore.setState({ pendingAction: null });
-    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash") trashSelection(); else if (action === "create_directory") createDirectory(); else if (action === "copy_other" || action === "move_other") transferToPeer(action === "move_other" ? "move" : "copy"); else collect(action);
+    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash") trashSelection(); else if (action === "create_directory") createDirectory(); else if (action === "copy_other" || action === "move_other") transferToTarget(action === "move_other" ? "move" : "copy"); else collect(action);
   }, [state.pendingAction, focused]);
-  function transferToPeer(action: TransferAction) {
+  function transferToTarget(action: TransferAction) {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
-    if (!pane?.peerId) return;
-    const destinationSurface = useFileManagementStore.getState().surfaces[pane.peerId]?.read();
+    if (!pane?.targetPaneId) return;
+    const destinationSurface = useFileManagementStore.getState().surfaces[pane.targetPaneId]?.read();
     const source = currentSurface();
     if (!destinationSurface?.browse || !destinationSurface.routingHint || !source) { setError(t("wbUnsupportedDrop")); return; }
-    const peerId = pane.peerId; const destination = destinationSurface.routingHint;
+    const targetPaneId = pane.targetPaneId; const destination = destinationSurface.routingHint;
     const sourceContextKey = transferSourceContextKey(source);
     const destinationContextKey = transferDestinationContextKey(destinationSurface);
     void run(async () => {
       const tickets = await capturedSelection();
-      const currentTarget = useFileManagementStore.getState().surfaces[peerId]?.read();
+      const currentTarget = useFileManagementStore.getState().surfaces[targetPaneId]?.read();
       if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen || useFileManagementStore.getState().activePaneId !== pane.id || currentSurface()?.visible === false || !sourceContextKey || transferSourceContextKey(currentSurface()) !== sourceContextKey || transferDestinationContextKey(currentTarget) !== destinationContextKey) { await releaseUnused(tickets.map((ticket) => ticket.id)); throw Error(t("wbSelectionChanged")); }
-      pane.activatePeer();
-      useFileManagementStore.setState({ pendingTransfer: { paneId: peerId, sourcePaneId: pane.id, sourceContextKey, destinationContextKey: destinationContextKey ?? undefined, tickets, action, destination } });
+      pane.activateTarget();
+      useFileManagementStore.setState({ pendingTransfer: { paneId: targetPaneId, sourcePaneId: pane.id, sourceContextKey, destinationContextKey: destinationContextKey ?? undefined, tickets, action, destination } });
     });
   }
   useEffect(() => {

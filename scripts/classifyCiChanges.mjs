@@ -138,6 +138,15 @@ function isWindowsNativePreviewHandlerPath(path) {
   return startsWithAny(path, WINDOWS_NATIVE_PREVIEW_HANDLER_PREFIXES);
 }
 
+function isWindowsNativeFilesystemSmokePath(path) {
+  // Changes to any PowerShell runner can affect Windows fixture setup, user
+  // isolation, or evidence handling, so run the ordinary native filesystem
+  // smoke. Keep this separate from Rust source routing to avoid unrelated
+  // macOS builds and release checks for harness-only edits.
+  return path.endsWith(".ps1")
+    || path === ".github/workflows/windows-copy-performance.yml";
+}
+
 // Only proven query/relevance owners can skip the Windows native service
 // recovery test. Unknown production owners fail closed, including future new
 // Index Scope / source-writer modules; macOS-only native code is separate.
@@ -258,6 +267,7 @@ function isPreviewPerformancePath(path) {
 
 function isWorkflowPath(path) {
   return path.startsWith(".github/workflows/")
+    || path.endsWith(".ps1")
     || path === "scripts/classifycichanges.mjs"
     || path === "scripts/civalidationplan.mjs"
     || path.startsWith("scripts/performance")
@@ -310,6 +320,9 @@ export function classifyCiScope({
     windows_native_preview_handler_changed: requestedFull
       || baseMissing
       || hasAnyPath(normalizedPaths, isWindowsNativePreviewHandlerPath),
+    windows_native_filesystem_smoke_changed: requestedFull
+      || baseMissing
+      || hasAnyPath(normalizedPaths, isWindowsNativeFilesystemSmokePath),
     windows_global_index_service_qualification_changed: requestedFull
       || baseMissing
       || hasAnyPath(normalizedPaths, isWindowsGlobalIndexServiceQualificationPath),
@@ -353,6 +366,7 @@ export function classifyCiScope({
     for (const key of [
       "frontend_changed",
       "windows_native_preview_handler_changed",
+      "windows_native_filesystem_smoke_changed",
       "windows_global_index_service_qualification_changed",
       "rust_changed",
       "macos_sensitive",

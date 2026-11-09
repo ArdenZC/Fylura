@@ -152,6 +152,47 @@ describe("CI change routing", () => {
     expect(appPreview.windows_native_preview_handler_changed).toBe(false);
   });
 
+  it("routes PowerShell harness changes to the ordinary Windows native filesystem smoke", () => {
+    for (const changedPath of [
+      "scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1",
+      "scripts/anotherWindowsHarness.ps1",
+      ".github/workflows/windows-copy-performance.yml",
+    ]) {
+      const scope = route([changedPath]);
+      expect(scope.workflow_changed, changedPath).toBe(true);
+      expect(scope.windows_native_filesystem_smoke_changed, changedPath).toBe(true);
+      expect(scope.rust_changed, changedPath).toBe(false);
+      expect(scope.performance_any, changedPath).toBe(false);
+      expect(scope.release_sensitive, changedPath).toBe(false);
+    }
+
+    const nativeTest = route(["src-tauri/tests/native_file_hardening_smoke.rs"]);
+    expect(nativeTest.rust_changed).toBe(true);
+    expect(nativeTest.windows_native_filesystem_smoke_changed).toBe(false);
+  });
+
+  it("keeps ordinary smoke opt-in routing separate from the manual copy A/B qualification", () => {
+    const smokeScript = readWorkflow("scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1");
+    const performanceWorkflow = readWorkflow(".github/workflows/windows-copy-performance.yml");
+    const interactiveWorkflow = readWorkflow(".github/workflows/ci.yml");
+    const fullWorkflow = readWorkflow(".github/workflows/ci-full.yml");
+
+    expect(smokeScript).toContain("CopyPerformanceProfile = [bool]$CopyPerformanceProfile");
+    expect(smokeScript).toContain("if ($config.CopyPerformanceProfile -eq $true)");
+    expect(smokeScript).toContain("Remove-Item Env:ZC_WINDOWS_NATIVE_COPY_PROFILE");
+    expect(smokeScript).toContain("Windows native performance fileCopy1GiB");
+    expect(smokeScript).toContain("Windows native performance directory100k entries=100000");
+    expect(smokeScript).toContain("ordinary native smoke unexpectedly ran the expensive copy performance profile");
+    expect(smokeScript).toContain("copy performance qualification did not execute required profile marker");
+    expect(performanceWorkflow).toContain("  workflow_dispatch:");
+    expect(performanceWorkflow).toContain("run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1 -CopyPerformanceProfile");
+    expect(interactiveWorkflow).toContain("windows_native_filesystem_smoke_changed: ${{ steps.classify.outputs.windows_native_filesystem_smoke_changed }}");
+    expect(interactiveWorkflow).toContain("needs.change-scope.outputs.windows_native_filesystem_smoke_changed == 'true'");
+    expect(interactiveWorkflow).toContain("NATIVE_FILESYSTEM_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.rust_changed == 'true' || needs.change-scope.outputs.windows_native_filesystem_smoke_changed == 'true' }}");
+    expect(fullWorkflow).toContain("run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1");
+    expect(fullWorkflow).not.toContain("run: ./scripts/runWindowsNativeFilesystemSmokeAsOrdinaryUser.ps1 -CopyPerformanceProfile");
+  });
+
   it("routes Global Index and exact-service qualification inputs to the hosted Windows lane only", () => {
     for (const changedPath of [
       "src-tauri/src/global_index/windows/mft.rs",

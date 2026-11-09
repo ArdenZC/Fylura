@@ -51,6 +51,11 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
     return refs.map((ref) => { const entry = resolve(ref); const old = [...tickets.values()].find((ticket) => ticket.path === entry.path); if (old) return old; const ticket = { id: `ticket-${++serial}`, ...entry }; tickets.set(ticket.id, ticket); return ticket; });
   }
   if (command.endsWith("_preview")) {
+    if (request.destinationEntry) {
+      const directory = resolve(request.destinationEntry);
+      if (!directory.isDirectory) throw Error("transfer_destination_not_directory");
+      request = { ...request, destinationDirectory: directory.path };
+    }
     if (request.action === "create_directory") {
       const ticketId = "create-directory";
       const name = String(request.newName ?? "");

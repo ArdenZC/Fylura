@@ -23,7 +23,7 @@ Use the [delivery record](initiatives/file-first-product-delivery.md). M0 and M1
 
 Managed Library stays dormant: #534 already restricts its UI fixture to non-Tauri browser tests with `managed-library-test=1`; no new flag is needed. Startup no longer submits saved scan/search roots to Managed Scan. Preserve databases, roots, Query V2, Saved Views, tags, settings, existing APIs and shared file services. Already-authorized Global Index/Managed AI policy remains separate from opening Files; no new indexing or AI consent is inferred. Re-evaluate dormancy on **2027-01-04**.
 
-### Files parity and connected-storage expansion (Owner decision 2026-11-09)
+**Files parity and connected-storage expansion (Owner decision 2026-11-09)**
 
 **Target:** Fylura Files is the user's everyday alternative to Windows File Explorer / macOS Finder. This expands the product acceptance requirements; it does **not** mean the work is currently code-complete or that Fylura replaces the OS Shell/Finder process. Track one coherent workstream in [#553](https://github.com/ArdenZC/Fylura/issues/553); do not fan out research-only PRs or create a second file-operation engine. Existing #512 inventory and #487 native QA stay authoritative.
 

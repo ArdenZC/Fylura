@@ -6,6 +6,7 @@ use super::{
 };
 use crate::file_workspace::{
     browse::{
+        BrowseQuerySpecV1, BrowseSortDirection, BrowseSortField, BrowseSortSpec,
         DEFAULT_MAX_BROWSE_ENTRY_REFS, DEFAULT_MAX_BROWSE_PATH_REFS,
         DEFAULT_MAX_BROWSE_PROCESS_ENTRY_REFS, DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS,
     },
@@ -448,7 +449,7 @@ fn browse_100k_progressive_bounded_ownership() {
     let observation = enumerate_without_releasing(
         &runtime,
         opened.session_id.clone(),
-        opened.root_path_ref,
+        opened.root_path_ref.clone(),
         "workspace-foundation-100k",
     );
 
@@ -586,6 +587,81 @@ fn browse_100k_progressive_bounded_ownership() {
             (
                 "peak_fd_count".to_string(),
                 json!(observation.peak_process.fd_count),
+            ),
+        ],
+    );
+
+    // Reuse the same 100k fixture and runtime for the sorted path. No extra
+    // harness, fixture generation, or changed performance threshold.
+    let sorted_started = Instant::now();
+    let mut page = runtime
+        .start_enumeration(BrowseStartEnumerationRequest {
+            session_id: opened.session_id.clone(),
+            request_id: "sorted-100k".into(),
+            path_ref: opened.root_path_ref,
+            page_size: PAGE_SIZE,
+            query: BrowseQuerySpecV1 {
+                sort: Some(BrowseSortSpec {
+                    field: BrowseSortField::Name,
+                    direction: BrowseSortDirection::Desc,
+                    folders_first: true,
+                }),
+                ..Default::default()
+            },
+        })
+        .expect("sorted 100k admission");
+    let mut count = 0;
+    let mut previous: Option<(bool, String)> = None;
+    let mut first_useful_ms = None;
+    let mut peak = resources::snapshot();
+    loop {
+        if !page.entries.is_empty() && first_useful_ms.is_none() {
+            first_useful_ms = Some(sorted_started.elapsed().as_millis());
+        }
+        for entry in &page.entries {
+            let is_file = entry.kind == super::super::types::BrowseEntryKindDto::File;
+            if let Some((prior_file, prior_name)) = &previous {
+                assert!(!*prior_file || is_file, "folders first across pages");
+                if *prior_file == is_file {
+                    assert!(
+                        prior_name > &entry.name,
+                        "global descending order across pages"
+                    );
+                }
+            }
+            previous = Some((is_file, entry.name.clone()));
+            count += 1;
+        }
+        peak = peak.max(resources::snapshot());
+        let Some(cursor) = page.next_cursor.take() else {
+            break;
+        };
+        page = runtime
+            .next_page(BrowseNextPageRequest {
+                session_id: opened.session_id.clone(),
+                cursor,
+                page_size: PAGE_SIZE,
+            })
+            .expect("sorted 100k continuation");
+    }
+    assert_eq!(page.completion, BrowseCompletionDto::Complete);
+    assert_eq!(count, WORKLOAD_ENTRIES);
+    assert_eq!(page.known_count, Some(WORKLOAD_ENTRIES));
+    metrics::emit_metric(
+        "browse_100k_sorted",
+        metrics::OBSERVED,
+        [
+            ("entries".into(), json!(count)),
+            ("first_useful_page_ms".into(), json!(first_useful_ms)),
+            (
+                "total_ms".into(),
+                json!(sorted_started.elapsed().as_millis()),
+            ),
+            ("peak_rss_bytes".into(), json!(peak.rss_bytes)),
+            ("global_order_verified".into(), json!(true)),
+            (
+                "measurement_boundary".into(),
+                json!("backend_full_directory_sort_then_pagination"),
             ),
         ],
     );

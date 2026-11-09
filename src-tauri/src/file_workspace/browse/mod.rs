@@ -180,13 +180,14 @@ pub enum BrowseQueryEntryKind {
 }
 
 /// Sorting is an opt-in bounded metadata snapshot, never a page-local reorder.
-pub(crate) const MAX_SORT_ENTRIES: usize = 20_000;
+pub(crate) const MAX_SORT_ENTRIES: usize = DEFAULT_MAX_BROWSE_ENTRY_REFS;
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowseSortField {
     Name,
     Type,
     Size,
+    Created,
     Modified,
 }
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -1471,6 +1472,7 @@ fn compare_pending(
         BrowseSortField::Name => a.name.cmp(&b.name),
         BrowseSortField::Type => a.extension.cmp(&b.extension),
         BrowseSortField::Size => a.size.cmp(&b.size),
+        BrowseSortField::Created => a.created_at.cmp(&b.created_at),
         BrowseSortField::Modified => a.modified_at.cmp(&b.modified_at),
     }
     .then_with(|| a.name.cmp(&b.name))
@@ -2129,6 +2131,7 @@ mod tests {
             BrowseSortField::Name,
             BrowseSortField::Type,
             BrowseSortField::Size,
+            BrowseSortField::Created,
             BrowseSortField::Modified,
         ] {
             for direction in [BrowseSortDirection::Asc, BrowseSortDirection::Desc] {
@@ -2166,6 +2169,9 @@ mod tests {
                             format!("{}:{}", e.extension.as_deref().unwrap_or(""), e.name)
                         }
                         BrowseSortField::Size => format!("{:020}:{}", e.size.unwrap(), e.name),
+                        BrowseSortField::Created => {
+                            format!("{:020}:{}", e.created_at.unwrap_or_default(), e.name)
+                        }
                         BrowseSortField::Modified => {
                             format!("{:020}:{}", e.modified_at.unwrap(), e.name)
                         }

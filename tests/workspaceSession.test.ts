@@ -39,9 +39,9 @@ const browseRestoreLocator: WorkspaceRestoreLocator = {
 };
 
 describe("WorkspaceSession navigation core", () => {
-  it("clones and restores pane-local sort while carrying it to new Browse folders", () => {
+  it.each(["name", "type", "size", "created", "modified"] as const)("clones and restores pane-local %s sort while carrying it to new Browse folders", (field) => {
     const session = new WorkspaceSession({ initialTarget: browseDocuments });
-    const sort = { field: "size" as const, direction: "desc" as const, foldersFirst: true };
+    const sort = { field, direction: "desc" as const, foldersFirst: true };
     expect(session.setPresentation({ browseQuery: { text: "filter", entryKind: "file", sort } })).toBe(true);
     const peer = new WorkspaceSession({ initialTarget: browseDocuments });
     expect(peer.getState().presentation.browseQuery).toBeUndefined();

@@ -1673,3 +1673,113 @@ fn u4_browse_reveal_resolves_only_owned_live_refs_without_index_admission() {
     assert!(runtime.resolve_browse_reveal_path(request).is_err());
     runtime.dispose();
 }
+
+#[test]
+fn browse_launch_rejects_paths_foreign_stale_missing_and_non_file_refs() {
+    use super::types::{BrowseLaunchAction, BrowseLaunchRequest};
+    let fixture = Fixture::new("p0a-launch");
+    let runtime = fixture.runtime();
+    let opened = runtime.open_browse(open_request(&fixture)).unwrap();
+    let start = |id: &str| {
+        runtime
+            .start_enumeration(BrowseStartEnumerationRequest {
+                session_id: opened.session_id.clone(),
+                request_id: id.into(),
+                path_ref: opened.root_path_ref.clone(),
+                page_size: 16,
+                query: Default::default(),
+            })
+            .unwrap()
+    };
+    let page = start("launch");
+    let entry = page
+        .entries
+        .iter()
+        .find(|entry| entry.name == "entry.txt")
+        .unwrap();
+    let request = BrowseLaunchRequest {
+        entry_ref: entry.entry_ref.clone(),
+        action: BrowseLaunchAction::Open,
+    };
+    assert_eq!(
+        runtime.resolve_browse_launch_path(&request).unwrap().0,
+        fixture.root.join("entry.txt")
+    );
+    for value in [
+        serde_json::json!({"entryRef":entry.entry_ref,"action":"open","path":"C:/injected.exe"}),
+        serde_json::json!({"entryRef":entry.entry_ref,"action":"open","application":"injected"}),
+        serde_json::json!({"entryRef":entry.entry_ref,"action":"execute"}),
+    ] {
+        assert!(serde_json::from_value::<BrowseLaunchRequest>(value).is_err());
+    }
+    let mut foreign = request.clone();
+    foreign.entry_ref = crate::file_workspace::BrowseEntryRef::Ephemeral {
+        browse_session_id: opened.session_id.clone(),
+        entry_id: "foreign".into(),
+    };
+    assert!(runtime.resolve_browse_launch_path(&foreign).is_err());
+    #[cfg(unix)]
+    {
+        fs::rename(
+            fixture.root.join("entry.txt"),
+            fixture.root.join("original.txt"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(
+            fixture.root.join("original.txt"),
+            fixture.root.join("entry.txt"),
+        )
+        .unwrap();
+        assert!(
+            runtime.resolve_browse_launch_path(&request).is_err(),
+            "link replacement must not launch"
+        );
+        fs::remove_file(fixture.root.join("entry.txt")).unwrap();
+        fs::rename(
+            fixture.root.join("original.txt"),
+            fixture.root.join("entry.txt"),
+        )
+        .unwrap();
+    }
+    // Refresh invalidates old refs even if the pathname still exists.
+    start("refresh");
+    assert!(runtime.resolve_browse_launch_path(&request).is_err());
+    fs::remove_file(fixture.root.join("entry.txt")).unwrap();
+    fs::create_dir(fixture.root.join("entry.txt")).unwrap();
+    let page = start("folder");
+    let folder = page
+        .entries
+        .iter()
+        .find(|entry| entry.name == "entry.txt")
+        .unwrap();
+    let request = BrowseLaunchRequest {
+        entry_ref: folder.entry_ref.clone(),
+        action: BrowseLaunchAction::OpenWith,
+    };
+    assert_eq!(
+        runtime.resolve_browse_launch_path(&request).unwrap_err(),
+        "workspace_launch_not_file"
+    );
+    fs::remove_dir(fixture.root.join("entry.txt")).unwrap();
+    fs::write(fixture.root.join("entry.txt"), "file").unwrap();
+    let page = start("missing");
+    let entry = page
+        .entries
+        .iter()
+        .find(|entry| entry.name == "entry.txt")
+        .unwrap();
+    let request = BrowseLaunchRequest {
+        entry_ref: entry.entry_ref.clone(),
+        action: BrowseLaunchAction::Open,
+    };
+    fs::remove_file(fixture.root.join("entry.txt")).unwrap();
+    assert!(runtime.resolve_browse_launch_path(&request).is_err());
+    let conn = runtime.inner.database.conn().unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+    drop(conn);
+    runtime.dispose();
+    assert!(runtime.resolve_browse_launch_path(&request).is_err());
+}

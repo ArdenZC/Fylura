@@ -202,7 +202,7 @@ export interface LocationBrowseRequest {
 export type BrowseQueryEntryKind = "all" | "file" | "directory";
 
 export interface BrowseSortSpec {
-  field: "name" | "type" | "size" | "modified";
+  field: "name" | "type" | "size" | "created" | "modified";
   direction: "asc" | "desc";
   foldersFirst: boolean;
 }

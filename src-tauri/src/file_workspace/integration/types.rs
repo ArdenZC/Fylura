@@ -23,6 +23,20 @@ pub struct BrowseRevealRequest {
     pub entry_ref: BrowseEntryRef,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowseLaunchAction {
+    Open,
+    OpenWith,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseLaunchRequest {
+    pub entry_ref: BrowseEntryRef,
+    pub action: BrowseLaunchAction,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseOpenRequest {

@@ -99,7 +99,7 @@ export function FileLibraryContextMenu({
   return (
     <div
       className="fixed z-50 grid max-h-screen min-w-52 gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-2 shadow-[var(--zc-shadow-menu)]"
-      style={{ left: x, top: y }}
+      style={{ left: x, top: y, maxHeight: `calc(100vh - ${y + 8}px)` }}
       role="menu"
       aria-label={ariaLabel}
       tabIndex={-1}

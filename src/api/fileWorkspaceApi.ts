@@ -188,3 +188,8 @@ export const fileWorkspaceApi: FileWorkspaceApi = {
 export function revealBrowseEntry(entryRef: import("../types/fileWorkspace").BrowseEntryRef): Promise<void> {
   return invokeCommand("file_workspace_browse_reveal", { request: { entryRef } });
 }
+
+/** Explicit OS launch; paths and application selection remain backend-owned. */
+export function launchBrowseEntry(entryRef: import("../types/fileWorkspace").BrowseEntryRef, action: "open" | "open_with" = "open"): Promise<void> {
+  return invokeCommand("file_workspace_browse_launch", { request: { entryRef, action } });
+}

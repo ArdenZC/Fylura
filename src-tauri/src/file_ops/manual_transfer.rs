@@ -11,7 +11,8 @@ use std::collections::{HashMap, HashSet};
 
 const LIMIT: usize = 1000;
 const EXTERNAL_PATH_LIMIT: usize = 256;
-const EXTERNAL_TREE_ENTRY_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_ENTRY_LIMIT;
+const EXTERNAL_TREE_ENTRY_LIMIT: usize =
+    crate::fs_safety::identity::DIRECTORY_IDENTITY_BUFFER_BATCH_SIZE;
 const EXTERNAL_TREE_DEPTH_LIMIT: usize = crate::fs_safety::identity::DIRECTORY_IDENTITY_DEPTH_LIMIT;
 #[derive(Default)]
 pub(crate) struct TransferState {
@@ -351,8 +352,8 @@ impl FileWorkspaceRuntime {
         };
         let directory = self.resolve_transfer_destination(&request)?;
         ensure_general_file_operation_allowed(&directory)?;
+        let mut checked_trees = HashMap::<PathBuf, Result<String, String>>::new();
         let mut trees = Vec::new();
-        let mut checked_trees = HashMap::<PathBuf, Result<(), String>>::new();
         for source in sources.iter().filter_map(|(_, source)| source.as_ref()) {
             if let Some(guard) = &source.tree_guard {
                 if !checked_trees.contains_key(&guard.root) {
@@ -512,12 +513,22 @@ impl FileWorkspaceRuntime {
                 } else {
                     target_for_name(&name)?
                 };
-                let operation = make_operation(
+                let validated_tree_fingerprint = source
+                    .tree_guard
+                    .as_ref()
+                    .and_then(|guard| checked_trees.get(&guard.root))
+                    .and_then(|result| result.as_ref().ok())
+                    .map(String::as_str);
+                // The guard above has already enumerated this exact source
+                // tree. Reuse that verified fingerprint to bind the new
+                // operation ID instead of repeating the full walk.
+                let operation = make_operation_with_tree_fingerprint(
                     &source.file_id,
                     source_path,
                     operation_directory,
                     &target,
                     request.action,
+                    validated_tree_fingerprint,
                 )?;
                 let preview = preview_dto(&operation);
                 if matches!(request.action, TransferAction::Copy | TransferAction::Move) {
@@ -593,11 +604,18 @@ impl FileWorkspaceRuntime {
                 }
             }
         };
+        let mut validated_trees = HashMap::<String, String>::new();
         for guard in &plan.trees {
-            validate_tree_guard(guard)?;
+            validated_trees.insert(normalize_path(&guard.root), validate_tree_guard(guard)?);
         }
         for operation in &plan.operations {
-            let revalidation = revalidate(operation);
+            let tree_fingerprint = validated_trees
+                .get(&operation.source_path)
+                .map(String::as_str);
+            // `validate_tree_guard` just recomputed and matched the full tree
+            // snapshot; pass that proof into operation revalidation so this
+            // confirmation boundary scans the directory only once.
+            let revalidation = revalidate_with_tree_fingerprint(operation, tree_fingerprint);
             if let Err(_error) = &revalidation {
                 #[cfg(test)]
                 eprintln!(
@@ -704,6 +722,7 @@ fn snapshot(
     destination_root: &Path,
     target: &Path,
     action: TransferAction,
+    validated_tree_fingerprint: Option<&str>,
 ) -> Result<(String, DirectoryIdentity), String> {
     validate_safe_file_name(
         target
@@ -723,7 +742,10 @@ fn snapshot(
     // identities permit an atomic rename or require a staged copy/verify move.
     let tree_fingerprint =
         if source_is_directory && matches!(action, TransferAction::Copy | TransferAction::Move) {
-            Some(directory_tree_snapshot(&source)?)
+            Some(match validated_tree_fingerprint {
+                Some(fingerprint) => fingerprint.to_string(),
+                None => directory_tree_snapshot(&source)?,
+            })
         } else {
             None
         };
@@ -807,6 +829,7 @@ fn snapshot(
         nearest_identity,
     ))
 }
+#[cfg(any(target_os = "macos", test, feature = "native-qa"))]
 pub(crate) fn make_operation(
     file_id: &str,
     source: &Path,
@@ -814,7 +837,25 @@ pub(crate) fn make_operation(
     target: &Path,
     action: TransferAction,
 ) -> Result<OperationPreviewRequest, String> {
-    let (id, _) = snapshot(file_id, source, directory, target, action)?;
+    make_operation_with_tree_fingerprint(file_id, source, directory, target, action, None)
+}
+
+fn make_operation_with_tree_fingerprint(
+    file_id: &str,
+    source: &Path,
+    directory: &Path,
+    target: &Path,
+    action: TransferAction,
+    validated_tree_fingerprint: Option<&str>,
+) -> Result<OperationPreviewRequest, String> {
+    let (id, _) = snapshot(
+        file_id,
+        source,
+        directory,
+        target,
+        action,
+        validated_tree_fingerprint,
+    )?;
     let target_path = if action == TransferAction::Trash {
         safe_trash_operation_target(source, &id)
     } else {
@@ -840,6 +881,13 @@ pub(crate) fn make_operation(
     })
 }
 pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<DirectoryIdentity, String> {
+    revalidate_with_tree_fingerprint(operation, None)
+}
+
+fn revalidate_with_tree_fingerprint(
+    operation: &OperationPreviewRequest,
+    validated_tree_fingerprint: Option<&str>,
+) -> Result<DirectoryIdentity, String> {
     if operation.operation_type == "create_directory" {
         let current =
             create_directory_operation(Path::new(&operation.source_path), &operation.new_name)?;
@@ -888,6 +936,7 @@ pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<Director
         &destination_root,
         &snapshot_target,
         action,
+        validated_tree_fingerprint,
     )?;
     if id != operation.id {
         #[cfg(test)]
@@ -1289,31 +1338,129 @@ pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
         return Err("transfer_source_invalid".into());
     }
     let root_namespace = file_namespace_fingerprint(root)?;
-    let mut records = vec![format!(".:directory:{root_identity:?}:{root_namespace:?}")];
+    let mut snapshot =
+        TransferTreeSnapshot::new(format!(".:directory:{root_identity:?}:{root_namespace:?}"));
     let mut entry_count = 0usize;
     collect_directory_tree(
         root,
         root,
         0,
         &mut entry_count,
-        &mut records,
+        &mut snapshot,
         root_namespace.platform_volume_id.as_deref(),
     )?;
-    records.sort();
-    let mut hasher = blake3::Hasher::new();
-    for record in records {
-        hasher.update(record.as_bytes());
-        hasher.update(&[0]);
-    }
-    Ok(hasher.finalize().to_hex().to_string())
+    Ok(snapshot.finish())
 }
 
+struct TransferTreeSnapshot {
+    records: Vec<String>,
+    unordered: Option<crate::fs_safety::identity::OrderIndependentDigest>,
+}
+
+impl TransferTreeSnapshot {
+    fn new(root_record: String) -> Self {
+        Self {
+            records: vec![root_record],
+            unordered: None,
+        }
+    }
+
+    fn push(&mut self, record: String, entry_count: usize) {
+        #[cfg(target_os = "macos")]
+        if self.unordered.is_none() && entry_count > EXTERNAL_TREE_ENTRY_LIMIT {
+            let mut unordered = crate::fs_safety::identity::OrderIndependentDigest::default();
+            for record in std::mem::take(&mut self.records) {
+                update_transfer_snapshot_digest(&mut unordered, &record);
+            }
+            self.unordered = Some(unordered);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = entry_count;
+
+        if let Some(unordered) = &mut self.unordered {
+            update_transfer_snapshot_digest(unordered, &record);
+        } else {
+            self.records.push(record);
+        }
+    }
+
+    fn finish(mut self) -> String {
+        if let Some(unordered) = self.unordered {
+            unordered.finalize_hex(b"transfer-tree-v2\0")
+        } else {
+            self.records.sort();
+            let mut hasher = blake3::Hasher::new();
+            for record in self.records {
+                hasher.update(record.as_bytes());
+                hasher.update(&[0]);
+            }
+            hasher.finalize().to_hex().to_string()
+        }
+    }
+}
+
+fn update_transfer_snapshot_digest(
+    digest: &mut crate::fs_safety::identity::OrderIndependentDigest,
+    record: &str,
+) {
+    digest.update_bytes(record.as_bytes());
+    digest.update_bytes(&[0]);
+}
+
+#[cfg(target_os = "macos")]
 fn collect_directory_tree(
     root: &Path,
     directory: &Path,
     depth: usize,
     entry_count: &mut usize,
-    records: &mut Vec<String>,
+    snapshot: &mut TransferTreeSnapshot,
+    root_volume: Option<&str>,
+) -> Result<(), String> {
+    if depth >= EXTERNAL_TREE_DEPTH_LIMIT {
+        return Err("transfer_directory_depth_limit".into());
+    }
+    for entry in std::fs::read_dir(directory).map_err(|error| error.to_string())? {
+        *entry_count = (*entry_count).saturating_add(1);
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        let physical_identity = crate::fs_safety::capture_source_object_identity(&path)
+            .map_err(|error| error.to_string())?;
+        let identity = file_namespace_fingerprint(&path)?;
+        if root_volume.is_some() && identity.platform_volume_id.as_deref() != root_volume {
+            return Err("transfer_nested_volume_unsupported".into());
+        }
+        ensure_general_file_operation_allowed(&path)?;
+        let relative_path = path
+            .strip_prefix(root)
+            .map_err(|_| "transfer_source_invalid")?
+            .to_path_buf();
+        let relative_display = utf8_relative_path(&relative_path)?;
+        if path.is_dir() {
+            snapshot.push(
+                format!("{relative_display}:directory:{physical_identity:?}:{identity:?}"),
+                *entry_count,
+            );
+            collect_directory_tree(root, &path, depth + 1, entry_count, snapshot, root_volume)?;
+        } else if path.is_file() {
+            validate_source_path(&path)?;
+            snapshot.push(
+                format!("{relative_display}:file:{physical_identity:?}:{identity:?}"),
+                *entry_count,
+            );
+        } else {
+            return Err("transfer_source_invalid".into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn collect_directory_tree(
+    root: &Path,
+    directory: &Path,
+    depth: usize,
+    entry_count: &mut usize,
+    snapshot: &mut TransferTreeSnapshot,
     root_volume: Option<&str>,
 ) -> Result<(), String> {
     if depth >= EXTERNAL_TREE_DEPTH_LIMIT {
@@ -1346,15 +1493,17 @@ fn collect_directory_tree(
             .to_path_buf();
         let relative_display = utf8_relative_path(&relative_path)?;
         if path.is_dir() {
-            records.push(format!(
-                "{relative_display}:directory:{physical_identity:?}:{identity:?}"
-            ));
-            collect_directory_tree(root, &path, depth + 1, entry_count, records, root_volume)?;
+            snapshot.push(
+                format!("{relative_display}:directory:{physical_identity:?}:{identity:?}"),
+                *entry_count,
+            );
+            collect_directory_tree(root, &path, depth + 1, entry_count, snapshot, root_volume)?;
         } else if path.is_file() {
             validate_source_path(&path)?;
-            records.push(format!(
-                "{relative_display}:file:{physical_identity:?}:{identity:?}"
-            ));
+            snapshot.push(
+                format!("{relative_display}:file:{physical_identity:?}:{identity:?}"),
+                *entry_count,
+            );
         } else {
             return Err("transfer_source_invalid".into());
         }
@@ -1362,10 +1511,10 @@ fn collect_directory_tree(
     Ok(())
 }
 
-fn validate_tree_guard(guard: &TreeGuard) -> Result<(), String> {
+fn validate_tree_guard(guard: &TreeGuard) -> Result<String, String> {
     let fingerprint = directory_tree_snapshot(&guard.root)?;
     if fingerprint == guard.fingerprint {
-        Ok(())
+        Ok(fingerprint)
     } else {
         Err("transfer_source_tree_changed".into())
     }

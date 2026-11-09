@@ -56,7 +56,7 @@
     "test:browser:files-folder-drop": "node scripts/runFilesFolderDropBrowser.mjs",
     "test:browser:files-p0a": "node scripts/runFilesP0ABrowser.mjs",
     "test:browser:files-multipane": "node scripts/runFilesMultiPaneBrowser.mjs",
-    "test:browser:u3": "node scripts/runU3FileLibraryBrowser.mjs",
+    "test:browser:u3": "node scripts/runU3FileLibraryBrowser.mjs && node scripts/runFilesMultiPaneBrowser.mjs",
     "test:browser:ux04": "node scripts/runUX04FileFirstBrowser.mjs",
     "test:browser:u4": "node scripts/runU4FileLibraryBrowser.mjs",
     "test:browser:u5": "node scripts/runU5FileLibraryBrowser.mjs",

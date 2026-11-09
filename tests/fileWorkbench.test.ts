@@ -417,6 +417,32 @@ describe("U2 independent workspace instances", () => {
     await workspace.dispose();
   });
 
+  it("bounds re-admissible Browse cache while preserving long pane history", async () => {
+    let serial = 0, maximum = 0;
+    const live = new Set<string>();
+    const opened = (path: string) => {
+      const sessionId = `bounded-${++serial}`;
+      live.add(sessionId); maximum = Math.max(maximum, live.size);
+      return { sessionId, rootPathRef: { id: `path-${serial}` }, location: {
+        ref: { kind: "ephemeral", browseSessionId: sessionId, locationId: `location-${serial}` },
+        displayName: path, kind: "local", availability: "available", freshness: "not_applicable", capabilities: {},
+      } };
+    };
+    const workspace = new FileWorkspaceController({
+      browseOpen: async (request: any) => opened(request.routingHint),
+      browseRestore: async (request: any) => opened(request.locator.routingHint),
+      browseDispose: async ({ sessionId }: any) => { live.delete(sessionId); },
+      browseRetainPath: async () => undefined, browseReleasePath: async () => undefined,
+    } as unknown as FileWorkspaceApi);
+    for (let i = 0; i < 40; i++) await workspace.openBrowse({ platform: "windows", routingHint: `C:/Folder-${i}` });
+    for (let i = 0; i < 6; i++) await workspace.back();
+    expect(workspace.getState().browse?.location.displayName).toBe("C:/Folder-33");
+    expect(workspace.getState().session.history).toHaveLength(40);
+    expect(maximum).toBeLessThanOrEqual(2);
+    await workspace.dispose();
+    expect(live.size).toBe(0);
+  });
+
   it("retains opaque history without a safe restore locator", async () => {
     let serial = 0;
     const dispose = vi.fn(async () => undefined);

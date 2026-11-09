@@ -34,7 +34,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub(crate) const MAX_BROWSE_SESSIONS: usize = 32;
+pub(crate) const MAX_BROWSE_SESSIONS: usize = super::super::browse::DEFAULT_MAX_BROWSE_SESSIONS;
 pub(crate) const MAX_CHANGE_MONITORS: usize = 32;
 pub(crate) const MAX_PREVIEW_SESSIONS: usize = 32;
 pub(crate) const MAX_THUMBNAIL_TASKS: usize = 128;
